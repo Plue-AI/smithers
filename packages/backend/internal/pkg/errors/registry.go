@@ -96,11 +96,12 @@ const (
 
 // Budgets: the caller asked for more than it may have.
 const (
-	CodePlanLimitExceeded      Code = "plan_limit_exceeded"
-	CodeQuotaExceeded          Code = "quota_exceeded"
-	CodeRateLimitExceeded      Code = "rate_limit_exceeded"
-	CodeGitHubRateLimited      Code = "github_rate_limited"
-	CodeRateLimiterUnavailable Code = "rate_limiter_unavailable"
+	CodePlanLimitExceeded          Code = "plan_limit_exceeded"
+	CodeQuotaExceeded              Code = "quota_exceeded"
+	CodeWorkspaceResourcesExceeded Code = "workspace_resources_exceeded"
+	CodeRateLimitExceeded          Code = "rate_limit_exceeded"
+	CodeGitHubRateLimited          Code = "github_rate_limited"
+	CodeRateLimiterUnavailable     Code = "rate_limiter_unavailable"
 )
 
 // Repository CI receipts.
@@ -343,8 +344,9 @@ var registry = map[Code]Entry{
 	CodeGatewayTimeout: {Status: http.StatusGatewayTimeout, Fault: FaultBug, RetryAfter: 0, Doc: "plue gave up waiting for an upstream call it made on the caller's behalf."},
 	// The account is at a per-resource cap, such as the number of boxes it
 	// may keep running.
-	CodePlanLimitExceeded: {Status: http.StatusPaymentRequired, Fault: FaultUser, Doc: "The user has exhausted a limit included in their plan."},
-	CodeQuotaExceeded:     {Status: http.StatusTooManyRequests, Fault: FaultUser, RetryAfter: 0, Doc: "The account is at a per-resource cap, such as the number of boxes it may keep running."},
+	CodePlanLimitExceeded:          {Status: http.StatusPaymentRequired, Fault: FaultUser, Doc: "The user has exhausted a limit included in their plan."},
+	CodeWorkspaceResourcesExceeded: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "Requested workspace CPU, memory or disk exceeds the configured maximum."},
+	CodeQuotaExceeded:              {Status: http.StatusTooManyRequests, Fault: FaultUser, RetryAfter: 0, Doc: "The account is at a per-resource cap, such as the number of boxes it may keep running."},
 	// The caller sent more requests, or held more live connections, than the
 	// endpoint's budget allows.
 	CodeRateLimitExceeded: {Status: http.StatusTooManyRequests, Fault: FaultUser, RetryAfter: 0, Doc: "The caller sent more requests, or held more live connections, than the endpoint's budget allows."},

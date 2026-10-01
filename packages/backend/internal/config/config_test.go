@@ -1857,3 +1857,26 @@ func TestLoadBuildCacheLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_WorkspaceResourceLimits(t *testing.T) {
+	for _, key := range []string{"SMITHERS_SANDBOX_WORKSPACE_MAX_VCPU_COUNT", "SMITHERS_SANDBOX_WORKSPACE_MAX_MEMORY_MB", "SMITHERS_SANDBOX_WORKSPACE_MAX_DISK_MB"} {
+		for _, value := range []string{"0", "-1", "1.5", "no", "2147483648"} {
+			t.Run(key+"/"+value, func(t *testing.T) {
+				clearConfigEnv(t)
+				t.Setenv(key, value)
+				cfg, err := Load("")
+				require.Error(t, err)
+				require.Nil(t, cfg)
+			})
+		}
+	}
+	clearConfigEnv(t)
+	t.Setenv("SMITHERS_SANDBOX_WORKSPACE_MAX_VCPU_COUNT", "16")
+	t.Setenv("SMITHERS_SANDBOX_WORKSPACE_MAX_MEMORY_MB", "32768")
+	t.Setenv("SMITHERS_SANDBOX_WORKSPACE_MAX_DISK_MB", "65536")
+	cfg, err := Load("")
+	require.NoError(t, err)
+	require.Equal(t, int32(16), cfg.Sandbox.WorkspaceMaxVCPUCount)
+	require.Equal(t, int32(32768), cfg.Sandbox.WorkspaceMaxMemoryMB)
+	require.Equal(t, int32(65536), cfg.Sandbox.WorkspaceMaxDiskMB)
+}

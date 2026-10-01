@@ -101,6 +101,12 @@ type WorkspaceCapabilities struct {
 	EnvironmentImages bool
 	// EgressSecrets: the runtime implements WorkspaceEgressSecrets.
 	EgressSecrets bool
+	// Resources: CreateWorkspace and ForkColdSnapshot honor requested CPU
+	// and memory exactly. Disk sizing requires ResourcesDisk separately.
+	Resources bool
+	// ResourcesDisk: every create, recovery and fork honors requested disk
+	// sizing. Prepared environment snapshots may prevent this capability.
+	ResourcesDisk bool
 }
 
 // WorkspaceSpec carries only durable execution identity. Authentication,
@@ -115,6 +121,17 @@ type WorkspaceSpec struct {
 	// when it was. The adapter boots exactly this image or fails the create;
 	// it never substitutes another.
 	Environment *WorkspaceEnvironmentImage
+	// Resources is the guest size the workspace requested, when it requested
+	// one. Zero fields keep the adapter's size.
+	Resources *WorkspaceResources
+}
+
+// WorkspaceResources is a requested guest size: vCPUs, memory and writable
+// disk in MiB.
+type WorkspaceResources struct {
+	VCPUCount int32
+	MemoryMB  int32
+	DiskMB    int32
 }
 
 // WorkspaceEnvironmentImage is one registered NixOS image: the workspace

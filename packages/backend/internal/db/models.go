@@ -650,6 +650,20 @@ type EmailVerificationToken struct {
 	UsedAt    pgtype.Timestamptz `json:"used_at"`
 }
 
+type FactoryIssueClaim struct {
+	ID             string             `json:"id"`
+	RepositoryID   int64              `json:"repository_id"`
+	IssueNumber    int64              `json:"issue_number"`
+	OwnerKind      string             `json:"owner_kind"`
+	OwnerID        string             `json:"owner_id"`
+	ApprovedDigest string             `json:"approved_digest"`
+	Authority      json.RawMessage    `json:"authority"`
+	OperationID    pgtype.UUID        `json:"operation_id"`
+	ClaimedAt      time.Time          `json:"claimed_at"`
+	ReleasedAt     pgtype.Timestamptz `json:"released_at"`
+	ReleaseReason  string             `json:"release_reason"`
+}
+
 type FileDraft struct {
 	ID           string             `json:"id"`
 	RepositoryID int64              `json:"repository_id"`
@@ -689,20 +703,6 @@ type FindingFeedback struct {
 	Useful    bool        `json:"useful"`
 	Note      pgtype.Text `json:"note"`
 	CreatedAt time.Time   `json:"created_at"`
-}
-
-type FactoryIssueClaim struct {
-	ID             string             `json:"id"`
-	RepositoryID   int64              `json:"repository_id"`
-	IssueNumber    int64              `json:"issue_number"`
-	OwnerKind      string             `json:"owner_kind"`
-	OwnerID        string             `json:"owner_id"`
-	ApprovedDigest string             `json:"approved_digest"`
-	Authority      json.RawMessage    `json:"authority"`
-	OperationID    pgtype.UUID        `json:"operation_id"`
-	ClaimedAt      time.Time          `json:"claimed_at"`
-	ReleasedAt     pgtype.Timestamptz `json:"released_at"`
-	ReleaseReason  string             `json:"release_reason"`
 }
 
 type FlowRuntimeHostBinding struct {
@@ -2793,16 +2793,17 @@ type WorkflowRunCodingHost struct {
 }
 
 type WorkflowRunFlowInvocation struct {
-	WorkflowRunID  int64       `json:"workflow_run_id"`
-	UserID         int64       `json:"user_id"`
-	FlowID         string      `json:"flow_id"`
-	OperationID    string      `json:"operation_id"`
-	WorkspaceID    pgtype.UUID `json:"workspace_id"`
-	CreatedAt      time.Time   `json:"created_at"`
-	WorkflowStepID pgtype.Int8 `json:"workflow_step_id"`
-	LogCursor      string      `json:"log_cursor"`
-	TriggerCommit  string      `json:"trigger_commit"`
-	SourceRevision string      `json:"source_revision"`
+	WorkflowRunID   int64       `json:"workflow_run_id"`
+	UserID          int64       `json:"user_id"`
+	FlowID          string      `json:"flow_id"`
+	OperationID     string      `json:"operation_id"`
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	CreatedAt       time.Time   `json:"created_at"`
+	WorkflowStepID  pgtype.Int8 `json:"workflow_step_id"`
+	LogCursor       string      `json:"log_cursor"`
+	TriggerCommit   string      `json:"trigger_commit"`
+	SourceRevision  string      `json:"source_revision"`
+	LaunchRedaction string      `json:"launch_redaction"`
 }
 
 type WorkflowRunLog struct {
@@ -2928,6 +2929,9 @@ type Workspace struct {
 	ClientLeaseSecs         pgtype.Int4        `json:"client_lease_secs"`
 	ClientLeaseExpiresAt    pgtype.Timestamptz `json:"client_lease_expires_at"`
 	SourceCommit            string             `json:"source_commit"`
+	VcpuCount               pgtype.Int4        `json:"vcpu_count"`
+	MemoryMb                pgtype.Int4        `json:"memory_mb"`
+	DiskMb                  pgtype.Int4        `json:"disk_mb"`
 }
 
 type WorkspaceChild struct {

@@ -1410,7 +1410,7 @@ export const definitions = {
         "Hostname the workspace may reach (repeatable or comma-separated; implies --network allowlist)"
       ).default([]),
       "cpus": z.coerce.number().describe("vCPUs for the workspace").optional(),
-      "disk": z.coerce.number().describe("Writable disk in MiB").optional(),
+      "disk": z.coerce.number().describe("Writable disk in GiB").optional(),
       "idleTimeout": z.coerce.number().describe("Seconds of inactivity before the workspace suspends (0 = never)")
         .optional(),
       "image": z.string().describe(

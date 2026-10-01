@@ -253,6 +253,14 @@ func validateCommonStartupWithRepository(cfg *Config, errs *[]string, requireRep
 	if cfg.Sandbox.WorkspaceVCPUCount <= 0 || cfg.Sandbox.WorkspaceVCPUCount > 16 {
 		*errs = append(*errs, "sandbox.workspace_vcpu_count must be between 1 and 16")
 	}
+	for _, limit := range []struct {
+		name  string
+		value int32
+	}{{"workspace_max_vcpu_count", cfg.Sandbox.WorkspaceMaxVCPUCount}, {"workspace_max_memory_mb", cfg.Sandbox.WorkspaceMaxMemoryMB}, {"workspace_max_disk_mb", cfg.Sandbox.WorkspaceMaxDiskMB}} {
+		if limit.value < 0 {
+			*errs = append(*errs, "sandbox."+limit.name+" must be non-negative")
+		}
+	}
 	if cfg.Sandbox.WorkspaceIdleTimeout < 0 {
 		*errs = append(*errs, "sandbox.workspace_idle_timeout must be >= 0")
 	}

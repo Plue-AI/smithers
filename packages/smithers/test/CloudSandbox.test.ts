@@ -10,6 +10,7 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { APIError } from "../src/internal/backend/Client.ts"
 
 // Fake control API permits deterministic provisioning, failure, and cancellation.
 // Commands and file operations still cross the real CommandSandbox host boundary.
@@ -418,3 +419,58 @@ it.skipIf(process.env.SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")("CloudSandbox live w
     }).pipe(Effect.provide(Sandbox.layerHost(provider, { session: `smoke:${Date.now()}` })))
   }))
 }, 600_000)
+
+describe("CloudSandbox resources", () => {
+  it("includes canonical sizing in create metadata and session reuse identity", async () => {
+    const f = fixture()
+    await run(Effect.gen(function*() {
+      for (
+        const resources of [
+          { vcpu: 4, memory_mib: 8192, disk_gib: 40 },
+          { disk_gib: 40, memory_mib: 8192, vcpu: 4 },
+          { vcpu: 2, memory_mib: 8192, disk_gib: 40 },
+          undefined,
+          {}
+        ]
+      ) {
+        const provider = yield* f.make({ resources })
+        yield* Effect.scoped(provider.acquire("same-session"))
+      }
+    }))
+    const bodies = f.requests.filter((r) => r.method === "POST").map((r) =>
+      r.body as { name: string; resources?: unknown }
+    )
+    expect(bodies[0]!.resources).toEqual({ vcpu: 4, memory_mib: 8192, disk_gib: 40 })
+    expect(bodies[0]!.name).toBe(bodies[1]!.name)
+    expect(bodies[0]!.name).not.toBe(bodies[2]!.name)
+    expect(bodies[3]!.name).toBe(bodies[4]!.name)
+    expect(bodies[3]!.resources).toBeUndefined()
+    expect(f.requests.filter((r) => r.method === "DELETE")).toHaveLength(5)
+  })
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses invalid sizing %s before API calls",
+    async (vcpu) => {
+      const f = fixture()
+      await expect(run(f.make({ resources: { vcpu } }))).rejects.toThrow("resources.vcpu must be a positive integer")
+      expect(f.requests).toEqual([])
+    }
+  )
+})
+
+it("surfaces the typed sizing refusal without untrusted API message text", async () => {
+  const f = fixture()
+  f.api.request = async () => {
+    throw new APIError(
+      400,
+      { code: "workspace_resources_exceeded", message: "private-secret" },
+      "POST",
+      "/workspaces",
+      new Headers()
+    )
+  }
+  await expect(run(Effect.gen(function*() {
+    const p = yield* f.make({ resources: { vcpu: 17 } })
+    return yield* Effect.scoped(p.acquire("over-max"))
+  }))).rejects.toThrow("workspace_resources_exceeded")
+  expect(f.grants()).toBe(0)
+})

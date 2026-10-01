@@ -205,7 +205,7 @@ func TestWorkspaceService_CreateFreshVM_FallsBackToBareImageWhenGoldenSnapshotRe
 			},
 		}))
 
-	vm, err := svc.createFreshWorkspaceVM(context.Background(), 0, "", 0, "container")
+	vm, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 0, ID: "", ProvisioningGeneration: 0, Kind: "container"})
 	require.NoError(t, err, "a rejected golden snapshot must fall back to the bare image, not fail")
 	assert.Equal(t, "vm-bare", vm.ID)
 	assert.Equal(t, 2, attempts, "one snapshot attempt, one bare-image retry")
@@ -226,7 +226,7 @@ func TestWorkspaceService_CreateFreshVM_DoesNotInvalidateOnMicrosandboxOutage(t 
 			},
 		}))
 
-	_, err := svc.createFreshWorkspaceVM(context.Background(), 0, "", 0, "container")
+	_, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 0, ID: "", ProvisioningGeneration: 0, Kind: "container"})
 	require.Error(t, err, "when both attempts fail it is a Microsandbox problem, surface the error")
 	assert.Empty(t, goldenDB.markedBadIDs, "a full outage must NOT invalidate a good snapshot")
 }

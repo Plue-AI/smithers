@@ -201,7 +201,11 @@ func (s *WorkspaceService) runningRuntimeWorkspace(ctx context.Context, row db.W
 // boot environment images and the image must still be registered, or the
 // create fails. Nothing stands in for it.
 func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) (workspaceapi.WorkspaceSpec, error) {
-	spec := workspaceapi.WorkspaceSpec{ID: row.ID}
+	resources, err := s.runtimeWorkspaceResources(row)
+	if err != nil {
+		return workspaceapi.WorkspaceSpec{ID: row.ID}, err
+	}
+	spec := workspaceapi.WorkspaceSpec{ID: row.ID, Resources: resources}
 	if kind := sandboxKindForWorkspace(row.Kind); kind != "container" && strings.TrimSpace(row.EnvironmentClosureHash) != "" {
 		if !s.runtime.Capabilities().EnvironmentImages {
 			return spec, pkgerrors.EnvironmentImageUnavailable("this workspace runtime cannot boot a NixOS environment image")
@@ -430,7 +434,11 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
 		return row, err
 	}
-	observed, err := snapshots.ForkColdSnapshot(operationCtx, snapshot.SnapshotID, workspaceapi.WorkspaceSpec{ID: row.ID})
+	resources, err := s.runtimeWorkspaceResources(row)
+	if err != nil {
+		return row, err
+	}
+	observed, err := snapshots.ForkColdSnapshot(operationCtx, snapshot.SnapshotID, workspaceapi.WorkspaceSpec{ID: row.ID, Resources: resources})
 	if err != nil {
 		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 			return row, unavailableWorkspaceSnapshot(row, err)
@@ -502,6 +510,10 @@ func (s *WorkspaceService) forkRuntimeWorkspaceAuthorized(ctx context.Context, i
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
+	forkResources, err := s.runtimeWorkspaceResources(source)
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
 	source, err = s.ensureRuntimeWorkspaceRunning(ctx, source, input.UserID)
 	if err != nil {
 		return WorkspaceResponse{}, err
@@ -519,6 +531,9 @@ func (s *WorkspaceService) forkRuntimeWorkspaceAuthorized(ctx context.Context, i
 		EnvironmentRevision:    source.EnvironmentRevision,
 		EnvironmentClosureHash: source.EnvironmentClosureHash,
 		Status:                 "starting",
+		VcpuCount:              source.VcpuCount,
+		MemoryMb:               source.MemoryMb,
+		DiskMb:                 source.DiskMb,
 	})
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create fork workspace")
@@ -589,7 +604,7 @@ func (s *WorkspaceService) forkRuntimeWorkspaceAuthorized(ctx context.Context, i
 		s.markWorkspaceProvisionFailed(ctx, created, err)
 		return WorkspaceResponse{}, err
 	}
-	observed, err := snapshots.ForkColdSnapshot(forkCtx, temporarySnapshotID, workspaceapi.WorkspaceSpec{ID: created.ID})
+	observed, err := snapshots.ForkColdSnapshot(forkCtx, temporarySnapshotID, workspaceapi.WorkspaceSpec{ID: created.ID, Resources: forkResources})
 	if err != nil {
 		err = runtimeOperationError("fork workspace runtime", err)
 		s.markWorkspaceProvisionFailed(ctx, created, err)

@@ -8,7 +8,7 @@ import { CommandSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs
 import { Duration, Effect } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { createHash } from "node:crypto"
-import { Client, object } from "./internal/backend/Client.ts"
+import { APIError, Client, object } from "./internal/backend/Client.ts"
 import { workspaceSshPrefix } from "./internal/backend/WorkspaceSsh.ts"
 
 /**
@@ -62,6 +62,8 @@ export interface Options {
   readonly pollInterval?: Duration.Input | undefined
   /** Maximum wait for running; defaults to 10 minutes. */
   readonly readyTimeout?: Duration.Input | undefined
+  /** Requested machine size: vCPUs, memory in MiB, writable disk in GiB. */
+  readonly resources?: { readonly vcpu?: number; readonly memory_mib?: number; readonly disk_gib?: number } | undefined
   /** Optional workspace transport for alternate hosts and lifecycle tests. */
   readonly api?: WorkspaceApi | undefined
 }
@@ -114,23 +116,39 @@ export const make = (options: Options): Sandbox.Provider => {
   ) {
     throw new TypeError("cloud-sandbox: polling and readiness durations must be finite and positive")
   }
+  const resources = options.resources === undefined ? undefined : {
+    ...(options.resources.vcpu === undefined ? {} : { vcpu: options.resources.vcpu }),
+    ...(options.resources.memory_mib === undefined ? {} : { memory_mib: options.resources.memory_mib }),
+    ...(options.resources.disk_gib === undefined ? {} : { disk_gib: options.resources.disk_gib })
+  }
+  for (const [field, value] of Object.entries(resources ?? {})) {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError(`cloud-sandbox: resources.${field} must be a positive integer`)
+    }
+  }
+  const resourceKey = resources && Object.keys(resources).length ? JSON.stringify(resources) : ""
   const api = options.api ?? workspaceApi(options.environment ?? process.env)
   const base = `/api/repos/${options.repository.split("/").map(encodeURIComponent).join("/")}/workspaces`
   const request = (method: "POST" | "GET" | "DELETE", path: string, body: unknown, message: string) =>
     Effect.tryPromise({
       try: (signal) => api.request(method, path, body, AbortSignal.any([signal, AbortSignal.timeout(30_000)])),
-      catch: () => failure(message)
+      catch: (error) =>
+        error instanceof APIError && error.detail.code === "workspace_resources_exceeded"
+          ? failure(`${message}: workspace_resources_exceeded`, "spawn_error")
+          : failure(message)
     })
   return {
     acquire: (session) =>
       Effect.gen(function*() {
         if (!session.trim()) return yield* Effect.fail(failure("session must not be empty", "spawn_error"))
-        const name = prefix + createHash("sha256").update(session).digest("hex")
+        const name = prefix +
+          createHash("sha256").update(resourceKey ? JSON.stringify([session, resourceKey]) : session).digest("hex")
         // Mask interruption until the returned id has a registered finalizer.
         // Aborting a creation after admission would lose the id and leak a VM.
         const id = yield* Effect.acquireRelease(
           request("POST", base, {
             name,
+            ...(resourceKey ? { resources } : {}),
             ...(options.sourceBookmark === undefined ? {} : { source_bookmark: options.sourceBookmark })
           }, "could not create workspace").pipe(Effect.flatMap((response) => {
             const id = object(response).id

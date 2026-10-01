@@ -85,7 +85,7 @@ export const workspaceBody = (o: Values) => {
     body.source_ref = o.ref
   }
   const resources: Values = {}
-  for (const [key, field] of [["cpus", "cpus"], ["memory", "memory_mb"], ["disk", "disk_mb"]]) {
+  for (const [key, field] of [["cpus", "vcpu"], ["memory", "memory_mib"], ["disk", "disk_gib"]]) {
     if (o[key!] !== undefined) resources[field!] = positive(o[key!], key)
   }
   if (Object.keys(resources).length) body.resources = resources

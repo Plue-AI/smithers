@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -53,7 +54,7 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 			},
 		}
 		svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm))
-		_, err := svc.createFreshWorkspaceVM(context.Background(), 101, "", 0, "container")
+		_, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 101, ID: "", ProvisioningGeneration: 0, Kind: "container"})
 		require.NoError(t, err)
 	})
 
@@ -106,7 +107,7 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 			},
 		}
 		svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm))
-		_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-source", "child", "container", nil)
+		_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-source", db.Workspace{ID: "child", Kind: "container"}, nil)
 		require.NoError(t, err)
 	})
 

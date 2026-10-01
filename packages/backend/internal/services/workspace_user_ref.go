@@ -61,7 +61,9 @@ func (s *WorkspaceService) createUserRefWorkspace(ctx context.Context, input Cre
 		return db.Workspace{}, pkgerrors.Internal("repository host returned an invalid pinned ref")
 	}
 	metadata = normalizeWorkspaceCreateMetadata(metadata)
+	vcpu, memory, disk := workspaceResourceColumns(metadata.resources)
 	workspace, err := s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
+		VcpuCount: vcpu, MemoryMb: memory, DiskMb: disk,
 		ID: pgtype.UUID{Bytes: id, Valid: true}, SourceCommit: retained.CommitID,
 		RepositoryID: input.RepositoryID, UserID: input.UserID, Name: strings.TrimSpace(input.Name), IsFork: true,
 		TargetBookmark: targetWorkspaceBookmark(bookmark), Kind: metadata.kind,

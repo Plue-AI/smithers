@@ -143,6 +143,7 @@ type createWorkspaceRequest struct {
 	SourceRef      string                        `json:"source_ref,omitempty"` // a pushed ref of the caller (#1968)
 	Kind           string                        `json:"kind,omitempty"`
 	Environment    services.WorkspaceEnvironment `json:"environment,omitempty"`
+	Resources      services.WorkspaceResources   `json:"resources,omitempty"`
 	// ClientLeaseSeconds leases the workspace to this client; renew it with
 	// POST .../workspaces/{id}/lease or the workspace is reclaimed (#2457).
 	ClientLeaseSeconds int32 `json:"client_lease_seconds,omitempty"`
@@ -384,6 +385,7 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 		SourceRef:      req.SourceRef,
 		Kind:           req.Kind,
 		Environment:    req.Environment,
+		Resources:      req.Resources,
 		// A lease is optional; zero leaves the workspace unleased.
 		ClientLeaseSeconds: req.ClientLeaseSeconds,
 	}

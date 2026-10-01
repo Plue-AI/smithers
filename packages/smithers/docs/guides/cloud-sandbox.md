@@ -18,7 +18,8 @@ const host = Effect.gen(function*() {
   const provider = CloudSandbox.make({
     spawner,
     repository: "owner/repository",
-    sourceBookmark: "main"
+    sourceBookmark: "main",
+    resources: { vcpu: 4, memory_mib: 8192, disk_gib: 40 }
   })
   return Sandbox.layerHost(provider, { session: "run:unique-issue" })
 })
@@ -28,9 +29,9 @@ Build this with the local host's `ChildProcessSpawner`. The provider uses the
 shared CLI login: `SMITHERS_API_ORIGIN` and `SMITHERS_TOKEN`, or the origin-bound
 login from `smthrs auth login`. Supply `environment` to resolve another local
 login. The token remains in the control transport; workspace creation contains
-only its name and optional source bookmark.
+only its name, optional source bookmark and requested resources.
 
-Each session key maps to `smthrs-` plus its SHA-256 hash. The Cloud API creates
+Each session key and canonical requested size map to `smthrs-` plus their SHA-256 hash. The Cloud API creates
 or resumes that name and the provider polls until it is running. Concurrent
 agents need distinct keys. Reusing a key resumes the same workspace and is an
 exclusive claim: releasing either holder deletes it.
@@ -60,3 +61,9 @@ pnpm --filter @smthrs/cli exec vitest run test/CloudSandbox.test.ts --coverage.e
 
 The smoke test provisions a workspace, runs a command, round-trips binary
 bytes, and releases the scope. It deletes its workspace on success or failure.
+
+`resources` accepts optional positive integer `vcpu`, `memory_mib` and
+`disk_gib` fields. Different sizes use different workspace names for the same
+session, and key order does not affect reuse. The server validates its configured
+limits before provisioning; `workspace_resources_exceeded` is surfaced to the
+flow as a provider failure. Omit `resources` to keep the server defaults.

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -40,7 +41,7 @@ func TestForkWorkspaceSandbox_CarriesConfiguredSizeForKind(t *testing.T) {
 					},
 				}))
 
-			_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-primary", "child", tc.kind, nil)
+			_, err := svc.forkWorkspaceSandbox(context.Background(), "vm-primary", db.Workspace{ID: "child", Kind: tc.kind}, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "container", got.Kind)
 			require.NotNil(t, got.MemSizeMB, "fork child must not fall back to the 512 MiB provider default")

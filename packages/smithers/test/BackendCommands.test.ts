@@ -917,7 +917,15 @@ describe("stack lifecycle", () => {
 
 describe("workspace create over local HTTP (#2939)", () => {
   // The backend create route stores these fields and refuses every other one (strict decoding).
-  const stored = new Set(["name", "snapshot_id", "source_bookmark", "kind", "environment", "client_lease_seconds"])
+  const stored = new Set([
+    "name",
+    "snapshot_id",
+    "source_bookmark",
+    "kind",
+    "environment",
+    "client_lease_seconds",
+    "resources"
+  ])
   const createServer = async () => {
     const bodies: Array<Record<string, unknown>> = []
     const fixture = await homeFixture((req, res) => {
@@ -952,8 +960,30 @@ describe("workspace create over local HTTP (#2939)", () => {
       await fixture.close()
     }
   })
+  it("sends the requested shape from public flags to the API", async () => {
+    const fixture = await createServer()
+    try {
+      const result = await fixture.run([
+        "workspace",
+        "create",
+        "--repo",
+        "owner/repo",
+        "--name",
+        "sized",
+        "--cpus",
+        "4",
+        "--memory",
+        "8192",
+        "--disk",
+        "40"
+      ])
+      expect(result.code, result.error).toBe(0)
+      expect(fixture.bodies).toEqual([{ name: "sized", resources: { vcpu: 4, memory_mib: 8192, disk_gib: 40 } }])
+    } finally {
+      await fixture.close()
+    }
+  })
   it.each([
-    [["--cpus", "4", "--memory", "8192", "--disk", "32768"], "resources"],
     [["--image", "docker.io/library/python:3.13-slim"], "image"],
     [["--allow", "github.com"], "network"],
     [["--idle-timeout", "1800"], "idle_timeout_seconds"],

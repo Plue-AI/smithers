@@ -12,14 +12,14 @@ import (
 )
 
 // #2939: the create route stores name, snapshot, bookmark, kind, environment and
-// client lease only. Every other setting the CLI can send is refused before any
+// client lease and resources. Every other setting the CLI can send is refused before any
 // provisioning instead of being silently discarded.
 func TestCreateWorkspaceRefusesSettingsItDoesNotStore(t *testing.T) {
 	for _, tc := range []struct {
 		body  string
 		field string
 	}{
-		{`{"name":"dev","resources":{"cpus":4,"memory_mb":8192,"disk_mb":32768}}`, `"resources"`},
+		{`{"name":"dev","resources":{"cpus":4,"memory_mb":8192,"disk_mb":32768}}`, `"cpus"`},
 		{`{"name":"dev","image":"docker.io/library/python:3.13-slim"}`, `"image"`},
 		{`{"name":"dev","network":{"mode":"allowlist","allow":["github.com"]}}`, `"network"`},
 		{`{"name":"dev","idle_timeout_seconds":1800}`, `"idle_timeout_seconds"`},
@@ -50,13 +50,16 @@ func TestCreateWorkspaceAcceptsTheStoredContract(t *testing.T) {
 			return services.WorkspaceResponse{ID: "ws-1"}, nil
 		},
 	}}
-	rec := createWorkspaceRoute(h, `{"name":"issue-2924","snapshot_id":"snap-1","source_bookmark":"main","kind":"vm","client_lease_seconds":300}`)
+	rec := createWorkspaceRoute(h, `{"name":"issue-2924","snapshot_id":"snap-1","source_bookmark":"main","kind":"vm","client_lease_seconds":300,"resources":{"vcpu":4,"memory_mib":8192,"disk_gib":40}}`)
 	require.Less(t, rec.Code, 300, rec.Body.String())
 	require.Equal(t, "issue-2924", got.Name)
 	require.Equal(t, "snap-1", got.SnapshotID)
 	require.Equal(t, "main", got.SourceBookmark)
 	require.Equal(t, "vm", got.Kind)
 	require.Equal(t, int32(300), got.ClientLeaseSeconds)
+	require.Equal(t, int32(4), *got.Resources.CPUs)
+	require.Equal(t, int32(8192), *got.Resources.MemoryMB)
+	require.Equal(t, int32(40), *got.Resources.DiskGiB)
 
 	for _, body := range []string{`{"name":"dev"}{"name":"other"}`, `{"name":`, `[]`} {
 		rec := createWorkspaceRoute(h, body)

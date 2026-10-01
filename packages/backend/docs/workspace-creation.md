@@ -8,7 +8,8 @@ description: Create and reuse named repository workspaces.
 `POST /api/repos/{owner}/{repo}/workspaces` accepts `name`, optional
 `source_bookmark`, and optional `kind` (`container`, `vm`, or `desktop`).
 An omitted bookmark uses the repository default. An omitted kind uses
-`container`. Any other field, such as `resources`, `image`, `network`,
+`container`. Optional `resources` requests CPU, memory and writable disk.
+Unsupported fields, such as `image`, `network`,
 `idle_timeout_seconds` or `services`, is refused with `400 unknown field`
 before provisioning. The route never drops a setting silently.
 
@@ -51,3 +52,26 @@ Creation returns before provisioning completes. Poll the workspace until
 `status` is `running` or `failed`. The per-user limit is 100 live workspaces;
 reuse consumes no extra slot. Delete a workspace to release its name and slot.
 Failed workspaces also release their identity and quota slot.
+
+## Resources
+
+```json
+{"name":"sized","resources":{"vcpu":4,"memory_mib":8192,"disk_gib":40}}
+```
+
+Resource fields must be positive integers. Memory is in MiB and disk in GiB.
+Omitted fields in a sized request use the server defaults; the resolved size
+is persisted and returned in `resources`, including after recovery and fork.
+A snapshot restore keeps its source size and refuses a new resource request.
+The runtime must declare support for requested resources before creation.
+
+The server caps requests with `SMITHERS_SANDBOX_WORKSPACE_MAX_VCPU_COUNT`,
+`SMITHERS_SANDBOX_WORKSPACE_MAX_MEMORY_MB`, and
+`SMITHERS_SANDBOX_WORKSPACE_MAX_DISK_MB`. Both `*_MB` settings are MiB;
+`disk_gib` is converted to MiB before provisioning. Without an explicit cap,
+the CPU and memory defaults and 32 GiB disk are the caps. Invalid configured
+caps refuse startup. Over-max requests return `400 workspace_resources_exceeded`
+with the field, minimum, maximum and requested value, before creating a row or VM.
+
+A create with the same name and a different resolved size returns `409 conflict`;
+choose a different name or delete the existing workspace.

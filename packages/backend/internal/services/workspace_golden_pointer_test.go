@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -113,7 +114,7 @@ func TestWorkspaceService_CreateFreshVM_SelfHealsDanglingGoldenPointer(t *testin
 			},
 		}))
 
-	vm, err := svc.createFreshWorkspaceVM(context.Background(), 0, "", 0, "container")
+	vm, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 0, ID: "", ProvisioningGeneration: 0, Kind: "container"})
 	require.NoError(t, err)
 	assert.Equal(t, "vm-bare", vm.ID)
 	assert.Equal(t, 2, attempts, "one snapshot attempt, one bare-image retry")
@@ -137,7 +138,7 @@ func TestWorkspaceService_CreateFreshVM_KeepsPointerWhenBareBootAlsoFails(t *tes
 			},
 		}))
 
-	_, err := svc.createFreshWorkspaceVM(context.Background(), 0, "", 0, "container")
+	_, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 0, ID: "", ProvisioningGeneration: 0, Kind: "container"})
 	require.Error(t, err)
 	assert.Empty(t, goldenDB.markedBadIDs,
 		"both attempts failing is a tier problem, not a snapshot problem")

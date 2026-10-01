@@ -80,7 +80,7 @@ JOIN workspace_child_batches b ON b.id = c.batch_id
 JOIN workspaces p ON p.id = b.parent_workspace_id
 WHERE c.batch_id = $1
 ORDER BY c.ordinal
-RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit
+RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb
 `
 
 // A child copies its parent's repository, bookmark, kind and environment. It
@@ -136,6 +136,9 @@ func (q *Queries) CreateWorkspaceChildRows(ctx context.Context, batchID string) 
 			&i.ClientLeaseSecs,
 			&i.ClientLeaseExpiresAt,
 			&i.SourceCommit,
+			&i.VcpuCount,
+			&i.MemoryMb,
+			&i.DiskMb,
 		); err != nil {
 			return nil, err
 		}
@@ -148,7 +151,7 @@ func (q *Queries) CreateWorkspaceChildRows(ctx context.Context, batchID string) 
 }
 
 const getWorkspaceChildParentForUpdate = `-- name: GetWorkspaceChildParentForUpdate :one
-SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit
+SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb
 FROM workspaces
 WHERE id = $1
   AND deleted_at IS NULL
@@ -200,6 +203,9 @@ func (q *Queries) GetWorkspaceChildParentForUpdate(ctx context.Context, id strin
 		&i.ClientLeaseSecs,
 		&i.ClientLeaseExpiresAt,
 		&i.SourceCommit,
+		&i.VcpuCount,
+		&i.MemoryMb,
+		&i.DiskMb,
 	)
 	return i, err
 }

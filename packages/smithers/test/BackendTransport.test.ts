@@ -155,20 +155,20 @@ describe("workspace archive boundaries", () => {
 })
 
 describe("workspace resource payload", () => {
-  it("preserves the TB4 51200-MB disk request in the workspace payload", () => {
+  it("sends CPU, MiB memory and GiB disk in the workspace payload", () => {
     expect(
       workspaceBody({
         name: "dev",
         cpus: 4,
         memory: 4096,
-        disk: 51200,
+        disk: 50,
         allow: ["github.com,nodejs.org"],
         idleTimeout: 0,
         service: ["web=npm start"]
       })
     ).toEqual({
       name: "dev",
-      resources: { cpus: 4, memory_mb: 4096, disk_mb: 51200 },
+      resources: { vcpu: 4, memory_mib: 4096, disk_gib: 50 },
       network: { mode: "allowlist", allow: ["github.com", "nodejs.org"] },
       idle_timeout_seconds: 0,
       services: [{ name: "web", mode: "service", exec: ["/bin/sh", "-lc", "npm start"] }]

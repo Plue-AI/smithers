@@ -130,21 +130,26 @@ func workspaceJJExport() string {
 // it boots from the golden toolchain snapshot when one is ready (bare base
 // image otherwise, exactly the old behavior). On snapshot boots the apt deps
 // are skipped — they are baked into the image, and re-running sandbox provider's
-// post-boot apt would only slow the boot back down.
-func (s *WorkspaceService) freshWorkspaceVMRequest(ctx context.Context, repositoryID int64, workspaceID, kind string) (sandbox.CreateRequest, error) {
+// post-boot apt would only slow the boot back down. A requested disk boots the
+// bare image: a snapshot boot keeps the snapshot's disk.
+func (s *WorkspaceService) freshWorkspaceVMRequest(ctx context.Context, workspace db.Workspace) (sandbox.CreateRequest, error) {
 	snapshotID := s.goldenSnapshots.Current(ctx)
-	if sandboxKindForWorkspace(kind) != "container" {
+	if sandboxKindForWorkspace(workspace.Kind) != "container" {
 		// Non-empty means "use the closure's golden snapshot if ready"; the
 		// container toolchain snapshot never boots a NixOS image.
 		snapshotID = "closure"
 	}
-	req, err := s.buildWorkspaceVMRequest(ctx, snapshotID, nil, repositoryID, workspaceID, kind)
+	if workspace.DiskMb.Valid {
+		snapshotID = ""
+	}
+	req, err := s.buildWorkspaceVMRequest(ctx, snapshotID, nil, workspace.RepositoryID, workspace.ID, workspace.Kind)
 	if err != nil {
 		return sandbox.CreateRequest{}, err
 	}
 	if strings.TrimSpace(req.SnapshotID) != "" {
 		req.Packages = nil
 	}
+	applyWorkspaceResources(&req, workspace)
 	return req, nil
 }
 
@@ -171,10 +176,18 @@ func (s *WorkspaceService) createWorkspaceVMAttempt(ctx context.Context, req san
 // so it is sized from the kind exactly like a cold create (see
 // workspaceSizeForKind); without that it is admitted and booted at the
 // provider defaults, 512 MiB and 1 vCPU.
-func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID, workspaceID, kind string, egress *sandbox.EgressProxyPolicy) (sandbox.CreateResult, error) {
+func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID string, workspace db.Workspace, egress *sandbox.EgressProxyPolicy) (sandbox.CreateResult, error) {
 	forkCtx, cancel := context.WithTimeout(ctx, workspaceForkTimeout)
 	defer cancel()
+	workspaceID, kind := workspace.ID, workspace.Kind
 	memoryMB, vcpuCount := s.workspaceSizeForKind(kind)
+	// The child inherits the source's disk; its row carries the source's size.
+	if workspace.MemoryMb.Valid {
+		memoryMB = &workspace.MemoryMb.Int32
+	}
+	if workspace.VcpuCount.Valid {
+		vcpuCount = &workspace.VcpuCount.Int32
+	}
 	// RFD-004: the child is a fresh sandbox with a fresh network; it needs
 	// its own proxy policy or it boots with no proxy at all.
 	vm, err := s.sandbox.ForkSandbox(forkCtx, sourceVMID, sandbox.ForkRequest{
@@ -255,9 +268,10 @@ func workspaceProvisionAttempt(generation int32, attempt string) string {
 // golden snapshots are an accelerator, not a dependency, so a bad snapshot must
 // never fail a provision. If the bare boot succeeds after a snapshot-specific
 // create failure, the snapshot is implicated and invalidated.
-func (s *WorkspaceService) createFreshWorkspaceVM(ctx context.Context, repositoryID int64, workspaceID string, generation int32, kind string, bindings ...*workspaceProviderBinding) (sandbox.CreateResult, error) {
-	workspaceID = strings.TrimSpace(workspaceID)
-	req, err := s.freshWorkspaceVMRequest(ctx, repositoryID, workspaceID, kind)
+func (s *WorkspaceService) createFreshWorkspaceVM(ctx context.Context, workspace db.Workspace, bindings ...*workspaceProviderBinding) (sandbox.CreateResult, error) {
+	repositoryID, workspaceID, generation, kind := workspace.RepositoryID, strings.TrimSpace(workspace.ID), workspace.ProvisioningGeneration, workspace.Kind
+	workspace.ID = workspaceID
+	req, err := s.freshWorkspaceVMRequest(ctx, workspace)
 	if err != nil {
 		return sandbox.CreateResult{}, err
 	}
@@ -286,6 +300,7 @@ func (s *WorkspaceService) createFreshWorkspaceVM(ctx context.Context, repositor
 	if bareReqErr != nil {
 		return sandbox.CreateResult{}, bareReqErr
 	}
+	applyWorkspaceResources(&bareReq, workspace)
 	if len(bindings) > 0 {
 		bindings[0].apply(&bareReq)
 	}
@@ -614,6 +629,12 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	if err := validateWorkspaceCreateMetadata(input); err != nil {
 		return WorkspaceResponse{}, err
 	}
+	if input.Resources.requested() {
+		input.Resources = s.resolveWorkspaceResources(input.Resources)
+	}
+	if err := s.validateWorkspaceResources(input); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	kind, environment := workspaceCreateParamsMetadata(input)
 	bookmark, defaultBookmark, err := s.resolveWorkspaceBookmark(ctx, input.RepositoryID, input.SourceBookmark)
 	if err != nil {
@@ -625,13 +646,16 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
 		if input.SourceRef != "" {
-			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		} else if bookmark == defaultBookmark {
-			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		} else {
-			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		}
 		if err != nil {
+			return WorkspaceResponse{}, err
+		}
+		if err := s.refuseWorkspaceResourceMismatch(workspace, input.Resources); err != nil {
 			return WorkspaceResponse{}, err
 		}
 		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
@@ -669,7 +693,12 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		}
 	}
 
+	snapshotSource, sourceErr := s.workspaceSnapshotSource(ctx, snapshot.WorkspaceID)
+	if sourceErr != nil {
+		return WorkspaceResponse{}, pkgerrors.Internal("load snapshot resource size").WithCause(sourceErr)
+	}
 	workspace, err = s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
+		VcpuCount: snapshotSource.VcpuCount, MemoryMb: snapshotSource.MemoryMb, DiskMb: snapshotSource.DiskMb,
 		RepositoryID:           input.RepositoryID,
 		UserID:                 input.UserID,
 		Name:                   strings.TrimSpace(input.Name),
@@ -722,6 +751,12 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	if err := validateWorkspaceCreateMetadata(input); err != nil {
 		return WorkspaceResponse{}, err
 	}
+	if input.Resources.requested() {
+		input.Resources = s.resolveWorkspaceResources(input.Resources)
+	}
+	if err := s.validateWorkspaceResources(input); err != nil {
+		return WorkspaceResponse{}, err
+	}
 	kind, environment := workspaceCreateParamsMetadata(input)
 	bookmark, defaultBookmark, err := s.resolveWorkspaceBookmark(ctx, input.RepositoryID, input.SourceBookmark)
 	if err != nil {
@@ -733,13 +768,16 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
 		if input.SourceRef != "" {
-			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		} else if bookmark == defaultBookmark {
-			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		} else {
-			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment, resources: input.Resources})
 		}
 		if err != nil {
+			return WorkspaceResponse{}, err
+		}
+		if err := s.refuseWorkspaceResourceMismatch(workspace, input.Resources); err != nil {
 			return WorkspaceResponse{}, err
 		}
 		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
@@ -772,7 +810,12 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 		}
 	}
 
+	snapshotSource, sourceErr := s.workspaceSnapshotSource(ctx, snapshot.WorkspaceID)
+	if sourceErr != nil {
+		return WorkspaceResponse{}, pkgerrors.Internal("load snapshot resource size").WithCause(sourceErr)
+	}
 	workspace, err = s.createWorkspaceRow(ctx, db.CreateWorkspaceParams{
+		VcpuCount: snapshotSource.VcpuCount, MemoryMb: snapshotSource.MemoryMb, DiskMb: snapshotSource.DiskMb,
 		RepositoryID:           input.RepositoryID,
 		UserID:                 input.UserID,
 		Name:                   strings.TrimSpace(input.Name),
@@ -849,6 +892,9 @@ func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkW
 		EnvironmentRevision:    source.EnvironmentRevision,
 		EnvironmentClosureHash: source.EnvironmentClosureHash,
 		Status:                 "starting",
+		VcpuCount:              source.VcpuCount,
+		MemoryMb:               source.MemoryMb,
+		DiskMb:                 source.DiskMb,
 	})
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create fork workspace")
@@ -1076,6 +1122,9 @@ func (s *WorkspaceService) findOrCreateWorkspaceByIdentity(ctx context.Context, 
 	identity := workspaceIdentity(repositoryID, userID, name, targetBookmark, metadata.kind)
 	workspace, err := s.q.GetActiveWorkspaceForIdentity(ctx, identity)
 	if err == nil {
+		if err := s.refuseWorkspaceResourceMismatch(workspace, metadata.resources); err != nil {
+			return db.Workspace{}, err
+		}
 		if s.shouldReplaceZombieWorkspace(workspace, time.Now()) {
 			if _, failErr := s.failWorkspace(ctx, workspace, errors.New("workspace provisioning timed out")); failErr != nil {
 				return db.Workspace{}, failErr
@@ -1123,6 +1172,7 @@ func (s *WorkspaceService) createBookmarkWorkspace(ctx context.Context, reposito
 		EnvironmentRevision:    metadata.environment.Revision,
 		EnvironmentClosureHash: metadata.environment.ClosureHash, Status: "starting",
 	}
+	params.VcpuCount, params.MemoryMb, params.DiskMb = workspaceResourceColumns(metadata.resources)
 	action := "create workspace"
 	if isFork {
 		action = "create branch workspace"
@@ -1625,7 +1675,7 @@ func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace d
 	}
 	vm := sandbox.CreateResult{ID: workspace.VmID}
 	if vm.ID == "" {
-		vm, err = s.createFreshWorkspaceVM(ctx, workspace.RepositoryID, workspace.ID, workspace.ProvisioningGeneration, workspace.Kind, binding)
+		vm, err = s.createFreshWorkspaceVM(ctx, workspace, binding)
 	} else {
 		err = finishWorkspaceArtifacts(ctx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(workspace.Kind))
 		if err == nil {
@@ -1818,6 +1868,10 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 	if !workspaceKindForksCleanly(workspace.Kind) {
 		return workspace, false
 	}
+	// A fork inherits the primary's disk; a requested disk boots cold.
+	if workspace.DiskMb.Valid {
+		return workspace, false
+	}
 	bookmark := strings.TrimSpace(input.SourceBookmark)
 	if bookmark == "" || strings.TrimSpace(input.RepoOwner) == "" || strings.TrimSpace(input.RepoName) == "" {
 		return workspace, false
@@ -1850,7 +1904,7 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 		slog.Warn("fork egress policy unavailable; falling back to cold clone", "workspace_id", workspace.ID, "error", err)
 		return workspace, false
 	}
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, binding.egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace, binding.egress)
 	if err != nil {
 		// Interface implementations can return a VM id alongside an error even
 		// though the real client reaps partial responses itself. Never let that
@@ -2119,6 +2173,7 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, err
 	}
+	applyWorkspaceResources(&req, workspace)
 	binding.apply(&req)
 	vm, err := createWorkspaceSandbox(createCtx, s.sandbox, req)
 	duration := time.Since(startedAt)
@@ -2226,7 +2281,7 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, err
 	}
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, binding.egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace, binding.egress)
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
 		status := "success"
@@ -2295,7 +2350,7 @@ func (s *WorkspaceService) provisionForkVMOnEmptySource(ctx context.Context, wor
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, err
 	}
-	vm, err := s.createFreshWorkspaceVM(ctx, workspace.RepositoryID, workspace.ID, workspace.ProvisioningGeneration, workspace.Kind, binding)
+	vm, err := s.createFreshWorkspaceVM(ctx, workspace, binding)
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
 		status := "success"

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -291,6 +292,12 @@ type SandboxConfig struct {
 	// WorkspaceMemoryMB and WorkspaceVCPUCount size kind=vm/container workspaces.
 	WorkspaceMemoryMB  int32 `mapstructure:"workspace_memory_mb"`
 	WorkspaceVCPUCount int32 `mapstructure:"workspace_vcpu_count"`
+	// WorkspaceMax* bound the size one workspace create may request; zero
+	// keeps the default size (WorkspaceVCPUCount, WorkspaceMemoryMB, 32768 MiB
+	// disk) as the limit.
+	WorkspaceMaxVCPUCount int32 `mapstructure:"workspace_max_vcpu_count"`
+	WorkspaceMaxMemoryMB  int32 `mapstructure:"workspace_max_memory_mb"`
+	WorkspaceMaxDiskMB    int32 `mapstructure:"workspace_max_disk_mb"`
 	// DesktopMemoryMB and DesktopVCPUCount size kind=desktop workspace VMs.
 	// Non-positive values keep the service defaults.
 	DesktopMemoryMB  int32 `mapstructure:"desktop_memory_mb"`
@@ -856,6 +863,9 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.agent_memory_mb", "SMITHERS_SANDBOX_AGENT_MEMORY_MB"},
 		{"sandbox.workspace_memory_mb", "SMITHERS_SANDBOX_WORKSPACE_MEMORY_MB"},
 		{"sandbox.workspace_vcpu_count", "SMITHERS_SANDBOX_WORKSPACE_VCPU_COUNT"},
+		{"sandbox.workspace_max_vcpu_count", "SMITHERS_SANDBOX_WORKSPACE_MAX_VCPU_COUNT"},
+		{"sandbox.workspace_max_memory_mb", "SMITHERS_SANDBOX_WORKSPACE_MAX_MEMORY_MB"},
+		{"sandbox.workspace_max_disk_mb", "SMITHERS_SANDBOX_WORKSPACE_MAX_DISK_MB"},
 		{"sandbox.agent_vcpu_count", "SMITHERS_SANDBOX_AGENT_VCPU_COUNT"},
 		{"sandbox.agent_rootfs_size_mb", "SMITHERS_SANDBOX_AGENT_ROOTFS_SIZE_MB"},
 		{"sandbox.agent_max_runtime_seconds", "SMITHERS_SANDBOX_AGENT_MAX_RUNTIME_SECONDS"},
@@ -894,6 +904,14 @@ func Load(configFile string) (*Config, error) {
 		v.SetDefault("auth.cookie_secure", strings.EqualFold(publicURL.Scheme, "https"))
 	}
 
+	for _, key := range []string{"sandbox.workspace_max_vcpu_count", "sandbox.workspace_max_memory_mb", "sandbox.workspace_max_disk_mb"} {
+		if v.IsSet(key) {
+			n, err := strconv.ParseInt(v.GetString(key), 10, 32)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("%s must be a positive integer", key)
+			}
+		}
+	}
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err

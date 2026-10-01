@@ -239,7 +239,7 @@ func TestWorkspaceProvisionAttempt_RetryOfOneAttemptReusesKey(t *testing.T) {
 	)
 
 	for _, generation := range []int32{0, 0, 1} {
-		_, err := svc.createFreshWorkspaceVM(context.Background(), 101, "ws-retry", generation, "container")
+		_, err := svc.createFreshWorkspaceVM(context.Background(), db.Workspace{RepositoryID: 101, ID: "ws-retry", ProvisioningGeneration: generation, Kind: "container"})
 		require.NoError(t, err)
 	}
 

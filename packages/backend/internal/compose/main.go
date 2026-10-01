@@ -767,6 +767,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceResources(cfg.Sandbox.WorkspaceMemoryMB, cfg.Sandbox.WorkspaceVCPUCount),
 		services.WithWorkspaceAgentResources(cfg.Sandbox.AgentMemoryMB, cfg.Sandbox.AgentVCPUCount),
 		services.WithWorkspaceDesktopResources(cfg.Sandbox.DesktopMemoryMB, cfg.Sandbox.DesktopVCPUCount),
+		services.WithWorkspaceResourceLimits(cfg.Sandbox.WorkspaceMaxVCPUCount, cfg.Sandbox.WorkspaceMaxMemoryMB, cfg.Sandbox.WorkspaceMaxDiskMB),
 		services.WithWorkspaceDesktopObserveText(cfg.Sandbox.DesktopObserveText),
 		services.WithWorkspaceLeaseDeleteAfter(time.Duration(cfg.Sandbox.WorkspaceLeaseDeleteAfter)*time.Second),
 		// Supply setup-only secrets and persistent nonsecret variables to fresh

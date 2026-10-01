@@ -372,3 +372,8 @@ produces an unknown outcome and never automatically reruns the command.
 Use `workspace ssh` or `workspace shell` for interactive input and guest-user
 selection. The former SSH log-file runner and its `--stdin`/`--user` exec options
 are removed.
+
+`smthrs workspace create --repo OWNER/REPO --name sized --cpus 4 --memory 8192 --disk 40`
+requests 4 vCPUs, 8192 MiB memory and 40 GiB writable disk. The server persists
+this size for recovery and fork and returns `workspace_resources_exceeded`
+when a requested resource exceeds its configured cap.

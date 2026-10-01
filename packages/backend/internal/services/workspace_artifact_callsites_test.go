@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/stretchr/testify/require"
 )
@@ -123,7 +124,7 @@ func TestWorkspaceArtifactForkUsesChildIdentityAndOneBootstrapPath(t *testing.T)
 	artifactCallsiteFixture(t)
 	client := newArtifactRecordingClient()
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(client))
-	_, err := svc.forkWorkspaceSandbox(t.Context(), "parent", "child", "container", nil)
+	_, err := svc.forkWorkspaceSandbox(t.Context(), "parent", db.Workspace{ID: "child", Kind: "container"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, workspaceArtifactOwner("child"), client.content[workspaceArtifactOwnerPath])
 	require.Len(t, client.writes, 6) // Child owner, current script, three artifacts and the manifest.

@@ -223,6 +223,7 @@ type WorkspaceResponse struct {
 	FailureMessage string                      `json:"failure_message,omitempty"`
 	Kind           string                      `json:"kind"`
 	Environment    WorkspaceEnvironment        `json:"environment"`
+	Resources      WorkspaceResources          `json:"resources"`
 	// SourceCommit is the pushed-ref commit the workspace checked out, empty
 	// when it started from its bookmark (#1968).
 	SourceCommit string `json:"source_commit,omitempty"`
@@ -447,6 +448,7 @@ type CreateWorkspaceInput struct {
 	SourceRef   string
 	Kind        string
 	Environment WorkspaceEnvironment
+	Resources   WorkspaceResources
 	// ClientLeaseSeconds, when positive, leases the workspace to a client that
 	// renews it; a lapsed lease lets the abandon reaper reclaim it (#2457).
 	ClientLeaseSeconds int32
@@ -642,6 +644,7 @@ type WorkspaceService struct {
 	agentVCPUCount     int32
 	desktopMemoryMB    int32
 	desktopVCPUCount   int32
+	resourceLimits     workspaceResourceLimits
 	// desktopObserveText allows the focused Chrome tab's document text into
 	// desktop observations. See WithWorkspaceDesktopObserveText.
 	desktopObserveText bool
@@ -1263,6 +1266,7 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 		},
 		SourceCommit:       workspace.SourceCommit,
 		Head:               WorkspaceHead{ChangeID: workspace.HeadChangeID, CommitID: workspace.HeadCommitID},
+		Resources:          workspaceResourcesResponse(workspace),
 		Ahead:              workspace.Ahead,
 		Behind:             workspace.Behind,
 		AgentSessionID:     UUIDString(workspace.AgentSessionID),
@@ -1371,6 +1375,7 @@ func workspaceCreateParamsMetadata(input CreateWorkspaceInput) (string, Workspac
 type workspaceCreateMetadata struct {
 	kind        string
 	environment WorkspaceEnvironment
+	resources   WorkspaceResources
 }
 
 func normalizeWorkspaceCreateMetadata(metadata workspaceCreateMetadata) workspaceCreateMetadata {

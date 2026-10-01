@@ -17,7 +17,10 @@ INSERT INTO workspaces (
     environment_closure_hash,
     status,
     agent_session_id,
-    idle_timeout_secs
+    idle_timeout_secs,
+    vcpu_count,
+    memory_mb,
+    disk_mb
 )
 VALUES (
     COALESCE(sqlc.narg(id)::uuid, gen_random_uuid()),
@@ -31,7 +34,10 @@ VALUES (
     sqlc.arg(environment_closure_hash)::text,
     sqlc.arg(status)::text,
     sqlc.narg(agent_session_id)::uuid,
-    COALESCE(sqlc.narg(idle_timeout_secs)::integer, 1800)
+    COALESCE(sqlc.narg(idle_timeout_secs)::integer, 1800),
+    sqlc.narg(vcpu_count)::integer,
+    sqlc.narg(memory_mb)::integer,
+    sqlc.narg(disk_mb)::integer
 )
 RETURNING *;
 

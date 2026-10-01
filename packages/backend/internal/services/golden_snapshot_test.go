@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -358,17 +359,17 @@ func TestGoldenSnapshotService_MarkBadSupersedesAndClearsCache(t *testing.T) {
 func TestWorkspaceService_FreshVMRequestUsesGoldenSnapshot(t *testing.T) {
 	t.Parallel()
 
-	db := &fakeGoldenDB{readyID: "snap-golden-2", readyCreatedAt: time.Now()}
-	golden := NewGoldenSnapshotService(db, &fakeGoldenVMClient{}, nil)
+	store := &fakeGoldenDB{readyID: "snap-golden-2", readyCreatedAt: time.Now()}
+	golden := NewGoldenSnapshotService(store, &fakeGoldenVMClient{}, nil)
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceGoldenSnapshots(golden))
 
-	req, err := svc.freshWorkspaceVMRequest(context.Background(), 0, "", "container")
+	req, err := svc.freshWorkspaceVMRequest(context.Background(), db.Workspace{Kind: "container"})
 	require.NoError(t, err)
 	assert.Equal(t, "snap-golden-2", req.SnapshotID)
 	assert.Empty(t, req.Packages, "snapshot boots must not re-run apt post-boot config")
 
 	bare := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
-	bareReq, err := bare.freshWorkspaceVMRequest(context.Background(), 0, "", "container")
+	bareReq, err := bare.freshWorkspaceVMRequest(context.Background(), db.Workspace{Kind: "container"})
 	require.NoError(t, err)
 	assert.Empty(t, bareReq.SnapshotID)
 	assert.NotEmpty(t, bareReq.Packages, "bare-image boots keep the apt bootstrap")

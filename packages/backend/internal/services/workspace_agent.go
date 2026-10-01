@@ -259,7 +259,7 @@ func (s *WorkspaceService) agentForkSource(ctx context.Context, workspace db.Wor
 func (s *WorkspaceService) forkAgentWorkspace(ctx context.Context, workspace db.Workspace, input CreateAgentWorkspaceInput, egress *sandbox.EgressProxyPolicy, source db.Workspace, sameBookmark bool) (out AgentWorkspaceResult, retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	forkCtx := sandboxProvisionContext(ctx, "fork", "workspace", workspace.ID, workspaceProvisionAttempt(workspace.ProvisioningGeneration, "agent-"+source.ID))
-	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace.ID, workspace.Kind, egress)
+	vm, err := s.forkWorkspaceSandbox(forkCtx, source.VmID, workspace, egress)
 	if err != nil {
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		return AgentWorkspaceResult{}, err
@@ -318,7 +318,7 @@ func (s *WorkspaceService) provisionFreshAgentWorkspace(ctx context.Context, wor
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return AgentWorkspaceResult{}, pkgerrors.Internal("build repo clone url: " + err.Error())
 	}
-	req, err := s.freshWorkspaceVMRequest(ctx, workspace.RepositoryID, workspace.ID, workspace.Kind)
+	req, err := s.freshWorkspaceVMRequest(ctx, workspace)
 	if err != nil {
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return AgentWorkspaceResult{}, err
