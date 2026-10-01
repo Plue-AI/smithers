@@ -5,7 +5,8 @@ import type { CloudAgent } from "../../src/bun/CloudAgent"
 /*
  * SMITHERS_CHAT_STUB=1: a deterministic CloudAgent so the Playwright suite and
  * CI run offline. It streams one reasoning delta, then the text
- * `stub: <last user message>`, then done.
+ * `stub: <last user message>`, then done; `stub-tool <flow> [args]` instead
+ * calls that flow through the app's `commands` tool.
  *
  * Test scaffolding, so it lives in the test tree: every host that wants it
  * INJECTS it as `startLocalServer({ agent: createChatStub })`. The one host
@@ -27,6 +28,22 @@ export const stubReply = (request: StartAgentTurnRequest): string => {
   return `stub: ${lastUserMessage(request)}`
 }
 
+/**
+ * `stub-tool <flow> [args]`: the model's one call to the app's `commands`
+ * tool, so a spec can drive a flow's agent door. The continuation turn that
+ * carries the call's output answers in text, so the loop ends.
+ */
+const STUB_TOOL = /^stub-tool (\S+)(?: ([\s\S]+))?$/
+
+const toolCall = (request: StartAgentTurnRequest): AgentTurnFrame | undefined => {
+  if (request.messages.some((message) => "type" in message && message.type === "function_call_output")) return undefined
+  const match = STUB_TOOL.exec(lastUserMessage(request).trim())
+  if (match === null) return undefined
+  const [, name, args] = match
+  return { runId: request.runId, type: "tool_call", call_id: `stub-call-${request.runId}`, name: "commands",
+    arguments: JSON.stringify({ action: "execute", name, ...(args === undefined ? {} : { args }) }) }
+}
+
 export const createChatStub = (publish: (frame: AgentTurnFrame) => void): CloudAgent => {
   const active = new Set<string>()
   return {
@@ -35,11 +52,14 @@ export const createChatStub = (publish: (frame: AgentTurnFrame) => void): CloudA
         return { status: "error", message: "That Smithers turn is already running." }
       }
       active.add(request.runId)
-      const frames: ReadonlyArray<AgentTurnFrame> = [
-        { runId: request.runId, type: "delta", kind: "reasoning", text: "stub: thinking" },
-        { runId: request.runId, type: "delta", kind: "text", text: stubReply(request) },
-        { runId: request.runId, type: "done", reason: "stop" }
-      ]
+      const call = toolCall(request)
+      const frames: ReadonlyArray<AgentTurnFrame> = call !== undefined
+        ? [call, { runId: request.runId, type: "done", reason: "tool_call" }]
+        : [
+          { runId: request.runId, type: "delta", kind: "reasoning", text: "stub: thinking" },
+          { runId: request.runId, type: "delta", kind: "text", text: stubReply(request) },
+          { runId: request.runId, type: "done", reason: "stop" }
+        ]
       let index = 0
       const step = (): void => {
         if (!active.has(request.runId)) return

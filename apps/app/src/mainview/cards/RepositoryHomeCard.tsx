@@ -201,8 +201,9 @@ export const RepositoryHomeCard = ({ card, onRunCommand }: {
       case "app": return index === firstApp ? <HomeApps key={index} apps={apps} repo={card.payload.repo} onRunCommand={onRunCommand} /> : null
       case "flows": return featuredFlows.length === 0 ? null : <div key={index}>
         {block.title && <h2>{block.title}</h2>}
+        {/* Each featured button targets the repository this home shows: a bare `owner/repo` token, which every repository leaf's grammar and issue-sweep's both read as {repo}. */}
         <div className="factory-home-row">{featuredFlows.map((flow) => <Button key={flow.id} type="button"
-          {...dynamicFlowAction(onRunCommand, repositoryFlowName(flow.id))}>{flow.summary ?? flow.id}</Button>)}</div>
+          {...dynamicFlowAction(onRunCommand, repositoryFlowName(flow.id), card.payload.repo)}>{flow.summary ?? flow.id}</Button>)}</div>
       </div>
       case "markdown": return <div key={index}>{block.title && <h2>{block.title}</h2>}
         <Markdown className="message-markdown" content={stripHomeHtml(block.markdown)} /></div>

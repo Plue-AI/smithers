@@ -29,6 +29,10 @@ export interface FlowInput {
   readonly "commits.read": { readonly ref: string; readonly repo: string }
   readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
+  readonly "runs.burndown.filter": { readonly runId: string; readonly filter: string }
+  readonly "runs.burndown.select": { readonly runId: string; readonly item: number }
+  readonly "runs.signal": { readonly runId: string; readonly name: string; readonly payload?: string }
+  readonly "issue-sweep": { readonly maxAgents?: number; readonly placement?: "local" | "vm"; readonly attempt?: number; readonly landers?: number; readonly cloudAgents?: number; readonly repo?: string }
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.graph.execution": { readonly runId: string; readonly executionId?: string }
   readonly "runs.takeover": { readonly runId: string }
@@ -221,6 +225,10 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
+  "runs.burndown.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
+  "runs.burndown.select": payload => line(token(payload, "runId"), String(payload.item)),
+  "runs.signal": payload => line(token(payload, "runId"), token(payload, "name"), typeof payload.payload === "string" ? payload.payload : undefined),
+  "issue-sweep": payload => JSON.stringify(payload),
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),
   "runs.graph.execution": payload => line(token(payload, "runId"), token(payload, "executionId")),
   "runs.takeover": payload => line(token(payload, "runId")),

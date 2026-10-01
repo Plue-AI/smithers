@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
@@ -21,6 +22,7 @@ import { StepList, stepFacts } from "./RunTraceSteps"
 import { DevToolsPane } from "./RunDevTools"
 import { traceSteps } from "./TraceSteps"
 import { CodingPocBody } from "./CodingPocCard"
+import { BurndownBody } from "./BurndownCard"
 import { CodingVibeBody } from "./CodingVibeCard"
 import type { Card, FlowDurationsRow } from "../state/AppState"
 import { timeLabel } from "../Timestamps"
@@ -178,9 +180,15 @@ export const RunTraceBody = ({
   flowDurations,
   fileCards,
   childCards,
-  admin = false
+  admin = false,
+  presentation,
+  notices
 }: {
   readonly card: RunTraceCard
+  /** The shell's failure notices, for a summary that draws them under its own status (the burndown board). */
+  readonly notices?: ReactNode
+  /** Which frame the body is mounted in; the burndown caps long groups when embedded. */
+  readonly presentation?: "embedded" | "maximized" | undefined
   /** The open cards, so the graph's forest states parent and child runs. */
   readonly childCards?: CardProjectionAuthority["collections"]["cards"] | undefined
   /** A Smithers admin decides admin-decided waits; nobody else is offered them. */
@@ -214,7 +222,13 @@ export const RunTraceBody = ({
     span.kind === "run" || spanMatches(span, filter)
   )
   const turns = turnNarratives(model)
-  const native = model.root.children.filter((span) =>
+  /*
+   * An issue-sweep's board is its summary: one row per child execution would
+   * repeat the board as ids, so the sweep keeps them behind Details, Steps and
+   * DevTools until a row there is selected.
+   */
+  const sweep = card.payload.workflow === "issue-sweep"
+  const native = sweep && card.payload.selection === undefined ? [] : model.root.children.filter((span) =>
     span.kind === "execution" || span.id.startsWith("engine-gap:") || span.id.startsWith("engine-invalid:")
   )
   // Following a run is cheap. The debugger appears only after an explicit selection or timeline request.
@@ -259,7 +273,10 @@ export const RunTraceBody = ({
           </p>
         ) :
         null}
-      <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />
+      {/* An issue-sweep run's summary is its burndown board, which carries the run's status and controls. */}
+      {card.payload.workflow === "issue-sweep"
+        ? <BurndownBody card={card} onRunCommand={sendRunCommand} presentation={presentation} notices={notices} />
+        : <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
       {result !== null ? repositoryRun ? (
         <details className="run-progress-fold">
           <summary>Technical details</summary>
@@ -366,7 +383,7 @@ export const RunTraceBody = ({
         />
       ) : view === "turns" || view === "graph" ? (
         <>
-          {turns.length > 0 || native.length > 0 || scrub !== null || runGraph !== undefined ? (
+          {turns.length > 0 || native.length > 0 || scrub !== null || runGraph !== undefined || (sweep && model.counts.spans > 0) ? (
             <div className="run-trace-bar" data-view="turns" role="group" aria-label="Trace presentation">
               <span className="run-trace-bar-title">Timeline</span>
               {scrub}
@@ -407,8 +424,10 @@ export const RunTraceBody = ({
             </div>
           ) : null}
           <PhaseStrip model={whole} records={card.payload.events ?? []} runId={runId} cursorSeq={card.payload.cursorSeq} onRunCommand={onRunCommand} />
-          <FrameLines model={model} selected={selected} runId={runId} onRunCommand={onRunCommand}
-            openFrame={inspecting ? frame?.id : undefined} detail={detail} cardId={card.id} />
+          {sweep && !inspecting ? null : (
+            <FrameLines model={model} selected={selected} runId={runId} onRunCommand={onRunCommand}
+              openFrame={inspecting ? frame?.id : undefined} detail={detail} cardId={card.id} />
+          )}
           {native.length > 0 ? (
             <ol className="run-turns run-engine" aria-label="Recorded engine work">
               {native.map((span) => {
@@ -437,7 +456,7 @@ export const RunTraceBody = ({
               })}
             </ol>
           ) : null}
-          {model.counts.spans === 0 && !inspecting && !repositoryRun ? (
+          {model.counts.spans === 0 && !inspecting && !repositoryRun && !sweep ? (
             <p className="run-trace-empty" data-testid={`run-trace-empty-${runId}`}>
               {settled ? "No turns were recorded." : "No turns yet."}
             </p>

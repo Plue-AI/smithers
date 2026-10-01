@@ -127,6 +127,8 @@ export const CardView = memo(function CardView({
   const health = card.kind === "agent" || card.kind === "run-trace" ? card.payload.statusRollup : undefined
   const status = statusPresentation(health, fallback).status
   const quietStatus = ["done", "completed", "succeeded", "success"].includes(status)
+  /* An issue-sweep card's burndown board states the run's status beside its own controls (BurndownCard.tsx); the header says only the title. */
+  const bodyStatus = card.kind === "run-trace" && card.payload.workflow === "issue-sweep"
   const hasLocalHistory = card.navigation !== undefined && card.navigation.length > 1
   const hasRunDetails = card.kind === "agent" || card.kind === "run-trace"
   const statusNode = card.kind === "agent" || card.kind === "run-trace" ?
@@ -193,7 +195,7 @@ export const CardView = memo(function CardView({
           </nav>}
           <span className="smithers-card-title">{title}</span>
           {/* A family that has no status word for a card (a picker awaiting its human) renders no pill: "" is not a status. */}
-          {!quietStatus && statusNode}
+          {!quietStatus && !bodyStatus && statusNode}
           {maximized ?
             (
               <>

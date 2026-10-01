@@ -18,6 +18,20 @@ export interface IssueFlowsController {
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** `prs.triage`: the repository's pr-triage flow over one pull request's context (the Review a PR app). */
   readonly triagePullRequest: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+  /** `issue-sweep`: the repository's burndown over every open issue no other machine holds. */
+  readonly runIssueSweep: (input: IssueSweepInput, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+}
+
+/** What `issue-sweep` (flows/issue-sweep/flow.ts) takes besides its repository. */
+export interface IssueSweepInput {
+  /** Absent: the flow's own default width applies. */
+  readonly maxAgents?: number | undefined
+  readonly attempt?: number | undefined
+  readonly placement?: "local" | "vm" | undefined
+  /** Landing checks run at once, 1..16; absent: the flow's default (6). */
+  readonly landers?: number | undefined
+  /** Overflow agents in Smithers Cloud beyond this machine's; absent: none. */
+  readonly cloudAgents?: number | undefined
 }
 
 export const createIssueFlowsController = (
@@ -108,6 +122,12 @@ export const createIssueFlowsController = (
         if (prerequisite !== undefined) return prerequisite
       }
       return flows.runWorkflow("pr-triage", context.repo, { args })
+    },
+    runIssueSweep: async ({ maxAgents, attempt, placement, landers, cloudAgents }, explicit, humanDoor = false) => {
+      const selected = resolveTargetRepo(ctx.store, explicit)
+      if ("error" in selected) return selected.error
+      const input = { repo: selected.repo, ...(maxAgents === undefined ? {} : { maxAgents }), ...(attempt === undefined ? {} : { attempt }), ...(placement === undefined ? {} : { placement }), ...(landers === undefined ? {} : { landers }), ...(cloudAgents === undefined ? {} : { cloudAgents }) }
+      return flows.runWorkflow("issue-sweep", selected.repo, input, undefined, humanDoor)
     },
     runIssueFlow: async (name, number, explicit, humanDoor = false) => {
       const selected = target(number, explicit)

@@ -13,6 +13,7 @@
  * parsed is refused before the handler runs, which is why no handler below the
  * boundary contains an argument check.
  */
+import { BURNDOWN_STATES, isBurndownState } from "../cards/Burndown"
 import { isTraceFilter,TRACE_FILTER_IDS } from "../cards/RunTrace"
 import { isGraphDrawerTab, unknownTabRefusal } from "../state/controller/graph"
 import type { KnownRepositories } from "../state/RepoContext"
@@ -444,7 +445,38 @@ const numberedChangeRef = (name: string, field: string, what: string, args: stri
   return ok({ changeId, [field]: id })
 }
 
+/** `issue-sweep`: `[agents] [local|vm] [attempt=<n>] [landers=<n>] [cloudAgents=<n>] [owner/repo]`, or the JSON object its button and form carry. */
+const issueSweep = (args: string | undefined): Parsed => {
+  const text = trimmed(args)
+  if (text.startsWith("{")) return jsonObject("issue-sweep")(text)
+  const payload: Record<string, unknown> = {}
+  for (const token of tokensOf(text)) {
+    if (/^\d+$/.test(token) && payload.maxAgents === undefined) payload.maxAgents = Number(token)
+    else if (token === "local" || token === "vm") payload.placement = token
+    else if (/^attempt=\d+$/.test(token)) payload.attempt = Number(token.slice("attempt=".length))
+    else if (/^landers=\d+$/.test(token)) payload.landers = Number(token.slice("landers=".length))
+    else if (/^cloudAgents=\d+$/.test(token)) payload.cloudAgents = Number(token.slice("cloudAgents=".length))
+    else if (REPO_TOKEN.test(token) && payload.repo === undefined) payload.repo = token
+    else return no(`issue-sweep takes [agents] [local|vm] [attempt=<n>] [landers=<n>] [cloudAgents=<n>] [owner/repo], not ${token}`)
+  }
+  return ok(payload)
+}
+
 const GRAMMAR: Readonly<Record<string, Grammar>> = {
+  "issue-sweep": issueSweep,
+  "runs.burndown.filter": (args) => {
+    const [runId, filter, ...rest] = tokensOf(args)
+    if (runId === undefined || filter === undefined || rest.length > 0 || !isBurndownState(filter)) {
+      return no(`runs.burndown.filter takes a run id and one of ${BURNDOWN_STATES.join(", ")}`)
+    }
+    return ok({ runId, filter })
+  },
+  "runs.burndown.select": (args) => {
+    const [runId, raw, ...rest] = tokensOf(args)
+    const item = Number(raw)
+    if (runId === undefined || raw === undefined || rest.length > 0 || !Number.isInteger(item) || item < 0) return no("runs.burndown.select takes a run id and an issue number")
+    return ok({ runId, item })
+  },
   "issues.fix": (args) => numberedTarget("issues.fix", args),
   "issues.verify": (args) => numberedTarget("issues.verify", args),
   "issues.comment.react": jsonObject("issues.comment.react"),

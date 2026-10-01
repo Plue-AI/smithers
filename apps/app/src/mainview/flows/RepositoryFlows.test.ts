@@ -156,7 +156,8 @@ const ready = async (services: AppServices, state: "signed-in" | "signed-out" = 
  * The listed bare leaves that are neither the app's surface switches nor its
  * own tutorial replay door: exactly the repository's.
  */
-const APP_BARE_FLOWS: string[] = []
+/** Bare app flows that are not repository leaves: `issue-sweep` is the app's typed entry for that leaf (entries/issue.ts). */
+const APP_BARE_FLOWS: string[] = ["issue-sweep"]
 const repositoryLeaves = (controller: Awaited<ReturnType<typeof ready>>["controller"]): Array<string> =>
   visibleItems(controller.commands)
     .map((command) => command.name)

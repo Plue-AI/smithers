@@ -102,6 +102,10 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.trace.view", args: "run-1 turns", confirm: false },
   { name: "runs.trace.live", args: "run-1", confirm: false },
   { name: "runs.coding.select", args: "run-1 storage", confirm: false },
+  /* The issue-sweep board's reader state is free; starting the sweep launches agents, so it confirms. */
+  { name: "runs.burndown.filter", args: "run-1 failed", confirm: false },
+  { name: "runs.burndown.select", args: "run-1 3219", confirm: false },
+  { name: "issue-sweep", args: "{\"maxAgents\":8,\"placement\":\"vm\",\"repo\":\"will/smithers\"}", confirm: true },
   { name: "chat.clear", confirm: true },
   { name: "tab.card", args: "card-1", confirm: false },
   { name: "tab.close", args: "t1", confirm: false },

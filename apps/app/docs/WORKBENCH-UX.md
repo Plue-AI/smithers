@@ -508,6 +508,31 @@ journal under `/debug.verbose`. What the wire does not carry is refused in
 words, never invented: `by=` (no launcher on the run summary) and the wait's
 reset time (no clock on `waitingReason`).
 
+**Issue burndown (#3336).** `/issue-sweep` (`flows/entries/issue.ts`) is the
+app's typed entry for the repository's `issue-sweep` flow
+(`flows/issue-sweep/flow.ts`, featured in `.smithers/FACTORY.ts`); its name
+equals the repository leaf, so the slash, the featured button and the agent
+resolve it. It takes `<agents> [local|vm] [attempt=<n>] [owner/repo]`; without
+the width it runs on the flow's default (no form), and the agent's call confirms. Its run card's
+summary is the burndown board (`cards/BurndownCard.tsx` over the pure
+projection `cards/Burndown.ts`): the run's status, a count per state (skip,
+ours, claimed, working, adopting, landing, landed, held, failed) that filters
+the board, capacity slots, one mark per account, run health and VMs, the board
+by state, and one issue's detail (account, placement, elapsed, diff stat,
+landed commit, failure reason, the patch when the journal held it whole). The
+filter and the open issue live on the card payload (`runs.burndown.filter`,
+`runs.burndown.select`). Stop for now confirms and runs `flow.run.stop` (the
+durable Cancel; the round releases every claim on exit). Parked on exhausted
+accounts, the card lists the accounts to reset and Resume confirms and runs
+`runs.signal <run> issue-sweep/accounts-reset`; the control plane delivers it to
+the wait in the parked round's child execution. After a stop, Resume starts
+`issue-sweep` with the same input, which reattaches the same attempt's
+children. Step results reach the journal as 2 KB previews, so titles, diff
+stats and patches appear only where the preview kept them; landing and
+release are visible only once a round's dispatch settles (#3346). The board
+owns the run's acts, so a sweep's card has no generic footer (facet tabs,
+Stop) and no steer row.
+
 ## 4. Wireframes
 
 Embedded `workspace` card, Desktop facet, not attached:

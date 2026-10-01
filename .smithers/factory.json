@@ -184,6 +184,29 @@
       }
     },
     {
+      "id": "issue-sweep",
+      "description": "Work every open GitHub issue that no other machine holds.",
+      "summary": "Work every open GitHub issue that no other machine holds.",
+      "featured": true,
+      "kind": "ts",
+      "path": "flows/issue-sweep/flow.ts",
+      "capabilities": [
+        "proc:spawn:gh api *",
+        "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+        "proc:spawn:node /*/scripts/issue-claim.mjs *",
+        "proc:spawn:jj -R *",
+        "proc:spawn:lockf *",
+        "proc:spawn:pnpm *",
+        "proc:spawn:codex *",
+        "proc:spawn:codex-rr *",
+        "proc:spawn:claude-rr *",
+        "proc:spawn:claude-as *"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "checks/affected-lint",
       "description": "Lint every target the Change's written files affect; a known red does not fail it.",
       "summary": null,
@@ -1034,28 +1057,6 @@
       "flows": []
     },
     {
-      "id": "issue-sweep",
-      "description": "Work every open GitHub issue that no other machine holds.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/issue-sweep/flow.ts",
-      "capabilities": [
-        "proc:spawn:gh api *",
-        "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
-        "proc:spawn:node /*/scripts/issue-claim.mjs *",
-        "proc:spawn:jj -R *",
-        "proc:spawn:lockf *",
-        "proc:spawn:pnpm *",
-        "proc:spawn:codex *",
-        "proc:spawn:codex-rr *",
-        "proc:spawn:claude-rr *"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
       "id": "issue-sweep/work",
       "description": "One coding agent fixes one issue in its own jj workspace.",
       "summary": null,
@@ -1063,7 +1064,17 @@
       "kind": "ts",
       "path": "flows/issue-sweep/work/flow.ts",
       "capabilities": [
-        "*"
+        "proc:spawn:gh api *",
+        "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+        "proc:spawn:jj -R *",
+        "proc:spawn:git --git-dir *",
+        "proc:spawn:pnpm *",
+        "proc:spawn:codex *",
+        "proc:spawn:claude-as *",
+        "proc:spawn:codex-rr status",
+        "proc:spawn:claude-rr status",
+        "proc:spawn:codex-rr cool *",
+        "proc:spawn:claude-rr cool *"
       ],
       "model": null,
       "modelInvocable": false,

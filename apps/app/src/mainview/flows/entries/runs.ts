@@ -4,6 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
+import { BURNDOWN_STATES } from "../../cards/Burndown"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
 import { flow } from "./Declare"
@@ -230,6 +231,28 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "[sourceCard=id] <runId> <changeId>",
     input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, changeId: Schema.String }),
     handler: ({ runId, changeId, sourceCard }) => actions.selectCodingChange(runId, changeId, sourceCard)
+  }),
+  flow({
+    /* The issue-sweep board's own reader state (cards/BurndownCard.tsx): the same state again shows every state. */
+    name: "runs.burndown.filter",
+    summary: "Show one state of an issue-sweep run's board, or every state",
+    runtimeAny: ["cloud"],
+    hidden: true,
+    args: "[sourceCard=id] <runId> <skip|ours|claimed|working|adopting|landing|landed|held|failed>",
+    input: Schema.Struct({
+      sourceCard: Schema.optional(Schema.String), runId: Schema.String,
+      filter: Schema.Literals(BURNDOWN_STATES)
+    }),
+    handler: ({ runId, filter, sourceCard }) => actions.burndownFilter(runId, filter, sourceCard)
+  }),
+  flow({
+    name: "runs.burndown.select",
+    summary: "Open or close one issue's detail on an issue-sweep run's board",
+    runtimeAny: ["cloud"],
+    hidden: true,
+    args: "[sourceCard=id] <runId> <issue>",
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, item: Schema.Number }),
+    handler: ({ runId, item, sourceCard }) => actions.burndownSelect(runId, item, sourceCard)
   }),
   flow({
     name: "runs.trace.view",

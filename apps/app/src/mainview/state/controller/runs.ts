@@ -18,6 +18,7 @@
  */
 import { Data } from "effect"
 import { guardIncidentOf, questionOf } from "../../cards/ApprovalQuestion"
+import { burndownOf, type BurndownState } from "../../cards/Burndown"
 import { codingPlanOf } from "../../cards/CodingPlan"
 import { drawableExecution } from "../../cards/RunForest"
 import { runHandoff } from "../../cards/RunHandoff"
@@ -93,6 +94,10 @@ export interface RunsController {
   readonly graphExecution: (runId: string, executionId?: string, sourceCard?: string) => Promise<CommandResult>
   readonly traceLive: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly selectCodingChange: (runId: string, changeId: string, sourceCard?: string) => Promise<CommandResult>
+  /** An issue-sweep board's state filter; the same state again clears it. */
+  readonly burndownFilter: (runId: string, filter: BurndownState, sourceCard?: string) => Promise<CommandResult>
+  /** Open one issue's detail on an issue-sweep board; the same issue again closes it. */
+  readonly burndownSelect: (runId: string, item: number, sourceCard?: string) => Promise<CommandResult>
   readonly stopAllRuns: (repo?: string, sourceCard?: string) => Promise<CommandResult>
   /**
    * `approvals.list [owner/repo]`: persist the read request for the target
@@ -103,6 +108,7 @@ export interface RunsController {
   /** Reconnect every persisted inbox read the current account still owns; idempotent. */
   readonly resumeApprovalRequests: () => void
   readonly resumeRunFacetRequests: () => void
+  readonly settleRunSignalRequests: () => void
   readonly resumeRunListRequests: () => void
   readonly resumeRunOpenRequests: () => void
   readonly openApproval: (runId: string, sourceCard?: string) => Promise<CommandResult>
@@ -583,6 +589,8 @@ export const createRunsController = (
     })
   }
 
+  /** The cards whose signal this page is still waiting on. */
+  const signalsInFlight = new Set<string>()
   const signalRun = async (runId: string, name: string, payloadText?: string, sourceCard?: string): Promise<CommandResult> => {
     const guard = workflows.workflowIdentityGuard()
     if (guard !== undefined) return guard
@@ -597,10 +605,36 @@ export const createRunsController = (
     }
     const target = resolveRun(runId, sourceCard)
     if ("error" in target) return target.error
+    // The asking card shows the request: waiting, refused (and so retryable), or accepted.
+    const afterSeq = (runCardFor(target, sourceCard)?.payload.events ?? []).reduce((max, event) => typeof event.sequence === "number" ? Math.max(max, event.sequence) : max, 0)
+    const record = (request: { readonly state: "pending" | "failed" | "sent"; readonly error?: string }): void => {
+      const card = runCardFor(target, sourceCard)
+      if (card !== undefined) store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
+        patch: { payload: { signalRequest: { name: name.trim(), afterSeq, ...request } } } })
+    }
+    const asking = runCardFor(target, sourceCard)?.id
+    if (asking !== undefined) signalsInFlight.add(asking)
+    record({ state: "pending" })
     const signaled = await gateway.signal(target.repo, runId, name.trim(), payload, { workspaceId: target.workspaceId })
-    if (signaled.status !== "ok") return signaled.message
+      .finally(() => { if (asking !== undefined) signalsInFlight.delete(asking) })
+    if (signaled.status !== "ok") {
+      record({ state: "failed", error: signaled.message })
+      return signaled.message
+    }
+    record({ state: "sent" })
     pokeRun(target)
     return { value: `signal-sent run=${runId} signal=${name.trim()}` }
+  }
+
+  /** Boot reconciliation: a signal still pending was asked by a page that is gone, so its answer is unknown and the card offers it again. */
+  const settleRunSignalRequests = (): void => {
+    void (store.settled?.() ?? Promise.resolve()).then(() => {
+      if (ctx.disposed) return
+      for (const card of store.collections.cards.values()) {
+        if (card.kind !== "run-trace" || card.payload.signalRequest?.state !== "pending" || signalsInFlight.has(card.id)) continue
+        store.dispatch({ type: "card.updated", actor: "system", id: card.id, patch: { payload: { signalRequest: undefined } } })
+      }
+    }, () => {})
   }
 
   const steer = async (
@@ -879,6 +913,35 @@ export const createRunsController = (
     const selected = previous === changeId ? {} : { codingChangeId: changeId }
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: { ...card, payload: { ...payload, ...selected } } }).isPersisted.promise
     return { value: `coding-plan-selection run=${runId} change=${previous === changeId ? "none" : changeId}` }
+  }
+
+  /*
+   * The issue-sweep board's reader state (cards/BurndownCard.tsx) lives on the
+   * run card like the trace's, so a reload keeps the filter and the open issue.
+   */
+  const burndownFilter = async (runId: string, filter: BurndownState, sourceCard?: string): Promise<CommandResult> => {
+    const target = resolveRun(runId, sourceCard)
+    if ("error" in target) return target.error
+    const card = runCardFor(target, sourceCard)
+    if (card === undefined) return `Open the run first (runs.open ${runId}): the board lives on its card.`
+    const { filter: previous, ...rest } = card.payload.burndown ?? {}
+    const burndown = previous === filter ? rest : { ...rest, filter }
+    await store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
+      patch: { payload: { ...card.payload, burndown } } }).isPersisted.promise
+    return { value: `burndown-filter run=${runId} filter=${previous === filter ? "all" : filter}` }
+  }
+
+  const burndownSelect = async (runId: string, item: number, sourceCard?: string): Promise<CommandResult> => {
+    const target = resolveRun(runId, sourceCard)
+    if ("error" in target) return target.error
+    const card = runCardFor(target, sourceCard)
+    if (card === undefined) return `Open the run first (runs.open ${runId}): the board lives on its card.`
+    if (!burndownOf(card.payload.events ?? [], card.payload).items.some((each) => each.number === item)) return `Run ${runId} has no issue #${item}.`
+    const { item: previous, ...rest } = card.payload.burndown ?? {}
+    const burndown = previous === item ? rest : { ...rest, item }
+    await store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: card.id,
+      patch: { payload: { ...card.payload, burndown } } }).isPersisted.promise
+    return { value: `burndown-select run=${runId} issue=${previous === item ? "none" : item}` }
   }
 
   const traceView = async (runId: string, view: TraceView, sourceCard?: string): Promise<CommandResult> => {
@@ -1346,6 +1409,8 @@ export const createRunsController = (
     traceFilter,
     traceSelect,
     selectCodingChange,
+    burndownFilter,
+    burndownSelect,
     traceView,
     graphFollow,
     graphExecution,
@@ -1354,6 +1419,7 @@ export const createRunsController = (
     listApprovals,
     resumeApprovalRequests,
     resumeRunFacetRequests,
+    settleRunSignalRequests,
     resumeRunListRequests,
     resumeRunOpenRequests,
     openApproval

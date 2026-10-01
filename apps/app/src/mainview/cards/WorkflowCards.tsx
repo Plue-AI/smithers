@@ -18,6 +18,7 @@ import { rovingKeyDown } from "../RovingKeyDown"
 import type { CardFamily, CardProjectionAuthority, RunCommand } from "./CardFamily"
 import { defaultPill, settledPill } from "./CardFamily"
 import { RunTraceBody, TERMINAL_RUN_PHASES } from "./RunTraceCard"
+import { BurndownBody } from "./BurndownCard"
 import { ChildRuns } from "../SubagentGrid"
 import { flowArgs } from "../flows/FlowArgs"
 import { runFailureOf } from "../state/RunFailure"
@@ -90,7 +91,8 @@ export const WorkflowRunCardBody = ({
   flowDurations,
   fileCards,
   childCards,
-  admin = false
+  admin = false,
+  presentation
 }: {
   readonly admin?: boolean
   readonly card: Extract<Card, { kind: "run-trace" }>
@@ -105,11 +107,17 @@ export const WorkflowRunCardBody = ({
   readonly fileCards?: ReadonlyArray<Extract<Card, { kind: "file" }>>
   /** The cards the child runs' own run cards are read from; absent in static previews. */
   readonly childCards?: CardProjectionAuthority["collections"]["cards"]
+  /** Which frame the body is mounted in (CardActions.presentation). */
+  readonly presentation?: "embedded" | "maximized" | undefined
 }) => {
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const request = workflowLaunchOf(card)
+  /* An issue-sweep run's body is its burndown board, which states the run's status, failures and watch itself. */
+  const sweep = card.payload.workflow === "issue-sweep"
   if (request && request.runId === undefined) return <div className="flow-run-card">
-    {request.error === undefined ? <p className="smithers-card-note" role="status">Requested</p> : (
+    {request.error === undefined ? sweep
+      ? <BurndownBody card={card} onRunCommand={sendRunCommand} presentation={presentation} />
+      : <p className="smithers-card-note" role="status">Requested</p> : (
       <FailureNotice className="sui-approval-error" data-testid="flow-run-launch-failure" data-stage={request.error.stage}
         failure={launchFailure(request.error)}
         actions={{ retry: { ...flowProps("flow.run.retry"), onClick: () => onRetryRun(card.id) } }} />
@@ -120,6 +128,20 @@ export const WorkflowRunCardBody = ({
   const facet = card.payload.facet ?? "steps"
   const facetRequest = card.payload.facetRequest
   const facetUnready = facetRequest !== undefined && facetRequest.state !== "complete" && facetRequest.facet === facet
+  const notices = (
+    <>
+      {(phase === "completed" || phase === "failed" || phase === "cancelled" || phase === "no-capacity") && error !== undefined ?
+        (
+          <FailureNotice className="sui-approval-error run-failure" data-testid={`flow-run-failure-${runId}`}
+            failure={{ tag: null, fault, sentence, actions: [], detail }} />
+        ) :
+        null}
+      {observationError !== undefined ?
+        <FailureNotice className="sui-approval-error" data-testid={`flow-run-observation-failure-${runId}`}
+          failure={describedFailure(`run.observe.${phase}`, OBSERVATION_FAILURES[phase], observationError)} /> :
+        null}
+    </>
+  )
   return (
     <div className="flow-run-card" data-run-kind={kind}>
       {/* Lane runs: why a live run is not moving, in the control plane's word. */}
@@ -147,6 +169,8 @@ export const WorkflowRunCardBody = ({
         flowDurations={flowDurations}
         fileCards={fileCards}
         childCards={childCards}
+        presentation={presentation}
+        notices={sweep ? notices : undefined}
       />
       <ChildRuns card={card} collection={childCards} onRunCommand={onRunCommand} />
       {facetRequest?.state === "failed" ?
@@ -180,18 +204,9 @@ export const WorkflowRunCardBody = ({
             </ul>
           ) :
         null}
-      {(phase === "completed" || phase === "failed" || phase === "cancelled" || phase === "no-capacity") && error !== undefined ?
-        (
-          <FailureNotice className="sui-approval-error run-failure" data-testid={`flow-run-failure-${runId}`}
-            failure={{ tag: null, fault, sentence, actions: [], detail }} />
-        ) :
-        null}
-      {observationError !== undefined ?
-        <FailureNotice className="sui-approval-error" data-testid={`flow-run-observation-failure-${runId}`}
-          failure={describedFailure(`run.observe.${phase}`, OBSERVATION_FAILURES[phase], observationError)} /> :
-        null}
-      {/* §3: the two acts a quiet run offers — both registered commands. */}
-      {phase === "quiet" ?
+      {sweep ? null : notices}
+      {/* §3: the two acts a quiet run offers — both registered commands. The burndown board offers them in its header. */}
+      {phase === "quiet" && !sweep ?
         (
           <div className="flow-run-actions">
             <Button size="sm" {...flowProps("flow.run.retry")} onClick={() => onRetryRun(card.id)}>
@@ -223,7 +238,8 @@ export const WorkflowRunCardBody = ({
        * settled run, with the same input, refusing honestly when this client
        * never recorded one.
        */}
-      <div className="flow-run-actions flow-run-footer">
+      {/* An issue-sweep's board owns its acts (a confirmed Stop for now, Resume); a sweep has no model turn to steer or transcript to read. */}
+      {sweep ? null : <div className="flow-run-actions flow-run-footer">
         <div className="flow-run-tabs" role="tablist" aria-label="Run views">
           <Button
             size="sm"
@@ -289,9 +305,9 @@ export const WorkflowRunCardBody = ({
             </div>
           ) :
           null}
-      </div>
+      </div>}
       {/* Spec 06 §3: a prototype is never steered; its header has no Steer, so its card has no steer row. */}
-      {LIVE_RUN_PHASES.has(phase) && kind !== "prototype" ? <RunSteerRow runId={runId} onRunCommand={onRunCommand} /> : null}
+      {LIVE_RUN_PHASES.has(phase) && kind !== "prototype" && !sweep ? <RunSteerRow runId={runId} onRunCommand={onRunCommand} /> : null}
     </div>
   )
 }
@@ -531,6 +547,7 @@ export const workflowCardFamily: CardFamily<"run-trace" | "workflow-repo" | "wor
         flowDurations={actions.flowDurations}
         fileCards={actions.fileCards}
         childCards={actions.projectionStore?.collections.cards}
+        presentation={actions.presentation}
       />
     ),
     pill: (card) => {

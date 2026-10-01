@@ -149,6 +149,9 @@ const PRESENTATION_ONLY = [
   "setSelectedPath", // world card doc selection: which note the embedded editor shows — local presentation state
   "onDismissDrawer(", // graph card detail drawer close: local presentation state (which node is focused)
   "setOpenLog(", // run timeline log panel: which row's log is open — local presentation state
+  "setUncapped(", // burndown card: a long group shown past its embedded cap — local presentation state; maximized shows every row
+  "setAsking(", // burndown card: whether its stop/resume question is open — local presentation state; the acts ride flow.run.stop / runs.signal / issue-sweep
+  "onKeep}", // burndown card: closing that question — local presentation state
   "setDeleteDraft", // workspace card delete: the typed-confirm row's open state and its draft — local presentation state; the act itself rides box.delete
   "onRunCommand(", // delegated: App.tsx binds it to the registry's runCommand
   "onChoose(", // delegated: Composer.tsx routes a palette row through runCommand, or edits the draft (a namespace, a prefix)
@@ -410,7 +413,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * box whose image predates the desktop tools, where a Retry is a door
        * onto a wall.
        */
-      "../cards/WorkspaceCard.tsx": 17,
+      "../cards/WorkspaceCard.tsx": 19,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
@@ -489,6 +492,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The commits cards: a row's and a parent's commits.read, and the sha chip's chat.copy-message — all through onRunCommand. */
       "../cards/CommitCards.tsx": 3,
       "../cards/BranchesCard.tsx": 2, // a row opens that branch's commits (commits.list)
+      "../cards/BurndownCard.tsx": 7, // the state filter and row (runs.burndown.*), Check again (flow.run.retry), the stop/resume confirmation (flow.run.stop, runs.signal, issue-sweep), and a group's "more" (local chrome)
       /*
        * Connection, world and browser card interactions, plus the embedded
        * wiki collaboration cards (ad438463a6): page Previous/Next and the

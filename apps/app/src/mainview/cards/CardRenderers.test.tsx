@@ -296,6 +296,12 @@ describe("factory homepage", () => {
     expect(renderToStaticMarkup(<RepositoryHomeCard card={error} onRunCommand={() => {}} />)).toContain('role="alert"')
   })
 
+  test("a featured flow's button carries the repository the home shows (#3336)", () => {
+    const card = home([{ type: "flows", title: "Try first" }])
+    const markup = renderToStaticMarkup(<RepositoryHomeCard card={card} onRunCommand={() => {}} />)
+    expect(markup).toContain('data-flow="review" data-flow-args="org/repo"')
+  })
+
   test("app blocks render the app home: the heading, then one tile per app bound to its flow (D-18)", () => {
     const card = home([
       { type: "prompt", placeholder: "Ask Smithers…" },
@@ -418,7 +424,7 @@ describe("factory homepage", () => {
     expect(host.querySelector("h1")?.compareDocumentPosition(host.querySelector("form")!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     act(() => host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
     act(() => host.querySelector<HTMLButtonElement>('[data-flow="review"]')?.click())
-    expect(calls).toEqual([["chat.send", "Change it"], ["review", undefined]])
+    expect(calls).toEqual([["chat.send", "Change it"], ["review", "org/repo"]])
     act(() => root.render(<ControllerTestProvider controller={controller}><RepositoryHomeCard
       card={home([{ type: "prompt", flow: "review" }])}
       onRunCommand={(name, args) => calls.push([name, args])} /></ControllerTestProvider>))

@@ -1178,6 +1178,23 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       takeover: z.object({ terminalSessionId: z.string() }).optional(),
       /** The predicted Change inspected within the recorded coding plan. */
       codingChangeId: z.string().optional(),
+      /** An issue-sweep run's board: the one state it narrows to, and the issue whose detail is open. */
+      burndown: z.object({
+        filter: z.enum(["skip", "ours", "claimed", "working", "adopting", "landing", "landed", "held", "failed"]).optional(),
+        item: z.number().int().nonnegative().optional()
+      }).optional(),
+      /**
+       * The card's last `runs.signal`: `pending` while the workspace has not
+       * answered, `failed` with its refusal, `sent` once accepted. `afterSeq`
+       * is the journal sequence the card had read when it asked, so a wait
+       * scheduled later is a new wait the signal did not answer.
+       */
+      signalRequest: z.object({
+        name: z.string(),
+        state: z.enum(["pending", "failed", "sent"]),
+        afterSeq: z.number().int().nonnegative(),
+        error: z.string().optional()
+      }).optional(),
       /** Local launch intent, retained until the authoring run's real receipt arrives. */
       authoring: z.object({
         requestId: z.string(),

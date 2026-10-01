@@ -328,6 +328,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly traceFilter: RunsController["traceFilter"]
   readonly traceSelect: RunsController["traceSelect"]
   readonly selectCodingChange: RunsController["selectCodingChange"]
+  readonly burndownFilter: RunsController["burndownFilter"]
+  readonly burndownSelect: RunsController["burndownSelect"]
   readonly traceView: RunsController["traceView"]
   readonly graphFollow: RunsController["graphFollow"]
   readonly graphExecution: RunsController["graphExecution"]
@@ -1749,6 +1751,8 @@ export const createAppController = (
     traceFilter: runs.traceFilter,
     traceSelect: runs.traceSelect,
     selectCodingChange: runs.selectCodingChange,
+    burndownFilter: runs.burndownFilter,
+    burndownSelect: runs.burndownSelect,
     traceView: runs.traceView,
     graphFollow: runs.graphFollow,
     graphExecution: runs.graphExecution,
@@ -2118,6 +2122,7 @@ export const createAppController = (
     repoImportSeam.resume()
     runs.resumeApprovalRequests()
     runs.resumeRunFacetRequests()
+    runs.settleRunSignalRequests()
     runs.resumeRunListRequests()
     runs.resumeRunOpenRequests()
   })

@@ -260,11 +260,13 @@ describe("command registry pure model", () => {
     expect(parseSubmit("/world", controller.commands.all())).toEqual({ kind: "command", name: "world" })
   })
 
-  test("every visible flow lives in a namespace, except the surface switches", async () => {
+  test("every visible flow lives in a namespace, except the surface switches and a repository leaf the app types", async () => {
     const { controller } = await freshController()
+    // A typed entry that stands in for a repository's flow leaf keeps the leaf's bare name (`issue-sweep`).
     const orphans = visibleItems(controller.commands)
       .map((command) => command.name)
-      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut")
+      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut" &&
+        controller.commands.find(name)?.metadata.workflow !== name)
     expect(orphans).toEqual([])
   })
 

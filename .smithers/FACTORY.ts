@@ -41,11 +41,16 @@ export const releaseNotes = S.Flow({
   summary: "Draft release notes from the commits since the last tag, grouped by package.",
   featured: true
 })
+export const issueSweep = S.Flow({
+  flow: "issue-sweep",
+  summary: "Work every open GitHub issue that no other machine holds.",
+  featured: true
+})
 // --- end featured flows ----------------------------------------------------
 
 export const factory = S.Factory({
   summary: "How smithersai/smithers develops itself.",
-  flows: [review, lint, prTriage, issueTriage, releaseNotes],
+  flows: [review, lint, prTriage, issueTriage, releaseNotes, issueSweep],
   // The day-one Dispatcher table (factory design 2026-09-07 §7). These are
   // the rules the factory declares; the Dispatcher card shows each as a
   // declared row with its sentence. The flows they name land with the
