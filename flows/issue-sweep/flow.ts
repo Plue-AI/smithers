@@ -240,10 +240,31 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
       Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error))
     ) as Effect.Effect<Worked, Failure, Engine>
   },
-  land: ({ output }) =>
-    output.change === ""
-      ? Effect.fail(new LandFailed({ message: `${output.workspace}: only local changes land` }))
-      : landChange(output.workspace, output.change),
+  // An issue someone closed while its agent worked is already settled; landing
+  // a second fix for it would only duplicate the first.
+  land: ({ input, item, output }) =>
+    Effect.gen(function*() {
+      if (output.change === "") {
+        return yield* new LandFailed({ message: `${output.workspace}: only local changes land` })
+      }
+      const state = yield* gh([
+        "issue",
+        "view",
+        String(item.number),
+        "--repo",
+        (input as typeof Input.Type).repo,
+        "--json",
+        "state",
+        "--jq",
+        ".state"
+      ])
+      if (state.trim() !== "OPEN") {
+        return yield* new LandFailed({
+          message: `#${item.number} is ${state.trim().toLowerCase()}; change ${output.change} not landed`
+        })
+      }
+      return yield* landChange(output.workspace, output.change)
+    }),
   detail: (report, landed) =>
     `${landed === undefined ? report.change : landed.slice(0, 12)} by ${report.agent} ${report.account}`,
   release: (args) =>
