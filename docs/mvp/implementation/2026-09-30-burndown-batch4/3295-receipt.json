@@ -1,0 +1,72 @@
+{
+  "issue": 3295,
+  "status": "ready-and-frozen",
+  "capturedAt": "2026-10-01T01:12:01.904820+00:00",
+  "head": "7bc13bd8e87cc5709b91018cb23435b203c43ef8",
+  "worktree": "/private/tmp/smithers-burndown-20260930",
+  "ownedFiles": {
+    "packages/backend/internal/services/signup_profile_integration_test.go": "cace4eb919567e613b42c9507df91a2be586d5bb30ff3d80242cc9bed846311b"
+  },
+  "inputHashes": {
+    "packages/backend/internal/services/signup_profile_integration_test.go": "cace4eb919567e613b42c9507df91a2be586d5bb30ff3d80242cc9bed846311b",
+    "packages/backend/internal/services/signup_profile.go": "a3866177ab1eadbbf2386461b682836d065c35ff857e47c619edc9fe294737ed",
+    "packages/backend/internal/services/agent_integration_test.go": "d4d33a76982ddcee012dcf10f2d7c92d969d0d1808b227ca020127c358a07c9b",
+    "packages/backend/internal/services/main_test.go": "43f0368e2f3501d5a24a0e2b8ee46a21076d8b929a0b696379361d1d36c29349",
+    "packages/backend/internal/routes/signup_profile_test.go": "27eedc3902ee19268c9db1e3315f18c805ae4a6cf4e51d1b8a0da4d141939f98",
+    "packages/backend/internal/routes/user.go": "0e6698e349f6ccfd1ce1ee0f14a4bd14225e3cb3a3ba88148a47e377554425f1",
+    "go.mod": "3178063bf94f255023af576ea40b446e54c3859ec6cd4a9c39c03f12ee250fda",
+    "go.sum": "92fac2f61c9749823c21cfb7fa82316dd237f4e1516e561b7387422459025ce9"
+  },
+  "commands": [
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 TMPDIR=/private/tmp go test ./packages/backend/internal/services -run '^TestSignupProfileServicePersistsInOnboardingAnswers$' -count=1 -v",
+      "exitCode": 1,
+      "log": "3295-before.log",
+      "meaning": "Independently reproduces Go nil/empty structural fixture mismatch; production JSON canonicalization is correct."
+    },
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 TMPDIR=/private/tmp go test ./packages/backend/internal/services ./packages/backend/internal/routes -run '^TestSignupProfile' -count=1 -v",
+      "exitCode": 0,
+      "log": "3295-signup-green.log",
+      "topLevelPasses": 5,
+      "subtestPasses": 16,
+      "skips": 0,
+      "serviceSeconds": 2.67,
+      "routeSeconds": 0.495
+    }
+  ],
+  "originalFailure": {
+    "archive": "docs/mvp/implementation/2026-09-30-burndown-batch4/3287-validation.tar.gz",
+    "archiveSha256": "e3be6e623b8e5288e3cbb238e8971dfb568388b4cf4e33a149c2c4ddc613bc06",
+    "member": "runtime-batch4/3287-services-whole.log",
+    "rawSha256": "b9d5709afab42fac607aa77e453da989dbfc661f0a5a2256aa8eb225eb4b8b0c",
+    "retainedCopy": "3295-original-services-whole.log.gz",
+    "wholeRun": "failed, 530.763 seconds; not converted into a whole-package success claim"
+  },
+  "assertions": [
+    "Original stored document JSON is unchanged, including none:[]; expected read value explicitly models canonical non-nil empty choices.",
+    "Original missing-profile/timestamp, owner isolation, replacement, refused-write account and malformed-storage API error controls remain.",
+    "Refused write additionally preserves full prior profile and timestamp.",
+    "Actual required PostgreSQL case for each nil list, explicit empty list, nonempty list and single choice uses a distinct owner and queries onboarding_answers directly.",
+    "Hardcoded JSON answer oracles verify exact request bytes, persisted document equality, both complete public PUT/GET receipt bytes and decode/re-encode roundtrips.",
+    "Public JSON controls exercise the exported DTO serializer; existing HTTP route controls remain unchanged and also execute, using their pre-existing in-memory store."
+  ],
+  "limitations": [
+    "No product code or semantics changed.",
+    "No full services-package success or coverage percentage claimed; this is narrow test-fixture reconciliation.",
+    "No hosted deployment/browser signup proof claimed; broader #1901 remains open.",
+    "No processes remain running and source is frozen awaiting parent review/commit."
+  ],
+  "receiptHashes": {
+    "3295-before.log": "1db789763ddf9728f5036d7fa302f08f6cd87ac1ccbf5a08922af4b669f507b9",
+    "3295-format-checks.json": "63042830ff1891f8cfbe243386ec034caaebb3ce54df68b9d8754e11490039de",
+    "3295-original-services-whole.log.gz": "5ddcc0ad550f64056173ab95b8ace0f153739427b3ebc50dee9bfbbe04987bc5",
+    "3295-signup-green.log": "07d5cc38fac09d763c6a99cc016e405c14adc066c45a1493a918f2bee4097194",
+    "3295-test-only.patch": "8367d02d094b977e2374db4c7dea58486274ea042e19a8ff47718826bad940cc"
+  },
+  "review": "Orchestrator reviewed test-only canonical-empty-list reconciliation and actual PostgreSQL four-case nil/empty/nonempty/single-choice roundtrips. Original persisted JSON, timestamps, owner isolation, replacement, refused-write and malformed-storage assertions remain; refusal now also checks entire receipt. Independent original failure reproduced. Existing route memory fixture distinguished from actual database service/DTO boundary; broader #1901 stays open.",
+  "archive": {
+    "path": "docs/mvp/implementation/2026-09-30-burndown-batch4/3295-validation.tar.gz",
+    "sha256": "206537a5df517cf827bb5142415d397eacb0c6e6deead3b6488d2d5dc66a8c93"
+  }
+}
