@@ -14,7 +14,7 @@ import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, readPools } from "./accounts.ts"
-import { api, openIssues, proxyGrant } from "./github.ts"
+import { api, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import Work, { AgentFailed, removeWorkspace, type Report, requeue } from "./work/flow.ts"
@@ -77,12 +77,15 @@ const Rounds = Burndown.make({
 // half-made edit there failed every claim and release of a running sweep.
 export const claimTool = fileURLToPath(new URL("../../scripts/issue-claim.mjs", import.meta.url))
 
+// Discovery reads capabilities only as a string-literal array with no
+// comments, so the checkout path in the GitHub proxy and claim tool grants is a
+// wildcard.
 export default Flow.make("issue-sweep", {
   description: "Work every open GitHub issue that no other machine holds.",
   capabilities: [
     "proc:spawn:gh api *",
-    proxyGrant,
-    `proc:spawn:node ${claimTool} *`,
+    "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+    "proc:spawn:node /*/scripts/issue-claim.mjs *",
     "proc:spawn:jj -R *",
     "proc:spawn:lockf *",
     "proc:spawn:pnpm *",

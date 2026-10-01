@@ -14,8 +14,6 @@ import { HostFailed, output } from "./host.ts"
 // The copy beside this flow, like the claim tool.
 export const proxyTool = fileURLToPath(new URL("../../scripts/github-proxy.mjs", import.meta.url))
 
-/** The one `node` command line a flow that reads GitHub may spawn: starting the proxy. */
-export const proxyGrant = `proc:spawn:node ${proxyTool} --ensure`
 const Ensured = Schema.fromJsonString(Schema.Struct({ proxy: Schema.String }))
 
 /** The proxy's base URL, starting the proxy first when it is not running. */

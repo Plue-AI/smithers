@@ -15,7 +15,7 @@ import { existsSync } from "node:fs"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { type Agent, pickAgent, readPools } from "../accounts.ts"
-import { issue, proxyGrant } from "../github.ts"
+import { issue } from "../github.ts"
 import { output, repository, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
 import * as LocalVm from "../vm.ts"
@@ -159,7 +159,7 @@ export default Flow.make("issue-sweep/work", {
   description: "One coding agent fixes one issue in its own jj workspace.",
   capabilities: [
     "proc:spawn:gh api *",
-    proxyGrant,
+    "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
     "proc:spawn:jj -R *",
     // SandboxMerge.apply builds a remote run's change in the repository's git store.
     "proc:spawn:git --git-dir *",
