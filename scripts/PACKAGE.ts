@@ -35,6 +35,17 @@ const sources = [
  */
 const packDirectory = "dist/release-packs"
 
+const privateAdapterManifests = [
+  "packages/smithers",
+  "packages/smithers/build/build-cli",
+  "packages/smithers/migrate",
+  "packages/smithers/flows/platform-node",
+  "packages/smithers/flows/platform-bun",
+  "packages/smithers/gateway",
+  "packages/smithers/flows",
+  "packages/smithers/create-app"
+].map((directory) => Smithers.file(`//${directory}/package.json`))
+
 /**
  * Checks the release manifest: which packages are published, in what order, and
  * with which internal ranges retargeted.
@@ -229,7 +240,8 @@ const webBundleContract = Smithers.NodeTest({
  * `scripts/fixtures/public-api-baseline.json`.
  *
  * Compiles with each package's release compiler into an isolated temporary
- * tree. Packing and runtime bundles are unnecessary for declaration drift.
+ * tree. Private adapter declarations use the same producer as publication;
+ * packing and the full package JavaScript builds remain separate gates.
  *
  * @since 1.0.0
  * @category build
@@ -238,7 +250,17 @@ const apiBaseline = Smithers.NodeBinary({
   entry: Smithers.file("//scripts/check-api-baseline.mjs"),
   args: ["--build-declarations"],
   timeout: "30m",
-  srcs: sources,
+  srcs: [
+    ...sources,
+    Smithers.file("//packages/repo-targets/scripts/build-library.mjs"),
+    Smithers.file("//packages/repo-targets/scripts/private-effect-adapters.mjs"),
+    Smithers.file("//packages/repo-targets/package.json"),
+    Smithers.file("//packages/smithers/scripts/compile-commonjs.mjs"),
+    ...privateAdapterManifests,
+    Smithers.file("//package.json"),
+    Smithers.file("//pnpm-lock.yaml"),
+    Smithers.file("//pnpm-workspace.yaml")
+  ],
   deps: []
 })
 
@@ -265,7 +287,8 @@ const releasePack = Smithers.NodeBinary({
 })
 
 const docsDrift = Smithers.Shell.Diff({
-  shell: "pnpm run docs:check && cd apps/site && node scripts/sync-support-docs.mjs --check && node scripts/gen-cli-data.mjs --check && node scripts/sync-api-docs.mjs --check && node scripts/ingest-reference.mjs --check && node scripts/gen-examples.mjs --check && node scripts/generate-llms.mjs --check",
+  shell:
+    "pnpm run docs:check && cd apps/site && node scripts/sync-support-docs.mjs --check && node scripts/gen-cli-data.mjs --check && node scripts/sync-api-docs.mjs --check && node scripts/ingest-reference.mjs --check && node scripts/gen-examples.mjs --check && node scripts/generate-llms.mjs --check",
   changes: [],
   timeout: "5m"
 })
@@ -315,6 +338,22 @@ const openapiClients = Smithers.NodeTest({
     Smithers.file("//docs/api/openapi.yaml"),
     Smithers.file("//packages/backend/apiclient/client.gen.go"),
     Smithers.file("//packages/smithers/src/internal/backend/ProductApi.ts")
+  ],
+  deps: []
+})
+
+const privateEffectAdapters = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/private-effect-adapters.test.mjs")]),
+  srcs: [
+    ...sources,
+    Smithers.file("//packages/repo-targets/scripts/private-effect-adapters.mjs"),
+    Smithers.file("//packages/repo-targets/package.json"),
+    Smithers.file("//packages/repo-targets/scripts/build-library.mjs"),
+    Smithers.file("//packages/smithers/scripts/compile-commonjs.mjs"),
+    ...privateAdapterManifests,
+    Smithers.file("//package.json"),
+    Smithers.file("//pnpm-lock.yaml"),
+    Smithers.file("//pnpm-workspace.yaml")
   ],
   deps: []
 })
@@ -583,7 +622,8 @@ const localSmithersUnit = Smithers.NodeTest({
  * @category test
  */
 const githubTriage = Smithers.NodeTest({
-  summary: "GitHub triage publishes only validated labels and mention-free comments to the event's own issue, updating only its own comment.",
+  summary:
+    "GitHub triage publishes only validated labels and mention-free comments to the event's own issue, updating only its own comment.",
   featured: true,
   runner: Smithers.testRunner([Smithers.file("//scripts/github-triage.test.mjs")]),
   srcs: [
@@ -609,7 +649,8 @@ const githubTriage = Smithers.NodeTest({
  * @category test
  */
 const issueClaim = Smithers.NodeTest({
-  summary: "Agents claim an issue before work and release it after, through one machine-wide GitHub write throttle; a live claim blocks others and a stale one can be taken over.",
+  summary:
+    "Agents claim an issue before work and release it after, through one machine-wide GitHub write throttle; a live claim blocks others and a stale one can be taken over.",
   runner: Smithers.testRunner([Smithers.file("//scripts/issue-claim.test.mjs")]),
   srcs: [Smithers.file("//scripts/issue-claim.mjs")],
   deps: []
@@ -643,7 +684,11 @@ const thirdPartyNotices = Smithers.NodeTest({
  */
 const thirdPartyNoticesUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/generate-third-party-notices.test.mjs")]),
-  srcs: [...sources, Smithers.file("//scripts/third-party-notices.template.md"), Smithers.file("//.github/workflows/ci.yml")],
+  srcs: [
+    ...sources,
+    Smithers.file("//scripts/third-party-notices.template.md"),
+    Smithers.file("//.github/workflows/ci.yml")
+  ],
   deps: []
 })
 
@@ -662,7 +707,11 @@ const releaseIntegrity = Smithers.NodeTest({
 /** Required fast behavioral mutation tier, including both exact-byte guards. */
 const mutationGate = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//scripts/check-mutations.mjs")),
-  srcs: [...sources, Smithers.glob("//packages/smithers/gateway/src/**/*.ts"), Smithers.glob("//packages/smithers/gateway/test/**/*.ts")],
+  srcs: [
+    ...sources,
+    Smithers.glob("//packages/smithers/gateway/src/**/*.ts"),
+    Smithers.glob("//packages/smithers/gateway/test/**/*.ts")
+  ],
   deps: []
 })
 
@@ -777,7 +826,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "triage-untrusted-report",
       title: "Issue and PR triage publishes only validated output to the repository the event named",
-      threat: "An issue or PR author steers the triage model or code it runs into labeling, commenting on, or redirecting writes to issues the GitHub token can reach.",
+      threat:
+        "An issue or PR author steers the triage model or code it runs into labeling, commenting on, or redirecting writes to issues the GitHub token can reach.",
       lookFor: [
         "apply() reading repository and number from .triage/context.json, a file the model step or the `pnpm test` it may spawn can rewrite before apply runs.",
         "A report comment posted with a live @mention: any `@` after a non-alphanumeric character, inside emphasis, or spelled as an HTML entity (&#64;, &#x40;, &commat;) that neutralizeMentions leaves unbroken.",
@@ -790,7 +840,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "release-publish-integrity",
       title: "npm publishes only the exact tarballs that passed smoke testing at the tagged commit",
-      threat: "A tampered pack directory, stale evidence or a mismatched tag lets a CI writer publish unreviewed bytes under the @smthrs scope to every consumer.",
+      threat:
+        "A tampered pack directory, stale evidence or a mismatched tag lets a CI writer publish unreviewed bytes under the @smthrs scope to every consumer.",
       lookFor: [
         "A publish path that skips verifyLocalCandidate, the source sha/tag match, or the smoke-evidence candidateIntegrity comparison.",
         "A manifest filename that can contain a path separator or '..' and escape the pack directory.",
@@ -801,8 +852,10 @@ const securityReview = Smithers.SecurityReview({
     },
     {
       id: "release-archive-restore",
-      title: "A restored release archive comes only from this repository's Release run and cannot write outside staging",
-      threat: "A fork, another workflow, or a crafted zip substitutes release tarballs or writes files outside the restore directory on the release runner.",
+      title:
+        "A restored release archive comes only from this repository's Release run and cannot write outside staging",
+      threat:
+        "A fork, another workflow, or a crafted zip substitutes release tarballs or writes files outside the restore directory on the release runner.",
       lookFor: [
         "verifyArchiveIdentity accepting a run whose repository, head_repository, path, event or artifact workflow_run fields differ from this repository's release.yml.",
         "The python extractor admitting a member name with '/', '..', a symlink mode, or a duplicate, or exceeding the byte and count budgets.",
@@ -814,7 +867,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "packed-tarball-contents",
       title: "Published tarballs contain only authored package files and no local credentials or caches",
-      threat: "A maintainer's local .env, .npmrc, .smithers database or credential under a package directory ships publicly inside an npm tarball.",
+      threat:
+        "A maintainer's local .env, .npmrc, .smithers database or credential under a package directory ships publicly inside an npm tarball.",
       lookFor: [
         "copyFilter admitting dotfiles, .smithers state beyond WORKSPACE.ts/agents.ts/sandbox.ts, or files a manifest `files` list does not name.",
         "pnpm pack run without --config.ignore-scripts=true, letting a package lifecycle script execute during packing.",
@@ -825,18 +879,26 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "consumer-install-isolation",
       title: "Smoke installs resolve first-party packages only from the loopback registry and run no install scripts",
-      threat: "A public-registry package squatting an @smthrs name, or a dependency's install script, runs code on the release runner that holds publish credentials.",
+      threat:
+        "A public-registry package squatting an @smthrs name, or a dependency's install script, runs code on the release runner that holds publish credentials.",
       lookFor: [
         "An npm, pnpm or bun install in a smoke or consumer probe without --ignore-scripts.",
         "A scratch .npmrc that leaves any first-party scope resolving from the public registry.",
         "The loopback registry binding to a non-loopback address or serving a path outside its tarball map."
       ],
-      paths: ["smoke-release.mjs", "release-registry.mjs", "release-consumers.mjs", "check-npm-dedupe.mjs", "fixtures/installed-consumer/**"]
+      paths: [
+        "smoke-release.mjs",
+        "release-registry.mjs",
+        "release-consumers.mjs",
+        "check-npm-dedupe.mjs",
+        "fixtures/installed-consumer/**"
+      ]
     },
     {
       id: "ci-bootstrap-downloads",
       title: "Every tool the Cloud CI bootstrap downloads and executes is pinned by version and digest",
-      threat: "A compromised or spoofed release host swaps a jj, ripgrep, Foundry, rustup or Node binary that then runs with the CI task's repository access.",
+      threat:
+        "A compromised or spoofed release host swaps a jj, ripgrep, Foundry, rustup or Node binary that then runs with the CI task's repository access.",
       lookFor: [
         "A download() or curl that reaches tar/chmod/exec without download_verified, which checks node_digest or tool_digest with sha256sum -c and exits on a mismatch.",
         "A version read from a repository file used unvalidated in a URL or shell word.",
@@ -847,7 +909,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "check-cache-poisoning",
       title: "The host check cache cannot carry forged verdicts or escape its root",
-      threat: "Code under check in one revision plants passing target results or links that a later revision's check replays as green, or that overwrite host files.",
+      threat:
+        "Code under check in one revision plants passing target results or links that a later revision's check replays as green, or that overwrite host files.",
       lookFor: [
         "copyMissing following a symlink or special file, or writing outside the partition or the export's .flows/cache.",
         "An existing valid entry replaced by a check's own output.",
@@ -858,18 +921,30 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "script-subprocess-args",
       title: "Scripts spawn processes with argument vectors, never shell strings built from inputs",
-      threat: "A crafted CLI flag, environment value, commit message or git ref makes an operator script run arbitrary shell commands on a maintainer or CI host.",
+      threat:
+        "A crafted CLI flag, environment value, commit message or git ref makes an operator script run arbitrary shell commands on a maintainer or CI host.",
       lookFor: [
         "exec, execSync or spawn with shell:true, or sh -c, interpolating argv, environment variables, file contents or git output.",
         "A string option split on spaces and executed, like rebase-cache --install.",
         "An unvalidated positional argument placed into go build -ldflags or a similar command-line flag string."
       ],
-      paths: ["commit.mjs", "ci/check-known-red-coverage.mjs", "bench/**", "build-backend.sh", "test-backend-consumer.sh", "generate-changelog.mjs", "run-jj-abi-campaign.mjs", "check-mutations.mjs", "bun-coverage/**"]
+      paths: [
+        "commit.mjs",
+        "ci/check-known-red-coverage.mjs",
+        "bench/**",
+        "build-backend.sh",
+        "test-backend-consumer.sh",
+        "generate-changelog.mjs",
+        "run-jj-abi-campaign.mjs",
+        "check-mutations.mjs",
+        "bun-coverage/**"
+      ]
     },
     {
       id: "credential-scrubbing",
       title: "Cache and registry tokens never reach child processes that do not need them",
-      threat: "A planner, benchmark or consumer probe subprocess inherits SMITHERS_CACHE_* or registry tokens and leaks them into logs or untrusted package code.",
+      threat:
+        "A planner, benchmark or consumer probe subprocess inherits SMITHERS_CACHE_* or registry tokens and leaks them into logs or untrusted package code.",
       lookFor: [
         "A spawn passing { ...process.env } to package installs or repository code without deleting SMITHERS_CACHE_TOKEN, SMITHERS_CACHE_READ_TOKEN, SMITHERS_CACHE_WRITE_TOKEN, NPM_TOKEN or GH_TOKEN.",
         "Environment dumps or error messages that print token-bearing variables."
@@ -912,6 +987,7 @@ export const Package = Smithers.Package({
     npmDedupe,
     npmDedupeUnit,
     packManifest,
+    privateEffectAdapters,
     releaseCut,
     releasePack,
     releaseRehearsal,

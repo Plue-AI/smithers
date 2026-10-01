@@ -4,7 +4,11 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "agent"
+    "group": "agent",
+    "privateEffectAdapters": [
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Upgrades Smithers 0.x projects to Smithers 1.0 flows and writes an auditable migration report",
   "homepage": "https://github.com/smithersai/smithers",
@@ -82,7 +86,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -385,10 +390,12 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "optionalDependencies": {
     "@smthrs/agent": "1.0.0-rc.1",

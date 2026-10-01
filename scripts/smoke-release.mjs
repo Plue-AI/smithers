@@ -13,7 +13,7 @@
  * the consumer is told to bring: `@smthrs/platform-bun` resolves
  * `@effect/platform-bun` at import time, and without it the ESM entry throws
  * ERR_MODULE_NOT_FOUND in the consumer's project.
- * A second, empty consumer installs `@smthrs/cli` alone with npm and an empty
+ * Separate empty npm and pnpm consumers install `@smthrs/cli` alone with empty
  * package cache, answers MCP `initialize` from the installed `smthrs --mcp`,
  * and holds every Effect-family package it resolved to the pinned version: a
  * fresh resolver taking a third-party caret edge past the pin is how
@@ -40,21 +40,29 @@
  *
  * usage: node scripts/smoke-release.mjs <pack-directory>
  */
-import { spawn } from "node:child_process"
 import { build as bundle } from "esbuild"
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { spawn } from "node:child_process"
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { EXPECTED_EFFECT_VERSION } from "./check-single-effect-version.mjs"
+import { recordSmokeSuccess, verifyLocalCandidate } from "./publish-release.mjs"
+import {
+  adapterProfiles,
+  consumerCacheFlags,
+  migrationProfiles,
+  minimalProfiles,
+  releasePackageManager,
+  runCliMcpConsumer,
+  runConsumerMatrix,
+  templateProfile
+} from "./release-consumers.mjs"
+import { verifyPackagedNativeHelpers } from "./release-native-helpers.mjs"
+import { assertNodeSupport } from "./release-node-support.mjs"
+import { assertSmokeNpmSupport } from "./release-npm-support.mjs"
 import { peerRangesOf } from "./release-peer-ranges.mjs"
 import { captureProcess } from "./release-process.mjs"
 import { releaseRegistry } from "./release-registry.mjs"
-import { recordSmokeSuccess, verifyLocalCandidate } from "./publish-release.mjs"
-import { assertNodeSupport } from "./release-node-support.mjs"
-import { assertSmokeNpmSupport } from "./release-npm-support.mjs"
-import { verifyPackagedNativeHelpers } from "./release-native-helpers.mjs"
-import { EXPECTED_EFFECT_VERSION } from "./check-single-effect-version.mjs"
-import { assertEffectFamilyInstalled, mcpInitialize } from "./release-mcp-handshake.mjs"
-import { adapterProfiles, consumerCacheFlags, migrationProfiles, minimalProfiles, releasePackageManager, runConsumerMatrix, templateProfile } from "./release-consumers.mjs"
 import { repoRoot } from "./workspace-packages.mjs"
 
 /**
@@ -71,28 +79,50 @@ const noticeFirstLine = "smthrs 1.0 is a migration notice, not a runtime."
 const phase = async (name, work) => {
   const started = performance.now()
   console.log(JSON.stringify({ smokePhase: name, event: "start", at: new Date().toISOString() }))
-  try { return await work() }
-  finally {
-    console.log(JSON.stringify({ smokePhase: name, event: "end", at: new Date().toISOString(), durationMs: performance.now() - started }))
+  try {
+    return await work()
+  } finally {
+    console.log(
+      JSON.stringify({
+        smokePhase: name,
+        event: "end",
+        at: new Date().toISOString(),
+        durationMs: performance.now() - started
+      })
+    )
   }
 }
-const runQuietly = (command, args, cwd, options) => phase(
-  `probe: ${[command, ...args].join(" ")}`, () => captureProcess(command, args, cwd, options))
+const runQuietly = (command, args, cwd, options) =>
+  phase(
+    `probe: ${[command, ...args].join(" ")}`,
+    () => captureProcess(command, args, cwd, options)
+  )
 
-const run = (command, args, cwd) => phase(`command: ${[command, ...args].join(" ")}`, () =>
-  new Promise((resolveRun, reject) => {
-    const started = Date.now()
-    const child = spawn(command, args, { cwd, stdio: "inherit" })
-    child.once("error", reject)
-    child.once("exit", (code, signal) => {
-      console.log(JSON.stringify({ command, args, cwd, node: process.version, exit: code, signal, durationMs: Date.now() - started }))
-      if (code === 0) {
-        resolveRun()
-      } else {
-        reject(new Error(`${command} exited with ${code ?? signal ?? "unknown status"}`))
-      }
-    })
-  }))
+const run = (command, args, cwd) =>
+  phase(`command: ${[command, ...args].join(" ")}`, () =>
+    new Promise((resolveRun, reject) => {
+      const started = Date.now()
+      const child = spawn(command, args, { cwd, stdio: "inherit" })
+      child.once("error", reject)
+      child.once("exit", (code, signal) => {
+        console.log(
+          JSON.stringify({
+            command,
+            args,
+            cwd,
+            node: process.version,
+            exit: code,
+            signal,
+            durationMs: Date.now() - started
+          })
+        )
+        if (code === 0) {
+          resolveRun()
+        } else {
+          reject(new Error(`${command} exited with ${code ?? signal ?? "unknown status"}`))
+        }
+      })
+    }))
 
 const packDirectory = process.argv[2]
 if (packDirectory === undefined) {
@@ -110,7 +140,11 @@ const candidate = await phase("pack read and integrity", async () => {
 const npmVersion = await runQuietly("npm", ["--version"], repoRoot)
 if (!npmVersion.ok) throw new Error(`npm --version failed: ${npmVersion.output}`)
 assertSmokeNpmSupport(npmVersion.output.trim())
-console.log(JSON.stringify({ smokeToolchain: { node: process.version, npm: npmVersion.output.trim(), pnpm: releasePackageManager } }))
+console.log(
+  JSON.stringify({
+    smokeToolchain: { node: process.version, npm: npmVersion.output.trim(), pnpm: releasePackageManager }
+  })
+)
 const packManifest = JSON.parse(
   await readFile(join(absolutePackDirectory, "manifest.json"), "utf8")
 )
@@ -133,22 +167,32 @@ try {
   registry = await phase("registry startup", () => releaseRegistry(absolutePackDirectory, packManifest))
   await writeFile(join(smokeRoot, ".npmrc"), `@smthrs:registry=${registry.url}\n`)
   const releaseDependencies = Object.fromEntries(
-    packManifest.map((entry) => [entry.name, entry.name.startsWith("@smthrs/")
-      ? entry.version : `file:${join(absolutePackDirectory, entry.filename)}`])
+    packManifest.map((entry) => [
+      entry.name,
+      entry.name.startsWith("@smthrs/")
+        ? entry.version :
+        `file:${join(absolutePackDirectory, entry.filename)}`
+    ])
   )
   await writeFile(
     join(smokeRoot, "package.json"),
-    `${JSON.stringify({
-      private: true,
-      smthrsReleaseConsumer: true,
-      type: "module",
-      packageManager: releasePackageManager,
-      dependencies: {
-        ...releaseDependencies,
-        typescript: "7.0.2",
-        vitest: "5.0.0"
-      }
-    }, null, 2)}\n`
+    `${
+      JSON.stringify(
+        {
+          private: true,
+          smthrsReleaseConsumer: true,
+          type: "module",
+          packageManager: releasePackageManager,
+          dependencies: {
+            ...releaseDependencies,
+            typescript: "7.0.2",
+            vitest: "5.0.0"
+          }
+        },
+        null,
+        2
+      )
+    }\n`
   )
   // Resolve both direct and transitive first-party edges through a disposable
   // registry. Root file: dependencies do not satisfy transitive registry edges
@@ -162,7 +206,7 @@ try {
       smokeRoot,
       "install",
       "--ignore-scripts",
-      ...cacheFlags,
+      ...cacheFlags
     ],
     repoRoot
   )
@@ -206,7 +250,9 @@ try {
       const wrong = results.filter(([, result]) => result.ok || !result.output.includes(noticeFirstLine))
       const status = wrong.length === 0 ? "ok  " : "FAIL"
       console.log(
-        `smoke ${status} ${entry.name}@${entry.version} (${entry.filename}, ${(size / 1024).toFixed(1)} kB, migration notice)`
+        `smoke ${status} ${entry.name}@${entry.version} (${entry.filename}, ${
+          (size / 1024).toFixed(1)
+        } kB, migration notice)`
       )
       for (const [label, result] of wrong) {
         failures.push(
@@ -229,20 +275,34 @@ try {
   // The same recorded transport and stubborn stdio server used by the source
   // fault tests, relocated beside the installed fixture so imports resolve
   // exclusively from this external consumer's dependencies.
-  for (const [source, target] of [
-    ["recorded-provider.mjs", "release-recorded-provider.mjs"],
-    ["contained-mcp.mjs", "release-contained-mcp.mjs"]
-  ]) {
-    await writeFile(join(smokeRoot, target), await readFile(
-      join(repoRoot, "packages/smithers/test/faults/fixtures", source)
-    ))
+  for (
+    const [source, target] of [
+      ["recorded-provider.mjs", "release-recorded-provider.mjs"],
+      ["contained-mcp.mjs", "release-contained-mcp.mjs"]
+    ]
+  ) {
+    await writeFile(
+      join(smokeRoot, target),
+      await readFile(
+        join(repoRoot, "packages/smithers/test/faults/fixtures", source)
+      )
+    )
   }
   for (const filename of ["consumer-boundary.mjs", "process-state.mjs"]) {
-    await writeFile(join(smokeRoot, filename), await readFile(
-      join(repoRoot, "scripts/fixtures/installed-consumer", filename)
-    ))
+    await writeFile(
+      join(smokeRoot, filename),
+      await readFile(
+        join(repoRoot, "scripts/fixtures/installed-consumer", filename)
+      )
+    )
   }
-  for (const fixture of ["release-public-api.mjs", "release-history-workspace.mjs", "installed-consumer/release-cli-containment.mjs"]) {
+  for (
+    const fixture of [
+      "release-public-api.mjs",
+      "release-history-workspace.mjs",
+      "installed-consumer/release-cli-containment.mjs"
+    ]
+  ) {
     const filename = fixture.split("/").at(-1)
     await writeFile(
       join(smokeRoot, filename),
@@ -262,7 +322,10 @@ try {
   const nativePackage = join(smokeRoot, "node_modules/@smthrs/platform-node")
   // The script gate packs before native helpers are downloaded. Final release
   // packing supplies them, and a partial helper bundle must still fail here.
-  const hasPackagedNativeHelpers = await verifyPackagedNativeHelpers(nativePackage, Boolean(process.env.SMITHERS_NATIVE_HELPERS_DIR))
+  const hasPackagedNativeHelpers = await verifyPackagedNativeHelpers(
+    nativePackage,
+    Boolean(process.env.SMITHERS_NATIVE_HELPERS_DIR)
+  )
   const cliEnv = { ...process.env }
   // Final packs must discover their own helper. The earlier script gate still
   // runs every CLI operation using the explicitly configured source helper.
@@ -275,30 +338,24 @@ try {
 
   await phase("installed CLI MCP handshake", async () => {
     const cliVersion = packManifest.find((entry) => entry.name === "@smthrs/cli").version
-    const consumer = await mkdtemp(join(tmpdir(), "smthrs-release-mcp-"))
-    try {
-      await writeFile(join(consumer, ".npmrc"), `@smthrs:registry=${registry.url}\n`)
-      await writeFile(join(consumer, "package.json"), `${JSON.stringify({
-        private: true, dependencies: { "@smthrs/cli": cliVersion }
-      }, null, 2)}\n`)
-      // An empty cache: every third-party range resolves as a new user's would.
-      await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", join(consumer, ".empty-npm-cache")], consumer)
-      const installed = assertEffectFamilyInstalled(consumer, EXPECTED_EFFECT_VERSION)
-      const serverInfo = await mcpInitialize(join(consumer, "node_modules/.bin/smthrs"), ["--mcp"], { cwd: consumer, env: cliEnv })
-      if (serverInfo.version !== cliVersion) {
-        throw new Error(`installed smthrs --mcp reported ${serverInfo.version}, packed ${cliVersion}`)
-      }
-      console.log(`MCP smoke ok: installed smthrs --mcp answered initialize as ${serverInfo.name} ${serverInfo.version}; ` +
-        `${installed.length} Effect-family packages all at ${EXPECTED_EFFECT_VERSION}`)
-    } finally {
-      await rm(consumer, { recursive: true, force: true })
+    for (const manager of ["npm", "pnpm"]) {
+      const { family, managerVersion, serverInfo } = await runCliMcpConsumer(manager, registry.url, cliVersion, {
+        env: cliEnv
+      })
+      console.log(
+        `MCP smoke ok: ${manager} ${managerVersion}, installed smthrs --mcp answered initialize as ` +
+          `${serverInfo.name} ${serverInfo.version}; ${family.length} Effect-family packages all at ${EXPECTED_EFFECT_VERSION}`
+      )
     }
   })
 
   // Import-only checks cannot catch a guest runner path erased by a CJS build.
   // Execute a real sandboxed flow through both published module conditions.
   for (const filename of ["release-sandbox-entry.mjs", "release-sandbox-smoke.mjs"]) {
-    await writeFile(join(smokeRoot, filename), await readFile(join(repoRoot, "scripts/fixtures/installed-consumer", filename)))
+    await writeFile(
+      join(smokeRoot, filename),
+      await readFile(join(repoRoot, "scripts/fixtures/installed-consumer", filename))
+    )
   }
   await run(process.execPath, ["release-sandbox-smoke.mjs"], smokeRoot)
 
@@ -310,7 +367,7 @@ try {
     bundle({
       absWorkingDir: smokeRoot,
       stdin: {
-        contents: format === "esm" ? 'import "@smthrs/cli/bin"\n' : 'require("@smthrs/cli/bin")\n',
+        contents: format === "esm" ? "import \"@smthrs/cli/bin\"\n" : "require(\"@smthrs/cli/bin\")\n",
         resolveDir: smokeRoot,
         sourcefile: `cli-side-effect.${format === "esm" ? "mjs" : "cjs"}`
       },
@@ -325,8 +382,7 @@ try {
         name: "external-packages-except-cli-entry",
         setup(build) {
           build.onResolve({ filter: /^[^./]/ }, (args) =>
-            args.path === "@smthrs/cli/bin" ? undefined : { path: args.path, external: true }
-          )
+            args.path === "@smthrs/cli/bin" ? undefined : { path: args.path, external: true })
         }
       }]
     })
@@ -347,8 +403,8 @@ try {
   await writeFile(
     join(smokeRoot, "smoke.mts"),
     [
-      'import * as Flows from "@smthrs/flows"',
-      'import { runHostContract } from "@smthrs/kernel/test/contract"',
+      "import * as Flows from \"@smthrs/flows\"",
+      "import { runHostContract } from \"@smthrs/kernel/test/contract\"",
       "",
       "const publicApi: typeof Flows = Flows",
       "void publicApi",
@@ -356,29 +412,47 @@ try {
       ""
     ].join("\n")
   )
-  await writeFile(join(smokeRoot, "smoke.cts"), [
-    'import Flows = require("@smthrs/flows")',
-    'import Errors = require("@smthrs/errors")',
-    'import Contract = require("@smthrs/kernel/test/contract")',
-    "const publicApi: typeof Flows = Flows",
-    "void publicApi",
-    "void Errors.SmithersError",
-    "void Contract.runHostContract",
-    ""
-  ].join("\n"))
+  await writeFile(
+    join(smokeRoot, "smoke.cts"),
+    [
+      "import Flows = require(\"@smthrs/flows\")",
+      "import Errors = require(\"@smthrs/errors\")",
+      "import Contract = require(\"@smthrs/kernel/test/contract\")",
+      "const publicApi: typeof Flows = Flows",
+      "void publicApi",
+      "void Errors.SmithersError",
+      "void Contract.runHostContract",
+      ""
+    ].join("\n")
+  )
   for (const module of ["Node16", "NodeNext"]) {
     await run("node", [
-      "node_modules/typescript/bin/tsc", "--noEmit",
-      "--module", module, "--moduleResolution", module,
-      "--target", "ES2022", "--skipLibCheck", "smoke.mts", "smoke.cts"
+      "node_modules/typescript/bin/tsc",
+      "--noEmit",
+      "--module",
+      module,
+      "--moduleResolution",
+      module,
+      "--target",
+      "ES2022",
+      "--skipLibCheck",
+      "smoke.mts",
+      "smoke.cts"
     ], smokeRoot)
   }
   // All-peers imports alone can conceal an unrelated adapter forced into a
   // library's default install. Certify independent profiles on both managers
   // against these same candidate bytes before issuing the success receipt.
-  await phase("consumer matrix", () => runConsumerMatrix(absolutePackDirectory, packManifest, {
-    profiles: [...minimalProfiles(packManifest), ...adapterProfiles(packManifest), ...migrationProfiles(packManifest), templateProfile(absolutePackDirectory, packManifest)], runtime: true
-  }))
+  await phase("consumer matrix", () =>
+    runConsumerMatrix(absolutePackDirectory, packManifest, {
+      profiles: [
+        ...minimalProfiles(packManifest),
+        ...adapterProfiles(packManifest),
+        ...migrationProfiles(packManifest),
+        templateProfile(absolutePackDirectory, packManifest)
+      ],
+      runtime: true
+    }))
   if (hasPackagedNativeHelpers) {
     await phase("success receipt", () => recordSmokeSuccess(absolutePackDirectory, candidate))
   } else {

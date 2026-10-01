@@ -4,7 +4,11 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "engine"
+    "group": "engine",
+    "privateEffectAdapters": [
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Node.js Host bundle for flows: Effect's Node platform services composed into the closed Host surface",
   "homepage": "https://github.com/smithersai/smithers",
@@ -57,7 +61,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -181,11 +186,12 @@
   "dependencies": {
     "@smthrs/jj": "1.0.0-rc.1",
     "@smthrs/kernel": "1.0.0-rc.1",
-    "undici": "8.10.2"
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115"
   },
   "devDependencies": {

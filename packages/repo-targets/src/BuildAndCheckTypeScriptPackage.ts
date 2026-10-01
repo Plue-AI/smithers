@@ -196,7 +196,10 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
     srcs: [
       sources,
       Input.file("//packages/repo-targets/scripts/build-library.mjs"),
+      Input.file("//packages/repo-targets/scripts/private-effect-adapters.mjs"),
+      Input.file("//packages/repo-targets/package.json"),
       Input.file("//packages/smithers/scripts/compile-commonjs.mjs"),
+      Input.file("//scripts/check-single-effect-version.mjs"),
       ...(options.buildInputs ?? [])
     ],
     entries: [entry],
@@ -220,26 +223,37 @@ export const BuildAndCheckTypeScriptPackage = (options: Options): PackageTargets
     incremental: false,
     cwd
   })
-  const test = options.testProgram === undefined ? Vitest({
-    ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
-    ...(options.testTimeoutMs === undefined ? {} : { timeoutMs: options.testTimeoutMs }),
-    tests: [tests],
-    sources: [sources, Input.glob("//packages/repo-targets/test-utils/effect-property.*"), ...(options.testData ?? []).map((pattern) => Input.glob(pattern))],
-    deps: [lib, ...deps],
-    config: vitestConfig,
-    environment: "node",
-    passWithNoTests: false,
-    cwd
-  }) : NodeTest({
-    ...(options.packageManager === undefined ? {} : { runtime: options.packageManager.runtime }),
-    runner: entrypoint(options.testProgram),
-    srcs: [sources, testSources, Input.file("package.json"), ...(vitestConfig === null ? [] : [vitestConfig]),
-      Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
-      ...(options.testData ?? []).map((pattern) => Input.glob(pattern))],
-    deps: [lib, ...deps],
-    timeout: `${options.testTimeoutMs ?? 1_200_000}ms`,
-    cwd
-  })
+  const test = options.testProgram === undefined ?
+    Vitest({
+      ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
+      ...(options.testTimeoutMs === undefined ? {} : { timeoutMs: options.testTimeoutMs }),
+      tests: [tests],
+      sources: [
+        sources,
+        Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
+        ...(options.testData ?? []).map((pattern) => Input.glob(pattern))
+      ],
+      deps: [lib, ...deps],
+      config: vitestConfig,
+      environment: "node",
+      passWithNoTests: false,
+      cwd
+    }) :
+    NodeTest({
+      ...(options.packageManager === undefined ? {} : { runtime: options.packageManager.runtime }),
+      runner: entrypoint(options.testProgram),
+      srcs: [
+        sources,
+        testSources,
+        Input.file("package.json"),
+        ...(vitestConfig === null ? [] : [vitestConfig]),
+        Input.glob("//packages/repo-targets/test-utils/effect-property.*"),
+        ...(options.testData ?? []).map((pattern) => Input.glob(pattern))
+      ],
+      deps: [lib, ...deps],
+      timeout: `${options.testTimeoutMs ?? 1_200_000}ms`,
+      cwd
+    })
   const lint = EsLint({
     ...(options.packageManager === undefined ? {} : { packageManager: options.packageManager }),
     sources: [sources],

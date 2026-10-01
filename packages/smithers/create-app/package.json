@@ -5,7 +5,11 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "tooling"
+    "group": "tooling",
+    "privateEffectAdapters": [
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Declare a Smithers app in one PACKAGE.ts: file-routed flows, panes, and Cloudflare targets",
   "homepage": "https://github.com/smithersai/smithers",
@@ -67,7 +71,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -211,11 +216,13 @@
     "@smthrs/harness": "1.0.0-rc.1",
     "@smthrs/model": "1.0.0-rc.1",
     "@smthrs/registry": "1.0.0-rc.1",
-    "@smthrs/targets": "1.0.0-rc.1"
+    "@smthrs/targets": "1.0.0-rc.1",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@smthrs/testing": "1.0.0-rc.1",
     "effect": "4.0.0-rc.115",
     "react": "^19.2.8",
@@ -224,12 +231,6 @@
     "vitest": "^5.0.0"
   },
   "peerDependenciesMeta": {
-    "@effect/platform-node": {
-      "optional": true
-    },
-    "@effect/platform-node-shared": {
-      "optional": true
-    },
     "@smthrs/testing": {
       "optional": true
     },
@@ -272,6 +273,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
     "vite": "^8.2.2",
-    "vitest": "5.0.0"
+    "vitest": "5.0.0",
+    "@effect/platform-node-shared": "4.0.0-rc.115"
   }
 }

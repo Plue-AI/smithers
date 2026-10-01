@@ -409,7 +409,10 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
     expect(attrsOf<TsBuild.Attrs>(relocated.lib).srcs).toEqual([
       moved,
       Input.file("//packages/repo-targets/scripts/build-library.mjs"),
-      Input.file("//packages/smithers/scripts/compile-commonjs.mjs")
+      Input.file("//packages/repo-targets/scripts/private-effect-adapters.mjs"),
+      Input.file("//packages/repo-targets/package.json"),
+      Input.file("//packages/smithers/scripts/compile-commonjs.mjs"),
+      Input.file("//scripts/check-single-effect-version.mjs")
     ])
     expect(attrsOf<Typecheck.Attrs>(relocated.check).srcs).toEqual([
       moved,
@@ -418,7 +421,8 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
       Input.glob("//packages/repo-targets/test-utils/effect-property.*")
     ])
     expect(attrsOf<Vitest.Attrs>(relocated.test).sources).toEqual([
-      moved, Input.glob("//packages/repo-targets/test-utils/effect-property.*")
+      moved,
+      Input.glob("//packages/repo-targets/test-utils/effect-property.*")
     ])
     expect(attrsOf<EsLint.Attrs>(relocated.lint).sources).toEqual([moved])
     expect(attrsOf<Dprint.Attrs>(relocated.fmt).sources).toEqual([moved, Input.glob("test/**/*.ts")])
@@ -446,14 +450,17 @@ describe("BuildAndCheckTypeScriptPackage option propagation", () => {
 
 describe("BuildAndCheckTypeScriptPackage declaration failures", () => {
   it("rejects a non-integer testTimeoutMs at declaration time, as the README's failure contracts state", () => {
-    expect(() => BuildAndCheckTypeScriptPackage({ packageManager, cwd: "packages/smithers/flows/plan", testTimeoutMs: 1.5 }))
+    expect(() =>
+      BuildAndCheckTypeScriptPackage({ packageManager, cwd: "packages/smithers/flows/plan", testTimeoutMs: 1.5 })
+    )
       .toThrow(/declaration.* is invalid/)
   })
 })
 
 it("runs a package-owned test matrix with the same source and dependency boundary", () => {
   const targets = BuildAndCheckTypeScriptPackage({
-    packageManager, cwd: "packages/example",
+    packageManager,
+    cwd: "packages/example",
     testProgram: Input.file("//scripts/sql-matrix.mjs"),
     testTimeoutMs: 1_800_000,
     testData: ["docs/**/*.md"]
@@ -467,7 +474,6 @@ it("runs a package-owned test matrix with the same source and dependency boundar
   expect(attrs.srcs).toContainEqual(Input.file("vitest.config.ts"))
   expect(attrs.srcs).toContainEqual(Input.glob("test/**/*.ts"))
 })
-
 
 it("uses default matrix limits without a package manager or Vitest config", () => {
   const targets = BuildAndCheckTypeScriptPackage({

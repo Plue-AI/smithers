@@ -4,7 +4,12 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "agent"
+    "group": "agent",
+    "privateEffectAdapters": [
+      "@effect/platform-bun",
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Node command-line interface for Smithers control",
   "homepage": "https://github.com/smithersai/smithers",
@@ -132,7 +137,8 @@
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
-    "vendor/opentui-native/**"
+    "vendor/opentui-native/**",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -774,9 +780,6 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.283",
     "@clack/prompts": "1.7.0",
-    "@effect/platform-bun": "4.0.0-rc.115",
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",
     "@smthrs/agent": "1.0.0-rc.1",
@@ -821,7 +824,11 @@
     "tar": "7.5.22",
     "typescript": "5.9.3",
     "yaml": "2.9.0",
-    "@smthrs/sandbox": "1.0.0-rc.1"
+    "@smthrs/sandbox": "1.0.0-rc.1",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -846,7 +853,8 @@
     "@effect/platform-node-shared": "4.0.0-rc.115",
     "effect": "4.0.0-rc.115",
     "fast-check": "4.9.0",
-    "@effect/sql-pg": "4.0.0-rc.115"
+    "@effect/sql-pg": "4.0.0-rc.115",
+    "@effect/platform-bun": "4.0.0-rc.115"
   },
   "peerDependencies": {
     "@effect/sql-sqlite-node": "4.0.0-rc.115",

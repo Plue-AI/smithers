@@ -18,11 +18,15 @@
  *
  * Run it alone with `node scripts/build-tui.mjs`.
  */
+import { build } from "esbuild"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { builtinModules } from "node:module"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { build } from "esbuild"
+import {
+  buildPrivateEffectAdapters,
+  privateEffectAdapters
+} from "../../repo-targets/scripts/private-effect-adapters.mjs"
 import { verifyNativeArtifacts } from "../vendor/opentui-native/verify.mjs"
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -35,7 +39,8 @@ export const buildTui = async () => {
   const manifest = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"))
   const declared = new Set([
     ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {})
+    ...Object.keys(manifest.peerDependencies ?? {}),
+    ...privateEffectAdapters(manifest)
   ])
   const builtin = (specifier) =>
     specifier.startsWith("node:") || specifier.startsWith("bun:") || builtinModules.includes(specifier)
@@ -52,7 +57,10 @@ export const buildTui = async () => {
     jsx: "automatic",
     jsxImportSource: "@opentui/react",
     // Inlined CommonJS dependencies `require` Node builtins at run time.
-    banner: { js: "import { createRequire as __tuiRequire } from \"node:module\"; const require = __tuiRequire(import.meta.url);" },
+    banner: {
+      js:
+        "import { createRequire as __tuiRequire } from \"node:module\"; const require = __tuiRequire(import.meta.url);"
+    },
     metafile: true,
     write: false,
     logLevel: "warning",
@@ -72,7 +80,10 @@ export const buildTui = async () => {
   const undeclared = new Set()
   for (const output of Object.values(result.metafile.outputs)) {
     for (const { path, external } of output.imports) {
-      if (external && path !== "@smthrs/cli/tui-native" && !builtin(path) && !path.startsWith(".") && !declared.has(packageName(path))) {
+      if (
+        external && path !== "@smthrs/cli/tui-native" && !builtin(path) && !path.startsWith(".") &&
+        !declared.has(packageName(path))
+      ) {
         undeclared.add(path)
       }
     }
@@ -91,6 +102,7 @@ export const buildTui = async () => {
     mkdirSync(dirname(file.path), { recursive: true })
     writeFileSync(file.path, file.contents)
   }
+  await buildPrivateEffectAdapters(packageRoot)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await buildTui()

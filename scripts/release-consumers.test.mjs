@@ -5,7 +5,17 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
 import { EXPECTED_EFFECT_VERSION } from "./check-single-effect-version.mjs"
-import { adapterProfiles, adjacentEffectVersion, candidateVersion, consumerCacheFlags, migrationProfiles, minimalProfiles, runConsumerProfile, templateProfile } from "./release-consumers.mjs"
+import {
+  adapterProfiles,
+  adjacentEffectVersion,
+  assertConsumerTree,
+  candidateVersion,
+  consumerCacheFlags,
+  migrationProfiles,
+  minimalProfiles,
+  runConsumerProfile,
+  templateProfile
+} from "./release-consumers.mjs"
 import { releaseRegistry } from "./release-registry.mjs"
 
 test("external pnpm consumers retain the workspace's configured store and report cache reuse", () => {
@@ -17,13 +27,25 @@ test("external pnpm consumers retain the workspace's configured store and report
     writeFileSync(join(root, "pnpm-workspace.yaml"), `storeDir: ${JSON.stringify(store)}\n`)
     const actualStore = execFileSync("pnpm", ["store", "path"], { cwd: root, encoding: "utf8" }).trim()
     assert.equal(dirname(actualStore), store, "the real manager reads the workspace store override")
-    assert.deepEqual(consumerCacheFlags("pnpm", root), ["--prefer-offline", "--store-dir", actualStore, "--reporter=append-only"])
+    assert.deepEqual(consumerCacheFlags("pnpm", root), [
+      "--prefer-offline",
+      "--store-dir",
+      actualStore,
+      "--reporter=append-only"
+    ])
     // `store path` accepts the store selection, not install-only cache flags.
-    const storeFlags = consumerCacheFlags("pnpm", root).filter((flag) => flag !== "--prefer-offline" && flag !== "--reporter=append-only")
+    const storeFlags = consumerCacheFlags("pnpm", root).filter((flag) =>
+      flag !== "--prefer-offline" && flag !== "--reporter=append-only"
+    )
     const selectedStore = execFileSync("pnpm", [...storeFlags, "store", "path"], {
-      cwd: consumer, encoding: "utf8",
+      cwd: consumer,
+      encoding: "utf8"
     }).trim()
-    assert.equal(selectedStore, actualStore, "an external project uses the populated store, including its version suffix")
+    assert.equal(
+      selectedStore,
+      actualStore,
+      "an external project uses the populated store, including its version suffix"
+    )
     assert.deepEqual(consumerCacheFlags("npm", root), ["--prefer-offline"])
     assert.throws(() => consumerCacheFlags("unknown", root), /Unsupported release package manager/)
   } finally {
@@ -43,8 +65,11 @@ test("every library, adapter and migration profile selects the supplied candidat
       for (const [name, range] of firstParty) assert.equal(range, version, `${profile.name}: ${name}`)
       assert.equal(profile.dependencies.effect, EXPECTED_EFFECT_VERSION)
       if (profile.dependencies["@effect/platform-node"] !== undefined) {
-        assert.equal(profile.dependencies["@effect/platform-node-shared"], EXPECTED_EFFECT_VERSION,
-          `${profile.name}: the selected Node adapter and its shared package use the same Effect release`)
+        assert.equal(
+          profile.dependencies["@effect/platform-node-shared"],
+          EXPECTED_EFFECT_VERSION,
+          `${profile.name}: the selected Node adapter and its shared package use the same Effect release`
+        )
       }
     }
   }
@@ -60,7 +85,14 @@ test("the incompatible consumer requests the published RC one below the pin", ()
 // A second literal is the drift the exact-pin gate exists to stop: a bump there
 // left these files asserting the old RC until a release rehearsal failed.
 test("the release consumer matrix and the package contract declare no Effect RC of their own", () => {
-  for (const file of ["release-consumers.mjs", "check-npm-dedupe.mjs", "smoke-release.mjs", "repo-contract/package-contract.test.mjs"]) {
+  for (
+    const file of [
+      "release-consumers.mjs",
+      "check-npm-dedupe.mjs",
+      "smoke-release.mjs",
+      "repo-contract/package-contract.test.mjs"
+    ]
+  ) {
     const literals = readFileSync(join(import.meta.dirname, file), "utf8").match(/\d+\.\d+\.\d+-rc\.\d+/g) ?? []
     assert.deepEqual(literals, [], `${file} hand-restates a release-line version: ${literals.join(", ")}`)
   }
@@ -82,8 +114,11 @@ test("no release script imports a module from scripts/fixtures", () => {
 })
 
 test("candidate selection rejects empty, mixed and non-exact versions", () => {
-  for (const entries of [[], [{ version: "1.0.0" }, { version: "1.0.0-rc.0" }],
-    [{ version: "^1.0.0" }], [{ version: "v1.0.0" }], [{}]]) {
+  for (
+    const entries of [[], [{ version: "1.0.0" }, { version: "1.0.0-rc.0" }], [{ version: "^1.0.0" }], [{
+      version: "v1.0.0"
+    }], [{}]]
+  ) {
     assert.throws(() => candidateVersion(entries), /candidate/)
   }
 })
@@ -98,28 +133,55 @@ test("consumer and packed template requests resolve against a stable-only candid
     for (const name of ["database", "create-app"]) {
       const directory = join(root, name)
       mkdirSync(join(directory, "package/template/default"), { recursive: true })
-      writeFileSync(join(directory, "package/package.json"), JSON.stringify({ name: "@smthrs/" + name, version, type: "module", main: "index.js",
-        dependencies: { effect: EXPECTED_EFFECT_VERSION } }))
+      writeFileSync(
+        join(directory, "package/package.json"),
+        JSON.stringify({
+          name: "@smthrs/" + name,
+          version,
+          type: "module",
+          main: "index.js",
+          dependencies: { effect: EXPECTED_EFFECT_VERSION }
+        })
+      )
       writeFileSync(join(directory, "package/index.js"), "export const installed = true\n")
-      writeFileSync(join(directory, "package/template/default/package.json"), JSON.stringify({
-        private: true, dependencies: { "@smthrs/database": version }, devDependencies: { "@smthrs/create-app": version }
-      }))
+      writeFileSync(
+        join(directory, "package/template/default/package.json"),
+        JSON.stringify({
+          private: true,
+          dependencies: { "@smthrs/database": version },
+          devDependencies: { "@smthrs/create-app": version }
+        })
+      )
       const filename = name + ".tgz"
       execFileSync("tar", ["-czf", join(root, filename), "-C", directory, "package"])
       entries.push({ name: "@smthrs/" + name, version, filename })
     }
     mkdirSync(join(root, "effect/package"), { recursive: true })
-    writeFileSync(join(root, "effect/package/package.json"), JSON.stringify({ name: "effect", version: EXPECTED_EFFECT_VERSION, type: "module",
-      exports: { "./package.json": "./package.json", "./*": "./*.js" } }))
+    writeFileSync(
+      join(root, "effect/package/package.json"),
+      JSON.stringify({
+        name: "effect",
+        version: EXPECTED_EFFECT_VERSION,
+        type: "module",
+        exports: { "./package.json": "./package.json", "./*": "./*.js" }
+      })
+    )
     // Minimal local modules let the real copied adapter probe check identity
     // and the installed-consumer boundary without downloading Effect.
     for (const module of ["Effect", "Layer", "Schema"]) {
-      writeFileSync(join(root, "effect/package", module + ".js"), module === "Schema"
-        ? "export const String = {}; export const decodeUnknownSync = () => {}\n"
-        : "export {}\n")
+      writeFileSync(
+        join(root, "effect/package", module + ".js"),
+        module === "Schema"
+          ? "export const String = {}; export const decodeUnknownSync = () => {}\n"
+          : "export {}\n"
+      )
     }
     execFileSync("tar", ["-czf", join(root, "effect.tgz"), "-C", join(root, "effect"), "package"])
-    registry = await releaseRegistry(root, [...entries, { name: "effect", version: EXPECTED_EFFECT_VERSION, filename: "effect.tgz" }])
+    registry = await releaseRegistry(root, [...entries, {
+      name: "effect",
+      version: EXPECTED_EFFECT_VERSION,
+      filename: "effect.tgz"
+    }])
     // All package bytes, including the minimal Effect identity fixture, come
     // from loopback. No existing publication or external install is needed.
     process.env.npm_config_registry = registry.url
@@ -138,15 +200,51 @@ test("consumer and packed template requests resolve against a stable-only candid
       const installed = await runConsumerProfile(profiles[0], manager, registry.url, { runtime: true })
       assert.equal(installed.effectCopies.length, 1)
     }
-    writeFileSync(join(root, "create-app/package/template/default/package.json"), JSON.stringify({
-      private: true, dependencies: { "@smthrs/database": "1.0.0-rc.0" }
-    }))
+    writeFileSync(
+      join(root, "create-app/package/template/default/package.json"),
+      JSON.stringify({
+        private: true,
+        dependencies: { "@smthrs/database": "1.0.0-rc.0" }
+      })
+    )
     execFileSync("tar", ["-czf", join(root, "create-app.tgz"), "-C", join(root, "create-app"), "package"])
-    assert.throws(() => templateProfile(root, entries), /shipped template @smthrs\/database must select candidate 1\.0\.0/)
+    assert.throws(
+      () => templateProfile(root, entries),
+      /shipped template @smthrs\/database must select candidate 1\.0\.0/
+    )
   } finally {
     if (previousRegistry === undefined) delete process.env.npm_config_registry
     else process.env.npm_config_registry = previousRegistry
     await registry?.close()
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("consumer tree refuses an off-pin Effect-family dependency even with one correct Effect copy", () => {
+  const consumer = mkdtempSync(join(tmpdir(), "smithers-consumer-family-"))
+  try {
+    const install = (name, version) => {
+      const directory = join(consumer, "node_modules", name)
+      mkdirSync(directory, { recursive: true })
+      writeFileSync(join(directory, "package.json"), JSON.stringify({ name, version }))
+    }
+    install("effect", EXPECTED_EFFECT_VERSION)
+    install("@effect/platform-node-shared", adjacentEffectVersion)
+    const profile = { name: "off-pin-family", dependencies: { effect: EXPECTED_EFFECT_VERSION } }
+    assert.throws(() => assertConsumerTree(consumer, profile), /Effect-family packages off/)
+    install("@effect/platform-node-shared", EXPECTED_EFFECT_VERSION)
+    const actual = assertConsumerTree(consumer, profile)
+    assert.equal(actual.effectCopies.length, 1)
+    assert.equal(actual.effectFamily.length, 2)
+    const nested = join(consumer, "node_modules/nested/node_modules/effect")
+    mkdirSync(nested, { recursive: true })
+    writeFileSync(
+      join(consumer, "node_modules/nested/package.json"),
+      JSON.stringify({ name: "nested", version: "1.0.0" })
+    )
+    writeFileSync(join(nested, "package.json"), JSON.stringify({ name: "effect", version: EXPECTED_EFFECT_VERSION }))
+    assert.throws(() => assertConsumerTree(consumer, profile), /exactly one physical Effect copy/)
+  } finally {
+    rmSync(consumer, { recursive: true, force: true })
   }
 })

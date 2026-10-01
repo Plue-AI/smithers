@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, relative } from "node:path"
 import ts from "typescript"
 import { copyCommonJsDeclarations } from "../../repo-targets/scripts/build-library.mjs"
+import { buildPrivateEffectAdapters } from "../../repo-targets/scripts/private-effect-adapters.mjs"
 
 const files = (directory) =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -47,7 +48,10 @@ export const compileCommonJs = async (src, cjs, esm) => {
     }
   })
   for (const file of files(cjs).filter((file) => file.endsWith(".js"))) {
-    writeFileSync(file, readFileSync(file, "utf8").replace(/((?:require|import)\(["'](?:\.\.?\/)[^"']+)\.ts(["']\))/g, "$1.js$2"))
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8").replace(/((?:require|import)\(["'](?:\.\.?\/)[^"']+)\.ts(["']\))/g, "$1.js$2")
+    )
   }
   mkdirSync(cjs, { recursive: true })
   writeFileSync(join(cjs, "package.json"), "{\"type\":\"commonjs\"}\n")
@@ -57,8 +61,11 @@ export const compileCommonJs = async (src, cjs, esm) => {
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(
       target,
-      `void import(${JSON.stringify(relative(dirname(target), executable))}).catch((error) => { console.error(error); process.exitCode = 1 })\n`
+      `void import(${
+        JSON.stringify(relative(dirname(target), executable))
+      }).catch((error) => { console.error(error); process.exitCode = 1 })\n`
     )
   }
   copyCommonJsDeclarations(dirname(src))
+  await buildPrivateEffectAdapters(dirname(src))
 }

@@ -4,7 +4,11 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "tooling"
+    "group": "tooling",
+    "privateEffectAdapters": [
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Executes PACKAGE.ts target graphs with content-addressed caching",
   "homepage": "https://github.com/smithersai/smithers",
@@ -112,7 +116,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -696,8 +701,6 @@
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@smthrs/build": "1.0.0-rc.1",
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/core": "1.0.0-rc.1",
@@ -717,7 +720,11 @@
     "jsonc-parser": "3.3.1",
     "minimatch": "10.2.6",
     "tsx": "4.23.13",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -734,6 +741,8 @@
     "eslint-plugin-unicorn": "65.0.0",
     "madge": "8.0.0",
     "typescript-eslint": "8.69.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.0",
+    "@effect/platform-node": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.115"
   }
 }

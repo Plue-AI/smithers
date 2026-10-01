@@ -4,7 +4,12 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "agent"
+    "group": "agent",
+    "privateEffectAdapters": [
+      "@effect/platform-bun",
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Effect workspace gateway contracts, projections, and supervision ports for flows",
   "homepage": "https://github.com/smithersai/smithers",
@@ -64,7 +69,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -253,7 +259,11 @@
     "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/journal": "1.0.0-rc.1",
     "@smthrs/registry": "1.0.0-rc.1",
-    "@smthrs/sync": "1.0.0-rc.1"
+    "@smthrs/sync": "1.0.0-rc.1",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -281,23 +291,11 @@
     "typescript-eslint": "8.69.0",
     "vitest": "5.0.0",
     "fast-check": "4.9.0",
-    "@effect/platform-bun": "4.0.0-rc.115"
+    "@effect/platform-bun": "4.0.0-rc.115",
+    "@effect/platform-node-shared": "4.0.0-rc.115"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115",
-    "@effect/platform-bun": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.115"
   },
-  "peerDependenciesMeta": {
-    "@effect/platform-node": {
-      "optional": true
-    },
-    "@effect/platform-node-shared": {
-      "optional": true
-    },
-    "@effect/platform-bun": {
-      "optional": true
-    }
-  }
+  "peerDependenciesMeta": {}
 }

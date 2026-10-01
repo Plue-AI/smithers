@@ -113,7 +113,10 @@ describe("the workspace package contract", () => {
     // and hold it to the version it now declares.
     const nextVersion = `${releaseVersion}-retarget-probe`
     const workspaceNames = new Set(manifests.map((entry) => entry.manifest.name))
-    const cut = manifests.map((entry) => ({ ...entry, manifest: retarget(entry.manifest, nextVersion, workspaceNames) }))
+    const cut = manifests.map((entry) => ({
+      ...entry,
+      manifest: retarget(entry.manifest, nextVersion, workspaceNames)
+    }))
     const line = releaseLine(cut)
 
     assert.equal(line.version, nextVersion, "the gate reads the version the cut wrote, not this file's")
@@ -224,9 +227,16 @@ describe("the workspace package contract", () => {
       assert.equal(manifest.pnpm?.overrides, undefined, `${where} must not use pnpm overrides`)
     }
     const expected = Object.fromEntries([
-      "effect", "@effect/opentelemetry", "@effect/platform-bun", "@effect/platform-node",
-      "@effect/platform-node-shared", "@effect/sql-d1", "@effect/sql-sqlite-bun",
-      "@effect/sql-sqlite-do", "@effect/sql-sqlite-node", "@effect/vitest"
+      "effect",
+      "@effect/opentelemetry",
+      "@effect/platform-bun",
+      "@effect/platform-node",
+      "@effect/platform-node-shared",
+      "@effect/sql-d1",
+      "@effect/sql-sqlite-bun",
+      "@effect/sql-sqlite-do",
+      "@effect/sql-sqlite-node",
+      "@effect/vitest"
     ].map((name) => [name, effectVersion]))
     assert.deepEqual(rootManifest.overrides, expected)
     assert.equal(rootManifest.pnpm?.overrides, undefined)
@@ -235,11 +245,13 @@ describe("the workspace package contract", () => {
     const planner = readFileSync(join(root, "pnpm-workspace.yaml"), "utf8")
     const block = planner.match(/^overrides:\n((?:[ \t]+.*\n|\n)*)/m)?.[1]
     assert.ok(block, "pnpm must use the same exact Effect family as npm and Bun")
-    const actual = Object.fromEntries(block.trim().split("\n").map((line) => {
-      const match = line.trim().match(/^['"]?([^'"\s]+)['"]?: ['"]?([^'"\s]+)['"]?$/)
-      assert.ok(match, `unexpected override: ${line}`)
-      return [match[1], match[2]]
-    }))
+    const actual = Object.fromEntries(
+      block.trim().split("\n").map((line) => {
+        const match = line.trim().match(/^['"]?([^'"\s]+)['"]?: ['"]?([^'"\s]+)['"]?$/)
+        assert.ok(match, `unexpected override: ${line}`)
+        return [match[1], match[2]]
+      })
+    )
     assert.deepEqual(actual, expected)
   })
 
@@ -279,26 +291,22 @@ describe("the workspace package contract", () => {
     }
   })
 
-  it("keeps the Node Effect runtime as one exact peer set", () => {
-    const platform = publishable.find((entry) => entry.manifest.name === "@smthrs/platform-node")
-    assert.ok(platform, "@smthrs/platform-node must be publishable")
-
-    for (const name of ["effect", "@effect/platform-node"]) {
-      assert.equal(
-        platform.manifest.peerDependencies?.[name],
-        effectVersion,
-        `@smthrs/platform-node must constrain ${name} as an exact peer`
-      )
-      assert.equal(
-        platform.manifest.dependencies?.[name],
-        undefined,
-        `@smthrs/platform-node must not install a private ${name} copy`
-      )
-      assert.equal(
-        platform.manifest.devDependencies?.[name],
-        effectVersion,
-        `@smthrs/platform-node must install ${name} for its own checks`
-      )
+  it("keeps Effect external and platform adapters private", () => {
+    const owners = publishable.filter(({ manifest }) => manifest.smthrs?.privateEffectAdapters)
+    assert.equal(owners.length, 8)
+    for (const { manifest } of owners) {
+      assert.equal(manifest.dependencies?.effect ?? manifest.peerDependencies?.effect, effectVersion)
+      assert.ok(manifest.smthrs.privateEffectAdapters.includes("@effect/platform-node-shared"))
+      assert.ok(manifest.files.includes("dist/vendor/**"))
+      for (const name of manifest.smthrs.privateEffectAdapters) {
+        assert.equal(manifest.dependencies?.[name], undefined)
+        assert.equal(manifest.peerDependencies?.[name], undefined)
+        assert.equal(manifest.optionalDependencies?.[name], undefined)
+        assert.equal(manifest.devDependencies?.[name], effectVersion)
+      }
+      for (const name of ["undici", "ws", "redis", "@types/ws"]) {
+        assert.match(manifest.dependencies[name], /^\d+\.\d+\.\d+$/)
+      }
     }
   })
 
@@ -312,56 +320,25 @@ describe("the workspace package contract", () => {
     assert.equal(kernel.manifest.peerDependenciesMeta?.["@smthrs/platform-browser"], undefined)
   })
 
-  it("requires the Bun platform peer imported by the root entry point", () => {
+  it("ships the Bun adapter imported by the root entry point privately", () => {
     const platform = publishable.find((entry) => entry.manifest.name === "@smthrs/platform-bun")
     assert.ok(platform, "@smthrs/platform-bun must be publishable")
 
-    assert.equal(platform.manifest.peerDependencies?.["@effect/platform-bun"], effectVersion)
-    assert.notEqual(platform.manifest.peerDependenciesMeta?.["@effect/platform-bun"]?.optional, true)
+    assert.equal(platform.manifest.peerDependencies?.["@effect/platform-bun"], undefined)
+    assert.equal(platform.manifest.devDependencies?.["@effect/platform-bun"], effectVersion)
+    assert.ok(platform.manifest.smthrs.privateEffectAdapters.includes("@effect/platform-bun"))
   })
 
-  it("requires the shared Node adapter at the same exact Effect RC", () => {
-    const platform = publishable.find((entry) => entry.manifest.name === "@smthrs/platform-node")
-    assert.ok(platform, "@smthrs/platform-node must be publishable")
-    // The upstream Node adapter's caret admits a later node-shared RC whose
-    // Effect peer conflicts with this release. The real npm CreateApp consumer
-    // reproduced ERESOLVE without the workspace's overrides to hide that edge.
-    assert.equal(platform.manifest.peerDependencies?.["@effect/platform-node-shared"], effectVersion)
-    assert.notEqual(platform.manifest.peerDependenciesMeta?.["@effect/platform-node-shared"]?.optional, true)
-    assert.equal(platform.manifest.dependencies?.["@effect/platform-node-shared"], undefined)
-    assert.equal(platform.manifest.devDependencies?.["@effect/platform-node-shared"], effectVersion)
-  })
-
-  it("declares the shared Node adapter beside create-app's optional Node adapter peer", () => {
-    const createApp = publishable.find((entry) => entry.manifest.name === "@smthrs/create-app")
-    assert.ok(createApp, "@smthrs/create-app must be publishable")
-    // `./testing` names @effect/platform-node as an optional peer. A consumer
-    // that installs exactly that still gets the shared adapter through the
-    // Node adapter's caret, which admits a later RC whose own Effect peer this
-    // release does not satisfy. The sibling belongs in the contract, at the
-    // same exact version and the same optionality.
-    assert.equal(createApp.manifest.peerDependencies?.["@effect/platform-node-shared"], effectVersion)
-    assert.equal(createApp.manifest.peerDependenciesMeta?.["@effect/platform-node-shared"]?.optional, true)
-    assert.equal(
-      createApp.manifest.peerDependenciesMeta?.["@effect/platform-node-shared"]?.optional,
-      createApp.manifest.peerDependenciesMeta?.["@effect/platform-node"]?.optional
-    )
-    assert.equal(createApp.manifest.dependencies?.["@effect/platform-node-shared"], undefined)
-  })
-
-  it("declares the shared Node adapter beside the gateway's two optional platform peers", () => {
-    const gateway = publishable.find((entry) => entry.manifest.name === "@smthrs/gateway")
-    assert.ok(gateway, "@smthrs/gateway must be publishable")
-    // Both of the gateway's platform peers reach the same sibling: the Node
-    // adapter through its own caret, and the Bun adapter through the caret it
-    // carries on the shared Node adapter. One declaration closes both, at the
-    // same exact version and at the optionality they share.
-    assert.equal(gateway.manifest.peerDependencies?.["@effect/platform-node-shared"], effectVersion)
-    assert.equal(gateway.manifest.peerDependenciesMeta?.["@effect/platform-node-shared"]?.optional, true)
-    assert.equal(
-      gateway.manifest.peerDependenciesMeta?.["@effect/platform-node"]?.optional,
-      gateway.manifest.peerDependenciesMeta?.["@effect/platform-bun"]?.optional
-    )
-    assert.equal(gateway.manifest.dependencies?.["@effect/platform-node-shared"], undefined)
-  })
+  for (const name of ["platform-node", "create-app", "gateway"]) {
+    it(`ships ${name}'s shared adapter without a consumer resolver edge`, () => {
+      const entry = publishable.find(({ manifest }) => manifest.name === "@smthrs/" + name)
+      assert.ok(entry)
+      for (const adapter of entry.manifest.smthrs.privateEffectAdapters) {
+        assert.equal(entry.manifest.peerDependencies?.[adapter], undefined)
+        assert.equal(entry.manifest.peerDependenciesMeta?.[adapter], undefined)
+        assert.equal(entry.manifest.dependencies?.[adapter], undefined)
+        assert.equal(entry.manifest.devDependencies[adapter], effectVersion)
+      }
+    })
+  }
 })

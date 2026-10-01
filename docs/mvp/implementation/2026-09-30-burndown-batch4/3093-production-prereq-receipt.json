@@ -1,0 +1,547 @@
+{
+  "issues": [
+    3093,
+    3184
+  ],
+  "status": "Reviewed source prerequisite; actual50 declaration compatibility review and46 JS/CJS build/CLI-only consumer acceptance still pending. Issues3093 and3184 remain open.",
+  "at": "2026-10-01T00:29:17.653476+00:00",
+  "workspace": "/private/tmp/smithers-burndown-20260930",
+  "head": "a81b77a4b065df86e3336b3f1cd6cc4457a43517",
+  "ownedFiles": [
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/package.json",
+      "sha256": "e4bafcac620b65eea8320a493eb5bf15f704ba2d955a25cbeea31cb4deecbd02",
+      "bytes": 26523
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/build-cli/package.json",
+      "sha256": "4fca1005dd53a105f1c83f922167c97aa1769f37851ab6e8c44790d2f6b726d1",
+      "bytes": 21886
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/migrate/package.json",
+      "sha256": "571c61644c2bf0871ddd092b9bbee31a16d968b5a8cfcd8838ea9d99f43fc0bb",
+      "bytes": 12480
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/platform-node/package.json",
+      "sha256": "8b71ca18f258c12d6b5a3f996134f1168b81ddef7a69f8f3d69add76fdd13373",
+      "bytes": 6166
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/platform-bun/package.json",
+      "sha256": "a2e774d110546952f98356b0a25b83079245a888324a8081d6f57e24a42ce2a6",
+      "bytes": 4125
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/gateway/package.json",
+      "sha256": "96b926ebf2191de2274868423f811d4fe11b36b8f7b36682f8f572a7cea70b2e",
+      "bytes": 8734
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/package.json",
+      "sha256": "58658709101db07ea5233e27372db2ecdcb71ae64ac627ecc04d3c0aea7f87c5",
+      "bytes": 5734
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/create-app/package.json",
+      "sha256": "c450c4f9f3ddfb8e6a23a5cc7413a61b92539dd76d2136c98c0e98684a26f2fa",
+      "bytes": 7232
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/scripts/private-effect-adapters.mjs",
+      "sha256": "3e9eb3c182d68b056f3c5079311368efb625ce7d5ed0512e5c2bda90999c00c5",
+      "bytes": 11750
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/scripts/build-library.mjs",
+      "sha256": "5d30dc0a5bdde71fa03f2cf0b3d9b4fcf52b7ed43cd494608ba1ef51d59a786a",
+      "bytes": 3101
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/test/BuildAndCheckTypeScriptPackage.test.ts",
+      "sha256": "dc0e65c1265826e93e96fca72a2f2ded4cc12a1679c7d91c88b8910a604fcb79",
+      "bytes": 21559
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/scripts/compile-commonjs.mjs",
+      "sha256": "6ed93c970f954d7a7bf5a0195efe02cbb078663ee895299d2b01c80a16103ec1",
+      "bytes": 3040
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/scripts/build-tui.mjs",
+      "sha256": "130e91861eb8677ce277d001c4ff9f19ed061091a0e1a6ae61e928c23ba202f7",
+      "bytes": 4372
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/private-effect-adapters.test.mjs",
+      "sha256": "cb0a006e5bb0a864b8092e09234ab4743f9258b6cd2de160c921ac45578d3387",
+      "bytes": 16520
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/check-api-baseline.mjs",
+      "sha256": "0467f6b606d987fae46deaa54bb22daab0085f83476bafecfc1544d0a8b336ae",
+      "bytes": 8143
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/check-api-baseline.test.mjs",
+      "sha256": "e79c046c5c98252c4d3236c4fe973a3cc1f55949fb06da5e834156659de4b724",
+      "bytes": 11643
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/check-single-effect-version.test.mjs",
+      "sha256": "715dc705e6bebdb68e2c5283d974d63088b9f8bca9830834569b03efc22f2d46",
+      "bytes": 3674
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/repo-contract/package-contract.test.mjs",
+      "sha256": "f669e43a75a6c3d7c39582de0b9d277d72e76335946b3e4f6d7060171c179f74",
+      "bytes": 15622
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/release-consumers.mjs",
+      "sha256": "271aef2947d8509c7de7254c7279f3d15a81b7c6573f780635aa10e6c90b32aa",
+      "bytes": 27125
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/release-consumers.test.mjs",
+      "sha256": "27fdc8329b77a8dd9cf50d69151ac754121fe6a9dcdeb5abbaa48b0007609e96",
+      "bytes": 11188
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/smoke-release.mjs",
+      "sha256": "82586645e4aa5192c6fcf49146f51ec330a62fe25c29243dc5312f205e15e3c2",
+      "bytes": 18932
+    }
+  ],
+  "parentOwnedInputs": [
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/src/BuildAndCheckTypeScriptPackage.ts",
+      "sha256": "a8c81cc9f01d441a93e912fefb81f8ba0613149fb73a710f0614c34e532c0c48",
+      "bytes": 12720
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/build-cli/PACKAGE.ts",
+      "sha256": "73441b3ec64787cbbe6427fd211fcaaa0eb13faf92123ae10ee6812c94b3d54b",
+      "bytes": 13992
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/PACKAGE.ts",
+      "sha256": "692826d071d6bb5b3332282d0a7bcc03b1ddc455658ca8b60c102db374ca7a30",
+      "bytes": 38855
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/package.json",
+      "sha256": "cef291d2f58e7e7ea8bbd959602ace7a323cafa9b1389ae21fcee345dcfbce52",
+      "bytes": 611
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/pnpm-lock.yaml",
+      "sha256": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6",
+      "bytes": 1001557
+    }
+  ],
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test --experimental-test-coverage --test-coverage-include='packages/repo-targets/scripts/private-effect-adapters.mjs' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 scripts/private-effect-adapters.test.mjs",
+      "receipt": "3093-producer-final-notice-identity.log",
+      "exit": 0,
+      "testsPassed": 8,
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test scripts/check-api-baseline.test.mjs scripts/check-single-effect-version.test.mjs scripts/release-consumers.test.mjs scripts/repo-contract/package-contract.test.mjs",
+      "receipt": "3093-scoped-final-ready.log",
+      "exit": 0,
+      "testsPassed": 34
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run --coverage.enabled=false test/BuildAndCheckTypeScriptPackage.test.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/repo-targets",
+      "receipt": "3093-build-inputs-final.log",
+      "exit": 0,
+      "testsPassed": 31,
+      "executedCoverage": false
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node scripts/check-single-effect-version.mjs",
+      "receipt": "3093-final-family-gate.log",
+      "exit": 0,
+      "actual": "231 declarations,32 locked entries,141 installed resolutions,50 published packages;one physical Effect"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec eslint packages/repo-targets/scripts/private-effect-adapters.mjs packages/repo-targets/scripts/build-library.mjs packages/smithers/scripts/compile-commonjs.mjs packages/smithers/scripts/build-tui.mjs scripts/private-effect-adapters.test.mjs scripts/check-api-baseline.mjs scripts/check-api-baseline.test.mjs scripts/check-single-effect-version.test.mjs scripts/repo-contract/package-contract.test.mjs scripts/release-consumers.mjs scripts/release-consumers.test.mjs scripts/smoke-release.mjs",
+      "receipt": "3093-final-lint-green.log",
+      "exit": 0
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --check EACH_OWNED_MJS",
+      "receipt": "3093-final-syntax.log",
+      "exit": 0
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm --dir packages/smithers exec dprint check --config /tmp/smithers-burndown-20260930-receipts/api-batch3/3093-dprint.json /private/tmp/smithers-burndown-20260930/packages/repo-targets/scripts/private-effect-adapters.mjs /private/tmp/smithers-burndown-20260930/packages/repo-targets/scripts/build-library.mjs /private/tmp/smithers-burndown-20260930/packages/repo-targets/test/BuildAndCheckTypeScriptPackage.test.ts /private/tmp/smithers-burndown-20260930/packages/smithers/scripts/compile-commonjs.mjs /private/tmp/smithers-burndown-20260930/packages/smithers/scripts/build-tui.mjs /private/tmp/smithers-burndown-20260930/scripts/private-effect-adapters.test.mjs /private/tmp/smithers-burndown-20260930/scripts/check-api-baseline.mjs /private/tmp/smithers-burndown-20260930/scripts/check-api-baseline.test.mjs /private/tmp/smithers-burndown-20260930/scripts/check-single-effect-version.test.mjs /private/tmp/smithers-burndown-20260930/scripts/repo-contract/package-contract.test.mjs /private/tmp/smithers-burndown-20260930/scripts/release-consumers.mjs /private/tmp/smithers-burndown-20260930/scripts/release-consumers.test.mjs /private/tmp/smithers-burndown-20260930/scripts/smoke-release.mjs",
+      "receipt": "3093-final-format-check-green.log",
+      "exit": 0
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node /tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers.mjs",
+      "receipt": "3093-current-producer-consumers-ts7-cjs.log",
+      "exit": 0,
+      "scope": "Actual shared producer,synthetic two-owner published packages;fresh npm+pnpm,TypeScript7 Node16/NodeNext .mts/.cts,real filesystem ESM/CJS,one physical Effect115,no adapters"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node /tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers-v2.mjs",
+      "receipt": "3093-current-producer-consumers-ts59-cjs.log",
+      "exit": 0,
+      "scope": "Same synthetic production-producer integration with TypeScript5.9.3"
+    }
+  ],
+  "rawReceipts": [
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-build-inputs-final.log",
+      "sha256": "9c510ceba5a041869e7c09c8847f3cd03db951e8ad245d30915638cf58bee63b",
+      "bytes": 212
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-build-inputs-first.log",
+      "sha256": "9518bc3e931dd30430c022594788329537c7a2d18d584e9728a0b2813714ed49",
+      "bytes": 212
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-canonical-private-types-first.log",
+      "sha256": "7442ec3d80cc7938b934b82b299cbab72f48523df5ee40b7d0a5e36b1703776b",
+      "bytes": 1456
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-canonical-private-types-second.log",
+      "sha256": "bd4f6c699efdb208fb7f24a2a6bf9f6733d64b9967d68593be2502885011fcdd",
+      "bytes": 649
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers-ts59-cjs.log",
+      "sha256": "7838e060b8e553b05873f6fe72b279743ec4fec2435be7883d2693f711126f33",
+      "bytes": 4473
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers-ts7-cjs.log",
+      "sha256": "674593cb0cf8a6e4e18339bf00252bed414b72363338c56d208c3f3d86f4db17",
+      "bytes": 4439
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers-v2.log",
+      "sha256": "4066987455eaa898a2d323120ce92b81a6f609adc0c3b357447a96c8c10a4543",
+      "bytes": 4474
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers-v2.mjs",
+      "sha256": "9446a93906a457d6341f5c09a1696a98d3b02f90d7f67ee5719970685fd1d921",
+      "bytes": 6546
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers.log",
+      "sha256": "e00fd1d2723cc2b86f63b7db2fb3c906daa7065231909935bc13f006e3a370f8",
+      "bytes": 5124
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-current-producer-consumers.mjs",
+      "sha256": "145c68a5c797c0318cea9a5d1c52d10f29aac0da3ad5a3c8f38b71f6e2a77640",
+      "bytes": 6386
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-dprint.json",
+      "sha256": "92987090ec415b2f96ae00f795298510537879f89a0a0b4d0f1474e904ad9210",
+      "bytes": 786
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-family-gate.log",
+      "sha256": "b9af6260db0c89b71f886f5df5845318a12bd9c31fbe60495c0791aca49a06ec",
+      "bytes": 165
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-format-check-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-format-check.log",
+      "sha256": "c59727000e990d4d040bda76e99d785a57bc4f1c3db100b0b90ef50906766d7d",
+      "bytes": 19946
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-lint-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-final-syntax.log",
+      "sha256": "326ed71dea8fcf2053bcccd628b492a3f2702dbea93fe35d0663108d8bc12361",
+      "bytes": 1217
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-canonical.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-cjs-branch.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+      "bytes": 18
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-consumer-tree-final.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+      "bytes": 18
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-cross-branch.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+      "bytes": 18
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-first.log",
+      "sha256": "20e23b0d6e91c8d386d0779bdc6e729fc49b606dd492c676ee72e563ff33fb47",
+      "bytes": 108
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-identity-root.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+      "bytes": 18
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-notice-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-owned.log",
+      "sha256": "26302818372ff64e82e8aa1f768711e422ba384324ba2176d94ee85f9f7b52ec",
+      "bytes": 20
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-format-smoke-final.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+      "bytes": 18
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-fresh-cohort.mjs",
+      "sha256": "96345ed2a7e90c5834001b0c5c514fd855200828044970810e2eddef97ea8640",
+      "bytes": 5422
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-owning-contracts-first.log",
+      "sha256": "d1a55c3b4dcd5fc0fd72cce64ba81eb36caa6b5406ab7ed86571ffe2f6a4e9f4",
+      "bytes": 8812
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-peer-strategy-v2.log",
+      "sha256": "fa36d460e3a0667d9924c6cfd90dd91b8f0a8fae55adbf99beee3c2ea5e23a9c",
+      "bytes": 26713
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-peer-strategy-v2.mjs",
+      "sha256": "2af04a765344707fa432ec48f1fedc8871d8bd4e6adb7ef3bd73a2e555ec9560",
+      "bytes": 4103
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-peer-strategy.log",
+      "sha256": "4e5466a22f695ae2a0b0d304bbc436040c357ff7117bd71f90e571158e7d29ca",
+      "bytes": 5165
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-peer-strategy.mjs",
+      "sha256": "ac625e1b90597edc351b616d6c7afbccbf60f04304a417d485c04729c7bc6a00",
+      "bytes": 4147
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v2.log",
+      "sha256": "5690da2acef2f643f8c172ba28f2e6d28c276833d156865b7893350fdb9ba2a3",
+      "bytes": 18882
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v2.mjs",
+      "sha256": "6bdc51db1e2d545afacda28b2e91085ff103ac03ca7ac4cb957bf7120f410a8c",
+      "bytes": 7908
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v3.log",
+      "sha256": "882994119e98a3571578ca453d837ed28c731f8add172253c7c3c2f5cd2c3bb6",
+      "bytes": 18350
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v3.mjs",
+      "sha256": "415f3c4c7ed9beff7d3d9f5f871a3a36b994fb1b628871db9a784a0b6f72bd28",
+      "bytes": 7924
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v4.log",
+      "sha256": "aa982a3a7b7a4f706196f8df47e21a6c150da42075274829fc3d71efca62216e",
+      "bytes": 18353
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy-v4.mjs",
+      "sha256": "b5071d96bb9c92720fd3146f5fd19a761e9aba9c4fc14f90c1430da9c16a1e33",
+      "bytes": 8179
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy.log",
+      "sha256": "0e3f33c48f3cb47deafb7356ce5897ecbac3a6167ce363873b6669e03ddb26f5",
+      "bytes": 649
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-bundle-strategy.mjs",
+      "sha256": "fc46580eb031b8da77c3a0bde2c51a80a10da4853f5ddda9ba4c3ec10b1fbcb3",
+      "bytes": 7859
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-producer-tests-first.log",
+      "sha256": "94f7254957a58d9cfa0f87768bd99c32b74836664ba549201a4e3c190d677afb",
+      "bytes": 1970
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-private-producer-tests-second.log",
+      "sha256": "4d01c62cae40299a60a999c69ddcf428e6702ee6635bffa2c1599bba19707073",
+      "bytes": 427
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-final.log",
+      "sha256": "6067b1bc1452f9265e00eea072b8a2f28adb0d92747e36eba7076b0a2a45cb37",
+      "bytes": 1728
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-first.log",
+      "sha256": "f9f6d53afca9b576b5cdb20b21a40d52e06f957cb7efd0cf40b8ce1fa0bb7117",
+      "bytes": 1254
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-fourth.log",
+      "sha256": "52ce1c5d91882807c98b82986efcf5a02ed44b5815f1537d41016d02fe264fe1",
+      "bytes": 1620
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-second.log",
+      "sha256": "6ad112f5759482887e85b3aff20618ecbad2c8638a58a88b858ca72deea782b8",
+      "bytes": 1473
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-temporary-root.log",
+      "sha256": "4017cd7ec66e949c9a6dcec11ed730b366c4ec0cd7c250c7486a2ab37f5a75a0",
+      "bytes": 1728
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-coverage-third.log",
+      "sha256": "4bb4eb7cca2bce3a6efde00b27b074ecda2cdf94a0ffbfd0bc39eb263d93561e",
+      "bytes": 2457
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-final-cross-branch.log",
+      "sha256": "9aa672416e013aea0faa485f0671700d5005b1f8cde9a3812d38de2f75467444",
+      "bytes": 1726
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-final-identity-root.log",
+      "sha256": "ce615d82b411e5184da007303e315eae16321d9adf8c113dcb21060b432cc3f3",
+      "bytes": 1727
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-final-notice-identity.log",
+      "sha256": "c706a6e7cf930e4e69dde003471c17ca2da232f708137b90ef74b67877fec350",
+      "bytes": 1727
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-producer-v8.log",
+      "sha256": "7dffea9b342102605a8a6a9d120c8e72fe42b5b92bba62832a2cc588875ea46b",
+      "bytes": 429
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-release-consumers-final-unit.log",
+      "sha256": "3f97d4da28fb40e91999e2fefce1324ff262017280ecac11b4db2a0dd84ecd19",
+      "bytes": 7769
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-release-consumers-unit.log",
+      "sha256": "5781255746f6aa15977a5318a751a4cd08bb32cf90c9bd8e03f9ad9cb6596756",
+      "bytes": 7775
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-root-install-evidence.json",
+      "sha256": "9a88dd3786d92bb688b58af3cec676c886eb1f5dffc6d973a3cacea8fdb0e47d",
+      "bytes": 1837
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-scoped-final-contracts.log",
+      "sha256": "f2c1864ed353cb44b9ec2dc3f84b108300ad9ad8ab2db5a9f403121d0992897e",
+      "bytes": 9404
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-scoped-final-ready.log",
+      "sha256": "477d3aba583a06990282bba2b07aaa305f0d32c5cc0aaac675e7b15d77893021",
+      "bytes": 9403
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-script-readiness-unit.log",
+      "sha256": "f830c59c0b064243619084997541fe1d63c08e6a41017ee6cb688b7b822b77c7",
+      "bytes": 7051
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-script-ready-evidence.json",
+      "sha256": "f069adde21e19444f970d1c8d42e4b35f2e9a3ccc1b4a640864dae92aab4f93c",
+      "bytes": 5107
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-vendor-strategy.log",
+      "sha256": "7051176c08f3c334c2eef7b17287964adf19b0ed59b826bac4685cf3fe9ed394",
+      "bytes": 7441
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-vendor-strategy.mjs",
+      "sha256": "c46ba4b4e51bb0b0f1d58896c0c93efe211433cc50e8472c21d83bd8b6240371",
+      "bytes": 6268
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3093-workspace-pin-check.log",
+      "sha256": "6d9876583ee202514b4a4a889b6756d31dd8f6bcbde21a1e7de4671d5569d003",
+      "bytes": 165
+    }
+  ],
+  "productionFix": "Eight owners remove public platform adapter resolver edges; one shared content-bound private ESM producer with CJS declaration/wrapper branch sharing the same ESM runtime. Exact Effect remains external; ordinary runtime/type dependencies explicit. Both branch declarations and produced wrappers/package.json bound. LICENSE/NOTICE inputs and outputs bound; target remains uncached.",
+  "canonicalDeclarations": "The unchanged canonical50 declaration compiler campaign invokes same producer in explicit temporary distRoot for8 owners; API inventory binds both private declaration branches under ../vendor keys, workspace dist untouched. This materializes only adapterJS sidecars; it does not qualify fullJS/CJS packages or replace mandatory46 release build. No baseline rewritten.",
+  "boundaries": [
+    "ESM/CJS same-runtime identity and cross-owner real filesystem Effect service interoperability",
+    "TS5.9 and7 Node16/NodeNext .mts/.cts negative-any controls,Node+Bun APIs,cross-branch bidirectional assignments",
+    "Exact adapter version and external dependency controls,closure escape and locator/declaration traversal refusals",
+    "Real file changes during esbuild and declaration copying refuse",
+    "CJS loadedModuleRoot points at full actual ESM vendor root for content identity",
+    "Fresh CLI-only consumer now requires one physical Effect,all owning resolutions to same copy,no external adapters; no manual pins or overrides",
+    "Fresh CLI-only MCP and nested type probe uses strict TypeScript with no skipLibCheck"
+  ],
+  "limitations": [
+    "Fresh mandatory46 product packs and canonical50 declaration review have NOT run on final merged candidate. Actual product CLI-only npm/pnpm MCP and nested consumer acceptance remain pending.",
+    "Producer unit/compiler fixtures and external synthetic probes retain existing skipLibCheck; negative-any and consumer type assertions executed. Fresh actual CLI nested declaration gate removes skipLibCheck.",
+    "External synthetic consumer receipts precede final LICENSE input hashing and loadedModuleRoot callback-only correction; final8-test strictcoverage regression includes both corrections. Synthetic external probes do not invoke loadedModuleRoot.",
+    "Node runtime26 only; Node16 andNodeNext are compiler modes,not Node16 runtime support.",
+    "Last smoke-release formatting normalization follows executed34 contract tests; final lint/syntax/format checks bind frozen bytes. No full smoke run claimed.",
+    "Incoming six TUI3045 commits through edf5b7c2cf affect CLI bundled inputs; parent will merge and inspect before any fresh cohort."
+  ],
+  "allSourceDependentProcessesFinished": true,
+  "sourceFrozen": true,
+  "review": "Orchestrator reviewed one shared exact-adapter closure producer, removed published caret resolver edges, one external Effect identity, preserved Node/Bun declarations, one ESM runtime with thin CJS wrappers, output/input content/race checks and license identity. Sol meaningful runtime/type/negative/race tests hit100% measured helper lines/branches/functions. Root refreshed exact lock and declared owned build inputs; default caching remains fail-closed.",
+  "archive": {
+    "path": "docs/mvp/implementation/2026-09-30-burndown-batch4/3093-production-prereq-validation.tar.gz",
+    "sha256": "a157cc09a6072fca98c78b3a4331e1957e69efef1af176c035267e6db293483f"
+  },
+  "restoredBoundary": {
+    "stashOID": "15a7d1001309510658223fcab55eb8f04356169e",
+    "exact25PathHashMatch": true,
+    "landedProductHead": "1dda4054223dea49d2d38b2dc108a13177d6257a"
+  }
+}

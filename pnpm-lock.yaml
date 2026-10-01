@@ -2371,15 +2371,6 @@ importers:
       '@clack/prompts':
         specifier: 1.7.0
         version: 1.7.0
-      '@effect/platform-bun':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
-      '@effect/platform-node':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      '@effect/platform-node-shared':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@opentui/core':
         specifier: 0.5.11
         version: 0.5.11(typescript@5.9.3)(web-tree-sitter@0.25.10)
@@ -2494,6 +2485,9 @@ importers:
       '@smthrs/triggers':
         specifier: 1.0.0-rc.1
         version: link:agent/triggers
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -2506,12 +2500,21 @@ importers:
       react:
         specifier: 19.2.8
         version: 19.2.8
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
       tar:
         specifier: 7.5.22
         version: 7.5.22
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -2519,6 +2522,15 @@ importers:
       '@effect/language-service':
         specifier: 0.87.2
         version: 0.87.2
+      '@effect/platform-bun':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node-shared':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@effect/sql-pg':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)
@@ -3792,12 +3804,6 @@ importers:
       '@clack/prompts':
         specifier: 1.7.0
         version: 1.7.0
-      '@effect/platform-node':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      '@effect/platform-node-shared':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@smthrs/build':
         specifier: 1.0.0-rc.1
         version: link:..
@@ -3837,6 +3843,9 @@ importers:
       '@smthrs/targets':
         specifier: 1.0.0-rc.1
         version: link:../targets
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       effect:
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115
@@ -3852,16 +3861,31 @@ importers:
       minimatch:
         specifier: 10.2.6
         version: 10.2.6
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
       tsx:
         specifier: 4.23.13
         version: 4.23.13
       typescript:
         specifier: 7.0.2
         version: 7.0.2
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
         version: 0.87.2
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node-shared':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@eslint/js':
         specifier: 9.39.5
         version: 9.39.5
@@ -4132,9 +4156,6 @@ importers:
 
   packages/smithers/create-app:
     dependencies:
-      '@effect/platform-node-shared':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@smthrs/agent':
         specifier: 1.0.0-rc.1
         version: link:../agent
@@ -4159,6 +4180,18 @@ importers:
       '@smthrs/targets':
         specifier: 1.0.0-rc.1
         version: link:../build/targets
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -4166,6 +4199,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node-shared':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@effect/vitest':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(vitest@5.0.0)
@@ -4301,9 +4337,21 @@ importers:
       '@smthrs/time-travel':
         specifier: 1.0.0-rc.1
         version: link:time-travel
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -5661,6 +5709,18 @@ importers:
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../kernel
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -5737,9 +5797,18 @@ importers:
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../kernel
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
       undici:
         specifier: 8.10.2
         version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -6172,9 +6241,6 @@ importers:
 
   packages/smithers/gateway:
     dependencies:
-      '@effect/platform-node-shared':
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@smthrs/control':
         specifier: 1.0.0-rc.1
         version: link:../control
@@ -6193,6 +6259,18 @@ importers:
       '@smthrs/sync':
         specifier: 1.0.0-rc.1
         version: link:../flows/sync
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
@@ -6203,6 +6281,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@effect/platform-node-shared':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)
       '@effect/vitest':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(vitest@5.0.0)
@@ -6357,22 +6438,34 @@ importers:
 
   packages/smithers/migrate:
     dependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
+      effect:
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115
+      redis:
+        specifier: 6.2.1
+        version: 6.2.1(@opentelemetry/api@1.9.1)
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@effect/language-service':
+        specifier: 0.87.2
+        version: 0.87.2
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/platform-node-shared':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)
-      effect:
-        specifier: 4.0.0-rc.115
-        version: 4.0.0-rc.115
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-    devDependencies:
-      '@effect/language-service':
-        specifier: 0.87.2
-        version: 0.87.2
       '@effect/vitest':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(vitest@5.0.0)
@@ -18097,7 +18190,6 @@ snapshots:
       vfile: 6.0.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   '@mermaid-js/parser@1.2.1':
     dependencies:
@@ -20357,8 +20449,7 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
 
-  '@types/mdx@2.0.14':
-    optional: true
+  '@types/mdx@2.0.14': {}
 
   '@types/ms@2.1.0': {}
 
@@ -21122,8 +21213,7 @@ snapshots:
       estree-walker: 3.0.3
       js-tokens: 10.0.0
 
-  astring@1.9.0:
-    optional: true
+  astring@1.9.0: {}
 
   astro-expressive-code@0.44.2(astro@7.3.1(@astrojs/markdown-remark@7.3.0(supports-color@10.2.2))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(@types/node@26.4.1)(aws4fetch@1.0.20)(ioredis@5.11.1(supports-color@10.2.2))(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.13)(yaml@2.9.0)):
     dependencies:
@@ -21464,8 +21554,7 @@ snapshots:
       '@codemirror/state': 6.7.2
       '@codemirror/view': 6.43.11
 
-  collapse-white-space@2.1.0:
-    optional: true
+  collapse-white-space@2.1.0: {}
 
   color-convert@2.0.1:
     dependencies:
@@ -22135,7 +22224,6 @@ snapshots:
       devlop: 1.1.0
       estree-util-visit: 2.0.0
       unist-util-position-from-estree: 2.0.0
-    optional: true
 
   esast-util-from-js@2.0.1:
     dependencies:
@@ -22143,7 +22231,6 @@ snapshots:
       acorn: 8.18.0
       esast-util-from-estree: 2.0.0
       vfile-message: 4.0.3
-    optional: true
 
   esbuild@0.28.1:
     optionalDependencies:
@@ -22451,7 +22538,6 @@ snapshots:
   estree-util-attach-comments@3.0.0:
     dependencies:
       '@types/estree': 1.0.9
-    optional: true
 
   estree-util-build-jsx@3.0.1:
     dependencies:
@@ -22459,29 +22545,24 @@ snapshots:
       devlop: 1.1.0
       estree-util-is-identifier-name: 3.0.0
       estree-walker: 3.0.3
-    optional: true
 
-  estree-util-is-identifier-name@3.0.0:
-    optional: true
+  estree-util-is-identifier-name@3.0.0: {}
 
   estree-util-scope@1.0.1:
     dependencies:
       '@types/estree': 1.0.9
       devlop: 1.1.0
-    optional: true
 
   estree-util-to-js@2.0.0:
     dependencies:
       '@types/estree-jsx': 1.0.5
       astring: 1.9.0
       source-map: 0.7.6
-    optional: true
 
   estree-util-visit@2.0.0:
     dependencies:
       '@types/estree-jsx': 1.0.5
       '@types/unist': 3.0.3
-    optional: true
 
   estree-walker@2.0.2: {}
 
@@ -22979,7 +23060,6 @@ snapshots:
       zwitch: 2.0.4
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   hast-util-to-html@9.0.5:
     dependencies:
@@ -23014,7 +23094,6 @@ snapshots:
       vfile-message: 4.0.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   hast-util-to-parse5@8.0.1:
     dependencies:
@@ -23156,8 +23235,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  inline-style-parser@0.2.7:
-    optional: true
+  inline-style-parser@0.2.7: {}
 
   internal-slot@1.1.0:
     dependencies:
@@ -23677,8 +23755,7 @@ snapshots:
     dependencies:
       semver: 7.8.5
 
-  markdown-extensions@2.0.0:
-    optional: true
+  markdown-extensions@2.0.0: {}
 
   markdown-table@3.0.4: {}
 
@@ -23811,7 +23888,6 @@ snapshots:
       mdast-util-to-markdown: 2.1.2
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   mdast-util-mdx-jsx@3.2.0(supports-color@10.2.2):
     dependencies:
@@ -23829,7 +23905,6 @@ snapshots:
       vfile-message: 4.0.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   mdast-util-mdx@3.0.0(supports-color@10.2.2):
     dependencies:
@@ -23840,7 +23915,6 @@ snapshots:
       mdast-util-to-markdown: 2.1.2
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   mdast-util-mdxjs-esm@2.0.1(supports-color@10.2.2):
     dependencies:
@@ -23852,7 +23926,6 @@ snapshots:
       mdast-util-to-markdown: 2.1.2
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   mdast-util-phrasing@4.1.0:
     dependencies:
@@ -24031,7 +24104,6 @@ snapshots:
       micromark-util-events-to-acorn: 2.0.3
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
-    optional: true
 
   micromark-extension-mdx-jsx@3.0.2:
     dependencies:
@@ -24045,12 +24117,10 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
       vfile-message: 4.0.3
-    optional: true
 
   micromark-extension-mdx-md@2.0.0:
     dependencies:
       micromark-util-types: 2.0.2
-    optional: true
 
   micromark-extension-mdxjs-esm@3.0.0:
     dependencies:
@@ -24063,7 +24133,6 @@ snapshots:
       micromark-util-types: 2.0.2
       unist-util-position-from-estree: 2.0.0
       vfile-message: 4.0.3
-    optional: true
 
   micromark-extension-mdxjs@3.0.0:
     dependencies:
@@ -24075,7 +24144,6 @@ snapshots:
       micromark-extension-mdxjs-esm: 3.0.0
       micromark-util-combine-extensions: 2.0.1
       micromark-util-types: 2.0.2
-    optional: true
 
   micromark-factory-destination@2.0.1:
     dependencies:
@@ -24101,7 +24169,6 @@ snapshots:
       micromark-util-types: 2.0.2
       unist-util-position-from-estree: 2.0.0
       vfile-message: 4.0.3
-    optional: true
 
   micromark-factory-space@2.0.1:
     dependencies:
@@ -24164,7 +24231,6 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
       vfile-message: 4.0.3
-    optional: true
 
   micromark-util-html-tag-name@2.0.1: {}
 
@@ -24974,7 +25040,6 @@ snapshots:
       '@types/estree': 1.0.9
       estree-util-build-jsx: 3.0.1
       vfile: 6.0.3
-    optional: true
 
   recma-jsx@1.0.1(acorn@8.18.0):
     dependencies:
@@ -24984,7 +25049,6 @@ snapshots:
       recma-parse: 1.0.0
       recma-stringify: 1.0.0
       unified: 11.0.5
-    optional: true
 
   recma-parse@1.0.0:
     dependencies:
@@ -24992,7 +25056,6 @@ snapshots:
       esast-util-from-js: 2.0.1
       unified: 11.0.5
       vfile: 6.0.3
-    optional: true
 
   recma-stringify@1.0.0:
     dependencies:
@@ -25000,7 +25063,6 @@ snapshots:
       estree-util-to-js: 2.0.0
       unified: 11.0.5
       vfile: 6.0.3
-    optional: true
 
   redis-errors@1.2.0:
     optional: true
@@ -25081,7 +25143,6 @@ snapshots:
       hast-util-to-estree: 3.1.3(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   rehype-stringify@10.0.1:
     dependencies:
@@ -25131,7 +25192,6 @@ snapshots:
       micromark-extension-mdxjs: 3.0.0
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   remark-parse@11.0.0(supports-color@10.2.2):
     dependencies:
@@ -25149,7 +25209,6 @@ snapshots:
       mdast-util-to-hast: 13.2.1
       unified: 11.0.5
       vfile: 6.0.3
-    optional: true
 
   remark-smartypants@3.0.3:
     dependencies:
@@ -25581,8 +25640,7 @@ snapshots:
   source-map@0.6.1:
     optional: true
 
-  source-map@0.7.6:
-    optional: true
+  source-map@0.7.6: {}
 
   space-separated-tokens@2.0.2: {}
 
@@ -25713,12 +25771,10 @@ snapshots:
   style-to-js@1.1.21:
     dependencies:
       style-to-object: 1.0.14
-    optional: true
 
   style-to-object@1.0.14:
     dependencies:
       inline-style-parser: 0.2.7
-    optional: true
 
   stylis@4.4.0: {}
 
@@ -26023,7 +26079,6 @@ snapshots:
   unist-util-position-from-estree@2.0.0:
     dependencies:
       '@types/unist': 3.0.3
-    optional: true
 
   unist-util-position@5.0.0:
     dependencies:

@@ -31,7 +31,15 @@ const readme = Smithers.file("README.md")
 const sweep = Smithers.glob("scripts/package-api-sweep.*")
 
 const lib = Smithers.TsBuild({
-  srcs: [sources, javascript],
+  srcs: [
+    sources,
+    javascript,
+    Smithers.file("//packages/repo-targets/scripts/build-library.mjs"),
+    Smithers.file("//packages/repo-targets/scripts/private-effect-adapters.mjs"),
+    Smithers.file("//packages/repo-targets/package.json"),
+    Smithers.file("//packages/smithers/scripts/compile-commonjs.mjs"),
+    Smithers.file("//scripts/check-single-effect-version.mjs")
+  ],
   entries: [Smithers.file("src/index.ts")],
   deps: [],
   tsconfig: Smithers.file("tsconfig.json"),

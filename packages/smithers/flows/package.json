@@ -4,7 +4,11 @@
   "version": "1.0.0-rc.1",
   "license": "MIT",
   "smthrs": {
-    "group": "engine"
+    "group": "engine",
+    "privateEffectAdapters": [
+      "@effect/platform-node",
+      "@effect/platform-node-shared"
+    ]
   },
   "description": "Barrel package re-exporting the whole @smthrs durable flow engine",
   "homepage": "https://github.com/smithersai/smithers",
@@ -52,7 +56,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "dist/vendor/**"
   ],
   "publishConfig": {
     "access": "public",
@@ -154,7 +159,11 @@
     "@smthrs/step-cache": "1.0.0-rc.1",
     "@smthrs/sync": "1.0.0-rc.1",
     "@smthrs/time-travel": "1.0.0-rc.1",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "undici": "8.10.2",
+    "redis": "6.2.1",
+    "@types/ws": "8.18.1",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -184,19 +193,11 @@
     "@smthrs/platform-bun": "1.0.0-rc.1"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.0-rc.115",
-    "@effect/platform-node-shared": "4.0.0-rc.115",
     "@smthrs/platform-node": "1.0.0-rc.1",
     "effect": "4.0.0-rc.115",
     "@smthrs/platform-bun": "1.0.0-rc.1"
   },
   "peerDependenciesMeta": {
-    "@effect/platform-node": {
-      "optional": true
-    },
-    "@effect/platform-node-shared": {
-      "optional": true
-    },
     "@smthrs/platform-node": {
       "optional": true
     },
