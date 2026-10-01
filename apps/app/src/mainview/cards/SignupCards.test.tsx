@@ -89,7 +89,7 @@ describe("the signup cards", () => {
 
   test("the first card carries the title and offers the GitHub door alone, through auth.sign-in", () => {
     const { host, flows, calls } = render(initialSignup())
-    expect(host.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Automate your codebase today")
+    expect(host.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Automate maintaining your codebase")
     expect(flows()).toEqual([["Continue with GitHub", "auth.sign-in", undefined]])
     expect(host.querySelectorAll("input, form")).toHaveLength(0)
     host.querySelector<HTMLButtonElement>('[data-testid="signup-github"]')!.click()
@@ -98,7 +98,7 @@ describe("the signup cards", () => {
 
   test("before identity answers, a first visit paints the title alone: no door, no receipt", () => {
     const { host, flows } = render(initialSignup(), [], false)
-    expect(host.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Automate your codebase today")
+    expect(host.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Automate maintaining your codebase")
     expect(flows()).toEqual([])
     expect(host.querySelector("form")).toBeNull()
   })

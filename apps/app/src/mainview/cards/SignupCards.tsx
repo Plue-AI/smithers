@@ -22,7 +22,7 @@ const GitHubMark = () => <svg aria-hidden="true" viewBox="0 0 24 24" width="18" 
 
 const Receipt = ({ text, you }: { text: string; you?: boolean }) => <div className="signup-receipt" data-you={you || undefined}><Check /><b>{text}</b></div>
 
-const HERO_WORDS = ["Automate", "your", "codebase", "today"]
+const HERO_WORDS = ["Automate", "maintaining", "your", "codebase"]
 
 // Keep the editor's newest input while signup.set waits for its command receipt.
 // The session draft remains the authority once that exact value is projected.

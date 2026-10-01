@@ -3,7 +3,7 @@
   "support": {
     "summary": "The release candidate's required platform is Linux with Node 26.4.0."
   },
-  "tagline": "The codebase maintainer agent",
+  "tagline": "Automate maintaining your codebase",
   "animation": {
     "dark": "/images/build-graph.gif",
     "light": "/images/build-graph-light.gif",

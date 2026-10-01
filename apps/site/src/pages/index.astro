@@ -12,20 +12,14 @@ const description = project.tagline
  * apps/app (AppMount.tsx) directly and the wordmark becomes the
  * app's own. The href resumes the same signup for a middle-click or a new
  * tab. The prerendered app document supplies assets independently of any
- * repository's availability. Docs and GitHub are plain secondary links,
- * beside Get started for free and in the top-right corner.
+ * repository's availability. Docs and GitHub are plain secondary links
+ * beside Get started for free.
  */
 const appHref = "/?tutorial"
 const githubHref = "https://github.com/smithersai/smithers"
 ---
 
 <Base title={title} description={description} header={false} footer={false}>
-  <div class="corner">
-    <a class="corner-docs" href="/docs/" data-astro-prefetch="hover">Docs</a>
-    <a class="github" href={githubHref} target="_blank" rel="noopener noreferrer" aria-label="Smithers on GitHub" title="Smithers on GitHub">
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" /></svg>
-    </a>
-  </div>
   <main class="wrap hero home">
     <h1 class="wordmark" aria-label="Smithers">
       <pre aria-hidden="true">{WORDMARK.map((line, row) => <span class="wordmark-row" style={`--row: ${row}`}>{line}</span>)}</pre>
@@ -36,7 +30,6 @@ const githubHref = "https://github.com/smithersai/smithers"
       <script is:inline>document.documentElement.classList.add("js")</script>
       <a id="start" class="start" href={appHref} data-app-document={DEFAULT_APP_DOCUMENT_PATH} aria-keyshortcuts="s">
         <span>Get started for free</span>
-        <kbd class="start-key" aria-hidden="true">s</kbd>
       </a>
       <a class="btn ghost" href="/docs/" data-astro-prefetch="hover">Docs</a>
       <a class="btn ghost" href={githubHref} target="_blank" rel="noopener noreferrer">GitHub</a>
@@ -181,7 +174,6 @@ const githubHref = "https://github.com/smithersai/smithers"
       hold.disconnect()
       for (const sheet of homeSheets) sheet.media = "not all"
       for (const sheet of appSheets) sheet.removeAttribute("media")
-      document.querySelector(".corner")?.remove()
       document.querySelector("main.home")?.remove()
       const root = document.createElement("div")
       root.id = "root"
@@ -196,7 +188,7 @@ const githubHref = "https://github.com/smithersai/smithers"
       const rect = pre.getBoundingClientRect()
       const scale = APP_MARK.fontSize / parseFloat(getComputedStyle(pre).fontSize)
       const easing = "cubic-bezier(0.2, 0, 0, 1)"
-      for (const el of document.querySelectorAll<HTMLElement>(".home .sub, .home .actions, .corner")) {
+      for (const el of document.querySelectorAll<HTMLElement>(".home .sub, .home .actions")) {
         el.animate([{ opacity: 1 }, { opacity: 0, transform: "translateY(-6px)" }], { duration: 100, easing, fill: "forwards" })
       }
       await pre.animate(
@@ -374,52 +366,6 @@ const githubHref = "https://github.com/smithersai/smithers"
     to { background-position: 0 0; }
   }
 
-  .corner {
-    position: fixed;
-    top: max(16px, env(safe-area-inset-top));
-    right: max(16px, env(safe-area-inset-right));
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .corner-docs {
-    color: var(--home-accent);
-    font-weight: 600;
-    text-decoration: none;
-    padding: 0.5rem 0.8rem;
-    border-radius: 999px;
-    transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
-  }
-  .corner-docs:hover {
-    background: var(--surface-2);
-  }
-  .corner-docs:focus-visible {
-    outline: 2px solid var(--home-accent);
-    outline-offset: 2px;
-  }
-  .github {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 999px;
-    overflow: hidden;
-    color: var(--home-accent);
-    transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
-  }
-  .github:hover {
-    background: var(--surface-2);
-  }
-  .github:focus-visible {
-    outline: 2px solid var(--home-accent);
-    outline-offset: 2px;
-  }
-  .github svg {
-    width: 22px;
-    height: 22px;
-  }
-
   .start {
     position: relative;
     overflow: hidden;
@@ -471,36 +417,6 @@ const githubHref = "https://github.com/smithersai/smithers"
     cursor: progress;
     animation: none;
   }
-  /* The app's key chip (.guide-primary .guide-button-key), tinted for the filled button. */
-  .start-key {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    min-width: 32px;
-    min-height: 32px;
-    box-sizing: border-box;
-    font-family: var(--font-mono);
-    font-size: 1rem;
-    font-weight: 600;
-    line-height: 1.2;
-    padding: 3px 8px;
-    border: 1px solid color-mix(in srgb, var(--home-accent) 35%, var(--home-key-bg));
-    border-radius: 5px;
-    background: var(--home-key-bg);
-    color: var(--home-accent);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 14%), 0 2px 0 rgb(var(--shadow-rgb) / 25%);
-    transition: transform 100ms var(--ease), box-shadow 100ms var(--ease);
-  }
-  .start:active .start-key,
-  .start[data-pressed] .start-key,
-  .start.pending .start-key {
-    transform: translateY(1px);
-    box-shadow: inset 0 1px 2px rgb(var(--shadow-rgb) / 16%);
-  }
-  @media (hover: none), (max-width: 640px), (pointer: coarse) {
-    .start-key { display: none; }
-  }
   @media (max-width: 480px) {
     .start, .home .btn {
       width: 100%;
@@ -523,8 +439,7 @@ const githubHref = "https://github.com/smithersai/smithers"
     animation: none;
   }
   /* Returning from sign-in: the app replaces the page at once, so the page never shows. */
-  :global(html.entering) .home,
-  :global(html.entering) .corner {
+  :global(html.entering) .home {
     visibility: hidden;
   }
   @keyframes control-reveal {
@@ -532,9 +447,8 @@ const githubHref = "https://github.com/smithersai/smithers"
     to { opacity: 1; clip-path: inset(0 round 999px); transform: none; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .corner, .home .btn { animation: control-reveal 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms backwards; }
-    .start.ready::after,
-    .github::after {
+    .home .btn { animation: control-reveal 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms backwards; }
+    .start.ready::after {
       content: "";
       position: absolute;
       inset: 0;
@@ -546,8 +460,7 @@ const githubHref = "https://github.com/smithersai/smithers"
       animation: control-sweep 480ms cubic-bezier(0.4, 0, 0.2, 1) 360ms;
     }
     .start.pending::after,
-    .start[data-pressed]::after,
-    .github:active::after { animation: none; }
+    .start[data-pressed]::after { animation: none; }
   }
   @keyframes control-sweep {
     0% { opacity: 0; background-position: 100% 0; }
@@ -556,9 +469,7 @@ const githubHref = "https://github.com/smithersai/smithers"
   }
   @media (prefers-reduced-motion: reduce) {
     .start.ready { animation: none; }
-    .start, .start-key, .corner a, .home .btn { transition: none; }
-    .start:hover, .start:active, .start[data-pressed], .start.pending,
-    .start:active .start-key,
-    .start[data-pressed] .start-key, .start.pending .start-key { transform: none; }
+    .start, .home .btn { transition: none; }
+    .start:hover, .start:active, .start[data-pressed], .start.pending { transform: none; }
   }
 </style>
