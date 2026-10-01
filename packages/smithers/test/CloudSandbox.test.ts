@@ -9,7 +9,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { APIError } from "../src/internal/backend/Client.ts"
 
 // Fake control API permits deterministic provisioning, failure, and cancellation.
@@ -54,6 +54,131 @@ const run = <A, E>(effect: Effect.Effect<A, E, ChildProcessSpawner>) =>
   Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
 
 describe("CloudSandbox", () => {
+  it("retries its aborted request deadline even when the client reports cancellation", async () => {
+    const f = fixture()
+    const request = f.api.request
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    const clock = vi.spyOn(AbortSignal, "timeout").mockImplementation((millis) =>
+      timeout(millis === 30_000 ? 1 : millis)
+    )
+    let reads = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET" && ++reads === 1) {
+        return new Promise((_, reject) =>
+          signal.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("secret-do-not-print"), { code: "cancelled" })),
+            { once: true }
+          )
+        )
+      }
+      return request(method, path, body, signal)
+    }
+    try {
+      await run(Effect.gen(function*() {
+        const provider = yield* f.make()
+        yield* Effect.scoped(provider.acquire("request-deadline"))
+      }))
+      expect(reads).toBe(2)
+      expect(f.requests.at(-1)?.method).toBe("DELETE")
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it("interrupts retry backoff without another status read and deletes the workspace", async () => {
+    const f = fixture()
+    const request = f.api.request
+    let reads = 0
+    let started!: () => void
+    const reading = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET") {
+        reads++
+        started()
+        throw Object.assign(new Error("secret-do-not-print"), { code: "backend_unavailable" })
+      }
+      return request(method, path, body, signal)
+    }
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ pollInterval: "1 second" })
+      const fiber = yield* Effect.forkChild(Effect.scoped(provider.acquire("interrupt-retry")))
+      yield* Effect.promise(() => reading)
+      yield* Effect.sleep("5 millis")
+      yield* Fiber.interrupt(fiber)
+    }))
+    expect(reads).toBe(1)
+    expect(f.requests.map((r) => r.method)).toEqual(["POST", "DELETE"])
+  })
+
+  it.each([
+    new DOMException("secret-do-not-print", "TimeoutError"),
+    ...["backend_unavailable", "backend_timed_out"].map((code) =>
+      Object.assign(new Error("secret-do-not-print"), { code })
+    ),
+    ...[408, 429, 500, 503, 599].map((status) =>
+      new APIError(status, { message: "secret-do-not-print" }, "GET", "/", new Headers())
+    )
+  ])("retries transient status failure %s without recreating or deleting the workspace", async (error) => {
+    const f = fixture()
+    const request = f.api.request
+    let reads = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET" && ++reads <= 2) throw error
+      return request(method, path, body, signal)
+    }
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      yield* Effect.scoped(provider.acquire("recover"))
+    }))
+    expect(reads).toBe(3)
+    expect(f.requests.map((r) => r.method)).toEqual(["POST", "GET", "DELETE"])
+  })
+
+  it.each([401, 403, 404, 400, 600])(
+    "fails HTTP %s status reads immediately without exposing backend detail",
+    async (status) => {
+      const f = fixture()
+      const request = f.api.request
+      let reads = 0
+      f.api.request = async (method, path, body, signal) => {
+        if (method === "GET") {
+          reads++
+          throw new APIError(status, { message: "secret-do-not-print" }, "GET", "/", new Headers())
+        }
+        return request(method, path, body, signal)
+      }
+      await expect(run(Effect.gen(function*() {
+        const provider = yield* f.make()
+        yield* Effect.scoped(provider.acquire("refused"))
+      }))).rejects.toThrow(`could not read workspace status (HTTP ${status})`)
+      expect(reads).toBe(1)
+      expect(f.requests.at(-1)?.method).toBe("DELETE")
+    }
+  )
+
+  it("bounds persistent transient failures by readiness timeout and cleans up", async () => {
+    const f = fixture()
+    const request = f.api.request
+    let reads = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET") {
+        reads++
+        throw new APIError(503, { message: "secret-do-not-print" }, "GET", "/", new Headers())
+      }
+      return request(method, path, body, signal)
+    }
+    await expect(run(Effect.gen(function*() {
+      const provider = yield* f.make({ readyTimeout: "25 millis" })
+      yield* Effect.scoped(provider.acquire("retry-timeout"))
+    }))).rejects.toThrow("workspace did not become running; could not read workspace status (HTTP 503)")
+    expect(reads).toBeGreaterThan(1)
+    expect(f.requests.map((r) => r.method)).toEqual(["POST", "DELETE"])
+    expect(f.grants()).toBe(0)
+  })
+
   it("defaults guest HOME to the workspace user and preserves explicit child overrides", async () => {
     const f = fixture()
     await run(Effect.gen(function*() {

@@ -5,7 +5,7 @@
  */
 
 import { CommandSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
-import { Duration, Effect } from "effect"
+import { Duration, Effect, Schedule } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { createHash } from "node:crypto"
 import { APIError, Client, object } from "./internal/backend/Client.ts"
@@ -162,11 +162,38 @@ export const make = (options: Options): Sandbox.Provider => {
               Effect.asVoid
             )
         )
+        let lastReadFailure: string | undefined
+        // A failed read does not prove provisioning failed. Retry transient
+        // control-plane failures within the existing readiness deadline.
+        const readStatus = Effect.suspend(() => {
+          const deadline = AbortSignal.timeout(30_000)
+          return Effect.tryPromise({
+            try: (signal) =>
+              api.request("GET", `${base}/${encodeURIComponent(id)}`, undefined, AbortSignal.any([signal, deadline])),
+            catch: (error) => {
+              const status = error instanceof APIError ? error.status : undefined
+              const code = object(error).code
+              const timedOut = deadline.aborted || error instanceof Error && error.name === "TimeoutError"
+              const transient = timedOut || status === 408 || status === 429 ||
+                status !== undefined && status >= 500 && status <= 599 ||
+                code === "backend_unavailable" || code === "backend_timed_out"
+              const category = timedOut ? "timeout" : status !== undefined ?
+                `HTTP ${status}` :
+                code === "backend_unavailable" || code === "backend_timed_out"
+                ? String(code)
+                : undefined
+              lastReadFailure = `could not read workspace status${category ? ` (${category})` : ""}`
+              return { transient, error: failure(lastReadFailure, timedOut ? "timeout" : "unavailable") }
+            }
+          })
+        }).pipe(
+          Effect.retry({ while: (error) => error.transient, schedule: Schedule.spaced(poll) }),
+          Effect.mapError((error) => error.error)
+        )
         yield* Effect.gen(function*() {
           for (;;) {
-            const workspace = object(
-              yield* request("GET", `${base}/${encodeURIComponent(id)}`, undefined, "could not read workspace status")
-            )
+            const workspace = object(yield* readStatus)
+            lastReadFailure = undefined
             if (workspace.id !== id) return yield* Effect.fail(failure("workspace status response has a different id"))
             if (workspace.status === "running") return
             if (["failed", "error", "deleted"].includes(String(workspace.status))) {
@@ -183,7 +210,11 @@ export const make = (options: Options): Sandbox.Provider => {
           }
         }).pipe(Effect.timeoutOrElse({
           duration: timeout,
-          orElse: () => Effect.fail(failure("workspace did not become running", "timeout"))
+          orElse: () =>
+            Effect.fail(failure(
+              `workspace did not become running${lastReadFailure ? `; ${lastReadFailure}` : ""}`,
+              "timeout"
+            ))
         }))
         const provider = CommandSandbox.make({
           spawner: options.spawner,

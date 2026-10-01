@@ -456,7 +456,7 @@ test("an attempt is a new Adopt identity: the second call in one execution appli
 // DELETE destroys the guest checkout, making capture ordering observable.
 const cloudFixture = (
   t: { after: (fn: () => void) => void },
-  options: { edits?: boolean; code?: number; refresh?: boolean; block?: boolean } = {}
+  options: { edits?: boolean; code?: number; refresh?: boolean; block?: boolean; statusFailures?: number } = {}
 ) => {
   const made = fixture(t)
   const { root, guest } = made
@@ -511,10 +511,14 @@ const cloudFixture = (
   const events: Array<string> = []
   const deleted: Array<{ guestLogin: boolean; hostLogin: string }> = []
   const requests: Array<{ method: string; path: string; body: unknown }> = []
+  let statusFailures = options.statusFailures ?? 0
   const api: CloudSandbox.WorkspaceApi = {
     request: async (method, path, body) => {
       events.push(method)
       requests.push({ method, path, body })
+      if (method === "GET" && statusFailures-- > 0) {
+        throw Object.assign(new Error("secret-do-not-print"), { code: "backend_unavailable" })
+      }
       if (method === "DELETE") {
         deleted.push({ guestLogin: existsSync(guestLogin), hostLogin: readFileSync(hostLogin, "utf8") })
         rmSync(guest, { recursive: true, force: true })
@@ -544,6 +548,19 @@ const cloudFixture = (
   )
   return { ...made, home, hostLogin, login, refreshed, events, deleted, requests, fix }
 }
+
+test("a Cloud fix survives transient provisioning status failures without recreating the workspace", {
+  timeout: 120_000
+}, async (t) => {
+  const { fix, events, requests, deleted, refreshed } = cloudFixture(t, { statusFailures: 2 })
+  const remote = await Effect.runPromise(fix)
+  assert.equal(remote.work._tag, "Changed")
+  assert.match(remote.work.patch, /^\+TWO$/m)
+  assert.deepEqual(requests.map((request) => request.method), ["POST", "GET", "GET", "GET", "DELETE"])
+  assert.ok(events.indexOf("ssh") > events.lastIndexOf("GET"))
+  assert.ok(events.lastIndexOf("ssh") < events.indexOf("DELETE"))
+  assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
+})
 
 test("a Cloud fix captures work before DELETE, refreshes host auth, and adopts onto real jj main", {
   timeout: 120_000
