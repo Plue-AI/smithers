@@ -1,0 +1,59 @@
+{
+  "issue": 3248,
+  "status": "READY/FROZEN post-rebase; all jobs stopped",
+  "head": "32bd690c1fd3385a30e1cbc41ec8db7f621e6094",
+  "at": "2026-10-01T08:17:53.856871+00:00",
+  "compiler": "5.9.3",
+  "configuredCompilerOptions": {
+    "lib": [
+      "lib.esnext.d.ts",
+      "lib.dom.d.ts",
+      "lib.dom.asynciterable.d.ts"
+    ],
+    "target": 99,
+    "module": 99,
+    "moduleResolution": 100,
+    "jsx": 4,
+    "jsxImportSource": "@opentui/react",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": [
+      "bun-types"
+    ]
+  },
+  "compilerInputCount": 3109,
+  "inputDrift": [],
+  "sourceHashes": {
+    "/private/tmp/smithers-burndown-20260930/apps/tui/src/log.ts": "3beb258a34a8f509e62fa58c264da13699ba56b3d6c4f8b10648e4d5f094a150",
+    "/private/tmp/smithers-burndown-20260930/apps/tui/test/log.test.ts": "084a67a81b26ee41bd6a492613ec5f9ebe8b7d6c5e46c66803d80ad09ac4724c"
+  },
+  "validation": {
+    "behavior": {
+      "command": "bun test ./test/log.test.ts ./test/factory.test.ts ./test/failures.test.ts",
+      "cwd": "apps/tui",
+      "exit": 0,
+      "passed": 44,
+      "failed": 0,
+      "expectCalls": 250
+    },
+    "types": {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+      "cwd": "apps/tui",
+      "exit": 0,
+      "scope": "Full configured TUI source/test/e2e program"
+    }
+  },
+  "noSourceWrites": true,
+  "limits": "Previously measured sharedLog100% Bun functions/lines remains prior measurement on identical Log/test bytes; no wholeTUI or numeric branch coverage claim; existing skipLibCheck unchanged",
+  "artifacts": {
+    "3248-postrebase-before.json": "69563b37f30e3502a1905bece96db4ec1cb19594346b43aac4f31111b6e287ba",
+    "3248-postrebase-after.json": "ffdd34788a07562b5d1f4b35289057c8709788fbba54187f264fefb37f064d9d",
+    "3248-postrebase-suites.log": "634919fc8dc1ab44b24ccadcc87d52bcb99df20af57db530e6fcf595862842c2",
+    "3248-postrebase-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3248-postrebase-capture.mjs": "fd789e7c047ba8a3f48af12a89700165f19743e2eec0a35a965216a22b696771"
+  }
+}

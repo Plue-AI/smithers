@@ -1,0 +1,82 @@
+{
+  "issue": 3248,
+  "status": "READY/FROZEN; all jobs stopped",
+  "at": "2026-10-01T08:04:26.720885+00:00",
+  "head": "392d910c6a5fbdd8a6c5dd0ad200168d9fd5259d",
+  "ownedChangedFiles": {
+    "apps/tui/test/log.test.ts": "084a67a81b26ee41bd6a492613ec5f9ebe8b7d6c5e46c66803d80ad09ac4724c"
+  },
+  "validatedProduction": {
+    "apps/tui/src/log.ts": "3beb258a34a8f509e62fa58c264da13699ba56b3d6c4f8b10648e4d5f094a150"
+  },
+  "existingFix": "4aaff5e46a69b92c05c77cda7f9f2584df18a7a7 already landed message-preserving Log.describe and actual Bun/Zod regression; no duplicate production implementation",
+  "sourceInputs": {
+    "apps/tui/src/log.ts": "3beb258a34a8f509e62fa58c264da13699ba56b3d6c4f8b10648e4d5f094a150",
+    "apps/tui/test/log.test.ts": "084a67a81b26ee41bd6a492613ec5f9ebe8b7d6c5e46c66803d80ad09ac4724c",
+    "apps/tui/AGENTS.md": "4232001df5118aa78bd900597f66e3fb47989b18669ee6f3e8ab552d099ffaac",
+    "apps/tui/tsconfig.json": "46ac0aed629aece048748ffec84f6c21ffb006cd92798057af66c356fe7a359e",
+    "apps/tui/eslint.config.js": "8838c4a35210697b8c886e3d61aa4404671394fcef45cb54bc698d1dd557c5e8",
+    "apps/tui/package.json": "8514a816276cc466dcfe06f30bd5cca03f14bbddad3f0b7961158e6afa60fc7b"
+  },
+  "validation": {
+    "behavior": {
+      "command": "bun test --coverage ./test/log.test.ts ./test/factory.test.ts ./test/failures.test.ts",
+      "cwd": "apps/tui",
+      "exit": 0,
+      "passed": 44,
+      "failed": 0,
+      "expectCalls": 250
+    },
+    "coverage": {
+      "sharedLogBunFunctions": 100,
+      "sharedLogBunLines": 100,
+      "limit": "Bun reports function and line coverage only here; no whole-TUI or numeric branch/statement coverage claim"
+    },
+    "types": {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+      "exit": 0,
+      "scope": "Full owning TUI source/test/e2e program; existing skipLibCheck unchanged"
+    },
+    "lint": {
+      "command": "node_modules/.bin/eslint src/log.ts --max-warnings=0",
+      "exit": 0
+    },
+    "format": {
+      "command": "node_modules/.bin/dprint check src/log.ts test/log.test.ts",
+      "exit": 0
+    },
+    "diffCheck": {
+      "command": "git diff --check -- apps/tui/test/log.test.ts",
+      "exit": 0
+    }
+  },
+  "addedControls": [
+    "No-stack and empty-stack message preservation; exact16-link cause bound and64k plain-record limit; unreadable proxy fallback",
+    "Actual registered process callbacks and listener subscription/unsubscription; preserves another console owner and removes only own hooks",
+    "Real filesystem append-only records;700 new directory; repairs existing log644to600; path-not-directory refusal leaves file untouched",
+    "Child-local ENOSPC append failure; actual shared Log invoked, real mkdir/stat, no log file created, original Error and mounted notification preserved"
+  ],
+  "faultJustification": "Deterministic child-local appendFileSync ENOSPC only avoids exhausting shared host disk; no production hook/alternate diagnostics path, other filesystem functions are real. Process callbacks invoked from actual registration to avoid signaling Bun test runner handlers.",
+  "historicalDiagnostics": [
+    "Existing five tests pass before this change; no fictional current red product bug",
+    "First expanded test types rejected possibly undefined boundedChain; explicit missing-record refusal fixed it; raw diagnostic retained"
+  ],
+  "noNewProductionCode": true,
+  "noThresholdOrAssertionsRemoved": true,
+  "logs": {
+    "3248-current-log-baseline.log": "8a7e5ef99ced97cade6c83376bbb269dce3dc6ddb4eb3e989eec85f7925587dd",
+    "3248-log-extended.log": "004e3a8e13e6f36f289fb3b6707b3e7f06574bc4a90eeb78ac559c3c8a3c8201",
+    "3248-owning-suites.log": "64a79e90e3bd213b89883241d4746520131190f80fe493c338bbebd69d41ceb0",
+    "3248-tui-types.log": "59ff2e32240bc1829c5bd610a9357e279d48a4dd9fd95a75c0bbe3ddb4a074ff",
+    "3248-owning-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3248-owning-format-setup.log": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+    "3248-final-owning-suites-coverage.log": "9524c5558590971a0e83eb03376e22a46d673812321f85d562f8c541be246cc4",
+    "3248-final-tui-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3248-final-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "archive": {
+    "path": "/tmp/smithers-burndown-20260930-receipts/ui-flow-batch2/3248-proof.tar.gz",
+    "sha256": "3d7f03b632049e6ad3a577a1ff7c50ac10d0d44bb22552ead9c39a008ba0340a",
+    "bytes": 42888
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "issue": 3248,
+  "reviewer": "codex-burndown-20260930",
+  "at": "2026-10-01T08:15:21.327688+00:00",
+  "files": {
+    "apps/tui/test/log.test.ts": "084a67a81b26ee41bd6a492613ec5f9ebe8b7d6c5e46c66803d80ad09ac4724c"
+  },
+  "sourceDiffReviewed": true,
+  "review": "Root reviewed4 new shared Log controls: no/empty stack message,16-link/64k bounds, registered hook/listener cleanup and other console ownership, real private append/permission repair/path refusal, and child-local append-only ENOSPC preserving original Error/notification with real mkdir/stat. Actual parser/ordinary/wrapped/circular/redaction assertions remain. Existing production fix4aaff5e46a independently qualifies; no duplicate implementation. Child fault avoids exhausting the shared host disk.",
+  "proofArchive": "3248-proof.tar.gz",
+  "proofArchiveSha256": "3d7f03b632049e6ad3a577a1ff7c50ac10d0d44bb22552ead9c39a008ba0340a",
+  "checks": {
+    "behavior": {
+      "command": "bun test --coverage ./test/log.test.ts ./test/factory.test.ts ./test/failures.test.ts",
+      "cwd": "apps/tui",
+      "exit": 0,
+      "passed": 44,
+      "failed": 0,
+      "expectCalls": 250
+    },
+    "coverage": {
+      "sharedLogBunFunctions": 100,
+      "sharedLogBunLines": 100,
+      "limit": "Bun reports function and line coverage only here; no whole-TUI or numeric branch/statement coverage claim"
+    },
+    "types": {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+      "exit": 0,
+      "scope": "Full owning TUI source/test/e2e program; existing skipLibCheck unchanged"
+    },
+    "lint": {
+      "command": "node_modules/.bin/eslint src/log.ts --max-warnings=0",
+      "exit": 0
+    },
+    "format": {
+      "command": "node_modules/.bin/dprint check src/log.ts test/log.test.ts",
+      "exit": 0
+    },
+    "diffCheck": {
+      "command": "git diff --check -- apps/tui/test/log.test.ts",
+      "exit": 0
+    }
+  },
+  "limits": {
+    "sharedLogBunFunctions": 100,
+    "sharedLogBunLines": 100,
+    "limit": "Bun reports function and line coverage only here; no whole-TUI or numeric branch/statement coverage claim"
+  }
+}
