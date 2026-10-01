@@ -118,9 +118,9 @@ describe("BrowserHost real wasm contract", () => {
     Effect.gen(function*() {
       const path = join(host, "repo", "real-wasm.txt")
       fsModule.writeFileSync(path, "first\n")
-      const { changeId: first } = yield* (jj.snapshot("real wasm first"))
+      const { commitId: first } = yield* (jj.snapshot("real wasm first"))
       fsModule.writeFileSync(path, "second\n")
-      const { changeId: second } = yield* (jj.snapshot("real wasm second"))
+      const { commitId: second } = yield* (jj.snapshot("real wasm second"))
 
       const diff = yield* (jj.diff(first, second))
       expect(diff).toContain("real-wasm.txt")
