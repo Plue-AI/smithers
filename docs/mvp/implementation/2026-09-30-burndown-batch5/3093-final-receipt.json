@@ -1,0 +1,90 @@
+{
+  "issue": 3093,
+  "candidate": "be30bf194f60d78b1d2999986638e02aa4b8b94f",
+  "node": "v26.5.0",
+  "qualificationManifestSha256": "57bd153e696b18af07135ebff653877f41373b4e99ea61886bfc30527985cee8",
+  "validationArchive": {
+    "file": "3093-3184-final-validation.tar.gz",
+    "sha256": "49ff26e6c9f9799aad9ff80fe8b2369e56f7ae156e094bd486d01a626f7fef37",
+    "bytes": 3995477
+  },
+  "completeBuilds": 50,
+  "actualPacks": 50,
+  "mandatoryCliClosureOwners": 46,
+  "canonicalAndCompleteBuildSurfaceMatches": 50,
+  "sourceInputsUnchangedDuringQualification": true,
+  "sourceDependentProcessesComplete": true,
+  "freshConsumers": {
+    "npm": {
+      "exit": 0,
+      "soleDependency": {
+        "@smthrs/cli": "1.0.0-rc.1"
+      },
+      "packages": 355,
+      "physicalEffectCopies": 1,
+      "effectFamilyVersions": [
+        "4.0.0-rc.115"
+      ],
+      "absentExternalAdapters": [
+        "@effect/platform-node",
+        "@effect/platform-node-shared",
+        "@effect/platform-bun"
+      ],
+      "mcpServerInfo": {
+        "name": "smthrs",
+        "version": "1.0.0-rc.1"
+      },
+      "strictTypedModes": [
+        "ESM",
+        "CJS",
+        "Node20",
+        "NodeNext"
+      ],
+      "skipLibCheck": false,
+      "nodeAmbientTypesVersion": "26.6.3"
+    },
+    "pnpm": {
+      "exit": 0,
+      "soleDependency": {
+        "@smthrs/cli": "1.0.0-rc.1"
+      },
+      "packages": 352,
+      "physicalEffectCopies": 1,
+      "effectFamilyVersions": [
+        "4.0.0-rc.115"
+      ],
+      "absentExternalAdapters": [
+        "@effect/platform-node",
+        "@effect/platform-node-shared",
+        "@effect/platform-bun"
+      ],
+      "mcpServerInfo": {
+        "name": "smthrs",
+        "version": "1.0.0-rc.1"
+      },
+      "strictTypedModes": [
+        "ESM",
+        "CJS",
+        "Node20",
+        "NodeNext"
+      ],
+      "skipLibCheck": false,
+      "nodeAmbientTypesVersion": "26.6.3"
+    }
+  },
+  "privateAdapterAudit": {
+    "declarations": 848,
+    "owners": 8,
+    "pinnedInputsRehashed": 1658,
+    "cjsNamespaceOnlyExceptions": 8,
+    "sha256": "9649aece8e073e9e178d660831ceed357c1a0f5739a4d0879f604d02eea6dc1b"
+  },
+  "limits": [
+    "No all-platform native/helper #3171 qualification or releaseSmoke-wide green claim",
+    "Historical fixed Node16 module mode previously red; product runtime floor is Node>=26.4, modern Node20/NodeNext compiler modes qualified",
+    "Canonical50 declaration-only proof is separate from actual50 fullJS/CJS pack qualification",
+    "Unit producer coverage configs and owning tests are earlier captured prerequisites; no new full-package coverage claim from this release cohort",
+    "Third-party fresh dependencies resolved by published contracts with no consumer pins/overrides; actual Node ambient root came through installed CLI @types/ws -> @types/node"
+  ],
+  "outcome": "Unmodified release CLI consumer now installs alone into fresh npm/pnpm caches/stores and answers MCP initialize with the packed version. Every external Effect family member equals the expected pin; private platform adapters eliminate transitive caret resolution."
+}
