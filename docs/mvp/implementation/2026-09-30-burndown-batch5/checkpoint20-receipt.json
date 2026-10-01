@@ -1,0 +1,62 @@
+{
+  "sourceCandidate": "d09cc801aae2bec1945a45f896245b03c6b60d93",
+  "originBase": "cb51a7f095ad937d3e9957437fb9e4666a5b9961",
+  "qualifiedIssues": [
+    3054,
+    3096,
+    3020,
+    3299,
+    3230
+  ],
+  "pendingReleaseIssues": [
+    3093,
+    3184
+  ],
+  "exportAdmission": "One explicit reviewed patterns/Burndown row and expected-list entry; original baseline package/removal rows unchanged. Expected sole-admission red retained separately; final39/39 green.",
+  "qualification": {
+    "flows": "Unchanged noEmit0;6calibration tests;25newissue-sweep tests",
+    "patterns": "73behavioral controls and unchangedsource/testtypes; publicexport39/39",
+    "backend": "2663Go/445CLI/config/helperinputidentitypreserved;freshCLIsource/testtypes0 andHistory47/47",
+    "guard": "47finalinputsbyteidentical; changedBurndownoutside1342file/682trackedfileowningcompilerprogram; retain30/30realguard/FlowLimits plusowningstricttypes"
+  },
+  "limits": [
+    "Fresh50finaldeclarations/packs/npm-pnpmconsumersandreviewedbaselineupdatepending;3093/3184remainopen.",
+    "AgentSessiontestgatefiveforeignCodecTS2322errorsreproduced,trackedseparately;noglobalagenttypesgreenclaim.",
+    "EarliermacOS/native/controlledguest/coverage/skipslimitsintheowningreceiptsstillapply."
+  ],
+  "archive": "checkpoint20-validation.tar.gz",
+  "archiveSHA256": "dc46079eba7a02e870a38aff39f3a8d8860d5609a10bd41ad01cb5c5266bed3e",
+  "rawFiles": {
+    "api-batch3/checkpoint-d09cc801/checkpoint-evidence.json": "fe9f6dc326db86cf049e95a96063cfa176c089ac554b9b2dded4b3d922b27527",
+    "api-batch3/checkpoint-d09cc801/flows-calibration-result.json": "a5158ab5bb2b321179d2ca2464b5eb09034db3a47b8abaa838e193116ab252f5",
+    "api-batch3/checkpoint-d09cc801/flows-calibration.log": "5853074d6f26d0c677cad2fe9a9b6a5bf8a0fc37d0532fbde5677b539057d536",
+    "api-batch3/checkpoint-d09cc801/flows-issue-sweep-result.json": "c16f869281126d3019535e45102380e17be5afbc144a0715f0213f2db784f0e9",
+    "api-batch3/checkpoint-d09cc801/flows-issue-sweep.log": "f3b15538eb28c181a5e07f5b3100734ae467d3261da170602201e690434319e4",
+    "api-batch3/checkpoint-d09cc801/flows-noemit-result.json": "8357e39f7bb408b7d3e13d9f916fa4b83370cec4739dd681d00871f1e71c8f20",
+    "api-batch3/checkpoint-d09cc801/flows-noemit.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "api-batch3/checkpoint-d09cc801/inputs-after.json": "dccb701fa345d7fa2386871c6679978d4e9bfbd4a3af7f7616b04adad538afb8",
+    "api-batch3/checkpoint-d09cc801/inputs-before.json": "d72b23ee1e780d4f34755991841399e2e06c34ddd82c197428b2b0a13107b508",
+    "api-batch3/checkpoint-d09cc801/patterns-source-types-result.json": "669acd8a4c65038a1f7439972a04bed7f7f6db4fa5cc5d02c9a397e5d5242ee2",
+    "api-batch3/checkpoint-d09cc801/patterns-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "api-batch3/checkpoint-d09cc801/patterns-test-types-result.json": "7393ac318c117d36a2279eddd0e3769892bd7829464bdaac50f87aff06bd6229",
+    "api-batch3/checkpoint-d09cc801/patterns-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "api-batch3/checkpoint-d09cc801/patterns-unit-result.json": "39fa650410722507990db34ca4f284ef313b10e22558cc41485059a4448990c3",
+    "api-batch3/checkpoint-d09cc801/patterns-unit.log": "e5d6e68eb9ec4313c30e61cd35b4c66f09a8ed119f1d793c6f26e5191d582983",
+    "api-batch3/checkpoint-d09cc801/public-export-gate-result.json": "6c8f239587e022c1fa9697d8d46d877005d382d01ad955b02fcae3375721a055",
+    "api-batch3/checkpoint-d09cc801/public-export-gate.log": "9bfe850cfcf1ffd7951a01bd5f0ad351b0440287ca1558fee22a0842c55220b2",
+    "api-batch3/checkpoint-d09cc801/run.py": "fbba78cb9d980c753fa1138c0d2168b5818b1badb0a0f57f7228526d3ed88518",
+    "runtime-batch5/3020-postrebase-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-batch5/3020-postrebase-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime-batch5/3096-3020-3299-postrebase-input-audit.json": "d3ea1bb889bbf89440ec20efd60c75f7868db547918b9da502487208e2672286",
+    "runtime-batch5/3096-3020-3299-postrebase-readiness.json": "2da26ade6b37adcf29deca26f78479e4ce0ed5c5f560d75d1f41f81d8abdbac3",
+    "runtime-batch5/3299-postrebase-history.json": "e1960ba1af2cd1eb39b612f27ccbdecae1de0e0d9c598a6ad82d392b72daf8f1",
+    "runtime-batch5/3299-postrebase-history.log": "ed381fbcd3617486dc54533ddd0e3556c6e4b94b5a44d1a2290efdcf635eec02",
+    "ui-flow-batch2/3230-d09cc801-agent-test-types.log": "a7b3fde28a9f0ddbe4c2c05571b50308aeec47982501ed351d5df8798c716b29",
+    "ui-flow-batch2/3230-d09cc801-agent-types-issue-evidence.json": "a524f54c2b64c89a8accc0f4860b1b01d49f795f0cb07ee0d2f97f86e796f844",
+    "ui-flow-batch2/3230-d09cc801-current-program-hashes.json": "dc9e6caff1c19498a98fb28e333dbabe20c03a7ee617124ab85dc37ab8ff1aa2",
+    "ui-flow-batch2/3230-d09cc801-owning-program-files.log": "eb87ab9ebf43ba2fbb00a02611d40a1c13ac2ccb489241f397e8585fbad4fd11",
+    "ui-flow-batch2/3230-full-guard.log": "ab04c400a0c75c5be514495fd036efea5c0655849277e35d4df8fc7988d7098b",
+    "ui-flow-batch2/3230-postrebase-d09cc801.json": "91ef57b74d08b883f20ce65f459c5d7193e60d312b71f0b3a65f81ce1ace384d",
+    "ui-flow-batch2/3230-ready.json": "f00fea227657726e25879d243c497ab7133c41bbd1e363e2206cf6bfb8d9647e"
+  }
+}

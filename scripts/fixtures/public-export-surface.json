@@ -1621,6 +1621,22 @@
         }
       },
       "reason": "Shared native mechanism selection/planning/wrapping for declared build inputs and guarded agent profiles; concrete refusal types and host probes preserve enforced-or-refused behavior. Reviewed upstream 6490adb4c2 (#3140/#1790/#3234), source/docs, public import/type controls and owning native tests under #3184; original 48-package history retained."
+    },
+    {
+      "name": "@smthrs/patterns",
+      "subpath": "./Burndown",
+      "development": "./src/Burndown.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Burndown.d.ts",
+          "default": "./dist/esm/Burndown.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Burndown.d.ts",
+          "default": "./dist/cjs/Burndown.js"
+        }
+      },
+      "reason": "Reviewed upstream cb79039728 declaration: canonical Flow pattern plus claimed bounded round, ordered landing, release-on-failure and capacity wait/resume helpers. It adds one explicit subpath over the existing @smthrs/flow model; it does not authorize issue claims, provider credentials or history writes by itself. Required injected callbacks remain the host authority."
     }
   ],
   "removed": [
