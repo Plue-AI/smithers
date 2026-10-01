@@ -271,7 +271,10 @@ describe("implementation composition", () => {
           const Defect = Schema.Defect()
           const recorded = Schema.decodeUnknownSync(Defect)(Schema.encodeUnknownSync(Defect)(defect)) as Error
           expect(recorded.message).toContain(`Action "${Read.name}" already has an implementation`)
+          expect(recorded.message).toContain("provide its layer once")
           expect(recorded.message).toContain("override: true")
+          expect(String(recorded)).toContain(`Action "${Read.name}" already has an implementation`)
+          expect(String(recorded)).toContain("override: true")
         }
         expect(runs).toBe(0)
       })
