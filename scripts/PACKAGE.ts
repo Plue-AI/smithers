@@ -54,12 +54,18 @@ const privateAdapterManifests = [
  * @category test
  */
 const packManifest = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/pack-release.test.mjs")]),
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/pack-release.test.mjs"),
+    Smithers.file("//distribution/install-cli.test.mjs")
+  ]),
   // Both workflows are inputs: the suite compares the release workflow's gate
   // and toolchain steps against the generated CI workflow's, so an edit to
   // either one has to re-run this gate rather than read a cached pass.
   srcs: [
     ...sources,
+    Smithers.file("//distribution/build-cli.mjs"),
+    Smithers.file("//distribution/install-cli.mjs"),
+    Smithers.file("//distribution/install-cli.test.mjs"),
     Smithers.file("//.github/workflows/ci.yml"),
     Smithers.file("//.github/workflows/release.yml")
   ],
