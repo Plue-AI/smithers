@@ -273,8 +273,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
    */
   readonly answerApproval: (id: string, answer: unknown, question?: string) => void
   readonly retryLastTurn: () => string | void
-  /** The guide shell reports mount ownership; this is a system observation, not a user command. */
-  readonly toggleTheme: () => void
+  /** Light or dark mode (/appearance.dark-mode): the named one, or the other one when none is named. */
+  readonly setTheme: (theme?: "light" | "dark") => void
   /** Wear a color theme (/theme) — the axis orthogonal to light/dark. */
   readonly setPalette: (args: string) => string | void
   /** Archive locally and start fresh; model-generated notes are opt-in. */
@@ -1062,7 +1062,7 @@ export const createAppController = (
     debugNet,
     debugSeams,
     openBrowser,
-    toggleTheme,
+    setTheme,
     setPalette
   } = actors.pair(ctx, (context, select) => createPresentationController(context, select(adminHealth)))
 
@@ -1815,7 +1815,7 @@ export const createAppController = (
     netTap,
     netTapEntries,
     debugSeams,
-    toggleTheme,
+    setTheme,
     setPalette,
     adoptSession,
     loadSession,

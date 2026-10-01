@@ -100,6 +100,28 @@ describe("every listed flow is a tool call", () => {
     expect(store.session().palette).toBe("paper")
   })
 
+  test("dark-mode sets the named mode from either start, and bare toggles (#3311)", async () => {
+    const { controller, store } = await freshController(EVERYTHING)
+    const start = (theme: "light" | "dark") => store.dispatch({ type: "theme.changed", actor: "user", theme })
+    for (const from of ["light", "dark"] as const) {
+      for (const mode of ["light", "dark"] as const) {
+        start(from)
+        expect((await controller.commands.runForAgent("appearance.dark-mode", mode)).status).toBe("executed")
+        expect(`${from} -> ${mode}: ${store.session().theme}`).toBe(`${from} -> ${mode}: ${mode}`)
+      }
+      start(from)
+      expect((await controller.commands.runForAgent("appearance.dark-mode")).status).toBe("executed")
+      expect(store.session().theme).toBe(from === "light" ? "dark" : "light")
+    }
+    // The grammar is case-insensitive; anything but a mode asks for the mode (THE FORM LAW) and changes nothing.
+    start("light")
+    expect((await controller.commands.runForAgent("appearance.dark-mode", " DARK ")).status).toBe("executed")
+    expect(store.session().theme).toBe("dark")
+    const refused = await controller.commands.runForAgent("appearance.dark-mode", "dim")
+    expect(refused.status).toBe("form")
+    expect(store.session().theme).toBe("dark")
+  })
+
   test("a confirm flow asked for by the model posts the confirmation and performs nothing", async () => {
     const { controller, store } = await freshController(EVERYTHING)
     store.dispatch({

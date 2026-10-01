@@ -109,7 +109,7 @@ describe("createAppController in pure web mode", () => {
     expect(store.session().draft).toBe("draft in the browser")
 
     const before = store.session().theme
-    controller.toggleTheme()
+    controller.setTheme()
     expect(store.session().theme).not.toBe(before)
 
     const journal = [...store.collections.transitions.values()]

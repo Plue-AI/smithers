@@ -32,7 +32,7 @@ export interface PresentationController {
   readonly debugNet: () => { readonly value: string }
   readonly debugSeams: () => Promise<string | void | { readonly value: string }>
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
-  readonly toggleTheme: () => void
+  readonly setTheme: (theme?: "light" | "dark") => void
   readonly setPalette: (args: string) => string | void
 }
 
@@ -418,11 +418,12 @@ export const createPresentationController = (
     )
   }
 
-  const toggleTheme = (): void => {
+  /** Light or dark mode: the named one, or the other one when none is named. */
+  const setTheme = (theme?: "light" | "dark"): void => {
     ctx.store.dispatch({
       type: "theme.changed",
       actor: "user",
-      theme: ctx.store.session().theme === "dark" ? "light" : "dark"
+      theme: theme ?? (ctx.store.session().theme === "dark" ? "light" : "dark")
     })
   }
 
@@ -509,7 +510,7 @@ export const createPresentationController = (
     debugNet,
     debugSeams,
     openBrowser,
-    toggleTheme,
+    setTheme,
     setPalette
   }
 }

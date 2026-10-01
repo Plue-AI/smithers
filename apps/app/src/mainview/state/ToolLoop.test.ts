@@ -104,6 +104,40 @@ describe("the client-side agent tool loop", () => {
     expect(store.session().phase).toBe("idle")
   })
 
+  /*
+   * #3311: on smithers.sh "switch to dark mode" did not switch. The model
+   * names the mode, so the turn ends dark whether the app started light or
+   * dark (the bare toggle turned an already-dark app light).
+   */
+  for (const from of ["light", "dark"] as const) {
+    test(`"switch to dark mode" from ${from} executes /appearance.dark-mode dark and ends dark`, async () => {
+      const store = await webStore()
+      store.dispatch({ type: "theme.changed", actor: "user", theme: from })
+      const darkCall = {
+        type: "tool_call" as const,
+        call_id: "call_dark",
+        name: "commands",
+        arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode", args: "dark" })
+      }
+      const { agent, requests } = scriptedToolAgent([
+        () => [darkCall, { type: "done" as const, reason: "tool_call" as const }],
+        () => [
+          { type: "delta" as const, kind: "text" as const, text: "Dark mode is on." },
+          { type: "done" as const, reason: "stop" as const }
+        ]
+      ])
+      const controller = createAppController(store, agent)
+      controller.send("switch to dark mode")
+      await settled()
+      await settled()
+
+      const output = requests[1]?.messages.find((m) => "type" in m && m.type === "function_call_output")
+      expect(output !== undefined && "output" in output ? output.output : undefined).toBe("executed /appearance.dark-mode")
+      expect(store.session().theme).toBe("dark")
+      expect(store.session().phase).toBe("idle")
+    })
+  }
+
   test("a slash-spelled command name still runs, and the act line never doubles the slash", async () => {
     // Live on canary the model wrote {"name":"/browser"} — the catalog's own
     // spelling — and the transcript read "Smithers tried //browser —

@@ -480,6 +480,10 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "setup.discard": args => required("cardId", args, "Choose the setup whose draft to discard"),
   "setup.discard.confirm": args => required("cardId", args, "Choose the setup whose draft to discard"),
   "appearance.theme": (args) => ok({ palette: args ?? "" }),
+  "appearance.dark-mode": (args) => {
+    const mode = trimmed(args).toLowerCase()
+    return mode === "" ? NONE : mode === "light" || mode === "dark" ? ok({ mode }) : no("dark-mode takes light or dark")
+  },
   "chat.queue": args => required("text", args, "Choose a prompt"),
   "chat.queue.edit": args => required("id", args, "Choose a queued prompt"),
   "chat.queue.remove": args => required("id", args, "Choose a queued prompt"),

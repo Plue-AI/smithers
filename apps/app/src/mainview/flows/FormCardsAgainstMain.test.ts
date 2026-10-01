@@ -383,6 +383,14 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     }
   ]),
   {
+    flow: "appearance.dark-mode", kind: "card", rows: 31,
+    because: "Light or dark mode is named, not only toggled (#3311): the agent asked to switch to dark mode turned an already-dark app light. The flow gains an optional Mode field (light or dark), so every swept line's card lists it; a bare line still toggles."
+  },
+  {
+    flow: "appearance.dark-mode", kind: "sentence", rows: 29,
+    because: "With a mode to name (#3311), a line that names something other than light or dark reads `dark-mode takes light or dark` instead of silently toggling."
+  },
+  {
     flow: "agent.session.new", kind: "card", rows: 38,
     because: "Product words (#2144): the session's free-text field is labelled Request instead of Task; the payload field keeps its name."
   }
@@ -470,7 +478,8 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
     /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
     /* 1454: `/flow.create` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1454 })
+    /* 1483: the 29 `/appearance.dark-mode` lines that name no mode read `dark-mode takes light or dark` (#3311). */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1483 })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
   }, 1_800_000)

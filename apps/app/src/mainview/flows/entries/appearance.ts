@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { PALETTES } from "../../state/AppState"
-import { flow, NoPayload } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -26,9 +26,10 @@ export const appearanceFlows = (actions: CommandActions): ReadonlyArray<FlowEntr
   }
   const DARK_MODE = {
     name: "appearance.dark-mode",
-    summary: "Toggle light and dark mode",
-    input: NoPayload,
-    handler: () => actions.toggleTheme()
+    summary: "Switch to light or dark mode; bare toggles",
+    args: "[light|dark]",
+    input: Schema.Struct({ mode: Schema.optional(Schema.Literals(["light", "dark"])) }),
+    handler: ({ mode }: { readonly mode?: "light" | "dark" }) => actions.setTheme(mode)
   }
   return [
   /*
