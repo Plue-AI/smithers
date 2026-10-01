@@ -1,0 +1,71 @@
+{
+  "issue": 3109,
+  "status": "READY/FROZEN; existing production fix independently qualified; only two regression test files changed",
+  "head": "bd2b7b81d6bfa31ea4b72ce5c97f6285a2784598",
+  "captured": "2026-10-01T00:49:00.007035+00:00",
+  "authoredFiles": {
+    "packages/smithers/test/BinStartupFailure.test.ts": "fc6338899d1a06f9e2e500ffa7b59ab4360c51c1ba133eb5ef2d912384f18c6e",
+    "packages/smithers/test/fixtures/missing-startup-module.ts": "f1bb024ade9c73032b0ae7b3ea7afba6c05d5fc274b78267b93c3235946f4107"
+  },
+  "qualifiedProductionSources": {
+    "packages/smithers/src/bin.ts": "e7a4e8b1be97052f2694f0e2f2c531df8e7d76e5544e552e11d8ae7c4fad1164",
+    "packages/smithers/src/cli/Argv.ts": "93ca2be5082e3cb7c8f451f83dec8cc3980397f04b916fc56e703316cb5ea909",
+    "packages/smithers/src/internal/Failure.ts": "e2c65667916c4afd27e0d9d38cf97db3f3d32c0a185d6716b34536b50e2fccee",
+    "packages/smithers/src/cli/Entry.ts": "81c32d6020512556780189919342bb725d49f9cd5c0b67b77c8381c3a834a8f2",
+    "packages/smithers/flows/journal/src/Redaction.ts": "e16a4ee24835a2a36f4f64ff86486f4335be9a2bd0f55f792c583a9d0e0c68e4"
+  },
+  "upstreamFix": {
+    "commit": "5b603ccfe3784c5e2bb49173588350340910eb2d",
+    "subject": "fix(cli): append the raw cause of a startup failure under --verbose",
+    "source": "Canonical src/bin.ts catch already calls the shared Failure.operatorReport with canonical Argv.parse(...).verbose, then Redaction.redactDiagnostic and exit1. No duplicate reporter or new production API added."
+  },
+  "acceptance": {
+    "missingModule": "19 real Node26 subprocess regressions invoke the actual canonical src/bin.ts through a preload redirect of dynamically loaded @smthrs/build-cli/Cli to a truly missing package. Both global-prefix and leaf verbose print the missing-package diagnostic after the generic sentence.",
+    "default": "Without requested verbosity stderr remains exactly the existing generic sentence. Every subprocess retains empty stdout, actual exit1 and no signal/timeout/launch failure.",
+    "flags": "Inline/spaced true and false, negation, malformed/empty inline boolean, malformed negated flag, known opaque local/global option values, opaque inline header value, literal tail and canonical first-occurrence-wins duplicates qualified.",
+    "redaction": "Actual missing-module Error preserved; only the redaction control adds a nested synthetic bearer/API-key Error. Both prefix/leaf verbose retain useful missing-package detail and redact the synthetic credentials.",
+    "oneEntry": "No bin alias, legacy/canonical alternate startup implementation, argv.includes guess or package manifest change."
+  },
+  "results": {
+    "subprocessTests": "19/19 pass; 2.98s",
+    "canonicalParserReporter": "54/54 Argv + Failure tests pass; 4.84s",
+    "strictTestTypes": "PASS own package TS compiler and inherited test config narrowed to the two edited files; explicit absolute typeRoots preserves package resolution from external receipt config. No skipLibCheck or threshold change.",
+    "format": "PASS owning smithers dprint for both test files",
+    "whitespace": "PASS"
+  },
+  "commands": {
+    "subprocess": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/Users/williamcory/.bun/bin:$PATH TMPDIR=/private/tmp ./node_modules/.bin/vitest run test/BinStartupFailure.test.ts --coverage.enabled=false (cwd packages/smithers)",
+    "parserReporter": "same environment; ./node_modules/.bin/vitest run test/Argv.test.ts test/Failure.test.ts --coverage.enabled=false (cwd packages/smithers)",
+    "types": "./node_modules/.bin/tsc --noEmit -p /tmp/smithers-burndown-20260930-receipts/ui-flow-batch2/3109-types.json (cwd packages/smithers)",
+    "format": "packages/smithers/node_modules/.bin/dprint check --config packages/smithers/dprint.json packages/smithers/test/BinStartupFailure.test.ts packages/smithers/test/fixtures/missing-startup-module.ts",
+    "whitespace": "git diff --check -- packages/smithers/test/BinStartupFailure.test.ts packages/smithers/test/fixtures/missing-startup-module.ts"
+  },
+  "limits": [
+    "No production edits required: issue body predates the existing upstream fix. No old-source red result is invented.",
+    "Initial existing two-case test run passed both assertions but failed whole-package coverage thresholds because the focused subset does not measure the full CLI. Retained raw log; targeted qualification mode disables coverage collection without changing thresholds/config. No full-package coverage/release green claim.",
+    "Actual child process execution is not attributed to parent Vitest coverage; no 100% CLI coverage claim.",
+    "External narrow types config initially could not resolve node types because its directory was outside the package; retained setup error and corrected explicit package typeRoots.",
+    "Preload faults a dynamically imported startup module after the entry can initialize; this does not qualify dependencies missing before src/bin.ts static imports initialize.",
+    "No installed npm/pnpm cohort, release build or public API declaration baseline update."
+  ],
+  "review": "Orchestrator reviewed canonical bin catch using existing Argv/Failure/Redaction and upstream fix; real startup-fault subprocess matrix verifies prefix/leaf/default, false/opaque/malformed/literal-tail inputs, first-occurrence policy, failing exit, empty stdout and synthetic nested credential redaction. New narrow types/format and54 parser/reporter tests pass; no full coverage/release claim.",
+  "processes": "All checks completed; no pending Node/Bun processes created by this scope",
+  "receipts": {
+    "3109-parser-reporter.log": "26ce47ed100121cd150570933ad1647132c858b67eb1aa1a2d8372c0957f5f79",
+    "3109-types-qualified.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3109-types.json": "9ba8f9705f3b442a6ce1cddc8f50477252977977bf7eb87e82fbaa1bc52a11f9",
+    "3109-types-config-root-error.log": "22d754e33e5e414d820e237c9e477c81ec8db495c45ab51f7665351a89a3c783",
+    "3109-types.log": "22d754e33e5e414d820e237c9e477c81ec8db495c45ab51f7665351a89a3c783",
+    "3109-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3109-qualified.log": "dc8aa0b3fc55ecb324b1e2b45077d7424ac583fbc13b0443e9c7789d45e7b17a",
+    "3109-existing.log": "409c7c7933decc88038a191afec44749b33879ebb42973ba854d44c7d537403e",
+    "3109-whitespace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3109-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3109-upstream-source.txt": "90ef088d8bc7aa9e5087c919ba9d47272cd22b5a06017a4294bb6557e9212ce4",
+    "3109-qualified-expanded.log": "5b9ff494c2a976a5caf2954267a94173701419497465a33243744645abeaa538"
+  },
+  "archive": {
+    "path": "docs/mvp/implementation/2026-09-30-burndown-batch4/3109-validation.tar.gz",
+    "sha256": "7fa1b7fd41e73f24434f004cec559ac5d32c269ed3026bd63a6c7977078e0697"
+  }
+}
