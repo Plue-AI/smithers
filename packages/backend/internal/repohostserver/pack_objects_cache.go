@@ -327,7 +327,7 @@ func streamPack(pack *os.File, stdout io.Writer) int {
 	return 0
 }
 
-// evict removes expired packs, temporary files, and locks, then the least
+// evict removes expired packs and abandoned temporary files, then the least
 // recently served packs until the cache fits maxBytes. keep is the pack just
 // served; an open pack stays readable after removal.
 func (c packObjectsHookCache) evict(keep string) {
@@ -358,9 +358,24 @@ func (c packObjectsHookCache) evict(keep string) {
 			}
 			packs = append(packs, pack{path: path, size: info.Size(), at: info.ModTime()})
 			total += info.Size()
-		case expired:
-			// A temp file of a builder that died, or an idle lock.
-			_ = os.Remove(path)
+		case expired && strings.HasSuffix(entry.Name(), ".tmp"):
+			// Lock files must retain their inode: even an unlocked file can
+			// have waiters that already opened it. A builder owns its key's
+			// lock throughout writing, so only clean its temp while holding
+			// that same lock. Never remove an active builder's output.
+			key, _, ok := strings.Cut(entry.Name(), ".")
+			if !ok {
+				continue
+			}
+			lock, err := os.OpenFile(filepath.Join(c.dir, key+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+			if err != nil {
+				continue
+			}
+			if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+				_ = os.Remove(path)
+				_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			}
+			_ = lock.Close()
 		}
 	}
 	sort.Slice(packs, func(i, j int) bool { return packs[i].at.Before(packs[j].at) })

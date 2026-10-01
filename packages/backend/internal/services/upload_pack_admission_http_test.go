@@ -32,7 +32,8 @@ func TestUploadPackAdmissionHTTPBoundary(t *testing.T) {
 		wantRetry  string
 	}{
 		{repohost.UploadPackQueueFullCode, http.StatusServiceUnavailable, "900", http.StatusServiceUnavailable, "1"},
-		{repohost.UploadPackQueueTimeoutCode, http.StatusGatewayTimeout, "", http.StatusGatewayTimeout, ""},
+		{repohost.UploadPackQueueTimeoutCode, http.StatusGatewayTimeout, "", http.StatusServiceUnavailable, "1"},
+		{repohost.UploadPackQueueTimeoutCode, http.StatusServiceUnavailable, "900", http.StatusServiceUnavailable, "1"},
 		{repohost.UploadPackNegotiationTooLargeCode, http.StatusRequestEntityTooLarge, "", http.StatusRequestEntityTooLarge, ""},
 		{repohost.UploadPackQueueFullCode, http.StatusGatewayTimeout, "900", http.StatusInternalServerError, ""},
 		{"unrelated", http.StatusServiceUnavailable, "900", http.StatusInternalServerError, ""},

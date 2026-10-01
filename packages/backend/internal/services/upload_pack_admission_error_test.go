@@ -13,15 +13,17 @@ import (
 
 func TestGitProxyFailureUploadPackAdmission(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		status       int
-		upstreamCode string
-		code         apierrors.Code
-		retry        int
+		name           string
+		status         int
+		responseStatus int
+		upstreamCode   string
+		code           apierrors.Code
+		retry          int
 	}{
-		{"queue full", http.StatusServiceUnavailable, "upload_pack_queue_full", apierrors.CodeServiceUnavailable, 1},
-		{"queue timeout", http.StatusGatewayTimeout, "upload_pack_queue_timeout", apierrors.CodeGatewayTimeout, 0},
-		{"negotiation too large", http.StatusRequestEntityTooLarge, "upload_pack_negotiation_too_large", apierrors.CodeRequestEntityTooLarge, 0},
+		{"queue full", http.StatusServiceUnavailable, http.StatusServiceUnavailable, "upload_pack_queue_full", apierrors.CodeServiceUnavailable, 1},
+		{"queue timeout", http.StatusServiceUnavailable, http.StatusServiceUnavailable, "upload_pack_queue_timeout", apierrors.CodeServiceUnavailable, 1},
+		{"legacy queue timeout", http.StatusGatewayTimeout, http.StatusServiceUnavailable, "upload_pack_queue_timeout", apierrors.CodeServiceUnavailable, 1},
+		{"negotiation too large", http.StatusRequestEntityTooLarge, http.StatusRequestEntityTooLarge, "upload_pack_negotiation_too_large", apierrors.CodeRequestEntityTooLarge, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, wrapped := range []bool{false, true} {
@@ -32,7 +34,7 @@ func TestGitProxyFailureUploadPackAdmission(t *testing.T) {
 				err := gitProxyFailure(context.Background(), "upload-pack", "alice", "demo", upstream)
 				var api *apierrors.APIError
 				require.ErrorAs(t, err, &api)
-				require.Equal(t, tc.status, api.Status)
+				require.Equal(t, tc.responseStatus, api.Status)
 				require.Equal(t, tc.code, api.Code)
 				require.Equal(t, tc.retry, api.RetryAfter)
 				require.NotContains(t, api.Message, "secret")
@@ -44,7 +46,7 @@ func TestGitProxyFailureUploadPackAdmission(t *testing.T) {
 func TestGitProxyFailureDoesNotTranslateUnrelatedAdmissionErrors(t *testing.T) {
 	for _, code := range []string{"upload_pack_queue_full", "upload_pack_queue_timeout", "upload_pack_negotiation_too_large", "unrelated"} {
 		for _, status := range []int{http.StatusBadRequest, http.StatusServiceUnavailable, http.StatusGatewayTimeout, http.StatusRequestEntityTooLarge} {
-			if code == "upload_pack_queue_full" && status == http.StatusServiceUnavailable || code == "upload_pack_queue_timeout" && status == http.StatusGatewayTimeout || code == "upload_pack_negotiation_too_large" && status == http.StatusRequestEntityTooLarge {
+			if code == "upload_pack_queue_full" && status == http.StatusServiceUnavailable || code == "upload_pack_queue_timeout" && (status == http.StatusGatewayTimeout || status == http.StatusServiceUnavailable) || code == "upload_pack_negotiation_too_large" && status == http.StatusRequestEntityTooLarge {
 				continue
 			}
 			err := gitProxyFailure(context.Background(), "upload-pack", "alice", "demo", &repohost.StatusError{StatusCode: status, Code: code, Message: "secret upstream details"})

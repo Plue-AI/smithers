@@ -78,7 +78,8 @@ func (s *Server) acquireUploadPack(w http.ResponseWriter, r *http.Request, repoP
 	_ = rc.SetReadDeadline(deadline)
 	ended := func(err error) error {
 		a.rejected.WithLabelValues("ended").Inc()
-		return &appError{StatusCode: http.StatusGatewayTimeout, Code: repohost.UploadPackQueueTimeoutCode, Message: "request ended while waiting to build a pack", Cause: err}
+		w.Header().Set("Retry-After", "1")
+		return &appError{StatusCode: http.StatusServiceUnavailable, Code: repohost.UploadPackQueueTimeoutCode, Message: "request ended while waiting to build a pack", Cause: err}
 	}
 	rejectNegotiation := func(err error) error {
 		// An invalid prefix may leave an unfinished request body. Do not

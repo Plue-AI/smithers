@@ -19,8 +19,10 @@ func uploadPackAdmissionError(err error) *errors.APIError {
 		refusal := errors.New(errors.CodeServiceUnavailable, "upload-pack queue is full")
 		refusal.RetryAfter = 1
 		return refusal
-	case status.StatusCode == http.StatusGatewayTimeout && status.Code == repohost.UploadPackQueueTimeoutCode:
-		return errors.GatewayTimeout("upload-pack admission timed out")
+	case (status.StatusCode == http.StatusServiceUnavailable || status.StatusCode == http.StatusGatewayTimeout) && status.Code == repohost.UploadPackQueueTimeoutCode:
+		refusal := errors.New(errors.CodeServiceUnavailable, "upload-pack admission timed out")
+		refusal.RetryAfter = 1
+		return refusal
 	case status.StatusCode == http.StatusRequestEntityTooLarge && status.Code == repohost.UploadPackNegotiationTooLargeCode:
 		return errors.RequestEntityTooLarge("upload-pack negotiation is too large")
 	default:

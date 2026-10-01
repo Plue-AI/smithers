@@ -91,7 +91,8 @@ func TestUploadPackHTTPRefSyncWaitIsBoundedAndCancelable(t *testing.T) {
 				response, err := http.ReadResponse(bufio.NewReader(blocked), nil)
 				require.NoError(t, err, "the queue deadline must also bound ref-sync lock waiting")
 				defer response.Body.Close()
-				require.Equal(t, http.StatusGatewayTimeout, response.StatusCode)
+				require.Equal(t, http.StatusServiceUnavailable, response.StatusCode)
+				require.Equal(t, "1", response.Header.Get("Retry-After"))
 			}
 			h.waitAdmissions(0)
 			h.waitRepoRefs("active", 1)
@@ -142,7 +143,8 @@ func TestUploadPackHTTPRefSyncCachedReadLockWaitIsBounded(t *testing.T) {
 	response, err := http.ReadResponse(bufio.NewReader(blocked), nil)
 	require.NoError(t, err, "the queue deadline must also bound the post-slot read lock")
 	defer response.Body.Close()
-	require.Equal(t, http.StatusGatewayTimeout, response.StatusCode)
+	require.Equal(t, http.StatusServiceUnavailable, response.StatusCode)
+	require.Equal(t, "1", response.Header.Get("Retry-After"))
 	h.waitAdmissions(0)
 	h.waitRepoRefs("active", 1)
 	require.Zero(t, h.starts())
@@ -168,6 +170,7 @@ func TestUploadPackHTTPQueueRejectionClosesIncompleteConnection(t *testing.T) {
 	response, err := http.ReadResponse(reader, nil)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusServiceUnavailable, response.StatusCode)
+	require.Equal(t, "1", response.Header.Get("Retry-After"))
 	_, err = io.ReadAll(response.Body)
 	require.NoError(t, err)
 	_, err = reader.ReadByte()
@@ -233,7 +236,8 @@ func TestUploadPackHTTPKeepaliveAfterSuccessAndQueueTimeout(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, response.Close)
 			if timeout {
-				require.Equal(t, http.StatusGatewayTimeout, response.StatusCode)
+				require.Equal(t, http.StatusServiceUnavailable, response.StatusCode)
+				require.Equal(t, "1", response.Header.Get("Retry-After"))
 			} else {
 				require.Equal(t, http.StatusOK, response.StatusCode)
 			}
@@ -351,8 +355,9 @@ func TestUploadPackHTTPQueueTimeoutReleasesAdmission(t *testing.T) {
 	h.waitStarts(1)
 	queued := h.request("queued", "want", 4)
 	status, _, headers := h.response(queued)
-	require.Equal(t, http.StatusGatewayTimeout, status)
+	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.Equal(t, repohost.UploadPackQueueTimeoutCode, headers.Get("X-Smithers-Error-Code"))
+	require.Equal(t, "1", headers.Get("Retry-After"))
 	require.Equal(t, 1, h.starts(), "a timed-out waiter must never launch git")
 	h.waitAdmissions(1)
 	recovery := h.request("recovery", "want", 4)
@@ -390,7 +395,7 @@ func TestUploadPackHTTPNegotiationReadIsBoundedAndDisconnectable(t *testing.T) {
 				h.waitDone("queued", time.Second)
 			} else {
 				status, _, _ = h.response(stalled)
-				require.Equal(t, http.StatusGatewayTimeout, status)
+				require.Equal(t, http.StatusServiceUnavailable, status)
 			}
 			h.waitAdmissions(1)
 			require.Equal(t, 1, h.starts())
@@ -466,7 +471,7 @@ func TestUploadPackHTTPRejectedPartialBodiesRespondPromptly(t *testing.T) {
 	}{
 		{name: "malformed gzip", body: "not gzip!!", encoding: "gzip", status: http.StatusBadRequest, timeout: 5 * time.Second},
 		{name: "oversized negotiation", body: "wants", status: http.StatusRequestEntityTooLarge, timeout: 5 * time.Second},
-		{name: "stalled gzip header", body: "\x1f\x8b", encoding: "gzip", status: http.StatusGatewayTimeout, timeout: 500 * time.Millisecond},
+		{name: "stalled gzip header", body: "\x1f\x8b", encoding: "gzip", status: http.StatusServiceUnavailable, timeout: 500 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newUploadPackQueueHTTPHarness(t, Config{MaxConcurrentUploadPacks: 1, MaxGitRequestBytes: 4, UploadPackQueueTimeout: tc.timeout})

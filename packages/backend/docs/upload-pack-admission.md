@@ -28,8 +28,7 @@ git processes.
 Reading negotiation before waiting lets HTTP/1.1 detect disconnected clients and
 cancel their queued work. Incomplete negotiation is bounded by the read deadline.
 
-A full queue returns HTTP 503 with `Retry-After: 1`; an expired wait returns HTTP
-504. Oversized negotiation returns HTTP 413. Malformed negotiation returns HTTP 400. These limits protect process and
+A full queue or expired admission wait returns HTTP 503 with `Retry-After: 1`. Oversized negotiation returns HTTP 413. Malformed negotiation returns HTTP 400. These limits protect process and
 request memory; increasing them requires sizing the repo-host memory budget.
 
 ## Clone pack cache

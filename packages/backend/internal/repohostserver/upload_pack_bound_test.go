@@ -65,7 +65,7 @@ printf PACK
 	waiting, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	second := fetch(waiting, "other")
-	require.Equal(t, http.StatusGatewayTimeout, second.Code, second.Body.String())
+	require.Equal(t, http.StatusServiceUnavailable, second.Code, second.Body.String())
 	require.Contains(t, second.Body.String(), "waiting to build a pack")
 	require.Equal(t, 1, startCount(), "a clone past the bound must not start git")
 

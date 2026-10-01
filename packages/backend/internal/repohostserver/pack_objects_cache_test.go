@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -178,10 +179,10 @@ func TestPackObjectsCacheEvictsLeastRecentlyServedOverBudget(t *testing.T) {
 	write("idle.lock", 0, 2*time.Hour)
 	write("live.lock", 0, time.Minute)
 	c.evict(filepath.Join(dir, "new.pack"))
-	for _, gone := range []string{"old.pack", "expired.pack", "dead.1.tmp", "idle.lock"} {
+	for _, gone := range []string{"old.pack", "expired.pack", "dead.1.tmp"} {
 		require.NoFileExists(t, filepath.Join(dir, gone))
 	}
-	for _, kept := range []string{"mid.pack", "new.pack", "live.lock"} {
+	for _, kept := range []string{"mid.pack", "new.pack", "live.lock", "idle.lock"} {
 		require.FileExists(t, filepath.Join(dir, kept))
 	}
 }
@@ -426,4 +427,40 @@ func TestPackObjectsCacheFallsBackWhenTheDirectoryIsUnusable(t *testing.T) {
 	require.Equal(t, 0, c.serve("k", &out, countingRun(&builds, "PACK", 0)))
 	require.Equal(t, "PACK", out.String())
 	require.EqualValues(t, 1, builds.Load())
+}
+
+func TestPackObjectsCacheEvictionPreservesActiveBuilder(t *testing.T) {
+	c := packObjectsHookCache{dir: t.TempDir(), maxBytes: 1 << 20, ttl: time.Minute}
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan int, 1)
+	var out bytes.Buffer
+	go func() {
+		done <- c.serve("active", &out, func(w io.Writer) int {
+			close(started)
+			<-release
+			_, _ = io.WriteString(w, "PACK")
+			return 0
+		})
+	}()
+	<-started
+	defer func() { close(release); require.Equal(t, 0, <-done); require.Equal(t, "PACK", out.String()) }()
+	temps, err := filepath.Glob(filepath.Join(c.dir, "active.*.tmp"))
+	require.NoError(t, err)
+	require.Len(t, temps, 1)
+	lockPath := filepath.Join(c.dir, "active.lock")
+	before, err := os.Stat(lockPath)
+	require.NoError(t, err)
+	old := time.Now().Add(-2 * time.Minute)
+	for _, path := range []string{lockPath, temps[0]} {
+		require.NoError(t, os.Chtimes(path, old, old))
+	}
+	c.evict("")
+	require.FileExists(t, temps[0], "eviction must not unlink the active builder's output")
+	after, err := os.Stat(lockPath)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "waiters and new requests must use the same lock inode")
+	lock, err := os.OpenFile(lockPath, os.O_RDWR, 0)
+	require.NoError(t, err)
+	defer lock.Close()
+	require.Error(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), "another request must still be blocked by the builder")
 }
