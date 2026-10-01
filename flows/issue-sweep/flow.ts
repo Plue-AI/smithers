@@ -247,9 +247,6 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
   // a second fix for it would only duplicate the first.
   land: ({ input, item, output }) =>
     Effect.gen(function*() {
-      if (output.change === "") {
-        return yield* new LandFailed({ message: `${output.workspace}: only local changes land` })
-      }
       const state = yield* gh([
         "issue",
         "view",

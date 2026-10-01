@@ -2,18 +2,16 @@
  * Local microVM placement for `issue-sweep/work`: one Microsandbox microVM per
  * issue on this Mac, booted from a prepared Smithers snapshot.
  *
- * Integration (a drop-in for the Cloud layer in `work/flow.ts`):
- *
- *   import * as LocalVm from "../vm.ts"
- *   const vm = Sandbox.layerHost(LocalVm.provider(), { session: `issue-sweep:${repo}#${issue}` })
- *   // ...the same body as CloudFix, with Effect.provide(vm) in place of Effect.provide(cloud).
+ `work/flow.ts` passes `provider()` to `Sandbox.run` with the session
+ * `issue-sweep:<repo>#<issue>`, exactly where a Cloud run passes CloudSandbox;
+ * the session's work comes back as a diff that `SandboxMerge.apply` lands.
  *
  * The guest contract is the Cloud one: a jj-colocated checkout of
  * smithersai/smithers at `guestCheckout` (`/home/developer/workspace`), HOME
  * `/home/developer`, `git`, `jj`, Node 26, pnpm, `gh`, `codex`, `claude`, and the
  * Go and Rust toolchains the checkout pins on PATH, dependencies installed. At
- * acquire the checkout moves to a fresh `main` (`refresh`). Closing the scope removes the microVM, on success,
- * failure and interruption; `reapOrphans` removes the microVMs of a host
+ * acquire the checkout moves to a fresh `main` (`refresh`). Closing the scope
+ * removes the microVM, on success, failure and interruption; `reapOrphans` removes the microVMs of a host
  * process that died without closing its scopes. `provider()` is one
  * process-wide instance whose `maxVms` gate (default 32) queues acquires beyond
  * the host's measured capacity.
