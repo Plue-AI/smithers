@@ -51,6 +51,7 @@ import * as Node from "@smthrs/plan/Node"
 import * as Planned from "@smthrs/plan/Planned"
 import * as StepKey from "@smthrs/plan/StepKey"
 import * as Cause from "effect/Cause"
+import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -76,6 +77,7 @@ import type * as NodeRecord from "./FlowRuntime/NodeRecord.ts"
 import { annotateWaiting } from "./FlowRuntime/WaitingAnnotation.ts"
 import * as Graph from "./Graph.ts"
 import * as BoundedJson from "./internal/BoundedJson.ts"
+import { ExecutionMiddleware } from "./internal/ExecutionMiddleware.ts"
 import { OutcomeValueTypeId } from "./internal/OutcomeMarker.ts"
 
 /**
@@ -1511,17 +1513,20 @@ const makeLayer = <
         Effect.provide(context),
         Effect.asVoid
       ) as Effect.Effect<void>
+    const middleware = Context.get(flow.annotations, ExecutionMiddleware)
     yield* runtime.register(
       flow,
-      ((payload: Payload["Type"]) =>
-        Effect.flatMap(
+      ((payload: Payload["Type"]) => {
+        const body = Effect.flatMap(
           interpretWithPolicy(flow, payload, options, requireReusableVersions, registerReachable),
           (interpretation) => settleOutcome(interpretation.value)
-        )) as (payload: Payload["Type"], executionId: string) => Effect.Effect<
-          Success["Type"],
-          Error["Type"],
-          Crypto.Crypto | Implementations
-        >
+        )
+        return middleware === undefined ? body : middleware.wrap(payload, body)
+      }) as (payload: Payload["Type"], executionId: string) => Effect.Effect<
+        Success["Type"],
+        Error["Type"],
+        Crypto.Crypto | Implementations
+      >
     )
   }))
 

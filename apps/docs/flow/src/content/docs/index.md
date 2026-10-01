@@ -141,6 +141,8 @@ program.
   non-retryable tags, and where the decision is made.
 - [Ask a person for a decision](/guides/ask-a-person/): a human answer as a
   typed, durable step with a deadline.
+- [Run an external job](/guides/run-an-external-job/): retained workers, durable probes,
+  replacement generations and cancellation.
 - [Testing](/testing/): topology, interpretation, and execution, and which
   level a given assertion belongs at.
 - [API reference](/reference/api/): every public export, with the export tables in the

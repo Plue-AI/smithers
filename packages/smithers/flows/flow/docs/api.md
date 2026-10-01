@@ -288,6 +288,22 @@ const statusLayer = Status.toLayer(({ attempt, id }) =>
 
 Three things make this the durable bound rather than a wall-clock one. The race records its winner under a name that carries the attempt, so a re-driven round reads the recorded outcome instead of racing again. The clock parks the execution rather than holding a fiber, so the bound outlives the process waiting on it. And the clock's branch answers `satisfied: false`, so a check that ran out of time costs the poll one attempt and nothing else: the round takes its declared interval and hands off to the next attempt exactly as an unsatisfied check does.
 
+## `ExternalJob`
+
+`ExternalJob.make(tag, { payload, handle, success, error?, probe, timeout, restarts? })`
+declares external work using ordinary actions, child boundaries and durable
+handoffs. Its `toLayer` attaches `start`, `status`, `collect` and `cancel`.
+`error` declares the full provider failure union. `call` uses a child boundary
+so every job has its own durable identity.
+
+Providers receive `<job execution id>#g<generation>`. Start must create-or-get
+by that key; Status is read-only and keyed per probe; Collect and Cancel are
+idempotent. Probe delays double from `every` up to `max`. The journaled original
+deadline survives handoffs and host restarts. Lost or `Again` completes Cancel
+before replacement; `restarts` defaults to zero. Exhaustion fails
+`ExternalJobLost` (`infra`), while timeout fails `ExternalJobTimedOut`
+(`dependency`). See [Run an external job](./guides/run-an-external-job.md).
+
 ## `Fault`
 
 One typed fault for every failure. The owner of an error union registers each code with a class, so a failure crosses every seam as `{ class, tag }` instead of prose.

@@ -55,6 +55,13 @@ export * as FlowRuntime from "./FlowRuntime/index.ts"
 export * as Fault from "./Fault.ts"
 
 /**
+ * External workers observed through durable actions and timers.
+ *
+ * @since 1.0.0
+ */
+export * as ExternalJob from "./ExternalJob.ts"
+
+/**
  * Plan-time graph building from flow declarations.
  *
  * @since 0.1.0
