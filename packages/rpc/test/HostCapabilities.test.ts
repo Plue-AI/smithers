@@ -4,6 +4,39 @@ import { cloudCapabilities, localCapabilities } from "../src/HostCapabilities.ts
 
 const booleans = [false, true] as const
 
+test("recommendations and command selection require the same explicitly configured provider on either host", () => {
+  const recommendationSettings: readonly (boolean | undefined)[] = [undefined, false, true]
+  for (const recommend of recommendationSettings) {
+    for (const otherFeatures of booleans) {
+      const hosts = [
+        cloudCapabilities({
+          identity: otherFeatures,
+          cloud: otherFeatures,
+          agent: otherFeatures,
+          checkout: otherFeatures,
+          terminal: otherFeatures,
+          ...(recommend === undefined ? {} : { recommend })
+        }),
+        localCapabilities({
+          identity: otherFeatures,
+          cloud: otherFeatures,
+          agent: otherFeatures,
+          nativeShell: otherFeatures,
+          ...(recommend === undefined ? {} : { recommend })
+        })
+      ]
+      for (const capabilities of hosts) {
+        expect(capabilities.includes("recommend")).toBe(recommend === true)
+        expect(capabilities.includes("commands.select")).toBe(recommend === true)
+        expect(capabilities.filter((capability) => capability === "commands.select")).toHaveLength(
+          recommend === true ? 1 : 0
+        )
+        for (const capability of capabilities) expect(RuntimeCapabilitySchema.safeParse(capability).success).toBe(true)
+      }
+    }
+  }
+})
+
 test("balance support is explicit and independent of identity and checkout", () => {
   for (const balance of booleans) {
     for (const checkout of booleans) {

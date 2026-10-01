@@ -1,0 +1,123 @@
+{
+  "issue": 3326,
+  "status": "READY/FROZEN",
+  "head": "275d58eeb0e2916b5f34ccb9cf517a1cdbbb2dab",
+  "ownedFiles": [
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.ts",
+      "sha256": "562fc3e49e60c271ca4e3797ffae60e6190d9124daf59f85404b74be0d23a78e"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.test.ts",
+      "sha256": "5f0dcd8f616e241a30ef474251280745928188fee3ec3036e3f02a867ac067fe"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/README.md",
+      "sha256": "99dc3800edfaee341087d61782c105179f495fe870a186b0f431a02a4b401edc"
+    },
+    {
+      "path": "packages/rpc/test/HostCapabilities.test.ts",
+      "sha256": "fc48a7886a3efdf7a48fb3a48d9d1903db7188be849abfd16e798739029c4e28"
+    }
+  ],
+  "change": "Add optional commands.select row for both providers under the existing recommendation configuration; bump matrix version to2 retaining version1 digest; synchronize authored README and qualify host/bootstrap configuration without production host or API changes.",
+  "matrix": {
+    "version": 2,
+    "previousDigest": "73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4",
+    "digest": "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68"
+  },
+  "tests": {
+    "originalMatrix": {
+      "pass": 41,
+      "fail": 1,
+      "failure": "Missing commands.select in exhaustive capability classification"
+    },
+    "finalMatrixAndReadiness": {
+      "pass": 51,
+      "skip": 1,
+      "fail": 0,
+      "assertions": 316,
+      "log": "3326-owning-after.log"
+    },
+    "hostCapabilities": {
+      "pass": 15,
+      "fail": 0,
+      "report": "3326-host-capabilities.json"
+    },
+    "rpcCompleteConfiguredTestTypes": {
+      "exit": 0,
+      "log": "3326-rpc-test-types.log"
+    },
+    "format": {
+      "exit": 0,
+      "log": "3326-format-check.log"
+    },
+    "diffCheck": {
+      "exit": 0
+    },
+    "appConfiguredDiagnosticDelta": {
+      "baselineDiagnostics": 44,
+      "finalDiagnostics": 43,
+      "removed": [
+        {
+          "path": "apps/app/e2e/real/coverage/matrix.ts",
+          "code": 2741,
+          "start": 7541,
+          "length": 14,
+          "message": "Property '\"commands.select\"' is missing in type '{ agent: { selfhost: FeatureRow; plue: FeatureRow; }; \"model.turn\": { selfhost: { readonly support: \"core\"; }; plue: FeatureRow; }; recommend: { selfhost: FeatureRow; plue: FeatureRow; }; ... 11 more ...; \"native.shell\": { ...; }; }' but required in type 'Readonly<Record<\"identity\" | \"billing.balance\" | \"billing.overview\" | \"billing.plans\" | \"billing.checkout\" | \"billing.portal\" | \"recommend\" | \"commands.select\" | \"model.turn\" | \"agent\" | ... 5 more ... | \"native.shell\", Readonly<...>>>'."
+        }
+      ],
+      "added": [],
+      "unchanged": 43,
+      "compilerUnchanged": true,
+      "optionsUnchanged": true,
+      "inputsBefore": 5976,
+      "inputsAfter": 5976,
+      "sourceCountBefore": 4873,
+      "sourceCountAfter": 4873,
+      "changedInputs": [
+        "apps/app/e2e/real/coverage/matrix.test.ts",
+        "apps/app/e2e/real/coverage/matrix.ts"
+      ],
+      "addedInputs": [],
+      "removedInputs": [],
+      "driftBefore": [],
+      "driftAfter": []
+    }
+  },
+  "limits": [
+    "Controlled bootstrap HTTP responses qualify the local contract; no deployed selfhost/Plue availability or provider execution is claimed.",
+    "Whole coverage-directory attempt:191pass/1skip/1fail (stale-deferral gate,12 unrelated entries), retained3326-matrix-after.log and3326-foreign-gate-finding.json; no deferral changes.",
+    "Existing opt-in readiness CLI stalled-mode case remains skipped; bounded readiness request/body/health cases executed.",
+    "Complete app configured gate remains red with43 exactly unchanged foreign diagnostics including3257/3247; existing compiler options/skipLibCheck preserved. No full app coverage or release qualification claimed.",
+    "Intermediate new fixture exactOptionalPropertyTypes failure retained; final tests omit unconfigured optional recommendation property rather than explicit undefined."
+  ],
+  "jobs": "All owned source-dependent processes complete; no source mutations planned.",
+  "receipts": {
+    "3326-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3326-intermediate-host-capabilities.log": "298c08e5b5bf4c28f1327c8aac2c149fa1761b1fa212068d25c8973f14fdd7b4",
+    "3326-after-configured-types.json": "c5c0619e7e01af1d0839733cc4f8138395bb5feb81ceec495a6cab17574440a0",
+    "3326-before-configured-types.json": "725b2682e7d31ecf6fa5a495aa393cd4c66af429fb2f0d4e1a59e0573e2d8730",
+    "3326-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3326-intermediate-after-configured-types.log": "b19203f4321f5b61d64eae62103cf297bd8fdfef61c0b21cdc4c243eb9dd7c71",
+    "3326-matrix-before.ts": "eb4a4d36722af7ed263df8b3d4f4c38d1c651d4dbde08a4c28c9c46b7e7dec09",
+    "3326-rpc-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3326-host-capabilities.log": "298c08e5b5bf4c28f1327c8aac2c149fa1761b1fa212068d25c8973f14fdd7b4",
+    "3326-matrix-after.log": "4ec5e6dfdc8f1ed71bc27378f43e62e0d856cb880768b9a6862bd1b6ce244e73",
+    "3326-host-capabilities.json": "fb8de073fb4b5cf08d8b6b73f4afe55b522140c6ab4b2000903398962663414f",
+    "3326-intermediate-after-configured-types.json": "b3010a0d0b7e1c3b52602b2ab93d5430d46a6b7f5cae32fb429b3e3db87331e4",
+    "3326-live-issue.json": "e2b9310bcfb1881e49b5e66ef32d7207f6f2a6e3005f6afd804524314bd7954e",
+    "3326-reference-inputs.json": "d113f9c178e2a5000b95badc9a2c66544d7571d647a3a18002793b26de43c5b4",
+    "3326-intermediate-owning-after.log": "2d756cd8b34444cc9b86c4e9e4f67b210cc47123c07dcb257373f0a1d662008c",
+    "3326-owning-after.log": "49ac8ee85624ef9c8ac1b0ea85a2c78ab9b78d90d23d15715ba009685e0f8e77",
+    "3326-intermediate-rpc-test-types.log": "6eef0f5101d6e540c0f896b23d8a42713c528843b971ba29099e3365328d37ae",
+    "3326-before-configured-types.log": "5de47468c95ca12146475b3ea42e92426ff7730c0bebf7054575a5813d6305aa",
+    "3326-foreign-gate-finding.json": "20c3dc6026e92ce9676e64c10fa2582ce6f88520cf2855d2ca31b952f5b65885",
+    "3326-capture-types.cjs": "1b21d4e15ab2369ad40c91a81b072b25276ac4bbbd7216c50ff1ec0154f1c39a",
+    "3326-after-configured-types.log": "08efff136cc6e3629561aceeed79fa1ad5d3679cc47d05d83abf2dea895194a2",
+    "3326-matrix-before.log": "1401aa1d110bc0c7bf6f3a1b741017b32e75e9e97a7945624e1380f467577e0f",
+    "3326-type-delta.json": "2d47ee122fe1621684dd8da1deb54d03c0f550e5256f1d48794e7a6458d0bc86",
+    "3326-source.diff": "c448ce9b3073bba37d10810cb7b4f44ed7d9bc3176c1b3a13f9e540f28792cf0",
+    "3326-intermediate-host-capabilities.json": "4a29be722d40b6dd834c9c1d9da9867298ad66547abb473afdf3ecbd1a25558a"
+  }
+}

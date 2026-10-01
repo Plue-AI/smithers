@@ -173,7 +173,10 @@ describe("deployment mode matrix", () => {
       }
     }
     // Every published version keeps its digest. A row change bumps FEATURE_MATRIX_VERSION and appends a digest.
-    const published = ["73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4"]
+    const published = [
+      "73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4",
+      "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68"
+    ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)
     expect(published.at(-1)).toBe(featureMatrixSHA256())
@@ -185,6 +188,46 @@ describe("deployment mode matrix", () => {
       .map(([, capability, selfhost, plue]) => [capability, selfhost, plue])
     expect(published).toEqual(Object.entries(FEATURE_MATRIX).map(([capability, { selfhost, plue }]) => [capability, selfhost.support, plue.support]))
     expect(readme).toContain(`Feature matrix version ${FEATURE_MATRIX_VERSION}`)
+  })
+
+  test("command selection remains optional when either host's recommendation provider is configured or absent (#3326)", async () => {
+    const modes: readonly ("local-own" | "web-plue")[] = ["local-own", "web-plue"]
+    const recommendationSettings: readonly (boolean | undefined)[] = [undefined, false, true]
+    for (const mode of modes) {
+      const descriptor = MODE_DESCRIPTORS[mode]
+      expect(FEATURE_MATRIX["commands.select"][descriptor.provider]).toEqual({
+        support: "optional", reason: "needs a recommendation provider"
+      })
+      expect(coreFeatures(mode)).not.toContain("commands.select")
+      const buildSha = mode === "web-plue" ? deployed : revision
+      const config = parseMatrixConfig({ revision, modes: [{
+        mode, origin: "https://example.test", endpoint: "https://example.test",
+        auth: { kind: mode === "web-plue" ? "browser-profile" : "owner-session", environment: "AUTH" },
+        executionReceipt: writeReceipt(receipt(mode, descriptor.requiredProcessRoles, buildSha))
+      }] }).modes[0]!
+      const digests: string[] = []
+      for (const recommend of recommendationSettings) {
+        const bootstrap = {
+          apiVersion: 1, host: mode === "web-plue" ? "cloud" : "local", version: "test", buildSha,
+          capabilities: mode === "web-plue"
+            ? cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: true, ...(recommend === undefined ? {} : { recommend }) })
+            : localCapabilities({ identity: true, cloud: true, agent: true, ...(recommend === undefined ? {} : { recommend }) }),
+          authFlow: mode === "web-plue" ? "native-handoff" : "credentials", sandbox: null
+        }
+        // Controlled HTTP responses qualify the local contract, not a deployed provider.
+        const origin = recordingOrigin(bootstrap, 200)
+        const readiness = await probeMode(config, revision, { AUTH: "configured" }, origin.fetcher)
+        expect(readiness.status).toBe("passed")
+        expect(readiness.capabilities.includes("commands.select")).toBe(recommend === true)
+        expect(readiness.capabilities.includes("recommend")).toBe(recommend === true)
+        expect(readiness.bootstrapSHA256).toBe(canonicalSHA256(bootstrap))
+        expect(featureReceipts(readiness).some(({ capability }) => capability === "commands.select")).toBe(false)
+        expect(origin.paths).toEqual(mode === "web-plue" ? ["/api/bootstrap"] : ["/api/bootstrap", "/api/health"])
+        digests.push(canonicalSHA256(bootstrap))
+      }
+      expect(digests[0]).toBe(digests[1])
+      expect(digests[2]).not.toBe(digests[0])
+    }
   })
 
   test("every core feature is exercised by a scenario each of its modes owes, so a stub cannot stand in for it", () => {

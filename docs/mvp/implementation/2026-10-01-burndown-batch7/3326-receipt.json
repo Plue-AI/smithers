@@ -1,0 +1,89 @@
+{
+  "issue": 3326,
+  "parentReview": "Reviewed optional capability classification consistent with both real HostCapabilities constructors; v1 digest retained and v2 authored table updated. Tests cover absent/false/true configuration, independent other-feature flags, response/body digests and current readiness boundaries. No RPC production/API change.",
+  "tests": {
+    "originalMatrix": {
+      "pass": 41,
+      "fail": 1,
+      "failure": "Missing commands.select in exhaustive capability classification"
+    },
+    "finalMatrixAndReadiness": {
+      "pass": 51,
+      "skip": 1,
+      "fail": 0,
+      "assertions": 316,
+      "log": "3326-owning-after.log"
+    },
+    "hostCapabilities": {
+      "pass": 15,
+      "fail": 0,
+      "report": "3326-host-capabilities.json"
+    },
+    "rpcCompleteConfiguredTestTypes": {
+      "exit": 0,
+      "log": "3326-rpc-test-types.log"
+    },
+    "format": {
+      "exit": 0,
+      "log": "3326-format-check.log"
+    },
+    "diffCheck": {
+      "exit": 0
+    },
+    "appConfiguredDiagnosticDelta": {
+      "baselineDiagnostics": 44,
+      "finalDiagnostics": 43,
+      "removed": [
+        {
+          "path": "apps/app/e2e/real/coverage/matrix.ts",
+          "code": 2741,
+          "start": 7541,
+          "length": 14,
+          "message": "Property '\"commands.select\"' is missing in type '{ agent: { selfhost: FeatureRow; plue: FeatureRow; }; \"model.turn\": { selfhost: { readonly support: \"core\"; }; plue: FeatureRow; }; recommend: { selfhost: FeatureRow; plue: FeatureRow; }; ... 11 more ...; \"native.shell\": { ...; }; }' but required in type 'Readonly<Record<\"identity\" | \"billing.balance\" | \"billing.overview\" | \"billing.plans\" | \"billing.checkout\" | \"billing.portal\" | \"recommend\" | \"commands.select\" | \"model.turn\" | \"agent\" | ... 5 more ... | \"native.shell\", Readonly<...>>>'."
+        }
+      ],
+      "added": [],
+      "unchanged": 43,
+      "compilerUnchanged": true,
+      "optionsUnchanged": true,
+      "inputsBefore": 5976,
+      "inputsAfter": 5976,
+      "sourceCountBefore": 4873,
+      "sourceCountAfter": 4873,
+      "changedInputs": [
+        "apps/app/e2e/real/coverage/matrix.test.ts",
+        "apps/app/e2e/real/coverage/matrix.ts"
+      ],
+      "addedInputs": [],
+      "removedInputs": [],
+      "driftBefore": [],
+      "driftAfter": []
+    }
+  },
+  "owningHashes": [
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.ts",
+      "sha256": "562fc3e49e60c271ca4e3797ffae60e6190d9124daf59f85404b74be0d23a78e"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.test.ts",
+      "sha256": "5f0dcd8f616e241a30ef474251280745928188fee3ec3036e3f02a867ac067fe"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/README.md",
+      "sha256": "99dc3800edfaee341087d61782c105179f495fe870a186b0f431a02a4b401edc"
+    },
+    {
+      "path": "packages/rpc/test/HostCapabilities.test.ts",
+      "sha256": "fc48a7886a3efdf7a48fb3a48d9d1903db7188be849abfd16e798739029c4e28"
+    }
+  ],
+  "limits": [
+    "Controlled bootstrap HTTP responses qualify the local contract; no deployed selfhost/Plue availability or provider execution is claimed.",
+    "Whole coverage-directory attempt:191pass/1skip/1fail (stale-deferral gate,12 unrelated entries), retained3326-matrix-after.log and3326-foreign-gate-finding.json; no deferral changes.",
+    "Existing opt-in readiness CLI stalled-mode case remains skipped; bounded readiness request/body/health cases executed.",
+    "Complete app configured gate remains red with43 exactly unchanged foreign diagnostics including3257/3247; existing compiler options/skipLibCheck preserved. No full app coverage or release qualification claimed.",
+    "Intermediate new fixture exactOptionalPropertyTypes failure retained; final tests omit unconfigured optional recommendation property rather than explicit undefined."
+  ],
+  "proofSha256": "7edea79ec88a4ac527663349231162c78fd304e66b83d9813fda79151ecc1942"
+}
