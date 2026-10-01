@@ -66,6 +66,21 @@ export interface Options {
   readonly api?: WorkspaceApi | undefined
 }
 
+// The deployed workspace image bakes root's per-user locations into every
+// session (plue#742, fixed in the image but not yet released), so uid
+// developer cannot read its jj config or write npm and bun caches. Pin each
+// of those names to the workspace user; a command's own env overrides them.
+const guestHome = [
+  "HOME=/home/developer",
+  "XDG_CONFIG_HOME=/home/developer/.config",
+  "XDG_CACHE_HOME=/home/developer/.cache",
+  "XDG_DATA_HOME=/home/developer/.local/share",
+  "XDG_STATE_HOME=/home/developer/.local/state",
+  "NPM_CONFIG_CACHE=/home/developer/.cache/npm",
+  "BUN_INSTALL=/home/developer/.bun",
+  "BUN_INSTALL_CACHE_DIR=/home/developer/.cache/bun"
+]
+
 const failure = (message: string, code: RemoteChildProcessSpawner.ProviderErrorCode = "unavailable") =>
   new RemoteChildProcessSpawner.ProviderError({ code, message: `cloud-sandbox: ${message}` })
 
@@ -159,7 +174,7 @@ export const make = (options: Options): Sandbox.Provider => {
           prefix: Effect.tryPromise({
             try: (signal) => api.sshPrefix(`${options.repository}/${id}`, signal),
             catch: () => failure("could not obtain workspace SSH access")
-          }).pipe(Effect.map((prefix) => [...prefix, "env", "HOME=/home/developer"]))
+          }).pipe(Effect.map((prefix) => [...prefix, "env", ...guestHome]))
         })
         return yield* provider.acquire(session)
       })

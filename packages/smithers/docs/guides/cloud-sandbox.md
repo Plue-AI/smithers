@@ -37,7 +37,7 @@ exclusive claim: releasing either holder deletes it.
 
 SSH commands use the same canonical transport that
 `NodeControl.workspaceSshPrefix` exports, with pinned advertised host keys.
-The `@smthrs/cli/CloudSandbox` subpath loads independently of the flow engine. Every command resolves a fresh grant and defaults to `HOME=/home/developer`, matching the workspace user. An explicit child environment can override `HOME` for that command. Files and commands share
+The `@smthrs/cli/CloudSandbox` subpath loads independently of the flow engine. Every command resolves a fresh grant and defaults `HOME` to `/home/developer` and the per-user locations (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `NPM_CONFIG_CACHE`, `BUN_INSTALL`, `BUN_INSTALL_CACHE_DIR`) to directories under it, so `jj`, `npm` and `bun` use the workspace user's configuration and caches. An explicit child environment can override any of them for that command. Files and commands share
 `/home/developer/workspace`; set `workdir` to use another absolute guest path.
 Closing the layer scope ends commands and deletes the Cloud workspace,
 including when provisioning or SSH setup fails or the caller is interrupted.

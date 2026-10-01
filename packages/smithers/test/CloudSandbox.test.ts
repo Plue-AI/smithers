@@ -61,6 +61,29 @@ describe("CloudSandbox", () => {
         const spawner = yield* ChildProcessSpawner
         const home = yield* spawner.string(ChildProcess.make("sh", ["-c", "printf '%s' \"$HOME\""]))
         expect(home).toBe("/home/developer")
+        // The deployed image bakes root's per-user locations into the session
+        // (plue#742); jj then cannot read its config and npm cannot cache.
+        const names = [
+          "XDG_CONFIG_HOME",
+          "XDG_CACHE_HOME",
+          "XDG_DATA_HOME",
+          "XDG_STATE_HOME",
+          "NPM_CONFIG_CACHE",
+          "BUN_INSTALL",
+          "BUN_INSTALL_CACHE_DIR"
+        ]
+        const locations = yield* spawner.string(
+          ChildProcess.make("sh", ["-c", names.map((name) => `printf '%s\\n' "$${name}"`).join("; ")])
+        )
+        expect(locations.trim().split("\n")).toEqual([
+          "/home/developer/.config",
+          "/home/developer/.cache",
+          "/home/developer/.local/share",
+          "/home/developer/.local/state",
+          "/home/developer/.cache/npm",
+          "/home/developer/.bun",
+          "/home/developer/.cache/bun"
+        ])
         const override = yield* spawner.string(
           ChildProcess.make("sh", ["-c", "printf '%s' \"$HOME\""], { env: { HOME: "/custom/home" }, extendEnv: false })
         )
