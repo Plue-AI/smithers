@@ -207,6 +207,29 @@ const scrubbed = (
 }
 
 /**
+ * Writes the guest's page cache to its disk. Stopping the machine does not,
+ * so a file written shortly before the capture would be captured empty.
+ */
+const flushed = (
+  sandbox: Awaited<ReturnType<Awaited<ReturnType<Sdk["Sandbox"]["get"]>>["connect"]>>,
+  machine: string
+): Effect.Effect<void, ProviderError> => {
+  const flushing = `the disk of ${machine} could not be flushed`
+  return Effect.flatMap(
+    runGuest(sandbox, { program: "/bin/sh", args: ["-c", "sync"], cwd: "/", env: {}, stdin: undefined }, flushing),
+    ({ code, stderr }) =>
+      code === 0
+        ? Effect.void
+        : Effect.fail(
+          new ProviderError({
+            code: "unavailable",
+            message: `microsandbox: ${flushing} (exit ${code}): ${stderr.trim()}`
+          })
+        )
+  )
+}
+
+/**
  * What {@link captureSnapshot} captures and names.
  *
  * @category models
@@ -247,6 +270,11 @@ export interface CaptureOptions {
  * refuses the capture and names the files, never the value. A secret whose
  * longest line is under 8 bytes is refused before any guest call. Hand credentials
  * to later machines at run time, after the restore.
+ *
+ * After the scrub the guest runs `sync`, so every file written before the
+ * capture reaches the snapshot whole; stopping the machine alone does not
+ * flush the guest's page cache. A `sync` that fails refuses the capture
+ * before the machine is stopped or snapshotted.
  *
  * The machine is removed whether the capture succeeded, failed, or was
  * interrupted. A family and
@@ -303,6 +331,7 @@ export const captureSnapshot = (options: CaptureOptions): Effect.Effect<string, 
               failed
             )
             yield* scrubbed(sandbox, searched.patterns, options.machine, name)
+            yield* flushed(sandbox, options.machine)
             yield* attempt(
               async () => {
                 await handle.stop()

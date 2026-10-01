@@ -2634,6 +2634,57 @@ describe("MicrosandboxSandbox snapshots", () => {
       expect(fake.machines.has("prepared")).toBe(false)
     }))
 
+  it.effect("flushes the guest's disk after the scrub and before the stop, and refuses a capture it could not flush", () =>
+    Effect.gen(function*() {
+      // A stop does not flush the guest's page cache: a file written just
+      // before the capture would be captured empty.
+      let atStop: ReadonlyArray<string> = []
+      const fake: ReturnType<typeof fakeSdk> = fakeSdk({
+        hold: (call) => {
+          if (call === "stop") atStop = fake.recorded.execs.map(({ shell, args }) => [shell, ...args].join(" "))
+          return undefined
+        }
+      })
+      fake.plant("prepared", ownership("installation-a", "host"))
+      yield* MicrosandboxSandbox.captureSnapshot({
+        sdk: fake.sdk,
+        machine: "prepared",
+        family: "base",
+        member: "1",
+        secrets: []
+      })
+      expect(atStop).toHaveLength(2)
+      expect(atStop[0]).toMatch(/^\/bin\/sh -c for home in root/)
+      expect(atStop[1]).toBe("/bin/sh -c sync")
+
+      // A guest whose `sync` fails: the fake's guest shell finds this one first.
+      const bin = mkdtempSync(join(root, "failing-sync-"))
+      writeFileSync(join(bin, "sync"), "#!/bin/sh\necho 'sync: Input/output error' >&2\nexit 1\n")
+      chmodSync(join(bin, "sync"), 0o755)
+      const path = process.env.PATH
+      const unflushed = fakeSdk()
+      unflushed.plant("prepared", ownership("installation-a", "host"))
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: unflushed.sdk,
+          machine: "prepared",
+          family: "base",
+          member: "1",
+          secrets: []
+        })
+      ).pipe(
+        Effect.ensuring(Effect.sync(() => process.env.PATH = path)),
+        (capture) => Effect.andThen(Effect.sync(() => process.env.PATH = `${bin}:${path}`), capture)
+      )
+      expect(refused.code).toBe("unavailable")
+      expect(refused.message).toBe(
+        "microsandbox: the disk of prepared could not be flushed (exit 1): sync: Input/output error"
+      )
+      expect(unflushed.recorded.stops).toEqual([])
+      expect(unflushed.snapshots.size).toBe(0)
+      expect(unflushed.machines.has("prepared")).toBe(false)
+    }))
+
   it.effect("captures a running or stopped machine, removes it, and reports what exists", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
