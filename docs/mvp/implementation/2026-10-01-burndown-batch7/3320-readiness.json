@@ -1,0 +1,105 @@
+{
+  "issue": 3320,
+  "status": "READY_FROZEN",
+  "head": "1fb6e7229a51b4442c00abb4c91580266a44bca6",
+  "ownedFiles": {
+    "packages/smithers/src/internal/ModuleAuthority.ts": "99c9dfb32ab7ab5997faed57aba317602d566cf27d679479a4f21178826d9773",
+    "packages/smithers/test/ModuleSnapshotAuthority.test.ts": "aca29eb33936f58acad5e6be7f55b1d2c4f108cd2837bcea9a4ded715031605d",
+    "packages/smithers/test/ModuleSourceSnapshotCli.test.ts": "4b260e141f9367c83d8d4bcc06b6b4022de568a4d653060822ea3b378897a4a9",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/flow.ts": "b48fc1ef1965a64ddba780a7dc744ca5ee13f77762785f87d6c9d89a741ecd14",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/helper.ts": "dbbc570a7cd6d8dbdf7ebfad9fcfb6c2fe17d4cb4b0c3278a3475f37bb4fbf5e",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/layer.ts": "fcaccaed8730d903c34c70d9f9ac1c48be1120d4b44d3151e4599d867d498f19"
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/ModuleSourceSnapshotCli.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 1,
+      "log": "cli-red-helper.log",
+      "result": "1pass/1fail: unchanged source works; edited entry/helper/layer causes exact body_unavailable after first child."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/ModuleSourceSnapshotCli.test.ts test/NodeModuleExecutor.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "cli-green-initial.log",
+      "result": "5pass: live edit now retains original bytes; all delegated narrow/drift/SQL controls preserve refusal."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/ModuleSourceSnapshotCli.test.ts test/ModuleSnapshotAuthority.test.ts test/NodeModuleExecutor.test.ts test/CodeDriftLiveHost.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 1,
+      "log": "final-controls.log",
+      "result": "20pass/1fail: all existing12 controls pass, new8 semantic controls pass; restart cleanup alone expected0 but actual canonical cancellation returns130. Typed Node.all union fixture also required correction; all original evidence retained."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/ModuleSourceSnapshotCli.test.ts test/ModuleSnapshotAuthority.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "final-owning-controls.log",
+      "result": "9pass,46.95s: all final owning unit + actual CLI controls."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "final-test-types.log",
+      "result": "Complete configured CLI test/source compiler green, no casts or suppressed diagnostics."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/internal/ModuleAuthority.ts test/ModuleSourceSnapshotCli.test.ts test/ModuleSnapshotAuthority.test.ts test/fixtures/module-snapshot/flows/snapshot/flow.ts test/fixtures/module-snapshot/flows/snapshot/layer.ts test/fixtures/module-snapshot/flows/snapshot/helper.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "lint.log",
+      "result": "Production lint0;5test/fixture paths explicitly ignored by existing config, not claimed linted."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/internal/ModuleAuthority.ts test/ModuleSourceSnapshotCli.test.ts test/ModuleSnapshotAuthority.test.ts test/fixtures/module-snapshot/flows/snapshot/flow.ts test/fixtures/module-snapshot/flows/snapshot/layer.ts test/fixtures/module-snapshot/flows/snapshot/helper.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "format.log",
+      "result": "Configured owning format check0; nested flows fixture paths follow existing configuration exclusions."
+    }
+  ],
+  "behavior": {
+    "liveHost": "Only a self-contained measured Module retains its verified loaded executable within this host, control-root, and approved execution identity. Later child calls use the coherent loaded entry/imports/layer after original source edits. Every owner/approval/root/catalog/digest/envelope check remains mandatory.",
+    "invalidations": "New exact executable object or changed descriptor execution digest refuses edited code. Failed live verification never seeds retention. Host delegates remain subject to live source verification.",
+    "unit": "Real control approvals/denial, SQL/native children and Registry read verification; unit-only loader/catalog injection makes exact-object replacement/failure/retry deterministic. Independent subprocess integration uses actual default loader.",
+    "integration": "Actual src/bin.ts + realSQLite control/native stores, file-authored layer and static helper. Four live cases: unchanged, edit between children, edit after root startup before first child, concurrent first children after root edit. Each writes all3 original-byte outputs, terminal control SQL completed, completion journal with no failed outcome.",
+    "restart": "Actual detached CLI HumanTask park, source edited, fresh actualCLI runs resume returns CodeDrift with --allow-code-drift message, suspended SQL row unchanged, observed2/3 remain absent. Actual cancellation returns130 for cleanup."
+  },
+  "limits": [
+    "Retention is in-memory for one loaded host, not a persisted disk snapshot. Fresh-host drift requires explicit resume/adoption or restart/new approval; no claim old bytes survive process loss.",
+    "Previously accepted native children after process loss retain existing fail-closed source behavior; this change does not reconstruct their closure. The fresh explicit parked-resume boundary is qualified, not all crash/pending-queue interleavings.",
+    "No live external GitHub issue/provider launch, release comment, landing or remote host used. ScriptedJudge preload is an explicit offline evaluator fixture; actual CLI/default loader/control/SQL filesystem paths remain real.",
+    "Focused tests ran coverage disabled; no whole CLI gate/100% coverage claim. Thresholds unchanged.",
+    "Canonical existing native helper used with artifact identity only; no rebuilt-source/native-all-platform claim.",
+    "First attached --wait HumanTask restart fixture timed out120s; detached park proof replaced fixture waiting assumption. Retained cli-restart.log is not advertised green or silently classified as a product bug.",
+    "Unrelated shared backend/app/RPC/engine-store paths are owned by other agents and untouched."
+  ],
+  "nativeHelper": {
+    "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+    "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655"
+  },
+  "rawReceipts": {
+    "authority-approval-corrected.log": "65549c10a0f217d3ee102b67b8e0c29d6657bf9a0374e85176c20af88fdc6265",
+    "authority-initial.log": "6fae846e79a20e585e6a775713d18d1fede0c63b4efba9ff6a4bef4b388aaf4b",
+    "cli-green-initial.log": "0396b4689aeed0bbb6aa2c6665dd7001f0055a838dfd37d9a36ed23714711257",
+    "cli-red-diagnostic.log": "01e813ce50c8831b2aed3c73acaac4ff0d514e7569a6d06bd867a334e365ff06",
+    "cli-red-helper.log": "83f22e767b271781f04080fd9fc6e056dfa3601b2ffd3fc347d1b41a1578a937",
+    "cli-red.log": "92d2b8a53a53576c198c7c92c39e7fdcf647d2ef71a068cfa9dd722021bed48a",
+    "cli-restart-corrected.log": "008b6341232d5abcfe9aa3706458464f9da853391d20558beaee080dd5580ef3",
+    "cli-restart.log": "db0a32f33ce1d7da63c86760eb8a8b5acb2a418cc1b60138c2ad71db7cc246d9",
+    "final-controls.log": "474a8fe899fbf9c5ca64623b9b83d2de0ff7ff5505717c963e9fa392332a4189",
+    "final-owning-controls.log": "b0fdb783fe4ece81d80f726e325b8d4ccf5bafa29dc3d5e925673af20184435e",
+    "final-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "inputs-during.json": "f3fa673f91eb2867f8047ab0d252b82e5dded6e60d76ae72e04e3989ee228392",
+    "inputs-final.json": "f455b3177da146421fbcd76a27d29ecd67de8a2e18f68fdb10707f5ea473b5f4",
+    "lint.log": "069ece0ea5427fb8ac8d8065bb173e6f6ab440a27ad26f438fa45821701864b3",
+    "source-diff.patch": "5377ea31fee29eef5c1e807fd604dc9dcf6234c637b8a0c78539757ddbd99de9",
+    "test-types.log": "5a11f459debefc70df2a5cf19d14d5048e7be324d327ae710e5365e2090fdc8a"
+  },
+  "activeJobs": [],
+  "sourceMutationsFrozen": true
+}

@@ -1,0 +1,49 @@
+{
+  "issue": 3320,
+  "status": "READY_FROZEN_POSTREBASE",
+  "candidate": "Root rebased onto origin/main6efa531fe3; root binds exact committed HEAD against these source hashes. No Git operations by API agent.",
+  "capturedInputs": 4881,
+  "inputDelta": {},
+  "ownedFiles": {
+    "packages/smithers/src/internal/ModuleAuthority.ts": "99c9dfb32ab7ab5997faed57aba317602d566cf27d679479a4f21178826d9773",
+    "packages/smithers/test/ModuleSnapshotAuthority.test.ts": "aca29eb33936f58acad5e6be7f55b1d2c4f108cd2837bcea9a4ded715031605d",
+    "packages/smithers/test/ModuleSourceSnapshotCli.test.ts": "4b260e141f9367c83d8d4bcc06b6b4022de568a4d653060822ea3b378897a4a9",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/flow.ts": "b48fc1ef1965a64ddba780a7dc744ca5ee13f77762785f87d6c9d89a741ecd14",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/helper.ts": "dbbc570a7cd6d8dbdf7ebfad9fcfb6c2fe17d4cb4b0c3278a3475f37bb4fbf5e",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/layer.ts": "fcaccaed8730d903c34c70d9f9ac1c48be1120d4b44d3151e4599d867d498f19"
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/ModuleSourceSnapshotCli.test.ts test/ModuleSnapshotAuthority.test.ts test/NodeModuleExecutor.test.ts test/CodeDriftLiveHost.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "passed": 21,
+      "files": 4,
+      "durationSeconds": 64.95,
+      "log": "controls.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "log": "types.log",
+      "scope": "Complete configured CLI source/test types"
+    }
+  ],
+  "rawReceipts": {
+    "inputs-after.json": "88767b2f4caa12704a4c2e6639404389f40b2f93b5ca67adb180e9779703177a",
+    "controls.log": "6dfbb8e51ef9adb813439b705ecf126db3bff4078b0b1a59adba2dec1153efdc",
+    "types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "inputs-before.json": "8c5fc7290b165aaae7306a7152810a76fd6abfec96c50a8ce091cd4410a864f2"
+  },
+  "nativeHelper": {
+    "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+    "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655"
+  },
+  "limits": [
+    "Focused21 controls and configured type gate only; no fullCLIcoverage/release/all-platform/native rebuild claim.",
+    "Host-local measured executable retention; previous in-memory/restart limits unchanged."
+  ],
+  "activeJobs": [],
+  "sourceFrozen": true
+}

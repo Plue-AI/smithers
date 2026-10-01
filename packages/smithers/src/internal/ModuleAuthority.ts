@@ -52,6 +52,11 @@ export const make = (
     const journal = yield* Journal.Journal
     const quota = yield* QuotaPolicy.QuotaClassifier
     const registry = yield* Registry.Registry
+    // Executable already imported a verified, private copy of a module's
+    // measured closure. Keep that exact loaded identity for this host/root,
+    // rather than making later children depend on edits to the live tree.
+    // No approval, refreshed executable, or restarted host inherits it.
+    const verifiedModules = new Map<string, { readonly digest: string; readonly executable: Executable.Executable }>()
     // Native execution has its own journal, but the queue is the existing
     // owning control queue, captured before any handler context is installed.
     const notifications = yield* NotificationQueue.NotificationQueue
@@ -176,9 +181,16 @@ export const make = (
         ) {
           return yield* refuse(executionId, "The module no longer matches its approved executable identity")
         }
-        // Re-read the pinned body as well: a parked child can run before its
-        // agent/run parent is entered again after a process restart.
-        yield* registry.loadBody(card.flowId, approved).pipe(Effect.orDie)
+        const measuredModule = descriptor.body._tag === "Module" && executable.delegate === undefined
+        const verified = verifiedModules.get(rootId)
+        if (!measuredModule || verified?.digest !== approved || verified.executable !== executable) {
+          // A new host/root or rebuilt executable must verify the live source
+          // before any retention. A delegated host implementation is not
+          // measured by this module, so it continues to recheck every entry.
+          yield* registry.loadBody(card.flowId, approved).pipe(Effect.orDie)
+          if (measuredModule) verifiedModules.set(rootId, { digest: approved, executable })
+          else verifiedModules.delete(rootId)
+        }
         return { rootId, flowId: card.flowId, envelope: card.envelope }
       }).pipe(
         // Ownership and pinned source verification are host admission work.

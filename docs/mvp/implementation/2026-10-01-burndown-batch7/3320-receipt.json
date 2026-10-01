@@ -1,0 +1,37 @@
+{
+  "issue": 3320,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T07:30:38.989636+00:00",
+  "review": "The verified executable already loads a private measured closure. Retain only its exact object and approved digest for its control root within the current host. Owner, approval, descriptor, catalog, envelope and digest checks precede retention. Failed verification is not cached; delegated implementations reverify live source. Root reviewed all six production/test/fixture files and the immutable red/green archive.",
+  "files": {
+    "packages/smithers/src/internal/ModuleAuthority.ts": "99c9dfb32ab7ab5997faed57aba317602d566cf27d679479a4f21178826d9773",
+    "packages/smithers/test/ModuleSnapshotAuthority.test.ts": "aca29eb33936f58acad5e6be7f55b1d2c4f108cd2837bcea9a4ded715031605d",
+    "packages/smithers/test/ModuleSourceSnapshotCli.test.ts": "4b260e141f9367c83d8d4bcc06b6b4022de568a4d653060822ea3b378897a4a9",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/flow.ts": "b48fc1ef1965a64ddba780a7dc744ca5ee13f77762785f87d6c9d89a741ecd14",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/helper.ts": "dbbc570a7cd6d8dbdf7ebfad9fcfb6c2fe17d4cb4b0c3278a3475f37bb4fbf5e",
+    "packages/smithers/test/fixtures/module-snapshot/flows/snapshot/layer.ts": "fcaccaed8730d903c34c70d9f9ac1c48be1120d4b44d3151e4599d867d498f19"
+  },
+  "sourceDiffReviewed": true,
+  "checks": {
+    "newUnitAndActualCli": "9/9 PASS",
+    "existingDelegateAndCodeDrift": "12/12 PASS at unchanged production bytes; retained combined run had a new fixture cleanup expectation failure corrected independently",
+    "cliSourceAndTestTypes": "exit0",
+    "productionLint": "exit0; five tests/fixtures ignored by existing config",
+    "configuredFormat": "exit0"
+  },
+  "proofArchive": "3320-proof.tar.gz",
+  "proofArchiveSha256": "e7a50b7b39000d306f2ab845cd2c61938439668285de050c00a9a98fa4a1de4c",
+  "limits": [
+    "Retention is in-memory for one loaded host, not a persisted disk snapshot. Fresh-host drift requires explicit resume/adoption or restart/new approval; no claim old bytes survive process loss.",
+    "Previously accepted native children after process loss retain existing fail-closed source behavior; this change does not reconstruct their closure. The fresh explicit parked-resume boundary is qualified, not all crash/pending-queue interleavings.",
+    "No live external GitHub issue/provider launch, release comment, landing or remote host used. ScriptedJudge preload is an explicit offline evaluator fixture; actual CLI/default loader/control/SQL filesystem paths remain real.",
+    "Focused tests ran coverage disabled; no whole CLI gate/100% coverage claim. Thresholds unchanged.",
+    "Canonical existing native helper used with artifact identity only; no rebuilt-source/native-all-platform claim.",
+    "First attached --wait HumanTask restart fixture timed out120s; detached park proof replaced fixture waiting assumption. Retained cli-restart.log is not advertised green or silently classified as a product bug.",
+    "Unrelated shared backend/app/RPC/engine-store paths are owned by other agents and untouched."
+  ],
+  "nativeHelper": {
+    "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+    "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655"
+  }
+}
