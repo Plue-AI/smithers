@@ -16,7 +16,7 @@ import { readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { accountHome, type Agent, coolAccount, reserveAccount } from "../accounts.ts"
 import { issue } from "../github.ts"
-import { output, repository, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
+import { output, repository, ridingOutages, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
 import * as LocalVm from "../vm.ts"
 import { assertNoClaudeLogin, claudeInGuest, reserveRemoteAccount } from "./claude.ts"
@@ -689,6 +689,7 @@ export const adoptWork = (input: typeof Adopt.payloadSchema.Type, place: Place) 
       }
     }).pipe(
       Effect.provide(NodeServices.layer),
+      ridingOutages,
       Effect.mapError((cause) =>
         cause instanceof AdoptConflicted ? cause : new AgentFailed({ message: failed(cause.message) })
       )

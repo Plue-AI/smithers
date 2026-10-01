@@ -13,7 +13,7 @@ import { Cause, Deferred, Duration, Effect, Option, Result, Schema, Semaphore } 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { matchesGlob } from "node:path"
-import { type Exited, type HostFailed, output, repository, run, tail, workspaces } from "./host.ts"
+import { type Exited, type HostFailed, output, repository, ridingOutages, run, tail, workspaces } from "./host.ts"
 
 export class LandFailed extends Schema.TaggedError<LandFailed>()("issue-sweep/LandFailed", {
   message: Schema.String
@@ -194,12 +194,15 @@ export const changedFiles = (workspace: string, change: string) =>
   )
 
 /** A jj command in `workspace` that writes the shared repository, under the VCS lock `lock`. */
-const jjWriteUnder = (lock: string | undefined) => (workspace: string, args: ReadonlyArray<string>) =>
-  asLand(
+// Fetches and pushes ride out network outages; every other write fails at once.
+const jjWriteUnder = (lock: string | undefined) => (workspace: string, args: ReadonlyArray<string>) => {
+  const write = asLand(
     lock !== undefined && existsSync(lock)
       ? output("lockf", ["-k", "-t", "900", lock, "jj", "-R", workspace, ...args], { cwd: workspace })
       : output("jj", ["-R", workspace, ...args], { cwd: workspace })
   )
+  return args[0] === "git" ? ridingOutages(write) : write
+}
 
 /** A jj command in `workspace` that writes the shared repository, under the machine-wide VCS lock. */
 const jjWrite = jjWriteUnder(lockFile)
