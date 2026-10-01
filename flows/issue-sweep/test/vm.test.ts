@@ -146,7 +146,7 @@ test("acquire boots the newest issue-sweep snapshot at the Cloud checkout path a
   assert.equal(fake.created.length, 1)
   assert.equal(fake.created[0]!.fromSnapshot, "issue-sweep.new")
   assert.equal(fake.created[0]!.cpus, 2)
-  assert.equal(fake.created[0]!.memory, 3072)
+  assert.equal(fake.created[0]!.memory, 4096)
   const policy = fake.created[0]!.policy as {
     defaultEgress: string
     rules: Array<{ destination: { domain?: string } }>

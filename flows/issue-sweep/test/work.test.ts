@@ -121,6 +121,8 @@ test("the brief asks for synced docs when an agent edits docs", () => {
 test("the brief names a runnable narrow test per language and how to discover target labels", () => {
   const text = brief("r", 1, { title: "t", body: "b", comments: [] })
   assert.match(text, /vitest run <test file> --coverage\.enabled=false/)
+  // Agents ran vitest on bun:test suites (#3113, #3119, #2947) and gave up.
+  assert.match(text, /`bun test <test file>` \(apps\/app, apps\/server\)/)
   assert.match(text, /`go test \.\/<directory of the Go package>\/`/)
   assert.match(text, /`cargo test -p <crate> --locked`/)
   assert.match(text, /no `\/\/packages\/backend:test` target/)

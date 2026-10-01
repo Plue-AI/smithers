@@ -131,7 +131,7 @@ printf '[user]\\nname = "issue-sweep agent"\\nemail = "issue-sweep@smithers.inva
 curl -fsSL https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-aarch64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin ./jj
 curl -fsSL https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_arm64.tar.gz | tar -xz -C /tmp
 install -m755 /tmp/gh_2.83.0_linux_arm64/bin/gh /usr/local/bin/gh
-npm install -g pnpm@11.25.0 @openai/codex @anthropic-ai/claude-code
+npm install -g pnpm@11.25.0 bun@1.4.1 @openai/codex @anthropic-ai/claude-code
 npm cache clean --force
 rm -rf ${guestCheckout}
 git clone -q https://github.com/smithersai/smithers.git ${guestCheckout}
@@ -217,7 +217,11 @@ export interface Options {
   readonly snapshot?: string | undefined
   /** Virtual CPUs per microVM. Default 2. */
   readonly cpus?: number | undefined
-  /** Memory per microVM in MiB. Default 3072. */
+  /**
+   * Memory per microVM in MiB. Default 4096: compiling the backend's
+   * internal/services tests peaks near 2.9 GiB, which 3072 killed, and the
+   * guest overlay cannot hold a swap file.
+   */
   readonly memoryMib?: number | undefined
   /** Hard lifetime per microVM in seconds. Default 3 hours. */
   readonly maxDurationSecs?: number | undefined
@@ -293,7 +297,7 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
         PATH: guestPath
       },
       cpus: options.cpus ?? 2,
-      memoryMib: options.memoryMib ?? 3072,
+      memoryMib: options.memoryMib ?? 4096,
       maxDurationSecs: options.maxDurationSecs ?? 3 * 60 * 60,
       network: options.network ?? { allow: agentHosts },
       owner,

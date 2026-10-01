@@ -214,7 +214,7 @@ Your working directory is a private jj workspace of the repository, checked out 
 This flow already holds the issue claim: do not claim, release or comment on the issue, and do not push.
 Do not run jj or git: your sandbox cannot write the repository store, and the flow records your edits as one change after you finish.
 Follow the repository's AGENTS.md. Reproduce the problem with a failing test, make the smallest fix, and run the narrowest tests that cover it until they pass:
-- TypeScript: \`pnpm exec vitest run <test file> --coverage.enabled=false\` from the package directory, or \`node --test <test file>\` where the package uses node:test.
+- TypeScript: use the runner the package's own \`test\` script names, on one file, from the package directory: \`bun test <test file>\` (apps/app, apps/server), \`pnpm exec vitest run <test file> --coverage.enabled=false\`, or \`node --test <test file>\`.
 - Go: \`go test ./<directory of the Go package>/\`. There is no \`//packages/backend:test\` target, and \`//:backendGo\` needs Docker: never run either.
 - Rust: \`cargo test -p <crate> --locked\`.
 Never guess a target label: \`pnpm exec smthrs targets '//<package dir>/...'\` lists a package's targets. Do not run a whole package's or the repository's suite; a command that prints nothing for minutes is killed. Go, Rust and their module caches are installed: never download a toolchain.
