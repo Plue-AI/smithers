@@ -15,20 +15,22 @@ import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect
 import type * as Crypto from "effect/Crypto"
 import { readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
-import { capacity, perAccount, readPools } from "./accounts.ts"
+import { capacity, perAccount, type Pools, readPools } from "./accounts.ts"
 import { api, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
+import { statfsFree } from "./vm.ts"
 import Work, { AgentFailed, checkoutIssue, type NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
 
 // The most landings one round runs at once; `landers` picks fewer.
 const maxLanders = 16
 
-const Input = Schema.Struct({
+export const Input = Schema.Struct({
   repo: Schema.String,
-  // Never more than 32 agents on this machine; Smithers Cloud takes more.
+  // Local agents only; microVMs additionally obey the sustainable host limit of 24.
   maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32))),
+  cloudAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   // Each issue's work child is keyed by this attempt, so a restarted sweep
   // reattaches to its children; a new attempt works failed issues afresh.
   attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
@@ -101,7 +103,8 @@ export default Flow.make("issue-sweep", {
     "proc:spawn:pnpm *",
     "proc:spawn:codex *",
     "proc:spawn:codex-rr *",
-    "proc:spawn:claude-rr *"
+    "proc:spawn:claude-rr *",
+    "proc:spawn:claude-as *"
   ],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
   modelInvocable: false,
@@ -167,15 +170,126 @@ const listIssues = ListIssues.toLayer(({ input }) =>
   )
 )
 
-// RR_MAX_PER_ACCOUNT agents per ready account, never more than maxAgents.
-const readCapacity = (input: typeof Input.Type) =>
-  Effect.map(readPools, (pools) =>
-    capacity(
-      // A microVM runs Codex only: the Claude login lives in the macOS keychain, which a guest cannot borrow.
+export const maxLocalVms = 24
+export const minFreeBytes = 25 * 1024 ** 3
+
+type Placement = "local" | "vm" | "cloud"
+const Placement = Schema.Literals(["local", "vm", "cloud"])
+
+export const localLimit = (input: typeof Input.Type, freeBytes: number): number =>
+  input.placement === "vm"
+    ? freeBytes < minFreeBytes ? 0 : Math.min(maxLocalVms, input.maxAgents ?? 4)
+    : input.maxAgents ?? 4
+
+/** A total ceiling, including in-flight sweep work; Burndown compares it to work still running. */
+export const placementCapacity = (input: typeof Input.Type, pools: Pools, limit: number, freeBytes: number) => {
+  const local = localLimit(input, freeBytes)
+  const cloud = input.cloudAgents ?? 0
+  const codex = pools.codex.ready.reduce(
+    (n, account) => n + Math.max(0, limit - (pools.codex.active?.[account] ?? 0)),
+    0
+  )
+  const claude = input.placement === "vm" ?
+    0 :
+    pools.claude.ready.reduce((n, account) => n + Math.max(0, limit - (pools.claude.active?.[account] ?? 0)), 0)
+  const slots = Math.min(local + cloud, codex + claude, local + codex)
+  return slots > 0
+    ? Burndown.available(slots)
+    : capacity(
       input.placement === "vm" ? { codex: pools.codex, claude: { ready: [], unavailable: [] } } : pools,
-      perAccount,
-      input.maxAgents ?? 4
-    ))
+      limit,
+      0
+    )
+}
+
+/** Reserve a placement atomically, preferring the host whenever its slot is free. */
+export const makePlacementSlots = () => {
+  let local = 0
+  let cloud = 0
+  return {
+    reserve: (input: typeof Input.Type, freeBytes: number, preferred?: Placement) => {
+      const placement: Placement | undefined = preferred === "cloud"
+        ? cloud < (input.cloudAgents ?? 0) ? "cloud" : undefined
+        : local < localLimit(input, freeBytes) ?
+        input.placement ?? "local"
+        : preferred === undefined && cloud < (input.cloudAgents ?? 0)
+        ? "cloud"
+        : undefined
+      if (placement === undefined) return undefined
+      if (placement === "cloud") cloud++
+      else local++
+      let released = false
+      return {
+        placement,
+        release: () => {
+          if (released) return
+          released = true
+          if (placement === "cloud") cloud--
+          else local--
+        }
+      }
+    }
+  }
+}
+const placements = new Map<string, ReturnType<typeof makePlacementSlots>>()
+const placementLeases = new Map<string, { readonly placement: Placement; release(): void }>()
+const releasePlacement = (executionId: string) =>
+  Effect.sync(() => {
+    placementLeases.get(executionId)?.release()
+    placementLeases.delete(executionId)
+  })
+
+const reservePlacement = (input: typeof Input.Type, executionId: string, preferred?: Placement) =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function*() {
+      const slots = placements.get(input.repo) ?? makePlacementSlots()
+      placements.set(input.repo, slots)
+      for (;;) {
+        const reserved = slots.reserve(input, input.placement === "vm" ? statfsFree() : Infinity, preferred)
+        if (reserved !== undefined) {
+          placementLeases.set(executionId, reserved)
+          return reserved.placement
+        }
+        yield* restore(Effect.sleep("1 second"))
+      }
+    })
+  )
+
+/** The choice is journaled separately so the work child's payload survives a resumed dispatch. */
+export const ChoosePlacement = Action.make("issue-sweep/choose-placement", {
+  payload: { executionId: Schema.String },
+  success: Placement,
+  error: AgentFailed,
+  nondeterministic: true
+})
+export const PlacementChoice = Flow.make("issue-sweep/placement", {
+  description: "Keep an issue's original placement when its sweep resumes.",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
+  modelInvocable: false,
+  payload: ChoosePlacement.payloadSchema,
+  success: Placement,
+  error: AgentFailed,
+  body: (input) => ChoosePlacement.call(input)
+})
+const choosePlacement = ChoosePlacement.toLayer(({ executionId }) => {
+  const reserved = placementLeases.get(executionId)
+  return reserved === undefined
+    ? Effect.fail(new AgentFailed({ message: `${executionId}: placement reservation was released` }))
+    : Effect.succeed(reserved.placement)
+})
+
+const readCapacity = (input: typeof Input.Type) =>
+  Effect.gen(function*() {
+    const pools = yield* readPools
+    const free = input.placement === "vm" ? statfsFree() : Infinity
+    const result = placementCapacity(input, pools, perAccount, free)
+    // Occupied jobs and disk pressure are temporary; retry without an account reset.
+    return result._tag === "Exhausted" &&
+        (pools.codex.ready.length + (input.placement === "vm" ? 0 : pools.claude.ready.length)) > 0
+      ? Burndown.waitUntil((yield* Clock.currentTimeMillis) + 30_000)
+      : result
+  })
 
 const accounts = Accounts.toLayer(({ input }) => readCapacity(input))
 
@@ -263,7 +377,7 @@ const landGate = (landers: number) => {
   return gate
 }
 
-const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, Engine, string>(Dispatch, {
+const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine, string> = {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
   // ceiling. A freed slot takes the next issue while the accounts still allow.
@@ -300,27 +414,37 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
   // id scoped to this round, which a replay of the round still reattaches to.
   // Remote work that conflicts with main is applied again from its journaled
   // diff once main moves, without running the agent again.
-  work: (args) => {
-    const input = args.input as typeof Input.Type
-    const id = `${args.executionId}/attempt-${input.attempt ?? 1}`
-    const execute = (executionId: string) =>
-      Work.execute({ repo: input.repo, issue: args.item.number, placement: input.placement ?? "local" }, {
-        executionId
-      })
-    return execute(id).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
-      ),
-      Effect.catchTag(
-        "issue-sweep/AdoptConflicted",
-        (conflict) => requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
-      ),
-      // A workspace this machine cannot prepare would fail every issue the
-      // same way: stop the sweep (its claims are released) instead.
-      Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error)),
-      Effect.catchTag("issue-sweep/NoChange", (verdict) => settleNoChange(input.repo, args.item.number, verdict))
-    ) as Effect.Effect<Worked, Failure, Engine>
-  },
+  work: (args) =>
+    Effect.scoped(Effect.gen(function*() {
+      const input = args.input as typeof Input.Type
+      const id = `${args.executionId}/attempt-${input.attempt ?? 1}`
+      yield* Effect.addFinalizer(() => releasePlacement(id))
+      const tentative = yield* reservePlacement(input, id)
+      const placement = yield* PlacementChoice.execute({ executionId: id }, {
+        executionId: `${id}/placement`
+      }) as Effect.Effect<Placement, Failure, Engine>
+      if (placement !== tentative) {
+        yield* releasePlacement(id)
+        yield* reservePlacement(input, id, placement)
+      }
+      const execute = (executionId: string) =>
+        Work.execute({ repo: input.repo, issue: args.item.number, placement }, {
+          executionId
+        })
+      return yield* execute(id).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
+        ),
+        Effect.catchTag(
+          "issue-sweep/AdoptConflicted",
+          (conflict) => requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
+        ),
+        // A workspace this machine cannot prepare would fail every issue the
+        // same way: stop the sweep (its claims are released) instead.
+        Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error)),
+        Effect.catchTag("issue-sweep/NoChange", (verdict) => settleNoChange(input.repo, args.item.number, verdict))
+      ) as Effect.Effect<Worked, Failure, Engine>
+    })),
   landConcurrency: maxLanders,
   // An issue someone closed while its agent worked is already settled; landing
   // a second fix for it would only duplicate the first. The change's
@@ -370,7 +494,26 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
         return yield* new AgentFailed({ message: `issue-claim release: exit ${exited.code}: ${tail(exited.stderr)}` })
       }
     })
-})
+}
+
+const dispatch = Dispatch.toLayer((payload) =>
+  Burndown.round({
+    input: payload.input,
+    round: payload.round,
+    items: payload.items as ReadonlyArray<Item>,
+    settled: payload.settled,
+    slots: payload.slots
+  }, {
+    ...dispatchOptions,
+    concurrency: Math.max(
+      1,
+      Math.min(
+        Array.isArray(payload.items) ? payload.items.length : 1,
+        ((payload.input as typeof Input.Type).maxAgents ?? 4) + ((payload.input as typeof Input.Type).cloudAgents ?? 0)
+      )
+    )
+  })
+)
 
 // The rounds are a flow of their own that no file declares, so this module
 // registers them; the host registers only discovered file flows.
@@ -378,6 +521,8 @@ export const layer = Layer.mergeAll(
   listIssues,
   accounts,
   dispatch,
+  choosePlacement,
+  Interpreter.layer(PlacementChoice),
   Sleep.layer,
   WaitFor.layer,
   Interpreter.layer(Rounds)

@@ -131,7 +131,7 @@ refuses to retry an irreversible step without one). Reuses
 Closes the #3265 gap: an issue labeled by a bot without a claim comment is
 refused by the claim tool and comes back `held`.
 
-## Step 9 — Smithers Cloud placement
+## Step 9 — Smithers Cloud placement (historical sketch, superseded by Step 13)
 
 `placement: "local" | "cloud"` per child; the parent sends the first
 `cloudAgents` issues to Cloud. `Node.branch` chooses the arm in the plan (a
@@ -144,7 +144,7 @@ scope closes, even on failure. The flow borrows the next Codex account's
 `auth.json` (`codex-rr next`), writes it into the guest, runs `codex exec` with
 the brief passed as `"$1"` (never spliced into the shell string), returns diff
 stat and full patch, and removes the login from the guest.
-Known gaps at this point: codex-rr cannot see remote runs (account accounting);
+Known gaps in this historical sketch (resolved in Step 13): codex-rr cannot see remote runs (account accounting);
 image contents (node, npm, jj) and cross-machine Codex login unverified.
 
 ## ORDERING FOR THE PUBLISHED TUTORIAL (maintainer decision, 2026-09-30)
@@ -156,12 +156,53 @@ Cloud is the LAST step, not step 9. The published order is:
    cleanly (the login is copied into the VM, as with Cloud);
 10. landing; 11. exhausted accounts pause for an operator reset;
 12. Claude accounts in the rotation + reservations;
-13. LAST: Smithers Cloud, introduced as the way to run more than 32 agents —
-    in the maintainer's words, 32 local agents was the most before the machine
-    started to choke itself. The first N issues run in local VMs, the next N on
-    Cloud. Present the step 9 Cloud material above (Sandbox.layerHost swap,
+13. LAST: Smithers Cloud, introduced as overflow beyond the sustainable
+    24 local VMs. Fill free local slots first, then admit work through a
+    separate Cloud cap. Present the step 9 Cloud material above (Sandbox.layerHost swap,
     login copy, "$1" brief) here, and stress that the same layer swap moves
     work from a local VM to a Cloud VM with no other code change.
+
+## Step 13 — local-first Cloud overflow (#3354)
+
+The sweep payload keeps `maxAgents` for local work and adds `cloudAgents`
+(default `0`) as a separate Cloud ceiling. For example:
+
+```sh
+smthrs flow start issue-sweep --data '{"repo":"smithersai/smithers","placement":"vm","maxAgents":24,"cloudAgents":12}'
+```
+
+Every admitted issue takes a free local slot first; if those are occupied, it
+can take a Cloud slot. A finished local agent makes its local slot available
+again. This is a live placement decision, not a fixed first-N issue split.
+VM placement is capped at the sustainable 24-agent host limit; `maxAgents`
+still defaults to `4`. Another boot requires 25 GiB of free host disk. Under that floor, new issues can
+use Cloud instead. `placement:"local"` keeps local Codex/Claude agents and uses
+the same Cloud overflow; VM and Cloud work use Codex only.
+
+`accounts.ts` reserves the actual subscription account for every sweep agent,
+including local Codex, local VMs, and Cloud. The shared per-account ceiling is
+`RR_MAX_PER_ACCOUNT` (default `6`), with current live rotator jobs deducted.
+Local Codex runs directly with the reserved `CODEX_HOME`; Claude runs through
+`claude-as` with its reserved account. This prevents a rotator from substituting
+an account already full of remote jobs. Reservations are shared within the
+sweep host process, not across separate sweep hosts; future external rotator
+launches are outside that reservation protocol. Account exhaustion parks on
+`issue-sweep/accounts-reset`; transient occupied slots or disk pressure retry.
+
+RemoteFix uses `Sandbox.run`, which captures the work before CloudSandbox's
+workspace deletion. Adopt applies that journaled patch through
+`SandboxMerge.apply`; the normal landing queue checks and pushes the resulting
+change. A scoped guest-login finalizer saves a rotated `auth.json` back to the
+host with mode `0600` and removes it from the guest on success, failure, or
+interruption, before deletion. The flow declaration's grants remain literal
+string arrays without comments, so discovery does not widen them (#3340).
+
+Executed deterministic evidence: local-first placement, independent ceilings,
+24-VM and 25-GiB boundaries, combined account caps, reservation cancellation,
+and a fake Cloud workspace API driving the real CloudSandbox, Sandbox.run,
+login refresh, deletion, and jj adoption. These tests do not prove the deployed
+Cloud image or a real subscription login works; a real Cloud run and its landing
+receipt remain required after the deployment prerequisite is closed.
 
 ## REQUIREMENT: graceful shutdown (maintainer, 2026-09-30) — build after the burndown runs
 

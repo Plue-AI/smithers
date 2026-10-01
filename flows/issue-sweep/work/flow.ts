@@ -14,7 +14,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { existsSync } from "node:fs"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { type Agent, pickAgent, readPools } from "../accounts.ts"
+import { accountHome, type Agent, coolAccount, reserveAccount } from "../accounts.ts"
 import { issue } from "../github.ts"
 import { output, repository, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
@@ -150,6 +150,7 @@ export const Adopt = Action.make("issue-sweep/adopt", {
 })
 
 /** A conflicted adoption applied again as an execution of its own; the sweep runs it once `main` moved. */
+// A plan payload holds plain data only, never the decoded class instances.
 export const Readopt = Flow.make("issue-sweep/readopt", {
   description: "Applies a remote run's journaled work onto a later main.",
   capabilities: ["proc:spawn:jj -R *", "proc:spawn:git --git-dir *"],
@@ -158,7 +159,6 @@ export const Readopt = Flow.make("issue-sweep/readopt", {
   payload: Adopt.payloadSchema,
   success: Report,
   error: Adopt.errorSchema,
-  // A plan payload holds plain data only, never the decoded class instances.
   body: (input) => Adopt.call(Schema.encodeSync(Adopt.payloadSchema)(input))
 })
 
@@ -175,11 +175,14 @@ export default Flow.make("issue-sweep/work", {
     "proc:spawn:gh api *",
     "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
     "proc:spawn:jj -R *",
-    // SandboxMerge.apply builds a remote run's change in the repository's git store.
     "proc:spawn:git --git-dir *",
     "proc:spawn:pnpm *",
-    "proc:spawn:codex-rr *",
-    "proc:spawn:claude-rr *"
+    "proc:spawn:codex *",
+    "proc:spawn:claude-as *",
+    "proc:spawn:codex-rr status",
+    "proc:spawn:claude-rr status",
+    "proc:spawn:codex-rr cool *",
+    "proc:spawn:claude-rr cool *"
   ],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
   modelInvocable: false,
@@ -257,12 +260,6 @@ export const commitMessage = (reply: string, issue: number, title: string): stri
   const subject = stated !== undefined && stated !== "" ? stated : `🐛 fix: ${title.trim()}`
   return subject.includes(`(#${issue})`) ? subject : `${subject} (#${issue})`
 }
-
-// `<tool>-rr` names each account it tries on stderr: "codex-rr: codex-3". The last one ran.
-const accountLine = /^(?:codex|claude)-rr: (\S+)$/gm
-
-/** The account that ran, from the rotator's stderr. */
-export const accountOf = (stderr: string): string => [...stderr.matchAll(accountLine)].at(-1)?.[1] ?? "unknown"
 
 // What `claude -p --output-format json` prints last.
 const ClaudeResult = Schema.fromJsonString(Schema.Struct({ result: Schema.optional(Schema.String) }))
@@ -384,10 +381,11 @@ const agentBudget = Duration.hours(2)
 export const agentCommand = (
   agent: Agent,
   workspace: string,
-  prompt: string
+  prompt: string,
+  account: string
 ): readonly [string, ReadonlyArray<string>] =>
   agent === "codex"
-    ? ["codex-rr", [
+    ? ["codex", [
       "exec",
       "-m",
       "gpt-6.1-sol",
@@ -400,7 +398,8 @@ export const agentCommand = (
       goCache,
       prompt
     ]]
-    : ["claude-rr", [
+    : ["claude-as", [
+      account,
       // The prompt comes first: `--add-dir` takes every following argument.
       "-p",
       prompt,
@@ -448,12 +447,14 @@ const recordChange = (workspace: string, base: string, message: string) =>
   })
 
 const fix = Fix.toLayer((input) =>
-  Effect.gen(function*() {
+  Effect.scoped(Effect.gen(function*() {
     const { directory, base } = input.workspace
-    const agent = pickAgent(input.issue, yield* Effect.mapError(readPools, agentFailed))
-    if (agent === undefined) return yield* new AgentFailed({ message: "no ready Codex or Claude account" })
-    const [command, args] = agentCommand(agent, directory, brief(input.repo, input.issue, input.text))
-    const exited = yield* onHost(command, args, { cwd: directory, env: { GOCACHE: goCache } }).pipe(
+    const { agent, account } = yield* Effect.mapError(reserveAccount(input.issue, false), agentFailed)
+    const [command, args] = agentCommand(agent, directory, brief(input.repo, input.issue, input.text), account)
+    const exited = yield* onHost(command, args, {
+      cwd: directory,
+      env: { GOCACHE: goCache, ...(agent === "codex" ? { CODEX_HOME: accountHome(account) } : {}) }
+    }).pipe(
       Effect.timeoutOrElse({
         duration: agentBudget,
         orElse: () =>
@@ -461,7 +462,7 @@ const fix = Fix.toLayer((input) =>
       }),
       Effect.mapError(agentFailed)
     )
-    const account = accountOf(exited.stderr)
+    yield* Effect.mapError(coolAccount(agent, account, exited.stdout, exited.stderr, exited.code), agentFailed)
     const reply = replyOf(agent, exited.stdout)
     if (exited.code !== 0) {
       return yield* new AgentFailed({ message: `${agent} ${account}: exit ${exited.code}: ${tail(exited.stderr)}` })
@@ -478,7 +479,7 @@ const fix = Fix.toLayer((input) =>
     const changed = (yield* jj(directory, ["diff", "--stat", "-r", change])).trim()
     const patch = yield* jj(directory, ["diff", "--git", "-r", change])
     return { agent, account, workspace: directory, base, change, report: reply, changed, patch }
-  })
+  }))
 )
 
 // ---------------------------------------------------------------------------
@@ -505,22 +506,6 @@ const guestCheckout = "/home/developer/workspace"
 const guestCodexHome = "/home/developer/.codex-sweep"
 
 const loginFile = (account: string) => `${homedir()}/.smithers/accounts/${account}/auth.json`
-
-/**
- * The Codex account for one remote run. A remote run is invisible to
- * codex-rr's per-account accounting and `codex-rr next` never advances, so
- * runs are spread over the ready accounts by issue number instead.
- */
-export const spreadAccount = (ready: ReadonlyArray<string>, issue: number): string | undefined =>
-  ready.length === 0 ? undefined : ready[issue % ready.length]
-
-const codexAccountFor = (issue: number) =>
-  Effect.gen(function*() {
-    const pools = yield* Effect.mapError(readPools, agentFailed)
-    const account = spreadAccount(pools.codex.ready, issue)
-    if (account === undefined) return yield* new AgentFailed({ message: "no ready Codex account" })
-    return account
-  })
 
 /** The machines a remote fix runs in. */
 const providerFor = (placement: "vm" | "cloud", repo: string) =>
@@ -571,11 +556,33 @@ export const fixRemotely = <R>(
  * Everything here runs inside the machine: run() spawns there, FileSystem
  * writes there.
  */
-const codexInGuest = (account: string, login: string, where: string, prompt: string) =>
-  Effect.gen(function*() {
+export const codexInGuest = (
+  account: string,
+  login: string,
+  where: string,
+  prompt: string,
+  hostLoginPath = loginFile(account)
+) =>
+  Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     yield* fs.makeDirectory(guestCodexHome, { recursive: true })
-    yield* fs.writeFileString(`${guestCodexHome}/auth.json`, login)
+    yield* Effect.acquireRelease(
+      fs.writeFileString(`${guestCodexHome}/auth.json`, login),
+      () =>
+        Effect.gen(function*() {
+          // Refresh tokens rotate even when Codex times out or is interrupted.
+          const refreshed = yield* fs.readFileString(`${guestCodexHome}/auth.json`)
+          if (refreshed !== login) {
+            yield* Effect.tryPromise({
+              try: () => writeFile(hostLoginPath, refreshed, { mode: 0o600 }),
+              catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
+            })
+          }
+        }).pipe(
+          Effect.ensuring(fs.remove(guestCodexHome, { recursive: true }).pipe(Effect.orDie)),
+          Effect.orDie
+        )
+    )
     const [stdout, stderr, code] = yield* run("sh", [
       "-c",
       // The Cloud image has node but no codex, and /usr/local is root's: install per user.
@@ -595,25 +602,16 @@ const codexInGuest = (account: string, login: string, where: string, prompt: str
           )
       })
     )
-    // Codex may refresh the login during the run; a refresh rotates the
-    // refresh token, so the host copy must follow or that account is lost.
-    const refreshed = yield* fs.readFileString(`${guestCodexHome}/auth.json`)
-    if (refreshed !== login) {
-      yield* Effect.tryPromise({
-        try: () => writeFile(loginFile(account), refreshed, { mode: 0o600 }),
-        catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
-      })
-    }
-    yield* fs.remove(guestCodexHome, { recursive: true })
+    yield* Effect.mapError(coolAccount("codex", account, stdout, stderr, Number(code)), agentFailed)
     if (code !== 0) {
       return yield* new AgentFailed({ message: `${account} on ${where}: exit ${code}: ${tail(stderr)}` })
     }
     return { agent: "codex" as const, account, report: stdout.trim() }
-  }).pipe(Effect.mapError(agentFailed))
+  })).pipe(Effect.mapError(agentFailed))
 
 const remoteFix = RemoteFix.toLayer((input) =>
-  Effect.gen(function*() {
-    const account = yield* codexAccountFor(input.issue)
+  Effect.scoped(Effect.gen(function*() {
+    const { account } = yield* Effect.mapError(reserveAccount(input.issue, true), agentFailed)
     const login = yield* Effect.tryPromise({
       try: () => readFile(loginFile(account), "utf8"),
       catch: () => new AgentFailed({ message: `${account}: no auth.json` })
@@ -624,7 +622,7 @@ const remoteFix = RemoteFix.toLayer((input) =>
       sessionOf(input.repo, input.issue),
       codexInGuest(account, login, input.placement, brief(input.repo, input.issue, input.text))
     )
-  })
+  }))
 )
 
 /**

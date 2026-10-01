@@ -13,7 +13,7 @@
  * acquire the checkout moves to a fresh `main` (`refresh`). Closing the scope
  * removes the microVM, on success, failure and interruption; `reapOrphans` removes the microVMs of a host
  * process that died without closing its scopes. `provider()` is one
- * process-wide instance whose `maxVms` gate (default 32) queues acquires beyond
+ * process-wide instance whose `maxVms` gate (default 24) queues acquires beyond
  * the host's measured capacity.
  *
  * Capabilities: the Microsandbox SDK is a native module running in the flow
@@ -230,9 +230,8 @@ export interface Options {
   /** Move the checkout to the current `main` at acquire. Default true. */
   readonly refresh?: boolean | undefined
   /**
-   * Microvms alive at once; further acquires wait. Default 32: on this 16-core,
-   * 64 GiB Mac, 32 held microVMs at 3 GiB ran an agent-shaped workload without
-   * swapping; 48 swapped 1.8 GiB and 64 swapped 20 GiB (test/vm-capacity.sh).
+   * Microvms alive at once; further acquires wait. Default 24: the sustainable
+   * limit on this host with dependency installs and landing checks running.
    */
   readonly maxVms?: number | undefined
   /**
@@ -255,7 +254,7 @@ export interface Options {
 }
 
 const microsandboxHome = join(homedir(), ".microsandbox")
-const statfsFree = () => {
+export const statfsFree = () => {
   const stats = statfsSync(existsSync(microsandboxHome) ? microsandboxHome : homedir())
   return stats.bavail * stats.bsize
 }
@@ -302,7 +301,7 @@ export const latestImage = (
  */
 export const make = (options: Options = {}): Sandbox.Provider & { readonly slots: Semaphore.Semaphore } => {
   const sdk = options.sdk ?? Microsandbox
-  const slots = Semaphore.makeUnsafe(options.maxVms ?? 32)
+  const slots = Semaphore.makeUnsafe(options.maxVms ?? 24)
   const boots = Semaphore.makeUnsafe(options.bootConcurrency ?? 8)
   let inner: Sandbox.Provider | undefined
   const machines = (snapshot: string) =>
