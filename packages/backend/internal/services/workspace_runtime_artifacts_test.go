@@ -195,12 +195,22 @@ func TestRuntimeArtifactsRejectMissingOrChangedPlacement(t *testing.T) {
 	}
 }
 
+type selfManagedArtifactRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	t *testing.T
+}
+
+func (r *selfManagedArtifactRuntime) Isolation() workspaceapi.IsolationLevel {
+	r.t.Fatal("self-managed runtime isolation consulted without a compute provider")
+	return workspaceapi.IsolationSandboxed
+}
+
 func TestRuntimeArtifactsSelfManagedSandboxSkipsComputeBootstrap(t *testing.T) {
 	q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) {
 		t.Fatal("self-managed sandbox attempted compute placement lookup")
 		return db.Workspace{}, nil
 	}}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(&artifactRuntime{}))
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(&selfManagedArtifactRuntime{t: t}))
 	require.NoError(t, svc.ensureRuntimeWorkspaceArtifacts(t.Context(), sampleDBWorkspace("self-managed"), 1))
 }
 
@@ -214,8 +224,11 @@ func TestRuntimeArtifactsTrustedProcessSkipsGuestBootstrap(t *testing.T) {
 		t.Fatal("trusted runtime attempted guest placement lookup")
 		return db.Workspace{}, nil
 	}}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(&trustedArtifactRuntime{}))
+	client := newArtifactRecordingClient()
+	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(&trustedArtifactRuntime{}), WithWorkspaceSandboxClient(client))
 	require.NoError(t, svc.ensureRuntimeWorkspaceArtifacts(t.Context(), sampleDBWorkspace("trusted"), 1))
+	require.Empty(t, client.writes)
+	require.Empty(t, client.commands)
 }
 
 func TestRuntimeArtifactsBootstrapMatchesPlacedEnvironment(t *testing.T) {
