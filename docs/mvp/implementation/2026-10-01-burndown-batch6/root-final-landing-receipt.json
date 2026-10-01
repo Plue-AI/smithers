@@ -1,0 +1,55 @@
+{
+  "issuesQualified": [
+    3262,
+    3167,
+    3307,
+    3263,
+    3264,
+    3198,
+    3199
+  ],
+  "candidateAfterFinalRebase": "c67344e76bacc16b6a256f0509361b4c0aa26c8e",
+  "originMainIncorporated": "fc4512f427b2db6973a2435d35b6cf73d6d069bc",
+  "rootVerifiedSourceHashes": {
+    "packages/smithers/agent/src/AgentSession.ts": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+    "packages/smithers/agent/test/AgentSessionFailures.test.ts": "f28ff58d6e4b32c56bff258219233bcf3589eb5833cdea33ca8e7835a1850f15",
+    "packages/smithers/test/CloudSandboxCommand.integration.test.ts": "36f31fe05436b1b0fa8d9fb73a4cb984e541a464bd778bb79150ee6dc16f9bfe",
+    "apps/app/src/mainview/state/AppState.ts": "a08cd6a415b6b071e37e7f902d4e72425c1b70e5406718ede557baaa06d2b532",
+    "apps/app/src/mainview/state/AppTransitionValidation.ts": "0a62ddd52b78edca6f8c3e31f1822f82e9748427e345146dc74414adfb8824fe",
+    "apps/app/src/mainview/state/AppProjection.ts": "d148e9493b8f33d5a3e045473bf8330be481a9d9a69095da3ec649cf7dd82412",
+    "apps/app/src/mainview/state/AppEventStream.ts": "137ae74dcb50d98ac32ae5b38bd775705d3eac28a1e2cd34cce268ef968325c8",
+    "apps/app/src/mainview/state/AppController.ts": "324389cff96a5ab44079d457e096e8e06d677aeda4165baaaccc2fac0e365266",
+    "apps/app/src/mainview/state/AppStore.events.test.ts": "26913f932fe64a21f1081ef7ae3877a947a850dfaecdf3a78960458d70321f88",
+    "apps/app/src/mainview/state/seams/EgressSeam.ts": "9c29835d020488fd3f712d18109e9533883afbec3be35bc5a7e51314ec2e67ea",
+    "apps/app/src/mainview/state/seams/EgressSeam.test.ts": "193dc496831c221e54b60ce89831fdbd7bc4024e86146f88550625579e9be26d",
+    "apps/app/src/mainview/state/EgressRequests.test.ts": "6ead5588fcf204ad22e7a85031bd697676534998a435303d1e18485480611573",
+    "packages/backend/db/product/queries/repository_egress_policies.sql": "c9561a7750b72f529a657120468bd77ce20196a04594627c7e5750e74613e8f6",
+    "packages/backend/internal/db/repository_egress_policies.sql.go": "0293a5e3b0b78f478a5d6bec104adb124b80f222c5ef858f9e102bfe675f4239",
+    "packages/backend/internal/services/workflow_invoke_flow.go": "9cdc321631f0ae37534d9b08920767997852d12695e781ff71e83a358e07c1d2",
+    "packages/backend/internal/services/workflow_invoke_redaction_test.go": "ac37d71f88d732c477d2a670393ae243c865e1be9d1904d400fd43c2f7792de5",
+    "packages/backend/internal/services/secret_injection.go": "77905cc5c5c7ea44801775dd6c5d2b96433c126be59cdf089721215563167e45",
+    "packages/backend/db/product/migrations/0099_invoked_flow_launch_redaction.sql": "eee279031ad9ffa474a82976e48810745e57b69f720cb674f801271e5f50c08c",
+    "packages/backend/runtimebridge/client.go": "e29d40018f146d936a2c639943b5bc2d97a074a6ec3b5c9f75e444a2851c4f91",
+    "go.mod": "3178063bf94f255023af576ea40b446e54c3859ec6cd4a9c39c03f12ee250fda",
+    "go.sum": "92fac2f61c9749823c21cfb7fa82316dd237f4e1516e561b7387422459025ce9",
+    "packages/backend/internal/services/workflow_invoke_test.go": "38bffef25ab09084933bb16cdfac93c6068c4e7bb2ac67255be21ef1f00cd689",
+    "packages/backend/flowruntime/contracts.go": "36989c1dc7684f0adf6c5cf0fe459b38aee106db2417b01fc5eb2e1370fcb779",
+    "packages/backend/runtimebridge/client_test.go": "663870fed6e6c8e82bc40be2566bc7253460e0b2f4e58972f45eedffb2748291"
+  },
+  "finalIncomingChanges": [
+    "Private issue-sweep flows/PACKAGE, work and land files",
+    "Unexecuted flow/test/DurableApi.test.ts diagnostic assertions only"
+  ],
+  "qualificationDisposition": "No production library, CLI, app, backend, compiler or lock inputs changed in final incoming commit range; qualified owning source hashes preserved. Actual7 CLI/Cloud and completeCLI types ran after prior observability change; owning79 agent/process +41 DTS inputs unchanged. Actual148 app/SQLite/HTTP controls, zero full-type diagnostic delta, realPG race15/24 and runtime HTTP race28 retained. No unrelated broad gates claimed green.",
+  "remainingOpen": [
+    3235,
+    3127,
+    3315,
+    3316,
+    3317,
+    3065
+  ],
+  "appendOnlyMain": true,
+  "forcePush": false,
+  "oneOwnedWorktree": "/private/tmp/smithers-burndown-20260930"
+}
