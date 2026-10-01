@@ -519,7 +519,7 @@ describe("migrated command dispatch", () => {
         ["workspace", "create", "--repo", "owner/repo", "--name", "dev", "--cpus", "4"],
         "POST",
         "/api/repos/owner/repo/workspaces",
-        { name: "dev", resources: { cpus: 4 } }
+        { name: "dev", resources: { vcpu: 4 } }
       ],
       [
         ["workspace", "delete", "w1", "--repo", "owner/repo", "--yes"],
