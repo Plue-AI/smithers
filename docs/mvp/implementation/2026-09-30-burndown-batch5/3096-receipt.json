@@ -1,0 +1,61 @@
+{
+  "issue": 3096,
+  "sourceParent": "773fac75dcd1efd5d518bfbe60699b35c8927274",
+  "existingFix": "a5fb71748279a13bfafc0cb05b3c05357d490c9e",
+  "sourceInputs": {
+    "packages/backend/internal/routes/lsp_session_manager.go": "34b2b57650283d80d46f9239c7000eb3df0860ee0f7028ff8cba177772ed494d",
+    "packages/backend/internal/routes/lsp_close_test.go": "8b67e2c97ce201a97751986f55288a7fd6415e90a33f1572b6c0de535c2845ca",
+    "packages/backend/internal/routes/workspace_lsp.go": "59ef2711da1011a490ca5eeae4aa30f0237dc1be4881405ec7847f38a587c189",
+    "packages/backend/internal/routes/workspace_lsp_test.go": "2da26afa7a5759f5aeec89057f5ed60a4c2c99e4cba3c660e887c17f3ee7a7ba",
+    "go.mod": "3178063bf94f255023af576ea40b446e54c3859ec6cd4a9c39c03f12ee250fda",
+    "go.sum": "92fac2f61c9749823c21cfb7fa82316dd237f4e1516e561b7387422459025ce9"
+  },
+  "readinessManifest": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/3096-readiness.json",
+  "readinessSHA256": "13375e9ddc60620fe1bbc9d61a6ea66cb5483e7d16f752d5f98f6e4f05b2185a",
+  "archive": "3096-validation.tar.gz",
+  "archiveSHA256": "ac9921730b808cbfc1a1652584b278d52aec222dc6beeaedb0588703299dd92e",
+  "checks": [
+    {
+      "command": "go test -race ./internal/routes -run \"^(TestLSP|TestLSPSession)\" -count=1 -timeout=120s -v",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "receipt": "3096-focused-race.log",
+      "exit": 0,
+      "seconds": 9.439,
+      "scope": "Real local TCP/WebSocket and deterministic controlled guest stdio; no PG query in LSP-only tests."
+    },
+    {
+      "command": "go test -overlay=/tmp/smithers-burndown-20260930-receipts/runtime-batch5/3096-original-overlay.json ./internal/routes -run \"^TestLSPSessionRun_WaitsForProtocolCloseBeforeHandlerCleanup$\" -count=1 -timeout=30s -v",
+      "receipt": "3096-original-overlay-red.log",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "scope": "Exact original manager before fix plus unchanged current deterministic TCP regression. External overlay only, no source mutation/clone/worktree. Trailing tests requiring new closeFinished removed from overlay to compile old source; executed assertion unchanged. Failure: run returned before protocol close write completed; caller can race CloseNow."
+    },
+    {
+      "command": "go test ./internal/routes -count=1 -timeout=10m -coverprofile=/tmp/smithers-burndown-20260930-receipts/runtime-batch5/3096-whole-routes-coverage.out -v",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "receipt": "3096-whole-routes-real-pg.log",
+      "exit": 0,
+      "seconds": 53.533,
+      "coverageStatementsPercent": 87.9,
+      "requiredRealPostgresTest": "TestIssue1793GitHubWebhookSignedBodyLimitPostgres PASS; setupGitHubWebhookRouteTestPool uses actual schema/pool; SQL count verifies mutations/replay."
+    }
+  ],
+  "limits": [
+    "Whole gate uses default build tags; separate integration-tag-only tests were not executed.",
+    "No hosted SSH/VM restoration or external LSP server exercised. Guest service/stdio doubles are justified to deterministically gate close writes, process teardown and 5-second unresponsive-peer handshake timeout; transport is real TCP/WebSocket.",
+    "Whole routes executed statement coverage is 87.9%, not 100%. LSP run and destroy are each 100% in retained function report; other LSP helpers have uncovered branches. No thresholds, production source or tests changed.",
+    "Whole input inventory was captured immediately after passing gate at stable parent-coordinated source boundary; parent confirmed no concurrent Go source writers."
+  ],
+  "skippedTopLevelTests": [
+    "TestFreshRepositoryInitialFindings (0.00s)",
+    "TestIssueSlackLive (0.00s)",
+    "TestContentsWhitespacePathsIntegration (0.00s)",
+    "TestNotesMirrorIntegration (0.00s)",
+    "TestWorkspaceHTTPMaterializesPublicRepository (0.00s)",
+    "TestWorkspaceHTTPProvisionsEmptyRepository (0.00s)",
+    "TestWorkspaceHTTPRefusesCommandsUntilWorkspaceReady (0.00s)",
+    "TestWorkspaceHTTPRefusesCommandsForFailedWorkspace (0.00s)",
+    "TestWorkspaceHTTPSettlesAdmittedCommandWhenWorkspaceFails (0.00s)"
+  ],
+  "scope": "Independent source-bound qualification of existing synchronous dead signal plus bounded closeFinished barrier before handler CloseNow; no product source changes in this item."
+}
