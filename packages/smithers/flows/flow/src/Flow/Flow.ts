@@ -29,6 +29,7 @@ import type * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import type { Declared, PlannedPayload, Requirement } from "../Action/Action.ts"
 import type { CancelRequestFailed } from "../FlowRuntime/CancelRequestFailed.ts"
+import type { ExecutionIdentityConflict } from "../FlowRuntime/ExecutionIdentityConflict.ts"
 import type { FlowCycleDetected } from "../FlowRuntime/FlowCycleDetected.ts"
 import type { FlowExecutionNotFound } from "../FlowRuntime/FlowExecutionNotFound.ts"
 import type { FlowInstance, FlowRuntime } from "../FlowRuntime/index.ts"
@@ -275,7 +276,7 @@ export interface Flow<
     }
   ) => Effect.Effect<
     Discard extends true ? string : Success["Type"],
-    Schema.SchemaError | FlowCycleDetected | (Discard extends true ? never : Error["Type"]),
+    Schema.SchemaError | FlowCycleDetected | ExecutionIdentityConflict | (Discard extends true ? never : Error["Type"]),
     | FlowRuntime
     | Crypto.Crypto
     | Requires

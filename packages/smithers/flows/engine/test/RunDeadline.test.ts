@@ -403,7 +403,7 @@ const NextParent = Flow.make("RunDeadline/tree-next", {
   payload: {},
   success: Schema.String,
   deadline: "1 day",
-  body: () => Node.succeed("next")
+  body: () => Wait.call({ id: "later-round" })
 })
 const Spawn = Action.make("RunDeadline/spawn", { payload: {}, success: Schema.Void })
 const FirstParent = Flow.make("RunDeadline/tree-first", {
@@ -421,7 +421,6 @@ effect("a later round's expiry cancels a child linked by an earlier originator r
   Effect.gen(function*() {
     const engine = yield* FlowRuntime.FlowRuntime
     yield* engine.register(TreeLeaf, () => DurableDeferred.await(gate))
-    yield* engine.register(NextParent, () => DurableDeferred.await(gate))
     const wiring = yield* Layer.build(
       Interpreter.layer(FirstParent).pipe(
         Layer.provideMerge(Spawn.toLayer(() =>
@@ -430,6 +429,9 @@ effect("a later round's expiry cancels a child linked by an earlier originator r
             Effect.andThen(Effect.sleep("20 minutes"))
           )
         )),
+        // The handoff target is auto-registered from its declaration; make that
+        // declaration park through the same real action boundary.
+        Layer.provideMerge(Wait.toLayer(() => DurableDeferred.await(gate))),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
       )

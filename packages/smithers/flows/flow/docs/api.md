@@ -111,7 +111,7 @@ Actions, inline calls, child runs, and handoffs keep these ceilings. Admission
 records authority for replay and recovery; an execution ID retains its first
 admission ceiling, and resuming from a broader host cannot widen it. A caller
 joins, polls, or resumes an existing execution ID only when its ceiling covers
-the recorded one; otherwise it dies with `ExecutionIdentityConflict` on field
+the recorded one; otherwise `Flow.execute` fails with typed `ExecutionIdentityConflict` on field
 `capabilities`. Existing
 durable runs without recorded authority refuse further dispatch: re-keying an
 old action could repeat a completed effect. Inspect existing effects before
@@ -408,3 +408,13 @@ types require every action named by the flow; runtime graph preflight rejects
 missing handlers before dispatch. Conflicting same-tag registrations fail during
 layer construction. Intentional scoped substitution uses
 `action.toLayer(handler, { override: true })`.
+
+### Execution identity conflicts
+
+`Flow.execute` fails with `FlowRuntime.ExecutionIdentityConflict` when an id
+conflicts with the recorded identity. The value is also exported as
+`FlowEngine.ExecutionIdentityConflict` and carries the existing execution
+`status`. A caller may choose a new id only for `completed`, `failed`, or
+`cancelled` executions. A live or suspended execution must retain its id to
+avoid starting a second worker. Older low-level refusals may report
+`unknown`; that status never authorizes re-keying.

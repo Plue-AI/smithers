@@ -739,7 +739,7 @@ describe("a durable lineage", () => {
               executionId: testCase.name
             }).pipe(Effect.exit, Effect.provide(wiring))
             const defect = Exit.isFailure(exit)
-              ? exit.cause.reasons.find(Cause.isDieReason)?.defect
+              ? exit.cause.reasons.find(Cause.isFailReason)?.error
               : undefined
             return { testCase, defect }
           }))

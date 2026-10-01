@@ -7,11 +7,13 @@
 
 import { Sha256 } from "@smthrs/crypto"
 import * as Node from "@smthrs/plan/Node"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { ExecutionIdentityConflict } from "../FlowRuntime/ExecutionIdentityConflict.ts"
 import { FlowRuntime } from "../FlowRuntime/FlowRuntime.ts"
 import * as DeclarationSite from "../internal/DeclarationSite.ts"
 import type * as RetryPolicy from "../RetryPolicy.ts"
@@ -141,7 +143,12 @@ const Proto = {
                   payload,
                   discard: opts?.discard,
                   suspendedRetryPolicy: this.suspendedRetryPolicy
-                })
+                }).pipe(Effect.catchCause((cause) => {
+                  const reason = cause.reasons.length === 1 ? cause.reasons.find(Cause.isDieReason) : undefined
+                  return reason?.defect instanceof ExecutionIdentityConflict
+                    ? Effect.fail(reason.defect)
+                    : Effect.failCause(cause)
+                }))
               ))
         )
       )

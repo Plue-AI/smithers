@@ -6,6 +6,7 @@
 
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
+import { ExecutionIdentityConflict } from "@smthrs/flow/FlowRuntime"
 import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
@@ -23,25 +24,7 @@ import { makeUnsafe } from "./make.ts"
 import type * as Round from "./Round.ts"
 import { FlowNotRegistered } from "./Trampoline.ts"
 
-/**
- * A caller reused an execution id for different persisted run identity.
- *
- * @category errors
- * @since 1.0.0
- */
-export class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdentityConflict>()(
-  "@smthrs/engine/ExecutionIdentityConflict",
-  {
-    code: Schema.Literal("execution_identity_conflict").pipe(
-      Schema.withConstructorDefault(Effect.succeed("execution_identity_conflict"))
-    ),
-    executionId: Schema.String,
-    field: Schema.Literals(["flow", "payload", "capabilities", "lineage", "round", "parent"]),
-    expected: Schema.String,
-    actual: Schema.String,
-    message: Schema.String
-  }
-) {}
+export { ExecutionIdentityConflict } from "@smthrs/flow/FlowRuntime"
 
 /**
  * The refusal of a join whose caller's capability ceiling does not cover the
@@ -50,9 +33,13 @@ export class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdent
  * @category errors
  * @since 1.0.0
  */
-export const capabilityConflict = (executionId: string): ExecutionIdentityConflict =>
+export const capabilityConflict = (
+  executionId: string,
+  status: ExecutionIdentityConflict["status"] = "unknown"
+): ExecutionIdentityConflict =>
   new ExecutionIdentityConflict({
     executionId,
+    status,
     field: "capabilities",
     expected: "a capability ceiling covering the one the execution was admitted with",
     actual: "a capability ceiling that does not cover it",
@@ -116,6 +103,20 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
       bodyFiber: Fiber.Fiber<unknown, unknown> | undefined
     }
     const executions = new Map<string, ExecutionState>()
+    const executionStatus = (state: ExecutionState): ExecutionIdentityConflict["status"] => {
+      const exit = state.fiber?.pollUnsafe()
+      if (exit === undefined) return "running"
+      if (Exit.isFailure(exit)) return Cause.hasInterruptsOnly(exit.cause) ? "cancelled" : "failed"
+      const result = exit.value
+      if (result._tag === "Suspended") return "suspended"
+      if (result._tag === "Handoff") return "completed"
+      return Exit.isSuccess(result.exit)
+        ? "completed"
+        : Cause.hasInterruptsOnly(result.exit.cause)
+        ? "cancelled"
+        : "failed"
+    }
+
     /**
      * Refuses a poll or resume of an execution of `flow` whose caller's
      * authority does not cover the authority `state` was admitted with.
@@ -348,6 +349,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           Effect.die(
             new ExecutionIdentityConflict({
               executionId,
+              status: executionStatus(executions.get(executionId)!),
               field: "flow",
               expected: "schemas compatible with the recorded settlement",
               actual: flow._tag,
@@ -522,6 +524,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
               return yield* Effect.die(
                 new ExecutionIdentityConflict({
                   executionId: options.executionId,
+                  status: executionStatus(state),
                   field: "flow",
                   expected: state.instance.flow._tag,
                   actual: flow._tag,
@@ -537,6 +540,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 return yield* Effect.die(
                   new ExecutionIdentityConflict({
                     executionId: options.executionId,
+                    status: executionStatus(state),
                     field: "payload",
                     expected: "the payload the execution was admitted with",
                     actual: "a different payload",
@@ -547,7 +551,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
               }
               // A join answers the result the run's admitted authority produced.
               if (!joinable(state.capabilityCeilings, requestedCeilings)) {
-                return yield* Effect.die(capabilityConflict(options.executionId))
+                return yield* Effect.die(capabilityConflict(options.executionId, executionStatus(state)))
               }
             }
             if (options.parent !== undefined) {
@@ -735,6 +739,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
             return Effect.die(
               new ExecutionIdentityConflict({
                 executionId: options.executionId,
+                status: executionStatus(execution),
                 field: "flow",
                 expected: execution.instance.flow._tag,
                 actual: options.flowName,

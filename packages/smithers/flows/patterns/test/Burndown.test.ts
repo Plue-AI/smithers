@@ -1,8 +1,9 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { describe, it } from "@effect/vitest"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, DurableDeferred, Flow, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Fault, Flow, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
 import * as Node from "@smthrs/plan/Node"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -274,34 +275,6 @@ describe("Burndown.round", () => {
     ])
   })
 
-  it("still releases every claim when a member dies, each once", async () => {
-    const { note, tape } = recorder()
-    const exit = await Effect.runPromiseExit(
-      Burndown.round({ input: undefined, round: 0, items: items("a", "b", "c") }, {
-        ...baseOptions(note),
-        work: ({ item }) =>
-          item.id === "a"
-            ? Effect.succeed("ok")
-            : item.id === "b"
-            ? Effect.andThen(Effect.sleep(10), Effect.die("agent crashed"))
-            : Effect.never,
-        release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`)
-      })
-    )
-
-    expect(Exit.isFailure(exit)).toBe(true)
-    // `a` settled before the defect and keeps its own release; the claims still
-    // open are released as failed.
-    expect(tape).toEqual([
-      "claim:a",
-      "claim:b",
-      "claim:c",
-      "release:a:landed:",
-      "release:b:failed:round died",
-      "release:c:failed:round died"
-    ])
-  })
-
   it("finishes a release already in flight when the round is interrupted", async () => {
     const { note, tape } = recorder()
     await Effect.runPromise(
@@ -323,10 +296,19 @@ describe("Burndown.round", () => {
 
   it("lands and releases an item as soon as its work finishes, while a slower item still works", async () => {
     const { note, tape } = recorder()
+    const fastReleased = await Effect.runPromise(Deferred.make<void>())
     const result = await runRound({ items: items("slow", "fast") }, {
       ...baseOptions(note),
-      work: timed(note, { slow: 40 }),
-      land: ({ item }) => note(`land:${item.id}`)
+      work: ({ item }) => Effect.gen(function*() {
+        if (item.id === "slow") yield* Deferred.await(fastReleased)
+        yield* note(`worked:${item.id}`)
+        return `fixed ${item.id}`
+      }),
+      land: ({ item }) => note(`land:${item.id}`),
+      release: ({ item, status }) => Effect.gen(function*() {
+        yield* note(`release:${item.id}:${status}`)
+        if (item.id === "fast") yield* Deferred.succeed(fastReleased, undefined)
+      })
     })
 
     // Rows keep discovery order; landings follow the order work finished.
@@ -1016,3 +998,274 @@ describe("Burndown.make", () => {
     expect(Node.isNode(Dispatch.call({ input: null, round: 0, items: [], settled: [] }))).toBe(true)
   })
 })
+
+
+describe("Burndown durable external work isolation", () => {
+  for (const member of ["select", "claim", "work", "land", "release", "detail"] as const) {
+    for (const synchronous of [false, true]) {
+      if (member === "detail" && !synchronous) continue
+      it(`isolates a ${synchronous ? "throw" : "defect"} in ${member} and releases only acquired claims once`, async () => {
+        const { note, tape } = recorder()
+        const broken = () => {
+          if (synchronous) throw new Error(`${member} exploded`)
+          return Effect.die(new Error(`${member} exploded`))
+        }
+        const result = await runRound({ items: items("bad", "sibling") }, {
+          ...baseOptions(note),
+          select: ({ item }) => item.id === "bad" && member === "select" ? broken() : Effect.succeed(Burndown.ours),
+          claim: ({ item }) => item.id === "bad" && member === "claim" ? broken() : note(`claim:${item.id}`),
+          work: ({ item }) => item.id === "bad" && member === "work" ? broken() : Effect.succeed(item.id),
+          land: ({ item }) => item.id === "bad" && member === "land" ? broken() : note(`land:${item.id}`),
+          release: ({ item, status }) => Effect.andThen(note(`release:${item.id}:${status}`),
+            Effect.suspend(() => item.id === "bad" && member === "release" ? broken() : Effect.void)),
+          detail: (output: string) => {
+            if (output === "bad" && member === "detail") throw new Error("detail exploded")
+            return output
+          }
+        })
+        expect(result.rows).toHaveLength(2)
+        expect(result.rows[0]).toMatchObject({ id: "bad", status: "failed" })
+        expect(result.rows[0]!.detail).toContain(`${member} exploded`)
+        expect(result.rows[0]!.detail).toContain("bug")
+        expect(result.rows[0]!.detail).toContain("unregistered")
+        expect(result.rows[1]).toMatchObject({ id: "sibling", status: "landed", detail: "sibling" })
+        expect(tape.filter((entry) => entry.startsWith("release:sibling:"))).toEqual(["release:sibling:landed"])
+        expect(tape.filter((entry) => entry.startsWith("release:bad:"))).toHaveLength(
+          member === "select" || member === "claim" ? 0 : 1
+        )
+      })
+    }
+  }
+
+  it("isolates an execution identity conflict with its registered fault detail", async () => {
+    const { note, tape } = recorder()
+    const conflict = new FlowEngine.ExecutionIdentityConflict({
+      executionId: "sweep/bad", field: "capabilities", expected: "wide", actual: "narrow",
+      message: "live execution differs"
+    })
+    const child = Burndown.child({
+      execute: ({ issue }: { readonly issue: string }) => issue === "bad" ? Effect.die(conflict) : Effect.succeed(issue)
+    }, ({ item }: Burndown.ItemArgs<unknown, Issue>) => ({ issue: item.id }))
+    const result = await runRound({ items: items("bad", "sibling") }, { ...baseOptions(note), work: child })
+    expect(result.rows[0]).toMatchObject({ status: "failed" })
+    expect(result.rows[0]!.detail).toContain(Fault.of(conflict).tag)
+    expect(result.rows[0]!.detail).toContain("bug")
+    expect(result.rows[1]).toMatchObject({ status: "landed" })
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toHaveLength(2)
+  })
+
+  it("propagates typed Stop and stops admitting further items", async () => {
+    const { note, tape } = recorder()
+    const stop = new Burndown.Stop({ message: "workspace unavailable" })
+    const exit = await Effect.runPromiseExit(Burndown.round({ input: null, round: 0, items: items("stop", "later") }, {
+      ...baseOptions(note),
+      concurrency: 1,
+      work: () => Effect.fail(stop)
+    }))
+    expect(exit).toEqual(Exit.fail(stop))
+    expect(tape).not.toContain("claim:later")
+    expect(tape.filter((entry) => entry.startsWith("release:stop:"))).toHaveLength(1)
+  })
+
+  it("requeues infra failures three times by default, then settles failed across rounds", async () => {
+    Fault.register("BurndownTestInfra", "infra")
+    const { note, tape } = recorder()
+    let rows: ReadonlyArray<Burndown.Row> = []
+    for (let round = 0; round < 4; round++) {
+      const result = await runRound({ items: items("outage", "healthy"), rows, round }, {
+        ...baseOptions(note),
+        work: ({ item }) => item.id === "outage"
+          ? Effect.fail({ _tag: "BurndownTestInfra", message: "DNS unavailable" })
+          : Effect.succeed("ok")
+      })
+      const outage = result.rows.find((row) => row.id === "outage")!
+      expect(outage).toMatchObject({ status: round < 3 ? "requeued" : "failed", requeues: Math.min(round + 1, 3) })
+      expect(outage.detail).toContain("DNS unavailable")
+      rows = result.rows
+    }
+    expect(tape.filter((entry) => entry.startsWith("release:outage:"))).toEqual([
+      "release:outage:requeued", "release:outage:requeued", "release:outage:requeued", "release:outage:failed"
+    ])
+  })
+
+  for (const maxRequeues of [0, 1, 5]) {
+    it(`honors maxRequeues=${maxRequeues} at the persisted boundary`, async () => {
+      Fault.register("BurndownTestInfra", "infra")
+      const { note } = recorder()
+      for (const spent of [Math.max(0, maxRequeues - 1), maxRequeues]) {
+        const result = await runRound({
+          items: items("outage"), rows: [{ id: "outage", status: "requeued", detail: "previous", requeues: spent }]
+        }, {
+          ...baseOptions(note), maxRequeues,
+          claim: () => Effect.fail({ _tag: "BurndownTestInfra", message: "claims unreachable" })
+        })
+        expect(result.rows[0]).toMatchObject({
+          status: spent < maxRequeues ? "requeued" : "failed",
+          requeues: spent < maxRequeues ? spent + 1 : spent
+        })
+      }
+    })
+  }
+})
+
+
+describe("Burndown retry and Stop boundaries", () => {
+  const infra = { _tag: "BurndownTestInfra", message: "network unavailable" }
+  Fault.register("BurndownTestInfra", "infra")
+  for (const stage of ["select", "land", "release"] as const) {
+    it(`counts ${stage} infra once and keeps siblings`, async () => {
+      const { note } = recorder()
+      const result = await runRound({ items: items("bad", "good") }, {
+        ...baseOptions(note),
+        select: ({ item }) => item.id === "bad" && stage === "select" ? Effect.fail(infra) : Effect.succeed(Burndown.ours),
+        land: ({ item }) => item.id === "bad" && stage === "land" ? Effect.fail(infra) : Effect.void,
+        release: ({ item }) => item.id === "bad" && stage === "release" ? Effect.fail(infra) : Effect.void
+      })
+      expect(result.rows[0]).toMatchObject({ status: "requeued", requeues: 1 })
+      expect(result.rows[1]).toMatchObject({ status: "landed" })
+    })
+  }
+  it("counts one requeue per row when work and release both fail infra", async () => {
+    const { note } = recorder()
+    const result = await runRound({ items: items("a"), rows: [{ id: "a", status: "requeued", detail: "old", requeues: 2 }] }, {
+      ...baseOptions(note), work: () => Effect.fail(infra), release: () => Effect.fail(infra)
+    })
+    expect(result.rows[0]).toMatchObject({ status: "requeued", requeues: 3 })
+    expect(result.rows[0]!.detail).toContain("work: network unavailable; release: network unavailable")
+  })
+  for (const stage of ["work", "select"] as const) {
+    it(`carries ${stage} counts through the real lineage until cap exhaustion`, async () => {
+      const RetryDispatch = Burndown.dispatch(`burndown-test/retry-${stage}`)
+      const attempts: Array<number> = []
+      const { note } = recorder()
+      const layers = [Discover.toLayer(() => Effect.succeed(items("a"))), Burndown.layer(RetryDispatch, {
+        ...baseOptions(note),
+        select: ({ round }) => {
+          if (stage === "select") { attempts.push(round); return Effect.fail(infra) }
+          return Effect.succeed(Burndown.ours)
+        },
+        work: ({ round }) => { attempts.push(round); return Effect.fail(infra) }
+      })]
+      const result = await settle(Burndown.make({ discover: Discover, dispatch: RetryDispatch, maxRounds: 10 }), { input: null }, layers)
+      expect(attempts).toEqual([0, 1, 2, 3])
+      expect(result.rows[0]).toMatchObject({ status: "failed", requeues: 3 })
+      expect(result.stopped).toBe("drained")
+    })
+  }
+  for (const stage of ["select", "claim", "land", "release", "capacity"] as const) {
+    it(`propagates typed Stop from ${stage}`, async () => {
+      const { note, tape } = recorder()
+      const stop = new Burndown.Stop({ message: `${stage} stopped` })
+      const exit = await Effect.runPromiseExit(Burndown.round({ input: null, round: 0, items: items("a", "b"), slots: 1 }, {
+        ...baseOptions(note), concurrency: 1,
+        select: () => stage === "select" ? Effect.fail(stop) : Effect.succeed(Burndown.ours),
+        claim: ({ item }) => stage === "claim" ? Effect.fail(stop) : note(`claim:${item.id}`),
+        land: () => stage === "land" ? Effect.fail(stop) : Effect.void,
+        release: ({ item }) => Effect.andThen(note(`release:${item.id}`), stage === "release" ? Effect.fail(stop) : Effect.void),
+        capacity: () => stage === "capacity" ? Effect.fail(stop) : Effect.succeed(Burndown.exhausted("no capacity"))
+      }))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(exit.cause.reasons.some((reason) => reason._tag === "Fail" && reason.error === stop)).toBe(true)
+      expect(tape).not.toContain("claim:b")
+    })
+  }
+  it("isolates Stop on the defect channel", async () => {
+    const { note } = recorder()
+    const result = await runRound({ items: items("bad", "good") }, {
+      ...baseOptions(note), work: ({ item }) => item.id === "bad" ? Effect.die(new Burndown.Stop({ message: "thrown Stop" })) : Effect.succeed("ok")
+    })
+    expect(result.rows[0]).toMatchObject({ status: "failed" })
+    expect(result.rows[0]!.detail).toContain("bug")
+    expect(result.rows[1]).toMatchObject({ status: "landed" })
+  })
+  it("refuses invalid caps and carried evidence before members run", async () => {
+    for (const maxRequeues of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1, "3"]) {
+      expect(await refusedRound({}, { maxRequeues })).toMatchObject({ code: "invalid_decorator" })
+    }
+    for (const rows of ["bad", null, [{}], [{ id: "a", status: "invalid", detail: "" }],
+      ...[-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, "1"].map((requeues) => [{ id: "a", status: "requeued", detail: "", requeues }])]) {
+      expect(await refusedRound({ rows })).toMatchObject({ code: "invalid_input" })
+    }
+  })
+})
+
+
+it("isolates detail throws without a landing member and keeps carried retry counts on success", async () => {
+  const { note, tape } = recorder()
+  const result = await runRound({ items: items("bad", "good"), rows: [{ id: "good", status: "requeued", detail: "outage", requeues: 2 }] }, {
+    ...baseOptions(note), work: ({ item }) => Effect.succeed(item.id),
+    detail: (value: string) => { if (value === "bad") throw new Error("render failed"); return value }
+  })
+  expect(result.rows[0]).toMatchObject({ status: "failed" })
+  expect(result.rows[0]!.detail).toContain("detail: render failed")
+  expect(result.rows[1]).toMatchObject({ status: "landed", detail: "good", requeues: 2 })
+  expect(tape.filter((entry) => entry.startsWith("release:"))).toHaveLength(2)
+})
+
+it("propagates Stop from the cancellation lookup while releasing acquired claims", async () => {
+  const { note, tape } = recorder()
+  const stop = new Burndown.Stop({ message: "cancel lookup stopped" })
+  const exit = await Effect.runPromiseExit(Burndown.round({ input: null, round: 0, items: items("a") }, {
+    ...baseOptions(note), work: () => Effect.interrupt, cancelled: () => Effect.fail(stop)
+  }))
+  expect(exit).toEqual(Exit.fail(stop))
+  expect(tape).toContain("release:a:failed")
+})
+
+
+it("isolates failures with throwing message, string conversion, and tag access", async () => {
+  const unreadable = Object.defineProperty({}, "message", { get: () => { throw new Error("message getter") } })
+  const unprintable = { toString: () => { throw new Error("string conversion") } }
+  const proxy = new Proxy({}, { get: () => { throw new Error("proxy get") }, getOwnPropertyDescriptor: () => { throw new Error("proxy descriptor") } })
+  for (const failure of [unreadable, unprintable, proxy]) {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("bad", "good") }, {
+      ...baseOptions(note), work: ({ item }) => item.id === "bad" ? Effect.fail(failure) : Effect.succeed("ok")
+    })
+    expect(result.rows[0]).toMatchObject({ status: "failed", detail: "work: unrenderable failure" })
+    expect(result.rows[1]).toMatchObject({ status: "landed" })
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toHaveLength(2)
+  }
+})
+
+
+it("records an undefined typed work failure and isolates cancellation lookup defects", async () => {
+  const { note } = recorder()
+  const result = await runRound({ items: items("undefined", "cancel", "good") }, {
+    ...baseOptions(note),
+    work: ({ item }) => item.id === "undefined" ? Effect.fail(undefined) : item.id === "cancel" ? Effect.interrupt : Effect.succeed("ok"),
+    cancelled: () => Effect.die(new Error("lookup defect"))
+  })
+  expect(result.rows.map((row) => row.status)).toEqual(["failed", "failed", "landed"])
+  expect(result.rows[1]!.detail).toContain("lookup defect")
+})
+
+for (const stopped of ["cancelled", "release"] as const) {
+  it(`finishes every open claim when ${stopped} reports Stop during interruption cleanup`, async () => {
+    const { note, tape } = recorder()
+    const ready = await Effect.runPromise(Deferred.make<void>())
+    const stop = new Burndown.Stop({ message: "cleanup stopped" })
+    let started = 0
+    const exit = await Effect.runPromise(Effect.gen(function*() {
+      const fiber = yield* Effect.forkChild(Burndown.round({ input: null, round: 0, items: items("a", "b") }, {
+        ...baseOptions(note),
+        work: () => Effect.gen(function*() {
+          started++
+          if (started === 2) yield* Deferred.succeed(ready, undefined)
+          return yield* Effect.never
+        }),
+        cancelled: () => stopped === "cancelled" ? Effect.fail(stop) : Effect.succeed(false),
+        release: ({ item, status }) => Effect.andThen(note(`cleanup:${item.id}:${status}`),
+          item.id === "a" && stopped === "release" ? Effect.fail(stop) : Effect.void)
+      }))
+      yield* Deferred.await(ready)
+      yield* Fiber.interrupt(fiber)
+      return yield* Fiber.await(fiber)
+    }))
+    expect(Exit.hasInterrupts(exit)).toBe(true)
+    expect(tape.filter((entry) => entry.startsWith("cleanup:")).sort()).toEqual([
+      `cleanup:a:${stopped === "cancelled" ? "failed" : "requeued"}`,
+      `cleanup:b:${stopped === "cancelled" ? "failed" : "requeued"}`
+    ])
+  })
+}

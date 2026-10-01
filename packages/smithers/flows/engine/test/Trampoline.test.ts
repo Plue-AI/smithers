@@ -497,7 +497,18 @@ describe("a lineage on the memory engine", () => {
         success: Schema.Number,
         body: ({ value }) => Stranger.to({ value })
       })
-      const { layer } = wire(Interpreter.layer(Orphan))
+      // A persisted handoff can name a declaration this host never registered.
+      // Interpreter.layer would register the statically referenced Stranger.
+      const registration = Layer.effectDiscard(Effect.gen(function*() {
+        const engine = yield* FlowRuntime.FlowRuntime
+        yield* engine.register(Orphan, ({ value }) =>
+          Effect.gen(function*() {
+            const instance = yield* FlowRuntime.FlowInstance
+            instance.handoff = new Flow.Handoff({ flow: Stranger._tag, payload: { value } })
+            return value
+          }))
+      }))
+      const { layer } = wire(registration)
 
       const exit = yield* withCrypto(
         Orphan.execute({ value: 1 }, { executionId: "memory-orphan" }).pipe(
@@ -579,7 +590,17 @@ describe("a lineage on the memory engine", () => {
         success: Schema.Number,
         body: ({ value }) => EvolvedV1.to({ value })
       })
-      const { calls, layer } = wire(Interpreter.layer(Sender), Interpreter.layer(EvolvedV2))
+      // Emit journaled V1 bytes without automatically registering its declaration.
+      const registration = Layer.effectDiscard(Effect.gen(function*() {
+        const engine = yield* FlowRuntime.FlowRuntime
+        yield* engine.register(Sender, ({ value }) =>
+          Effect.gen(function*() {
+            const instance = yield* FlowRuntime.FlowInstance
+            instance.handoff = new Flow.Handoff({ flow: EvolvedV1._tag, payload: { value } })
+            return value
+          }))
+      }))
+      const { calls, layer } = wire(registration, Interpreter.layer(EvolvedV2))
 
       const exit = yield* withCrypto(
         Sender.execute({ value: 1 }, { executionId: "memory-evolved-handoff" }).pipe(

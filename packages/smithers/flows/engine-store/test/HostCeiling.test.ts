@@ -40,6 +40,9 @@ const jj = Jj.make({
 const conflictOf = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
 
+const executeConflictOf = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
+
 const sees = Effect.map(
   CapabilitySet.current,
   (set) => CapabilitySet.allows(set, secret) ? "secret contents" : "denied"
@@ -152,8 +155,8 @@ describe("durable admission under the engine's host ceiling", () => {
         // replacement engine's host is narrower.
         const narrow = yield* start(readSource)
         const joined = yield* Effect.exit(run(narrow, "admitted-broad"))
-        expect(conflictOf(joined)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
-        expect(conflictOf(joined)).toMatchObject({ executionId: "admitted-broad", field: "capabilities" })
+        expect(executeConflictOf(joined)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+        expect(executeConflictOf(joined)).toMatchObject({ executionId: "admitted-broad", field: "capabilities" })
         const polled = yield* Effect.exit(narrow.poll(Reader, "admitted-broad"))
         expect(conflictOf(polled)).toMatchObject({ executionId: "admitted-broad", field: "capabilities" })
         const resumed = yield* Effect.exit(narrow.resume(Gated, "parked-broad"))
@@ -196,7 +199,7 @@ describe("durable admission under the engine's host ceiling", () => {
         expect(yield* recorded("legacy")).toBeUndefined()
 
         const narrow = yield* start(readSource)
-        expect(conflictOf(yield* Effect.exit(run(narrow, "legacy")))).toMatchObject({ field: "capabilities" })
+        expect(executeConflictOf(yield* Effect.exit(run(narrow, "legacy")))).toMatchObject({ field: "capabilities" })
         expect(conflictOf(yield* Effect.exit(narrow.poll(Reader, "legacy")))).toMatchObject({ field: "capabilities" })
         expect(conflictOf(yield* Effect.exit(narrow.resume(Reader, "legacy")))).toMatchObject({
           field: "capabilities"

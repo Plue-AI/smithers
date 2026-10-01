@@ -66,7 +66,7 @@ client connection.
 
 **Cause.** `RpcServer.layer` defaults to client-wide fatal defects. A reused
 execution id with a different payload can still raise
-`ExecutionIdentityConflict` as a defect.
+`ExecutionIdentityConflict` as a typed `Flow.execute` failure.
 
 **Fix.** Mount flow proxies with
 `RpcServer.layer(MyRpcs, { disableFatalDefects: true })` to scope handler defects

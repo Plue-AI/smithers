@@ -207,10 +207,13 @@ describe("a placed .child()", () => {
         const exit = yield* Effect.exit(
           Release.execute({ version: "5.1" }, { executionId: "release-5" }).pipe(onA(a))
         )
-        // The remote engine refuses it; the served boundary reports a redacted defect.
-        expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
-          name: "@smthrs/engine/FlowHandlerDefect"
-        })
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(false)
+          const conflict = exit.cause.reasons.find(Cause.isFailReason)?.error
+          expect(conflict).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+          expect(conflict).toMatchObject({ executionId: "release-5", field: "payload", status: "completed" })
+        }
         expect(steps).toEqual(["5.0"])
       }).pipe(Effect.scoped)
     ))

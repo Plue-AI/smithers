@@ -92,6 +92,32 @@ describe("FlowProxy", () => {
       expect(error).toBe("invalid")
     }))
 
+  it("round-trips typed identity conflicts through execute and discard RPC and HTTP errors", () => {
+    const rpc = FlowProxy.toRpcGroup([flow])
+    const http = FlowProxy.toHttpApiGroup("flows", [flow])
+    const conflict = new FlowEngine.ExecutionIdentityConflict({
+      executionId: "existing",
+      field: "capabilities",
+      status: "running",
+      expected: "wide",
+      actual: "narrow",
+      message: "cannot join"
+    })
+    for (const operation of [flow._tag, `${flow._tag}Discard`] as const) {
+      const schemas = [
+        rpc.requests.get(operation)!.errorSchema,
+        Schema.Union([...http.endpoints[operation]!.error])
+      ]
+      for (const schema of schemas) {
+        const codec = Schema.toCodecJson(schema as Schema.Codec<unknown>)
+        const encoded = Schema.encodeSync(codec)(conflict)
+        const decoded = Schema.decodeSync(codec)(encoded)
+        expect(decoded).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+        expect(decoded).toMatchObject({ executionId: "existing", field: "capabilities", status: "running" })
+      }
+    }
+  })
+
   effect("polling fallback wakes a suspended flow under TestClock", () => {
     const signal = DurableDeferred.make("FlowProxy/poll-signal", { success: Schema.Number })
     const suspendedActionDeclaration = Action.make("FlowProxy/suspended/action", {

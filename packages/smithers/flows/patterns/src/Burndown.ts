@@ -21,6 +21,7 @@
  */
 
 import * as Action from "@smthrs/flow/Action"
+import * as Fault from "@smthrs/flow/Fault"
 import * as Flow from "@smthrs/flow/Flow"
 import * as Sleep from "@smthrs/flow/Sleep"
 import * as WaitFor from "@smthrs/flow/WaitFor"
@@ -80,7 +81,12 @@ export type Status = typeof Status.Type
  * @category models
  * @since 1.0.0
  */
-export const Row = Schema.Struct({ id: Schema.String, status: Status, detail: Schema.String })
+export const Row = Schema.Struct({
+  id: Schema.String,
+  status: Status,
+  detail: Schema.String,
+  requeues: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+})
 
 /**
  * One outcome row.
@@ -263,6 +269,19 @@ export class Held extends Schema.TaggedError<Held>()("flows/patterns/Burndown/He
 }) {}
 
 /**
+ * The typed failure that stops a round and releases its open claims.
+ * Defects, including a defect containing Stop, settle only their own item.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class Stop extends Schema.TaggedError<Stop>()("flows/patterns/Burndown/Stop", {
+  message: Schema.String
+}) {}
+
+const DispatchError = Schema.Union([PatternError, Stop])
+
+/**
  * The payload a dispatch member receives, once per round.
  *
  * @category models
@@ -273,6 +292,7 @@ export const DispatchPayload = Schema.Struct({
   round: Schema.Number,
   items: Schema.Unknown,
   settled: Schema.Array(Schema.String),
+  rows: Schema.optional(Schema.Array(Row)),
   slots: Schema.optional(Schema.Number)
 })
 
@@ -286,7 +306,7 @@ export type Dispatch<Tag extends string> = Action.Declared<
   Tag,
   typeof DispatchPayload,
   typeof RoundResult,
-  typeof PatternError
+  typeof DispatchError
 >
 
 /**
@@ -304,7 +324,7 @@ export const dispatch = <const Tag extends string>(tag: Tag): Dispatch<Tag> =>
   Action.make(tag, {
     payload: DispatchPayload,
     success: RoundResult,
-    error: PatternError,
+    error: DispatchError,
     nondeterministic: true
   })
 
@@ -460,7 +480,7 @@ export const make = (options: MakeOptions): BurndownFlow => {
     const fold = (value: unknown): Folded => {
       const result = decodeRound(value)
       const merged = merge(rows, result.rows)
-      const launched = result.launched > 0
+      const launched = result.launched > 0 || result.rows.some((row) => row.status === "requeued")
       return {
         continue: launched && round + 1 < maxRounds,
         rows: merged,
@@ -475,6 +495,7 @@ export const make = (options: MakeOptions): BurndownFlow => {
             round,
             items,
             settled,
+            rows,
             ...(slots === undefined ? {} : { slots })
           })
         ),
@@ -539,6 +560,7 @@ export interface RoundInput<I, It extends Item> {
   readonly round: number
   readonly items: ReadonlyArray<It>
   readonly settled?: ReadonlyArray<string> | undefined
+  readonly rows?: ReadonlyArray<Row> | undefined
   readonly slots?: number | undefined
 }
 
@@ -592,6 +614,8 @@ export interface ItemArgs<I, It extends Item> {
 export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
   readonly key: string
   readonly concurrency: number
+  /** Maximum infra requeues per item, counted in carried rows; defaults to 3. */
+  readonly maxRequeues?: number | undefined
   readonly select?: ((args: ItemArgs<I, It>) => Effect.Effect<Selection, E, R>) | undefined
   readonly claim: (args: ItemArgs<I, It>) => Effect.Effect<unknown, E | Held, R>
   readonly work: (args: ItemArgs<I, It> & { readonly executionId: string }) => Effect.Effect<W, E, R>
@@ -613,14 +637,24 @@ export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
  * The human-readable text of a typed failure: its own `message` when it has
  * one, otherwise its string form.
  */
-const detailOf = (error: unknown): string =>
-  typeof error === "object" && error !== null && typeof (error as { readonly message?: unknown }).message === "string"
-    ? (error as { readonly message: string }).message
-    : String(error)
+const detailOf = (error: unknown): string => {
+  try {
+    return typeof error === "object" && error !== null && typeof (error as { readonly message?: unknown }).message === "string"
+      ? (error as { readonly message: string }).message
+      : String(error)
+  } catch {
+    return "unrenderable failure"
+  }
+}
 
-const ownTag = (value: unknown, tag: string): boolean =>
-  typeof value === "object" && value !== null && Object.hasOwn(value, "_tag") &&
-  (value as { readonly _tag: unknown })._tag === tag
+const ownTag = (value: unknown, tag: string): boolean => {
+  try {
+    return typeof value === "object" && value !== null && Object.hasOwn(value, "_tag") &&
+      (value as { readonly _tag: unknown })._tag === tag
+  } catch {
+    return false
+  }
+}
 
 const selectionOf = (value: unknown): Selection => {
   if (ownTag(value, "Ours")) return ours
@@ -695,13 +729,14 @@ type Attempt<W> =
  *
  * Each launched item is claimed, then worked, at most `concurrency` and at
  * most `slots` at a time. A claim that fails with {@link Held} settles the
- * item `held`; any other claim, work, or landing failure settles it `failed`
- * with the failure's message. A failure is recorded on its own row and never
+ * item `held`; typed infra failures requeue up to `maxRequeues` (default 3),
+ * counted in the carried rows. Other failures settle only that item `failed`. A failure is recorded on its own row and never
  * cancels the items beside it. A worked item enters the landing queue at
  * once: landings start in the order work finished, at most
  * {@link RoundOptions.landConcurrency} at a time, while other items still work. Every item whose claim succeeded is released as soon as
  * it settles, with its final status and detail; a release failure is appended
- * to the row's detail and does not change its status. Rows keep discovery
+ * to the row's detail. A release defect fails the item; a typed infra release
+ * failure requeues within the same bound. Rows keep discovery
  * order.
  *
  * Members report failures on the typed channel. Work interrupted from inside
@@ -710,9 +745,9 @@ type Attempt<W> =
  * interruption, such as a child execution released because its host's lease
  * lapsed, gets a `requeued` row, which settles nothing: its claim is released
  * with status `requeued` and a later round works the item again. A member that
- * throws raises a defect, which fails the round; a release already running
- * finishes, and every claim not yet released is released with status `failed`
- * and the detail `round died`. When the round itself is interrupted, each open
+ * throws fails only its item, with `Fault.of(defect)` in the detail. Typed
+ * {@link Stop} is the only member failure that stops the round; a release
+ * already running finishes and every open claim is released as `failed`. When the round itself is interrupted, each open
  * claim is released the same way if `cancelled` reports a recorded cancel for
  * it, and otherwise with status `requeued` and the detail `round interrupted`,
  * so a resumed run claims it again.
@@ -729,7 +764,7 @@ type Attempt<W> =
 export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   input: RoundInput<I, It>,
   options: RoundOptions<I, It, W, E, R, L>
-): Effect.Effect<RoundResult, PatternError, R> => {
+): Effect.Effect<RoundResult, PatternError | Stop, R> => {
   const key = options.key
   const concurrency = options.concurrency
   const select = options.select
@@ -741,6 +776,18 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   const detail = options.detail
   const capacity = options.capacity
   const cancelled = options.cancelled
+  const maxRequeues = options.maxRequeues ?? 3
+  if (!Number.isSafeInteger(maxRequeues) || maxRequeues < 0) {
+    return Effect.fail(
+      new PatternError({
+        code: "invalid_decorator",
+        message: "Burndown maxRequeues must be a non-negative safe integer"
+      })
+    )
+  }
+  if (input.rows !== undefined && !Schema.is(Schema.Array(Row))(input.rows)) {
+    return Effect.fail(refusal("Burndown rows must be valid outcome rows"))
+  }
   const invalid = roundRefusal(input, key, concurrency, options.landConcurrency)
   if (invalid !== undefined) return Effect.fail(invalid)
   const value = input.input
@@ -749,23 +796,64 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   const settled = new Set(input.settled ?? [])
   const cards: ReadonlyArray<Card<It>> = input.items.map((item) => ({ id: item.id, item }))
   const args = (card: Card<It>): ItemArgs<I, It> => ({ input: value, item: card.item, round: index })
+  const counts = new Map(
+    (input.rows ?? []).flatMap((row) => row.requeues === undefined ? [] : [[row.id, row.requeues] as const])
+  )
+  const priorCounts = new Map(counts)
+  type Settled = Extract<Attempt<W>, { readonly _tag: "Settled" }>
+  type Observed<A> = { readonly _tag: "Value"; readonly value: A } | Settled
+  const failure = (card: Card<It>, stage: string, cause: Cause.Cause<unknown>): Effect.Effect<Settled, Stop> => {
+    const defect = cause.reasons.find(Cause.isDieReason)
+    const error = cause.reasons.find(Cause.isFailReason)?.error
+    if (defect === undefined && ownTag(error, "flows/patterns/Burndown/Stop")) return Effect.fail(error as Stop)
+    const value = defect === undefined ? error ?? Cause.squash(cause) : defect.defect
+    const fault = Fault.of(value)
+    const spent = priorCounts.get(card.id) ?? 0
+    const infra = defect === undefined && fault.class === "infra"
+    if (infra) counts.set(card.id, spent < maxRequeues ? spent + 1 : spent)
+    return Effect.succeed({
+      _tag: "Settled",
+      status: infra && spent < maxRequeues ? "requeued" : "failed",
+      detail: `${stage}: ${detailOf(value)}${defect === undefined ? "" : `; ${JSON.stringify(fault)}`}`
+    })
+  }
+  const observe = <A>(
+    card: Card<It>,
+    stage: string,
+    run: () => Effect.Effect<A, unknown, R>
+  ): Effect.Effect<Observed<A>, Stop, R> =>
+    Effect.suspend(run).pipe(Effect.matchCauseEffect({
+      onSuccess: (value) => Effect.succeed<Observed<A>>({ _tag: "Value", value }),
+      onFailure: (cause) => failure(card, stage, cause)
+    }))
+  const outcomeRow = (card: Card<It>, status: Status, detail: string): Row => ({
+    id: card.id,
+    status,
+    detail,
+    ...(counts.has(card.id) ? { requeues: counts.get(card.id)! } : {})
+  })
   return Effect.gen(function*() {
+    const rows = new Map<string, Row>()
     const fresh = cards.filter((card) => !settled.has(card.id))
     const selections = yield* Effect.forEach(
       fresh,
       (card) =>
-        (select === undefined ? Effect.succeed(ours) : select(args(card))).pipe(
-          Effect.map(selectionOf),
-          Effect.catch((error: E) => Effect.succeed(skip(`select failed: ${detailOf(error)}`))),
-          Effect.map((selection) => ({ card, selection }))
-        ),
+        observe(card, "select", () =>
+          (select === undefined ? Effect.succeed(ours) : select(args(card))).pipe(
+            Effect.map(selectionOf),
+            Effect.catch((error: E) =>
+              ownTag(error, "flows/patterns/Burndown/Stop") || Fault.of(error).class === "infra"
+                ? Effect.fail(error)
+                : Effect.succeed(skip(`select failed: ${detailOf(error)}`))
+            )
+          )).pipe(Effect.map((selection) => ({ card, selection }))),
       { concurrency }
     )
-    const rows = new Map<string, Row>()
     const mine: Array<Card<It>> = []
     for (const { card, selection } of selections) {
-      if (selection._tag === "Ours") mine.push(card)
-      else rows.set(card.id, { id: card.id, status: "skipped", detail: selection.detail })
+      if (selection._tag === "Settled") rows.set(card.id, outcomeRow(card, selection.status, selection.detail))
+      else if (selection.value._tag === "Ours") mine.push(card)
+      else rows.set(card.id, outcomeRow(card, "skipped", selection.value.detail))
     }
     // The first `budget` items launch on the capacity the lineage already
     // asked for; every later admission asks the round's own capacity member.
@@ -777,57 +865,64 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
     const executionId = (card: Card<It>) => `${key}/${card.id}`
     // Only a recorded operator cancel makes an interruption final; an
     // unanswerable question counts as no cancel, so the item is worked again.
-    const wasCancelled = (card: Card<It>): Effect.Effect<boolean, never, R> =>
+    const wasCancelled = (card: Card<It>): Effect.Effect<boolean, Stop, R> =>
       cancelled === undefined
         ? Effect.succeed(false)
         : Effect.suspend(() => cancelled({ ...args(card), executionId: executionId(card) })).pipe(
-          Effect.match({ onFailure: () => false, onSuccess: (answer) => answer === true })
+          Effect.matchCauseEffect({
+            onFailure: (cause) => {
+              const error = cause.reasons.find(Cause.isFailReason)?.error
+              if (Cause.hasDies(cause)) return Effect.die(cause.reasons.find(Cause.isDieReason)!.defect)
+              return ownTag(error, "flows/patterns/Burndown/Stop") ? Effect.fail(error as Stop) : Effect.succeed(false)
+            },
+            onSuccess: (answer) => Effect.succeed(answer === true)
+          })
         )
-    const attempt = (card: Card<It>): Effect.Effect<Attempt<W>, never, R> =>
-      claim(args(card)).pipe(
-        Effect.matchEffect({
-          onFailure: (error: E | Held) =>
-            Effect.succeed<Attempt<W>>(
-              ownTag(error, "flows/patterns/Burndown/Held")
-                ? { _tag: "Settled", status: "held", detail: detailOf(error) }
-                : { _tag: "Settled", status: "failed", detail: `claim: ${detailOf(error)}` }
-            ),
-          onSuccess: () => {
-            claimed.add(card)
-            return work({ ...args(card), executionId: executionId(card) }).pipe(
-              Effect.match({
-                onSuccess: (output): Attempt<W> => ({ _tag: "Worked", output }),
-                onFailure: (error: E): Attempt<W> => ({
-                  _tag: "Settled",
-                  status: "failed",
-                  detail: `work: ${detailOf(error)}`
-                })
-              }),
-              // Work interrupted from inside fails its own item only when an
-              // operator cancel was recorded; a released execution is requeued.
-              // The round's own interruption never reaches this handler.
-              Effect.catchCause((cause) =>
-                Cause.hasInterruptsOnly(cause)
-                  ? Effect.map(wasCancelled(card), (cancel): Attempt<W> => ({
-                    _tag: "Settled",
-                    status: cancel ? "failed" : "requeued",
-                    detail: "work: interrupted"
-                  }))
-                  : Effect.failCause(cause)
-              )
-            )
+    const attempt = (card: Card<It>): Effect.Effect<Attempt<W>, Stop, R> =>
+      Effect.gen(function*() {
+        const held = yield* Effect.suspend(() => claim(args(card))).pipe(Effect.matchCauseEffect({
+          onSuccess: () => Effect.succeed<Observed<void>>({ _tag: "Value", value: undefined }),
+          onFailure: (cause) => {
+            const error = cause.reasons.find(Cause.isFailReason)?.error
+            return !Cause.hasDies(cause) && ownTag(error, "flows/patterns/Burndown/Held")
+              ? Effect.succeed<Settled>({ _tag: "Settled", status: "held", detail: detailOf(error) })
+              : failure(card, "claim", cause)
           }
-        })
-      )
+        }))
+        if (held._tag === "Settled") return held
+        claimed.add(card)
+        return yield* Effect.suspend(() => work({ ...args(card), executionId: executionId(card) })).pipe(
+          Effect.matchCauseEffect({
+            onSuccess: (output) => Effect.succeed<Attempt<W>>({ _tag: "Worked", output }),
+            onFailure: (cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.map(observe(card, "cancelled", () => wasCancelled(card)), (cancel): Attempt<W> =>
+                  cancel._tag === "Settled" ? cancel : {
+                    _tag: "Settled",
+                    status: cancel.value ? "failed" : "requeued",
+                    detail: "work: interrupted"
+                  })
+                : failure(card, "work", cause)
+          })
+        )
+      })
     // A claim leaves `claimed` when its release starts, so no path releases it
     // twice. A release that started always finishes.
     const releaseOne = (card: Card<It>, row: Pick<Row, "status" | "detail">) =>
       Effect.uninterruptible(Effect.suspend(() => {
         claimed.delete(card)
-        return release({ ...args(card), status: row.status, detail: row.detail }).pipe(
-          Effect.match({
-            onSuccess: () => undefined,
-            onFailure: (error: E) => `release: ${detailOf(error)}`
+        return Effect.suspend(() => release({ ...args(card), status: row.status, detail: row.detail })).pipe(
+          Effect.matchCauseEffect({
+            onSuccess: () => Effect.succeed(undefined),
+            onFailure: (cause) => {
+              if (!Cause.hasDies(cause)) {
+                const error = cause.reasons.find(Cause.isFailReason)?.error
+                if (!ownTag(error, "flows/patterns/Burndown/Stop") && Fault.of(error).class !== "infra") {
+                  return Effect.succeed({ ...row, detail: `release: ${detailOf(error)}` })
+                }
+              }
+              return failure(card, "release", cause)
+            }
           })
         )
       }))
@@ -836,12 +931,18 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
     const allows = capacity === undefined
       ? Effect.succeed(false)
       : Effect.suspend(() => capacity({ input: value, round: index })).pipe(
-        Effect.match({
-          onFailure: () => false,
-          onSuccess: (answer) => isCapacity(answer) && answer._tag === "Available" && answer.slots > working
+        Effect.matchCauseEffect({
+          onFailure: (cause) => {
+            const error = cause.reasons.find(Cause.isFailReason)?.error
+            return ownTag(error, "flows/patterns/Burndown/Stop") && !Cause.hasDies(cause)
+              ? Effect.fail(error as Stop)
+              : Effect.succeed(false)
+          },
+          onSuccess: (answer) =>
+            Effect.succeed(isCapacity(answer) && answer._tag === "Available" && answer.slots > working)
         })
       )
-    const admit: Effect.Effect<Card<It> | undefined, never, R> = Effect.suspend(() => {
+    const admit: Effect.Effect<Card<It> | undefined, Stop, R> = Effect.suspend(() => {
       if (next < budget) return Effect.succeed(mine[next++])
       if (next >= mine.length) return Effect.succeed(undefined)
       return Effect.map(allows, (allowed) => allowed && next < mine.length ? mine[next++] : undefined)
@@ -849,7 +950,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
     const landings = yield* Queue.unbounded<{ readonly card: Card<It>; readonly output: W }, Cause.Done>()
     const releases = yield* Queue.unbounded<Card<It>, Cause.Done>()
     const settleRow = (card: Card<It>, status: Status, text: string) => {
-      rows.set(card.id, { id: card.id, status, detail: text })
+      rows.set(card.id, outcomeRow(card, status, text))
       if (claimed.has(card)) Queue.offerUnsafe(releases, card)
     }
     const rendered = (output: W, landing: L | undefined): string => detail === undefined ? "" : detail(output, landing)
@@ -862,26 +963,45 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
           const outcome = yield* attempt(card)
           working -= 1
           if (outcome._tag === "Settled") settleRow(card, outcome.status, outcome.detail)
-          else if (land === undefined) settleRow(card, "landed", rendered(outcome.output, undefined))
-          else Queue.offerUnsafe(landings, { card, output: outcome.output })
+          else if (land === undefined) {
+            const row = yield* observe(card, "detail", () => Effect.sync(() => rendered(outcome.output, undefined)))
+            settleRow(
+              card,
+              row._tag === "Settled" ? row.status : "landed",
+              row._tag === "Settled" ? row.detail : row.value
+            )
+          } else Queue.offerUnsafe(landings, { card, output: outcome.output })
           card = yield* admit
         }
       })
-    const drain = <A>(queue: Queue.Dequeue<A, Cause.Done>, handle: (entry: A) => Effect.Effect<void, never, R>) =>
+    const drain = <A>(queue: Queue.Dequeue<A, Cause.Done>, handle: (entry: A) => Effect.Effect<void, Stop, R>) =>
       Queue.take(queue).pipe(Effect.flatMap(handle), Effect.forever, Effect.catchIf(Cause.isDone, () => Effect.void))
     // Landings start in the order work finished, `landers` at a time.
-    const lander = drain(landings, ({ card, output }) =>
-      land!({ ...args(card), output }).pipe(
-        Effect.match({
-          onFailure: (error: E) => settleRow(card, "failed", `land: ${detailOf(error)}`),
-          onSuccess: (landing) => settleRow(card, "landed", rendered(output, landing))
+    const lander = drain(
+      landings,
+      ({ card, output }) =>
+        Effect.flatMap(observe(card, "land", () => land!({ ...args(card), output })), (landing) => {
+          if (landing._tag === "Settled") return Effect.sync(() => settleRow(card, landing.status, landing.detail))
+          return Effect.map(observe(card, "detail", () => Effect.sync(() => rendered(output, landing.value))), (row) =>
+            settleRow(
+              card,
+              row._tag === "Settled" ? row.status : "landed",
+              row._tag === "Settled" ? row.detail : row.value
+            ))
         })
-      ))
+    )
     const releaser = drain(releases, (card) =>
       Effect.map(releaseOne(card, rows.get(card.id)!), (failure) => {
         if (failure === undefined) return
         const row = rows.get(card.id)!
-        rows.set(card.id, { ...row, detail: row.detail.length === 0 ? failure : `${row.detail}; ${failure}` })
+        rows.set(
+          card.id,
+          outcomeRow(
+            card,
+            failure.status,
+            row.detail.length === 0 ? failure.detail : `${row.detail}; ${failure.detail}`
+          )
+        )
       }))
     const each = { concurrency: "unbounded", discard: true } as const
     yield* Effect.onExit(
@@ -897,7 +1017,12 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
             [...claimed],
             (card) =>
               Effect.flatMap(
-                Cause.hasInterruptsOnly(exit.cause) ? wasCancelled(card) : Effect.succeed(true),
+                Cause.hasInterruptsOnly(exit.cause)
+                  ? observe(card, "cancelled", () => wasCancelled(card)).pipe(
+                    Effect.map((answer) => answer._tag === "Settled" || answer.value),
+                    Effect.catch(() => Effect.succeed(true))
+                  )
+                  : Effect.succeed(true),
                 (died) =>
                   releaseOne(
                     card,
@@ -905,6 +1030,8 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
                       ? { status: "failed", detail: "round died" }
                       : { status: "requeued", detail: "round interrupted" }
                   )
+              ).pipe(
+                Effect.catch((error) => Effect.logWarning("Burndown release stopped during round cleanup", error))
               ),
             { concurrency, discard: true }
           )
@@ -960,6 +1087,7 @@ export const layer = <Tag extends string, It extends Item, W, E = never, R = nev
         round: payload.round,
         items: payload.items as ReadonlyArray<It>,
         settled: payload.settled,
+        rows: payload.rows,
         slots: payload.slots
       },
       options

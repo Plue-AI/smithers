@@ -382,6 +382,8 @@ type Failure =
   | LandFailed
   | Schema.SchemaError
   | FlowRuntime.FlowCycleDetected
+  | FlowRuntime.ExecutionIdentityConflict
+  | Burndown.Stop
 /** What running the work child needs from the engine that executes the sweep. */
 type Engine = FlowRuntime.FlowRuntime | Crypto.Crypto
 const repoOf = (args: { readonly input: unknown }) => (args.input as typeof Input.Type).repo
@@ -569,17 +571,24 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
           executionId
         })
       return yield* execute(id).pipe(
+        Effect.catchTag("@smthrs/engine/ExecutionIdentityConflict", (error) =>
+          error.status === "completed" || error.status === "failed" || error.status === "cancelled"
+            ? execute(`${id}/round-${args.round}`)
+            : Effect.fail(error)),
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
         ),
         Effect.catchTag(
           "issue-sweep/AdoptConflicted",
-          (conflict) => requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
+          (conflict) =>
+            requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
         ),
         // A workspace this machine cannot prepare would fail every issue the
         // same way: stop the sweep (its claims are released) instead.
-        Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error)),
-        Effect.catchTag("issue-sweep/NoChange", (verdict) => settleNoChange(input.repo, args.item.number, verdict))
+        Effect.catchTag("issue-sweep/WorkspaceFailed", (error) =>
+          Effect.fail(new Burndown.Stop({ message: error.message }))),
+        Effect.catchTag("issue-sweep/NoChange", (verdict) =>
+          settleNoChange(input.repo, args.item.number, verdict))
       ) as Effect.Effect<Worked, Failure, Engine>
     })),
   landConcurrency: maxLanders,
@@ -639,6 +648,7 @@ const dispatch = Dispatch.toLayer((payload) =>
     round: payload.round,
     items: payload.items as ReadonlyArray<Item>,
     settled: payload.settled,
+    rows: payload.rows,
     slots: payload.slots
   }, {
     ...dispatchOptions,

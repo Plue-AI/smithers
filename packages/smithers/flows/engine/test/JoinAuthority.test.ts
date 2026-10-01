@@ -22,6 +22,9 @@ const everything = [new CapabilityPattern({ action: "*", resource: "**" })]
 const conflictOf = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
 
+const executeConflictOf = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
+
 const setup = (
   capabilities?: ReadonlyArray<string>,
   engine: Layer.Layer<FlowRuntime.FlowRuntime> = FlowEngine.layerMemory
@@ -56,8 +59,8 @@ describe("joining an execution under a capability ceiling", () => {
         expect(yield* flow.execute({ id: "a" }, { executionId: "wide" })).toBe("secret contents")
         for (const narrower of [readSource, []]) {
           const exit = yield* Effect.exit(under(narrower)(flow.execute({ id: "a" }, { executionId: "wide" })))
-          expect(conflictOf(exit)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
-          expect(conflictOf(exit)).toMatchObject({
+          expect(executeConflictOf(exit)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+          expect(executeConflictOf(exit)).toMatchObject({
             code: "execution_identity_conflict",
             executionId: "wide",
             field: "capabilities"
@@ -65,7 +68,7 @@ describe("joining an execution under a capability ceiling", () => {
           const discarded = yield* Effect.exit(
             under(narrower)(flow.execute({ id: "a" }, { executionId: "wide", discard: true }))
           )
-          expect(conflictOf(discarded)).toMatchObject({ field: "capabilities" })
+          expect(executeConflictOf(discarded)).toMatchObject({ field: "capabilities" })
         }
         expect(runs()).toBe(1)
       }).pipe(Effect.provide(layer))
@@ -96,7 +99,7 @@ describe("joining an execution under a capability ceiling", () => {
         expect(yield* flow.execute({ id: "a" }, { executionId: "declared" })).toBe("denied")
         expect(yield* under(readSource)(flow.execute({ id: "a" }, { executionId: "declared" }))).toBe("denied")
         const exit = yield* Effect.exit(under(readSecret)(flow.execute({ id: "a" }, { executionId: "declared" })))
-        expect(conflictOf(exit)).toMatchObject({ field: "capabilities" })
+        expect(executeConflictOf(exit)).toMatchObject({ field: "capabilities" })
         expect(runs()).toBe(1)
       }).pipe(Effect.provide(layer))
     })))
@@ -108,7 +111,7 @@ describe("joining an execution under a capability ceiling", () => {
         expect(yield* flow.execute({ id: "a" }, { executionId: "redeclared" })).toBe("secret contents")
         const Narrowed = flow.annotate(Flow.Capabilities, [])
         const exit = yield* Effect.exit(Narrowed.execute({ id: "a" }, { executionId: "redeclared" }))
-        expect(conflictOf(exit)).toMatchObject({ field: "capabilities" })
+        expect(executeConflictOf(exit)).toMatchObject({ field: "capabilities" })
         const polled = yield* Effect.exit(Narrowed.poll("redeclared"))
         expect(conflictOf(polled)).toMatchObject({ field: "capabilities" })
       }).pipe(Effect.provide(layer))
@@ -158,7 +161,7 @@ describe("joining an execution under a capability ceiling", () => {
           yield* under(readSource)(runtime.resume(flow, "hosted"))
           // A caller narrower than the host still may not read it.
           const narrower = yield* Effect.exit(under(readSecret)(flow.execute({ id: "a" }, { executionId: "hosted" })))
-          expect(conflictOf(narrower)).toMatchObject({ field: "capabilities", executionId: "hosted" })
+          expect(executeConflictOf(narrower)).toMatchObject({ field: "capabilities", executionId: "hosted" })
           expect(runs()).toBe(1)
         }).pipe(Effect.provide(layer))
       }).pipe(Effect.scoped)

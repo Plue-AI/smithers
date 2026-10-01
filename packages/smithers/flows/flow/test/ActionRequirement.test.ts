@@ -128,7 +128,7 @@ describe("a flow carries what its body requires", () => {
       Crypto.Crypto | FlowRuntime.FlowRuntime | ChargeNeeded
     >()
     expectTypeOf<Effect.Error<ReturnType<typeof Paying.execute>>>().toEqualTypeOf<
-      Schema.SchemaError | FlowRuntime.FlowCycleDetected | string
+      Schema.SchemaError | FlowRuntime.FlowCycleDetected | FlowRuntime.ExecutionIdentityConflict | string
     >()
 
     // Neither reading an execution's state nor cancelling one drives a body,

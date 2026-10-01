@@ -230,7 +230,7 @@ describe("execution identity", () => {
       const exit = yield* flowB.execute({ id: "x" }, { executionId: "shared-id" }).pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
       expect(Exit.isFailure(exit) && exit.cause.toString()).toContain("already belongs to flow Memory/reuse-a")
-      const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
+      const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
       expect(defect).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
       expect(defect).toMatchObject({
         code: "execution_identity_conflict",
@@ -332,7 +332,7 @@ describe("execution identity", () => {
       expect(yield* flow.execute({ id: "first" }, { executionId: "payload-conflict" })).toBe("ran:first")
       const exit = yield* flow.execute({ id: "second" }, { executionId: "payload-conflict" }).pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
-      const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
+      const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
       expect(defect).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
       expect(defect).toMatchObject({
         code: "execution_identity_conflict",
@@ -374,9 +374,17 @@ describe("execution identity", () => {
               ? changed.execute({}, { executionId: "schema-evolution" }).pipe(Effect.exit)
               : changed.poll("schema-evolution").pipe(Effect.exit))
             expect(Exit.isFailure(exit)).toBe(true)
-            const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
+            const defect = Exit.isFailure(exit)
+              ? operation === "execute"
+                ? exit.cause.reasons.find(Cause.isFailReason)?.error
+                : exit.cause.reasons.find(Cause.isDieReason)?.defect
+              : undefined
             expect(defect).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
-            expect(defect).toMatchObject({ field: "flow", executionId: "schema-evolution" })
+            expect(defect).toMatchObject({
+              field: "flow",
+              executionId: "schema-evolution",
+              status: channel === "success" ? "completed" : "failed"
+            })
           })).pipe(Effect.provide(FlowEngine.layerMemory))
       )
     }
@@ -449,7 +457,7 @@ describe("execution identity", () => {
         yield* flow.execute({ value: value() }, { executionId: "codec-equal" })
         const exit = yield* flow.execute({ value: value(true) }, { executionId: "codec-equal" }).pipe(Effect.exit)
         expect(Exit.isFailure(exit)).toBe(true)
-        const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
+        const defect = Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
         expect(defect).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
         expect(defect).toMatchObject({ field: "payload" })
         expect(calls).toBe(1)

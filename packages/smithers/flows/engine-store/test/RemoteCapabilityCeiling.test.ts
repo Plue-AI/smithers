@@ -258,11 +258,15 @@ describe("remote execution under a carried capability ceiling", () => {
     expect(wide).toEqual(Exit.succeed("written"))
     const refused = await direct("joined-wide.txt", "joined-wide", readOnly)
     expect(Exit.isFailure(refused)).toBe(true)
-    // The serving engine's refusal crosses as its redacted handler defect.
-    const defect = Exit.isFailure(refused) ? Cause.squash(refused.cause) : undefined
-    expect(defect).toMatchObject({ name: "@smthrs/engine/FlowHandlerDefect" })
-    expect(String((defect as { message: string }).message)).toContain("ExecutionIdentityConflict")
-    expect(String((defect as { message: string }).message)).toContain("capabilities")
+    // Execute carries the typed admission refusal across the public RPC boundary.
+    expect(Exit.isFailure(refused) && Cause.hasDies(refused.cause)).toBe(false)
+    const conflict = Exit.isFailure(refused) ? refused.cause.reasons.find(Cause.isFailReason)?.error : undefined
+    expect(conflict).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+    expect(conflict).toMatchObject({
+      executionId: "joined-wide",
+      field: "capabilities",
+      status: "completed"
+    })
 
     // A remote resume is refused on the serving engine the same way.
     const resumed = await run(Effect.gen(function*() {

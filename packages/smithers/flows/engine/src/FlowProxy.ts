@@ -223,10 +223,11 @@ export const toRpcGroup = <
     rpcs.push(
       Rpc.make(operation.execute, {
         payload: executePayload(flow.payloadSchema),
-        error: flow.errorSchema,
+        error: Schema.Union([flow.errorSchema, FlowRuntime.ExecutionIdentityConflict]),
         success: flow.successSchema
       }).annotateMerge(flow.annotations),
       Rpc.make(operation.discard, {
+        error: FlowRuntime.ExecutionIdentityConflict,
         payload: executePayload(flow.payloadSchema)
       }).annotateMerge(flow.annotations),
       Rpc.make(operation.resume, { payload: ResumePayload })
@@ -252,8 +253,18 @@ export type ConvertRpcs<Flows extends Flow.Any, Prefix extends string> = Flows e
   infer _Error,
   infer _Requires
 > ?
-    | Rpc.Rpc<`${Prefix}${_Name}`, ExecutePayload<_Payload>, _Success, _Error>
-    | Rpc.Rpc<`${Prefix}${_Name}Discard`, ExecutePayload<_Payload>>
+    | Rpc.Rpc<
+      `${Prefix}${_Name}`,
+      ExecutePayload<_Payload>,
+      _Success,
+      Schema.Union<[_Error, typeof FlowRuntime.ExecutionIdentityConflict]>
+    >
+    | Rpc.Rpc<
+      `${Prefix}${_Name}Discard`,
+      ExecutePayload<_Payload>,
+      typeof Schema.Void,
+      typeof FlowRuntime.ExecutionIdentityConflict
+    >
     | Rpc.Rpc<`${Prefix}${_Name}Resume`, typeof ResumePayload>
     | Rpc.Rpc<`${Prefix}${_Name}Interrupt`, typeof ResumePayload, typeof Schema.Void, typeof CancelRequestFailed>
   : never
@@ -331,9 +342,10 @@ export const toHttpApiGroup = <const Name extends string, const Flows extends No
       HttpApiEndpoint.post(operation.execute, path, {
         payload: executePayload(flow.payloadSchema),
         success: flow.successSchema,
-        error: flow.errorSchema
+        error: Schema.Union([flow.errorSchema, FlowRuntime.ExecutionIdentityConflict])
       }).annotateMerge(flow.annotations),
       HttpApiEndpoint.post(operation.discard, `${path}/discard`, {
+        error: FlowRuntime.ExecutionIdentityConflict,
         payload: executePayload(flow.payloadSchema)
       }).annotateMerge(flow.annotations),
       HttpApiEndpoint.post(operation.resume, `${path}/resume`, {
@@ -381,7 +393,7 @@ export type ConvertHttpApi<Flows extends Flow.Any> = Flows extends Flow.Flow<
       ExecutePayload<_Payload>,
       never,
       _Success,
-      _Error
+      Schema.Union<[_Error, typeof FlowRuntime.ExecutionIdentityConflict]>
     >
     | HttpApiEndpoint.HttpApiEndpoint<
       `${_Name}Discard`,
@@ -389,7 +401,10 @@ export type ConvertHttpApi<Flows extends Flow.Any> = Flows extends Flow.Flow<
       `/${string}/discard`,
       never,
       never,
-      ExecutePayload<_Payload>
+      ExecutePayload<_Payload>,
+      never,
+      typeof Schema.Void,
+      typeof FlowRuntime.ExecutionIdentityConflict
     >
     | HttpApiEndpoint.HttpApiEndpoint<
       `${_Name}Resume`,

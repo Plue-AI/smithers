@@ -29,7 +29,7 @@ unkeyed `execute` call starts new work. Historical id encodings are unchanged.
 ## Conflicting reuses are refused
 
 Answering a caller with a run it did not ask for is worse than failing it, so
-conflicting reuses raise `ExecutionIdentityConflict` as a defect:
+conflicting reuses fail from `Flow.execute` with typed `ExecutionIdentityConflict`:
 
 | `field`     | The reuse                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------ |

@@ -210,3 +210,11 @@ The parked round's waiting row also carries this token.
   an `invalid_input` `PatternError` before any claim.
 
 The reference for every export is in [the API reference](./api.md#burndown).
+
+## Item failures
+
+Members may fail with `Burndown.Stop({ message })` to stop the round. Other
+defects fail only the affected item, with their fault class and tag in its
+detail. Typed `infra` failures requeue at most three times by default; set
+`maxRequeues` on the round options to change that bound. The durable
+`requeues` count travels with each row through the dispatch payload.

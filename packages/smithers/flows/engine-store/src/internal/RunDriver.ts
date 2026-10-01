@@ -1618,6 +1618,7 @@ export const make = (
           return yield* Effect.die(
             new FlowEngine.ExecutionIdentityConflict({
               executionId: options.executionId,
+              status: existing.status,
               ...conflict,
               message: `execution ${options.executionId} already belongs to ${conflict.field} identity ` +
                 `${conflict.expected}; it cannot be reused for ${conflict.actual}`

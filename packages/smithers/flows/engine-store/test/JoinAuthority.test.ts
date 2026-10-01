@@ -38,6 +38,9 @@ const jj = Layer.succeed(
 const conflictOf = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isDieReason)?.defect : undefined
 
+const executeConflictOf = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined
+
 describe("durable joins under a capability ceiling", () => {
   it.effect("refuses a narrower caller and admits the same or a wider one", () =>
     Effect.gen(function*() {
@@ -71,8 +74,8 @@ describe("durable joins under a capability ceiling", () => {
           const exit = yield* Effect.exit(
             CapabilitySet.attenuate(readSource)(flow.execute({ id: "a" }, { executionId: "wide", discard }))
           )
-          expect(conflictOf(exit)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
-          expect(conflictOf(exit)).toMatchObject({ executionId: "wide", field: "capabilities" })
+          expect(executeConflictOf(exit)).toBeInstanceOf(FlowEngine.ExecutionIdentityConflict)
+          expect(executeConflictOf(exit)).toMatchObject({ executionId: "wide", field: "capabilities" })
         }
         // The refused joins left the admitted row and its result untouched.
         const row = yield* RunStore.RunStore.pipe(Effect.flatMap((store) => store.get("wide")))
@@ -97,7 +100,7 @@ describe("durable joins under a capability ceiling", () => {
         // A declaration narrowed since admission does not reopen the wider result.
         const Narrowed = flow.annotate(Flow.Capabilities, [])
         const redeclared = yield* Effect.exit(Narrowed.execute({ id: "a" }, { executionId: "wide" }))
-        expect(conflictOf(redeclared)).toMatchObject({ field: "capabilities" })
+        expect(executeConflictOf(redeclared)).toMatchObject({ field: "capabilities" })
         expect(conflictOf(yield* Effect.exit(Narrowed.poll("wide")))).toMatchObject({ field: "capabilities" })
         expect(runs).toBe(2)
       }).pipe(Effect.provide(layer))

@@ -499,12 +499,13 @@ length of a backlog that no plan knows when it is built.
 | `layer(action, options)`              | Implements that action with `round`                                                                           |
 | `child(flow, payload)`                | Builds a `work` member that runs `flow.execute(payload, { executionId })` under the derived id                |
 | `signal(name?)`                       | The `WaitFor` deferred an operator completes to resume an exhausted burndown                                  |
+| `Stop`                                | The typed failure that stops a round and releases its open claims                                             |
 | `Held`                                | The typed failure a `claim` raises when another owner holds the item                                          |
 | `available`, `waitUntil`, `exhausted` | `Capacity` answers: launch at most `slots`, sleep until an epoch-millisecond instant, or park for an operator |
 | `ours`, `skip(detail)`                | `Selection` answers                                                                                           |
 
 `make({ discover, dispatch, capacity?, maxRounds, deadline?, signal? })`
-settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail }`
+settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail, requeues? }`
 with `status` one of `landed`, `held`, `failed`, `skipped`, or `requeued`. A round that
 launched at least one item hands off to the next round, which rediscovers the
 backlog; a round that launched nothing settles the lineage as `drained`.
@@ -531,9 +532,11 @@ slot asks the round's `capacity` member, when there is one, and admits the next
 item that is ours only on an `Available` answer with more slots than the work
 still in flight. The items never admitted count as `deferred`; without a round
 `capacity` member that is every item past `slots`. A `claim` that fails with
-`Held` settles the item `held` and is not released. Any other claim, work, or
-landing failure settles the item `failed` on its own row and never cancels
-the items beside it. A worked item enters the landing queue at once: `land`
+`Held` settles the item `held` and is not released. A typed claim, work, or landing failure classified by `Fault.of` as `infra`
+requeues its item up to `maxRequeues` (default 3), then fails it. The count
+is persisted in `row.requeues`; pass the carried `rows` to `round`.
+`make` passes these rows through `DispatchPayload`, and `layer` forwards them.
+Other failures settle only their own item as `failed`. A worked item enters the landing queue at once: `land`
 runs one item at a time, in the order work finished, while other items still
 work, and a failed landing does not stop the next; without `land`, a worked
 item counts as landed. `release` runs once for every successful claim, as soon
@@ -541,9 +544,11 @@ as the item settles, with its final status. Interrupted work settles its item
 `failed` with `work: interrupted` only when the optional `cancelled` member
 answers `true` for a recorded operator cancel; any other interruption, such as
 a child released because its host's lease lapsed, gets a `requeued` row and a
-`requeued` release, and a later round works the item again. When a member
-dies, a release already running finishes and every claim not yet released is
-released with status `failed` and `round died`. When the round itself is
+`requeued` release, and a later round works the item again. A member defect settles only its item as `failed`, including the
+`Fault.of(defect)` class and tag in its detail; siblings continue. This also
+applies to thrown selection, detail, landing, and release callbacks.
+Only typed `Stop({ message })` stops the round; open claims are released.
+A defect containing a `Stop` is still an item defect. When the round itself is
 interrupted, each open claim is released the same way if `cancelled` answers
 `true`, and otherwise with status `requeued` and `round interrupted`. A release failure is appended to the row's detail. Rows keep
 discovery order. `round` fails with `PatternError` before any member runs for a

@@ -169,7 +169,7 @@ through `n - 1`. See [Trampoline rounds](/concepts/trampoline-rounds/).
 | Export                      | Fields                                                                         | Raised when                                                                                                                                   |
 | --------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FlowNotRegistered`         | `code`, `flowName`, `message`                                                  | A flow executes, or a handoff names a target, that no registration covers.                                                                    |
-| `ExecutionIdentityConflict` | `code`, `executionId`, `field`, `expected`, `actual`, `message`                | A reused execution id disagrees with persisted flow, payload, lineage, round, or parent identity, or a deferred is addressed to another flow. |
+| `ExecutionIdentityConflict` | `code`, `executionId`, `field`, `expected`, `actual`, `status`, `message`                | A reused execution id disagrees with persisted flow, payload, lineage, round, or parent identity, or a deferred is addressed to another flow. |
 | `SuspendedResumeGaveUp`     | `code`, `flowName`, `executionId`, `attempt`, `elapsedMs`, `reason`, `message` | A caller polling a suspended lineage spends its `suspendedRetryPolicy`. `reason` is `"expired"` or `"exhausted"`.                             |
 | `SnapshotBoundaryRequired`  | `code`, `actionName`, `message`                                                | A compensable action runs with no `SnapshotBoundary` in context.                                                                              |
 
@@ -291,3 +291,9 @@ an authentication policy, or a durable engine.
   implementation of the `Encoded` seam.
 - [Durable execution](https://smithers.sh/docs/concepts/durable-execution/) and
   [Retries](https://smithers.sh/docs/concepts/retries/) on smithers.sh own the cross-package model.
+
+`Flow.execute` returns identity conflicts on its typed failure channel, including
+the existing execution status. The derived RPC and HTTP execute/discard error
+schemas carry the same conflict value. Re-key only when `status` is
+`completed`, `failed`, or `cancelled`; live and suspended executions retain
+their identity.
