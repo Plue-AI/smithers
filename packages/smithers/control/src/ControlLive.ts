@@ -808,8 +808,9 @@ export const layer: Layer.Layer<
             const claimed = yield* (input.allowCodeDrift === true
               ? runtime.resumeAdopting(input.runId, { scope: "launched" })
               : runtime.resume(input.runId, { scope: "launched" })).pipe(
-                Effect.catchTag("/control/ClaimLost", () =>
-                  runtime.getRun(input.runId).pipe(Effect.flatMap((stored) =>
+                Effect.catchTag("/control/ClaimLost", (error) => {
+                  if (error.reason !== undefined) return Effect.fail(error)
+                  return runtime.getRun(input.runId).pipe(Effect.flatMap((stored) =>
                     // A retained fork is parked in control and pending in the
                     // engine. Its accepted read overlay is not a live claim.
                     // Never replace that engine continuation with control state.
@@ -817,7 +818,8 @@ export const layer: Layer.Layer<
                       (live(current.status) && current.executionView?.current.status !== "pending")
                       ? Effect.fail(new ClaimLost({ runId: input.runId }))
                       : Effect.succeed(undefined)
-                  )))
+                  ))
+                })
               )
             // The same attribution `cancel` writes, for the same reason: the
             // contract records `reason` on the journal entry the mutation

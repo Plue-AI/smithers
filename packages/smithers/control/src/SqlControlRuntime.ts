@@ -1277,6 +1277,24 @@ const makeRuntime = (
         if (terminal(summary.status)) return summary
         // Start-or-join: owning the run already means resume is a no-op.
         if (ownedByUs(row)) return summary
+        // Parking clears ownership, but the detached host can still be alive.
+        // Public resume may take its park only after a same-host dead-pid
+        // probe; otherwise the caller would steal and interrupt its execution.
+        // Trusted host claims remain able to reclaim their engine's execution.
+        if (scope === "launched" && row.status === "suspended" && summary.parkedBy !== undefined) {
+          const parkedOwner = yield* decodeStoredJson("parked host", Ownership.OwnerId, summary.parkedBy)
+          if (!sameProcess(parkedOwner, owner)) {
+            const alive = isAlive === undefined || !Ownership.sameHostIncarnation(parkedOwner, owner)
+              ? true
+              : yield* isAlive(parkedOwner, { claimant: owner, heartbeatAtMs: row.heartbeatAtMs, nowMs: yield* now })
+            if (alive) {
+              return yield* new ClaimLost({
+                runId,
+                reason: "The host that parked this run is still alive or its liveness is unknown"
+              })
+            }
+          }
+        }
         // Every public Control resume and steer wake uses launched scope.
         // Engine-created runs keep their continuation and driver. Unrestricted
         // claims are a trusted low-level capability for hosts that can drive

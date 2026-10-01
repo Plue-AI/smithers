@@ -153,6 +153,30 @@ describe("ControlLive", () => {
     }
   )
 
+  it.each([false, true])("preserves a parked-host refusal (allowCodeDrift=%s)", async (allowCodeDrift) => {
+    const runId = "parked-live-host"
+    const refusal = new ClaimLost({ runId, reason: "The host that parked this run is still alive" })
+    const runtime = Layer.effect(
+      ControlRuntime,
+      Effect.map(ControlRuntime, (base) => ({
+        ...base,
+        getRun: () => Effect.succeed({ runId, flowId: "steps", status: "parked" as const, createdAt: 0, updatedAt: 0 }),
+        codeDrift: () => Effect.succeed(undefined),
+        resume: () => Effect.fail(refusal),
+        resumeAdopting: () => Effect.fail(refusal)
+      }))
+    ).pipe(Layer.provide(memoryRuntime()))
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const control = yield* Control
+        expect(yield* Effect.flip(control.resume({ runId, idempotencyKey: "resume-live-host", allowCodeDrift }))).toBe(refusal)
+        const journal = yield* Journal.Journal
+        const events = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 100 })
+        expect(events.entries.some((entry) => entry.eventType === "control.run.resume")).toBe(false)
+      }).pipe(Effect.provide(live({ runtime })), Effect.scoped, Effect.orDie)
+    )
+  })
+
   it("answers a terminal outcome observed after losing the cancellation claim", async () => {
     const runtime = Layer.effect(
       ControlRuntime,

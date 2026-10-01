@@ -768,6 +768,47 @@ describe("SqlControlRuntime", () => {
     expect(observed.evicted).toBeInstanceOf(ClaimLost)
   })
 
+  it.each([
+    { alive: true, hostId: "mac", pid: 202, scope: "launched", accepted: false },
+    { alive: false, hostId: "mac", pid: 202, scope: "launched", accepted: true },
+    { alive: undefined, hostId: "mac", pid: 202, scope: "launched", accepted: false },
+    { alive: false, hostId: "linux", pid: 202, scope: "launched", accepted: false },
+    { alive: true, hostId: "mac", pid: 101, scope: "launched", accepted: true },
+    { alive: true, hostId: "mac", pid: 202, scope: "any", accepted: true }
+  ] as const)(
+    "checks the parked host before taking its run ($hostId/$pid alive=$alive scope=$scope)",
+    async ({ alive, hostId, pid, scope, accepted }) => {
+      const owner = { hostId: "mac", pid: 101, nonce: "detached" }
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const first = yield* ControlRuntime
+          const store = yield* RunStore.RunStore
+          const { runId } = yield* started
+          yield* park(first, runId)
+          const before = yield* store.get(runId)
+          const caller = yield* SqlControlRuntime.make({
+            owner: { hostId, pid, nonce: "cli" },
+            ...(alive === undefined ? {} : { isAlive: () => Effect.succeed(alive) })
+          })
+          const result = yield* Effect.exit(caller.resume(runId, { scope }))
+          if (accepted) {
+            expect(Exit.isSuccess(result)).toBe(true)
+            expect((yield* store.get(runId)).owner).toMatchObject({ hostId, pid })
+          } else {
+            expect(Exit.isFailure(result)).toBe(true)
+            const error = yield* Effect.flip(result)
+            expect(error).toMatchObject({
+              code: "claim_lost",
+              runId,
+              reason: "The host that parked this run is still alive or its liveness is unknown"
+            })
+            expect(yield* store.get(runId)).toEqual(before)
+          }
+        }).pipe(Effect.provide(durable({ owner })), Effect.scoped, Effect.orDie)
+      )
+    }
+  )
+
   it("takes over a running run whose owner is gone only once its lease has expired", async () => {
     const owner = { hostId: "mac", pid: 101, nonce: "first" }
     const observed = await Effect.runPromise(

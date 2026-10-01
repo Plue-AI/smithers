@@ -123,7 +123,8 @@ export class EnvelopeMismatch extends Schema.TaggedError<EnvelopeMismatch>()("/c
  */
 export class ClaimLost extends Schema.TaggedError<ClaimLost>()("/control/ClaimLost", {
   code: constantCode("claim_lost"),
-  runId: RunId
+  runId: RunId,
+  reason: Schema.optional(Schema.String)
 }) {}
 
 /**
