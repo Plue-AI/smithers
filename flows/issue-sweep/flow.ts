@@ -107,6 +107,18 @@ const macMini = "Williams-Mac-mini.local"
 // The issue-claim comment: "Claimed by <who> on <host> at <UTC>; expires <UTC>".
 const claimLine = /^Claimed by (.+) on (\S+) at (\S+); expires (\S+?)\.?(?:\s|$)/
 
+/**
+ * Why an issue is not agent work at all, or `undefined`. A maintainer must
+ * decide `blocked-on-will` issues, and a "Deferred" issue is parked past the
+ * release by title; agents dispatched to them could only report no change.
+ */
+export const parkedFor = (issue: { readonly title: string; readonly labels: ReadonlyArray<string> }) =>
+  issue.labels.includes("blocked-on-will")
+    ? "blocked on the maintainer"
+    : /^deferred\b/i.test(issue.title.trim())
+    ? "deferred"
+    : undefined
+
 /** Skip an issue only while the Mac mini holds an unexpired claim on it. */
 export const decide = (claim: string | undefined, nowMillis: number): "skip" | "ours" => {
   const match = claim === undefined ? null : claimLine.exec(claim)
@@ -205,6 +217,8 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
   capacity: (args) => readCapacity(args.input as typeof Input.Type),
   select: (args) =>
     Effect.gen(function*() {
+      const parked = parkedFor(args.item)
+      if (parked !== undefined) return Burndown.skip(parked)
       if (!args.item.labels.includes("in-progress")) return Burndown.ours
       const now = yield* Clock.currentTimeMillis
       const claim = yield* newestClaim(repoOf(args), args.item.number)

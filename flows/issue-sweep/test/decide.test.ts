@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
-import { claimTool, decide, releasesClaim } from "../flow.ts"
+import { claimTool, decide, parkedFor, releasesClaim } from "../flow.ts"
 
 const claim = (host: string, expires: string) =>
   `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
@@ -47,4 +47,13 @@ test("the claim tool is the copy in this flow's own checkout", () => {
 test("a requeued row keeps its claim and workspace; every final row releases them", () => {
   assert.equal(releasesClaim("requeued"), false)
   for (const status of ["landed", "held", "failed", "skipped"] as const) assert.equal(releasesClaim(status), true)
+})
+
+// run-4: agents spent their run on #2845 (blocked-on-will) and #3165/#3166 ("Deferred past 1.0").
+test("issues for the maintainer or deferred by title are not dispatched", () => {
+  assert.equal(parkedFor({ title: "Release: publish installers", labels: ["blocked-on-will"] }), "blocked on the maintainer")
+  assert.equal(parkedFor({ title: "Deferred past 1.0: Npm.Downstream build target", labels: [] }), "deferred")
+  assert.equal(parkedFor({ title: "  deferred: x", labels: ["bug"] }), "deferred")
+  assert.equal(parkedFor({ title: "Defer the cache flush until close", labels: [] }), undefined)
+  assert.equal(parkedFor({ title: "Retire the legacy Workers", labels: ["bug", "in-progress"] }), undefined)
 })
