@@ -1,0 +1,69 @@
+{
+  "issue": 3127,
+  "status": "OPEN: all three predefined canonical loaded attempts failed. No success claim.",
+  "headAtCapture": "9acd4dab3f3636448337072bab344f90a2dfa2e4",
+  "inputsUnchanged": 1134,
+  "attempts": [
+    {
+      "attempt": 1,
+      "exit": 1,
+      "durationSeconds": 260.629,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ]
+    },
+    {
+      "attempt": 2,
+      "exit": 1,
+      "durationSeconds": 301.484,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ]
+    },
+    {
+      "attempt": 3,
+      "exit": 1,
+      "durationSeconds": 290.305,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ]
+    }
+  ],
+  "blocker": {
+    "cause": "Both remote test childEnv declarations omit explicit SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, so owning-scope public AtomicFileSystem.resolveHelper with that exact environment fails missing helper; configured parent helper is discarded. Kernel fail-closed permission behavior preserved.",
+    "proof": "remote-helper-resolution-owning-scope.json",
+    "notProductProof": "Initial root-scope eval import failed module resolution; retained remote-helper-resolution.json is harness setup diagnostic, then owning-scope resolver correction used."
+  },
+  "nextPrerequisite": 3316,
+  "cleanup": {
+    "loadWorkersStopped": true,
+    "disposablePostgreSQLServersStopped": true,
+    "serverDirectoriesRemoved": true
+  },
+  "archive": {
+    "file": "3127-failed-cohort.tar.gz",
+    "sha256": "5fadc039dcb82185b24909e80acee98d1bb5d905c16bc31448a26b3aa5784e89"
+  },
+  "rootReview": "Original complete failed cohorts retained with exact raw hashes. Isolated stale-sweep passes do not qualify the canonical target. Kernel/containment refusal is not weakened; no coverage thresholds changed."
+}

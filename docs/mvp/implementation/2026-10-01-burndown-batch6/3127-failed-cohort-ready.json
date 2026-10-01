@@ -1,0 +1,202 @@
+{
+  "issue": 3127,
+  "status": "PREDEFINED COHORT FAILED: retain all3 failures; no source changes or retry-to-green",
+  "headAtCapture": "9acd4dab3f3636448337072bab344f90a2dfa2e4",
+  "actualArgs": [
+    "packages/smithers/src/bin.ts",
+    "ci",
+    "//packages/smithers/flows/engine-store:test",
+    "--jobs",
+    "2",
+    "--no-cache",
+    "--verbose",
+    "--format",
+    "json"
+  ],
+  "summaries": [
+    {
+      "attempt": 1,
+      "exit": 1,
+      "durationSeconds": 260.629,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "failureCases": [
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent whose caller died while its placed child ran, from the child's one run",
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent after both hosts died mid-child and restarted on their journals",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > enforces empty, narrowed, wildcard and omitted ceilings on the serving host",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > bounds a request that carries no ceiling by the serving host alone",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > refuses a narrower caller the result a wider remote run produced, and lets a wider caller join",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > keeps the admitted ceiling across a serving-engine restart while callers retry"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ],
+      "directStaleSweepObservation": [
+        "//packages/smithers/flows/engine-store:test:  \u2713 test/StaleSweepBackoff.test.ts (6 tests) 572ms"
+      ],
+      "storageLegLimit": "SQLite pass lines directly streamed. PG and SQLite merged totals show12failures restricted to6other cases per leg, no stale-sweep failure or skipped count; default canonical merge does not repeat all successful case names."
+    },
+    {
+      "attempt": 2,
+      "exit": 1,
+      "durationSeconds": 301.484,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "failureCases": [
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent whose caller died while its placed child ran, from the child's one run",
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent after both hosts died mid-child and restarted on their journals",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > enforces empty, narrowed, wildcard and omitted ceilings on the serving host",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > bounds a request that carries no ceiling by the serving host alone",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > refuses a narrower caller the result a wider remote run produced, and lets a wider caller join",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > keeps the admitted ceiling across a serving-engine restart while callers retry"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ],
+      "directStaleSweepObservation": [],
+      "storageLegLimit": "SQLite pass lines directly streamed. PG and SQLite merged totals show12failures restricted to6other cases per leg, no stale-sweep failure or skipped count; default canonical merge does not repeat all successful case names."
+    },
+    {
+      "attempt": 3,
+      "exit": 1,
+      "durationSeconds": 290.305,
+      "mergedCounts": [
+        "Test Files  4 failed | 368 passed (372)",
+        "Tests  12 failed | 3714 passed (3726)"
+      ],
+      "failureCases": [
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent whose caller died while its placed child ran, from the child's one run",
+        "test/CrossHostRecovery.test.ts > cross-host recovery drill > settles a parent after both hosts died mid-child and restarted on their journals",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > enforces empty, narrowed, wildcard and omitted ceilings on the serving host",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > bounds a request that carries no ceiling by the serving host alone",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > refuses a narrower caller the result a wider remote run produced, and lets a wider caller join",
+        "test/RemoteCapabilityCeiling.test.ts > remote execution under a carried capability ceiling > keeps the admitted ceiling across a serving-engine restart while callers retry"
+      ],
+      "coverageFailures": [
+        "ERROR: Coverage for lines (99.92%) does not meet global threshold (100%)",
+        "ERROR: Coverage for functions (99.55%) does not meet global threshold (100%)",
+        "ERROR: Coverage for statements (99.81%) does not meet global threshold (100%)",
+        "ERROR: Coverage for branches (99.65%) does not meet global threshold (100%)"
+      ],
+      "directStaleSweepObservation": [
+        "//packages/smithers/flows/engine-store:test:  \u2713 test/StaleSweepBackoff.test.ts (6 tests) 804ms"
+      ],
+      "storageLegLimit": "SQLite pass lines directly streamed. PG and SQLite merged totals show12failures restricted to6other cases per leg, no stale-sweep failure or skipped count; default canonical merge does not repeat all successful case names."
+    }
+  ],
+  "cpu": {
+    "cores": 14,
+    "finiteWorkers": 8,
+    "samples": 452,
+    "oneMinuteMin": 12.27685546875,
+    "oneMinuteMax": 54.14990234375,
+    "processCountSnapshot": "1005 processes at03:25UTC; process names/PIDs/CPU only, no argv"
+  },
+  "sourceUnchanged": true,
+  "capturedInputCount": 1134,
+  "postgres": {
+    "actualVersion": "postgres (PostgreSQL) 18.6 (Homebrew)",
+    "serverBinaryHash": "db04623906717b3f12df02e2285e8f9990c8ebbb1c9be78a4b1f18afb2361425",
+    "lifecycle": [
+      {
+        "directory": "/private/tmp/smithers-sql-matrix-DhnNOj",
+        "observedAt": "2026-10-01T03:18:42.828Z",
+        "attempt": 1,
+        "PG_VERSIONSha256": "7ee29791fc17e986b97128845622b077fb45e349fdb80523fac9dba879b4ad60",
+        "major": "18",
+        "postgresql.confSha256": "15c11a5091d438bb363cff44cb92a56f0452f159e0b699b1ead20c04f33c5dcd",
+        "pg_hba.confSha256": "3412fc92b5800ee9c5c89f2ef5250a315e5acc7b706f7e1cebebce9e210c112e",
+        "postmaster.optsSha256": "fe62a563116cc73bb348b8e087e288f2b092faac2976d17f77b1ade5aba05b10",
+        "startupOptions": "/opt/homebrew/Cellar/postgresql@18/18.6/bin/postgres \"-D\" \"/private/tmp/smithers-sql-matrix-DhnNOj/data\" \"-h\" \"127.0.0.1\" \"-p\" \"58179\" \"-k\" \"/private/tmp/smithers-sql-matrix-DhnNOj\"",
+        "pid": 46508,
+        "port": 58179,
+        "pidObservedAlive": true,
+        "serverLogSha256": "40b558d479ebb367cdfa4b2b6ee494f036018ce434b310920b3c1907a390653f",
+        "directoryExistsAfter": false,
+        "pidAliveAfter": false
+      },
+      {
+        "directory": "/private/tmp/smithers-sql-matrix-v3kzLq",
+        "observedAt": "2026-10-01T03:23:07.000Z",
+        "attempt": 2,
+        "PG_VERSIONSha256": "7ee29791fc17e986b97128845622b077fb45e349fdb80523fac9dba879b4ad60",
+        "major": "18",
+        "postgresql.confSha256": "15c11a5091d438bb363cff44cb92a56f0452f159e0b699b1ead20c04f33c5dcd",
+        "pg_hba.confSha256": "3412fc92b5800ee9c5c89f2ef5250a315e5acc7b706f7e1cebebce9e210c112e",
+        "postmaster.optsSha256": "d7b90473579f769cd6303b4776ec133231ee103bb3de5af70ccb73d5e6d34d6a",
+        "startupOptions": "/opt/homebrew/Cellar/postgresql@18/18.6/bin/postgres \"-D\" \"/private/tmp/smithers-sql-matrix-v3kzLq/data\" \"-h\" \"127.0.0.1\" \"-p\" \"59820\" \"-k\" \"/private/tmp/smithers-sql-matrix-v3kzLq\"",
+        "pid": 61062,
+        "port": 59820,
+        "pidObservedAlive": true,
+        "serverLogSha256": "c9eee382d9342b7234be7fb2005b6b2207b004d7e568585a792630f0398f8491",
+        "directoryExistsAfter": false,
+        "pidAliveAfter": false
+      },
+      {
+        "directory": "/private/tmp/smithers-sql-matrix-gFoN3z",
+        "observedAt": "2026-10-01T03:28:09.202Z",
+        "attempt": 3,
+        "PG_VERSIONSha256": "7ee29791fc17e986b97128845622b077fb45e349fdb80523fac9dba879b4ad60",
+        "major": "18",
+        "postgresql.confSha256": "15c11a5091d438bb363cff44cb92a56f0452f159e0b699b1ead20c04f33c5dcd",
+        "pg_hba.confSha256": "3412fc92b5800ee9c5c89f2ef5250a315e5acc7b706f7e1cebebce9e210c112e",
+        "pid": 86093,
+        "port": 62496,
+        "pidObservedAlive": true,
+        "postmaster.optsSha256": "8c208ca276e700c4ca9e99f5596f97886237a585ff250c2e8b6d55b918acaa0f",
+        "startupOptions": "/opt/homebrew/Cellar/postgresql@18/18.6/bin/postgres \"-D\" \"/private/tmp/smithers-sql-matrix-gFoN3z/data\" \"-h\" \"127.0.0.1\" \"-p\" \"62496\" \"-k\" \"/private/tmp/smithers-sql-matrix-gFoN3z\"",
+        "serverLogSha256": "a6c65b14a23114d0e36d55b8bb74c58c34d76556f8820d86d06a3a6efc00975a",
+        "directoryExistsAfter": false,
+        "pidAliveAfter": false
+      }
+    ],
+    "allCleaned": true,
+    "selection": "Stock canonical Exec allowlist intentionally omits outer PG55491 URL; unchanged matrix starts own scram-authenticated server; root approved."
+  },
+  "loadWorkersCleaned": true,
+  "sourceHashes": {
+    "packages/smithers/flows/engine-store/test/StaleSweepBackoff.test.ts": "aadbe912b78f85c92befe8989cb3093f37ab304d4cd008162c0676e6faeb2b37",
+    "packages/smithers/flows/engine-store/test/RemoteCapabilityCeiling.test.ts": "236081bea5353a8cb2ee07390ec753c9da85402ba8bd2d837c724ebed6ddab56",
+    "packages/smithers/flows/engine-store/test/CrossHostRecovery.test.ts": "c2a8ab2170441b4c92a44da593c1b3c6ac3d3b0720802b4c3dba6967aff34071",
+    "packages/smithers/flows/engine-store/test/fixtures/remote-ceiling-engine.ts": "4e46793b4565d6e77a501ad1629a26f1efe1531f4641bff0c7d73abf196a8197",
+    "packages/smithers/flows/platform-node/src/AtomicFileSystem.ts": "39f31cd0cc7a42f4956780ef2aabcb6b6cb39961fada95bb46d0ffa7130f8036",
+    "packages/smithers/flows/database/scripts/test-matrix.mjs": "e5be96888f20abc462c914b0a7a068680e75ad0532bbc950aea4cceff6f0c4ad"
+  },
+  "blocker": {
+    "cause": "Both remote test childEnv declarations omit explicit SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, so owning-scope public AtomicFileSystem.resolveHelper with that exact environment fails missing helper; configured parent helper is discarded. Kernel fail-closed permission behavior preserved.",
+    "proof": "remote-helper-resolution-owning-scope.json",
+    "notProductProof": "Initial root-scope eval import failed module resolution; retained remote-helper-resolution.json is harness setup diagnostic, then owning-scope resolver correction used."
+  },
+  "logs": {
+    "3127-loaded-cohort/attempt-1-child.stderr.log": "04c455971634bcfc30b7b1848e8751f7f9d645e0feb76c68e78c7cb635d38322",
+    "3127-loaded-cohort/remote-helper-resolution-owning-scope.json": "63757e4fd9853c009ea151c484df769c1d64f168313d405552dba5b513c5b095",
+    "3127-loaded-cohort/attempt-3-child.stdout.log": "b98ab31b93e80bfcdbe7e760d6f8060ca922b96fd01b0ebc9a239b5c09a0ba56",
+    "3127-loaded-cohort/attempt-3.stderr.log": "7b2a3658d0a833cf91abd30f87529664272f20b353aa749b6961c3cb2baf9c3b",
+    "3127-loaded-cohort/attempt-2.stdout.log": "37c07a86492a40f5171b0c9e73825ce92790e578381ac72e0823729e322954dc",
+    "3127-loaded-cohort/attempt-2-child.stdout.log": "7aba616f08b45a2423f105d2b947e912a4958b24ff58504c4c60925d26dd599c",
+    "3127-loaded-cohort/cohort.json": "b306da34d14748d7b40c22d9c8243ad5e21245b415083dd00a931eca9ca61b98",
+    "3127-loaded-cohort/attempt-1.stderr.log": "16bfb3ce2cc035883614ad5db6f36322f97d8cca34d1edb28528dd9a266bf4ce",
+    "3127-loaded-cohort/attempt-3.stdout.log": "37c07a86492a40f5171b0c9e73825ce92790e578381ac72e0823729e322954dc",
+    "3127-loaded-cohort/attempt-1-child.stdout.log": "15265ec8871b7661d8ec3f60e1604965c1fe37f2a3e8b77d601d9c71bf778ed2",
+    "3127-loaded-cohort/smithers-sql-matrix-v3kzLq.server.log": "c9eee382d9342b7234be7fb2005b6b2207b004d7e568585a792630f0398f8491",
+    "3127-loaded-cohort/attempt-3-child.stderr.log": "8f92f59c94a00ebda2ca0e6bbb2c16d6473025d70f7a2d6c2757c1117c70c5f6",
+    "3127-loaded-cohort/smithers-sql-matrix-DhnNOj.server.log": "40b558d479ebb367cdfa4b2b6ee494f036018ce434b310920b3c1907a390653f",
+    "3127-loaded-cohort/smithers-sql-matrix-gFoN3z.server.log": "a6c65b14a23114d0e36d55b8bb74c58c34d76556f8820d86d06a3a6efc00975a",
+    "3127-loaded-cohort/processes-0325.txt": "555d3a4f9ee16635b00a76f4d684a2742bca4b8d52be32ac3aee226b8d928783",
+    "3127-loaded-cohort/remote-helper-resolution.json": "be1e9f684f0ce2c2383ea6566b2993f39ab588bf29dc1124cf9b0d7f4020ccdb",
+    "3127-loaded-cohort/attempt-2.stderr.log": "bcdb9dd204610151c496b580da892b4035b933397adb892cbb095fbed389b553",
+    "3127-loaded-cohort/attempt-1.stdout.log": "37c07a86492a40f5171b0c9e73825ce92790e578381ac72e0823729e322954dc",
+    "3127-loaded-cohort/attempt-2-child.stderr.log": "b05d4e80c7c4661c6c6fe0983bd24dacaa0e4efe539571745615570922707865"
+  },
+  "noSharedProcessesRemaining": true
+}
