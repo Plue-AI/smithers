@@ -116,15 +116,13 @@ exported.
 Each peer is needed only by the subpath that uses it, so an app that skips a
 subpath skips its peer:
 
-| Peer                           | Range          | Needed by                                                |
-| ------------------------------ | -------------- | -------------------------------------------------------- |
-| `@effect/platform-node`        | `4.0.0-rc.115` | `./testing`                                              |
-| `@effect/platform-node-shared` | `4.0.0-rc.115` | `./testing`                                              |
-| `@smthrs/testing`              | `1.0.0-rc.1`   | `./testing`                                              |
-| `react`                        | `^19.2.8`      | `./ui`, and any page or layout                           |
-| `vite`                         | `^8.2.2`       | `./vite`                                                 |
-| `vitest`                       | `^5.0.0`       | `./testing`                                              |
-| `tsx`                          | `^4.23.13`     | `loadManifest` in `./vite`, which evaluates `PACKAGE.ts` |
+| Peer              | Range        | Needed by                                                |
+| ----------------- | ------------ | -------------------------------------------------------- |
+| `@smthrs/testing` | `1.0.0-rc.1` | `./testing`                                              |
+| `react`           | `^19.2.8`    | `./ui`, and any page or layout                           |
+| `vite`            | `^8.2.2`     | `./vite`                                                 |
+| `vitest`          | `^5.0.0`     | `./testing`                                              |
+| `tsx`             | `^4.23.13`   | `loadManifest` in `./vite`, which evaluates `PACKAGE.ts` |
 
 The default library install has no test runner or testing facade. To use
 `@smthrs/create-app/testing`, install its prerequisites explicitly: `@smthrs/testing`,

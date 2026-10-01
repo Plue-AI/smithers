@@ -1,0 +1,53 @@
+{
+  "issue": 3349,
+  "status": "READY_FROZEN",
+  "head": "ae10c0d2eb5e2dcd184ddae4299789625e3daaf3",
+  "sources": [
+    {
+      "path": "packages/smithers/create-app/docs/installation.md",
+      "sha256": "1c0552456982b97f2f52bd4f3d2b76e1274efea4c1893ed54e96086be69ebb3b"
+    }
+  ],
+  "change": "Remove exactly two stale optional-peer table rows; no dependency/lock changes.",
+  "provenanceCommit": "b25c593908c6e86bbc53e218288f46ed7c299fc1",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run",
+      "cwd": "packages/smithers/create-app",
+      "exitCode": 0,
+      "files": 25,
+      "passed": 313,
+      "coverage": {
+        "statements": "699/699",
+        "branches": "342/342",
+        "functions": "142/142",
+        "lines": "623/623"
+      },
+      "log": "owning-green.log"
+    }
+  ],
+  "priorRed": "owning-red.log: 312 pass, 1 stale optional-peer table failure",
+  "limits": [
+    "Full gate includes two uncommitted #2271 template boundary regressions; original preexisting library suite is green as part of this run.",
+    "Focused docsParity alone had17 passing assertions but exited1 at unchanged global100 coverage thresholds; full configured gate subsequently passed.",
+    "Canonical docs generator reserved to root."
+  ],
+  "rawReceipts": [
+    {
+      "path": "before-installation.md",
+      "sha256": "01d9f9b36eed21be847d5e8ea9585df2a8939a68d343b77d7fc8e1371e3f49f9"
+    },
+    {
+      "path": "owning-green.log",
+      "sha256": "907c2eb5486d6713081f6f7eed611da3a701db2d795b0ed61f50dacc972d8ac8"
+    },
+    {
+      "path": "owning-red.log",
+      "sha256": "36722bbeb234888952c274c81c52ac42778f1e34b7064f30c3effed9c421a277"
+    },
+    {
+      "path": "provenance.json",
+      "sha256": "e43720e63d9c37c8b7badb75b2b0dbb2b3eb3d29fa49e95c93c9647f09b396c8"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "issue": 3349,
+  "sourceChange": "Remove two obsolete optional-peer rows, canonically realign the remaining table, and regenerate the owning docs mirror.",
+  "review": "Root verified exact Sol source hash, prior red and green raw receipts, and sealed archive contents. No dependencies or thresholds changed.",
+  "solGate": {
+    "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run",
+    "cwd": "packages/smithers/create-app",
+    "exitCode": 0,
+    "files": 25,
+    "passed": 313,
+    "coverage": {
+      "statements": "699/699",
+      "branches": "342/342",
+      "functions": "142/142",
+      "lines": "623/623"
+    },
+    "log": "owning-green.log"
+  },
+  "sourceFiles": [
+    "packages/smithers/create-app/docs/installation.md",
+    "apps/docs/create-app/src/content/docs/installation.md"
+  ],
+  "sourceHashes": {
+    "packages/smithers/create-app/docs/installation.md": "a6c3240a81d6bd2d00c3a6f0df734ae21727b8ee2f05aa5a8cc46395710cf52f",
+    "apps/docs/create-app/src/content/docs/installation.md": "61baa39c6dd04cab9087f4c79ae33a88ec614428426df155aeb39f5e3973b26f"
+  },
+  "independentCleanGate": {
+    "issue": 3349,
+    "status": "PASS independently with all2271WIP stashed",
+    "qualifiedBaseCommit": "3c5e4f66446ac3b0d0508f47d935745664f00dcb",
+    "qualifiedWorkingTreeChanges": "Canonical table reformatting in source and regenerated mirror; exact final source hashes below. Only receipts change after this qualification.",
+    "sourceHashes": {
+      "packages/smithers/create-app/docs/installation.md": "a6c3240a81d6bd2d00c3a6f0df734ae21727b8ee2f05aa5a8cc46395710cf52f",
+      "apps/docs/create-app/src/content/docs/installation.md": "61baa39c6dd04cab9087f4c79ae33a88ec614428426df155aeb39f5e3973b26f"
+    },
+    "originMain": "ae10c0d2eb5e2dcd184ddae4299789625e3daaf3",
+    "command": "pnpm exec vitest run",
+    "cwd": "packages/smithers/create-app",
+    "exitCode": 0,
+    "files": 24,
+    "tests": 311,
+    "coverage": {
+      "statements": "699/699",
+      "branches": "342/342",
+      "functions": "142/142",
+      "lines": "623/623"
+    },
+    "owningInputs": 361,
+    "inputHashesUnchanged": true,
+    "docsCheck": {
+      "command": "node apps/docs/shared/sync-content.mjs create-app --check",
+      "exitCode": 0
+    },
+    "formatCheck": {
+      "command": "../node_modules/.bin/dprint check docs/installation.md --config dprint.json",
+      "cwd": "packages/smithers/create-app",
+      "exitCode": 0
+    },
+    "limits": [
+      "Independent full owning suite excludes the two unlanded2271 template tests; those were qualified separately by Sol.",
+      "An initial inventory and formatter invocation used incorrect repository-relative paths from the package/root cwd; corrected owning paths, full source inventories and final configured gates are authoritative. Intermediate attempts retained.",
+      "Only two peer rows were removed; remaining table cells were canonically realigned. No dependencies or thresholds changed."
+    ]
+  },
+  "limits": [
+    "Full gate includes two uncommitted #2271 template boundary regressions; original preexisting library suite is green as part of this run.",
+    "Focused docsParity alone had17 passing assertions but exited1 at unchanged global100 coverage thresholds; full configured gate subsequently passed.",
+    "Canonical docs generator reserved to root."
+  ],
+  "independentArchiveSha256": "84969fe9eda5aadc3b7d2273e84b8b4da694c3f78227615a7baddb906e3e0a10"
+}
