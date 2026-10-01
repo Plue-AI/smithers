@@ -271,7 +271,9 @@ workspaces["workspace exec"] = async (c, a, o) => {
     receipt = object(
       await c.request("POST", path, {
         operation_id: requestID,
-        args: ["/bin/bash", "-lc", str(o.command)],
+        // A login shell's logout hooks can replace the command's exit status
+        // under errexit, including after an EXIT trap has reported success.
+        args: ["/bin/bash", "-c", str(o.command)],
         ...(o.cwd ? { directory: str(o.cwd) } : {}),
         environment
       })

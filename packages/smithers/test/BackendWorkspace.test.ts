@@ -161,7 +161,7 @@ describe("box remote execution", () => {
       .resolves.toMatchObject({ exit_code: 0, stdout: "done", stderr: "" })
     expect(request).toHaveBeenCalledWith("POST", "/api/repos/owner/repo/workspaces/box/command-runs", {
       operation_id: "admitted",
-      args: ["/bin/bash", "-lc", "printf done"],
+      args: ["/bin/bash", "-c", "printf done"],
       environment: {}
     })
   })
@@ -170,7 +170,7 @@ describe("box remote execution", () => {
     let polls = 0
     request.mockImplementation(async (method, path, body) => {
       if (method === "POST" && path.endsWith("/command-runs")) {
-        expect(body).toMatchObject({ operation_id: "tests-1", args: ["/bin/bash", "-lc", "pnpm test"] })
+        expect(body).toMatchObject({ operation_id: "tests-1", args: ["/bin/bash", "-c", "pnpm test"] })
         return { operationId: "op-1", state: "accepted" }
       }
       if (method === "GET" && path.endsWith("/command-runs/op-1")) {
@@ -254,7 +254,7 @@ describe("box remote execution", () => {
     ).toMatchObject({ exit_code: 9, stdout: "out", stderr: "err" })
     expect(request).toHaveBeenCalledWith("POST", "/api/repos/owner/repo/workspaces/box/command-runs", {
       operation_id: "retry",
-      args: ["/bin/bash", "-lc", "printf '$value'"],
+      args: ["/bin/bash", "-c", "printf '$value'"],
       environment: { VALUE: "a b", EMPTY: "" },
       directory: "/a'b"
     })

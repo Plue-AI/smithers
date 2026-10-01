@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Client } from "../src/internal/backend/Client.ts"
+import { quote } from "../src/internal/backend/SSH.ts"
 import { workspaces } from "../src/internal/backend/Workspaces.ts"
 
 const dirs: string[] = []
@@ -59,6 +60,7 @@ case "$3" in "$TEST_GUEST"/*) exit 0 ;; *) exit 1 ;; esac
   }
   const shell = ["/bin/dash", "/usr/bin/dash"].find(existsSync) ?? "/bin/sh"
   const log = join(home, "shell.log")
+  const exit = vi.fn()
   const c = new Client({
     environment: {
       HOME: home,
@@ -72,7 +74,7 @@ case "$3" in "$TEST_GUEST"/*) exit 0 ;; *) exit 1 ;; esac
       TEST_LOGIN_SHELL: shell,
       TEST_FAIL_SEED: failSeed ? "1" : "0"
     },
-    exit: vi.fn()
+    exit
   })
   let result: unknown
   // The unavailable remote command service executes its exact submitted argv
@@ -83,7 +85,7 @@ case "$3" in "$TEST_GUEST"/*) exit 0 ;; *) exit 1 ;; esac
     }
     if (method === "POST" && path.endsWith("/command-runs")) {
       const args = (body as { args: string[] }).args
-      expect(args.slice(0, 2)).toEqual(["/bin/bash", "-lc"])
+      expect(args[0]).toBe("/bin/bash")
       const executed = spawnSync(args[0]!, args.slice(1), { encoding: "utf8", env: c.env, cwd: home })
       result = {
         exit_code: executed.status,
@@ -98,10 +100,42 @@ case "$3" in "$TEST_GUEST"/*) exit 0 ;; *) exit 1 ;; esac
     }
     throw new Error(`Unexpected ${method} ${path}`)
   })
-  return { c, guest, log, request, key, shell }
+  return { c, guest, log, request, key, shell, home, exit }
 }
 
 describe("workspace shell execution (#1865)", () => {
+  it("preserves command exit codes without running login logout hooks (plue#785)", async () => {
+    const { c, home, exit } = await fixture()
+    const logout = join(home, "logout.log")
+    await writeFile(join(home, ".bash_logout"), `printf logout > "$HOME/logout.log"\nfalse\n`)
+    const prelude = `set -eu\nexport HOME=${quote(home)}\n`
+    // The actual workload's EXIT trap calls exit under errexit. A login shell
+    // runs .bash_logout at that point, whose failing console cleanup can
+    // replace a successful command's status even after the trap prints zero.
+    const trap = `trap 'rc=$?; printf "EXIT=%s\\n" "$rc"; exit "$rc"' EXIT\n`
+    const control = spawnSync("/bin/bash", ["-lc", prelude + trap + "true"], { encoding: "utf8", env: c.env })
+    expect(control.status).toBe(1)
+    expect(control.stdout).toBe("EXIT=0\n")
+    expect(await readFile(logout, "utf8")).toBe("logout")
+    await rm(logout)
+
+    for (const test of [
+      { body: "printf done", code: 0, stdout: "done" },
+      { body: "exit 0", code: 0, stdout: "" },
+      { body: trap + "true", code: 0, stdout: "EXIT=0\n" },
+      { body: "exit 23", code: 23, stdout: "" },
+      { body: trap + "exit 7", code: 7, stdout: "EXIT=7\n" }
+    ]) {
+      exit.mockClear()
+      const response = await workspaces["workspace exec"]!(c, { id: "box" }, {
+        repo: "owner/repo", command: prelude + test.body
+      })
+      expect(response).toMatchObject({ exit_code: test.code, stdout: test.stdout, stderr: "" })
+      expect(exit).toHaveBeenCalledExactlyOnceWith(test.code)
+      expect(existsSync(logout)).toBe(false)
+    }
+  })
+
   it("seeds a Claude API key through Bash under a POSIX login shell", async () => {
     const { c, guest, log, key, shell } = await fixture()
     if (shell.endsWith("dash")) {
