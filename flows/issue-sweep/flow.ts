@@ -2,7 +2,8 @@
  * `issue-sweep`: works every open GitHub issue that no other machine holds,
  * as a `Burndown` from `@smthrs/patterns`. Each round asks the Codex and
  * Claude account pools for capacity, lists the open issues, claims the ones
- * that are ours, fixes each in its own jj workspace (`issue-sweep/work`), lands
+ * that are ours, triages each (`triage.ts`) so only an issue that needs a code
+ * change is claimed, fixes each in its own jj workspace (`issue-sweep/work`), lands
  * each result on `main` as its fix finishes, checking up to `landers` changes
  * at once and pushing one at a time, and releases every claim. A finished fix
  * frees its slot for the next issue. With every account out, the sweep parks
@@ -10,15 +11,17 @@
  * `issue-sweep/accounts-reset`.
  */
 import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
+import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Burndown } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Crypto from "effect/Crypto"
-import { readdir } from "node:fs/promises"
+import { appendFile, readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, type Pools, readPools } from "./accounts.ts"
-import { api, openIssues } from "./github.ts"
+import { api, issue as readIssue, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
+import { cachePath, classify, fileCache, screen, type Seams } from "./triage.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
 import { vmFields, vmOptions } from "./vm-options.ts"
 import { statfsFree } from "./vm.ts"
@@ -48,7 +51,9 @@ const Issue = Schema.Struct({
   id: Schema.String,
   number: Schema.Number,
   title: Schema.String,
-  labels: Schema.Array(Schema.String)
+  labels: Schema.Array(Schema.String),
+  // Optional so a run journaled before triage still decodes its issue lists.
+  updatedAt: Schema.optional(Schema.String)
 })
 
 export class GhFailed extends Schema.TaggedError<GhFailed>()("issue-sweep/GhFailed", {
@@ -106,7 +111,8 @@ export default Flow.make("issue-sweep", {
     "proc:spawn:codex *",
     "proc:spawn:codex-rr *",
     "proc:spawn:claude-rr *",
-    "proc:spawn:claude-as *"
+    "proc:spawn:claude-as *",
+    "model:call:typesafe-ai/jev"
   ],
   effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
   modelInvocable: false,
@@ -136,6 +142,39 @@ export const parkedFor = (issue: { readonly title: string; readonly labels: Read
     : /^deferred\b/i.test(issue.title.trim())
     ? "deferred"
     : undefined
+
+// Labels and whole title words that mark a bug, a test failure, or a regression.
+const urgentLabel = /^(?:bug|regression|severity:.+)$/
+const urgentTitle = /\b(?:fail(?:s|ed|ing|ures?)?|reds?|broken|crash(?:es|ed|ing)?|errors?)\b/i
+
+/** Whether `issue` reports a bug, a test failure, or a regression, by its labels or its title. */
+export const urgent = (issue: { readonly title: string; readonly labels: ReadonlyArray<string> }): boolean =>
+  issue.labels.some((label) => urgentLabel.test(label)) || urgentTitle.test(issue.title)
+
+const updated = (issue: { readonly updatedAt?: string | undefined }) => {
+  const at = Date.parse(issue.updatedAt ?? "")
+  return Number.isNaN(at) ? -Infinity : at
+}
+
+/**
+ * The order the sweep works issues in, which is the order a round launches
+ * them: {@link urgent} issues first, then the most recently updated, then
+ * the lowest number.
+ */
+export const byPriority = (
+  a: {
+    readonly number: number
+    readonly title: string
+    readonly labels: ReadonlyArray<string>
+    readonly updatedAt?: string | undefined
+  },
+  b: {
+    readonly number: number
+    readonly title: string
+    readonly labels: ReadonlyArray<string>
+    readonly updatedAt?: string | undefined
+  }
+): number => Number(urgent(b)) - Number(urgent(a)) || updated(b) - updated(a) || a.number - b.number
 
 /** Skip an issue only while the Mac mini holds an unexpired claim on it. */
 export const decide = (claim: string | undefined, nowMillis: number): "skip" | "ours" => {
@@ -171,7 +210,7 @@ const reapWorkspaces = (open: ReadonlySet<number>) =>
 const listIssues = ListIssues.toLayer(({ input }) =>
   github(openIssues(input.repo)).pipe(
     Effect.tap((rows) => reapWorkspaces(new Set(rows.map((row) => row.number)))),
-    Effect.map((rows) => rows.map((row) => ({ id: String(row.number), ...row })))
+    Effect.map((rows) => rows.map((row) => ({ id: String(row.number), ...row })).toSorted(byPriority))
   )
 )
 
@@ -373,6 +412,109 @@ const settleNoChange = (repo: string, issue: number, verdict: NoChange) =>
     return yield* verdict
   })
 
+/** What selection reaches beyond the issue itself; tests replace each one. */
+export interface SelectSeams<E, R> extends Seams<E, R> {
+  readonly requalified: (repo: string, issue: number) => Effect.Effect<boolean, E, R>
+  readonly newestClaim: (repo: string, issue: number) => Effect.Effect<string | undefined, E, R>
+}
+
+/**
+ * Whether an issue is ours. A parked issue, a `sweep:no-change` issue no human
+ * acted on, and one the Mac mini holds are skipped without reading it; any
+ * other is ours only when triage finds it needs a code change.
+ */
+export const selectWith =
+  <E, R>(seams: SelectSeams<E, R>) =>
+  (args: Burndown.ItemArgs<unknown, Item>): Effect.Effect<Burndown.Selection, E, R> =>
+    Effect.gen(function*() {
+      const repo = repoOf(args)
+      const parked = parkedFor(args.item)
+      if (parked !== undefined) return Burndown.skip(parked)
+      if (args.item.labels.includes(noChangeLabel) && !(yield* seams.requalified(repo, args.item.number))) {
+        return Burndown.skip("no change; waiting on a human")
+      }
+      if (args.item.labels.includes("in-progress")) {
+        const now = yield* Clock.currentTimeMillis
+        if (decide(yield* seams.newestClaim(repo, args.item.number), now) === "skip") {
+          return Burndown.skip(`claimed on ${macMini}`)
+        }
+      }
+      return yield* screen(repo, args.item, seams)
+    })
+
+// At most this many triage readings at once, whatever a round's width.
+const readings = Semaphore.makeUnsafe(8)
+
+const liveSeams: SelectSeams<GhFailed, Evaluator.Evaluator> = {
+  cache: fileCache(cachePath),
+  requalified: (repo, issue) => github(requalified(repo, issue)),
+  newestClaim,
+  read: (repo, issue) => github(readIssue(repo, issue)),
+  classify: (text) => Semaphore.withPermit(readings, classify(text)),
+  record: (repo, issue, triaged, need) =>
+    Effect.flatMap(
+      Clock.currentTimeMillis,
+      (now) => github(recordVerdict(repo, issue, triaged.reason, new Date(now).toISOString(), need))
+    )
+}
+
+/**
+ * The triage judge: Jev through the AI Gateway when `AI_GATEWAY_API_KEY` is
+ * set, and otherwise GPT-6 Luna on the operator's ChatGPT login, the
+ * subscription the sweep's Codex agents already run on. With neither, every
+ * reading fails typed and no issue is claimed. The host judge takes seconds
+ * to import, so it loads when the sweep starts, not when its flow is planned.
+ */
+const judge = Layer.unwrap(
+  Effect.promise(() => import("@smthrs/cli/NodeControl")).pipe(
+    Effect.map((NodeControl) => {
+      const environment = { ...process.env, SMITHERS_OPENAI_AUTH: process.env["SMITHERS_OPENAI_AUTH"] ?? "chatgpt" }
+      return NodeControl.layerSeatEvaluator(environment).pipe(
+        Layer.provide(NodeControl.layerRebuildableRequestExecutor(NodeControl.environmentDispatcher(environment)))
+      )
+    })
+  )
+)
+
+/**
+ * What a round spent agents on: `claimed` issues an agent worked to an end,
+ * `changed` those whose agent produced a change (landed, or failed only at
+ * landing), `noChange` those whose agent edited nothing, and `triaged` the
+ * issues triage kept from an agent. A requeued issue counts in the round
+ * that settles it.
+ */
+export const roundStats = (rows: ReadonlyArray<Burndown.Row>) => {
+  const claimed = rows.filter((row) =>
+    (row.status === "landed" || row.status === "failed") && !row.detail.startsWith("claim: ")
+  )
+  return {
+    claimed: claimed.length,
+    changed: claimed.filter((row) => row.status === "landed" || row.detail.startsWith("land: ")).length,
+    noChange: claimed.filter((row) => row.detail.startsWith("work: ") && row.detail.includes(": no change: ")).length,
+    triaged: rows.filter((row) => row.status === "skipped" && row.detail.startsWith("triage: ")).length
+  }
+}
+
+/** Each round appends one JSON line of {@link roundStats} here, keyed by repository, attempt and round. */
+export const roundsLog = `${workspaces}/rounds.jsonl`
+
+const logRound = (input: typeof Input.Type, round: number, rows: ReadonlyArray<Burndown.Row>) =>
+  Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    Effect.promise(() =>
+      appendFile(
+        roundsLog,
+        `${
+          JSON.stringify({
+            at: new Date(now).toISOString(),
+            repo: input.repo,
+            attempt: input.attempt ?? 1,
+            round,
+            ...roundStats(rows)
+          })
+        }\n`
+      ).catch(() => undefined)
+    ))
+
 // One gate per `landers` value: at most that many landings check at once.
 const landGates = new Map<number, Semaphore.Semaphore>()
 const landGate = (landers: number) => {
@@ -381,24 +523,13 @@ const landGate = (landers: number) => {
   return gate
 }
 
-const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine, string> = {
+const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine | Evaluator.Evaluator, string> = {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
   // ceiling. A freed slot takes the next issue while the accounts still allow.
   concurrency: 32,
   capacity: (args) => readCapacity(args.input as typeof Input.Type),
-  select: (args) =>
-    Effect.gen(function*() {
-      const parked = parkedFor(args.item)
-      if (parked !== undefined) return Burndown.skip(parked)
-      if (args.item.labels.includes(noChangeLabel) && !(yield* github(requalified(repoOf(args), args.item.number)))) {
-        return Burndown.skip("no change; waiting on a human")
-      }
-      if (!args.item.labels.includes("in-progress")) return Burndown.ours
-      const now = yield* Clock.currentTimeMillis
-      const claim = yield* newestClaim(repoOf(args), args.item.number)
-      return decide(claim, now) === "skip" ? Burndown.skip(`claimed on ${macMini}`) : Burndown.ours
-    }),
+  select: selectWith(liveSeams),
   claim: (args) =>
     Effect.flatMap(
       claimCommand(["claim", ref(args), "--by", by]),
@@ -516,8 +647,8 @@ const dispatch = Dispatch.toLayer((payload) =>
         ((payload.input as typeof Input.Type).maxAgents ?? 4) + ((payload.input as typeof Input.Type).cloudAgents ?? 0)
       )
     )
-  })
-)
+  }).pipe(Effect.tap((result) => logRound(payload.input as typeof Input.Type, payload.round, result.rows)))
+).pipe(Layer.provide(judge))
 
 // The rounds are a flow of their own that no file declares, so this module
 // registers them; the host registers only discovered file flows.

@@ -7,6 +7,7 @@ import type * as HttpClient from "effect/unstable/http/HttpClient"
 import { matchesGlob } from "node:path"
 import { CodingError } from "../coding/schema.ts"
 import type { Comparison, SemanticVerdict } from "./checks.ts"
+import { clip } from "./clip.ts"
 import type { Check } from "./schema.ts"
 
 /** A hunk Jev is asked about: the candidate file, the first line the hunk
@@ -32,19 +33,6 @@ export const MAX_HUNK_BYTES = 32 * 1024
 /** The most hunks one batched evaluation may carry, matching `@smthrs/std`. */
 export const MAX_STATES = 64
 
-const encoder = new TextEncoder()
-const bytes = (value: string): number => encoder.encode(value).length
-/** Clips one string to a byte budget without splitting a surrogate pair. Every
- * classifier in this directory holds its state to the same 32 KiB, so they all
- * clip the same way. */
-export const clip = (value: string, limit: number): string => {
-  if (limit <= 0) return ""
-  if (bytes(value) <= limit) return value
-  let end = Math.min(value.length, limit)
-  while (end > 0 && bytes(value.slice(0, end)) > limit) end -= 1
-  if (end > 0 && value.codePointAt(end - 1)! >= 0xd800 && value.codePointAt(end - 1)! <= 0xdbff) end -= 1
-  return value.slice(0, end)
-}
 const bounded = (text: string): { readonly hunk: string; readonly complete: boolean } => {
   const hunk = clip(text, MAX_HUNK_BYTES)
   return { hunk, complete: hunk === text }

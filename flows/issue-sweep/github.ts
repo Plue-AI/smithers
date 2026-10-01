@@ -32,10 +32,11 @@ const IssuePages = Schema.fromJsonString(Schema.Array(Schema.Array(Schema.Struct
   number: Schema.Number,
   title: Schema.String,
   labels: Schema.Array(Schema.Struct({ name: Schema.String })),
+  updated_at: Schema.String,
   pull_request: Schema.optional(Schema.Unknown)
 }))))
 
-/** Every open issue of `repo`, without pull requests. */
+/** Every open issue of `repo`, without pull requests, with when it last changed. */
 export const openIssues = (repo: string) =>
   api(`repos/${repo}/issues?state=open&per_page=100`, ["--paginate", "--slurp"]).pipe(
     Effect.flatMap(Schema.decodeEffect(IssuePages)),
@@ -43,7 +44,8 @@ export const openIssues = (repo: string) =>
       pages.flat().filter((issue) => issue.pull_request === undefined).map((issue) => ({
         number: issue.number,
         title: issue.title,
-        labels: issue.labels.map((label) => label.name)
+        labels: issue.labels.map((label) => label.name),
+        updatedAt: issue.updated_at
       }))
     )
   )

@@ -30966,6 +30966,10 @@
         "path": "flows/issue-sweep/test/land-queue.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/triage.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []

@@ -1,8 +1,10 @@
 /**
- * The no-change verdict: an agent that edited nothing reports why, and the
- * sweep records that once on the issue, labels it `sweep:no-change`, and stops
- * dispatching it until a human acts. A verdict our own infrastructure caused
- * (a missing tool, a killed compiler) is never recorded; the next run retries.
+ * The no-change verdict: an agent that edited nothing reports why, or triage
+ * (`triage.ts`) finds the issue needs no code change before any agent runs,
+ * and the sweep records that once on the issue, labels it `sweep:no-change`,
+ * and stops dispatching it until a human acts. A verdict our own
+ * infrastructure caused (a missing tool, a killed compiler) is never recorded;
+ * the next run retries.
  */
 import { Effect } from "effect"
 import { api } from "./github.ts"
@@ -40,7 +42,7 @@ export const infraCaused = (report: string): string | undefined => {
   return undefined
 }
 
-export type Need = "environment" | "acceptance" | "design decision"
+export type Need = "environment" | "acceptance" | "operator" | "evidence" | "design decision"
 
 /** What a no-change verdict needs from a human. */
 export const needOf = (report: string): Need =>
@@ -61,9 +63,20 @@ export const evidenceOf = (report: string, limit = 1500): string => {
   return `${line > 0 ? cut.slice(0, line) : cut}\n…`
 }
 
-/** The verdict comment for `report`, recorded at the ISO time `at`. */
-export const verdictBody = (report: string, at: string): string =>
-  [`${marker} ${at} -->`, `**No change.** Needs: ${needOf(report)}`, "", "```text", evidenceOf(report), "```"].join("\n")
+/**
+ * The verdict comment for `report`, recorded at the ISO time `at`. A verdict
+ * from triage carries the need its judge chose and says no agent ran; an
+ * agent's verdict derives the need from the agent's report.
+ */
+export const verdictBody = (report: string, at: string, triaged?: Need): string =>
+  [
+    `${marker} ${at}${triaged === undefined ? "" : " triage"} -->`,
+    `**No change.** Needs: ${triaged === undefined ? needOf(report) : `${triaged} (triage; no agent ran)`}`,
+    "",
+    "```text",
+    evidenceOf(report),
+    "```"
+  ].join("\n")
 
 /** Update the issue's marked comment in place when there is one; add one otherwise. */
 export const verdictWrite = (
@@ -94,7 +107,7 @@ export interface TimelineEntry {
 }
 
 // Comments scripts/issue-claim.mjs and the sweep post, whichever identity posts them.
-const bookkeeping = /^(?:Claimed by|Released by|Took over|Landed on main by issue-sweep)/
+export const bookkeeping = /^(?:Claimed by|Released by|Took over|Landed on main by issue-sweep)/
 
 const ours = (person: Person | null | undefined) =>
   person != null && (person.type === "Bot" || person.login.endsWith("[bot]"))
@@ -153,16 +166,17 @@ export const requalified = (repo: string, issue: number) =>
 
 /**
  * Records a no-change verdict on the issue: one marked comment, updated in
- * place on a later verdict, and the `sweep:no-change` label.
+ * place on a later verdict, and the `sweep:no-change` label. `triaged` is the
+ * need triage chose, when the verdict comes from triage instead of an agent.
  */
-export const recordVerdict = (repo: string, issue: number, report: string, at: string) =>
+export const recordVerdict = (repo: string, issue: number, report: string, at: string, triaged?: Need) =>
   Effect.gen(function*() {
     const pages = yield* Effect.flatMap(
       api(`repos/${repo}/issues/${issue}/comments?per_page=100`, ["--paginate", "--slurp"]),
       (text) => parse<ReadonlyArray<ReadonlyArray<{ readonly id: number; readonly body: string | null }>>>(text)
     )
     const write = verdictWrite(repo, issue, pages.flat())
-    yield* api(write.path, ["-X", write.method, "-f", `body=${verdictBody(report, at)}`])
+    yield* api(write.path, ["-X", write.method, "-f", `body=${verdictBody(report, at, triaged)}`])
     // Adding a label the repository lacks creates it.
     yield* api(`repos/${repo}/issues/${issue}/labels`, ["-X", "POST", "-f", `labels[]=${noChangeLabel}`])
   })

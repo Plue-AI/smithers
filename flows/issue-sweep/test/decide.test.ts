@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import {
+  byPriority,
   claimTool,
   decide,
   Input,
@@ -11,7 +12,9 @@ import {
   minFreeBytes,
   parkedFor,
   releasesClaim,
-  staleWorkspaces
+  roundStats,
+  staleWorkspaces,
+  urgent
 } from "../flow.ts"
 import { vmOptions } from "../vm-options.ts"
 import Work, { RemoteFix } from "../work/flow.ts"
@@ -134,4 +137,75 @@ test("placement leases admit all VM agent slots, then cloud, and release idempot
   assert.equal(slots.reserve(input, minFreeBytes), undefined)
   cloud!.release()
   assert.equal(slots.reserve(input, minFreeBytes, "cloud")?.placement, "cloud")
+})
+
+// Triage spends agents only on code changes, so bugs and fresh activity go first.
+test("bugs, regressions, severities and failing titles come first, then the newest activity", () => {
+  const issue = (number: number, title: string, labels: ReadonlyArray<string>, updatedAt?: string) => ({
+    number,
+    title,
+    labels,
+    ...(updatedAt === undefined ? {} : { updatedAt })
+  })
+  const order = [
+    issue(1, "Add a docs page", [], "2026-10-01T12:00:00Z"),
+    issue(2, "Old report", ["bug"], "2026-09-01T00:00:00Z"),
+    issue(3, "CI red on main", [], "2026-09-30T00:00:00Z"),
+    issue(4, "Refactor the planner", [], "2026-10-01T13:00:00Z"),
+    issue(5, "Sign-in", ["severity:high"], "2026-10-01T00:00:00Z"),
+    issue(6, "No timestamp", []),
+    issue(7, "Tie broken by number", ["regression"], "2026-10-01T00:00:00Z")
+  ].toSorted(byPriority).map((found) => found.number)
+  assert.deepEqual(order, [5, 7, 3, 2, 4, 1, 6])
+})
+
+test("urgency reads labels and whole words of the title", () => {
+  for (
+    const title of [
+      "Tests fail on Linux",
+      "flow test failing",
+      "Failure to boot",
+      "CI red",
+      "Broken link",
+      "Crash on start",
+      "crashes",
+      "Errors in the log",
+      "error: x"
+    ]
+  ) {
+    assert.equal(urgent({ title, labels: [] }), true, title)
+  }
+  for (const title of ["Required fields", "Reduce allocations", "Failover for the proxy", "Shared cache", "Terror"]) {
+    assert.equal(urgent({ title, labels: [] }), false, title)
+  }
+  for (const label of ["bug", "regression", "severity:low", "severity:high"]) {
+    assert.equal(urgent({ title: "x", labels: [label] }), true, label)
+  }
+  assert.equal(urgent({ title: "x", labels: ["enhancement", "documentation", "in-progress"] }), false)
+})
+
+// Measurement: the fraction of claimed issues that produced a change.
+test("round stats count claimed issues and those whose agent produced a change", () => {
+  const row = (status: "landed" | "held" | "failed" | "skipped" | "requeued", detail: string) => ({
+    id: String(Math.random()),
+    status,
+    detail
+  })
+  assert.deepEqual(
+    roundStats([
+      row("landed", "abc by codex codex-1"),
+      row("failed", "land: conflict in a.ts"),
+      row("failed", "work: codex-2 on issue-9: no change: needs a deploy"),
+      row("failed", "work: claude-1 on x: no change: y; verdict not recorded: rate limited"),
+      row("failed", "work: agent exited 1"),
+      row("failed", "claim: issue-claim claim: exit 1"),
+      row("held", "Claimed by someone"),
+      row("skipped", "triage: operator: asks for a deploy (confidence 0.90)"),
+      row("skipped", "triage failed: triage: timeout: slow"),
+      row("skipped", "no change; waiting on a human"),
+      row("requeued", "work: interrupted")
+    ]),
+    { claimed: 5, changed: 2, noChange: 2, triaged: 1 }
+  )
+  assert.deepEqual(roundStats([]), { claimed: 0, changed: 0, noChange: 0, triaged: 0 })
 })

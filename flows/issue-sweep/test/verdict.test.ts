@@ -88,6 +88,27 @@ test("the verdict body carries the marker, the need, and the evidence", () => {
   assert.ok(body.startsWith(marker))
 })
 
+test("a triage verdict names the need the judge chose and that no agent ran", () => {
+  const body = verdictBody("asks for a deploy (confidence 0.90)", "2026-10-01T12:00:00.000Z", "operator")
+  assert.equal(
+    body,
+    [
+      "<!-- issue-sweep:no-change 2026-10-01T12:00:00.000Z triage -->",
+      "**No change.** Needs: operator (triage; no agent ran)",
+      "",
+      "```text",
+      "asks for a deploy (confidence 0.90)",
+      "```"
+    ].join("\n")
+  )
+  assert.ok(body.startsWith(marker))
+  // The same marked comment an agent verdict updates in place.
+  assert.deepEqual(verdictWrite("o/r", 7, [{ id: 9, body }]), { method: "PATCH", path: "repos/o/r/issues/comments/9" })
+  for (const need of ["acceptance", "evidence", "design decision"] as const) {
+    assert.ok(verdictBody("r", "2026-10-01T12:00:00.000Z", need).includes(`Needs: ${need} (triage; no agent ran)`))
+  }
+})
+
 test("evidence cannot close the body's code fence", () => {
   const body = verdictBody("before\n```\nafter", "2026-10-01T12:00:00.000Z")
   assert.equal(body.split("\n").filter((line) => line.startsWith("```")).length, 2)
@@ -186,7 +207,11 @@ test("a human editing an older comment after the label requalifies", () => {
 
 test("a human renaming the issue after the label requalifies", () => {
   assert.equal(
-    requalifies([labeled("2026-10-01T10:00:01Z"), { event: "renamed", created_at: "2026-10-01T12:00:00Z", actor: will }]),
+    requalifies([labeled("2026-10-01T10:00:01Z"), {
+      event: "renamed",
+      created_at: "2026-10-01T12:00:00Z",
+      actor: will
+    }]),
     true
   )
 })
@@ -208,7 +233,12 @@ test("a later verdict re-anchors: a human comment answered by a newer verdict pa
       labeled("2026-10-01T10:00:01Z"),
       commented("2026-10-01T11:00:00Z", human, "try again"),
       // The verdict comment updated in place by the next run's no-change.
-      commented("2026-10-01T10:00:00Z", will, `${marker} 2026-10-01T12:00:00Z -->\n**No change.**`, "2026-10-01T12:00:00Z")
+      commented(
+        "2026-10-01T10:00:00Z",
+        will,
+        `${marker} 2026-10-01T12:00:00Z -->\n**No change.**`,
+        "2026-10-01T12:00:00Z"
+      )
     ]),
     false
   )
