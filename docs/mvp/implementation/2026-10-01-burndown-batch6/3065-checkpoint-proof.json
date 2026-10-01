@@ -1,0 +1,80 @@
+{
+  "issue": 3065,
+  "status": "checkpoint PASS/FROZEN",
+  "head": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "owningHashesUnchanged": [
+    {
+      "path": "apps/tui/README.md",
+      "sha256": "088ff6a71f349a48ac3357e4f5f05bec5a5acc0350259ed795c21c2f211f8283",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/e2e/factory-retry.test.ts",
+      "sha256": "8b3696cf6e45cbf006b3384c8a40c13d15fcefb92eb510e7070513220d1cf720",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/src/app.tsx",
+      "sha256": "b85a3180cf0ab408147d323a8b2ce6f83f46cba29f95ff5eeb06ba239319af31",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/src/factory.ts",
+      "sha256": "142130e8a73535e4e0ce976e2cd3e1101ebdef98bd1683d870cd551e9cefc25f",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/src/panels.ts",
+      "sha256": "540e6740272c1e1f3a688a3ec0613f6587e3eefa24f5c61650e1e5f66d33ac23",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/test/extension.test.ts",
+      "sha256": "dd4279aea5476607742c1ce1a828c4ade51414b9899d4f98bcfb40678a4ad4e2",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/test/factory.test.ts",
+      "sha256": "dc0939fef9357ab82201c2806198aa11011a74e7c97ea8bcff14a3611cb0341f",
+      "matchesRetainedProof": true
+    },
+    {
+      "path": "apps/tui/test/key-dispatch.test.ts",
+      "sha256": "39c4c15df2840ed262fe60dcf79b66cdbb6270b15172229aa7e09559f35ccb69",
+      "matchesRetainedProof": true
+    }
+  ],
+  "inputsCount": 527,
+  "inputChangesDuringRun": [],
+  "qualification": {
+    "actualTerminal": {
+      "command": "Node26 PATH TMPDIR=/private/tmp existing absolutehelper bun test ./e2e/factory-retry.test.ts",
+      "exit": 0,
+      "pass": 2,
+      "fail": 0,
+      "expectCalls": 27,
+      "seconds": 10.44
+    },
+    "types": {
+      "command": "tsc -p apps/tui/tsconfig.json --noEmit",
+      "exit": 0,
+      "scope": "complete source/test/e2e"
+    }
+  },
+  "retainedQualification": {
+    "unitPass": 249,
+    "manifest": "3065-readiness.json",
+    "sha256": "7990c6c588cd767325608f082db82505a6c7966501347d8dab84d871165ac5e3",
+    "reason": "8 owning private TUI files unchanged; new incoming Interpreter/command-selection boundaries independently requalified above."
+  },
+  "limits": [
+    "Actual production source entry in tmux/local real HTTP, controlled API/replay model; no compiled/release/fullTUI100%coverage claim.",
+    "Earlier public declaration scope remains applicable; no public-signature changes in owning files."
+  ],
+  "receipts": {
+    "3065-checkpoint-inputs-before.json": "30555765d71c28b026847a741faaa2ab71007045fb7320c4c1e94eac0d25ae02",
+    "3065-checkpoint-actual-terminal-receipt.json": "be54519ac2e315f82eb00441817e8a715517b5e10dded6f7c83406631ea8005a",
+    "3065-checkpoint-actual-terminal.log": "34c1283cab3ae844ebbde6e28802e968920699e0502525dd07948ac8cec39d11",
+    "3065-checkpoint-complete-tui-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

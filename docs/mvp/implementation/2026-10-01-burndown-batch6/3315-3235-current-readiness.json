@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3315,
+    3235
+  ],
+  "sourceFrozen": true,
+  "allSourceDependentJobsCompleted": true,
+  "checkedCandidate": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "candidateHeadAfterChecks": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "sourceHashes": {
+    "packages/smithers/src/cli/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b",
+    "packages/smithers/src/cli/Argv.ts": "93ca2be5082e3cb7c8f451f83dec8cc3980397f04b916fc56e703316cb5ea909",
+    "packages/smithers/test/Bin.test.ts": "c18aa7b4500194797f0cf134750f67d14bcf2702fc1113cebc1c16fedc20dac1",
+    "packages/smithers/test/EndToEnd.test.ts": "4d4d4bcbf82c5cf8ae91e57681a4e2b1f3941a4ee0c60d57488ef7cefe87905c",
+    "packages/smithers/test/BinStartupFailure.test.ts": "fc6338899d1a06f9e2e500ffa7b59ab4360c51c1ba133eb5ef2d912384f18c6e",
+    "packages/smithers/test/BinTeardown.test.ts": "de2457ce46e6daaa30274ae8843c7fca40d0f89781e2d861dfc4881ddf06694f"
+  },
+  "checks": [
+    {
+      "name": "actual-end-to-end16",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/EndToEnd.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 83.58,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-postrebase-f0b2b2c0e/actual-end-to-end16.log",
+      "sha256": "d860a05bed2d62c78642179e4e0aa6e7abce71d16c81ee8ef32698e185e69470"
+    },
+    {
+      "name": "affected-bin-lifecycle",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "-t",
+        "keyless host startup|an attached launch's exit status|the smthrs init scaffold, launched as written|the signal exit codes|smthrs signal against a run parked on something else|refuses `--mcp` on a legacy verb",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 412.73,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-postrebase-f0b2b2c0e/affected-bin-lifecycle.log",
+      "sha256": "6182bb2c19652fd9428c4feb544e11879caa4aac7108088f1be4a0801a73d30d"
+    },
+    {
+      "name": "source-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 15.14,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-postrebase-f0b2b2c0e/source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 17.09,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-postrebase-f0b2b2c0e/test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "currentEndToEndPassed": 16,
+    "currentAffectedBinPassed": 44,
+    "currentBinNotExecutedBySelection": 93
+  },
+  "inputAudit": {
+    "count": 2036,
+    "changedDuringChecks": []
+  },
+  "retainedFullNamedGate": {
+    "path": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-named-final-92a94c7b36/ready-3235.json",
+    "sha256": "05a71d92b96d06f32f67eb4c4756121b6d82b1b25e6b555ed9ca754fe6929756",
+    "passed": 189,
+    "existingFundedSeatSkip": 1,
+    "qualifiesOlderSourceSnapshotOnly": true
+  },
+  "limits": [
+    "Current affected-scope qualification, not a whole189-test rerun on this HEAD",
+    "Coverage disabled for process tests; no whole-package100% claim",
+    "Existing absolute native helper only; no native rebuild/all-platform or fresh release cohort"
+  ],
+  "rawReceipts": {
+    "actual-end-to-end16-result.json": "650c748beca4525e6e7e8fadb991a7154a5af90924a3f86434108cc08f38dec2",
+    "actual-end-to-end16.log": "d860a05bed2d62c78642179e4e0aa6e7abce71d16c81ee8ef32698e185e69470",
+    "affected-bin-lifecycle-result.json": "137dced3a67006fbf0773158ef7469c933457c568e87cb447cb1663a2d29d62b",
+    "affected-bin-lifecycle.log": "6182bb2c19652fd9428c4feb544e11879caa4aac7108088f1be4a0801a73d30d",
+    "inputs-after.json": "1179120a2d330cb03f4b963c07540053238d0042a7b27772281505a3d5fe0da4",
+    "inputs-before.json": "7d72934bd665ed456fbbb94c70dac690731997f29886eda221038c58e352b300",
+    "result.json": "483690b8ebfce14733e949ba2487d7edb4675e62f9a35f8de0df364cb3cf4bcc",
+    "run.py": "9523959f2e02f0f95536f73547438fa48c05f8a373f157777347093f84c6ffcf",
+    "source-types-result.json": "9aece96f9fde60d8afd9be28928bbf625e10d11b8f1e424efc4237cf3a0e0969",
+    "source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test-types-result.json": "1c1fefa8947c979c7ee15ec7575b3494a6679b81fc89e91b55a959beaebf3fc0",
+    "test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
