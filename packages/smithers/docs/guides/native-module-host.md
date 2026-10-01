@@ -35,8 +35,10 @@ const host = NodeControl.layer({ root: "/workspace/repository" }, modules)
 ```
 
 The host builds registrations after the native engine has opened and migrated
-its existing database. Registration receives guarded filesystem and process
-services. A supplied catalog must contain an executable with the exact
+its existing database. Registration and every action implementation the
+module's flows dispatch run with the kernel-guarded host services: filesystem,
+process spawner, path, HTTP client, and `Jj`. The engine keeps its own step
+snapshots on a separate privileged repository. A supplied catalog must contain an executable with the exact
 approved descriptor identity. An absent catalog leaves module launches pending;
 a configured catalog that refuses a module produces a typed launch refusal.
 

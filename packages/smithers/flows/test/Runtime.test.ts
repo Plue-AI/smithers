@@ -4,6 +4,7 @@ import * as NodePath from "@effect/platform-node/NodePath"
 import { expect, it } from "@effect/vitest"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import { FlowEngine } from "@smthrs/engine"
 import { StepBoundary, WorkspaceSandbox } from "@smthrs/engine-store"
 import * as Jj from "@smthrs/jj/Jj"
 import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
@@ -34,7 +35,8 @@ it("reports invalid JavaScript configuration before constructing injected servic
     [{ cacheEnvironment: { layers: [""], capabilities: {} } }, "cacheEnvironment"],
     [{ cacheEnvironment: { layers: [] } }, "cacheEnvironment"],
     // A ref a reader could not resolve is not a revision (D-068).
-    [{ sourceRevision: "" }, "sourceRevision"]
+    [{ sourceRevision: "" }, "sourceRevision"],
+    [{ privilegedJj: "jj" }, "privilegedJj"]
   ] as const
   for (const [patch, field] of invalid) {
     const parameters = [
@@ -120,6 +122,64 @@ it("isolates store instances from an enclosing control database in the same laye
         Effect.scoped
       )
     )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("takes the engine's step snapshots on the privileged Jj and leaves the ambient Jj to actions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "flows-runtime-privileged-jj-"))
+  const recording = (calls: Array<string>) =>
+    Jj.makeNoop({
+      snapshot: (message) =>
+        Effect.sync(() => calls.push(message ?? "")).pipe(
+          Effect.as({ commitId: "c0ffee", changeId: "kkkk", operationId: "0abc" } as Jj.Snapshot)
+        )
+    })
+  const snapshotWith = (privileged: Array<string> | undefined, ambient: Array<string>) =>
+    Effect.runPromise(
+      Effect.gen(function*() {
+        const context = yield* Runtime.make(
+          {
+            ...options,
+            filename: join(root, `${privileged === undefined ? "ambient" : "privileged"}.sqlite`),
+            workspaceRoot: root,
+            ...(privileged === undefined ? {} : { privilegedJj: Layer.succeed(Jj.Jj, recording(privileged)) })
+          },
+          StepBoundary.layer,
+          WorkspaceSandbox.layerFileSystem(),
+          Layer.empty
+        )
+        const boundary = Context.get(context, FlowEngine.SnapshotBoundary)
+        // The boundary reads only the step key and attempt; no flow is dispatched.
+        yield* boundary.snapshot({
+          flow: undefined as never,
+          executionId: "execution",
+          key: "step/one",
+          attempt: 1,
+          metadata: undefined
+        })
+      }).pipe(
+        Effect.provide(Layer.mergeAll(
+          NodeDatabase.layer({ filename: ":memory:" }),
+          AtomicFileSystem.layer,
+          NodeCrypto.layer,
+          NodePath.layer,
+          Layer.succeed(Jj.Jj, recording(ambient))
+        )),
+        Effect.scoped
+      )
+    )
+  try {
+    const privileged: Array<string> = []
+    const ambient: Array<string> = []
+    await snapshotWith(privileged, ambient)
+    expect(privileged).toEqual(["smithers action step/one attempt 1"])
+    expect(ambient).toEqual([])
+    // Without a privileged repository the engine snapshots on the ambient one.
+    const shared: Array<string> = []
+    await snapshotWith(undefined, shared)
+    expect(shared).toEqual(["smithers action step/one attempt 1"])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

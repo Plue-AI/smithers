@@ -1,0 +1,16 @@
+import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Outcomes, Payload, probe } from "../../probe.ts"
+
+const { Probe, layer: probeLayer } = probe("deny")
+
+export const layer = probeLayer
+
+export default Flow.make("deny", {
+  description: "Reach for every host service under the declared ceiling.",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  payload: Payload,
+  success: Outcomes,
+  body: Node.capture({ action: Probe.name }, (input) => Probe.call(input))
+})

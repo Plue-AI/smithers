@@ -5,7 +5,9 @@
 import type * as EngineStore from "@smthrs/engine-store/EngineStore"
 import { Action } from "@smthrs/flow"
 import type { Ownership, RunStore } from "@smthrs/run-store"
+import type { Jj } from "@smthrs/jj"
 import type * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 
 /**
@@ -99,6 +101,18 @@ export interface Options {
    * rather than being refused after startup.
    */
   readonly sourceRevision?: string | (() => string | undefined) | undefined
+  /**
+   * The repository the engine's own bookkeeping snapshots, restores and diffs
+   * with, kept apart from the ambient `Jj` an action resolves.
+   *
+   * Absent, the engine uses the ambient `Jj` for both. A host that gives
+   * action bodies the kernel-guarded `Jj` supplies its unguarded one here, so
+   * a flow's capability ceiling bounds the action's repository access without
+   * refusing the engine's own step snapshots.
+   *
+   * @since 1.0.0
+   */
+  readonly privilegedJj?: Layer.Layer<Jj> | undefined
 }
 
 /**
@@ -185,6 +199,10 @@ export const validate = (options: Options, label = "Runtime"): Options => {
   const sourceRevision = options.sourceRevision === undefined || typeof options.sourceRevision === "function"
     ? options.sourceRevision
     : decodeField("sourceRevision", Schema.NonEmptyString, options.sourceRevision, nonEmpty, label)
+  const privilegedJj = options.privilegedJj
+  if (privilegedJj !== undefined && !Layer.isLayer(privilegedJj)) {
+    throw invalidConfiguration("privilegedJj", `${label} privilegedJj must be a Layer when supplied`)
+  }
   return Object.freeze({
     filename,
     workspaceRoot,
@@ -193,6 +211,7 @@ export const validate = (options: Options, label = "Runtime"): Options => {
     canExecute,
     requestResume,
     cacheEnvironment,
-    sourceRevision
+    sourceRevision,
+    privilegedJj
   })
 }

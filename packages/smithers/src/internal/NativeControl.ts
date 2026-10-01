@@ -46,7 +46,7 @@ import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
-import type * as KernelJj from "@smthrs/kernel/Jj"
+import * as KernelJj from "@smthrs/kernel/Jj"
 import * as KernelPath from "@smthrs/kernel/Path"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as Workspace from "@smthrs/kernel/Workspace"
@@ -1130,21 +1130,34 @@ export const make = (
         toolSpawner = Context.get(context, KernelChildProcessSpawner.ChildProcessSpawner)
       })
     ))
+    // Commands and relative paths resolve in the checkout the run executes in,
+    // never the process's own directory.
+    const guard = <ROut, E, R>(spawner: Layer.Layer<ROut, E, R>) =>
+      Layer.mergeAll(
+        KernelChildProcessSpawner.layer,
+        KernelPath.layer,
+        KernelHttpClient.layer.pipe(Layer.provide(native.httpClient(environment)))
+      ).pipe(
+        Layer.provide([grants, Workspace.layer(workspaceRoot), ProcessConfinement.layer()]),
+        Layer.provideMerge(spawner)
+      )
+    const guarded = guard(contained)
     // Engine bookkeeping must be contained before the native engine itself
     // starts. Reuse the already materialized control journal for that lifetime;
     // a distinct layer instance keeps registration's native journal separate.
-    const engineJj = native.jj(workspaceRoot).pipe(
-      Layer.provide(contain().pipe(Layer.provide(engine.journal)))
-    )
-    // Commands and relative paths resolve in the checkout the run executes in,
-    // never the process's own directory.
-    const guarded = Layer.mergeAll(
-      KernelChildProcessSpawner.layer,
-      KernelPath.layer,
-      KernelHttpClient.layer.pipe(Layer.provide(native.httpClient(environment)))
-    ).pipe(
-      Layer.provide([grants, Workspace.layer(workspaceRoot), ProcessConfinement.layer()]),
-      Layer.provideMerge(contained)
+    const engineContained = contain().pipe(Layer.provide(engine.journal))
+    // The engine's own repository: step snapshots, restores and diffs are host
+    // bookkeeping, never an action reaching for the repository.
+    const engineJj = native.jj(workspaceRoot).pipe(Layer.provide(engineContained))
+    // What the engine hands an action body. An action resolves its host
+    // services from the engine's context ahead of the ones it was registered
+    // with, so this context, not registration's, is the one the flow's
+    // capability ceiling must reach: the kernel's spawner, path, network and
+    // filesystem, and the kernel's `Jj` decorated over the engine's.
+    const engineHost = guard(engineContained)
+    const actionJj = KernelJj.layer.pipe(
+      Layer.provide(engineJj),
+      Layer.provide([engineHost, grants, Workspace.layer(workspaceRoot)])
     )
     // `SMITHERS_MEMORY_DB` moves the memory store to its own SQLite file, so
     // runs of one repository in separate workspaces read and write one memory
@@ -1605,13 +1618,14 @@ export const make = (
         // verified answer does not exist yet. The store asks once per recorded
         // page, which is always after registration, and records nothing while
         // there is nothing to record (D-068).
-        sourceRevision: () => engine.host.revision
+        sourceRevision: () => engine.host.revision,
+        privilegedJj: Layer.orDie(engineJj)
       },
       StepBoundary.layer,
       WorkspaceSandbox.layerFileSystem(),
       registration
     ).pipe(
-      Layer.provide([platform, native.crypto, engineJj]),
+      Layer.provide([engineHost, native.crypto, actionJj]),
       // Resolved by the engine at composition, like its sandboxes.
       (runtime) => options.replayOnly === undefined ? runtime : Layer.provide(runtime, options.replayOnly),
       Layer.tap(() => secureSqliteFiles(engineFile).pipe(Effect.provide(native.host))),

@@ -103,8 +103,10 @@ Omitting `capabilities` inherits the caller's authority. Declaring `capabilities
 denies every guarded host operation. Each declaration intersects with every
 ancestor and the ambient host ceiling; `*` permits any capability within those
 limits. Use full patterns such as `fs:write:**` or `net:get:https://example.com/**`;
-unrecognized patterns grant nothing. Capability declarations constrain guarded
-host services, not arbitrary JavaScript or unguarded services.
+unrecognized patterns grant nothing. Capability declarations constrain the
+guarded host services an action resolves: `FileSystem`, `ChildProcessSpawner`,
+`HttpClient`, and `Jj`. They do not constrain arbitrary JavaScript, such as a
+direct `node:fs` import.
 
 Actions, inline calls, child runs, and handoffs keep these ceilings. Admission
 records authority for replay and recovery; an execution ID retains its first

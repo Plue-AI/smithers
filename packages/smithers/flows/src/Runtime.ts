@@ -111,7 +111,7 @@ export const layer = <
     // rules `@smthrs/journal` applies on the write path.
     Layer.provideMerge(RedactedLogger.layer())
   )
-  const engine = EngineStore.layer({
+  const engineOptions: EngineStore.Options = {
     owner: validated.owner,
     journalSource: `${validated.owner.hostId}-engine`,
     isAlive: validated.isAlive,
@@ -121,7 +121,12 @@ export const layer = <
     // recorded graph page carries it, and a host that says nothing records
     // nothing (D-068).
     sourceRevision: validated.sourceRevision
-  }).pipe(
+  }
+  // A host that guards the ambient `Jj` for action bodies keeps the engine's
+  // own snapshots on its privileged repository, as `layerHost` does.
+  const engine = (validated.privilegedJj === undefined
+    ? EngineStore.layer(engineOptions)
+    : EngineStore.layerWithPrivilegedJj(engineOptions, validated.privilegedJj)).pipe(
     Layer.provideMerge(execution),
     // Under the engine, not beside it: `@smthrs/engine`
     // `FlowEngine/Dispatch` reads this reference off the context the engine
