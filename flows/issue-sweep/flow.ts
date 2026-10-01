@@ -14,9 +14,9 @@ import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, readPools } from "./accounts.ts"
-import { HostFailed, output, run, tail } from "./host.ts"
+import { HostFailed, output, repository, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
-import Work, { AgentFailed, removeWorkspace, type Report } from "./work/flow.ts"
+import Work, { AgentFailed, removeWorkspace, type Report, requeue } from "./work/flow.ts"
 
 const Input = Schema.Struct({
   repo: Schema.String,
@@ -227,6 +227,8 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
   // the id. A child an operator cancelled stays cancelled, and joining it
   // again only reports the interruption; that issue then runs afresh under an
   // id scoped to this round, which a replay of the round still reattaches to.
+  // Remote work that conflicts with main is applied again from its journaled
+  // diff once main moves, without running the agent again.
   work: (args) => {
     const input = args.input as typeof Input.Type
     const id = `${args.executionId}/attempt-${input.attempt ?? 1}`
@@ -237,6 +239,10 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
     return execute(id).pipe(
       Effect.catchCause((cause) =>
         Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
+      ),
+      Effect.catchTag(
+        "issue-sweep/AdoptConflicted",
+        (conflict) => requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
       ),
       // A workspace this machine cannot prepare would fail every issue the
       // same way: stop the sweep (its claims are released) instead.

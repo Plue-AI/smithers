@@ -1,6 +1,10 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import { FlowEngine } from "@smthrs/engine"
+import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
 import { RemoteChildProcessSpawner, Sandbox } from "@smthrs/sandbox"
-import { Effect, Exit, Stream } from "effect"
+import { Duration, Effect, Exit, Layer, ManagedRuntime, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
@@ -14,12 +18,19 @@ import { goCache } from "../land.ts"
 import { sh } from "../vm.ts"
 import {
   accountOf,
+  Adopt,
+  adoptAt,
+  AdoptConflicted,
   adoptWork,
   agentCommand,
   brief,
   commitMessage,
   fixRemotely,
+  type Place,
+  Readopt,
   replyOf,
+  Report,
+  requeue,
   spreadAccount
 } from "../work/flow.ts"
 
@@ -230,7 +241,8 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
 
   const place = { repository: host, directory: join(root, "issue-7"), name: "sweep-7" }
   const message = commitMessage(remote.result.report, 7, "two")
-  const report = await Effect.runPromise(adoptWork(remote, place, message))
+  const adoption = { repo: "o/r", issue: 7, title: "two", remote }
+  const report = await Effect.runPromise(adoptWork(adoption, place))
 
   // The host fetched the machine's main, and the change sits on it.
   assert.equal(report.base, main)
@@ -250,7 +262,7 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
   assert.equal(readFileSync(join(place.directory, "added.txt"), "utf8"), "new\n")
 
   // Replaying the adoption of the same journaled work answers the same change.
-  const again = await Effect.runPromise(adoptWork(remote, place, message))
+  const again = await Effect.runPromise(adoptWork(adoption, place))
   assert.equal(again.change, report.change)
   assert.equal(jjHost("log", "--no-graph", "-r", `description(exact:"${message}\n")`, "-T", "\"x\""), "x")
 })
@@ -264,27 +276,171 @@ test("a machine whose checkout ends where it started fails with no change", asyn
   assert.match(error?.message ?? "", /codex-1 on issue-sweep:o\/r#7: no change: Fixed\./)
 })
 
-test("remote work that conflicts with the host's main fails naming the paths and leaves no change", async (t) => {
-  const { root, host, guest, cmd, jjHost } = fixture(t)
+/** A remote fix of README.md's `two` whose host `main` meanwhile rewrote the same line. */
+const conflicting = async (t: { after: (fn: () => void) => void }) => {
+  const made = fixture(t)
+  const { host, guest, cmd, jjHost } = made
   const remote = await Effect.runPromise(fixRemotely(
     directoryMachine(guest),
     session,
     edit("sed -i.bak 's/two/TWO/' README.md && rm README.md.bak")
   ))
-  // main moves on the host with an overlapping edit.
+  /** Moves the host's `main` to a new commit whose README.md reads `text`. */
+  const moveMain = (text: string) => {
+    cmd(host, "jj", "new", "main", "--quiet", "-m", `README ${text}`)
+    writeFileSync(join(host, "README.md"), text)
+    cmd(host, "jj", "bookmark", "set", "main", "-r", "@", "--quiet")
+    cmd(host, "jj", "new", "--quiet")
+    return jjHost("log", "--no-graph", "-r", "main", "-T", "commit_id").trim()
+  }
   cmd(host, "jj", "git", "fetch", "--quiet")
-  cmd(host, "jj", "new", "main", "--quiet", "-m", "host edit")
-  writeFileSync(join(host, "README.md"), "one\nzwei\nthree\n")
-  cmd(host, "jj", "bookmark", "set", "main", "-r", "@", "--quiet")
-  cmd(host, "jj", "new", "--quiet")
+  const overlapping = moveMain("one\nzwei\nthree\n")
+  const place: Place = { repository: host, directory: join(made.root, "issue-7"), name: "sweep-7" }
+  return { ...made, remote, moveMain, overlapping, place }
+}
 
-  const place = { repository: host, directory: join(root, "issue-7"), name: "sweep-7" }
-  const exit = await Effect.runPromiseExit(adoptWork(remote, place, "🐛 fix: two (#7)"))
-  assert.ok(Exit.isFailure(exit))
-  const error = exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error
-  assert.equal(error?._tag, "issue-sweep/AgentFailed")
-  assert.match(error?.message ?? "", /conflicts with [0-9a-f]{40} in README\.md$/)
-  assert.equal(jjHost("log", "--no-graph", "-r", "conflicts()", "-T", "commit_id"), "")
-  assert.equal(jjHost("log", "--no-graph", "-r", `description(exact:"🐛 fix: two (#7)\n")`, "-T", "commit_id"), "")
+const message = "🐛 fix: two (#7)"
+const adoption = (remote: typeof Readopt.payloadSchema.Type["remote"]) => ({
+  repo: "o/r",
+  issue: 7,
+  title: "two",
+  remote
+})
+
+const failureOf = <A, E>(exit: Exit.Exit<A, E>) => {
+  assert.ok(Exit.isFailure(exit), String(exit))
+  return exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error
+}
+
+/** The changes on top of `main` that hold content: what landing would take. */
+const changesOnMain = (jjHost: (...args: Array<string>) => string) =>
+  jjHost("log", "--no-graph", "-r", "(main:: ~ main) & ~empty()", "-T", "change_id ++ \"\\n\"").trim().split("\n")
+    .filter((line) => line !== "")
+
+const unsettled = (jjHost: (...args: Array<string>) => string) =>
+  jjHost("log", "--no-graph", "-r", "conflicts() | divergent()", "-T", "commit_id")
+
+test("remote work that conflicts with the host's main fails typed, naming the paths, and leaves no change", async (t) => {
+  const { jjHost, remote, overlapping, place } = await conflicting(t)
+  const error = failureOf(await Effect.runPromiseExit(adoptWork(adoption(remote), place)))
+  assert.ok(error instanceof AdoptConflicted)
+  assert.match(error.message, /conflicts with [0-9a-f]{40} in README\.md$/)
+  // What the sweep needs to apply the same work again, without the agent.
+  assert.equal(error.onto, overlapping)
+  assert.equal(error.title, "two")
+  assert.deepEqual(error.remote, remote)
+  assert.equal(unsettled(jjHost), "")
+  assert.equal(jjHost("log", "--no-graph", "-r", `description(exact:"${message}\n")`, "-T", "commit_id"), "")
   assert.equal(existsSync(place.directory), false)
+})
+
+/** An in-memory engine whose Adopt lands in `place`, as the sweep's host registers it. */
+const engine = (
+  t: { after: (fn: () => Promise<void>) => void },
+  place: Place,
+  extra: Layer.Layer<never, never, FlowRuntime.FlowRuntime | Action.Implementations> = Layer.empty
+) => {
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(Interpreter.layer(Readopt), adoptAt(() => place), extra).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer),
+      Layer.provideMerge(NodeServices.layer)
+    )
+  )
+  t.after(() => runtime.dispose())
+  return runtime
+}
+
+test("a conflicted adoption requeues through the engine's Adopt once main moved, and lands as one change", {
+  timeout: 120_000
+}, async (t) => {
+  const { host, jjHost, remote, moveMain, overlapping, place } = await conflicting(t)
+  const runtime = engine(t, place)
+  // The first adoption runs as the work flow runs it: the engine executes Adopt.
+  const error = failureOf(
+    await runtime.runPromiseExit(Readopt.execute(adoption(remote), { executionId: "sweep/7" }))
+  )
+  assert.ok(error instanceof AdoptConflicted, String(error))
+  assert.equal(error.onto, overlapping)
+  // A later main gives the line back, so the same work now applies cleanly.
+  const restored = moveMain("one\ntwo\nthree\n")
+  const report = await runtime.runPromise(
+    requeue(error, { repo: "o/r", issue: 7, executionId: "sweep/7", repository: host, within: Duration.zero })
+  )
+  // Applied, not replayed: the journaled first outcome was a conflict.
+  assert.equal(report.base, restored)
+  assert.equal(jjHost("log", "--no-graph", "-r", `${report.change}-`, "-T", "commit_id").trim(), restored)
+  assert.deepEqual(changesOnMain(jjHost), [report.change])
+  assert.equal(jjHost("log", "--no-graph", "-r", report.change, "-T", "description").trim(), message)
+  assert.match(report.patch, /^\+TWO$/m)
+  // The abandoned first change and the re-applied one never share a change id.
+  assert.equal(unsettled(jjHost), "")
+  assert.equal(
+    (await runtime.runPromise(
+      Readopt.execute({ ...adoption(remote), attempt: 2 }, { executionId: "sweep/7/readopt-1" })
+    )).change,
+    report.change
+  )
+})
+
+test("conflicts that outlast three re-applies fail the item and leave no change", { timeout: 120_000 }, async (t) => {
+  const { host, jjHost, remote, place } = await conflicting(t)
+  const runtime = engine(t, place)
+  const error = failureOf(
+    await runtime.runPromiseExit(Readopt.execute(adoption(remote), { executionId: "sweep/7" }))
+  )
+  assert.ok(error instanceof AdoptConflicted)
+  // main never moves: each wait runs out and still counts as an attempt.
+  const failed = failureOf(
+    await runtime.runPromiseExit(
+      requeue(error, { repo: "o/r", issue: 7, executionId: "sweep/7", repository: host, within: Duration.zero })
+    )
+  )
+  assert.equal(failed?._tag, "issue-sweep/AgentFailed")
+  assert.equal(failed?.message, "conflicts persisted after 3 re-applies")
+  // The first application and three re-applies each abandoned their change.
+  // Re-applying under the abandoned change's id onto the same main fails in jj.
+  assert.equal(
+    jjHost("op", "log", "--no-graph", "-T", "description ++ \"\\n\"").split("\n")
+      .filter((line) => line.startsWith("abandon commit")).length,
+    4
+  )
+  assert.deepEqual(changesOnMain(jjHost), [])
+  assert.equal(unsettled(jjHost), "")
+})
+
+// Adopt's idempotency key does not cover the payload, so a second call with
+// the same key in one execution answers the first call's journaled outcome.
+const AdoptTwice = Flow.make("issue-sweep/test-adopt-twice", {
+  description: "Adopts the same work twice in one execution, the second time as attempt 2.",
+  capabilities: [],
+  effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
+  modelInvocable: false,
+  payload: Readopt.payloadSchema,
+  success: Report,
+  error: Readopt.errorSchema,
+  body: (input) =>
+    Adopt.call(Schema.encodeSync(Adopt.payloadSchema)(input)).pipe(
+      Node.bindPlanned(() => Adopt.call(Schema.encodeSync(Adopt.payloadSchema)({ ...input, attempt: 2 })))
+    )
+})
+
+test("an attempt is a new Adopt identity: the second call in one execution applies", {
+  timeout: 120_000
+}, async (t) => {
+  const { root, guest, jjHost } = fixture(t)
+  const remote = await Effect.runPromise(fixRemotely(
+    directoryMachine(guest),
+    session,
+    edit("sed -i.bak 's/two/TWO/' README.md && rm README.md.bak")
+  ))
+  const place: Place = { repository: join(root, "host"), directory: join(root, "issue-7"), name: "sweep-7" }
+  const runtime = engine(t, place, Interpreter.layer(AdoptTwice))
+  const second = await runtime.runPromise(AdoptTwice.execute(adoption(remote), { executionId: "twice/7" }))
+  const adopted = jjHost("log", "--no-graph", "-r", `description(exact:"${message}\n")`, "-T", "change_id ++ \"\\n\"")
+    .trim().split("\n")
+  assert.equal(adopted.length, 2)
+  assert.ok(adopted.includes(second.change))
+  assert.equal(unsettled(jjHost), "")
 })

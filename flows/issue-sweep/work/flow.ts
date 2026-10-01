@@ -5,10 +5,10 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
-import { Action, Flow } from "@smthrs/flow"
+import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Sandbox, SandboxMerge } from "@smthrs/sandbox"
-import { Duration, Effect, FileSystem, Layer, Schema, Stream } from "effect"
+import { Clock, Duration, Effect, FileSystem, Layer, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { existsSync } from "node:fs"
@@ -104,12 +104,47 @@ export const RemoteFix = Action.make("issue-sweep/remote-fix", {
   nondeterministic: true
 })
 
-/** Lands a remote run's work as one change on `main` in a workspace of its own, so it lands like a local one. */
+/**
+ * A remote run's work conflicts with `main` at `onto`. It carries what
+ * applying the same work again needs, so the sweep can retry on a later
+ * `main` without running the agent again.
+ */
+export class AdoptConflicted extends Schema.TaggedError<AdoptConflicted>()("issue-sweep/AdoptConflicted", {
+  message: Schema.String,
+  title: Schema.String,
+  remote: Remoted,
+  onto: Schema.String
+}) {}
+
+/**
+ * Lands a remote run's work as one change on `main` in a workspace of its own, so it lands like a local one.
+ * The idempotency key does not cover the rest of the payload: `attempt` is
+ * what makes a re-application a new call instead of a replay of the first.
+ */
 export const Adopt = Action.make("issue-sweep/adopt", {
-  payload: Schema.Struct({ repo: Schema.String, issue: Schema.Number, title: Schema.String, remote: Remoted }),
+  payload: Schema.Struct({
+    repo: Schema.String,
+    issue: Schema.Number,
+    title: Schema.String,
+    remote: Remoted,
+    attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
+  }),
   success: Report,
-  error: Schema.Union([AgentFailed, WorkspaceFailed]),
-  idempotencyKey: { adopt: "issue-sweep/v2" }
+  error: Schema.Union([AgentFailed, WorkspaceFailed, AdoptConflicted]),
+  idempotencyKey: (payload) => ({ adopt: "issue-sweep/v2", attempt: payload.attempt ?? 1 })
+})
+
+/** A conflicted adoption applied again as an execution of its own; the sweep runs it once `main` moved. */
+export const Readopt = Flow.make("issue-sweep/readopt", {
+  description: "Applies a remote run's journaled work onto a later main.",
+  capabilities: ["proc:spawn:jj -R *", "proc:spawn:git --git-dir *"],
+  effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize", tier: "compensable" },
+  modelInvocable: false,
+  payload: Adopt.payloadSchema,
+  success: Report,
+  error: Adopt.errorSchema,
+  // A plan payload holds plain data only, never the decoded class instances.
+  body: (input) => Adopt.call(Schema.encodeSync(Adopt.payloadSchema)(input))
 })
 
 export const Fix = Action.make("issue-sweep/fix", {
@@ -134,7 +169,7 @@ export default Flow.make("issue-sweep/work", {
   modelInvocable: false,
   payload: Payload,
   success: Report,
-  error: Schema.Union([AgentFailed, WorkspaceFailed]),
+  error: Schema.Union([AgentFailed, WorkspaceFailed, AdoptConflicted]),
   body: (input) =>
     Node.succeed(input.placement === "vm" || input.placement === "cloud").pipe(
       Node.branch({
@@ -554,26 +589,45 @@ const remoteFix = RemoteFix.toLayer((input) =>
  * The change's id derives from the session, the base and the patch: a
  * replayed adoption of the same journaled work answers the change it already
  * made, and a later run whose agent produced different edits on the same
- * `main` gets a change of its own. Work that conflicts with `main` fails
- * naming the paths, and no change is left behind.
+ * `main` gets a change of its own. The attempt is part of the id too: a
+ * conflicted change is abandoned, and applying the same work again must not
+ * reuse its id. Work that conflicts with `main` fails with
+ * {@link AdoptConflicted} naming the paths, and no change is left behind.
  */
-export const adoptWork = (remote: typeof Remoted.Type, place: Place, message: string) =>
+export const adoptWork = (input: typeof Adopt.payloadSchema.Type, place: Place) =>
   Effect.gen(function*() {
-    const { result, work } = remote
+    const { result, work } = input.remote
     if (work._tag === "Unchanged") {
       return yield* new AgentFailed({ message: `${result.account} on ${work.session}: no change` })
     }
+    const failed = (message: string) => `the ${work.session} work: ${message}`
     const outcome = yield* SandboxMerge.apply(work, {
       repository: place.repository,
       onto: "main",
-      message,
-      key: `issue-sweep\0${work.session}\0${work.base}\0${work.patch}`,
+      message: commitMessage(result.report, input.issue, input.title),
+      key: `issue-sweep\0${input.attempt ?? 1}\0${work.session}\0${work.base}\0${work.patch}`,
       // The machine fetched main itself; this repository may not have that commit yet.
       fetch: ["--branch", "main"],
-      strategy: SandboxMerge.failOnConflict
+      strategy: {
+        onConflict: (conflicted, repository) =>
+          Effect.mapError(
+            SandboxMerge.failOnConflict.onConflict(conflicted, repository),
+            (cause) =>
+              cause.reason === "conflict"
+                ? new AdoptConflicted({
+                  message: failed(cause.message),
+                  title: input.title,
+                  remote: input.remote,
+                  onto: conflicted.onto
+                })
+                : cause
+          )
+      }
     }).pipe(
       Effect.provide(NodeServices.layer),
-      Effect.mapError((cause) => new AgentFailed({ message: `the ${work.session} work: ${cause.message}` }))
+      Effect.mapError((cause) =>
+        cause instanceof AdoptConflicted ? cause : new AgentFailed({ message: failed(cause.message) })
+      )
     )
     if (outcome._tag !== "Merged") {
       return yield* new AgentFailed({ message: `the ${work.session} work did not merge cleanly onto main` })
@@ -592,8 +646,72 @@ export const adoptWork = (remote: typeof Remoted.Type, place: Place, message: st
     }
   })
 
-const adopt = Adopt.toLayer((input) =>
-  adoptWork(input.remote, placeOf(input.issue), commitMessage(input.remote.result.report, input.issue, input.title))
-)
+/** Adopt, landing each issue's work in the workspace `placeAt` names. */
+export const adoptAt = (placeAt: (issue: number) => Place) =>
+  Adopt.toLayer((input) => adoptWork(input, placeAt(input.issue)))
 
-export const layer = Layer.mergeAll(fetchIssue, prepareWorkspace, fix, remoteFix, adopt)
+/**
+ * Whether `main` in `repository` moved past `onto` within `within`, fetching
+ * every `every`. Answers false once the wait runs out.
+ */
+export const mainMoved = (repository: string, onto: string, within: Duration.Input, every: Duration.Input) =>
+  Effect.gen(function*() {
+    const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(Duration.fromInputUnsafe(within))
+    while (true) {
+      // Never snapshot the checkout: other sessions edit its working copy.
+      yield* Effect.ignore(jj(repository, ["--ignore-working-copy", "git", "fetch", "--branch", "main"]))
+      const main =
+        (yield* jj(repository, ["--ignore-working-copy", "log", "--no-graph", "-r", "main", "-T", "commit_id"]))
+          .trim()
+      if (main !== onto) return true
+      if ((yield* Clock.currentTimeMillis) >= deadline) return false
+      yield* Effect.sleep(every)
+    }
+  })
+
+/** How many times one item's conflicted work is applied again before it fails. */
+export const reapplies = 3
+
+/**
+ * Applies conflicted work again, each time as a new {@link Readopt}
+ * execution, `${executionId}/readopt-<n>`, once `main` moved past the `main`
+ * the last attempt met. A wait that runs out still counts as an attempt.
+ */
+export const requeue = (
+  conflict: AdoptConflicted,
+  options: {
+    readonly repo: string
+    readonly issue: number
+    readonly executionId: string
+    readonly repository: string
+    readonly within?: Duration.Input | undefined
+    readonly every?: Duration.Input | undefined
+  }
+) =>
+  Effect.gen(function*() {
+    let failed = conflict
+    for (let n = 1; n <= reapplies; n++) {
+      yield* mainMoved(options.repository, failed.onto, options.within ?? "30 minutes", options.every ?? "1 minute")
+      const next = yield* Readopt.execute({
+        repo: options.repo,
+        issue: options.issue,
+        title: failed.title,
+        remote: failed.remote,
+        attempt: n + 1
+      }, { executionId: `${options.executionId}/readopt-${n}` }).pipe(
+        Effect.catchTag("issue-sweep/AdoptConflicted", Effect.succeed)
+      )
+      if (!(next instanceof AdoptConflicted)) return next
+      failed = next
+    }
+    return yield* new AgentFailed({ message: `conflicts persisted after ${reapplies} re-applies` })
+  })
+
+export const layer = Layer.mergeAll(
+  fetchIssue,
+  prepareWorkspace,
+  fix,
+  remoteFix,
+  adoptAt(placeOf),
+  Interpreter.layer(Readopt)
+)

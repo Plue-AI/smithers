@@ -179,7 +179,9 @@ test("a microVM's edit comes back as work on main@origin and lands as a change i
 
   await cloned
   const place = { repository: host, directory: join(root, "issue-0"), name: "sweep-0" }
-  const report = await Effect.runPromise(adoptWork(remote, place, "test: a line from the microVM"))
+  const report = await Effect.runPromise(
+    adoptWork({ repo: "o/r", issue: 0, title: "a line from the microVM", remote }, place)
+  )
   const readme = execFileSync("jj", [
     "-R",
     host,
