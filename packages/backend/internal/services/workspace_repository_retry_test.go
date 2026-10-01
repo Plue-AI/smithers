@@ -17,6 +17,8 @@ type fetchRetryRuntime struct {
 	results    []workspaceapi.CommandResult
 	transport  error
 	cancel     context.CancelFunc
+	entries    []workspaceapi.FileEntry
+	listErr    error
 }
 
 func (r *fetchRetryRuntime) ExecuteCommand(ctx context.Context, _ string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
@@ -37,6 +39,9 @@ func (r *fetchRetryRuntime) ExecuteCommand(ctx context.Context, _ string, comman
 		r.results = r.results[1:]
 	}
 	return result, nil
+}
+func (r *fetchRetryRuntime) ListFiles(context.Context, string, string) ([]workspaceapi.FileEntry, error) {
+	return r.entries, r.listErr
 }
 func fetchRefusal(status string) workspaceapi.CommandResult {
 	return workspaceapi.CommandResult{ExitCode: 128, Stderr: "fatal: unable to access repository: The requested URL returned error: " + status}
@@ -99,4 +104,42 @@ func TestWorkspaceRepositoryContinuationKeepsShallowDepth(t *testing.T) {
 	require.NoError(t, svc.continueRuntimeRepositoryCheckout(context.Background(), row, row.UserID, "https://smithers.example/alice/demo.git", "main", nil))
 	require.Equal(t, []string{"git", "fetch", "--depth=200", "origin", "main"}, runtime.commands[1].Args)
 	require.Equal(t, []string{"git", "checkout", "-B", "main", "origin/main"}, runtime.commands[2].Args)
+}
+
+func TestWorkspaceRepositoryCloneRetriesOnlyEmptyDestination(t *testing.T) {
+	for _, scenario := range []string{"empty", "partial-repository", "user-file", "unavailable-files"} {
+		t.Run(scenario, func(t *testing.T) {
+			runtime := &fetchRetryRuntime{results: []workspaceapi.CommandResult{fetchRefusal("503"), {}}}
+			switch scenario {
+			case "partial-repository":
+				runtime.entries = []workspaceapi.FileEntry{{Name: ".git", IsDir: true}}
+			case "user-file":
+				runtime.entries = []workspaceapi.FileEntry{{Name: "user.txt"}}
+			case "unavailable-files":
+				runtime.listErr = errors.New("files unavailable")
+			}
+			svc := &WorkspaceService{runtime: runtime}
+			row := sampleDBWorkspace("retry-clone")
+			command := workspaceapi.Command{Args: []string{"git", "clone", "--depth", "200", "--branch", "main", "--", "https://smithers.example/alice/demo.git", "."}}
+			err := svc.runRuntimeRepositoryCommand(context.Background(), row, row.UserID, "clone", command)
+			if scenario == "empty" {
+				require.NoError(t, err)
+				require.Equal(t, []workspaceapi.Command{command, command}, runtime.commands)
+			} else {
+				require.Error(t, err)
+				require.Len(t, runtime.commands, 1)
+			}
+		})
+	}
+}
+
+func TestWorkspaceRepositoryAdvertisementRetriesAdmission(t *testing.T) {
+	runtime := &fetchRetryRuntime{results: []workspaceapi.CommandResult{fetchRefusal("503"), {Stdout: "remote refs\n"}}}
+	svc := &WorkspaceService{runtime: runtime}
+	row := sampleDBWorkspace("retry-advertisement")
+	out, err := svc.runtimeRepositoryCommandOutput(context.Background(), row, row.UserID, "advertisement", workspaceapi.Command{Args: []string{"git", "ls-remote", "--", "https://smithers.example/alice/demo.git"}})
+	require.NoError(t, err)
+	require.Equal(t, "remote refs", out)
+	require.Len(t, runtime.commands, 2)
+	require.NotEqual(t, runtime.operations[0], runtime.operations[1])
 }

@@ -73,7 +73,7 @@ func TestWorkspaceEmptyRepositorySafety(t *testing.T) {
 	requireExecutable(t, "jj")
 	pool := newProductTestPool(t)
 	ctx := context.Background()
-	for _, scenario := range []string{"authentication-failure", "remote-gains-refs", "existing-history", "receipt-write-retry", "lost-clone-continuation"} {
+	for _, scenario := range []string{"authentication-failure", "remote-gains-refs", "existing-history", "receipt-write-retry", "lost-clone-continuation", "overloaded-clone", "overloaded-advertisement"} {
 		t.Run(scenario, func(t *testing.T) {
 			userID, repositoryID := setupTestUserAndRepo(t, pool)
 			q := db.New(pool)
@@ -83,7 +83,7 @@ func TestWorkspaceEmptyRepositorySafety(t *testing.T) {
 			bare := filepath.Join(gitRoot, "api", slug.OwnerSlug, slug.RepoName+".git")
 			require.NoError(t, os.MkdirAll(filepath.Dir(bare), 0o700))
 			runGitFixture(t, "", nil, "init", "--bare", "--initial-branch=main", bare)
-			if scenario == "lost-clone-continuation" {
+			if scenario == "lost-clone-continuation" || scenario == "overloaded-clone" || scenario == "overloaded-advertisement" {
 				seedBareRepository(t, bare, "main")
 			}
 			gitExecutable, err := exec.LookPath("git")
@@ -91,6 +91,7 @@ func TestWorkspaceEmptyRepositorySafety(t *testing.T) {
 			backend := &cgi.Handler{Path: gitExecutable, Args: []string{"http-backend"}, Dir: gitRoot,
 				Env: []string{"GIT_PROJECT_ROOT=" + gitRoot, "GIT_HTTP_EXPORT_ALL=1"}}
 			var advertisements atomic.Int32
+			var uploads atomic.Int32
 			var authenticated atomic.Bool
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
@@ -105,6 +106,11 @@ func TestWorkspaceEmptyRepositorySafety(t *testing.T) {
 				}
 				if strings.HasSuffix(r.URL.Path, "/info/refs") && advertisements.Add(1) == 2 && scenario == "remote-gains-refs" {
 					seedBareRepository(t, bare, "main")
+				}
+				if ((scenario == "overloaded-clone" && advertisements.Load() >= 2) || scenario == "overloaded-advertisement") && strings.HasSuffix(r.URL.Path, "/git-upload-pack") && uploads.Add(1) == 1 {
+					w.Header().Set("Retry-After", "1")
+					http.Error(w, "fetch queue full", http.StatusServiceUnavailable)
+					return
 				}
 				backend.ServeHTTP(w, r)
 			}))
@@ -149,8 +155,11 @@ func TestWorkspaceEmptyRepositorySafety(t *testing.T) {
 			}
 			service := NewWorkspaceService(q, WithWorkspaceRuntime(serviceRuntime), WithWorkspaceGitBaseURL(server.URL+"/api"))
 			err = service.ensureRuntimeWorkspaceRepository(ctx, row, userID)
-			if scenario == "remote-gains-refs" {
+			if scenario == "remote-gains-refs" || scenario == "overloaded-clone" || scenario == "overloaded-advertisement" {
 				require.NoError(t, err)
+				if scenario == "overloaded-clone" || scenario == "overloaded-advertisement" {
+					require.GreaterOrEqual(t, uploads.Load(), int32(2))
+				}
 				require.GreaterOrEqual(t, advertisements.Load(), int32(2))
 				seeded := strings.TrimSpace(runGitFixture(t, bare, nil, "rev-parse", "refs/heads/main"))
 				contents, err := runtime.ReadFile(ctx, id, workspaceRepositoryReceiptPath)

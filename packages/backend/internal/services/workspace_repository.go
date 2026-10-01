@@ -416,8 +416,8 @@ func (s *WorkspaceService) readRuntimeRepositoryFile(ctx context.Context, row db
 	return s.runtime.ReadFile(operationCtx, row.ID, filePath)
 }
 
-func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) error {
-	// Fetch only mutates Git's object/ref store and safely retries an admission
+func (s *WorkspaceService) executeRuntimeRepositoryTransfer(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	// Git transfers safely retry an admission
 	// refusal. Give each completed failed attempt its own durable operation ID;
 	// otherwise the adapter would replay that failure instead of fetching again.
 	execCtx, cancel := context.WithTimeout(ctx, workspaceCloneTimeout)
@@ -430,25 +430,45 @@ func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row 
 		}
 		operationCtx, err := s.runtimeRepositoryContext(execCtx, row, requesterID, attemptStep)
 		if err != nil {
-			return err
+			return result, err
 		}
 		if err := operationCtx.Err(); err != nil {
-			return err
+			return result, err
 		}
 		result, err = s.runtime.ExecuteCommand(operationCtx, row.ID, command)
 		if err != nil {
-			return runtimeOperationError("initialize workspace repository ("+step+")", err)
+			return result, runtimeOperationError("initialize workspace repository ("+step+")", err)
 		}
-		if attempt >= 3 || !retryableWorkspaceFetch(command, result) {
+		if attempt >= 3 || !retryableWorkspaceTransfer(command, result) {
 			break
+		}
+		if command.Args[1] == "clone" {
+			// Git removes its new metadata after a refused clone. Retry
+			// only when it left the destination empty; never erase partial
+			// repositories or user files to make a retry possible.
+			entries, err := s.listRuntimeRepositoryFiles(execCtx, row, requesterID, attemptStep+"-retry-inspect", "")
+			if err != nil {
+				return result, runtimeOperationError("inspect refused workspace clone", err)
+			}
+			if len(entries) != 0 {
+				break
+			}
 		}
 		timer := time.NewTimer(time.Second << attempt)
 		select {
 		case <-execCtx.Done():
 			timer.Stop()
-			return execCtx.Err()
+			return result, execCtx.Err()
 		case <-timer.C:
 		}
+	}
+	return result, nil
+}
+
+func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) error {
+	result, err := s.executeRuntimeRepositoryTransfer(ctx, row, requesterID, step, command)
+	if err != nil {
+		return err
 	}
 	if result.ExitCode == 0 && !result.OutputTruncated {
 		return nil
@@ -471,23 +491,17 @@ func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row 
 
 // Git reports an HTTP refusal in stderr. Do not retry authentication errors,
 // truncated evidence, transport uncertainty, or commands that change checkout.
-func retryableWorkspaceFetch(command workspaceapi.Command, result workspaceapi.CommandResult) bool {
-	if len(command.Args) < 2 || command.Args[0] != "git" || command.Args[1] != "fetch" || result.ExitCode == 0 || result.OutputTruncated {
+func retryableWorkspaceTransfer(command workspaceapi.Command, result workspaceapi.CommandResult) bool {
+	if len(command.Args) < 2 || command.Args[0] != "git" || (command.Args[1] != "fetch" && command.Args[1] != "clone" && command.Args[1] != "ls-remote") || result.ExitCode == 0 || result.OutputTruncated {
 		return false
 	}
 	return strings.Contains(result.Stderr, "The requested URL returned error: 503") || strings.Contains(result.Stderr, "The requested URL returned error: 504")
 }
 
 func (s *WorkspaceService) runtimeRepositoryCommandOutput(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) (string, error) {
-	operationCtx, err := s.runtimeRepositoryContext(ctx, row, requesterID, step)
+	result, err := s.executeRuntimeRepositoryTransfer(ctx, row, requesterID, step, command)
 	if err != nil {
 		return "", err
-	}
-	execCtx, cancel := context.WithTimeout(operationCtx, workspaceCloneTimeout)
-	defer cancel()
-	result, err := s.runtime.ExecuteCommand(execCtx, row.ID, command)
-	if err != nil {
-		return "", runtimeOperationError("inspect workspace repository ("+step+")", err)
 	}
 	if result.ExitCode != 0 || result.OutputTruncated {
 		return "", pkgerrors.Conflict("workspace repository " + step + " could not be verified")
