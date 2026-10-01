@@ -235,7 +235,8 @@ func TestRuntimeArtifactsBootstrapMatchesPlacedEnvironment(t *testing.T) {
 	artifactCallsiteFixture(t)
 	for _, scenario := range []struct{ name, kind, closure, guestKind string }{
 		{"container", "container", "", "container"},
-		{"VM without closure uses container", "vm", "", "container"},
+		{"VM without closure uses Nix", "vm", "", "vm"},
+		{"desktop without closure uses Nix", "desktop", "", "desktop"},
 		{"pinned VM uses Nix", "vm", "closure-sha", "vm"},
 		{"pinned desktop uses Nix", "desktop", "closure-sha", "desktop"},
 	} {

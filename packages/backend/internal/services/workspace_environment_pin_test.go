@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -55,7 +56,15 @@ func TestRuntimeWorkspaceBootsItsPinnedImage(t *testing.T) {
 		{name: "a retired image", kind: "vm", closure: strings.Repeat("d", 32), images: true, resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
 		{name: "a runtime without images", kind: "vm", closure: closure, resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
 		{name: "no image registry", kind: "vm", closure: closure, images: true, refused: true},
-		{name: "an unpinned vm", kind: "vm", images: true, resolver: &stubEnvironmentImageResolver{image: placed}},
+		{name: "an unpinned vm", kind: "vm", images: true, resolver: &stubEnvironmentImageResolver{image: placed},
+			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "vm", Image: placed.Image, ClosureHash: closure}},
+		{name: "an unpinned desktop", kind: "desktop", images: true, resolver: &stubEnvironmentImageResolver{image: desktop},
+			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "desktop", Image: desktop.Image, ClosureHash: closure}},
+		{name: "an unpinned vm without runtime images", kind: "vm", resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
+		{name: "an unpinned desktop without registry", kind: "desktop", images: true, refused: true},
+		{name: "an unpinned vm unavailable image", kind: "vm", images: true,
+			resolver: &stubEnvironmentImageResolver{err: pkgerrors.EnvironmentImageUnavailable("no ready image")}, refused: true},
+		{name: "an agent", kind: "agent", images: true, resolver: &stubEnvironmentImageResolver{image: placed}},
 		{name: "a container", kind: "container", closure: closure, images: true, resolver: &stubEnvironmentImageResolver{image: placed}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,9 +91,40 @@ func TestRuntimeWorkspaceBootsItsPinnedImage(t *testing.T) {
 			require.Len(t, runtime.specs, 1)
 			assert.Equal(t, row.ID, runtime.specs[0].ID)
 			assert.Equal(t, tc.want, runtime.specs[0].Environment)
+			if tc.want != nil {
+				lookup := tc.kind
+				if tc.closure != "" {
+					lookup = "pinned " + tc.kind
+				}
+				assert.Equal(t, []string{lookup}, tc.resolver.calls)
+			}
 			if tc.want == nil && tc.resolver != nil {
-				assert.Empty(t, tc.resolver.calls, "an unpinned workspace resolves no image")
+				assert.Empty(t, tc.resolver.calls, "container guests resolve no NixOS image")
 			}
 		})
+	}
+}
+
+func TestRuntimeWorkspaceImageResolutionPreservesRegistryFailure(t *testing.T) {
+	for _, kind := range []string{"vm", "desktop"} {
+		for _, closure := range []string{"", strings.Repeat("c", 32)} {
+			t.Run(kind+"/"+closure, func(t *testing.T) {
+				failure := errors.New("image registry unavailable")
+				resolver := &stubEnvironmentImageResolver{err: failure}
+				runtime := &pinRuntime{images: true}
+				service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(runtime), WithWorkspaceEnvironmentImages(resolver))
+				row := sampleDBWorkspace("registry-failure")
+				row.Kind, row.EnvironmentClosureHash = kind, closure
+				spec, err := service.runtimeWorkspaceSpec(t.Context(), row)
+				require.ErrorIs(t, err, failure)
+				require.Nil(t, spec.Environment)
+				require.Empty(t, runtime.specs)
+				lookup := kind
+				if closure != "" {
+					lookup = "pinned " + kind
+				}
+				require.Equal(t, []string{lookup}, resolver.calls)
+			})
+		}
 	}
 }

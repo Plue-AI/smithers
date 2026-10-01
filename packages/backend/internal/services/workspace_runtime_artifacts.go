@@ -68,11 +68,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceArtifacts(ctx context.Context, 
 			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, fmt.Sprintf("workspace %s artifact unavailable on host", artifact.label)).WithCause(err)
 		}
 	}
-	guestKind := "container"
-	if strings.TrimSpace(current.EnvironmentClosureHash) != "" {
-		guestKind = current.Kind
-	}
-	if err := finishWorkspaceArtifacts(bootstrapCtx, client, current.VmID, workspaceBootstrapScriptForKind(guestKind)); err != nil {
+	if err := finishWorkspaceArtifacts(bootstrapCtx, client, current.VmID, workspaceBootstrapScriptForKind(current.Kind)); err != nil {
 		return workspaceArtifactRuntimeFailure(bootstrapCtx, "stage workspace artifacts", err)
 	}
 	if err := waitForWorkspaceArtifactBootstrap(bootstrapCtx, client, current.VmID); err != nil {

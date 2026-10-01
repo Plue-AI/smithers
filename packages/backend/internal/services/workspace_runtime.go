@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -196,24 +197,28 @@ func (s *WorkspaceService) runningRuntimeWorkspace(ctx context.Context, row db.W
 // source is a hint for environment selection only; checkout authority stays
 // in ensureRuntimeWorkspaceRepository.
 //
-// A vm or desktop workspace created with a closure (a factory lane placed on
-// the repository's NixOS image) boots exactly that image: the runtime must
-// boot environment images and the image must still be registered, or the
-// create fails. Nothing stands in for it.
+// VM and desktop workspaces always boot a registered NixOS image. A placed
+// closure selects its exact image; an ordinary workspace resolves the current
+// repository image or platform base. Neither can fall back to a container.
 func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) (workspaceapi.WorkspaceSpec, error) {
 	resources, err := s.runtimeWorkspaceResources(row)
 	if err != nil {
 		return workspaceapi.WorkspaceSpec{ID: row.ID}, err
 	}
 	spec := workspaceapi.WorkspaceSpec{ID: row.ID, Resources: resources}
-	if kind := sandboxKindForWorkspace(row.Kind); kind != "container" && strings.TrimSpace(row.EnvironmentClosureHash) != "" {
+	if kind := sandboxKindForWorkspace(row.Kind); kind != "container" {
 		if !s.runtime.Capabilities().EnvironmentImages {
 			return spec, pkgerrors.EnvironmentImageUnavailable("this workspace runtime cannot boot a NixOS environment image")
 		}
 		if s.environmentImages == nil {
 			return spec, pkgerrors.EnvironmentImageUnavailable("this deployment has no NixOS environment image registry")
 		}
-		image, err := s.environmentImages.Pinned(ctx, row.RepositoryID, kind, strings.TrimSpace(row.EnvironmentClosureHash))
+		var image runtimeports.SandboxEnvironmentImage
+		if closure := strings.TrimSpace(row.EnvironmentClosureHash); closure != "" {
+			image, err = s.environmentImages.Pinned(ctx, row.RepositoryID, kind, closure)
+		} else {
+			image, err = s.environmentImages.Resolve(ctx, row.RepositoryID, kind)
+		}
 		if err != nil {
 			return spec, err
 		}
