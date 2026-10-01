@@ -1,0 +1,70 @@
+{
+  "issue": 3198,
+  "status": "READY/FROZEN qualification-only existingfix",
+  "session": "codex-burndown-20260930",
+  "head": "49230e754391c561a2c4448439bc04599abc4639",
+  "existingFix": "03d668a2af0ed9663714d87ebb69c7af71c7f111",
+  "ownedChanges": [],
+  "reviewedSource": [
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_flow.go",
+      "sha256": "9cdc321631f0ae37534d9b08920767997852d12695e781ff71e83a358e07c1d2",
+      "matchesPreCheckpointPlan": true
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_redaction_test.go",
+      "sha256": "ac37d71f88d732c477d2a670393ae243c865e1be9d1904d400fd43c2f7792de5",
+      "matchesPreCheckpointPlan": true
+    },
+    {
+      "path": "packages/backend/internal/services/secret_injection.go",
+      "sha256": "77905cc5c5c7ea44801775dd6c5d2b96433c126be59cdf089721215563167e45",
+      "matchesPreCheckpointPlan": true
+    },
+    {
+      "path": "packages/backend/db/product/migrations/0099_invoked_flow_launch_redaction.sql",
+      "sha256": "eee279031ad9ffa474a82976e48810745e57b69f720cb674f801271e5f50c08c",
+      "matchesPreCheckpointPlan": true
+    }
+  ],
+  "acceptance": [
+    "Actual canonical WorkflowAPI invocation and FlowHostEnvironment reads A into launch environment; retained redaction values encrypted with existing SecretCodec, not stored plaintext.",
+    "Actual PostgreSQL secret rotates A\u2192B and second secret is deleted; later emittedA/B/deletedvalue storedlogs all masked.",
+    "Relaunch mergesC with earlierA values, then rotationD still masksA/C in subsequent stored page.",
+    "Deleting the workflow run cascades deletion of invocation row and retained encrypted set."
+  ],
+  "qualification": {
+    "command": "SMITHERS_TEST_DATABASE_URL=<localPG55491> SMITHERS_REQUIRE_DATABASE_TESTS=1 go test -race -count=1 -timeout=180s -json ./packages/backend/internal/services -run TestInvokedFlow(Log|ProjectionRedact|LaunchRedaction|Redaction)",
+    "exit": 0,
+    "selectedRegressionResults": [
+      {
+        "name": "TestInvokedFlowLogRedactsLaunchSecretsAfterRotation",
+        "action": "pass",
+        "elapsed": 0.56
+      },
+      {
+        "name": "TestInvokedFlowLaunchRedactionIsDeletedWithTheRun",
+        "action": "pass",
+        "elapsed": 0.46
+      }
+    ],
+    "combined3198_3199PassRecords": 24,
+    "fail": 0,
+    "skip": 0,
+    "packageSeconds": 8.319,
+    "sourceChanged": false
+  },
+  "limits": [
+    "Production implementation alreadylanded upstream; no duplicate source fix.",
+    "RealPostgreSQL, actualSecretCodec, canonical resolver/injection/projection and WorkflowAPI boundary exercised; runtime event/catalog/workspace providers are controlled fixture, justified because liveCloud provisioning/outbound actions unavailable and not required by issue actualdatabaseacceptance. No liveguest/providerclaim.",
+    "Focused behavior/-race qualification only; no whole-services100%coverage or wholebackendgate claim.",
+    "Receipts contain syntheticdummy secretvalues only; no ambient credentials."
+  ],
+  "receipts": {
+    "3198-live-issue.json": "c0396d36f197f4e5a70289fdf71a048cfac511826b16417badd8eaaf388e8237",
+    "3198-3199-readonly-plan.json": "c55b3b1eee4cda6126b6ef5ed7eddef15cef773897e45bb267e3454e38b9e999",
+    "3198-3199-qualification-inputs-before.json": "aac4139ac6230f78988a67236dc9ce9668ef37acc69b947fa52b3e0069cf6ca7",
+    "3198-3199-unchanged-real-pg-race.jsonl": "d17883df1b63b437e4f233baea55e7def44bba46869a3610f2c363265dfafc4b",
+    "3198-3199-unchanged-real-pg-race.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
