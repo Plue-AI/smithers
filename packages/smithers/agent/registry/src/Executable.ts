@@ -76,6 +76,7 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Descriptor from "./Descriptor.ts"
+import type * as ExecutionSnapshot from "./ExecutionSnapshot.ts"
 import { readVerifiedBody } from "./internal/Body.ts"
 import * as ModuleClosure from "./internal/ModuleClosure.ts"
 import * as MarkdownFlow from "./MarkdownFlow.ts"
@@ -325,13 +326,25 @@ export interface Lowered {
  */
 export type Registration = FlowRuntime | Action.Implementations | Crypto.Crypto
 
-/**
- * One discovered flow, made runnable.
- *
+/** Source bytes and static links verified before module evaluation.
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface VerifiedSource {
+  readonly entry: string
+  readonly bytes: Uint8Array
+  readonly modules: ReadonlyMap<string, ClosureModule>
+}
+
+/** A descriptor loaded into the durable runtime.
  * @category models
  * @since 1.0.0-rc.0
  */
 export interface Executable {
+  /** Source measured before module evaluation, retained for first admission. */
+  readonly source?: VerifiedSource | undefined
+  /** Releases local handlers for explicit code adoption, without requesting durable cancellation. */
+  readonly quiesce?: ((executionIds: Iterable<string>) => Effect.Effect<void>) | undefined
   /** The descriptor this was built from. */
   readonly descriptor: Descriptor.FlowDescriptor
   /** The module's own Flow.make tag, before the private admission adapter. */
@@ -409,6 +422,9 @@ export type ClosureModule = ModuleClosure.Module
  * @since 1.0.0-rc.0
  */
 export interface Options {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
+  /** Keeps an admitted adapter's registration identity stable during explicit code adoption. */
+  readonly adapterExecutionDigest?: ((descriptor: Descriptor.FlowDescriptor) => string | undefined) | undefined
   /**
    * A host-owned retained checkout for the same project locator identity.
    * Only locators beneath identity are accepted; measured bytes and closure
@@ -596,6 +612,7 @@ const importModule = (
     const siblings = new Map<string, string>()
     for (const original of modules.keys()) {
       const directory = platformPath.dirname(original)
+      yield* fs.makeDirectory(directory, { recursive: true })
       if (!swept.has(directory)) {
         swept.add(directory)
         yield* removeStaleSiblings(fs, platformPath, directory)
@@ -842,6 +859,7 @@ const boundaryOf = (descriptor: Descriptor.FlowDescriptor): Action.FileBoundary 
  * nothing to look up: {@link selfDelegate} turns that flow into the delegate.
  */
 interface LoadedBody {
+  readonly source?: VerifiedSource | undefined
   readonly prompt: string
   readonly annotations: Context.Context<never>
   readonly flow: LoadedFlow | undefined
@@ -881,14 +899,37 @@ const sourceBytes = (
 const loadMarkdown = (
   descriptor: Descriptor.FlowDescriptor,
   path: string,
-  baseDirectory: string
+  baseDirectory: string,
+  options: Options,
+  approvedDigest: string | undefined
 ): Effect.Effect<LoadedBody, ExecutableError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
-    const text = new TextDecoder().decode(yield* sourceBytes(descriptor, path))
+    const bytes = yield* sourceBytes(descriptor, path).pipe(Effect.catch((error) =>
+      options.snapshots === undefined || approvedDigest === undefined ?
+        Effect.fail(error)
+        : options.snapshots.restore(approvedDigest).pipe(
+          Effect.map((source) => source.bytes),
+          Effect.mapError((cause) =>
+            refuse({
+              code: "body_unavailable",
+              flow: descriptor.name,
+              path,
+              message: "Approved source snapshot could not be restored",
+              cause
+            })
+          )
+        )
+    ))
+    const text = new TextDecoder().decode(bytes)
     const body = MarkdownFlow.loadBody(text, baseDirectory)
     const prompt = MarkdownFlow.renderPrompt(body, { args: "" })
     const lowered = CoreMarkdown.lowerMarkdown(MarkdownFlow.toCoreFrontmatter(descriptor), prompt)
-    return { prompt, annotations: lowered.annotations, flow: undefined }
+    return {
+      prompt,
+      annotations: lowered.annotations,
+      flow: undefined,
+      source: { entry: path, bytes, modules: new Map([[path, { bytes, source: text, links: [] }]]) }
+    }
   })
 
 /**
@@ -976,15 +1017,41 @@ const loadModule = (
   descriptor: Descriptor.FlowDescriptor,
   path: string,
   recorded: ReadonlyArray<Descriptor.ModuleImport>,
-  options: Options
+  options: Options,
+  approvedDigest: string | undefined
 ): Effect.Effect<LoadedBody, ExecutableError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
     const platformPath = yield* Path.Path
-    const bytes = yield* sourceBytes(descriptor, path)
-    // Before anything is imported: what runs is the entry AND every module it
-    // loads from beside itself, and only the entry has been verified so far.
-    const modules = yield* verifyImports(descriptor, path, bytes, recorded)
-    const loadPath = path.startsWith("file:") ? path : platformPath.resolve(path)
+    const source = yield* Effect.gen(function*() {
+      const bytes = yield* sourceBytes(descriptor, path)
+      const modules = yield* verifyImports(descriptor, path, bytes, recorded)
+      const entry = path.startsWith("file:")
+        ? yield* platformPath.fromFileUrl(new URL(path)).pipe(Effect.mapError((cause) =>
+          refuse({
+            code: "body_unavailable",
+            flow: descriptor.name,
+            path,
+            message: "Invalid module source locator",
+            cause
+          })
+        ))
+        : platformPath.resolve(path)
+      return { entry, bytes, modules, loadPath: path.startsWith("file:") ? path : platformPath.resolve(path) }
+    }).pipe(Effect.catch((error) =>
+      options.snapshots === undefined || approvedDigest === undefined ?
+        Effect.fail(error)
+        : options.snapshots.restore(approvedDigest).pipe(Effect.mapError((cause) =>
+          refuse({
+            code: "body_unavailable",
+            flow: descriptor.name,
+            path,
+            message: "Approved source snapshot could not be restored",
+            cause
+          })
+        ))
+    ))
+    const { bytes, modules } = source
+    const loadPath = "loadPath" in source ? source.loadPath : source.entry
     const loaded = yield* (options.load ?? importModule)(loadPath, {
       bytes,
       contentDigest: descriptor.body.contentDigest!,
@@ -1016,6 +1083,7 @@ const loadModule = (
         }))
       }
       return {
+        source,
         prompt: "",
         annotations: exported.annotations,
         flow: exported as unknown as LoadedFlow,
@@ -1042,6 +1110,7 @@ const loadModule = (
     }
     // Every flow carries an annotation bag; `Flow.Any` simply does not say so.
     return {
+      source,
       prompt: "",
       annotations: (exported as unknown as CoreFlow.Flow<never, never, never>).annotations,
       flow: undefined
@@ -1084,6 +1153,43 @@ const namingMissing = (
     }))
 })
 
+interface Quiescence {
+  readonly quiesce: (executionIds: Iterable<string>) => Effect.Effect<void>
+  readonly track: <A, E, R>(executionId: string, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+}
+
+const makeQuiescence = (): Quiescence => {
+  const blocked = new Set<string>()
+  const active = new Map<string, Set<Fiber.Fiber<unknown, unknown>>>()
+  const quiesce = (executionIds: Iterable<string>): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      const fibers = new Set<Fiber.Fiber<unknown, unknown>>()
+      for (const executionId of executionIds) {
+        blocked.add(executionId)
+        for (const fiber of active.get(executionId) ?? []) fibers.add(fiber)
+      }
+      return Effect.forEach(fibers, Fiber.interrupt, { concurrency: "unbounded", discard: true })
+    })
+  const track: Quiescence["track"] = (executionId, effect) =>
+    Effect.withFiber((fiber) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const fibers = active.get(executionId) ?? new Set<Fiber.Fiber<unknown, unknown>>()
+          fibers.add(fiber)
+          active.set(executionId, fibers)
+        }),
+        () => blocked.has(executionId) ? Effect.interrupt : effect,
+        () =>
+          Effect.sync(() => {
+            const fibers = active.get(executionId)
+            fibers?.delete(fiber)
+            if (fibers?.size === 0) active.delete(executionId)
+          })
+      )
+    )
+  return { quiesce, track }
+}
+
 /**
  * Builds a module's implementation layer once in its host's scoped context.
  *
@@ -1098,8 +1204,16 @@ const namingMissing = (
 const moduleServices = (
   descriptor: Descriptor.FlowDescriptor,
   implementation: Layer.Layer<unknown, unknown, unknown>,
-  own: (scope: Scope.Closeable) => void
-): Effect.Effect<{ readonly layer: Layer.Layer<unknown>; readonly scope: Scope.Closeable }, ExecutableError> =>
+  own: (scope: Scope.Closeable) => void,
+  quiescence: Quiescence
+): Effect.Effect<
+  {
+    readonly layer: Layer.Layer<unknown>
+    readonly scope: Scope.Closeable
+    readonly quiesce: (executionIds: Iterable<string>) => Effect.Effect<void>
+  },
+  ExecutableError
+> =>
   Effect.gen(function*() {
     const parent = yield* Effect.serviceOption(Scope.Scope)
     if (Option.isNone(parent)) {
@@ -1145,7 +1259,12 @@ const moduleServices = (
                       (found) => Option.isSome(found) ? Effect.succeed(found) : fallback(name)
                     ))
             })
-            return execute(payload, executionId).pipe(Effect.provideService(Action.Implementations, implementations))
+            return quiescence.track(
+              executionId,
+              execute(payload, executionId).pipe(
+                Effect.provideService(Action.Implementations, implementations)
+              )
+            )
           })
       }))
     const input = Context.merge(hostServices, local)
@@ -1199,7 +1318,7 @@ const moduleServices = (
     )
     // Consumers register independently; only the loading host or a catalog
     // refresh that retires this entry releases the acquired module resources.
-    return { layer: Layer.succeedContext(services), scope }
+    return { layer: Layer.succeedContext(services), scope, quiesce: quiescence.quiesce }
   })
 
 /**
@@ -1372,8 +1491,20 @@ export const fromDescriptor = (
         })
       ))
       const load = loading.body._tag === "Markdown"
-        ? loadMarkdown(loading, loading.body.path, loading.body.baseDirectory)
-        : loadModule(loading, loading.body.path, loading.body.imports ?? [], options)
+        ? loadMarkdown(
+          loading,
+          loading.body.path,
+          loading.body.baseDirectory,
+          options,
+          Descriptor.executionDigest(descriptor)
+        )
+        : loadModule(
+          loading,
+          loading.body.path,
+          loading.body.imports ?? [],
+          options,
+          Descriptor.executionDigest(descriptor)
+        )
       // Which refusal a failed load reports when no delegate is registered.
       //
       // A descriptor that NAMES a delegate is asking this host for a flow it does
@@ -1466,7 +1597,9 @@ export const fromDescriptor = (
       // decode the other's payload. Keep the declaration's tag and give only
       // the private adapter a stable, source-qualified registration identity.
       const adapterTag = body.flow?._tag === descriptor.name
-        ? `registry/entry/${Descriptor.executionDigest(descriptor)}/${descriptor.name}`
+        ? `registry/entry/${
+          options.adapterExecutionDigest?.(descriptor) ?? Descriptor.executionDigest(descriptor)
+        }/${descriptor.name}`
         : descriptor.name
       const flow = RuntimeFlow.make(adapterTag, {
         payload: Payload,
@@ -1484,6 +1617,7 @@ export const fromDescriptor = (
           : Context.merge(body.annotations, annotationsOf(lowered)),
         body: build
       })
+      const quiescence = makeQuiescence()
       const registrations = Layer.mergeAll(
         Interpreter.layer(flow),
         ...(bridge === undefined ? [] : [bridge.layer]),
@@ -1493,9 +1627,11 @@ export const fromDescriptor = (
         ? undefined
         : yield* moduleServices(descriptor, body.layer, (scope) => {
           moduleScope = scope
-        })
+        }, quiescence)
       const executable: Executable = {
         descriptor,
+        source: body.source,
+        quiesce: body.flow === undefined ? undefined : quiescence.quiesce,
         declaredTag: body.flow?._tag,
         delegate: body.flow === undefined ? name : undefined,
         input: body.flow?.payloadSchema,
@@ -1512,17 +1648,32 @@ export const fromDescriptor = (
         // A module that is its own flow registers that flow too: the bridged flow
         // CALLS it, and a declared cache policy EXECUTES it as a child, which the
         // runtime resolves by tag.
-        layer: (implementations === undefined ? registrations : Layer.effectDiscard(Effect.gen(function*() {
-          // Consumers own their registration scope, but it is also a child of
-          // the module lifetime so refresh retires every original registration.
-          const scope = yield* Effect.acquireRelease(
-            Scope.fork(implementations.scope),
-            (scope, exit) => Scope.close(scope, exit)
-          )
-          yield* Layer.buildWithScope(registrations.pipe(Layer.provide(implementations.layer)), scope)
-        }))) as Layer.Layer<never, never, Registration>
+        layer: (implementations === undefined ?
+          Layer.unwrap(Effect.map(FlowRuntime, (runtime) =>
+            registrations.pipe(Layer.provide(Layer.succeed(
+              FlowRuntime,
+              FlowRuntime.of({
+                ...runtime,
+                register: (declaration, execute) =>
+                  runtime.register(
+                    declaration,
+                    (payload, executionId) => quiescence.track(executionId, execute(payload, executionId))
+                  )
+              })
+            ))))) :
+          Layer.effectDiscard(Effect.gen(function*() {
+            // Consumers own their registration scope, but it is also a child of
+            // the module lifetime so refresh retires every original registration.
+            const scope = yield* Effect.acquireRelease(
+              Scope.fork(implementations.scope),
+              (scope, exit) => Scope.close(scope, exit)
+            )
+            yield* Layer.buildWithScope(registrations.pipe(Layer.provide(implementations.layer)), scope)
+          }))) as Layer.Layer<never, never, Registration>
       }
-      if (implementations !== undefined) moduleScopes.set(executable, implementations.scope)
+      if (implementations !== undefined) {
+        moduleScopes.set(executable, implementations.scope)
+      }
       return executable
     }).pipe(Effect.onExit((exit) =>
       Exit.isFailure(exit) && moduleScope !== undefined ? Scope.close(moduleScope, exit) : Effect.void

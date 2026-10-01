@@ -20,6 +20,7 @@ import {
   type Source
 } from "./Descriptor.ts"
 import { Discovery, layer as discoveryLayer } from "./Discovery.ts"
+import type * as ExecutionSnapshot from "./ExecutionSnapshot.ts"
 import { readVerifiedBody } from "./internal/Body.ts"
 import * as MarkdownFlow from "./MarkdownFlow.ts"
 import * as Pack from "./Pack.ts"
@@ -36,6 +37,7 @@ import { registryError } from "./RegistryError.ts"
  * @since 0.1.0
  */
 export interface Config {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   readonly sources: ReadonlyArray<Source>
   /**
    * Installed packs, scanned after `sources` and folded in under the same
@@ -76,6 +78,7 @@ export interface PackConfig {
  * @since 0.1.0
  */
 export interface Registry {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   /** Returns descriptors in deterministic first-found order. */
   readonly list: () => Effect.Effect<ReadonlyArray<FlowDescriptor>>
   /** Returns the descriptors visible to model invocation. */
@@ -167,8 +170,9 @@ const ownedValue = <A>(value: A, seen: WeakMap<object, object> = new WeakMap()):
  */
 const ownedDescriptor = (entry: FlowDescriptor): FlowDescriptor => ownedValue(new FlowDescriptor({ ...entry }))
 
-const ownedConfig = (config: Config): Config =>
-  ownedValue({
+const ownedConfig = (config: Config): Config => ({
+  snapshots: config.snapshots,
+  ...ownedValue({
     sources: [...config.sources],
     ...(config.packs === undefined
       ? {}
@@ -179,6 +183,7 @@ const ownedConfig = (config: Config): Config =>
         }
       })
   })
+})
 
 /**
  * Projects already-folded entries into the snapshot the service reads.
@@ -361,7 +366,8 @@ const fromRef = (
   state: Ref.Ref<Snapshot>,
   fs: FileSystem.FileSystem,
   path: Path.Path,
-  refresh: Effect.Effect<void, RegistryError | DiscoveryError>
+  refresh: Effect.Effect<void, RegistryError | DiscoveryError>,
+  snapshots?: ExecutionSnapshot.Service
 ): Registry => {
   const getOption = Effect.fn("Registry.getOption")(
     function*(name: string): Effect.fn.Return<Option.Option<FlowDescriptor>> {
@@ -388,7 +394,42 @@ const fromRef = (
       name: string,
       expectedExecutionDigest?: string
     ): Effect.fn.Return<FlowBody, RegistryError | DiscoveryError> {
-      const descriptor = yield* lookup(name, "loadBody")
+      const restored = () =>
+        snapshots === undefined || expectedExecutionDigest === undefined
+          ? Effect.fail(
+            registryError({
+              code: "execution_changed",
+              method: "loadBody",
+              description: `flow "${name}" changed after planning; create and approve a new plan before running it`
+            })
+          )
+          : snapshots.restore(expectedExecutionDigest).pipe(
+            Effect.flatMap((source) =>
+              source.descriptor.name !== name
+                ? Effect.fail(
+                  registryError({
+                    code: "execution_changed",
+                    method: "loadBody",
+                    description: "Approved snapshot belongs to another flow"
+                  })
+                )
+                : Effect.succeed(source)
+            ),
+            Effect.mapError((cause) =>
+              registryError({
+                code: "execution_changed",
+                method: "loadBody",
+                description: "Approved source snapshot could not be restored",
+                cause
+              })
+            )
+          )
+      const live = yield* getOption(name)
+      const pinned = expectedExecutionDigest !== undefined &&
+          (Option.isNone(live) || executionDigest(live.value) !== expectedExecutionDigest)
+        ? yield* restored() :
+        undefined
+      const descriptor = pinned?.descriptor ?? (yield* lookup(name, "loadBody"))
       if (expectedExecutionDigest !== undefined && executionDigest(descriptor) !== expectedExecutionDigest) {
         return yield* registryError({
           code: "execution_changed",
@@ -398,21 +439,28 @@ const fromRef = (
         })
       }
       const bodyPath = descriptor.body.path
-      const bytes = yield* readVerifiedBody(fs, path, descriptor).pipe(
-        Effect.mapError((failure) =>
-          registryError({
-            code: "body_unavailable",
-            method: "loadBody",
-            path: bodyPath,
-            description: failure._tag === "changed"
-              ? `body for flow "${name}" changed at "${bodyPath}" after discovery; refresh the registry before loading it`
-              : failure._tag === "unmeasured"
-              ? `body for flow "${name}" is unmeasured at "${bodyPath}"; refresh the registry before loading it`
-              : `body for flow "${name}" is unavailable at "${bodyPath}"`,
-            cause: failure._tag === "unreadable" ? failure.cause : undefined
-          })
-        )
-      )
+      const bytes = pinned === undefined ?
+        yield* readVerifiedBody(fs, path, descriptor).pipe(
+          Effect.mapError((failure) =>
+            registryError({
+              code: "body_unavailable",
+              method: "loadBody",
+              path: bodyPath,
+              description: failure._tag === "changed"
+                ? `body for flow "${name}" changed at "${bodyPath}" after discovery; refresh the registry before loading it`
+                : failure._tag === "unmeasured"
+                ? `body for flow "${name}" is unmeasured at "${bodyPath}"; refresh the registry before loading it`
+                : `body for flow "${name}" is unavailable at "${bodyPath}"`,
+              cause: failure._tag === "unreadable" ? failure.cause : undefined
+            })
+          ),
+          Effect.catch((error) =>
+            snapshots === undefined || expectedExecutionDigest === undefined
+              ? Effect.fail(error)
+              : Effect.map(restored(), (source) => source.bytes)
+          )
+        ) :
+        pinned.bytes
       if (descriptor.body._tag === "Module") {
         return new FlowBodyModule({ path: descriptor.body.path })
       }
@@ -442,6 +490,7 @@ const fromRef = (
   })
 
   return Registry.of({
+    snapshots,
     list: Effect.fn("Registry.list")(() => Effect.map(Ref.get(state), (snapshot) => snapshot.entries)),
     visible: Effect.fn("Registry.visible")(() => Effect.map(Ref.get(state), (snapshot) => snapshot.visible)),
     get,
@@ -479,7 +528,7 @@ export const make = (
     const initial = yield* scan
     const state = yield* Ref.make(initial)
     const refresh = Effect.flatMap(scan, (snapshot) => Ref.set(state, snapshot))
-    return fromRef(state, fs, path, refresh)
+    return fromRef(state, fs, path, refresh, config.snapshots)
   })
 }
 
@@ -504,6 +553,7 @@ export const layer = (
  * @since 1.0.0-rc.0
  */
 export interface ProjectOptions {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   /** The project root. `<root>/flows` is scanned for `flow.ts` and `flow.mdx`. */
   readonly root: string
   /** Installed packs, scanned after project flows and checked against `runtimeVersion`. */
@@ -532,6 +582,7 @@ export const layerProject = (
     Effect.gen(function*() {
       const path = yield* Path.Path
       return layer({
+        snapshots: options.snapshots,
         sources: [{ source: "project", root: path.join(options.root, "flows"), naming: "path", optionalRoot: true }],
         ...(options.packs === undefined ? {} : { packs: options.packs })
       }).pipe(Layer.provide(discoveryLayer))
@@ -547,7 +598,8 @@ export const layerProject = (
  */
 export const layerFromDescriptors = (
   entries: ReadonlyArray<FlowDescriptor>,
-  warnings: ReadonlyArray<DiscoveryWarning> = []
+  warnings: ReadonlyArray<DiscoveryWarning> = [],
+  snapshots?: ExecutionSnapshot.Service
 ): Layer.Layer<Registry, never, FileSystem.FileSystem | Path.Path> => {
   const folded = firstFound()
   // Descriptors handed to an in-memory registry are never a system source, so
@@ -560,7 +612,7 @@ export const layerFromDescriptors = (
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const state = yield* Ref.make(snapshot)
-      return fromRef(state, fs, path, Effect.void)
+      return fromRef(state, fs, path, Effect.void, snapshots)
     })
   )
 }

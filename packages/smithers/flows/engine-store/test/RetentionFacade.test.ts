@@ -662,6 +662,38 @@ describe("Retention.collect", () => {
       expect(report.deleted).toEqual({})
     }))
 
+  it.effect("fills a bounded pass past an explicitly pinned oldest run and preserves its dependents", () =>
+    migrated(Effect.gen(function*() {
+      yield* insertRun("pinned-oldest", "completed", 100)
+      yield* insertAttempt("pinned-oldest")
+      yield* insertEvent("pinned-oldest", 0)
+      yield* insertRun("collect-next", "completed", 200)
+      yield* insertAttempt("collect-next")
+      yield* insertEvent("collect-next", 0)
+      const options = { olderThanMs: 500, limit: 1, pins: ["pinned-oldest"] }
+
+      const planned = yield* Retention.collect({ ...options, dryRun: true })
+      expect(planned.runs).toEqual(["collect-next"])
+      expect(planned.deleted).toEqual({})
+      expect(yield* count("flows_runs")).toBe(2)
+      expect(yield* count("flows_attempts")).toBe(2)
+
+      const collected = yield* Retention.collect(options)
+      expect(collected.runs).toEqual(planned.runs)
+      expect(yield* count("flows_runs")).toBe(1)
+      expect(yield* count("flows_attempts")).toBe(1)
+      expect(yield* count("flows_journal_events")).toBe(1)
+      const held = yield* Retention.collect(options)
+      expect(held.runs).toEqual([])
+      expect(yield* count("flows_attempts")).toBe(1)
+
+      const released = yield* Retention.collect({ olderThanMs: 500, limit: 1 })
+      expect(released.runs).toEqual(["pinned-oldest"])
+      expect(yield* count("flows_runs")).toBe(0)
+      expect(yield* count("flows_attempts")).toBe(0)
+      expect(yield* count("flows_journal_events")).toBe(0)
+    })))
+
   it.effect("turns invalid host-facing limits into empty, non-mutating passes", () =>
     migrated(Effect.gen(function*() {
       yield* insertRun("old", "completed", 100)

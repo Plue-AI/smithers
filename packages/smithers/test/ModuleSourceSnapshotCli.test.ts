@@ -1,6 +1,6 @@
 /** An approved, self-contained module executes its measured closure in a real CLI host. */
-import { execFile } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink } from "node:fs/promises"
+import { execFile, spawn } from "node:child_process"
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -105,39 +105,197 @@ describe("the approved module source snapshot", () => {
     240_000
   )
 
-  it("a restarted host refuses changed source and keeps the approved run parked without child effects", async () => {
-    await withHost(async (root, command) => {
-      const started = await command([
-        "flow",
-        "start",
-        "snapshot",
-        "--data",
-        JSON.stringify({ root, edit: true, park: true, early: false, concurrent: false }),
-        "--detached",
-        "--json"
-      ])
-      expect(started, JSON.stringify(started)).toMatchObject({ code: 0 })
-      for (let attempt = 0; controlRows(root)[0]?.status !== "suspended"; attempt++) {
-        if (attempt === 300) throw new Error(`run did not park: ${JSON.stringify(controlRows(root))}`)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-      const before = controlRows(root)
-      expect(before).toEqual([{ run_id: "run-1", status: "suspended", state_json: expect.any(String) }])
-      try {
-        const resumed = await command(["runs", "resume", "run-1", "--json"])
-        expect(resumed.code).toBe(1)
-        expect(JSON.parse(resumed.stdout)).toMatchObject({
-          code: "CodeDrift",
-          message: expect.stringContaining("--allow-code-drift")
+  it.each(["pinned", "missing-manifest", "lockfile", "adopt"] as const)(
+    "resumes after SIGKILL with execution authority (%s)",
+    async (mode) => {
+      await withHost(async (root, command) => {
+        await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n")
+        await writeFile(join(root, "pause"), "")
+        const child = spawn(process.execPath, [
+          "--no-warnings",
+          "--import",
+          preload,
+          bin,
+          "flow",
+          "start",
+          "snapshot",
+          "--data",
+          JSON.stringify({ root, edit: true, park: false, early: false, concurrent: false }),
+          "--wait",
+          "--json"
+        ], {
+          cwd: root,
+          env: {
+            ...process.env,
+            XDG_CONFIG_HOME: join(root, "config"),
+            AI_GATEWAY_API_KEY: "",
+            SMITHERS_REMOTE: "",
+            NODE_OPTIONS: ""
+          },
+          stdio: ["ignore", "pipe", "pipe"]
         })
-        expect(controlRows(root)).toEqual(before)
-        expect(await readFile(join(root, "observed-1"), "utf8"))
-          .toBe("approved-entry/approved-helper/approved-layer/1")
-        await expect(readFile(join(root, "observed-2"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
-        await expect(readFile(join(root, "observed-3"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+        let startupOutput = ""
+        child.stdout?.on("data", (chunk) => {
+          startupOutput += String(chunk)
+        })
+        child.stderr?.on("data", (chunk) => {
+          startupOutput += String(chunk)
+        })
+        const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()))
+        try {
+          for (let attempt = 0;; attempt++) {
+            try {
+              await readFile(join(root, "second-started"))
+              break
+            } catch {
+              if (child.exitCode !== null || child.signalCode !== null || attempt === 2_400) {
+                throw new Error(`second child never reached its durable blocked attempt: ${startupOutput}`)
+              }
+              await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+          }
+          child.kill("SIGKILL")
+          await exited
+          expect(await readFile(join(root, "observed-1"), "utf8"))
+            .toBe("approved-entry/approved-helper/approved-layer/1")
+          await expect(readFile(join(root, "observed-2"))).rejects.toMatchObject({ code: "ENOENT" })
+          if (mode === "missing-manifest") {
+            await rm(join(root, ".flows", "executions"), { recursive: true, force: true })
+          }
+          if (mode === "lockfile") await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n# changed\n")
+          await rm(join(root, "pause"))
+          const arguments_ = ["runs", "resume", "run-1", ...(mode === "adopt" ? ["--allow-code-drift"] : []), "--json"]
+          const deadline = Date.now() + 60_000
+          let resumed = await command(arguments_)
+          while (resumed.code === 1 && JSON.parse(resumed.stdout).code === "ClaimLost" && Date.now() < deadline) {
+            // SIGKILL does not expire the durable lease. The fresh host must
+            // wait for its real stale cutoff without performing child effects.
+            await expect(readFile(join(root, "observed-2"))).rejects.toMatchObject({ code: "ENOENT" })
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+            resumed = await command(arguments_)
+          }
+          if (mode === "missing-manifest" || mode === "lockfile") {
+            expect(resumed.code, JSON.stringify(resumed)).toBe(1)
+            expect(JSON.parse(resumed.stdout)).toMatchObject({ code: "CodeDrift" })
+            await expect(readFile(join(root, "observed-2"))).rejects.toMatchObject({ code: "ENOENT" })
+          } else {
+            expect(resumed.code, JSON.stringify(resumed)).toBe(0)
+            expect(resumed.stdout).not.toContain("CodeDrift")
+            for (const index of [2, 3]) {
+              expect(await readFile(join(root, `observed-${index}`), "utf8"))
+                .toBe(
+                  `${mode === "adopt" ? "unapproved" : "approved"}-entry/${
+                    mode === "adopt" ? "unapproved" : "approved"
+                  }-helper/${mode === "adopt" ? "unapproved" : "approved"}-layer/${index}`
+                )
+            }
+            expect(controlRows(root)[0]?.status).toBe("completed")
+          }
+        } finally {
+          child.kill("SIGKILL")
+          await exited
+        }
+      })
+    },
+    240_000
+  )
+  it("refuses adoption while another run uses the same flow and preserves its pinned implementation", async () => {
+    await withHost(async (root, command) => {
+      await writeFile(join(root, "pause"), "")
+      const launch = () => {
+        const child = spawn(process.execPath, [
+          "--no-warnings",
+          "--import",
+          preload,
+          bin,
+          "flow",
+          "start",
+          "snapshot",
+          "--data",
+          JSON.stringify({ root, edit: false, park: false, early: false, concurrent: false }),
+          "--wait",
+          "--json"
+        ], {
+          cwd: root,
+          env: {
+            ...process.env,
+            XDG_CONFIG_HOME: join(root, "config"),
+            AI_GATEWAY_API_KEY: "",
+            SMITHERS_REMOTE: "",
+            NODE_OPTIONS: ""
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        })
+        let output = ""
+        child.stdout.on("data", (chunk) => {
+          output += String(chunk)
+        })
+        child.stderr.on("data", (chunk) => {
+          output += String(chunk)
+        })
+        const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()))
+        return { child, exited, output: () => output }
+      }
+      const children: Array<ReturnType<typeof launch>> = []
+      try {
+        for (const count of [1, 2]) {
+          await rm(join(root, "second-started"), { force: true })
+          const active = launch()
+          children.push(active)
+          for (let attempt = 0;; attempt++) {
+            try {
+              await readFile(join(root, "second-started"))
+              break
+            } catch {
+              if (active.child.exitCode !== null || active.child.signalCode !== null || attempt === 2_400) {
+                throw new Error(`run ${count} never blocked: ${active.output()}`)
+              }
+              await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+          }
+          expect(controlRows(root)).toHaveLength(count)
+        }
+        // Unchanged adoption must keep the other registered implementation.
+        const unchanged = await command(["runs", "resume", "run-1", "--allow-code-drift", "--json"])
+        expect(JSON.parse(unchanged.stdout).code).toBe("ClaimLost")
+        children[0]!.child.kill("SIGKILL")
+        await children[0]!.exited
+        for (const file of ["flow.ts", "helper.ts", "layer.ts"]) {
+          const filename = join(root, "flows", "snapshot", file)
+          await writeFile(filename, (await readFile(filename, "utf8")).replaceAll("approved-", "unapproved-"))
+        }
+        const adoptionArguments = ["runs", "resume", "run-1", "--allow-code-drift", "--json"]
+        const adoptionDeadline = Date.now() + 60_000
+        let refused = await command(adoptionArguments)
+        while (refused.code === 1 && JSON.parse(refused.stdout).code === "ClaimLost" && Date.now() < adoptionDeadline) {
+          expect(children[1]!.child.exitCode).toBeNull()
+          await expect(readFile(join(root, "observed-2"))).rejects.toMatchObject({ code: "ENOENT" })
+          await new Promise((resolve) => setTimeout(resolve, 1_000))
+          refused = await command(adoptionArguments)
+        }
+        expect(refused.code, JSON.stringify(refused)).toBe(1)
+        expect(JSON.parse(refused.stdout)).toMatchObject({ code: "CodeDrift" })
+        expect(children[1]!.child.exitCode).toBeNull()
+        await expect(readFile(join(root, "observed-2"))).rejects.toMatchObject({ code: "ENOENT" })
+        children[1]!.child.kill("SIGKILL")
+        await children[1]!.exited
+        await rm(join(root, "pause"))
+        const deadline = Date.now() + 60_000
+        let resumed = await command(["runs", "resume", "run-2", "--json"])
+        while (resumed.code === 1 && JSON.parse(resumed.stdout).code === "ClaimLost" && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1_000))
+          resumed = await command(["runs", "resume", "run-2", "--json"])
+        }
+        expect(resumed.code, JSON.stringify(resumed)).toBe(0)
+        for (const index of [2, 3]) {
+          expect(await readFile(join(root, `observed-${index}`), "utf8"))
+            .toBe(`approved-entry/approved-helper/approved-layer/${index}`)
+        }
+        expect(controlRows(root).find((row) => row.run_id === "run-2")?.status).toBe("completed")
       } finally {
-        expect((await command(["runs", "cancel", "run-1", "--json"])).code).toBe(130)
+        for (const active of children) active.child.kill("SIGKILL")
+        await Promise.all(children.map((active) => active.exited))
       }
     })
-  }, 240_000)
+  }, 360_000)
 })

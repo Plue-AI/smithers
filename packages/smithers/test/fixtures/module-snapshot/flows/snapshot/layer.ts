@@ -41,6 +41,8 @@ export const layer = Layer.mergeAll(
   Probe.toLayer(({ root, entry, index, edit }) =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
+      if (index === 2) yield* fs.writeFileString(`${root}/second-started`, "")
+      while (index === 2 && (yield* fs.exists(`${root}/pause`))) yield* Effect.sleep("20 millis")
       const result = `${entry}/${helperVersion}/${layerVersion}/${index}`
       const filename = `${root}/observed-${index}`
       yield* fs.writeFileString(filename, result)

@@ -64,6 +64,7 @@ import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { type AttemptStore, Ownership, RunStore } from "@smthrs/run-store"
 import { Sandbox as Machine } from "@smthrs/sandbox"
@@ -222,6 +223,8 @@ export interface HostState {
     | {
       readonly registry: Registry.Registry
       readonly refresh: Executable.Refresh | undefined
+      /** Joins this run's local module handlers before replacing its source registration. */
+      readonly prepareAdoption?: ((flowId: string, runId: string) => Effect.Effect<void>) | undefined
       /**
        * Runs `effect` in the host's transaction-free context. A resume
        * adopts inside the control mutation's SQL transaction, and a body
@@ -552,14 +555,18 @@ export const make = (
    */
   const layerRegistry = (root: string): Layer.Layer<Registry.Registry> => {
     const discovery = Discovery.layer.pipe(Layer.provide(layerHostPlatform))
-    return Registry.layer({ sources: projectSources(root) }).pipe(
-      Layer.provide([discovery, layerGuardedPlatform(root)]),
-      // A project with no `flows/` directory simply has no flows (`optionalRoot`),
-      // and a refresh finds them once it appears. Every other discovery failure,
-      // such as an unreadable root or malformed entry, is a startup defect rather
-      // than a silent empty catalog.
-      Layer.catch((error) => Layer.effect(Registry.Registry)(Effect.die(error)))
-    )
+    return Layer.unwrap(Effect.gen(function*() {
+      // Snapshot publication uses the trusted host filesystem, never a flow's
+      // guarded filesystem. Methods retain these ports after construction.
+      const snapshots = yield* ExecutionSnapshot.makeFileSystem({ root }).pipe(
+        Effect.provide(Layer.merge(layerHostPlatform, native.crypto)),
+        Effect.orDie
+      )
+      return Registry.layer({ sources: projectSources(root), snapshots }).pipe(
+        Layer.provide([discovery, layerGuardedPlatform(root)]),
+        Layer.catch((error) => Layer.effect(Registry.Registry)(Effect.die(error)))
+      )
+    }))
   }
 
   /**
@@ -904,6 +911,7 @@ export const make = (
       : Layer.effect(ControlRuntime.ControlRuntime)(
         Effect.gen(function*() {
           const registryService = yield* Registry.Registry
+          const controlSql = yield* SqlClient
           const discoveryError = (operation: string) => (cause: { readonly message: string }) =>
             new ControlError.PersistenceError({ operation, message: cause.message, cause })
           // Discovery scans these roots. A catalog entry from one of them that
@@ -947,17 +955,38 @@ export const make = (
                 ]
               })
             )
-          const adoptFlow = (flowId: string) =>
+          const adoptFlow = (flowId: string, runId: string) =>
             Effect.gen(function*() {
               const executor = host.executor
               // With no executor here, the code on disk is all this host names.
               if (executor === undefined) return (yield* currentFlows()).find((flow) => flow.flowId === flowId)
+              const found = yield* executor.onHost(
+                executor.registry.refresh().pipe(
+                  Effect.andThen(executor.registry.getOption(flowId))
+                )
+              )
+              if (Option.isNone(found)) return undefined
+              // Metadata refresh is safe for active callbacks; rebuilding their
+              // shared module scope requires every other root to be terminal.
+              const loaded = host.catalog?.executables.find((entry) => entry.descriptor.name === flowId)
+              if (found.value.body._tag !== "Module") return durableFlow(found.value, root, host)
+              if (
+                loaded !== undefined &&
+                Descriptor.executionDigest(loaded.descriptor) === Descriptor.executionDigest(found.value)
+              ) {
+                return durableFlow(loaded.descriptor, root, host)
+              }
+              const otherRoots = yield* controlSql<{ readonly stateJson: string }>`
+                SELECT runs.state_json AS "stateJson" FROM control_runs AS indexed
+                JOIN flows_runs AS runs ON indexed.run_id = runs.run_id
+                WHERE runs.run_id <> ${runId} AND runs.status NOT IN ('completed', 'failed', 'cancelled')
+              `
+              for (const row of otherRoots) {
+                const summary = yield* Effect.try(() => JSON.parse(row.stateJson) as { readonly flowId?: string })
+                if (summary.flowId === flowId) return undefined
+              }
               const descriptor = yield* executor.onHost(Effect.gen(function*() {
-                yield* executor.registry.refresh()
-                const found = yield* executor.registry.getOption(flowId)
-                if (Option.isNone(found)) return undefined
-                // A prompt flow's body is read off the registry at each run.
-                if (found.value.body._tag !== "Module") return found.value
+                yield* executor.prepareAdoption?.(flowId, runId) ?? Effect.void
                 // A module's body is the executable the catalog holds, so the
                 // catalog is rebuilt from the bytes on disk. The operator asked
                 // for exactly this code, which is why an adopt may import it
@@ -967,7 +996,6 @@ export const make = (
                 if (rebuilt?._tag === "Removed" || rebuilt?._tag === "Refused") return undefined
                 // A host that cannot rebuild the entry, or holds it fixed, runs
                 // the executable it loaded, and only that code can be adopted.
-                const loaded = host.catalog?.executables.find((entry) => entry.descriptor.name === flowId)
                 return loaded !== undefined &&
                     Descriptor.executionDigest(loaded.descriptor) === Descriptor.executionDigest(found.value)
                   ? loaded.descriptor
@@ -1023,6 +1051,13 @@ export const make = (
             // check (#1807). Discovery wins here over a rebuilt entry: the
             // question is whether the source moved, not what the host loaded.
             currentFlows,
+            pinnedFlow: (flowId, digest) =>
+              registryService.snapshots === undefined
+                ? Effect.succeed(undefined)
+                : registryService.snapshots.restore(digest).pipe(
+                  Effect.map((restored) => restored.descriptor.name === flowId),
+                  Effect.catch((error) => Effect.succeed(error.code === "missing" ? undefined : false))
+                ),
             // An allowed drift records the code the executor will run, so the
             // executor loads it first (#2740).
             adoptFlow
@@ -1087,12 +1122,78 @@ export const make = (
     // host registers file modules after its engine and agent services exist.
     const modules = suppliedModules ?? (options.startsRuns === false && options.plansFlows !== true
       ? undefined
-      : Executable.layer({
-        delegates: [],
-        ...(options.executionRoot === undefined || resolve(options.executionRoot) === resolve(root)
-          ? {}
-          : { sourceRoot: { identity: resolve(root), workspace: resolve(options.executionRoot) } })
-      }).pipe(Layer.orDie))
+      : Layer.unwrap(Effect.gen(function*() {
+        const registryService = yield* Registry.Registry
+        const snapshots = registryService.snapshots
+        const sql = yield* SqlClient.pipe(Effect.provide(engine.stores))
+        const nativeSql = yield* SqlClient
+        const active = yield* nativeSql<{ readonly runId: string }>`
+          WITH RECURSIVE live(run_id) AS (
+            SELECT run_id FROM flows_runs WHERE status NOT IN ('completed', 'failed', 'cancelled')
+            UNION SELECT parents.parent_id FROM flows_run_parents AS parents JOIN live ON parents.child_id = live.run_id
+            UNION SELECT runs.parent_run_id FROM flows_runs AS runs JOIN live ON runs.run_id = live.run_id
+              WHERE runs.parent_run_id IS NOT NULL
+          ) SELECT run_id AS "runId" FROM live
+        `.pipe(Effect.orDie)
+        const liveIds = new Set(active.map((row) => row.runId))
+        const recorded = yield* sql<{ readonly runId: string; readonly status: string; readonly stateJson: string }>`
+          SELECT runs.run_id AS "runId", runs.status, runs.state_json AS "stateJson" FROM control_runs AS indexed
+          JOIN flows_runs AS runs ON indexed.run_id = runs.run_id
+        `.pipe(Effect.orDie)
+        const rows = recorded.filter((row) =>
+          liveIds.has(row.runId) || !["completed", "failed", "cancelled"].includes(row.status)
+        )
+        const pinned = new Map<string, Descriptor.FlowDescriptor>()
+        const adapterDigests = new Map<string, string>()
+        for (const row of rows) {
+          const summary = yield* Effect.try(() =>
+            JSON.parse(row.stateJson) as {
+              readonly executionDigest?: string
+              readonly planId?: string
+              readonly flowId?: string
+            }
+          ).pipe(Effect.orDie)
+          if (summary.planId !== undefined && summary.flowId !== undefined) {
+            const plans = yield* sql<{ readonly cardJson: string }>`
+              SELECT card_json AS "cardJson" FROM control_plans WHERE plan_id = ${summary.planId}
+            `.pipe(Effect.orDie)
+            const card = plans[0] === undefined ?
+              undefined :
+              yield* Effect.try(() =>
+                JSON.parse(plans[0]!.cardJson) as {
+                  readonly executionDigest?: string
+                }
+              ).pipe(Effect.orDie)
+            if (card?.executionDigest !== undefined) adapterDigests.set(summary.flowId, card.executionDigest)
+          }
+          if (summary.executionDigest === undefined || snapshots === undefined) continue
+          const restored = yield* snapshots.descriptor(summary.executionDigest).pipe(
+            // Missing or dependency-drifted snapshots keep the live catalog;
+            // the pre-claim CodeDrift check reports the refusal.
+            Effect.result
+          )
+          if (restored._tag === "Success") pinned.set(restored.success.name, restored.success)
+        }
+        const listing = Registry.Registry.of({
+          ...registryService,
+          list: () =>
+            registryService.list().pipe(Effect.map((descriptors) => {
+              const named = new Set(descriptors.map((entry) => entry.name))
+              return [
+                ...descriptors.map((entry) => pinned.get(entry.name) ?? entry),
+                ...[...pinned.values()].filter((entry) => !named.has(entry.name))
+              ]
+            }))
+        })
+        return Executable.layer({
+          delegates: [],
+          snapshots,
+          adapterExecutionDigest: (descriptor) => adapterDigests.get(descriptor.name),
+          ...(options.executionRoot === undefined || resolve(options.executionRoot) === resolve(root)
+            ? {}
+            : { sourceRoot: { identity: resolve(root), workspace: resolve(options.executionRoot) } })
+        }).pipe(Layer.provide(Layer.succeed(Registry.Registry, listing)), Layer.orDie)
+      })))
     // Same separation `engineDurable` makes for `control.db`: `engine.db` and
     // its WAL follow the state root, never the served checkout.
     const stateRoot = resolve(options.stateRoot ?? root)
@@ -1460,8 +1561,10 @@ export const make = (
         // Capture native ports and a transaction-free host context BEFORE the
         // session selects its control journal. A different Journal service alone
         // would not remove an inherited control SQL transaction from a caller.
+        const nativeRuns = yield* RunStore.RunStore
+        const nativeSql = yield* SqlClient
         const nativeFacts = ExecutionFacts.make({
-          runs: yield* RunStore.RunStore,
+          runs: nativeRuns,
           state: yield* DurableEngineState.DurableEngineState,
           journal: yield* Journal.Journal,
           sourceId: "native-control:execution-facts:v1"
@@ -1472,6 +1575,21 @@ export const make = (
           refresh: registrations === undefined
             ? undefined
             : Option.getOrUndefined(Context.getOption(Executable.Refresh)(registrations)),
+          prepareAdoption: (flowId, runId) =>
+            Effect.gen(function*() {
+              const executions = yield* nativeSql<{ readonly executionId: string }>`
+              WITH RECURSIVE owned(run_id) AS (
+                SELECT ${runId}
+                UNION SELECT parents.child_id FROM flows_run_parents AS parents JOIN owned ON parents.parent_id = owned.run_id
+                UNION SELECT rounds.run_id FROM flows_runs AS rounds JOIN owned ON rounds.parent_run_id = owned.run_id
+                  WHERE rounds.round_ordinal > 0
+              ) SELECT run_id AS "executionId" FROM owned
+            `.pipe(Effect.orDie)
+              const executable = engine.host.catalog?.executables.find((entry) => entry.descriptor.name === flowId)
+              if (executable?.quiesce !== undefined) {
+                yield* executable.quiesce(executions.map((row) => row.executionId))
+              }
+            }),
           onHost: (effect) =>
             Effect.acquireUseRelease(
               Effect.sync(() => Effect.runForkWith(nativeHost)(effect)),

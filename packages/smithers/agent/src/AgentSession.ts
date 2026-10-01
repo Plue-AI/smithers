@@ -3198,6 +3198,35 @@ export const make = (
       )
     )
 
+    const executionDescriptor = (
+      runId: string,
+      flowId: string,
+      expected?: string
+    ): Effect.Effect<Option.Option<Descriptor.FlowDescriptor>, LaunchFailed> =>
+      Effect.gen(function*() {
+        const live = yield* registry.getOption(flowId)
+        if (
+          expected === undefined || registry.snapshots === undefined ||
+          (Option.isSome(live) && Descriptor.executionDigest(live.value) === expected)
+        ) return live
+        const pinned = yield* registry.snapshots.restore(expected).pipe(
+          Effect.map((source) => Option.some(source.descriptor)),
+          Effect.catch((cause) =>
+            cause.code === "missing" && Option.isNone(live)
+              ? Effect.succeed(Option.none<Descriptor.FlowDescriptor>())
+              : Effect.fail(
+                new LaunchFailed({ runId, message: `Approved source for flow ${flowId} could not be restored`, cause })
+              )
+          )
+        )
+        if (Option.isSome(pinned) && pinned.value.name !== flowId) {
+          return yield* Effect.fail(
+            new LaunchFailed({ runId, message: "Approved source belongs to another flow", cause: { flowId } })
+          )
+        }
+        return pinned
+      })
+
     const approvedExecution = (
       runId: string,
       card: PlanCard,
@@ -3346,7 +3375,6 @@ export const make = (
         // A budget park's approval raises the ceiling this attempt spends
         // against; the card itself stays the plan that was approved.
         const envelope = Budget.raisedBy(card.envelope, raises)
-        const descriptor = yield* registry.get(card.flowId)
         // The run records the plan's digest at launch. Only `runs resume
         // --allow-code-drift` moves it, to the code the operator accepted, so
         // that is the identity this execution may enter (#1807). A round or
@@ -3357,6 +3385,8 @@ export const make = (
           Effect.map((code) => code.executionDigest),
           Effect.orElseSucceed(() => undefined)
         )
+        const selected = yield* executionDescriptor(payload.runId, card.flowId, recorded ?? card.executionDigest)
+        const descriptor = Option.isSome(selected) ? selected.value : yield* registry.get(card.flowId)
         const executionDigest = yield* approvedExecution(payload.runId, card, descriptor, recorded)
         const sandboxOpener = yield* sandboxFor(payload.runId, descriptor)
         // Before either branch: a run holding a machine keeps running on it,
@@ -4357,7 +4387,12 @@ export const make = (
     ): Effect.Effect<ControlExecutor.Acceptance, LaunchFailed> =>
       Effect.gen(function*() {
         const flowId = input.plan.card.flowId
-        const descriptor = yield* registry.getOption(flowId)
+        const recorded = yield* runtime.recordedCode(input.run.runId).pipe(
+          Effect.map((code) => code.executionDigest),
+          Effect.orElseSucceed(() => undefined)
+        )
+        const expected = recorded ?? input.plan.card.executionDigest
+        const descriptor = yield* executionDescriptor(input.run.runId, flowId, expected)
         if (Option.isNone(descriptor)) {
           // Not a flow this composition knows — a system flow, or one whose
           // registry another host holds. Pending is the honest acceptance:
@@ -4365,7 +4400,7 @@ export const make = (
           return "pending" as const
         }
         yield* sandboxFor(input.run.runId, descriptor.value)
-        const flowBody = yield* registry.loadBody(flowId, input.plan.card.executionDigest).pipe(
+        const flowBody = yield* registry.loadBody(flowId, expected).pipe(
           Effect.mapError(
             (cause) =>
               new LaunchFailed({
@@ -4382,7 +4417,7 @@ export const make = (
         )
         if (flowBody._tag !== "Prompt") {
           if (Option.isNone(executables)) return "pending" as const
-          const digest = yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value)
+          const digest = yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value, recorded)
           // A module whose delegate this host never registered is driven by
           // the host program that registers it, so pending is the honest
           // acceptance here too: nothing here runs it, and that program still
@@ -4392,7 +4427,7 @@ export const make = (
           ) return "pending" as const
           yield* approvedModule(input.run.runId, input.plan.card, digest)
         } else {
-          yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value)
+          yield* approvedExecution(input.run.runId, input.plan.card, descriptor.value, recorded)
           const seatIds = yield* approvedSeats(input.run.runId, input.plan.card, descriptor.value)
           // Resolve the seat now, so a missing key refuses the launch as a
           // typed failure instead of failing the run after it was accepted.

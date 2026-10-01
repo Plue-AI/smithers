@@ -70,3 +70,6 @@ export * as Pack from "./Pack.ts"
  * @since 0.1.0
  */
 export * as Registry from "./Registry.ts"
+
+/** @category services @since 1.0.0-rc.1 */
+export * as ExecutionSnapshot from "./ExecutionSnapshot.ts"

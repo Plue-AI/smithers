@@ -385,7 +385,12 @@ export const normalizeLimit = (limit: number | undefined): number => {
  */
 const scanPrelude = (
   sql: SqlClient.SqlClient,
-  options: { readonly cutoffMs: number; readonly inclusive: boolean; readonly parentEdges: boolean }
+  options: {
+    readonly cutoffMs: number
+    readonly inclusive: boolean
+    readonly parentEdges: boolean
+    readonly pins?: ReadonlyArray<string> | undefined
+  }
 ) =>
   sql`
       ${sql.unsafe(lineagePrelude({ parentEdges: options.parentEdges }))},
@@ -399,6 +404,11 @@ const scanPrelude = (
   }
           AND run_id NOT IN (SELECT run_id FROM under_live)
           AND run_id NOT IN (SELECT run_id FROM over_live)
+          AND ${
+    options.pins === undefined || options.pins.length === 0 ?
+      sql.literal("1 = 1")
+      : sql`run_id NOT IN ${sql.in(options.pins)}`
+  }
       ),
       blocked(run_id) AS (
         SELECT run_id FROM flows_runs WHERE run_id NOT IN (SELECT run_id FROM eligible)
@@ -431,6 +441,7 @@ export const candidatesOf = (
     readonly cutoffMs: number
     readonly inclusive: boolean
     readonly parentEdges: boolean
+    readonly pins?: ReadonlyArray<string> | undefined
     readonly limit: number
   }
 ): Effect.Effect<ReadonlyArray<Candidate>, SqlError> =>

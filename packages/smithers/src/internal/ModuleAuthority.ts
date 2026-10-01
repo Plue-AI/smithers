@@ -167,16 +167,23 @@ export const make = (
         // is recorded on the run and binds it from then on; otherwise the
         // plan's digest does (#1807).
         const approved = run.executionDigest ?? card.executionDigest
-        const descriptor = yield* registry.get(card.flowId).pipe(Effect.orDie)
-        const executable = (yield* catalog).executables.find((entry) => entry.descriptor.name === card.flowId)
+        const live = yield* registry.getOption(card.flowId).pipe(Effect.map(Option.getOrUndefined), Effect.orDie)
+        const snapshot = approved === undefined || registry.snapshots === undefined
+          ? undefined
+          : yield* registry.snapshots.descriptor(approved).pipe(
+            Effect.catch((error) =>
+              error.code === "missing" ?
+                Effect.succeed(undefined)
+                : refuse(executionId, `The approved module snapshot is unavailable: ${error.code}`)
+            )
+          )
+        const descriptor = snapshot ?? live
+        const executable = (yield* catalog).executables.find((entry) =>
+          entry.descriptor.name === card.flowId && Descriptor.executionDigest(entry.descriptor) === approved
+        )
         if (
-          approved === undefined || Descriptor.executionDigest(descriptor) !== approved ||
-          executable === undefined || Descriptor.executionDigest(executable.descriptor) !== approved ||
-          // A module that IS its own flow names no delegate. The
-          // `executionDigest` checked above covers its entry bytes and every
-          // module that entry imports from beside itself; a host-registered
-          // delegate's code is covered by nothing, which is why the envelope
-          // has to name that one.
+          approved === undefined || descriptor === undefined || Descriptor.executionDigest(descriptor) !== approved ||
+          executable === undefined ||
           (executable.delegate !== undefined && !card.envelope.flows.includes(executable.delegate))
         ) {
           return yield* refuse(executionId, "The module no longer matches its approved executable identity")
@@ -184,12 +191,13 @@ export const make = (
         const measuredModule = descriptor.body._tag === "Module" && executable.delegate === undefined
         const verified = verifiedModules.get(rootId)
         if (!measuredModule || verified?.digest !== approved || verified.executable !== executable) {
-          // A new host/root or rebuilt executable must verify the live source
-          // before any retention. A delegated host implementation is not
-          // measured by this module, so it continues to recheck every entry.
           yield* registry.loadBody(card.flowId, approved).pipe(Effect.orDie)
-          if (measuredModule) verifiedModules.set(rootId, { digest: approved, executable })
-          else verifiedModules.delete(rootId)
+          // Publication precedes the first handler effect. An abrupt host death
+          // can therefore never leave admitted work without its source receipt.
+          if (measuredModule) {
+            if (registry.snapshots !== undefined) yield* registry.snapshots.pin(executable).pipe(Effect.orDie)
+            verifiedModules.set(rootId, { digest: approved, executable })
+          } else verifiedModules.delete(rootId)
         }
         return { rootId, flowId: card.flowId, envelope: card.envelope }
       }).pipe(

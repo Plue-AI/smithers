@@ -47,7 +47,8 @@
     "./RegistryError": "./src/RegistryError.ts",
     "./index": "./src/index.ts",
     "./Prompt": "./src/Prompt.ts",
-    "./Prompt/jsx-runtime": "./src/Prompt/jsx-runtime.ts"
+    "./Prompt/jsx-runtime": "./src/Prompt/jsx-runtime.ts",
+    "./ExecutionSnapshot": "./src/ExecutionSnapshot.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -187,6 +188,16 @@
           "types": "./dist/cjs/Prompt/jsx-runtime.d.ts",
           "default": "./dist/cjs/Prompt/jsx-runtime.js"
         }
+      },
+      "./ExecutionSnapshot": {
+        "import": {
+          "types": "./dist/esm/ExecutionSnapshot.d.ts",
+          "default": "./dist/esm/ExecutionSnapshot.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExecutionSnapshot.d.ts",
+          "default": "./dist/cjs/ExecutionSnapshot.js"
+        }
       }
     }
   },
@@ -204,14 +215,14 @@
     "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
     "yaml": "2.9.0",
-    "@mdx-js/mdx": "3.1.1"
+    "@mdx-js/mdx": "3.1.1",
+    "@smthrs/artifacts": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
     "@effect/platform-node": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
-    "@smthrs/artifacts": "1.0.0-rc.1",
     "@smthrs/engine-store": "1.0.0-rc.1",
     "@smthrs/journal": "1.0.0-rc.1",
     "@smthrs/kernel": "1.0.0-rc.1",

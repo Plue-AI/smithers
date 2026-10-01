@@ -13,15 +13,19 @@
  * @since 1.0.0
  */
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
+import * as NodePath from "@effect/platform-node/NodePath"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as ArtifactGc from "@smthrs/engine-store/ArtifactGc"
 import * as Retention from "@smthrs/engine-store/Retention"
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import { Cause, Effect, Layer } from "effect"
 import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import * as CliError from "./CliError.ts"
 import * as DatabaseLocation from "./internal/DatabaseLocation.ts"
+import * as ExecutionSnapshotRoots from "./internal/ExecutionSnapshotRoots.ts"
 import * as NodeControl from "./NodeControl.ts"
 
 /**
@@ -155,8 +159,8 @@ export const sweep = (
     }
     const olderThanMs = (options.now ?? Date.now()) - window
     const files = databases(root)
-    const pass = (file: string, dryRun: boolean) =>
-      Retention.collect({ olderThanMs, dryRun, database: file }).pipe(
+    const pass = (file: string, dryRun: boolean, pins?: ReadonlyArray<string>) =>
+      Retention.collect({ olderThanMs, dryRun, database: file, pins }).pipe(
         Effect.provide(NodeDatabase.layer({ filename: file })),
         Effect.map((report): Retention.Report | Failure => report),
         Effect.catchCause((cause) => Effect.succeed<Failure>({ database: file, reason: reasonOf(cause) })),
@@ -169,9 +173,21 @@ export const sweep = (
     if (failures.length > 0) {
       return { olderThan: options.olderThan, dryRun: options.dryRun, reports: [], failures }
     }
+    const roots = yield* ExecutionSnapshotRoots.live(files).pipe(
+      Effect.map((value) => ({ value })),
+      Effect.catchCause((cause) => Effect.succeed({ failure: reasonOf(cause) }))
+    )
+    if ("failure" in roots) {
+      return {
+        olderThan: options.olderThan,
+        dryRun: options.dryRun,
+        reports: [],
+        failures: [{ database: root, reason: roots.failure }]
+      }
+    }
     const reports = options.dryRun
-      ? probed.filter((entry): entry is Retention.Report => !isFailure(entry))
-      : yield* Effect.forEach(files, (file) => pass(file, false))
+      ? yield* Effect.forEach(files, (file) => pass(file, true, roots.value.runIds))
+      : yield* Effect.forEach(files, (file) => pass(file, false, roots.value.runIds))
     const retained = {
       olderThan: options.olderThan,
       dryRun: options.dryRun,
@@ -186,12 +202,17 @@ export const sweep = (
     const objects = objectsDirectory(root)
     if (retained.failures.length > 0 || !DatabaseLocation.exists(engine) || !existsSync(objects)) return retained
     const artifacts = yield* Effect.gen(function*() {
+      const { digests } = yield* ExecutionSnapshotRoots.live(databases(root))
+      const snapshots = yield* ExecutionSnapshot.makeFileSystem({ root })
+      const pins = yield* snapshots.roots(digests)
       const collector = yield* ArtifactGc.ArtifactGc
-      return yield* collector.gc({ dryRun: options.dryRun })
+      return yield* collector.gc({ dryRun: options.dryRun, pins })
     }).pipe(
       Effect.provide(
         ArtifactGc.layerFileSystem({ directory: objects }).pipe(
           Layer.provide([NodeDatabase.layer({ filename: engine }), NodeFileSystem.layer])
+        ).pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layer))
         )
       ),
       Effect.map((report): ArtifactGc.GcReport | Failure => report),

@@ -90,6 +90,8 @@ export interface Options {
   readonly database?: string | undefined
   /** Largest number of runs considered by this pass. Defaults to 1,000. */
   readonly limit?: number | undefined
+  /** Runs retained by a host's cross-store ancestry, in addition to local live roots. */
+  readonly pins?: ReadonlyArray<string> | undefined
 }
 
 /** Whether a table exists in the connected database. */
@@ -115,7 +117,8 @@ const hasTable = (table: string): Effect.Effect<boolean, SqlError, SqlClient.Sql
  */
 const eligibleCandidates = (
   olderThanMs: number,
-  limit: number | undefined
+  limit: number | undefined,
+  pins?: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyArray<RetentionOps.Candidate>, SqlError, SqlClient.SqlClient> =>
   Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
@@ -128,6 +131,7 @@ const eligibleCandidates = (
       cutoffMs: olderThanMs,
       inclusive: false,
       parentEdges: yield* hasTable("flows_run_parents"),
+      pins,
       limit: RetentionOps.normalizeLimit(limit)
     })
   })
@@ -181,8 +185,11 @@ export const collect = (
     const sql = yield* SqlClient.SqlClient
     const dryRun = options.dryRun === true
     const pass = Effect.gen(function*() {
-      const candidates = yield* eligibleCandidates(options.olderThanMs, options.limit)
-      return yield* RetentionOps.deleteRuns(sql, candidates, { dryRun, assumeLadder: false })
+      const candidates = yield* eligibleCandidates(options.olderThanMs, options.limit, options.pins)
+      return yield* RetentionOps.deleteRuns(sql, candidates, {
+        dryRun,
+        assumeLadder: false
+      })
     })
     const removed = yield* (dryRun ? sql.withTransaction(pass) : DurableWriter.make(sql).write(pass).pipe(
       Effect.catchIf(

@@ -37,9 +37,18 @@ export const make = ({ runs, control, registry, catalog }: Options) => (runId: s
     if (run.planId === undefined) return true
     const plan = yield* control.getPlan(run.planId)
     const card = plan.card
-    const descriptor = yield* registry.get(card.flowId).pipe(
+    const approved = run.executionDigest ?? card.executionDigest
+    const live = yield* registry.get(card.flowId).pipe(
       Effect.catch((error) => error.code === "not_found" ? Effect.succeed(undefined) : Effect.fail(error))
     )
+    const snapshot = approved === undefined || registry.snapshots === undefined ?
+      undefined
+      : yield* registry.snapshots.descriptor(approved).pipe(Effect.catch((error) =>
+        error.code === "missing"
+          ? Effect.succeed(undefined) :
+          Effect.fail(error)
+      ))
+    const descriptor = snapshot ?? live
     // Preserve the existing explicit approved-source failure for Prompt runs
     // and removed entries. This guard routes intact native module definitions;
     // it must not turn an invalid approved plan into a silently parked run.
@@ -48,18 +57,20 @@ export const make = ({ runs, control, registry, catalog }: Options) => (runId: s
       payload?.planId !== run.planId || state.parentExecutionId !== undefined ||
       run.planDigest !== plan.card.digest || plan.decision !== "approved"
     ) return false
-    if (card.executionDigest === undefined || Descriptor.executionDigest(descriptor) !== card.executionDigest) {
+    if (approved === undefined || Descriptor.executionDigest(descriptor) !== approved) {
       return true
     }
-    const body = yield* Effect.result(registry.loadBody(card.flowId, card.executionDigest))
+    const body = yield* Effect.result(registry.loadBody(card.flowId, approved))
     if (body._tag === "Failure") {
       if (["not_found", "body_unavailable", "execution_changed"].includes(body.failure.code)) return true
       return yield* Effect.fail(body.failure)
     }
-    const executable = catalog?.executables.find((entry) => entry.descriptor.name === card.flowId)
+    const executable = catalog?.executables.find((entry) =>
+      entry.descriptor.name === card.flowId && Descriptor.executionDigest(entry.descriptor) === approved
+    )
     if (
       executable === undefined ||
-      Descriptor.executionDigest(executable.descriptor) !== card.executionDigest ||
+      Descriptor.executionDigest(executable.descriptor) !== approved ||
       // A delegate is a flow the HOST registered under a name; nothing in the
       // descriptor measures its code, so the approved envelope has to name it.
       // A module that IS its own flow has no delegate: the `executionDigest`

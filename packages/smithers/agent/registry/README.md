@@ -88,16 +88,17 @@ mid-edit.
 The root entry point exports these namespaces; each is also importable from
 `@smthrs/registry/<Module>`.
 
-| Module          | What it owns                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------ |
-| `Descriptor`    | The serializable descriptor, body, schema, source, provenance, budget, and warning models. |
-| `Disclosure`    | Projects descriptors to compact entries or Agent Skills XML.                               |
-| `Discovery`     | Metadata-only source scanning over `FileSystem` and `Path`.                                |
-| `Executable`    | Turns a discovered descriptor into a registered, engine-runnable `@smthrs/flow` flow.      |
-| `MarkdownFlow`  | Parses markdown metadata, loads prompt bodies lazily, and renders invocation prompts.      |
-| `Pack`          | Reads pack manifests, addresses their contents, and merges packs by origin.                |
-| `Registry`      | Ordered discovery, lookup, visibility, lazy body loading, refresh, and warnings.           |
-| `RegistryError` | Typed discovery and registry failures and their constructors.                              |
+| Module              | What it owns                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `Descriptor`        | The serializable descriptor, body, schema, source, provenance, budget, and warning models.     |
+| `Disclosure`        | Projects descriptors to compact entries or Agent Skills XML.                                   |
+| `Discovery`         | Metadata-only source scanning over `FileSystem` and `Path`.                                    |
+| `Executable`        | Turns a discovered descriptor into a registered, engine-runnable `@smthrs/flow` flow.          |
+| `ExecutionSnapshot` | Persists an admitted executable's verified source closure and restores it by execution digest. |
+| `MarkdownFlow`      | Parses markdown metadata, loads prompt bodies lazily, and renders invocation prompts.          |
+| `Pack`              | Reads pack manifests, addresses their contents, and merges packs by origin.                    |
+| `Registry`          | Ordered discovery, lookup, visibility, lazy body loading, refresh, and warnings.               |
+| `RegistryError`     | Typed discovery and registry failures and their constructors.                                  |
 
 `@smthrs/registry/package.json` is also exported; `internal/*` and nested
 `*/index` subpaths are blocked.
@@ -145,6 +146,17 @@ Module discovery measures project helpers without evaluating them. Executable
 admission supports relative static imports and package `imports` keys with one
 static file target, including transitive imports and cycles. After a helper edit,
 refresh discovers a new identity; an old descriptor is refused before import.
+
+A host may provide `ExecutionSnapshot.layerFileSystem({ root })`, pass its
+service as `Registry.Config.snapshots` and `Executable.Options.snapshots`, and
+call `snapshots.pin(executable)` at first admission. Catalog discovery and
+loading alone do not persist snapshots. Approved execution can then restore
+its entry and static project helpers after a restart or live edit, using the
+same private sibling loader. The manifest retains the approved descriptor and
+the project lockfile identity; missing or corrupt artifacts and changed
+lockfiles refuse restoration. Installed workspace packages remain host code,
+so run the host from a pinned checkout. `snapshots.roots(digests)` supplies CAS
+roots for nonterminal executions, including when lockfiles have changed.
 
 Measured project helpers reached through `import()` or `require()`, tsconfig
 aliases, or conditional package mappings without one static target are refused

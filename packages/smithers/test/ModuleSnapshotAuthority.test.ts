@@ -33,6 +33,7 @@ describe("module snapshot authority", () => {
       const outcomes: Array<boolean> = []
       const failures: Array<string> = []
       let entries: ReadonlyArray<Executable.Executable> = []
+      let approvedDigest: string | undefined
       let verifiedAtFirst = 0
       let verifiedAfterChildren = 0
       try {
@@ -147,6 +148,7 @@ describe("module snapshot authority", () => {
             expect(observed).toEqual([])
             yield* control.deny(deniedCard.approval)
             const card = yield* control.plan({ flowId: "snapshot", input: {} })
+            approvedDigest = card.executionDigest
             yield* control.approve(card.approval)
             const receipt = yield* control.run({
               _tag: "Plan",
@@ -171,12 +173,23 @@ describe("module snapshot authority", () => {
           )
         )
         expect(result.at(-1)?.kind).toBe("control.run.completed")
-        expect(observed).toEqual(mode === "retain" ? [1, 2, 3] : mode === "failed" ? [1, 3] : [1])
+        if (mode === "retain") {
+          // A fresh registry has no retained host closure. Durable admission
+          // must still verify the approved body after the workspace changes.
+          const restored = await Effect.runPromise(
+            Effect.gen(function*() {
+              const fresh = yield* Registry.Registry
+              return yield* fresh.loadBody("snapshot", approvedDigest)
+            }).pipe(Effect.provide(NodeControl.layerRegistry(root)), Effect.scoped)
+          )
+          expect(restored._tag).toBe("Module")
+        }
+        expect(observed).toEqual(mode === "digest" ? [1] : [1, 2, 3])
         expect(outcomes).toEqual(
-          mode === "retain" ? [true, true, true] : mode === "failed" ? [true, false, true] : [true, false, false]
+          mode === "digest" ? [true, false, false] : [true, true, true]
         )
-        expect(verifiedAfterChildren - verifiedAtFirst).toBe(mode === "retain" || mode === "digest" ? 0 : 2)
-        expect(failures).toHaveLength(mode === "retain" ? 0 : mode === "failed" ? 1 : 2)
+        expect(verifiedAfterChildren - verifiedAtFirst).toBe(mode === "retain" || mode === "digest" ? 0 : 1)
+        expect(failures).toHaveLength(mode === "digest" ? 2 : 0)
         for (const failure of failures) {
           expect(failure).toContain(mode === "digest" ? "approved executable identity" : "body_unavailable")
         }

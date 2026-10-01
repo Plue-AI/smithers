@@ -161,6 +161,10 @@ export interface Options {
    * than found by the executor after it. Defaults to `loadFlows`.
    */
   readonly currentFlows?: (() => Effect.Effect<ReadonlyArray<DurableFlow>, PersistenceError>) | undefined
+  /** Verifies a durable pinned source closure before consenting to resume it. */
+  readonly pinnedFlow?:
+    | ((flowId: string, digest: string) => Effect.Effect<boolean | undefined, PersistenceError>)
+    | undefined
   /**
    * Makes one flow's code on disk now the code this host executes, for a
    * resume the operator allowed to drift, and answers the identity the host
@@ -169,7 +173,9 @@ export interface Options {
    * does not hold accepted the resume and then failed the run (#2740).
    * Defaults to the flow's entry in `currentFlows`.
    */
-  readonly adoptFlow?: ((flowId: string) => Effect.Effect<DurableFlow | undefined, PersistenceError>) | undefined
+  readonly adoptFlow?:
+    | ((flowId: string, runId: string) => Effect.Effect<DurableFlow | undefined, PersistenceError>)
+    | undefined
   readonly owner?: Ownership.OwnerId | undefined
   /**
    * Whether the process a running run's owner names is still working. With
@@ -459,10 +465,10 @@ const makeRuntime = (
       : Effect.suspend(options.currentFlows).pipe(
         Effect.map((entries) => new Map(entries.map((flow) => [flow.flowId, flow] as const)))
       )
-    const readAdoptedFlow = (flowId: string) =>
+    const readAdoptedFlow = (flowId: string, runId: string) =>
       options.adoptFlow === undefined
         ? readCurrentFlows.pipe(Effect.map((flows) => flows.get(flowId)))
-        : Effect.suspend(() => options.adoptFlow!(flowId))
+        : Effect.suspend(() => options.adoptFlow!(flowId, runId))
 
     // Fibers are live continuations, not rows. A restarted process legitimately
     // has none, and interrupting a run it does not own is the other process's
@@ -1255,7 +1261,7 @@ const makeRuntime = (
     ): Effect.Effect<Pick<RunSummary, "executionDigest" | "engineVersion">, CodeDrift | PersistenceError> =>
       Effect.gen(function*() {
         const summary = yield* summaryOf(row)
-        const flow = yield* readAdoptedFlow(summary.flowId)
+        const flow = yield* readAdoptedFlow(summary.flowId, summary.runId)
         const gone = flow === undefined
           ? codeDriftOf(yield* recordedCode(row), undefined, options.engineVersion)
           : undefined
@@ -2200,7 +2206,19 @@ const makeRuntime = (
       }),
       codeDrift: Effect.fn("SqlControlRuntime.codeDrift")(function*(runId: RunId) {
         const summary = yield* recordedCode(yield* requireRow(runId))
-        return codeDriftOf(summary, (yield* readCurrentFlows).get(summary.flowId), options.engineVersion)
+        const current = (yield* readCurrentFlows).get(summary.flowId)
+        const pinned = summary.executionDigest === undefined || options.pinnedFlow === undefined
+          ? undefined :
+          yield* options.pinnedFlow(summary.flowId, summary.executionDigest)
+        return codeDriftOf(
+          summary,
+          pinned === true ?
+            { executionDigest: summary.executionDigest }
+            : pinned === false
+            ? undefined
+            : current,
+          options.engineVersion
+        )
       }),
       recordedCode: Effect.fn("SqlControlRuntime.recordedCode")(function*(runId: RunId) {
         const { executionDigest, engineVersion } = yield* recordedCode(yield* requireRow(runId))

@@ -50,6 +50,12 @@ Native child edges, action outcomes, waits, and cancellation remain owned by
 the existing flow engine. The control executor keeps its current settlement,
 approval, resume, and cancellation behavior.
 
+At first admission, verified local module bytes are published to the artifact
+store. After a restart, the host restores the approved closure by execution
+digest when live source differs. A missing manifest or changed lockfile still
+refuses resume; `--allow-code-drift` explicitly adopts current code. See
+[Pinned execution source](/guides/pinned-execution-source/).
+
 ## Authority after restart
 
 A child may resume on a scheduler fiber or in a new process. A launch-time

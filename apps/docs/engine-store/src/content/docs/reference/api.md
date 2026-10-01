@@ -1041,7 +1041,7 @@ Explicit deletion of finished run state. Nothing schedules any of it.
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RetainOptions`           | `olderThanMs` (a duration: how long a run must have been finished), `limit?`, `dryRun?`. A negative `olderThanMs` is read as zero; a `limit` that is not a non-negative safe integer is read as zero.                                                      |
 | `RetainReport`            | `cutoffMs`, `runIds`, `retainedForLiveDescendants`, `retainedForLiveAncestors`, `runs`, `attempts`, `clockDeadlines`, `deferredCompletions`, `journalEntries`, `journalCheckpoints`, `journalIdentities`, `archiveEntries`, `timeTravelReceipts`, `dryRun` |
-| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`                                                                                                                                                                  |
+| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`, `pins?`                                                                                                                                                                  |
 | `Report` (from `collect`) | `database`, `olderThanMs`, `runs`, `deleted` (empty under a dry run), `dryRun`                                                                                                                                                                             |
 
 A run is a candidate only when its status is terminal and it finished before the
@@ -1057,6 +1057,11 @@ than `limit` still loses at least one run every pass.
 `collect` is the pass [`smthrs gc`](https://smithers.sh/docs/reference/cli/gc/) runs over one database file.
 
 Full guide: [Delete old run history](/guides/delete-old-run-history/).
+
+The host-facing `collect` also accepts `pins`, a list of run IDs required by
+live ancestry in another store. Pinned runs and their continuation ancestors
+are excluded before the bounded candidate window, so protected history cannot
+starve collection of unrelated terminal runs.
 
 ## ExecutionSnapshot
 
