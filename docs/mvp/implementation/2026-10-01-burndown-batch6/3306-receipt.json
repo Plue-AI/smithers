@@ -1,0 +1,67 @@
+{
+  "issue": 3306,
+  "candidate": "ac307f1d5e92c039fe2bed42f628b2581c27d4a3",
+  "ownedFiles": {
+    "packages/smithers/agent/test/AgentSession.test.ts": "cb47cf04d86d6f28dc4c6bd2cfd7bd15449539aaf5151d000d4e38b4385303dd"
+  },
+  "outcome": "One directly typed Schema.Codec<unknown, unknown> binding to the identical Schema.Unknown object, used as success/error in exactly five module fixture declarations; no casts or production changes. All existing bodies and assertions remain.",
+  "rootReview": "The directly typed variable is the same Schema.Unknown value; exactly five success/error pairs use it. No other flow bodies, assertions, compiler contract or production source changed. Complete unchanged test compiler is green; all8affected behavioral controls still pass.",
+  "validation": [
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH node_modules/.bin/tsc -p tsconfig.test.json --noEmit",
+      "redExit": 2,
+      "redDiagnostics": 5,
+      "redLog": "3306-be30-types-red.log",
+      "greenExit": 0,
+      "greenLog": "3306-types-green.log"
+    },
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/release/smithers-jj-export node_modules/.bin/vitest run test/AgentSession.test.ts -t 'registered module|human wait|durable clock fired|child execution settled|parked on a human ask|unanswered ask at its deadline|parked drive at shutdown' --coverage.enabled=false",
+      "beforeExit": 0,
+      "beforePass": 8,
+      "beforeLog": "3306-be30-module-behavior.log",
+      "afterExit": 0,
+      "afterPass": 8,
+      "afterFiltered": 47,
+      "afterTotal": 55,
+      "afterDurationSeconds": 5.13,
+      "afterLog": "3306-module-behavior-green.log"
+    },
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH node_modules/.bin/dprint check test/AgentSession.test.ts",
+      "exit": 0,
+      "log": "3306-format.log"
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "git diff --check -- packages/smithers/agent/test/AgentSession.test.ts",
+      "exit": 0
+    }
+  ],
+  "scopeLimits": [
+    "Eight affected cases executed; 47 unrelated cases filtered, not a full 55-case behavioral green claim.",
+    "Test-only schema inference correction. No production coverage percentage is claimed; no thresholds/compiler strictness/public declaration contracts changed.",
+    "No remote deployment, publication or live model evidence is claimed."
+  ],
+  "readinessSha256": "396062cf036320641c5f09e4cf7c348601834c0af34e061a60e5301c476b90ed",
+  "archive": {
+    "file": "3306-validation.tar.gz",
+    "sha256": "1bbe33195695045a63bf87f355401f845ce55c8ebaeb743eb67b59a146e5d540",
+    "bytes": 5492
+  },
+  "allInputs": {
+    "packages/smithers/agent/test/AgentSession.test.ts": "cb47cf04d86d6f28dc4c6bd2cfd7bd15449539aaf5151d000d4e38b4385303dd",
+    "packages/smithers/agent/src/AgentSession.ts": "c7aa09bb947e2c91cdc5478335cd8c823dc70e3082435b603a94001dd29ce799",
+    "packages/smithers/agent/src/Agent.ts": "8d56b08f1bbfb9eacb1977707fd83dcd064ce6ef2ced3b47bf551f45b4d2aa0a",
+    "packages/smithers/agent/registry/src/Executable.ts": "35aa7c142b94a105e4cb089e1467a88e10322aa374e8a0380a612ec5b7c0c281",
+    "packages/smithers/flows/flow/src/Flow/Flow.ts": "2612cea1bc6c14b741c9c0038f530d1ff3307b3b1bb9ea9bcba13b878451c3f0",
+    "packages/smithers/flows/flow/src/Action/Action.ts": "96df0712cbb699f74f5ce5897dcb2963b0d0da078b7e5cdab0df53cce2a78500",
+    "packages/smithers/agent/tsconfig.json": "0064dce36d22143039105eb068be99456971e6caf6e7cebac24633514a2009b8",
+    "packages/smithers/agent/tsconfig.test.json": "fa1f4cbea59f92b6230df8cbf0732a3a1a44051480c961493ae824b210f606eb",
+    "packages/smithers/agent/vitest.config.ts": "124e47a9b4f952e082cdbd00da7553b1c35e8062c70fc3d9d0a10bd52793e541",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6"
+  }
+}

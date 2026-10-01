@@ -112,6 +112,9 @@ const moduleDescriptor = new Descriptor.FlowDescriptor({
   flows: ["test/Module"]
 })
 
+/** The unchanged unknown schema at the executable catalog's codec boundary. */
+const moduleResult: Schema.Codec<unknown, unknown> = Schema.Unknown
+
 /**
  * A prompt flow that declares no seat.
  *
@@ -775,8 +778,8 @@ const unansweredAsk = () => {
   })
   const flow = Flow.make("agents/module", {
     payload: Executable.Payload,
-    success: Schema.Unknown,
-    error: Schema.Unknown,
+    success: moduleResult,
+    error: moduleResult,
     body: () =>
       HumanTask.action.call({ name: "ship-it", kind: "confirm", prompt: "Ship the change?", maxAttempts: 1 }).pipe(
         Node.bindPlanned((answer) => Answered.call({ answer }))
@@ -1749,8 +1752,8 @@ describe("AgentSession", () => {
       })
       const flow = Flow.make("agents/module", {
         payload: Executable.Payload,
-        success: Schema.Unknown,
-        error: Schema.Unknown,
+        success: moduleResult,
+        error: moduleResult,
         body: ({ input }) => Read.call({ input: input ?? null }).pipe(Node.map((value) => ({ value })))
       })
       const catalog: Executable.Catalog = {
@@ -1857,8 +1860,8 @@ describe("AgentSession", () => {
     })
     const flow = Flow.make("agents/module", {
       payload: Executable.Payload,
-      success: Schema.Unknown,
-      error: Schema.Unknown,
+      success: moduleResult,
+      error: moduleResult,
       body: () =>
         HumanTask.action.call({ name: "ship-it", kind: "confirm", prompt: "Ship the change?", maxAttempts: 1 }).pipe(
           Node.bindPlanned((answer) => Answered.call({ answer }))
@@ -1972,8 +1975,8 @@ describe("AgentSession", () => {
     })
     const flow = Flow.make("agents/module", {
       payload: Executable.Payload,
-      success: Schema.Unknown,
-      error: Schema.Unknown,
+      success: moduleResult,
+      error: moduleResult,
       body: () => Sleep.action.call({ millis: 60 }).pipe(Node.bindPlanned(() => Woke.call({ at: true })))
     })
     const observed = await Effect.runPromise(
@@ -2024,8 +2027,8 @@ describe("AgentSession", () => {
     })
     const flow = Flow.make("agents/module", {
       payload: Executable.Payload,
-      success: Schema.Unknown,
-      error: Schema.Unknown,
+      success: moduleResult,
+      error: moduleResult,
       body: () => sleeper.child({}).pipe(Node.bindPlanned(() => Woke.call({ at: true })))
     })
     const observed = await Effect.runPromise(
