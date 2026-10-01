@@ -18855,6 +18855,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/registry/src/ExecutionSnapshot.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/registry/src/MarkdownFlow.ts"
       },
       {
@@ -20443,6 +20447,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/control/src/migrations/0007_resume_consent.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/control/src/test/TestControl.ts"
       },
       {
@@ -21499,6 +21507,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/flow/src/ExternalJob.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/flow/src/Fault.ts"
       },
       {
@@ -21640,6 +21652,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/flow/src/internal/Declarations.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/src/internal/ExecutionMiddleware.ts"
       },
       {
         "kind": "file",
@@ -22620,6 +22636,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/Sandbox/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/Sandbox/job.ts"
       },
       {
         "kind": "file",
@@ -23972,6 +23992,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/ExecutionDatabasePath.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/ExecutionSnapshotRoots.ts"
       },
       {
         "kind": "file",

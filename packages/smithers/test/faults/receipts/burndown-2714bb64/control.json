@@ -1,0 +1,282 @@
+{
+  "actual": {
+    "count": 3,
+    "invocations": 1,
+    "runCount": 5,
+    "runStatuses": [
+      "completed",
+      "completed",
+      "completed",
+      "completed",
+      "completed"
+    ],
+    "childIds": [
+      "1",
+      "2",
+      "3"
+    ],
+    "childStatuses": [
+      "completed",
+      "completed",
+      "completed"
+    ],
+    "work": [
+      {
+        "index": "1",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-1"
+      },
+      {
+        "index": "2",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-2"
+      },
+      {
+        "index": "3",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-3"
+      }
+    ],
+    "landing": [
+      {
+        "index": "1",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      },
+      {
+        "index": "2",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      },
+      {
+        "index": "3",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      }
+    ],
+    "landOrder": [
+      "1",
+      "2",
+      "3"
+    ],
+    "serialLandingAfterAllDone": true,
+    "distinctAgentPids": 6,
+    "unexpectedIds": [],
+    "manualResumes": 0
+  },
+  "desired": {
+    "count": 3,
+    "invocations": 1,
+    "runCount": 5,
+    "runStatuses": [
+      "completed",
+      "completed",
+      "completed",
+      "completed",
+      "completed"
+    ],
+    "childIds": [
+      "1",
+      "2",
+      "3"
+    ],
+    "childStatuses": [
+      "completed",
+      "completed",
+      "completed"
+    ],
+    "work": [
+      {
+        "index": "1",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-1"
+      },
+      {
+        "index": "2",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-2"
+      },
+      {
+        "index": "3",
+        "events": [
+          "start",
+          "progress",
+          "work-done",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 1,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1,
+        "content": "work-3"
+      }
+    ],
+    "landing": [
+      {
+        "index": "1",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      },
+      {
+        "index": "2",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      },
+      {
+        "index": "3",
+        "events": [
+          "start",
+          "lock",
+          "unlock",
+          "done",
+          "exit"
+        ],
+        "starts": 1,
+        "progress": 0,
+        "dones": 1,
+        "exitCodes": [
+          0
+        ],
+        "pids": 1
+      }
+    ],
+    "landOrder": [
+      "1",
+      "2",
+      "3"
+    ],
+    "serialLandingAfterAllDone": true,
+    "distinctAgentPids": 6,
+    "unexpectedIds": [],
+    "manualResumes": 0
+  }
+}

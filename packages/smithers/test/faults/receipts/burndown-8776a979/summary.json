@@ -1,0 +1,353 @@
+{
+  "issue": 3367,
+  "base": "8776a9794721",
+  "runtime": {
+    "node": "v26.5.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "fixtureRevision": "Work then keyed typed ModelNetworkProbe; current owning landing transient policy",
+  "suite": {
+    "total": 10,
+    "failed": 0,
+    "passedIncludingExpected": 10,
+    "ordinaryPassed": 9,
+    "expectedFailures": 1,
+    "skipped": 0
+  },
+  "cases": [
+    {
+      "scenario": "control",
+      "rawExit": 0,
+      "count": 3,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "host",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "lease": {
+        "decisions": [
+          "lease-reconfirmed",
+          "lease-reconfirmed",
+          "lease-reconfirmed",
+          "lease-reconfirmed"
+        ],
+        "unconfirmedMs": [
+          23432,
+          23378,
+          23281,
+          23241
+        ]
+      }
+    },
+    {
+      "scenario": "load",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "load": {
+        "evaluations": 2,
+        "evaluationDurationsMs": [
+          31003,
+          31002
+        ],
+        "catalogRetryGapMs": 30116
+      }
+    },
+    {
+      "scenario": "model",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "dns": {
+        "configurationUnchanged": true,
+        "hostname": "fault-3367-model.test",
+        "outageAndRecoveryObservationMs": 12545,
+        "queries": 4,
+        "httpResponses": 3,
+        "failureCodes": [
+          "ENOTFOUND"
+        ],
+        "shortRequestExits": [
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      "probe": {
+        "faults": [
+          {
+            "index": 1,
+            "class": "infra",
+            "tag": "@smthrs/kernel/Unreachable",
+            "_tag": "@smthrs/kernel/Unreachable"
+          }
+        ],
+        "workPersistedUnchanged": true,
+        "workResults": [
+          "1",
+          "2"
+        ],
+        "attempts": [
+          {
+            "attempt": 1,
+            "state": "failed",
+            "result": null
+          },
+          {
+            "attempt": 2,
+            "state": "succeeded",
+            "result": "available"
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "landing",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "dns": {
+        "configurationUnchanged": true,
+        "hostname": "fault-3367-landing.test",
+        "outageAndRecoveryObservationMs": 13662,
+        "queries": 5,
+        "httpResponses": 4,
+        "failureCodes": [
+          "ENOTFOUND"
+        ],
+        "shortRequestExits": [
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "scenario": "identity",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "failed",
+        "failed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "source",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "disk",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "temporaryRootDeleted": true,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "disk": {
+        "floor": 8388608,
+        "before": 32731136,
+        "after": 32731136,
+        "source": "flows/issue-sweep/vm.ts",
+        "sdk": "real installed microsandbox, no VM acquired",
+        "polls": 4,
+        "minimumPolledBytes": 4194304
+      },
+      "sourceReceipts": [
+        {
+          "source": "flows/issue-sweep/host.ts",
+          "bytes": 5798,
+          "sha256": "92211cadc2cc6c18e66d035b8d9f657bb3f9dc111fbc52f464bc4c2171c86356"
+        },
+        {
+          "source": "flows/issue-sweep/vm.ts",
+          "bytes": 21254,
+          "sha256": "de128e271dcf892b38e5d3c7ed0280a801919674bae110c70cfcb825bebba4b9"
+        },
+        {
+          "source": "flows/issue-sweep/vm-pool.ts",
+          "bytes": 6481,
+          "sha256": "b62d4e3b86fbb88378d6b5d479b1be09ffcc213c18aa517cf085e7947b58a7e8"
+        },
+        {
+          "source": "flows/issue-sweep/vm-options.ts",
+          "bytes": 974,
+          "sha256": "cef18daa91e714d17ef249452039a4f831e790c9f1abeeb948cd2474c525e506"
+        },
+        {
+          "source": "flows/issue-sweep/msb-nice.sh",
+          "bytes": 297,
+          "sha256": "61d2a637cd66763af4d99128d8f3cbe9bbda94c1690fac1cc3bc2fb00dc37bc6"
+        }
+      ]
+    }
+  ],
+  "executedAt": "2026-10-01T23:35:04.383144+00:00",
+  "tests": [
+    {
+      "title": "positive control finishes N=3 durable children exactly once and lands in order",
+      "status": "passed",
+      "durationMs": 11588.35075
+    },
+    {
+      "title": "host stall #3328 #3372 host stall reconfirms ownership and completes N=2 without manual resume",
+      "status": "passed",
+      "durationMs": 51688.309791
+    },
+    {
+      "title": "slow body load #3359 a 31-second real module load retries catalog admission and completes N=2",
+      "status": "passed",
+      "durationMs": 68257.166333
+    },
+    {
+      "title": "model external action DNS loss restores SAME hostname URL after actual DNS failure and automatically completes once-only work",
+      "status": "passed",
+      "durationMs": 13195.708500000008
+    },
+    {
+      "title": "landing external action DNS loss restores SAME hostname URL after actual DNS failure and automatically completes once-only work",
+      "status": "passed",
+      "durationMs": 14272.13404200002
+    },
+    {
+      "title": "changed capability ceiling with reused child attempt validates completed exact work, reused N=2 identity and precise ceiling conflict",
+      "status": "passed",
+      "durationMs": 19335.549207999982
+    },
+    {
+      "title": "changed capability ceiling with reused child attempt #3367 capability ceiling changes refresh conflicted child identity without failing parent",
+      "status": "passed",
+      "durationMs": 6.602292000025045
+    },
+    {
+      "title": "#3320 #3367 live source edit retains admitted bytes for later durable children",
+      "status": "passed",
+      "durationMs": 20505.845625000016
+    },
+    {
+      "title": "reports the dedicated disk-volume platform capability",
+      "status": "passed",
+      "durationMs": 0.36020900000585243
+    },
+    {
+      "title": "#3367 owning disk guard polls real statfs and resumes N=2 automatically",
+      "status": "passed",
+      "durationMs": 17333.703917000006
+    }
+  ],
+  "durationSeconds": 219.61,
+  "historical": {
+    "base": "2714bb64",
+    "summary": "../burndown-2714bb64/summary.json",
+    "modelFixtureChanged": true,
+    "landingPolicyChanged": true
+  }
+}

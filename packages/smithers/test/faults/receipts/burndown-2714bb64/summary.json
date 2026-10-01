@@ -1,0 +1,325 @@
+{
+  "issue": 3367,
+  "base": "2714bb64",
+  "runtime": {
+    "node": "v26.5.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "suite": {
+    "total": 14,
+    "failed": 0,
+    "passedIncludingExpected": 14,
+    "ordinaryPassed": 9,
+    "expectedFailures": 5,
+    "skipped": 0
+  },
+  "cases": [
+    {
+      "scenario": "control",
+      "rawExit": 0,
+      "count": 3,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "host",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [
+        "suspended",
+        "suspended",
+        "suspended",
+        "suspended"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "lease": {
+        "decisions": [
+          "interrupt-released",
+          "interrupt-released",
+          "interrupt-released",
+          "interrupt-released"
+        ],
+        "causes": [
+          {
+            "kind": "lease-lapsed",
+            "unconfirmedMs": 23469
+          },
+          {
+            "kind": "lease-lapsed",
+            "unconfirmedMs": 23421
+          },
+          {
+            "kind": "lease-lapsed",
+            "unconfirmedMs": 23330
+          },
+          {
+            "kind": "lease-lapsed",
+            "unconfirmedMs": 23298
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "load",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "model",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "failed",
+        "failed",
+        "failed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "dns": {
+        "configurationUnchanged": true,
+        "hostname": "fault-3367-model.test",
+        "outageMs": 11780,
+        "queries": 3,
+        "httpResponses": 2,
+        "failureCodes": [
+          "ENOTFOUND"
+        ]
+      }
+    },
+    {
+      "scenario": "landing",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "failed",
+        "failed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "dns": {
+        "configurationUnchanged": true,
+        "hostname": "fault-3367-landing.test",
+        "outageMs": 13741,
+        "queries": 11,
+        "httpResponses": 2,
+        "failureCodes": [
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND",
+          "ENOTFOUND"
+        ]
+      }
+    },
+    {
+      "scenario": "identity",
+      "rawExit": 1,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+        "failed",
+        "failed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "source",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      }
+    },
+    {
+      "scenario": "disk",
+      "rawExit": 0,
+      "count": 2,
+      "runStatuses": [
+        "completed",
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "manualResumes": 0,
+      "cleanupRemaining": 0,
+      "runtime": {
+        "node": "v26.5.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "disk": {
+        "floor": 8388608,
+        "before": 32731136,
+        "after": 32731136,
+        "source": "flows/issue-sweep/vm.ts",
+        "sdk": "real installed microsandbox, no VM acquired",
+        "polls": 4,
+        "minimumPolledBytes": 4194304
+      },
+      "sourceReceipts": [
+        {
+          "source": "flows/issue-sweep/host.ts",
+          "bytes": 6089,
+          "sha256": "573c43c6758907df68d7480061e9257765c93bf3b37e717dd1f5bdb9b8b8a1e2"
+        },
+        {
+          "source": "flows/issue-sweep/vm.ts",
+          "bytes": 21254,
+          "sha256": "de128e271dcf892b38e5d3c7ed0280a801919674bae110c70cfcb825bebba4b9"
+        },
+        {
+          "source": "flows/issue-sweep/vm-pool.ts",
+          "bytes": 6481,
+          "sha256": "b62d4e3b86fbb88378d6b5d479b1be09ffcc213c18aa517cf085e7947b58a7e8"
+        },
+        {
+          "source": "flows/issue-sweep/vm-options.ts",
+          "bytes": 974,
+          "sha256": "cef18daa91e714d17ef249452039a4f831e790c9f1abeeb948cd2474c525e506"
+        },
+        {
+          "source": "flows/issue-sweep/msb-nice.sh",
+          "bytes": 297,
+          "sha256": "61d2a637cd66763af4d99128d8f3cbe9bbda94c1690fac1cc3bc2fb00dc37bc6"
+        }
+      ]
+    }
+  ],
+  "executedAt": "2026-10-01T23:06:25.840000+00:00",
+  "durationSeconds": 207.21,
+  "tests": [
+    {
+      "title": "positive control finishes N=3 durable children exactly once and lands in order",
+      "status": "passed",
+      "durationMs": 11800.01025
+    },
+    {
+      "title": "host stall validates SIGSTOP lease lapse, released children and retained exact work",
+      "status": "passed",
+      "durationMs": 53715.665625
+    },
+    {
+      "title": "host stall #3328 #2982 host stall clears without manual resume, duplicate processes or lost work",
+      "status": "passed",
+      "durationMs": 7.077334000001429
+    },
+    {
+      "title": "slow body load validates real 31000ms evaluation and exact catalog timeout refusal",
+      "status": "passed",
+      "durationMs": 36959.735333000004
+    },
+    {
+      "title": "slow body load #3359 a 31-second real module load completes automatically after load clears",
+      "status": "passed",
+      "durationMs": 5.164916000008816
+    },
+    {
+      "title": "model external action DNS loss validates actual DNS failure then restores SAME hostname URL and operation",
+      "status": "passed",
+      "durationMs": 12695.251166999995
+    },
+    {
+      "title": "model external action DNS loss #3367 external agent DNS recovery automatically finishes settled work",
+      "status": "passed",
+      "durationMs": 2.174874999996973
+    },
+    {
+      "title": "landing external action DNS loss validates actual DNS failure then restores SAME hostname URL and operation",
+      "status": "passed",
+      "durationMs": 14938.782374999995
+    },
+    {
+      "title": "landing external action DNS loss #3367 external landing action DNS recovery automatically lands settled work",
+      "status": "passed",
+      "durationMs": 1.2260419999947771
+    },
+    {
+      "title": "changed capability ceiling with reused child attempt validates completed exact work, reused N=2 identity and precise ceiling conflict",
+      "status": "passed",
+      "durationMs": 19866.240458
+    },
+    {
+      "title": "changed capability ceiling with reused child attempt #3367 capability ceiling changes refresh conflicted child identity without failing parent",
+      "status": "passed",
+      "durationMs": 1.7625410000036936
+    },
+    {
+      "title": "#3320 #3367 live source edit retains admitted bytes for later durable children",
+      "status": "passed",
+      "durationMs": 29895.979291999975
+    },
+    {
+      "title": "reports the dedicated disk-volume platform capability",
+      "status": "passed",
+      "durationMs": 0.23404199999640696
+    },
+    {
+      "title": "#3367 owning disk guard polls real statfs and resumes N=2 automatically",
+      "status": "passed",
+      "durationMs": 23746.384667000006
+    }
+  ]
+}

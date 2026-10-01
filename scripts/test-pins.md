@@ -142,27 +142,28 @@ only.
 
 ### Surviving pins
 
-| Package | Test | Form |
-| --- | --- | --- |
-| `smithers/flows/platform-bun` | `executes the declared Bun lane in a Bun worker` | `it.skipIf(process.env.SMITHERS_PLATFORM_BUN_LANE === "1")` |
-| `smithers/agent/harness` | `workerd smoke` | `describe.skipIf(FLOWS_WORKERD_SMOKE !== "1")` |
-| `smithers/create-app` | `layerTevm against a mainnet fork` | `it.skip` in `template/aomi` |
-| `smithers/agent/integrations` | `GitHub live contract (GITHUB_TOKEN)` | `describe.skipIf(GITHUB_TOKEN === undefined)` |
-| `smithers/agent/integrations` | `Linear live contract (LINEAR_API_KEY)` | `describe.skipIf(LINEAR_API_KEY === undefined)` |
-| `smithers/agent/integrations` | `Telegram live contract (TELEGRAM_BOT_TOKEN)` | `describe.skipIf(TELEGRAM_BOT_TOKEN === undefined)` |
-| `smithers/agent/integrations` | `long-polls without confirming any update (TELEGRAM_CHAT_ID)` | `it.skipIf(TELEGRAM_CHAT_ID === undefined)` |
-| `smithers/build/targets` | `SecretProxy brokered origins over the network` | `describe.runIf(SMITHERS_E2E_NETWORK === "1")` |
-| `smithers/agent/model` | `OpenAIChatCompletions over Gemini` | `describe.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1" || GEMINI_API_KEY absent)` |
-| `smithers/migrate` | `migrates a single-file JSX project through the bin (${reason})` | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
-| `smithers/migrate` | `records what a single-file project could not settle (${reason})` | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
-| `smithers/migrate` | `refuses what it cannot translate in a multi-workflow pack (${reason})` | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
-| `smithers` | `the smthrs init scaffold on a funded seat` | `describe.skipIf(SMITHERS_OPENAI_AUTH !== "chatgpt")` |
-| `smithers/build/build-cli` | `answers the envelope contract through a real codex session` | `it.skipIf(SMTHRS_CODEX_SMOKE !== "1")` |
-| `smithers/agent/std` | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip` |
-| `testing` | `registers a skipped layered Effect body` | `test.skip` |
-| `smithers` | `runs a prompt on the Codex subscription with no provider keys` | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")` |
-| `smithers` | `ClaudeCode against the installed Claude Code` | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")` |
-| `smithers` | `CloudSandbox live workspace lifecycle` | `it.skipIf(SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")` |
+| Package                       | Test                                                                                               | Form                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `smithers`                    | `#3367 capability ceiling changes refresh conflicted child identity without failing parent`        | `it.fails` (#3367)                                          |
+| `smithers/flows/platform-bun` | `executes the declared Bun lane in a Bun worker`                                                   | `it.skipIf(process.env.SMITHERS_PLATFORM_BUN_LANE === "1")` |
+| `smithers/agent/harness`      | `workerd smoke`                                                                                    | `describe.skipIf(FLOWS_WORKERD_SMOKE !== "1")`              |
+| `smithers/create-app`         | `layerTevm against a mainnet fork`                                                                 | `it.skip` in `template/aomi`                                |
+| `smithers/agent/integrations` | `GitHub live contract (GITHUB_TOKEN)`                                                              | `describe.skipIf(GITHUB_TOKEN === undefined)`               |
+| `smithers/agent/integrations` | `Linear live contract (LINEAR_API_KEY)`                                                            | `describe.skipIf(LINEAR_API_KEY === undefined)`             |
+| `smithers/agent/integrations` | `Telegram live contract (TELEGRAM_BOT_TOKEN)`                                                      | `describe.skipIf(TELEGRAM_BOT_TOKEN === undefined)`         |
+| `smithers/agent/integrations` | `long-polls without confirming any update (TELEGRAM_CHAT_ID)`                                      | `it.skipIf(TELEGRAM_CHAT_ID === undefined)`                 |
+| `smithers/build/targets`      | `SecretProxy brokered origins over the network`                                                    | `describe.runIf(SMITHERS_E2E_NETWORK === "1")`              |
+| `smithers/agent/model`        | `OpenAIChatCompletions over Gemini`                                                                | `describe.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1"          |
+| `smithers/migrate`            | `migrates a single-file JSX project through the bin (${reason})`                                   | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
+| `smithers/migrate`            | `records what a single-file project could not settle (${reason})`                                  | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
+| `smithers/migrate`            | `refuses what it cannot translate in a multi-workflow pack (${reason})`                            | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
+| `smithers`                    | `the smthrs init scaffold on a funded seat`                                                        | `describe.skipIf(SMITHERS_OPENAI_AUTH !== "chatgpt")`       |
+| `smithers/build/build-cli`    | `answers the envelope contract through a real codex session`                                       | `it.skipIf(SMTHRS_CODEX_SMOKE !== "1")`                     |
+| `smithers/agent/std`          | `streams a file larger than available memory (skipped: a hermetic test cannot exhaust its runner)` | `it.skip`                                                   |
+| `testing`                     | `registers a skipped layered Effect body`                                                          | `test.skip`                                                 |
+| `smithers`                    | `runs a prompt on the Codex subscription with no provider keys`                                    | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")`              |
+| `smithers`                    | `ClaudeCode against the installed Claude Code`                                                     | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")`        |
+| `smithers`                    | `CloudSandbox live workspace lifecycle`                                                            | `it.skipIf(SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")`           |
 
 **PostgreSQL storage.** The `smithers` history and database adapter tests
 run with declared PostgreSQL services in their Linux test targets. The
@@ -385,7 +386,7 @@ green:
 | `flow`       | rejects a very deep unknown payload with a typed error instead of overflowing the stack     | `test/Graph.test.ts`                   |
 | `kernel`     | rejects an envelope carrying request-only payload fields                                    | `test/GrantEvent.test.ts`              |
 | `kernel`     | fails closed when a page repeats its last sequence with `hasMore`                           | `test/JournalGrantStoreReplay.test.ts` |
-| `keys`       | rejects an unsupported `key2_` key until its complete format is implemented                  | `test/Key.test.ts`                     |
+| `keys`       | rejects an unsupported `key2_` key until its complete format is implemented                 | `test/Key.test.ts`                     |
 
 Agent-group packages are outside this register and outside the guard; F4's
 `harness` entry belongs to that group.
@@ -466,3 +467,41 @@ declared Bun test runner and asserts that its selected test runs inside Bun.
 `SMITHERS_PLATFORM_BUN_LANE=1` prevents that child from starting another child;
 the verification still runs in the default Node suite. This is a recursion
 guard, not an unexecuted compatibility case.
+
+### Burndown infrastructure recovery (#3367)
+
+`packages/smithers/test/faults/burndown-infrastructure.test.ts` is discovered by
+`//packages/smithers:faults`. It drives real CLI admission, durable SQLite runs,
+N=2 children per fault, and an N=3 control with external processes and serial
+per-child landing. Ordinary tests validate setup, exact fault signatures,
+child identities/content/uniqueness/order, and cleanup. Only a prevalidated,
+synchronous desired-recovery assertion uses `it.fails` through `knownRed`:
+
+- `#3367 capability ceiling changes refresh conflicted child identity without failing parent`:
+  a new parent joins the same completed child attempt under a narrower ceiling.
+  The fixture records the exact typed `ExecutionIdentityConflict` Fail before
+  the current CLI surfaces the subsequent codec diagnostic `Expected JSON value`; the unchanged
+  uncaught refusal fails the new parent. Current issue-sweep declares its own
+  terminal-conflict fallback, which this generic fixture does not include or
+  claim to validate. All original
+  child work and landing receipts remain unique and intact.
+
+Use `FAULT_3367_RAW=1` to run identical desired assertions without inversion.
+Retained `recovery.json` also replays with plain Node, producing a raw assertion
+failure. [The suite README](../packages/smithers/test/faults/README-burndown.md)
+contains commands, root causes, artifact names and duration/platform limits.
+
+Host stalls, slow catalog loads, typed agent/action DNS recovery, source edits
+and the owning disk-floor guard are ordinary green
+regression cases on current main. [#3372](https://github.com/smithersai/smithers/issues/3372)
+reconfirms ownership after a real 23-second SIGSTOP; the same workers finish
+without manual resume. The slow load retries through first-use catalog loading, and the owning landing
+policy from [#3369](https://github.com/smithersai/smithers/issues/3369) retries real DNS after restoration. The generic agent-facing probe is
+a separate keyed durable action after successful irreversible Work; its real
+`Unreachable` faults use default engine transient retries, preserving Work and
+all once-only worker exit codes. Historical pre-fix red receipts are
+retained in the README. Disk pressure uses a dedicated 32MiB macOS HFS+ volume;
+a visible platform capability receipt accompanies its Linux capability skip.
+No SDK replacement, virtual clock, fabricated journal, host-wide DNS change,
+or host-disk filling is used. These bounded faults do not claim a 75-minute
+outage, real provider calls, microVM boot, or actual git fetch/push/apply.
