@@ -15,6 +15,7 @@ import { existsSync } from "node:fs"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { type Agent, pickAgent, readPools } from "../accounts.ts"
+import { issue, proxyGrant } from "../github.ts"
 import { output, repository, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
 import * as LocalVm from "../vm.ts"
@@ -58,7 +59,7 @@ export class WorkspaceFailed extends Schema.TaggedError<WorkspaceFailed>()("issu
   message: Schema.String
 }) {}
 
-// The issue as `gh issue view --json title,body,comments` prints it.
+// The issue an agent is briefed with.
 const IssueText = Schema.Struct({
   title: Schema.String,
   body: Schema.String,
@@ -157,7 +158,8 @@ export const Fix = Action.make("issue-sweep/fix", {
 export default Flow.make("issue-sweep/work", {
   description: "One coding agent fixes one issue in its own jj workspace.",
   capabilities: [
-    "proc:spawn:gh issue view *",
+    "proc:spawn:gh api *",
+    proxyGrant,
     "proc:spawn:jj -R *",
     // SandboxMerge.apply builds a remote run's change in the repository's git store.
     "proc:spawn:git --git-dir *",
@@ -267,9 +269,9 @@ const agentFailed = (cause: { readonly message: string }) =>
   cause instanceof AgentFailed ? cause : new AgentFailed({ message: cause.message })
 
 const fetchIssue = FetchIssue.toLayer((input) =>
-  output("gh", ["issue", "view", String(input.issue), "--repo", input.repo, "--json", "title,body,comments"]).pipe(
-    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(IssueText))),
-    Effect.mapError(agentFailed)
+  issue(input.repo, input.issue).pipe(
+    Effect.map(({ title, body, comments }) => ({ title, body, comments })),
+    Effect.mapError((cause) => agentFailed({ message: String((cause as { message?: unknown }).message ?? cause) }))
   )
 )
 

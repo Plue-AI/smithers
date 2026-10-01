@@ -14,7 +14,8 @@ import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, readPools } from "./accounts.ts"
-import { HostFailed, output, repository, run, tail } from "./host.ts"
+import { api, openIssues, proxyGrant } from "./github.ts"
+import { HostFailed, repository, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import Work, { AgentFailed, removeWorkspace, type Report, requeue } from "./work/flow.ts"
 
@@ -71,11 +72,17 @@ const Rounds = Burndown.make({
   signal: accountsReset
 })
 
+// scripts/issue-claim.mjs: exit 0 done, 2 held by someone else, 75 rate limited.
+// The copy beside this flow, never the shared checkout's: another session's
+// half-made edit there failed every claim and release of a running sweep.
+export const claimTool = fileURLToPath(new URL("../../scripts/issue-claim.mjs", import.meta.url))
+
 export default Flow.make("issue-sweep", {
   description: "Work every open GitHub issue that no other machine holds.",
   capabilities: [
-    "proc:spawn:gh *",
-    "proc:spawn:node *",
+    "proc:spawn:gh api *",
+    proxyGrant,
+    `proc:spawn:node ${claimTool} *`,
     "proc:spawn:jj -R *",
     "proc:spawn:lockf *",
     "proc:spawn:pnpm *",
@@ -105,30 +112,16 @@ export const decide = (claim: string | undefined, nowMillis: number): "skip" | "
   return host === macMini && Date.parse(expires ?? "") > nowMillis ? "skip" : "ours"
 }
 
-const gh = (args: ReadonlyArray<string>) =>
-  Effect.mapError(output("gh", args), (cause) => new GhFailed({ message: cause.message }))
-
-// What `gh issue list --json number,title,labels` prints.
-const GhIssues = Schema.fromJsonString(Schema.Array(Schema.Struct({
-  number: Schema.Number,
-  title: Schema.String,
-  labels: Schema.Array(Schema.Struct({ name: Schema.String }))
-})))
+const github = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.mapError(
+    effect,
+    (cause) => new GhFailed({ message: String((cause as { message?: unknown }).message ?? cause) })
+  )
 
 const listIssues = ListIssues.toLayer(({ input }) =>
-  gh(["issue", "list", "--repo", input.repo, "--state", "open", "--limit", "1000", "--json", "number,title,labels"])
-    .pipe(
-      Effect.flatMap(Schema.decodeEffect(GhIssues)),
-      Effect.mapError((cause) => cause instanceof GhFailed ? cause : new GhFailed({ message: String(cause) })),
-      Effect.map((rows) =>
-        rows.map((row) => ({
-          id: String(row.number),
-          number: row.number,
-          title: row.title,
-          labels: row.labels.map((label) => label.name)
-        }))
-      )
-    )
+  github(openIssues(input.repo)).pipe(
+    Effect.map((rows) => rows.map((row) => ({ id: String(row.number), ...row })))
+  )
 )
 
 // RR_MAX_PER_ACCOUNT agents per ready account, never more than maxAgents.
@@ -145,18 +138,12 @@ const accounts = Accounts.toLayer(({ input }) => readCapacity(input))
 
 /** The first line of the newest claim comment on `issue`, if any. */
 const newestClaim = (repo: string, issue: number) =>
-  gh([
-    "api",
+  github(api(`repos/${repo}/issues/${issue}/comments?per_page=100`, [
     "--paginate",
-    `repos/${repo}/issues/${issue}/comments?per_page=100`,
     "--jq",
     ".[].body | select(startswith(\"Claimed by\")) | split(\"\\n\")[0]"
-  ]).pipe(Effect.map((stdout) => stdout.split("\n").filter((line) => line !== "").at(-1)))
+  ])).pipe(Effect.map((stdout) => stdout.split("\n").filter((line) => line !== "").at(-1)))
 
-// scripts/issue-claim.mjs: exit 0 done, 2 held by someone else, 75 rate limited.
-// The copy beside this flow, never the shared checkout's: another session's
-// half-made edit there failed every claim and release of a running sweep.
-export const claimTool = fileURLToPath(new URL("../../scripts/issue-claim.mjs", import.meta.url))
 const by = "issue-sweep"
 
 class RateLimited extends Schema.TaggedError<RateLimited>()("issue-sweep/RateLimited", {
@@ -253,18 +240,11 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
   // a second fix for it would only duplicate the first.
   land: ({ input, item, output }) =>
     Effect.gen(function*() {
-      const state = yield* gh([
-        "issue",
-        "view",
-        String(item.number),
-        "--repo",
-        (input as typeof Input.Type).repo,
-        "--json",
-        "state",
+      const state = yield* github(api(`repos/${(input as typeof Input.Type).repo}/issues/${item.number}`, [
         "--jq",
         ".state"
-      ])
-      if (state.trim() !== "OPEN") {
+      ]))
+      if (state.trim() !== "open") {
         return yield* new LandFailed({
           message: `#${item.number} is ${state.trim().toLowerCase()}; change ${output.change} not landed`
         })
