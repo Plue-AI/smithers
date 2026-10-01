@@ -102,13 +102,16 @@ const (
 	// smithers-desktop-start so create returns only after noVNC is reachable.
 	// The service-level golden/bare deadlines above remain the outer bounds.
 	workspaceReadyTimeoutSeconds int64 = 90
-	workspaceClaudePackage             = "@anthropic-ai/claude-code"
-	workspaceClaudeScriptPath          = "/usr/local/bin/smithers-install-claude-code"
-	workspaceClaudeService             = "smithers-workspace-claude-bootstrap"
-	workspaceReadyService              = "smithers-workspace-ready"
-	workspaceCodingHostPath            = "/usr/local/bin/smithers-coding-host"
-	workspaceCodingHostB64Path         = workspaceArtifactCurrent + "/smithers-workspace-coding-host.b64"
-	workspaceCodingHostBinaryEnv       = "SMITHERS_WORKSPACE_CODING_HOST_BINARY"
+	// workspaceClaudePackage pins the Claude Code release a workspace bootstrap
+	// installs when the image carries none; keep it in step with
+	// CLAUDE_CODE_VERSION in Plue's cmd/agent-vm/Dockerfile.
+	workspaceClaudePackage       = "@anthropic-ai/claude-code@2.1.286"
+	workspaceClaudeScriptPath    = "/usr/local/bin/smithers-install-claude-code"
+	workspaceClaudeService       = "smithers-workspace-claude-bootstrap"
+	workspaceReadyService        = "smithers-workspace-ready"
+	workspaceCodingHostPath      = "/usr/local/bin/smithers-coding-host"
+	workspaceCodingHostB64Path   = workspaceArtifactCurrent + "/smithers-workspace-coding-host.b64"
+	workspaceCodingHostBinaryEnv = "SMITHERS_WORKSPACE_CODING_HOST_BINARY"
 	// The coding host's flows shell out to this native jj helper for their
 	// --eligible preflight and tree export, so every workspace kind needs it
 	// staged next to the host. The API image carries it under /usr/local/lib

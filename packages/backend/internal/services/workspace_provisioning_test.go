@@ -1089,3 +1089,19 @@ func TestBuildWorkspaceVMRequest_BindsRepositorySecretsToTheEgressProxy(t *testi
 	assert.True(t, req.EgressProxy.Enabled)
 	assert.Empty(t, req.EgressProxy.Secrets)
 }
+
+// Both bootstrap variants install one exact Claude Code release, so every
+// workspace runs the `claude` a flow was tested against (plue#776).
+func TestWorkspaceBootstrapsInstallPinnedClaudeCode(t *testing.T) {
+	t.Parallel()
+	for name, script := range map[string]string{
+		"container": buildWorkspaceClaudeBootstrapScript(),
+		"nixos":     buildWorkspaceNixBootstrapScript(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Regexp(t, `npm install -g \\"@anthropic-ai/claude-code@\d+\.\d+\.\d+\\"`, script)
+			assert.NotRegexp(t, `@anthropic-ai/claude-code\\"`, script, "an unversioned package resolves the registry's latest")
+		})
+	}
+}
