@@ -53,6 +53,8 @@ test("a requeued row keeps its claim and workspace; every final row releases the
 test("issues for the maintainer or deferred by title are not dispatched", () => {
   assert.equal(parkedFor({ title: "Release: publish installers", labels: ["blocked-on-will"] }), "blocked on the maintainer")
   assert.equal(parkedFor({ title: "Deferred past 1.0: Npm.Downstream build target", labels: [] }), "deferred")
+  // Owner ruling 2026-10-01: Terminal-Bench, ALE and DeepSWE work is its own program.
+  assert.equal(parkedFor({ title: "Terminal-Bench harness", labels: ["benchmark"] }), "benchmark: separate program")
   assert.equal(parkedFor({ title: "  deferred: x", labels: ["bug"] }), "deferred")
   assert.equal(parkedFor({ title: "Defer the cache flush until close", labels: [] }), undefined)
   assert.equal(parkedFor({ title: "Retire the legacy Workers", labels: ["bug", "in-progress"] }), undefined)

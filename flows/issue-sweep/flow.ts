@@ -122,12 +122,15 @@ const claimLine = /^Claimed by (.+) on (\S+) at (\S+); expires (\S+?)\.?(?:\s|$)
 
 /**
  * Why an issue is not agent work at all, or `undefined`. A maintainer must
- * decide `blocked-on-will` issues, and a "Deferred" issue is parked past the
- * release by title; agents dispatched to them could only report no change.
+ * decide `blocked-on-will` issues, `benchmark` issues belong to the separate
+ * benchmark program, and a "Deferred" issue is parked past the release by
+ * title; agents dispatched to them could only report no change.
  */
 export const parkedFor = (issue: { readonly title: string; readonly labels: ReadonlyArray<string> }) =>
   issue.labels.includes("blocked-on-will")
     ? "blocked on the maintainer"
+    : issue.labels.includes("benchmark")
+    ? "benchmark: separate program"
     : /^deferred\b/i.test(issue.title.trim())
     ? "deferred"
     : undefined
