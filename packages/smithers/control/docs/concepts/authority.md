@@ -50,9 +50,9 @@ composition with no executor is not broken; it is a plane that starts nothing:
 - `signal` still records the fact, and no wait point is completed by this call.
 - `resume` and `run` with a Resume input join or claim control-launched runs
   and journal `control.run.resume`. A caller or journal subscriber must drive
-  the execution. Explicit resume does not call `requestResume` or offer work
-  through `ControlExecutor.resumeRun`; polling `pendingResumes` cannot take
-  up this intent.
+  the execution. Explicit resume does not offer work through
+  `ControlExecutor.resumeRun`. A run a live host parked is handed to that
+  host as a `requestResume` delegation that carries the operator's consent.
 - A node-approval decision records a durable `requestResume` delegation.
   Without an executor, it remains available for the owning host's next poll.
 

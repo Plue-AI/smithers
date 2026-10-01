@@ -9,7 +9,7 @@
  */
 
 import { type Control as ControlService, ControlError, type ControlSchema } from "@smthrs/control"
-import { Effect, Stream } from "effect"
+import { Clock, Duration, Effect, Option, Stream } from "effect"
 import * as RunProgress from "../cli/RunProgress.ts"
 import * as CliError from "../CliError.ts"
 import * as ExecutorOwnership from "../ExecutorOwnership.ts"
@@ -123,6 +123,91 @@ export const latestPark = (control: ControlService.Service, runId: string) =>
     // in the error channel so no mutation is attempted with a weaker key.
     Effect.mapError((error) => watchFailure(error, runId, "approval-park lookup"))
   )
+
+/**
+ * The sequence of the latest committed park of either kind: a human wait
+ * (`control.run.waiting-approval`) or an executor park (`control.run.parked`).
+ *
+ * It keys an explicit resume, so each park takes a resume of its own. A run
+ * that a second lease lapse parks again after one resume is a new request,
+ * not a replay of the first one's receipt.
+ * @category getters
+ * @since 1.0.0
+ */
+export const latestResumablePark = (control: ControlService.Service, runId: string) =>
+  latestSequence(
+    control.watch({ runId, follow: false }).pipe(
+      Stream.filter((event) => event.kind === "control.run.waiting-approval" || event.kind === "control.run.parked")
+    )
+  ).pipe(Effect.mapError((error) => watchFailure(error, runId, "park lookup")))
+
+/**
+ * How long a resume handed to a live host waits for that host to take it up.
+ *
+ * A live host polls its resume delegations every second. The bound stays
+ * under `Ownership.heartbeatStaleAfter` (30 s), after which any host may adopt
+ * a standing delegation, so the resuming process never takes the run itself.
+ * @category constants
+ * @since 1.0.0
+ */
+export const handOffWait = Duration.seconds(15)
+
+/**
+ * Waits for the live host a resume was handed to to take it up, then answers
+ * the run's summary.
+ *
+ * The host's claim journals `control.run.claimed`, so the first one after the
+ * park the resume answered is the take-up. A run that has already left that
+ * park answers at once. A host that does not take the resume up within
+ * {@link handOffWait} is refused with what to do: the request stays recorded
+ * for that host either way.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const awaitHandOff = (
+  control: ControlService.Service,
+  runId: string,
+  host: ControlSchema.RunHost,
+  afterSequence: number | undefined
+) =>
+  Effect.gen(function*() {
+    const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(handOffWait)
+    const read = control.list({ _tag: "runs", filters: { runId } }).pipe(
+      Effect.map((listed) => listed._tag === "runs" ? listed.items.find((item) => item.runId === runId) : undefined)
+    )
+    const takenUp = yield* control.watch(afterSequence === undefined ? { runId } : { runId, afterSequence }).pipe(
+      Stream.filter((event) => event.kind === "control.run.claimed" || settled(event.kind)),
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.mapError((error) => watchFailure(error, runId, "resume hand-off")),
+      Effect.timeoutOption(handOffWait),
+      Effect.map((events) => Option.isSome(events) && globalThis.Array.from(events.value).length > 0)
+    )
+    let summary = yield* read
+    // The host re-admits the released executions on its next sweep after it
+    // takes the resume up. Until then the run still reads as the park it left,
+    // which would tell the operator to resume again.
+    while (
+      takenUp && summary?.status === "parked" && summary.waitingReason === "released" &&
+      (yield* Clock.currentTimeMillis) < deadline
+    ) {
+      yield* Effect.sleep(Duration.millis(250))
+      summary = yield* read
+    }
+    if (summary !== undefined && (takenUp || summary.status !== "parked")) return summary
+    const seconds = Duration.toSeconds(handOffWait)
+    return yield* Effect.fail(
+      new CliError.Refused({
+        fault: "wait",
+        code: "resume_not_taken_up",
+        message: `Run ${runId} is parked by process ${host.pid} on ${host.hostId}, which is still alive, so the ` +
+          `resume was handed to that process. It did not take the resume up within ${seconds} seconds. The request ` +
+          `stays recorded and the process takes it up when it next polls; \`smthrs runs show ${runId}\` shows when. ` +
+          `If process ${host.pid} is stuck, stop it, then run \`smthrs runs resume ${runId}\` again to resume the ` +
+          `run here.`
+      })
+    )
+  })
 
 /**
  * Waits for a run this process's executor owns, or reports the receipt's own

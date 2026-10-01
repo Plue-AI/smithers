@@ -7,7 +7,7 @@
 import * as Fault from "@smthrs/flow/Fault"
 import { NotificationError } from "@smthrs/notifications/NotificationQueue"
 import { Effect, Schema } from "effect"
-import { FlowId, RunId } from "./ControlSchema.ts"
+import { FlowId, RunHost, RunId } from "./ControlSchema.ts"
 
 const constantCode = <const Code extends string>(code: Code) =>
   Schema.Literal(code).pipe(Schema.withConstructorDefault(Effect.succeed(code)))
@@ -118,13 +118,17 @@ export class EnvelopeMismatch extends Schema.TaggedError<EnvelopeMismatch>()("/c
 /**
  * The caller's claim on this run lapsed or was fenced by a newer owner.
  *
+ * `parkedBy` names the live process that parked the run: it, not the caller,
+ * drives the run, so `Control.resume` hands the resume to it.
+ *
  * @category errors
  * @since 0.1.0
  */
 export class ClaimLost extends Schema.TaggedError<ClaimLost>()("/control/ClaimLost", {
   code: constantCode("claim_lost"),
   runId: RunId,
-  reason: Schema.optional(Schema.String)
+  reason: Schema.optional(Schema.String),
+  parkedBy: Schema.optional(RunHost)
 }) {}
 
 /**

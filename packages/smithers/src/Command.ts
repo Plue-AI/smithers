@@ -310,7 +310,7 @@ const allowCodeDriftFlag = Flag.Boolean("allow-code-drift").pipe(
 const runResume = (planOrRunId: string, allowCodeDrift: boolean) =>
   Effect.gen(function*() {
     const control = yield* ControlService.Control
-    const parkSequence = yield* Settlement.latestPark(control, planOrRunId)
+    const parkSequence = yield* Settlement.latestResumablePark(control, planOrRunId)
     const key = parkSequence === undefined ? `cli:resume:${planOrRunId}` : `cli:resume:${planOrRunId}:${parkSequence}`
     const receipt = yield* control.resume({
       runId: planOrRunId,
@@ -319,6 +319,16 @@ const runResume = (planOrRunId: string, allowCodeDrift: boolean) =>
       idempotencyKey: allowCodeDrift ? `${key}:allow-code-drift` : key,
       ...(allowCodeDrift ? { allowCodeDrift } : {})
     })
+    // The live host that parked the run drives it. This process waits only
+    // for that host to take the resume up, then reports the run's status.
+    if (receipt._tag === "Accepted" && receipt.handedTo !== undefined) {
+      const run = yield* Settlement.awaitHandOff(control, planOrRunId, receipt.handedTo, parkSequence)
+      return yield* render({
+        ...receipt,
+        status: run.status,
+        ...(run.waitingReason === undefined ? {} : { waitingReason: run.waitingReason })
+      })
+    }
     const settlement = yield* awaitOwnedRun(control, receipt, parkSequence)
     if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
       return yield* Effect.fail(yield* declinedLaunch(control, receipt.runId))

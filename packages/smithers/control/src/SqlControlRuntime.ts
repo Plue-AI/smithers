@@ -1280,7 +1280,9 @@ const makeRuntime = (
         // Parking clears ownership, but the detached host can still be alive.
         // Public resume may take its park only after a same-host dead-pid
         // probe; otherwise the caller would steal and interrupt its execution.
-        // Trusted host claims remain able to reclaim their engine's execution.
+        // The refusal names that host, so `Control.resume` hands the resume
+        // to it instead (#3342). Trusted host claims remain able to reclaim
+        // their engine's execution.
         if (scope === "launched" && row.status === "suspended" && summary.parkedBy !== undefined) {
           const parkedOwner = yield* decodeStoredJson("parked host", Ownership.OwnerId, summary.parkedBy)
           if (!sameProcess(parkedOwner, owner)) {
@@ -1290,7 +1292,8 @@ const makeRuntime = (
             if (alive) {
               return yield* new ClaimLost({
                 runId,
-                reason: "The host that parked this run is still alive or its liveness is unknown"
+                reason: "The host that parked this run is still alive or its liveness is unknown",
+                parkedBy: { hostId: parkedOwner.hostId, pid: parkedOwner.pid }
               })
             }
           }
@@ -2096,7 +2099,10 @@ const makeRuntime = (
           )
         ]
       }),
-      requestResume: Effect.fn("SqlControlRuntime.requestResume")(function*(runId: RunId) {
+      requestResume: Effect.fn("SqlControlRuntime.requestResume")(function*(
+        runId: RunId,
+        options?: { readonly consent?: number | undefined } | undefined
+      ) {
         const summary = yield* summaryOf(yield* requireRow(runId))
         // A settled run has no host left to take the delegation up: recording
         // one anyway leaves an orphaned row that `pendingResumes` filters out
@@ -2108,23 +2114,33 @@ const makeRuntime = (
         }
         const sequence = yield* nextSequence("resume")
         const timestamp = yield* now
+        const consent = options?.consent ?? null
+        // A delegation that arrives before the host took up an operator's
+        // resume keeps that consent; only a newer explicit resume replaces it.
         yield* writer.write(sql`
-          INSERT INTO control_run_resumes (run_id, requested_seq, requested_at_ms)
-          VALUES (${runId}, ${sequence}, ${timestamp})
+          INSERT INTO control_run_resumes (run_id, requested_seq, requested_at_ms, consent_seq)
+          VALUES (${runId}, ${sequence}, ${timestamp}, ${consent})
           ON CONFLICT (run_id) DO UPDATE SET
             requested_seq = excluded.requested_seq,
-            requested_at_ms = excluded.requested_at_ms
+            requested_at_ms = excluded.requested_at_ms,
+            consent_seq = COALESCE(excluded.consent_seq, control_run_resumes.consent_seq)
         `).pipe(Effect.mapError(persistence("record a resume delegation")))
         return sequence
       }),
       // Terminal runs are filtered in SQL: a delegation nobody will ever take
       // up must not keep appearing in every host's poll.
       pendingResumes: sql<
-        { readonly runId: string; readonly requestedSeq: number; readonly requestedAtMs: number }
+        {
+          readonly runId: string
+          readonly requestedSeq: number
+          readonly requestedAtMs: number
+          readonly consentSeq: number | null
+        }
       >`
         SELECT resumes.run_id AS "runId",
                resumes.requested_seq AS "requestedSeq",
-               resumes.requested_at_ms AS "requestedAtMs"
+               resumes.requested_at_ms AS "requestedAtMs",
+               resumes.consent_seq AS "consentSeq"
         FROM control_run_resumes AS resumes
         JOIN flows_runs AS runs ON runs.run_id = resumes.run_id
         WHERE runs.status NOT IN ('completed', 'failed', 'cancelled')
@@ -2135,7 +2151,8 @@ const makeRuntime = (
           rows.map((row) => ({
             runId: row.runId,
             sequence: Number(row.requestedSeq),
-            requestedAtMs: Number(row.requestedAtMs)
+            requestedAtMs: Number(row.requestedAtMs),
+            ...(row.consentSeq === null ? {} : { consent: Number(row.consentSeq) })
           }))
         )
       ),

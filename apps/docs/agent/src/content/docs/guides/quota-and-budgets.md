@@ -340,7 +340,10 @@ Lease expiry still interrupts work to preserve fencing. If that interruption
 releases a child while its control parent remains parked under a live host,
 recovery waits for an explicit resume instead of starting the external work
 again. Resuming the parent permits a new execution; it does not reconnect an
-interrupted external process. After a same-machine parking host exits and the
+interrupted external process. An explicit resume from another process, such as
+`smthrs runs resume`, does not take the parent from its live parking host: the
+host takes the resume up as a delegation that carries the operator's consent,
+records the permission, and re-drives the parent itself. After a same-machine parking host exits and the
 stale interval passes, a peer can recover a released child whose last owner is
 also confirmed dead and settle the parent. Cancellation still reaches children
 of a parked parent.

@@ -55,6 +55,31 @@ recorded by an older build has no `cause`. Nothing
 restarts them until `smthrs runs resume <run-id>`, which `runs show` offers
 first among its next steps.
 
+When the host that parked the run is still alive, such as a detached host whose
+lease lapsed, `runs resume` hands the restart to that host rather than taking
+the run. The host retries the released executions under the operator's permission.
+The command returns once the host has taken the resume up and re-admitted the
+released executions, and prints the receipt with `handedTo` and the run's new
+`status`:
+
+```json
+{
+  "_tag": "Accepted",
+  "receiptId": "cli:resume:run-1:4",
+  "runId": "run-1",
+  "handedTo": { "hostId": "mac", "pid": 78502 },
+  "status": "parked",
+  "waitingReason": "event"
+}
+```
+
+If the host does not take it up within 15 seconds, the command fails with
+`resume_not_taken_up` and names the host's process. The request stays recorded
+for that process. If the process is stuck, stop it and run `runs resume`
+again; a run whose host has exited is resumed by the command itself. Each
+resume covers the releases that exist when the host takes it up, so a later
+lapse needs another `runs resume`.
+
 ```text
 runs show
 runId: run-1

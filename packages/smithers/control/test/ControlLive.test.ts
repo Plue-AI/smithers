@@ -169,13 +169,61 @@ describe("ControlLive", () => {
     await Effect.runPromise(
       Effect.gen(function*() {
         const control = yield* Control
-        expect(yield* Effect.flip(control.resume({ runId, idempotencyKey: "resume-live-host", allowCodeDrift }))).toBe(refusal)
+        expect(yield* Effect.flip(control.resume({ runId, idempotencyKey: "resume-live-host", allowCodeDrift }))).toBe(
+          refusal
+        )
         const journal = yield* Journal.Journal
         const events = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 100 })
         expect(events.entries.some((entry) => entry.eventType === "control.run.resume")).toBe(false)
       }).pipe(Effect.provide(live({ runtime })), Effect.scoped, Effect.orDie)
     )
   })
+
+  it.each([false, true])(
+    "hands a resume to the live host that parked the run (allowCodeDrift=%s)",
+    async (allowCodeDrift) => {
+      const runId = "parked-live-host"
+      const host = { hostId: "mac", pid: 101 }
+      const refusal = new ClaimLost({ runId, reason: "The host that parked this run is still alive", parkedBy: host })
+      const delegations: Array<{ readonly runId: string; readonly consent: number | undefined }> = []
+      const runtime = Layer.effect(
+        ControlRuntime,
+        Effect.map(ControlRuntime, (base) => ({
+          ...base,
+          getRun: () =>
+            Effect.succeed({ runId, flowId: "steps", status: "parked" as const, createdAt: 0, updatedAt: 0 }),
+          codeDrift: () => Effect.succeed(undefined),
+          resume: () => Effect.fail(refusal),
+          resumeAdopting: () => Effect.fail(refusal),
+          requestResume: (requested: string, options?: { readonly consent?: number | undefined }) =>
+            Effect.sync(() => delegations.push({ runId: requested, consent: options?.consent }))
+        }))
+      ).pipe(Layer.provide(memoryRuntime()))
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const control = yield* Control
+          const input = { runId, idempotencyKey: "resume-live-host", allowCodeDrift, reason: "lease lapsed" }
+          expect(yield* control.resume(input)).toEqual({
+            _tag: "Accepted",
+            receiptId: "resume-live-host",
+            runId,
+            handedTo: host
+          })
+          const journal = yield* Journal.Journal
+          yield* journal.flush
+          const resumes = (yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 100 })).entries
+            .filter((entry) => entry.eventType === "control.run.resume")
+          expect(resumes).toHaveLength(1)
+          expect(resumes[0]!.payload).toMatchObject({ runId, status: "parked", handedTo: host, reason: "lease lapsed" })
+          // The delegation carries the journaled resume as the operator's consent.
+          expect(delegations).toEqual([{ runId, consent: resumes[0]!.seq }])
+          // Replaying the key answers the recorded receipt and delegates nothing new.
+          expect((yield* control.resume(input))._tag).toBe("AlreadyApplied")
+          expect(delegations).toHaveLength(1)
+        }).pipe(Effect.provide(live({ runtime })), Effect.scoped, Effect.orDie)
+      )
+    }
+  )
 
   it("answers a terminal outcome observed after losing the cancellation claim", async () => {
     const runtime = Layer.effect(

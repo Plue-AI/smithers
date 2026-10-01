@@ -92,11 +92,12 @@ the CLI reach for different ones.
 
 ### What comes back
 
-| Receipt          | Meaning                                                                     |
-| ---------------- | --------------------------------------------------------------------------- |
-| `Terminal`       | The run had already settled. Nothing to restart.                            |
-| `Accepted`       | The run was claimed, or the restart was recorded for the host that owns it. |
-| `AlreadyApplied` | An earlier call under this key already restarted it.                        |
+| Receipt                 | Meaning                                                                     |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `Terminal`              | The run had already settled. Nothing to restart.                            |
+| `Accepted`              | The run was claimed, or the restart was recorded for the host that owns it. |
+| `Accepted` + `handedTo` | A live host parked the run. The restart was handed to that host.            |
+| `AlreadyApplied`        | An earlier call under this key already restarted it.                        |
 
 `ClaimLost` is the failure, and it names a real peer: a run at `running` or at
 the `accepted` a claim writes is being held by a live process, so there is
@@ -106,10 +107,34 @@ A run the _engine_ created, a child, a fork, or a later trampoline round, keeps
 its own driver. Both public resume spellings use `scope: "launched"` and journal
 `control.run.resume`; they leave engine-created rows unclaimed to preserve
 the continuation state. The caller or a journal subscriber must drive the
-execution, even when the plane claims a control-launched run. Explicit resume
-does not call `requestResume` or `ControlExecutor.resumeRun` and creates no
-`pendingResumes` entry. Node-approval decisions use that durable delegation
-mechanism. An `Accepted` receipt does not establish that execution started.
+execution, even when the plane claims a control-launched run. A run the caller
+claims creates no `pendingResumes` entry. An `Accepted` receipt does not
+establish that execution started.
+
+### A run a live host parked
+
+A detached host that parks a run, for example over children released when its
+lease lapsed during a stall, stays alive and keeps the run. Claiming that run
+would take its execution from the host. `resume` hands the restart to the host
+instead:
+
+1. The runtime refuses the claim with `ClaimLost` naming the host in
+   `parkedBy`.
+2. `resume` journals `control.run.resume` with `handedTo` set to that host,
+   then records a durable delegation whose `consent` is that entry's journal
+   sequence.
+3. The receipt is `Accepted` with `handedTo`. The caller holds nothing to
+   drive.
+4. The host polls `pendingResumes` every second and takes the delegation up.
+   Because it carries consent, the host records the per-release retry
+   permission under that sequence, journals `control.run.claimed`, and
+   re-drives the run as an operator resume.
+
+An approval or a wake is background intent and never carries consent, and a
+later approval delegation keeps consent that no host has taken up yet. The
+permission covers the releases that exist when the host takes the delegation
+up. A later lease lapse is a new release, so it needs a new resume. A run whose
+parking host has exited is claimed by the caller as before.
 
 ## What the CLI does
 
@@ -117,6 +142,15 @@ mechanism. An `Accepted` receipt does not establish that execution started.
 `cancel`; [`smthrs runs resume`](/cli/runs) reaches `resume`. Both record the
 principal the CLI authenticated, so `RunSummary.cancellation.principal` names a
 person rather than a process.
+
+`smthrs runs resume` keys each request by the run's latest park, so resuming a
+second park is a new request rather than a replay of the first. A run it claims
+is driven in the foreground until it settles. A run handed to its live host is
+not: the CLI waits up to 15 seconds for the host's `control.run.claimed` and for
+the run to leave its `released` park, then prints the receipt with the run's
+`status` and `waitingReason`. If the host does not take it up in that time, the
+command fails with `resume_not_taken_up`, naming the host's process. The
+request stays recorded for that host.
 
 ## Where to go next
 

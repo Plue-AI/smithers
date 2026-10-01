@@ -89,8 +89,18 @@ the journal intent is recorded. A live peer's owned run fails with `ClaimLost`.
 A caller or journal subscriber must drive the execution, including after a
 successful claim. An `Accepted` receipt does not establish that work started.
 
-Explicit resume does not call `requestResume` or `ControlExecutor.resumeRun`.
-It creates no `pendingResumes` entry for host polling.
+Explicit resume never calls `ControlExecutor.resumeRun`. A run the caller can
+claim creates no `pendingResumes` entry.
+
+A run a live host parked is the exception. `resume` may take a park only after
+a same-host probe proves the parking process dead. Otherwise the runtime
+refuses with `ClaimLost` naming the host in `parkedBy`, and `resume` hands the
+restart to that host. It journals `control.run.resume` with `handedTo` and
+records a `requestResume` delegation whose `consent` is that entry's journal
+sequence. The receipt is `Accepted` with `handedTo`. The parking host takes the
+delegation up on its next poll, records the per-release retry permission under
+that sequence, and re-drives the run. See
+[Cancel a run, and restart one](/guides/cancel-and-resume/#a-run-a-live-host-parked).
 
 ## Node approval records a durable resume delegation
 
@@ -102,6 +112,8 @@ So the intent is recorded durably rather than published in process:
 
 1. `requestResume(runId)` writes the delegation and returns its sequence.
    `RunSummary.pendingResume` reports that sequence while it is outstanding.
+   An approval delegation carries no `consent`: it is background intent, and
+   it keeps an operator's consent that no host has taken up yet.
 2. The plane offers it to its own executor through `ControlExecutor.resumeRun`.
    An executor that answers `resuming` has claimed the row and is driving, so
    the delegation is cleared with `clearResume(runId, sequence)`.

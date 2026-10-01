@@ -236,11 +236,14 @@ port. A host without one refuses both with `InvalidInput` whose issue is
 
 | Member           | Fields                                                              |
 | ---------------- | ------------------------------------------------------------------- |
-| `Accepted`       | `{ receiptId: string; runId?: RunId }`                              |
+| `Accepted`       | `{ receiptId: string; runId?: RunId; handedTo?: RunHost }`          |
 | `AlreadyApplied` | `{ receiptId: string; runId?: RunId }`                              |
 | `Parked`         | `{ receiptId: string; planId: string; status: "waiting-approval" }` |
 | `Conflict`       | `{ message: string }`                                               |
 | `Terminal`       | `{ runId: RunId; status: RunStatus }`                               |
+
+`RunHost` is `{ hostId: string; pid: number }`. An `Accepted` resume with
+`handedTo` names the live host that parked the run and now drives it.
 
 ### RPC request schemas
 
@@ -257,25 +260,25 @@ alias of it, so cancellation's public contract stays explicit.
 Every stable failure the plane emits. Each class carries a constant `code` a
 client may branch on.
 
-| Class                | `code`                                                                      | Fields                                   | Meaning                                                                               |
-| -------------------- | --------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| `RunNotFound`        | `run_not_found`                                                             | `runId`                                  | No run with this id exists.                                                           |
-| `PlanNotFound`       | `plan_not_found`                                                            | `planId`                                 | No plan with this id. Carries an operator-facing `message`.                           |
-| `PlanDenied`         | `plan_denied`                                                               | `planId`                                 | The plan was denied. Carries an operator-facing `message`.                            |
-| `FlowNotFound`       | `flow_not_found`                                                            | `flowId`                                 | No flow with this id is registered.                                                   |
-| `PlanDigestMismatch` | `plan_digest_mismatch`                                                      | `planId`, `expected`, `actual`           | The submitted plan does not hash to the declared digest.                              |
-| `EnvelopeMismatch`   | `envelope_mismatch`                                                         | `planId`, `expected`, `actual`           | The plan's effect envelope differs from the declared one.                             |
-| `ClaimLost`          | `claim_lost`                                                                | `runId`                                  | The caller's claim lapsed or was fenced by a newer owner.                             |
-| `AlreadyResolved`    | `already_resolved`                                                          | `requestId`                              | This request was already answered.                                                    |
-| `InvalidInput`       | `invalid_input`                                                             | `issue`                                  | The request missed its schema or a stated precondition.                               |
-| `Unauthorized`       | `unauthorized`                                                              | `message`                                | No usable credential for this operation.                                              |
-| `Unavailable`        | `unavailable`                                                               | `feature`, `ticket`                      | Not implemented in this deployment.                                                   |
-| `TransportError`     | `transport_error`                                                           | `message`, `retryable`, `cause?`         | The request failed before a declared response arrived.                                |
-| `PersistenceError`   | `persistence_failed`                                                        | `operation`, `message`, `cause?`         | A store operation failed.                                                             |
-| `LaunchFailed`       | `launch_failed`                                                             | `runId`, `message`, `cause?`             | The executor refused or could not start the run.                                      |
-| `NoMatchingWait`     | `no_matching_wait`                                                          | `runId`, `waitName`                      | A signal named a wait point the run does not have open.                               |
-| `CredentialConflict` | `credential_conflict`                                                       | `id`, `expectedVersion`, `actualVersion` | A credential write lost a compare-and-set race.                                       |
-| `NotificationError`  | `notification_closed`, `notification_full`, and existing notification codes | `message`, `notificationId?`, `path?`    | Existing notification error class, now preserved by steering locally and through RPC. |
+| Class                | `code`                                                                      | Fields                                   | Meaning                                                                                  |
+| -------------------- | --------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `RunNotFound`        | `run_not_found`                                                             | `runId`                                  | No run with this id exists.                                                              |
+| `PlanNotFound`       | `plan_not_found`                                                            | `planId`                                 | No plan with this id. Carries an operator-facing `message`.                              |
+| `PlanDenied`         | `plan_denied`                                                               | `planId`                                 | The plan was denied. Carries an operator-facing `message`.                               |
+| `FlowNotFound`       | `flow_not_found`                                                            | `flowId`                                 | No flow with this id is registered.                                                      |
+| `PlanDigestMismatch` | `plan_digest_mismatch`                                                      | `planId`, `expected`, `actual`           | The submitted plan does not hash to the declared digest.                                 |
+| `EnvelopeMismatch`   | `envelope_mismatch`                                                         | `planId`, `expected`, `actual`           | The plan's effect envelope differs from the declared one.                                |
+| `ClaimLost`          | `claim_lost`                                                                | `runId`, `reason?`, `parkedBy?`          | The caller's claim lapsed or was fenced by a newer owner, or a live host parked the run. |
+| `AlreadyResolved`    | `already_resolved`                                                          | `requestId`                              | This request was already answered.                                                       |
+| `InvalidInput`       | `invalid_input`                                                             | `issue`                                  | The request missed its schema or a stated precondition.                                  |
+| `Unauthorized`       | `unauthorized`                                                              | `message`                                | No usable credential for this operation.                                                 |
+| `Unavailable`        | `unavailable`                                                               | `feature`, `ticket`                      | Not implemented in this deployment.                                                      |
+| `TransportError`     | `transport_error`                                                           | `message`, `retryable`, `cause?`         | The request failed before a declared response arrived.                                   |
+| `PersistenceError`   | `persistence_failed`                                                        | `operation`, `message`, `cause?`         | A store operation failed.                                                                |
+| `LaunchFailed`       | `launch_failed`                                                             | `runId`, `message`, `cause?`             | The executor refused or could not start the run.                                         |
+| `NoMatchingWait`     | `no_matching_wait`                                                          | `runId`, `waitName`                      | A signal named a wait point the run does not have open.                                  |
+| `CredentialConflict` | `credential_conflict`                                                       | `id`, `expectedVersion`, `actualVersion` | A credential write lost a compare-and-set race.                                          |
+| `NotificationError`  | `notification_closed`, `notification_full`, and existing notification codes | `message`, `notificationId?`, `path?`    | Existing notification error class, now preserved by steering locally and through RPC.    |
 
 | Export               | Kind   | Meaning                                                                                                              |
 | -------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
@@ -400,9 +403,15 @@ runtime capability for hosts that can drive the claimed execution.
 An owned non-terminal run is joined without replacing its fence, including
 `accepted`; a run released by `releasePending` can be claimed again.
 
-Explicit resume journals `control.run.resume` and does not call `requestResume`
-or `ControlExecutor.resumeRun`. A caller or journal subscriber must drive the
-execution; polling `pendingResumes` does not take up explicit resumes.
+Explicit resume journals `control.run.resume` and never calls
+`ControlExecutor.resumeRun`. A caller or journal subscriber must drive the
+execution; polling `pendingResumes` does not take up a resume the caller
+claimed. A run a live host parked fails the claim with `ClaimLost` naming the
+host in `parkedBy`. `Control.resume` then hands it to that host: it records
+`requestResume(runId, { consent })`, where `consent` is the journal sequence of
+its `control.run.resume`, and answers `Accepted` with `handedTo`.
+`pendingResumes` reports that `consent`, and the parking host records the
+per-release retry permission under it before it re-drives the run.
 A suspended engine-created run stays unclaimed and receives an `Accepted`
 receipt for the journal intent. A live peer's owned run fails with `ClaimLost`.
 A running engine-created run outside the launch index also fails with

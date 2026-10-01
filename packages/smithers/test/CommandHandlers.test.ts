@@ -1055,7 +1055,8 @@ describe("owned-run settlement", () => {
     expect(Exit.isFailure(exit)).toBe(true)
     const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
     expect(error).toBeInstanceOf(ControlError.TransportError)
-    expect((error as ControlError.TransportError).message).toContain("approval-park lookup")
+    // A resume is keyed by the latest park of either kind, so the lookup is not approval-only.
+    expect((error as ControlError.TransportError).message).toContain("during park lookup")
     expect((error as ControlError.TransportError).message).toContain("run-1")
     expect(resumes.count).toBe(0)
   })

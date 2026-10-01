@@ -453,6 +453,17 @@ export interface PendingResume {
    * `Ownership.heartbeatStaleAfter` (triage B-15).
    */
   readonly requestedAtMs: number
+  /**
+   * The journal sequence of the operator's explicit `control.run.resume`
+   * this delegation carries, when it carries one.
+   *
+   * An approval or a wake is background intent. An operator's resume of a
+   * run a live host parked is handed to that host as a delegation too, and
+   * this is what tells the host the operator asked: it records the
+   * per-release retry permission under this sequence before it drives the
+   * run (#2982, #3342).
+   */
+  readonly consent?: number | undefined
 }
 
 /**
@@ -579,8 +590,15 @@ export interface Service {
    * A terminal run is refused with `InvalidInput`: no host will ever take the
    * delegation up, and recording it would leave an orphaned row every host's
    * `pendingResumes` poll filters but nothing ever clears.
+   *
+   * `consent` is the journal sequence of an operator's explicit resume (see
+   * {@link PendingResume.consent}). A later delegation without one keeps the
+   * consent no host has taken up yet.
    */
-  readonly requestResume: (runId: RunId) => Effect.Effect<number, RunNotFound | InvalidInput | PersistenceError>
+  readonly requestResume: (
+    runId: RunId,
+    options?: { readonly consent?: number | undefined } | undefined
+  ) => Effect.Effect<number, RunNotFound | InvalidInput | PersistenceError>
   /**
    * Every outstanding resume delegation for a run that is not terminal.
    *
@@ -798,6 +816,8 @@ interface MutableRun {
   pendingResume?: number | undefined
   /** When that delegation was recorded. */
   pendingResumeAtMs?: number | undefined
+  /** The operator's explicit resume that delegation carries, if any. */
+  pendingConsent?: number | undefined
 }
 
 // SQL persistence breaks caller reference identity through serialization. The
@@ -1369,7 +1389,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
               ])
           )
         ),
-        requestResume: Effect.fn("ControlRuntime.requestResume")(function*(runId) {
+        requestResume: Effect.fn("ControlRuntime.requestResume")(function*(runId, options) {
           const run = yield* requireRun(runId)
           if (
             run.summary.status === "cancelled" ||
@@ -1383,6 +1403,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           const sequence = ++resumeSequence
           run.pendingResume = sequence
           run.pendingResumeAtMs = now()
+          run.pendingConsent = options?.consent ?? run.pendingConsent
           updateSummary(run, { pendingResume: sequence })
           return sequence
         }),
@@ -1392,7 +1413,12 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
               run.summary.status === "cancelled" ||
               run.summary.status === "completed" || run.summary.status === "failed"
               ? []
-              : [{ runId, sequence: run.pendingResume, requestedAtMs: run.pendingResumeAtMs }]
+              : [{
+                runId,
+                sequence: run.pendingResume,
+                requestedAtMs: run.pendingResumeAtMs,
+                ...(run.pendingConsent === undefined ? {} : { consent: run.pendingConsent })
+              }]
           )
         ),
         clearResume: Effect.fn("ControlRuntime.clearResume")((runId, sequence) =>
@@ -1401,6 +1427,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             if (run === undefined || run.pendingResume !== sequence) return
             run.pendingResume = undefined
             run.pendingResumeAtMs = undefined
+            run.pendingConsent = undefined
             updateSummary(run, { pendingResume: undefined })
           })
         ),

@@ -639,10 +639,30 @@ const tracedTransition = (transition: Cell.Transition) =>
  * one parked it. `requestedAtMs` is the age of the durable delegation, and only
  * the durable follower has one: a process that has just decided an approval
  * knows nothing about the host from having decided it.
+ *
+ * `consent` marks a delegation that carries an operator's own resume, handed
+ * to the host that parked the run because that host is still alive (#3342).
+ * It is the journal sequence of that `control.run.resume`. The host guard
+ * still applies, but the resume is the operator's: it records the per-release
+ * retry permission under that sequence and drives as an operator resume.
  */
 type Uptake =
   | { readonly _tag: "claimed"; readonly sequence?: number | undefined }
-  | { readonly _tag: "delegated"; readonly requestedAtMs?: number | undefined }
+  | {
+    readonly _tag: "delegated"
+    readonly requestedAtMs?: number | undefined
+    readonly consent?: number | undefined
+  }
+
+/** The journal sequence of the operator's resume an uptake carries, if any. */
+const consentOf = (uptake: Uptake): number | undefined => uptake._tag === "claimed" ? uptake.sequence : uptake.consent
+
+/**
+ * Whether a journaled `control.run.resume` was handed to the host that parked
+ * the run rather than claimed by the process that journaled it.
+ */
+const handedOff = (entry: JournalEvent.Entry): boolean =>
+  typeof entry.payload === "object" && entry.payload !== null && "handedTo" in entry.payload
 
 const assistantText = (message: ModelRequest.AssistantMessage): string =>
   message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n")
@@ -3796,11 +3816,11 @@ export const make = (
      * take the follower or the journal bridge down with it.
      */
     const resumeExecution = (runId: string, uptake: Uptake): Effect.Effect<void> =>
-      (uptake._tag === "delegated"
+      (uptake._tag === "delegated" && uptake.consent === undefined
         ? engine.resume(agentFlow, runId, { delegated: true }).pipe(
           Effect.andThen(reparkRefusedDelegation(runId))
         )
-        : engine.resume(agentFlow, runId, { poll: uptake.sequence === undefined })).pipe(
+        : engine.resume(agentFlow, runId, { poll: consentOf(uptake) === undefined })).pipe(
           Effect.catchCause(
             (cause) =>
               Effect.annotateLogs(
@@ -3941,13 +3961,15 @@ export const make = (
         if (options.canExecute !== undefined && !(yield* options.canExecute(runId))) return "unknown" as const
         const parked = yield* parkedHere(runId, 500)
         if (!parked) return "unknown" as const
+        const consent = consentOf(uptake)
         // A saved clock, deferred, parent, or approval request is background
         // intent. It can predate a later corruption park, so it cannot stand
         // in for the explicit recovery decision the engine requires. This
         // read only spares a claim: a peer can still quarantine the run after
         // it, and the engine's refusal of a delegated resume is the fence
-        // ({@link reparkRefusedDelegation} hands the claim back).
-        if (uptake._tag === "delegated") {
+        // ({@link reparkRefusedDelegation} hands the claim back). An
+        // operator's resume handed to this host is that explicit decision.
+        if (uptake._tag === "delegated" && consent === undefined) {
           const eligible = yield* engineState.waiting(runId).pipe(
             Effect.map((waiting) => Option.isNone(waiting) || waiting.value.reason !== "quarantine"),
             Effect.catchCause((cause) =>
@@ -3968,18 +3990,24 @@ export const make = (
           )
         )
         if (!claimed) return "unknown" as const
-        if (
-          uptake._tag === "claimed" && uptake.sequence !== undefined && options.authorizeReleasedChildren !== undefined
-        ) {
-          yield* options.authorizeReleasedChildren(runId, uptake.sequence).pipe(
-            Effect.catchCause((cause) =>
-              recoverCause(cause, "Released child retry authorization could not be recorded", undefined, { runId })
-            )
-          )
-        }
+        if (consent !== undefined) yield* authorizeReleased(runId, consent)
         yield* drive(runId, uptake)
         return "resuming" as const
       })
+
+    /**
+     * Records the operator's per-release retry permission under the sequence
+     * of the resume that granted it. A failure is logged and leaves the
+     * released children parked; it never grants them.
+     */
+    const authorizeReleased = (runId: string, consent: number): Effect.Effect<void> =>
+      options.authorizeReleasedChildren === undefined
+        ? Effect.void
+        : options.authorizeReleasedChildren(runId, consent).pipe(
+          Effect.catchCause((cause) =>
+            recoverCause(cause, "Released child retry authorization could not be recorded", undefined, { runId })
+          )
+        )
 
     /**
      * Follows the journal for the control plane's resume events and re-drives
@@ -3990,7 +4018,10 @@ export const make = (
     const resumeBridge = Effect.gen(function*() {
       const subscription = yield* journal.changes
       yield* Stream.fromSubscription(subscription).pipe(
-        Stream.filter((entry) => entry.eventType === "control.run.resume" || entry.eventType === "control.run.resumed"),
+        Stream.filter((entry) =>
+          (entry.eventType === "control.run.resume" && !handedOff(entry)) ||
+          entry.eventType === "control.run.resumed"
+        ),
         Stream.mapEffect(
           (entry) =>
             takeUpResume(
@@ -4153,6 +4184,9 @@ export const make = (
               return yield* Flow.suspend(instance)
             }
             yield* reclaimControl
+            // An operator's resume handed to this host grants its released
+            // children before the body can re-admit them.
+            if (pending.consent !== undefined) yield* authorizeReleased(payload.runId, pending.consent)
             // One answer buys one re-drive. The delegation is durable and only a
             // host clears it, and this round IS the host taking it up: left
             // standing it would re-drive the run's NEXT park too, which is the
@@ -4260,7 +4294,7 @@ export const make = (
       takeUpResume(
         entry.runId,
         (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)),
-        { _tag: "delegated", requestedAtMs: entry.requestedAtMs }
+        { _tag: "delegated", requestedAtMs: entry.requestedAtMs, consent: entry.consent }
       ).pipe(
         Effect.flatMap((uptake) =>
           uptake === "resuming" ? runtime.clearResume(entry.runId, entry.sequence) : Effect.void

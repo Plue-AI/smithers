@@ -50,6 +50,7 @@ import type {
   IdempotencyKey,
   ListResponse,
   Receipt,
+  RunHost,
   RunId,
   RunSummary,
   TriggerSummary,
@@ -411,11 +412,12 @@ export const layer: Layer.Layer<
 
     const mutationSemaphore = yield* Semaphore.make(1)
 
-    const emit = (
+    /** Journals one control event and answers its journal sequence. */
+    const record = (
       runId: string,
       eventType: string,
       payload: ControlEvent["payload"]
-    ): Effect.Effect<void, PersistenceError> =>
+    ): Effect.Effect<number, PersistenceError> =>
       // Unfenced: the control plane mutates runs it does not own — that is
       // the point of a control plane — so its event records are
       // first-writer-wins admissions, not owner-fenced lifecycle writes.
@@ -427,6 +429,7 @@ export const layer: Layer.Layer<
           payload: json(payload)
         })
       ).pipe(
+        Effect.map((receipt) => receipt.seq),
         Effect.mapError((cause) =>
           new PersistenceError({
             operation: eventType,
@@ -435,6 +438,12 @@ export const layer: Layer.Layer<
           })
         )
       )
+
+    const emit = (
+      runId: string,
+      eventType: string,
+      payload: ControlEvent["payload"]
+    ): Effect.Effect<void, PersistenceError> => Effect.asVoid(record(runId, eventType, payload))
 
     /**
      * Ends a run the executor was handed and could not take.
@@ -769,12 +778,19 @@ export const layer: Layer.Layer<
      * reason set and its execution never returned (control-plane example 38).
      *
      * Both public resume spellings journal `control.run.resume`. The caller
-     * or a host-supplied journal subscriber must drive the execution. This
-     * path neither calls `requestResume` nor offers `executor.resumeRun`;
-     * the durable pending-resume queue belongs to node-approval decisions.
-     * A run a live peer is HOLDING — `running`, or the `accepted` a claim
-     * writes and only a settlement rewrites — is still `ClaimLost`: there is
-     * nothing to restart, and pretending otherwise would hide the peer.
+     * or a host-supplied journal subscriber must drive the execution, and
+     * this path never offers `executor.resumeRun`. A run a live peer is
+     * HOLDING — `running`, or the `accepted` a claim writes and only a
+     * settlement rewrites — is still `ClaimLost`: there is nothing to
+     * restart, and pretending otherwise would hide the peer.
+     *
+     * A run a live host PARKED is that host's to drive: claiming it would
+     * steal its execution (#3342), and refusing left a lease-lapsed park
+     * nothing could restart. The resume is handed to the host instead. The
+     * journal entry names the host, and a durable delegation carries its
+     * sequence as the operator's consent, which the host records as the
+     * per-release retry permission before it re-drives the run (#2982). The
+     * receipt's `handedTo` tells the caller it holds nothing to drive.
      */
     const runMutation = (
       submitted: RunMutationInput
@@ -805,10 +821,15 @@ export const layer: Layer.Layer<
             // Every claim re-enters the flow's current code, so a changed flow
             // is refused before the claim and the run stays where it was.
             if (input.allowCodeDrift !== true) yield* refuseCodeDrift(input.runId)
+            let handedTo: RunHost | undefined
             const claimed = yield* (input.allowCodeDrift === true
               ? runtime.resumeAdopting(input.runId, { scope: "launched" })
               : runtime.resume(input.runId, { scope: "launched" })).pipe(
                 Effect.catchTag("/control/ClaimLost", (error) => {
+                  if (error.parkedBy !== undefined) {
+                    handedTo = error.parkedBy
+                    return Effect.succeed(undefined)
+                  }
                   if (error.reason !== undefined) return Effect.fail(error)
                   return runtime.getRun(input.runId).pipe(Effect.flatMap((stored) =>
                     // A retained fork is parked in control and pending in the
@@ -826,7 +847,7 @@ export const layer: Layer.Layer<
             // writes and `principal` as stamped by the runtime, and a resume
             // that carried neither left an operator unable to say who restarted
             // a run or why.
-            yield* emit(
+            const sequence = yield* record(
               input.runId,
               "control.run.resume",
               json({
@@ -834,9 +855,20 @@ export const layer: Layer.Layer<
                 status: (claimed ?? current).status,
                 ...(claimed === undefined ? {} : ControlFacts.runFact(claimed)),
                 principal,
-                ...(input.reason === undefined ? {} : { reason: input.reason })
+                ...(input.reason === undefined ? {} : { reason: input.reason }),
+                ...(handedTo === undefined ? {} : { handedTo })
               })
             )
+            if (handedTo !== undefined) {
+              yield* runtime.requestResume(input.runId, { consent: sequence })
+              const handedOff: Receipt = {
+                _tag: "Accepted",
+                receiptId: input.idempotencyKey,
+                runId: input.runId,
+                handedTo
+              }
+              return handedOff
+            }
             return claimed === undefined
               ? accepted(input.idempotencyKey, input.runId)
               : terminalOrAccepted(input.idempotencyKey, claimed)

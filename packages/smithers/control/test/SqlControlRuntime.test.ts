@@ -768,14 +768,16 @@ describe("SqlControlRuntime", () => {
     expect(observed.evicted).toBeInstanceOf(ClaimLost)
   })
 
-  it.each([
-    { alive: true, hostId: "mac", pid: 202, scope: "launched", accepted: false },
-    { alive: false, hostId: "mac", pid: 202, scope: "launched", accepted: true },
-    { alive: undefined, hostId: "mac", pid: 202, scope: "launched", accepted: false },
-    { alive: false, hostId: "linux", pid: 202, scope: "launched", accepted: false },
-    { alive: true, hostId: "mac", pid: 101, scope: "launched", accepted: true },
-    { alive: true, hostId: "mac", pid: 202, scope: "any", accepted: true }
-  ] as const)(
+  it.each(
+    [
+      { alive: true, hostId: "mac", pid: 202, scope: "launched", accepted: false },
+      { alive: false, hostId: "mac", pid: 202, scope: "launched", accepted: true },
+      { alive: undefined, hostId: "mac", pid: 202, scope: "launched", accepted: false },
+      { alive: false, hostId: "linux", pid: 202, scope: "launched", accepted: false },
+      { alive: true, hostId: "mac", pid: 101, scope: "launched", accepted: true },
+      { alive: true, hostId: "mac", pid: 202, scope: "any", accepted: true }
+    ] as const
+  )(
     "checks the parked host before taking its run ($hostId/$pid alive=$alive scope=$scope)",
     async ({ alive, hostId, pid, scope, accepted }) => {
       const owner = { hostId: "mac", pid: 101, nonce: "detached" }
@@ -800,7 +802,9 @@ describe("SqlControlRuntime", () => {
             expect(error).toMatchObject({
               code: "claim_lost",
               runId,
-              reason: "The host that parked this run is still alive or its liveness is unknown"
+              reason: "The host that parked this run is still alive or its liveness is unknown",
+              // The refusal names the host, so `Control.resume` can hand it the run (#3342).
+              parkedBy: { hostId: "mac", pid: 101 }
             })
             expect(yield* store.get(runId)).toEqual(before)
           }
@@ -808,6 +812,33 @@ describe("SqlControlRuntime", () => {
       )
     }
   )
+
+  it("keeps an operator's consent on a resume delegation until a host takes it up", async () => {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const runtime = yield* ControlRuntime
+        const { runId } = yield* started
+        yield* park(runtime, runId)
+        const plain = yield* runtime.requestResume(runId)
+        expect(yield* runtime.pendingResumes).toEqual([{ runId, sequence: plain, requestedAtMs: expect.any(Number) }])
+        const explicit = yield* runtime.requestResume(runId, { consent: 41 })
+        expect((yield* runtime.pendingResumes)[0]).toMatchObject({ sequence: explicit, consent: 41 })
+        // A later approval delegation is background intent: it neither grants
+        // consent nor drops the consent no host has taken up yet.
+        const approval = yield* runtime.requestResume(runId)
+        expect((yield* runtime.pendingResumes)[0]).toMatchObject({ sequence: approval, consent: 41 })
+        const newer = yield* runtime.requestResume(runId, { consent: 57 })
+        expect((yield* runtime.pendingResumes)[0]).toMatchObject({ sequence: newer, consent: 57 })
+        // Clearing an older read leaves the newer request standing.
+        yield* runtime.clearResume(runId, approval)
+        expect((yield* runtime.pendingResumes)[0]).toMatchObject({ sequence: newer, consent: 57 })
+        yield* runtime.clearResume(runId, newer)
+        expect(yield* runtime.pendingResumes).toEqual([])
+        const next = yield* runtime.requestResume(runId)
+        expect(yield* runtime.pendingResumes).toEqual([{ runId, sequence: next, requestedAtMs: expect.any(Number) }])
+      }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
+    )
+  })
 
   it("takes over a running run whose owner is gone only once its lease has expired", async () => {
     const owner = { hostId: "mac", pid: 101, nonce: "first" }

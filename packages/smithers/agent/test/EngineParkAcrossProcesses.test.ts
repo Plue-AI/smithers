@@ -1155,6 +1155,67 @@ describe("explicit resume authorization for released native children", () => {
     expect(readEngineRun(root, "run-1")?.status).toBe("suspended")
   }, 120_000)
 
+  it("hands an operator resume of a live host's park to that host, which grants and drives it", async () => {
+    // Two compositions over one store, both alive: the host that parked the
+    // run, and a peer (`smthrs runs resume`) asking for it (#3342).
+    const root = makeRoot()
+    const parker: Array<{ runId: string; sequence: number }> = []
+    const peer: Array<{ runId: string; sequence: number }> = []
+    const record = (calls: typeof parker): AgentSession.Options["authorizeReleasedChildren"] => (runId, sequence) =>
+      Effect.sync(() => {
+        calls.push({ runId, sequence })
+      })
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const id = yield* launch
+        const runtime = yield* ControlRuntime.ControlRuntime
+        yield* awaitStatus(runtime, id, "parked")
+        // Its own runtime, as a separate process has: a nested provide would
+        // share this composition's memoized control plane.
+        yield* Effect.promise(() =>
+          Effect.runPromise(
+            Effect.gen(function*() {
+              const control = yield* Control.Control
+              const receipt = yield* control.resume({ runId: id, idempotencyKey: "handoff" })
+              expect(receipt).toEqual({
+                _tag: "Accepted",
+                receiptId: "handoff",
+                runId: id,
+                handedTo: { hostId: hostOwner.hostId, pid: hostOwner.pid }
+              })
+              for (let attempt = 0; attempt < 1_000 && parker.length === 0; attempt++) {
+                yield* Effect.sleep("10 millis")
+              }
+              // The peer stays alive past the parking host's take-up and never drives.
+              yield* Effect.sleep("200 millis")
+            }).pipe(
+              Effect.provide(host(root, secondOwner, "handoff-peer", { authorizeReleasedChildren: record(peer) })),
+              Effect.scoped,
+              Effect.orDie
+            )
+          )
+        )
+        const control = yield* Control.Control
+        const events = Array.from(yield* Stream.runCollect(control.watch({ runId: id, follow: false })))
+        const resume = events.find((event) => event.kind === "control.run.resume")
+        expect(resume?.payload).toMatchObject({ handedTo: { hostId: hostOwner.hostId, pid: hostOwner.pid } })
+        // The consent is the operator's journaled resume, recorded by the host.
+        expect(parker).toEqual([{ runId: id, sequence: resume!.sequence }])
+        expect(peer).toEqual([])
+        // The host's claim is the take-up `runs resume` waits for.
+        expect(events.some((event) => event.kind === "control.run.claimed" && event.sequence > resume!.sequence))
+          .toBe(true)
+        yield* awaitStatus(runtime, id, "parked")
+        expect(yield* runtime.pendingResumes).toEqual([])
+        expect(notes).toEqual([])
+      }).pipe(
+        Effect.provide(host(root, hostOwner, "handoff-parker", { authorizeReleasedChildren: record(parker) })),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+  }, 120_000)
+
   it("logs a failed permission write and re-parks the parent without retrying its work", async () => {
     const root = makeRoot()
     const errors: Array<string> = []

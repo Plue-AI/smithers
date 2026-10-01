@@ -1275,13 +1275,36 @@ export const ListResponse = Schema.Union([
 export type ListResponse = typeof ListResponse.Type
 
 /**
+ * A live process that hosts a run: its machine and process id.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const RunHost = Schema.Struct({ hostId: Schema.String, pid: Schema.Number })
+
+/**
+ * A live process that hosts a run: its machine and process id.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type RunHost = typeof RunHost.Type
+
+/**
  * The idempotent outcome returned by every control mutation.
+ *
+ * An `Accepted` resume with `handedTo` was not claimed by the caller: the live
+ * process that parked the run takes it up and drives it.
  *
  * @since 0.1.0
  * @category models
  */
 export const Receipt = Schema.Union([
-  Schema.TaggedStruct("Accepted", { receiptId: Schema.String, runId: Schema.optional(RunId) }),
+  Schema.TaggedStruct("Accepted", {
+    receiptId: Schema.String,
+    runId: Schema.optional(RunId),
+    handedTo: Schema.optional(RunHost)
+  }),
   Schema.TaggedStruct("AlreadyApplied", { receiptId: Schema.String, runId: Schema.optional(RunId) }),
   Schema.TaggedStruct("Parked", {
     receiptId: Schema.String,

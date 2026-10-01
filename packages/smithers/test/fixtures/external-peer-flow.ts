@@ -57,12 +57,12 @@ const Worker = Flow.make("external-peer/Worker", {
     ({ root, token }) => Work.call({ root, token })
   )
 })
-const Start = Action.make("external-peer/Start", {
+export const Start = Action.make("external-peer/Start", {
   payload: { root: Schema.String },
   success: Schema.Void,
   error: Schema.Unknown
 })
-const Wait = Action.make("external-peer/Wait", { payload: {}, success: Schema.Number, error: Schema.Unknown })
+export const Wait = Action.make("external-peer/Wait", { payload: {}, success: Schema.Number, error: Schema.Unknown })
 /** Keeps the control root executing (never parked) until the release gate opens. */
 const Hold = Action.make("external-peer/Hold", {
   payload: { root: Schema.String },
