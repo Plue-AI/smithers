@@ -1,0 +1,70 @@
+{
+  "issue": 3093,
+  "related": 3184,
+  "sourceParent": "773fac75dcd1efd5d518bfbe60699b35c8927274",
+  "readinessManifest": "/tmp/smithers-burndown-20260930-receipts/api-batch3/final-cohort-ed02fdb594/3093-namespace-ready-evidence.json",
+  "readinessSHA256": "cf41d30bdb83eb65914da7494cb41a37c0f9c24c1b73dcc79fdb7e1c915f232c",
+  "source": [
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/packages/repo-targets/scripts/private-effect-adapters.mjs",
+      "sha256": "e15bade1aa3dab5e1c5845d3e5304731bed85c740a6b3ff757616686389ba5cd",
+      "bytes": 12390
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/private-effect-adapters.test.mjs",
+      "sha256": "34f6ad7dc4698d020d2d5c79876dadddea6db9611dc237cf2fcb832d3027cf51",
+      "bytes": 19181
+    },
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/scripts/release-consumers.mjs",
+      "sha256": "0574823aff479f79d11d7495742f274ce19213582bafbe48d2e721fb9a0cd4d6",
+      "bytes": 28038
+    }
+  ],
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test --experimental-test-coverage --test-coverage-include=packages/repo-targets/scripts/private-effect-adapters.mjs --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 scripts/private-effect-adapters.test.mjs",
+      "receipt": "3093-namespace-producer-strict-coverage.log",
+      "exit": 0,
+      "passed": 9,
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100
+      },
+      "independentBoundaries": [
+        "Real WebSocket namespace ESM/CJS identity and actual TCP WebSocket exchange",
+        "TS5.9+7 strict noSkipLibCheck Node20/NodeNext .mts/.cts with explicit Node ambient,negative-any Node/Bun/WebSocket controls,cross-branch assignments",
+        "Aliases/other exports/comments/opaque strings preserved; ESM declarations unchanged",
+        "Existing version/closure/digest/race/temp-root controls retained"
+      ]
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test scripts/check-api-baseline.test.mjs scripts/release-consumers.test.mjs scripts/repo-contract/package-contract.test.mjs scripts/check-single-effect-version.test.mjs",
+      "receipt": "3093-namespace-contracts.log",
+      "exit": 0,
+      "passed": 34
+    },
+    {
+      "command": "pnpm exec eslint packages/repo-targets/scripts/private-effect-adapters.mjs scripts/private-effect-adapters.test.mjs scripts/release-consumers.mjs",
+      "receipt": "3093-namespace-lint.log",
+      "exit": 0
+    },
+    {
+      "command": "pnpm --dir packages/smithers exec dprint check --config /tmp/smithers-burndown-20260930-receipts/api-batch3/3093-dprint.json EACH_OWNED_PATH",
+      "receipt": "3093-namespace-format-check.log",
+      "exit": 0
+    },
+    {
+      "command": "node --check EACH_OWNED_PATH",
+      "receipt": "3093-namespace-syntax.log",
+      "exit": 0
+    }
+  ],
+  "change": "Shared AST rewrites only CJS ws namespace reexports to same-name namespace import plus named export; ESM/runtimeJS unchanged. Consumer uses Node20/NodeNext with NodeNext resolution, explicit Node ambient via actual published CLI @types/ws -> @types/node dependency path/version/manifest/index identities; no skipLibCheck,no new dependencies/manual consumer pins.",
+  "historicalModeLimit": "Node runtime floor>=26.4 supports require(ESM); fixed historical Node16 compiler mode does not model this. Historical red retained; no Node16 runtime or typed green claim. Supported modern modes execute with full library checking.",
+  "archive": "3093-namespace-validation.tar.gz",
+  "archiveSHA256": "ad283ad00088646f7b5a7a975198d126568b6c1dda749e1e8fa5c13c6074d97d",
+  "archiveRawFiles": 70,
+  "status": "Producer and concrete modern strict type regression qualified; original50 declaration/build/pack cohort and runtime positives retained at ed02. Unmodified final clean-candidate pack/consumer qualification pending; no release/issue closure implied."
+}

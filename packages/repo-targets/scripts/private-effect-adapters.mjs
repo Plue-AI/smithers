@@ -74,7 +74,8 @@ const rewrite = (ts, text, transform) => {
     }
     if (literal && ts.isStringLiteral(literal)) {
       const value = transform(literal.text, node)
-      if (value !== literal.text) replacements.push([literal.getStart(source), literal.end, JSON.stringify(value)])
+      if (typeof value === "object") replacements.push([node.getStart(source), node.end, value.statement])
+      else if (value !== literal.text) replacements.push([literal.getStart(source), literal.end, JSON.stringify(value)])
     }
     ts.forEachChild(node, visit)
   }
@@ -199,7 +200,16 @@ export const buildPrivateEffectAdapters = async (packageRoot, { distRoot = join(
           targets.push(join(branch, name.slice("@effect/".length) + ".d.ts"))
         }
         for (const target of targets) {
-          const text = rewrite(ts, await readFile(file, "utf8"), (value) => {
+          const text = rewrite(ts, await readFile(file, "utf8"), (value, node) => {
+            // CJS declarations cannot namespace-re-export an export= dependency.
+            // Preserve the same namespace binding without changing its runtime.
+            if (
+              branch !== vendor && value === "ws" && ts.isExportDeclaration(node) &&
+              node.exportClause && ts.isNamespaceExport(node.exportClause)
+            ) {
+              const alias = node.exportClause.name.getText()
+              return { statement: `import * as ${alias} from "ws"; export { ${alias} };` }
+            }
             const named = declared.find((name) => value === name || value.startsWith(name + "/"))
             if (named) {
               return specifier(

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
@@ -131,6 +132,22 @@ test("real adapters share Effect across owners, CJS and ESM, and preserve typed 
       }).pipe(Effect.provide(two.layer))
     )
     assert.equal(contents, "cross-owner contents")
+    const esmSocket = await import(pathToFileURL(join(paths[0], "dist/vendor/node-shared/NodeSocket.js")))
+    const cjsSocket = fromOne(join(paths[0], "dist/vendor/cjs/node-shared/NodeSocket.js"))
+    assert.equal(cjsSocket.NodeWS, esmSocket.NodeWS)
+    assert.equal(cjsSocket.NodeWS.WebSocket, fromOne("ws").WebSocket)
+    const server = new esmSocket.NodeWS.WebSocketServer({ host: "127.0.0.1", port: 0 })
+    let client
+    try {
+      await once(server, "listening")
+      server.once("connection", (socket) => socket.send("actual private namespace connection"))
+      client = new cjsSocket.NodeWS.WebSocket(`ws://127.0.0.1:${server.address().port}`)
+      const [message] = await once(client, "message")
+      assert.equal(message.toString(), "actual private namespace connection")
+    } finally {
+      client?.terminate()
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    }
     const nativeCompilerRequire = createRequire(join(root, "packages/smithers/build/build-cli/package.json"))
     const compilers = [sourceRequire, nativeCompilerRequire].map((require) =>
       join(dirname(require.resolve("typescript/package.json")), "bin/tsc")
@@ -143,6 +160,7 @@ test("real adapters share Effect across owners, CJS and ESM, and preserve typed 
         join(paths[0], "proof." + extension),
         [
           `import {layer,bunLayer,succeed} from './dist/${branch}/index.js';`,
+          `import {NodeWS} from './dist/vendor/${branch === "esm" ? "" : "cjs/"}node-shared/NodeSocket.js';`,
           `import type * as Other from './dist/${other}/index.js' with {"resolution-mode":"${mode}"};`,
           `import type {Effect} from 'effect/Effect' with {"resolution-mode":"import"};`,
           "const value: Effect<number> = succeed(1);void value;",
@@ -153,23 +171,31 @@ test("real adapters share Effect across owners, CJS and ESM, and preserve typed 
           "// @ts-expect-error Node API must retain its type",
           "layer.missingConsumerField;",
           "// @ts-expect-error Bun API must retain its type",
-          "bunLayer.missingConsumerField;"
+          "bunLayer.missingConsumerField;",
+          "const socket: NodeWS.WebSocket = new NodeWS.WebSocket('ws://127.0.0.1');void socket;",
+          "// @ts-expect-error WebSocket namespace must preserve actual constructor members",
+          "NodeWS.WebSocket.missingConsumerField;"
         ].join("\n")
       )
     }
     for (const compiler of compilers) {
-      for (const module of ["Node16", "NodeNext"]) {
+      for (const module of ["Node20", "NodeNext"]) {
         execFileSync(process.execPath, [
           compiler,
           "--noEmit",
           "--strict",
-          "--skipLibCheck",
           "--target",
           "ES2022",
           "--module",
           module,
           "--moduleResolution",
-          module,
+          "NodeNext",
+          "--types",
+          "node",
+          "--typeRoots",
+          dirname(
+            dirname(createRequire(sourceRequire.resolve("@types/ws/package.json")).resolve("@types/node/package.json"))
+          ),
           "proof.mts",
           "proof.cts"
         ], { cwd: paths[0], stdio: "inherit" })
@@ -203,6 +229,32 @@ const syntheticOwner = async (directory) => {
   }
   return path
 }
+
+test("CJS namespace compatibility preserves aliases, other exports, comments, and opaque declaration strings", () =>
+  fixture(async (directory) => {
+    const path = await syntheticOwner(directory)
+    const source = [
+      "import * as Imported from \"ws\";",
+      "export * as SocketNamespace from \"ws\";",
+      "export { WebSocket as NamedSocket } from \"ws\";",
+      "export * from \"ws\";",
+      "export * as Layers from \"effect/Layer\";",
+      "// export * as CommentOnly from \"ws\";",
+      "export declare const opaque: \"export * as StringOnly from ws\";"
+    ].join("\n")
+    await writeFile(join(path, "node_modules", adapters[2], "dist/index.d.ts"), source)
+    await buildPrivateEffectAdapters(path)
+    const esm = await readFile(join(path, "dist/vendor/node-shared/index.d.ts"), "utf8")
+    const cjs = await readFile(join(path, "dist/vendor/cjs/node-shared/index.d.ts"), "utf8")
+    assert.equal(esm, source)
+    assert.equal(
+      cjs,
+      source.replace(
+        "export * as SocketNamespace from \"ws\";",
+        "import * as SocketNamespace from \"ws\"; export { SocketNamespace };"
+      )
+    )
+  }))
 
 test("private adapter capture refuses wrong versions, undeclared external dependencies, and escaped code/types", () =>
   fixture(async (directory) => {

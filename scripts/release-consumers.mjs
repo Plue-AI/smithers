@@ -1,11 +1,12 @@
 /** Disposable npm/pnpm consumers of unchanged release manifests or candidate bytes. */
 import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { copyFile, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 import { build as bundle } from "esbuild"
 import { valid } from "semver"
@@ -401,7 +402,20 @@ export const runCliMcpConsumer = async (manager, registryUrl, cliVersion, { env 
     )
     const requireCli = createRequire(realpathSync(join(consumer, "node_modules/@smthrs/cli/package.json")))
     const compiler = requireCli.resolve("typescript/bin/tsc")
-    for (const module of ["Node16", "NodeNext"]) {
+    const nodeTypesPath = createRequire(requireCli.resolve("@types/ws/package.json")).resolve(
+      "@types/node/package.json"
+    )
+    const nodeTypesManifest = await readFile(nodeTypesPath)
+    const nodeTypes = {
+      path: nodeTypesPath,
+      version: JSON.parse(nodeTypesManifest).version,
+      manifestSha256: createHash("sha256").update(nodeTypesManifest).digest("hex"),
+      indexSha256: createHash("sha256").update(await readFile(join(dirname(nodeTypesPath), "index.d.ts"))).digest("hex")
+    }
+    // Match the Node >=26 runtime contract, including require(ESM). Select the
+    // Node ambient types from the actual published dependency graph so npm's
+    // unrelated hoisted @types packages cannot define the consumer environment.
+    for (const module of ["Node20", "NodeNext"]) {
       await successful(process.execPath, [
         compiler,
         "--noEmit",
@@ -409,14 +423,18 @@ export const runCliMcpConsumer = async (manager, registryUrl, cliVersion, { env 
         "--module",
         module,
         "--moduleResolution",
-        module,
+        "NodeNext",
+        "--types",
+        "node",
+        "--typeRoots",
+        dirname(dirname(nodeTypesPath)),
         "--target",
         "ES2022",
         "cli-consumer.mts",
         "cli-consumer.cts"
       ], consumer)
     }
-    return { manager, managerVersion, serverInfo, tree, declarations: ["ESM", "CJS", "Node16", "NodeNext"] }
+    return { manager, managerVersion, serverInfo, tree, nodeTypes, declarations: ["ESM", "CJS", "Node20", "NodeNext"] }
   } finally {
     await rm(consumer, { recursive: true, force: true })
   }
