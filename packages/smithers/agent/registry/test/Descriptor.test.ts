@@ -422,6 +422,33 @@ describe("declarationDigest", () => {
     expect(Descriptor.declarationDigest(reordered)).toBe(Descriptor.declarationDigest(base))
   })
 
+  it("binds host import disclosure into both identities", () => {
+    const native = new Descriptor.FlowDescriptor({
+      ...base,
+      body: new Descriptor.BodyRefModule({
+        path: base.body.path,
+        contentDigest: base.body.contentDigest,
+        hostImports: ["microsandbox", "node:fs"]
+      })
+    })
+    const changed = new Descriptor.FlowDescriptor({
+      ...base,
+      body: new Descriptor.BodyRefModule({
+        path: base.body.path,
+        contentDigest: base.body.contentDigest,
+        hostImports: ["node:child_process"]
+      })
+    })
+    expect(Descriptor.executionDigest(native)).not.toBe(Descriptor.executionDigest(base))
+    expect(Descriptor.executionDigest(native)).not.toBe(Descriptor.executionDigest(changed))
+    expect(Descriptor.declarationDigest(native)).not.toBe(Descriptor.declarationDigest(base))
+    const restored = Schema.decodeUnknownSync(Descriptor.FlowDescriptor)(
+      Schema.encodeSync(Descriptor.FlowDescriptor)(native)
+    )
+    expect(restored.body).toEqual(native.body)
+    expect(Descriptor.executionDigest(restored)).toBe(Descriptor.executionDigest(native))
+  })
+
   it("is defined for a descriptor with no measured source bytes", () => {
     // The difference from `executionDigest`: what was declared is knowable
     // before the bytes are measured, so an unmeasured descriptor still keys.

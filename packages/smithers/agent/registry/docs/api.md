@@ -224,6 +224,7 @@ class BodyRefModule {
   readonly path: string
   readonly contentDigest?: string
   readonly imports?: ReadonlyArray<ModuleImport>
+  readonly hostImports?: ReadonlyArray<string>
 }
 
 const BodyRef: Schema.Union<[typeof BodyRefMarkdown, typeof BodyRefModule]>
@@ -260,6 +261,13 @@ one that resolves to no file, a module it could not read, an `import()` or
 specifier, a `#` specifier with no relative `imports` target, a self-import of
 the flow's own package through `exports`, or a closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
+
+`hostImports` names builtins, relative native `.node` addons and external package
+specifiers found in that project closure. The native host projects this sorted
+inventory into `envelope.hostImports` on plan and approval cards, bound to their
+digest. These modules run with host authority outside guarded capabilities.
+External packages are listed conservatively: this is not a native dependency
+audit or JavaScript confinement.
 
 The pin covers the loads a static scan of the source can read. It is not a
 sandbox: a module that hides a load from the scan, for example behind

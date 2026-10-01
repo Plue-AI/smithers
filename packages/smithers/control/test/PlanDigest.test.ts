@@ -80,6 +80,16 @@ describe("PlanCard.digest golden vectors", () => {
     expect(second.digest).not.toBe(first.digest)
   })
 
+  it("binds unrestricted imports into the approval while preserving guarded capabilities", async () => {
+    const original = await cardFor(bare)
+    const native = await cardFor({ ...bare, envelope: { ...emptyEnvelope, hostImports: ["microsandbox", "node:fs"] } })
+    const changed = await cardFor({ ...bare, envelope: { ...emptyEnvelope, hostImports: ["node:child_process"] } })
+    expect(native.envelope.capabilities).toEqual([])
+    expect(native.approval.target.envelope.hostImports).toEqual(["microsandbox", "node:fs"])
+    expect(native.digest).not.toBe(original.digest)
+    expect(changed.digest).not.toBe(native.digest)
+  })
+
   it("persists executable identity and binds it into the approval independently of the envelope", async () => {
     const original = await cardFor({ ...bare, executionDigest: "a".repeat(64) })
     const unchanged = await cardFor({ ...bare, planId: "another-plan", executionDigest: "a".repeat(64) })

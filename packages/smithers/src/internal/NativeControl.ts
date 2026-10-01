@@ -774,6 +774,9 @@ export const make = (
       executionDigest: Descriptor.executionDigest(descriptor),
       envelope: {
         capabilities: descriptor.capabilities,
+        ...(descriptor.body._tag !== "Module" || descriptor.body.hostImports === undefined
+          ? {} :
+          { hostImports: descriptor.body.hostImports }),
         flows: descriptor.flows,
         budget: Descriptor.budgetOf(descriptor)
       },

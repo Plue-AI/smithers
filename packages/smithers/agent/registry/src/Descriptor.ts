@@ -320,7 +320,15 @@ export class BodyRefModule extends Schema.TaggedClass<BodyRefModule>("flows/regi
    * changed sibling is a changed executable identity and cannot reuse an
    * approval granted for the old one.
    */
-  imports: Schema.optional(Schema.Array(ModuleImport))
+  imports: Schema.optional(Schema.Array(ModuleImport)),
+  /**
+   * Builtins, native addon paths and external package specifiers in the static
+   * project closure.
+   * They run with host authority beyond guarded capabilities. Packages are
+   * listed conservatively; this is no native dependency audit or confinement.
+   * Included in executionDigest, absent for modules with no host imports.
+   */
+  hostImports: Schema.optional(Schema.Array(Schema.String))
 }) {}
 
 /**

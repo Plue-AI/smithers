@@ -152,6 +152,13 @@ with `body_unavailable` before evaluating the entry. Their host loader cache
 cannot guarantee the measured bytes, and deferred loads can outlive temporary
 module cleanup. Use supported static imports for those helpers. Installed
 packages without a project mapping and Node/Bun builtins retain host trust.
+Discovery records these specifiers and native `.node` addon paths as
+`BodyRefModule.hostImports`; native host
+plan and approval cards carry them as `envelope.hostImports`. They run with
+host authority beyond the guarded capability ceiling, even with
+`capabilities: []`. The inventory covers static project imports and names
+external packages conservatively; it does not audit their native dependency
+graph or confine arbitrary JavaScript.
 
 Every delegate receives the same serializable `Invocation` envelope: the flow's
 name, the caller's input, the rendered prompt, the declared seat, the lowered

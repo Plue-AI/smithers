@@ -828,21 +828,25 @@ export default Flow.make("pinned", { description:"Retained", payload, success:Sc
       expect(Descriptor.executionDigest(yield* descriptorIn(root, "pinned"))).not.toBe(identity)
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
-  it.effect("leaves a module that imports nothing beside itself exactly as it was", () =>
+  it.effect("omits an empty project closure while binding its host import disclosure", () =>
     Effect.gen(function*() {
       const descriptor = yield* descriptorNamed("standalone")
       const body = descriptor.body as Descriptor.BodyRefModule
-      // Absent, not empty. The encoded body carries no `imports` key at all, so
-      // such a descriptor hashes to the value it had before the field existed
-      // and no approval or recorded step key moves.
+      // The project closure stays absent. The host import disclosure is now
+      // part of the executable identity even without project helpers.
       expect(body.imports).toBeUndefined()
+      expect(body.hostImports).toContain("@smthrs/flow")
       const encoded = Schema.encodeSync(Descriptor.FlowDescriptor)(descriptor)
       expect(Object.keys(encoded.body)).not.toContain("imports")
       expect(Descriptor.executionDigest(descriptor)).toBe(
         Descriptor.executionDigest(
           new Descriptor.FlowDescriptor({
             ...descriptor,
-            body: new Descriptor.BodyRefModule({ path: body.path, contentDigest: body.contentDigest })
+            body: new Descriptor.BodyRefModule({
+              path: body.path,
+              contentDigest: body.contentDigest,
+              hostImports: body.hostImports
+            })
           })
         )
       )

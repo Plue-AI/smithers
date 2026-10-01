@@ -10,8 +10,10 @@
  */
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control } from "@smthrs/control"
+import { PlanCard } from "@smthrs/control/ControlSchema"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import * as Executable from "@smthrs/registry/Executable"
 import { Effect, Layer, Logger, PlatformError, Schema, Stream } from "effect"
 import { execFileSync } from "node:child_process"
@@ -19,7 +21,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import * as CoreFlow from "../flows/core/src/Flow.ts"
 import { settledKind } from "../src/internal/EngineJournalSupervisor.ts"
 import * as NodeControl from "../src/NodeControl.ts"
@@ -231,6 +233,68 @@ const planOn = async (
 }
 
 describe("planning a discovered flow on the native host", () => {
+  it("shows unrestricted action imports in the durable plan and approval card", async () => {
+    // This metadata/SQL test has no inherited processes. Restricted hosts can
+    // deny kernel uptime, which is unrelated to the approval being checked.
+    const uptime = vi.spyOn(ProcessReaper.posixSystem, "bootedAtMs").mockReturnValue(0)
+    const root = await project()
+    try {
+      await writeFile(
+        join(root, "flows", "native", "flow.ts"),
+        `import "./vm.ts";
+${source}`
+      )
+      await writeFile(join(root, "flows", "native", "vm.ts"), `import "microsandbox"; import "node:fs";`)
+      const registry = NodeControl.layerRegistry(root)
+      // This host lists the module for an external driver; planning remains
+      // metadata-only and does not require loading the native SDK.
+      const modules = Layer.succeed(Executable.Catalog, {
+        executables: [],
+        refused: [
+          new Executable.ExecutableError({
+            code: "missing_delegate",
+            flow: "native",
+            delegate: "test/Planned",
+            available: [],
+            message: "The module is driven by another host"
+          })
+        ]
+      })
+      const host = NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, undefined, modules)
+      const card = await Effect.runPromise(
+        Effect.flatMap(Control.Control, (control) => control.plan({ flowId: "native", input: { value: "planned" } }))
+          .pipe(Effect.provide(host), Effect.scoped)
+      )
+      const hostImports = ["@smthrs/core/Flow", "effect", "microsandbox", "node:fs"]
+      expect(card.envelope.capabilities).toEqual([])
+      expect(card.envelope.hostImports).toEqual(hostImports)
+      expect(card.approval.target.envelope.hostImports).toEqual(hostImports)
+      expect(JSON.parse(JSON.stringify(card)).envelope.hostImports).toEqual(hostImports)
+      const { hostImports: _hostImports, ...guarded } = card.envelope
+      await expect(Effect.runPromise(
+        Effect.flatMap(Control.Control, (control) =>
+          control.approve({
+            ...card.approval,
+            target: { ...card.approval.target, envelope: guarded }
+          })).pipe(
+            Effect.provide(host),
+            Effect.scoped
+          )
+      )).rejects.toMatchObject({ _tag: "/control/EnvelopeMismatch" })
+      const database = new DatabaseSync(NodeControl.databasePath(root), { readOnly: true })
+      try {
+        const row = database.prepare("SELECT card_json FROM control_plans WHERE plan_id = ?").get(card.planId)!
+        const stored = Schema.decodeUnknownSync(PlanCard)(JSON.parse(row.card_json as string))
+        expect(stored).toEqual(card)
+      } finally {
+        database.close()
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      uptime.mockRestore()
+    }
+  })
+
   it.each([
     [
       PlatformError.systemError({

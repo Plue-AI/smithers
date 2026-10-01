@@ -26,6 +26,7 @@ describe("ControlSchema", () => {
       inputSummary: "PR #4821",
       envelope: {
         capabilities: ["net:get", "fs:write"],
+        hostImports: ["microsandbox", "node:fs"],
         flows: ["read-pr", "propose-patch"],
         budget: { tokens: 300_000, milliseconds: 1_200_000 },
         host: "sandbox:lane-3"

@@ -92,6 +92,8 @@ export type Principal = typeof Principal.Type
  */
 export const Envelope = Schema.Struct({
   capabilities: Schema.Array(Schema.String),
+  /** Unrestricted builtin/addon/package imports, outside the guarded capability ceiling. */
+  hostImports: Schema.optional(Schema.Array(Schema.String)),
   flows: Schema.Array(Schema.String),
   budget: Schema.Struct({
     tokens: Schema.optional(Schema.Number),

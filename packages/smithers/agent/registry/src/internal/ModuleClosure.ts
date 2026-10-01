@@ -121,6 +121,7 @@ export interface StaticSpecifier {
  * relative to the entry and does not follow them, so they are unpinnable too.
  * `bare` lists every other literal specifier except `node:` and `bun:`
  * builtins; {@link collect} decides which of them name project files.
+ * `builtins` retains those host imports for the approval disclosure.
  * `statics` locates every literal specifier of a static `import` or `export`
  * — not of an `import()` or `require()` call — as the string token's source
  * range, which is what {@link snapshot} rewrites.
@@ -150,6 +151,7 @@ export const specifiersOf = (source: string): Specifiers => {
     opaque: Math.max(likely.opaque, alternate.opaque),
     absolute: union(likely.absolute, alternate.absolute),
     bare: union(likely.bare, alternate.bare),
+    builtins: union(likely.builtins, alternate.builtins),
     runtime: union(likely.runtime, alternate.runtime),
     statics: likely.statics
   }
@@ -160,6 +162,7 @@ interface Specifiers {
   readonly opaque: number
   readonly absolute: ReadonlyArray<string>
   readonly bare: ReadonlyArray<string>
+  readonly builtins: ReadonlyArray<string>
   readonly runtime: ReadonlyArray<string>
   readonly statics: ReadonlyArray<StaticSpecifier>
 }
@@ -168,6 +171,7 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
   const relative: Array<string> = []
   const absolute: Array<string> = []
   const bare: Array<string> = []
+  const builtins: Array<string> = []
   const runtime: Array<string> = []
   const statics: Array<StaticSpecifier> = []
   let opaque = 0
@@ -180,8 +184,11 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
     if (literal === undefined) return
     if (literal.startsWith("./") || literal.startsWith("../")) relative.push(literal)
     else if (isAbsoluteSpecifier(literal)) absolute.push(literal)
-    else if (literal === "module" || literal === "node:module") opaque++
-    else if (!literal.startsWith("node:") && !literal.startsWith("bun:")) bare.push(literal)
+    else if (literal === "module" || literal === "node:module") {
+      opaque++
+      builtins.push(literal)
+    } else if (literal.startsWith("node:") || literal.startsWith("bun:")) builtins.push(literal)
+    else bare.push(literal)
   }
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index]!
@@ -250,7 +257,7 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
       recordStatic(tokens[index + 1]!)
     }
   }
-  return { relative, opaque, absolute, bare, runtime, statics }
+  return { relative, opaque, absolute, bare, builtins, runtime, statics }
 }
 
 /**
@@ -543,6 +550,7 @@ export interface Cache {
     readonly opaque: number
     readonly absolute: ReadonlyArray<string>
     readonly bare: ReadonlyArray<string>
+    readonly builtins: ReadonlyArray<string>
   }>
   /** Parsed package.json, tsconfig.json and jsconfig.json files, by path. */
   readonly configs: Map<string, Record<string, unknown> | undefined>
@@ -599,7 +607,42 @@ export const collect = (
     files: closureFileLimit,
     bytes: closureByteLimit
   }
-): Effect.Effect<ReadonlyArray<ModuleImport>> => walk(fs, path, entryPath, entrySource, memo, bounds, undefined)
+): Effect.Effect<ReadonlyArray<ModuleImport>> =>
+  walk(fs, path, entryPath, entrySource, memo, bounds, undefined, new Set())
+
+/**
+ * The pinned closure and its unrestricted builtin, addon and package imports.
+ * External packages are
+ * listed conservatively: a static scan cannot prove whether they load addons.
+ *
+ * @category constructors
+ * @since 1.0.0
+ * @private
+ */
+export const analyze = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  entryPath: string,
+  entrySource: string,
+  memo: Cache = cache()
+): Effect.Effect<{ readonly imports: ReadonlyArray<ModuleImport>; readonly hostImports: ReadonlyArray<string> }> =>
+  Effect.gen(function*() {
+    const hostImports = new Set<string>()
+    const imports = yield* walk(
+      fs,
+      path,
+      entryPath,
+      entrySource,
+      memo,
+      {
+        files: closureFileLimit,
+        bytes: closureByteLimit
+      },
+      undefined,
+      hostImports
+    )
+    return { imports, hostImports: [...hostImports].sort() }
+  })
 
 /** What {@link walk} keeps of each module it reads when asked to: the bytes it measured. */
 interface Read {
@@ -619,7 +662,8 @@ const walk = (
   entrySource: string,
   memo: Cache,
   bounds: { readonly files: number; readonly bytes: number },
-  reads: Map<string, Read> | undefined
+  reads: Map<string, Read> | undefined,
+  hostImports: Set<string>
 ): Effect.Effect<ReadonlyArray<ModuleImport>> =>
   Effect.gen(function*() {
     const normalizedEntryPath = path.resolve(entryPath)
@@ -632,6 +676,9 @@ const walk = (
     let bytes = 0
     const enqueue = (from: string, directory: string, specifiers: ReadonlyArray<string>) => {
       for (const specifier of specifiers) pending.push({ from, directory, specifier })
+    }
+    const reportBuiltins = (specifiers: ReadonlyArray<string>) => {
+      for (const specifier of specifiers) hostImports.add(specifier)
     }
     const reportOpaque = (importer: string, count: number) => {
       if (count === 0) return
@@ -658,17 +705,20 @@ const walk = (
             const description = `${importer} imports ${reason}`
             found.set(description, unpinnable(description))
           }
+          let mapped = false
           for (const file of targets.files) {
             if ((yield* resolve(fs, path, directory, file, memo)) !== undefined) {
+              mapped = true
               if (from.endsWith(".mdx") && specifier === "@smthrs/registry/Prompt/jsx-runtime") {
                 const description = `${importer} maps the MDX text runtime to project files`
                 found.set(description, unpinnable(description))
               } else pending.push({ from, directory, specifier: file })
             }
           }
+          if (!mapped) hostImports.add(specifier)
         }
       })
-    const { absolute, bare, opaque, relative } = specifiersOf(entrySource)
+    const { absolute, bare, builtins, opaque, relative } = specifiersOf(entrySource)
     if (opaque > 0) {
       found.set(
         normalizedEntryPath,
@@ -676,6 +726,7 @@ const walk = (
       )
     }
     reportAbsolute("the entry", absolute)
+    reportBuiltins(builtins)
     enqueue(normalizedEntryPath, entryDirectory, relative)
     yield* followBare("the entry", normalizedEntryPath, bare)
 
@@ -688,6 +739,7 @@ const walk = (
         found.set(description, unpinnable(description))
         continue
       }
+      if (resolved.endsWith(".node")) hostImports.add(relativePath(path, entryDirectory, resolved))
       // A cycle is ordinary: `visited` is what ends the walk, and a module
       // already recorded keeps the one record it has.
       if (visited.has(resolved)) continue
@@ -709,6 +761,7 @@ const walk = (
         found.set(recorded, { path: recorded, contentDigest: cached.contentDigest })
         reportOpaque(`"${recorded}"`, cached.opaque)
         reportAbsolute(`"${recorded}"`, cached.absolute)
+        reportBuiltins(cached.builtins)
         enqueue(resolved, path.dirname(resolved), cached.specifiers)
         yield* followBare(`"${recorded}"`, resolved, cached.bare)
         continue
@@ -740,13 +793,15 @@ const walk = (
       const specifiers = specifiersOf(source)
       reportOpaque(`"${recorded}"`, specifiers.opaque)
       reportAbsolute(`"${recorded}"`, specifiers.absolute)
+      reportBuiltins(specifiers.builtins)
       memo.files.set(resolved, {
         contentDigest,
         size: read.success.length,
         specifiers: specifiers.relative,
         opaque: specifiers.opaque,
         absolute: specifiers.absolute,
-        bare: specifiers.bare
+        bare: specifiers.bare,
+        builtins: specifiers.builtins
       })
       found.set(recorded, { path: recorded, contentDigest })
       enqueue(resolved, path.dirname(resolved), specifiers.relative)
@@ -808,7 +863,8 @@ export const snapshot = (
       entrySource,
       memo,
       { files: closureFileLimit, bytes: closureByteLimit },
-      reads
+      reads,
+      new Set()
     )
     const modules = new Map<string, Module>()
     const unsupported = new Set<string>()

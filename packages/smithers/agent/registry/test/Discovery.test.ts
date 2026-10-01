@@ -1,6 +1,6 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
-import { Effect, FileSystem, Layer, Option, Path, PlatformError } from "effect"
+import { Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -50,6 +50,38 @@ const withTemporaryRoot = async <A>(run: (root: string) => Promise<A>): Promise<
 }
 
 describe("Discovery", () => {
+  it("discloses unrestricted imports from action helpers without evaluating them", async () => {
+    await withTemporaryRoot(async (root) => {
+      const directory = join(root, "native")
+      mkdirSync(directory)
+      writeFileSync(
+        join(directory, "flow.ts"),
+        `import { Flow } from "@smthrs/flow";
+import "./vm.ts";
+export default Flow.make("native", { description: "Native action", capabilities: [] });`
+      )
+      writeFileSync(
+        join(directory, "vm.ts"),
+        `import { NodeVm } from "microsandbox";
+import "node:fs";
+export * from "node:child_process";
+const sdk = () => import("microsandbox");
+const fs = require("node:fs");
+throw new Error("discovery must never execute this action helper");`
+      )
+      const result = await scan({ source: "project", root, naming: "path" })
+      expect(result.entries).toHaveLength(1)
+      expect(result.entries[0]!.capabilities).toEqual([])
+      expect(result.entries[0]!.body).toMatchObject({
+        hostImports: ["@smthrs/flow", "microsandbox", "node:child_process", "node:fs"]
+      })
+      expect(Schema.decodeUnknownSync(SourceScan)(Schema.encodeSync(SourceScan)(result)).entries[0]!.body)
+        .toMatchObject({
+          hostImports: ["@smthrs/flow", "microsandbox", "node:child_process", "node:fs"]
+        })
+    })
+  })
+
   it("publishes proven payload metadata from real files without evaluating their modules", async () => {
     await withTemporaryRoot(async (root) => {
       const marker = join(root, "evaluated.txt")

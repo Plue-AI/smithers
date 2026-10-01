@@ -55,6 +55,34 @@ const walk = (
     )
   })
 
+describe("unrestricted host imports", () => {
+  it.effect("retains imports through the warm closure cache and excludes mapped project modules", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "tsconfig.json": JSON.stringify({ compilerOptions: { paths: { vm: ["./vm.ts"] } } }),
+        "flow.ts": `import "vm"; import "node:fs"; import "bun:sqlite";`,
+        "addon.node": "native addon fixture",
+        "vm.ts": `import "./addon.node"; import "microsandbox"; export * from "node:child_process";
+const fs = require("node:fs"); const sdk = () => import("microsandbox");`
+      })
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const entryPath = `${root}/flow.ts`
+      const source = yield* fs.readFileString(entryPath)
+      const cold = yield* ModuleClosure.analyze(fs, path, entryPath, source)
+      const memo = ModuleClosure.cache()
+      const first = yield* ModuleClosure.analyze(fs, path, entryPath, source, memo)
+      const second = yield* ModuleClosure.analyze(fs, path, entryPath, source, memo)
+      expect(first.hostImports).toEqual(["addon.node", "bun:sqlite", "microsandbox", "node:child_process", "node:fs"])
+      expect(first).toEqual(cold)
+      expect(second).toEqual(first)
+      expect(first.imports).toEqual([
+        { path: "addon.node", contentDigest: Digest.digest(yield* fs.readFile(`${root}/addon.node`)) },
+        { path: "vm.ts", contentDigest: Digest.digest(yield* fs.readFile(`${root}/vm.ts`)) }
+      ])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+})
+
 describe("the specifiers a module states", () => {
   it("reads every shape that names a module, and nothing that does not", () => {
     const found = ModuleClosure.specifiersOf(

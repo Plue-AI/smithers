@@ -330,7 +330,8 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
           selected: (typeof entryPrecedence)[number],
           contents: Extract<EntryMetadata, { readonly _tag: "Metadata" }>,
           segments: ReadonlyArray<string>,
-          imports: ReadonlyArray<ModuleImport>
+          imports: ReadonlyArray<ModuleImport>,
+          hostImports: ReadonlyArray<string>
         ): {
           readonly descriptor: Option.Option<FlowDescriptor>
           readonly warnings: ReadonlyArray<DiscoveryWarning>
@@ -404,7 +405,8 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
                   // Absent, not empty, when the entry loads nothing beside
                   // itself: such a module keeps the identity it had before a
                   // closure was recorded at all.
-                  ...(imports.length === 0 ? {} : { imports })
+                  ...(imports.length === 0 ? {} : { imports }),
+                  ...(hostImports.length === 0 ? {} : { hostImports })
                 }),
                 input: metadata.hasInput
                   ? new SchemaRefModule({
@@ -566,16 +568,17 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
                     warning("entry_too_large", location, oversizedEntry(location, contents.success.size))
                   )
                 } else {
-                  const imports = contents.success.source === undefined
-                    ? []
-                    : yield* ModuleClosure.collect(fs, path, location, contents.success.source, closures)
+                  const { imports, hostImports } = contents.success.source === undefined
+                    ? { imports: [], hostImports: [] }
+                    : yield* ModuleClosure.analyze(fs, path, location, contents.success.source, closures)
                   const projected = projectEntry(
                     directory,
                     location,
                     selected,
                     contents.success,
                     segments,
-                    imports
+                    imports,
+                    hostImports
                   )
                   warnings.push(...projected.warnings)
                   Option.match(projected.descriptor, {
