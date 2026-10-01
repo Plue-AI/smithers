@@ -671,6 +671,21 @@ test("a panel prompt releases focus and sends literal text instead of running sh
   expect(calls).toEqual(["release", ["send", "!echo literal"]])
 })
 
+test("a panel prompt spelling a factory command remains literal text", () => {
+  const calls: unknown[] = []
+  const literal: Panel = {
+    ...panel,
+    rows: [{ id: "literal", label: "Literal", details: [], action: { label: "Send", prompt: "/retry #3065" } }]
+  }
+  Dispatch.panelKey(key("a"), literal, {
+    surface: "ui:checks",
+    navigation: Panels.initial(),
+    worker: undefined,
+    flow: { retry: false, continue: false, stop: false }
+  }, panelActs(calls))
+  expect(calls).toEqual(["release", ["send", "/retry #3065"]])
+})
+
 const composerActs = (calls: unknown[]): Parameters<typeof Dispatch.composerKey>[2] => ({
   stopSteering: () => calls.push("steering"),
   setText: (text) => calls.push(["text", text]),

@@ -35,7 +35,12 @@ export const Action = Schema.Union([
     prompt: Schema.optional(Schema.String.check(Schema.isMaxLength(32_000)))
   }),
   /** Switches to a surface: `chat`, `summary`, `smithers`, `tab:<id>`, `flow:<id>` or `ui:<id>`. */
-  Schema.Struct({ kind: Schema.Literal("open"), surface: short })
+  Schema.Struct({ kind: Schema.Literal("open"), surface: short }),
+  /** Retries the named factory issue through the signed-in repository's ordinary retry route. */
+  Schema.Struct({
+    kind: Schema.Literal("factory-retry"),
+    issue: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))
+  })
 ])
 export type Action = typeof Action.Type
 export const Row = Schema.Struct({

@@ -305,6 +305,9 @@ export const rows = (stack: MythicalStack, now: number): ReadonlyArray<Panels.Ro
           progress === undefined ? "" : ` · ${progress}`
         }`.slice(0, 160),
         ...(status === undefined ? {} : { status }),
+        ...(item.issue !== undefined && retryable(item)
+          ? { action: { label: "Retry", action: { kind: "factory-retry" as const, issue: item.issue.number } } }
+          : {}),
         details: detail(stack, item)
       }
     }),

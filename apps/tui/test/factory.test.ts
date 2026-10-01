@@ -456,6 +456,25 @@ it("names the retry command only on an issue a person may retry", () => {
   for (const state of ["queued", "running", "landed", "proposed"]) expect(retried(state) ?? "").not.toContain("/retry")
 })
 
+it("offers an explicit Retry action only for retryable issue rows, without executing it on publication", () => {
+  const row = (state: string, extra: Record<string, unknown> = {}) =>
+    Factory.rows({ ...stack, items: [item("2500", state, extra)] } as unknown as MythicalStack, now)
+      .find((row) => row.label.includes("#2500"))
+  const retry = { label: "Retry", action: { kind: "factory-retry", issue: 2500 } } as const
+  for (const state of ["blocked", "rejected", "declined"]) expect(row(state)?.action).toEqual(retry)
+  expect(row("proposed", { reviewHeld: true })?.action).toEqual(retry)
+  for (const state of ["queued", "running", "retrying", "landed", "proposed"]) {
+    expect(row(state)?.action).toBeUndefined()
+  }
+  const withoutIssue = Factory.rows({
+    ...stack,
+    items: [{ ...item("2500", "blocked"), issue: undefined }]
+  } as unknown as MythicalStack, now)
+  expect(withoutIssue.every((row) => row.action === undefined)).toBe(true)
+  expect(Factory.rows(stack, now).filter((row) => row.id.startsWith("group:")).every((row) => row.action === undefined))
+    .toBe(true)
+})
+
 it("lands a proposed TODO at the head the stack served, and never posts for one that is not landable", async () => {
   const head = "f".repeat(40)
   const pullRequest = { number: 50, url: "https://github.com/o/r/pull/50", state: "open", head }

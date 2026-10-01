@@ -1,0 +1,139 @@
+{
+  "issue": 3065,
+  "status": "READY/FROZEN",
+  "session": "codex-burndown-20260930",
+  "head": "3e0d3cee06ff827acbd85c961cf222833a839551",
+  "ownedChanges": [
+    {
+      "path": "apps/tui/README.md",
+      "sha256": "088ff6a71f349a48ac3357e4f5f05bec5a5acc0350259ed795c21c2f211f8283"
+    },
+    {
+      "path": "apps/tui/e2e/factory-retry.test.ts",
+      "sha256": "8b3696cf6e45cbf006b3384c8a40c13d15fcefb92eb510e7070513220d1cf720"
+    },
+    {
+      "path": "apps/tui/src/app.tsx",
+      "sha256": "b85a3180cf0ab408147d323a8b2ce6f83f46cba29f95ff5eeb06ba239319af31"
+    },
+    {
+      "path": "apps/tui/src/factory.ts",
+      "sha256": "142130e8a73535e4e0ce976e2cd3e1101ebdef98bd1683d870cd551e9cefc25f"
+    },
+    {
+      "path": "apps/tui/src/panels.ts",
+      "sha256": "540e6740272c1e1f3a688a3ec0613f6587e3eefa24f5c61650e1e5f66d33ac23"
+    },
+    {
+      "path": "apps/tui/test/extension.test.ts",
+      "sha256": "dd4279aea5476607742c1ce1a828c4ade51414b9899d4f98bcfb40678a4ad4e2"
+    },
+    {
+      "path": "apps/tui/test/factory.test.ts",
+      "sha256": "dc0939fef9357ab82201c2806198aa11011a74e7c97ea8bcff14a3611cb0341f"
+    },
+    {
+      "path": "apps/tui/test/key-dispatch.test.ts",
+      "sha256": "39c4c15df2840ed262fe60dcf79b66cdbb6270b15172229aa7e09559f35ccb69"
+    }
+  ],
+  "implementation": [
+    "Retryable factory issue rows offer a Retry action. Positive safe integer issue identity is carried as explicit factory-retry private action, not a prompt or arbitrary command string.",
+    "App.perform invokes existing /retry command path; actual current stack lookup, retryable check, signed-in repository scope, POST item route and refusal behavior retained.",
+    "Request is persisted before authentication/lookup; existing duplicate suppression and conversation-owner result storage preserved. Ordinary prompt actions remain literal model text."
+  ],
+  "originalRed": {
+    "sourceHead": "92a94c7b36f5eed4b426aff043c57cfd7ffd0284",
+    "command": "bun test ./test/factory.test.ts ./test/extension.test.ts",
+    "exit": 1,
+    "testPass": 30,
+    "testFail": 2,
+    "reason": "existing factory row has no action and Action schema rejects new factory-retry variant"
+  },
+  "qualification": {
+    "owningUnit": {
+      "command": "bun test ./test/factory.test.ts ./test/smithers.test.ts ./test/extension.test.ts ./test/key-dispatch.test.ts",
+      "exit": 0,
+      "pass": 249,
+      "fail": 0,
+      "expectCalls": 685
+    },
+    "actualTerminal": {
+      "command": "PATH=<Node26> TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=<existingabsolutehelper> SMITHERS_TUI_FACTORY_RETRY_RECEIPT=<externalreceipt> bun test ./e2e/factory-retry.test.ts",
+      "exit": 0,
+      "pass": 2,
+      "fail": 0,
+      "seconds": 10.36,
+      "expectCalls": 27,
+      "httpPosts": 3,
+      "boundary": "actual production src/main.tsx in isolated tmux PTY with real localHTTP CloudSession transport; controlled API state and scripted model replay"
+    },
+    "completeTypes": {
+      "command": "tsc -p apps/tui/tsconfig.json --noEmit",
+      "exit": 0,
+      "includes": [
+        "src",
+        "test",
+        "e2e"
+      ]
+    },
+    "owningLint": {
+      "command": "eslint src/panels.ts src/factory.ts src/app.tsx --max-warnings=0",
+      "exit": 0
+    },
+    "owningFormat": {
+      "command": "dprint check src/panels.ts src/factory.ts src/app.tsx test/factory.test.ts test/extension.test.ts test/key-dispatch.test.ts e2e/factory-retry.test.ts README.md",
+      "exit": 0
+    },
+    "finalSourceInputCount": 463,
+    "beforeAfterSourceIdentical": true
+  },
+  "acceptance": [
+    "Retry actions present for blocked/rejected/declined/reviewHeld proposed issues; absent on queued/running/retrying/landed/ordinaryproposed/noissue/group rows.",
+    "Actual row selection and action key persist requested before unresolved lookup, then POST; publication/display alone sends no POST or model call.",
+    "Actual duplicate row action and repeated command send only one lookup/POST while pending; Chat replies during unresolved lookup and POST.",
+    "Actual authenticated exact encoded item retry receives returned state and factory readback. Invalid/nonretryable/unknown issues never POST.",
+    "Actual403 permission refusal remains visible; full typed HTTP diagnostic retained in log, sensitive route/status not added to visible product copy; retry after refusal works.",
+    "Late response writes only original conversation journal after /new; resumed original conversation restores requested and actual result.",
+    "Explicit action schema rejects zero/negative/fractional/unsafe/non-number identities; ordinary slash-shaped panel prompt still sends literal model text."
+  ],
+  "apiDisposition": {
+    "privatePackage": {
+      "name": "smithers-tui",
+      "private": true,
+      "exports": null,
+      "declarationBuild": false
+    },
+    "cliCompiler": {
+      "config": "packages/smithers/tsconfig.json",
+      "sourceFiles": 2761,
+      "appTuiSourceFiles": []
+    },
+    "cliPublicExportsReferencingTui": [],
+    "semanticDisposition": "Panels.Action union is an internal private TUI serializable contract. Existing variants retain their fields and literal prompt behavior. Added factory-retry is selected by the person and uses current signed-in repository retry route. CLI declaration compiler graph contains no apps/tui source; no owning public declaration changes or API baseline regeneration required. CLI shipped TUI bundle behavior changes, but no fresh bundle/pack/release qualification claimed."
+  },
+  "limits": [
+    "Focused unit and actual terminal integration independently meaningful; no whole-TUI suite/100%coverage, compiled installed binary, fresh npm pack or release claim. Configured coverage policies unchanged.",
+    "API responses and model recording controlled locally to avoid outbound Cloud/provider actions; terminal, native local host, real HTTP, signed-in CloudSession transport and persisted session storage execute. Synthetic token only.",
+    "Existing API/refusal status semantics untouched; foreign issue3247 excluded.",
+    "First candidate types exposed boolean return and widened test literal; both corrected with final full TUI type gate green; failed receipt retained."
+  ],
+  "receipts": {
+    "3065-live-issue.json": "ee12116a53f4de9e09cc8f2e01295c4dd954419af8caa4f24d3b371e3803039d",
+    "3065-readonly-plan.json": "0a1862cadf34fe002b93e90dffe89e915b0a908c3bc28dad3cdac7baefb0f11c",
+    "3065-unchanged-unit.log": "d99155e0f3c2c70f4dafa8ab20caf1e24872eeada2050c4a7227bad42ffddb6b",
+    "3065-row-action-red.log": "6db9a1918c9c32d2e2b4db915a205466cfe0f23dec7b2dafd15aa8f367c95857",
+    "3065-final-owning-unit.log": "f371bd58e0449175de69b0fb41549f8e913682db75b5875e6e64ccf55903f75c",
+    "3065-frozen-actual-terminal.log": "5b3cdc13dd5a27fed05c070c6315f1e338f3667c472a942f6032af894fae495d",
+    "3065-frozen-actual-terminal-receipt.json": "d0c1ce3caf44cd0fb834d9270a02deaf7bd5f2762e37042a07a3469d11a8a426",
+    "3065-frozen-complete-tui-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3065-final-owning-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3065-frozen-owning-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3065-frozen-inputs-before.json": "80d84b7e83208e37b17b932eabaa264f0cab441c32647ec4ba5aef5be9cc5c03",
+    "3065-frozen-input-audit.json": "538f414554c7fe411108351c2279bc4b8172aae89bd23370943f4802654c9b3b",
+    "3065-public-declaration-scope.json": "1f852d066e47fe13cf6192fa4f5d9aef088c6190418f8965ebf3efff948879dd",
+    "3065-owned-change.diff": "1b89767e85d1d733bc8f465e103c011f38f6c16a32bd9d9ea0b28d5c039c012d",
+    "3065-helper-provenance.json": "a45b85547bb8354e7a2f2a83270060425445fa4e8de6ce811b977a357be964aa",
+    "3065-complete-tui-types.log": "026e82ec5f028331a44e8ca4042cf39490c4180c984b71d6bf7912229ad37671"
+  }
+}

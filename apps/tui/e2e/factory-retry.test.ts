@@ -36,7 +36,7 @@ const notes = (
   return records
 }
 
-it("acknowledges before unresolved lookup/POST, keeps Chat usable, and reads the exact retried item back", async () => {
+it("the Retry row action stays responsive through real Cloud responses", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-factory-retry-"))
   const sessions = join(root, "sessions")
   const replay = join(root, "pong.jsonl")
@@ -63,9 +63,13 @@ it("acknowledges before unresolved lookup/POST, keeps Chat usable, and reads the
         body: request.method === "POST" ? await request.json() : null
       })
       if (request.method === "GET") {
-        // Persistence precedes even the first authenticated lookup.
-        expect(notes(sessions)).toContainEqual(expect.objectContaining({ type: "note", text: "Retry #2431 requested" }))
-        if (holdLookup) {
+        // The first read displays the row; acting on it persists before the retry lookup.
+        if (seen.length > 1) {
+          expect(notes(sessions)).toContainEqual(
+            expect.objectContaining({ type: "note", text: "Retry #2431 requested" })
+          )
+        }
+        if (holdLookup && seen.length > 1) {
           await new Promise<void>((resolve) => {
             releaseLookup = resolve
           })
@@ -115,13 +119,30 @@ it("acknowledges before unresolved lookup/POST, keeps Chat usable, and reads the
       }
     })
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 25_000, "production first draw")
-    await send("/retry #2431")
+    await send("/smithers")
+    await tui.until((screen) => screen.includes("#2431 Issue 2431 · blocked"), 10_000, "retryable factory row")
+    await tui.press(key.down + key.down)
+    await tui.until((screen) => screen.includes("a Retry"), 5_000, "selected row Retry action")
+    expect(seen).toHaveLength(1)
+    expect(notes(sessions).some((record) => record.type === "note" && record.text === "Retry #2431 requested"))
+      .toBe(false)
+    await tui.press("a")
     await tui.until(
       (screen) => screen.includes("Retry #2431 requested") && releaseLookup !== undefined,
       10_000,
       "lookup pending acknowledgement"
     )
-    expect(seen).toHaveLength(1)
+    expect(seen).toHaveLength(2)
+    await tui.press("a")
+    await tui.until(
+      () => notes(sessions).filter((record) => record.text === "Retry #2431 requested").length === 1,
+      5_000,
+      "duplicate row action"
+    )
+    expect(seen).toHaveLength(2)
+    expect(notes(sessions).some((record) => record.type === "user" || record.type === "outcome")).toBe(false)
+    await tui.press(key.escape)
+    await tui.until((screen) => !screen.includes("esc Chat"), 5_000, "chat focus while retry lookup waits")
     await send("Chat while lookup waits")
     await tui.until(
       (screen) => screen.includes("pong") && !screen.includes("esc Interrupt"),
@@ -131,11 +152,11 @@ it("acknowledges before unresolved lookup/POST, keeps Chat usable, and reads the
     await send("/retry #2431")
     await send("/conversation") // A local barrier; the repeated request must not start a second lookup.
     await tui.until((screen) => screen.includes("exchanges"), 5_000, "duplicate input processed")
-    expect(seen).toHaveLength(1)
+    expect(seen).toHaveLength(2)
     holdLookup = false
     releaseLookup!()
     await tui.until(() => releasePost !== undefined, 10_000, "POST pending")
-    expect(seen[1]).toEqual({
+    expect(seen[2]).toEqual({
       method: "POST",
       path: "/api/repos/o/r/mythical/items/slot%3A2431/retry",
       auth: "token tok_factory_retry_fixture",
@@ -148,7 +169,8 @@ it("acknowledges before unresolved lookup/POST, keeps Chat usable, and reads the
     await tui.until(
       (screen) =>
         screen.includes("Chat while retry waits") && !screen.includes("esc Interrupt") &&
-        notes(sessions).filter((record) => record.type === "outcome" && record.outcome?.answer === "pong").length === 2,
+        notes(sessions).filter((record) => record.type === "outcome" && record.outcome?.answer === "pong").length ===
+          2,
       15_000,
       "usable Chat during POST"
     )

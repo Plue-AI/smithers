@@ -1831,6 +1831,9 @@ export function App(props: AppProps) {
         return startRun(action.flow, action.input ?? {})
       case "agent":
         return startAgent(action.agent, action.prompt?.trim() ?? "")
+      case "factory-retry":
+        command(`/retry #${action.issue}`)
+        return
       case "open": {
         const target = action.surface === "smithers" ? `ui:${Smithers.id}` : action.surface
         const card = target.startsWith("ui:") && cardIds.has(target.slice(3))

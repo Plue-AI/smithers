@@ -1,0 +1,88 @@
+{
+  "issue": 3065,
+  "status": "Qualified and root reviewed; landing pending incorporation of concurrentmain",
+  "ownedSource": {
+    "apps/tui/README.md": "088ff6a71f349a48ac3357e4f5f05bec5a5acc0350259ed795c21c2f211f8283",
+    "apps/tui/e2e/factory-retry.test.ts": "8b3696cf6e45cbf006b3384c8a40c13d15fcefb92eb510e7070513220d1cf720",
+    "apps/tui/src/app.tsx": "b85a3180cf0ab408147d323a8b2ce6f83f46cba29f95ff5eeb06ba239319af31",
+    "apps/tui/src/factory.ts": "142130e8a73535e4e0ce976e2cd3e1101ebdef98bd1683d870cd551e9cefc25f",
+    "apps/tui/src/panels.ts": "540e6740272c1e1f3a688a3ec0613f6587e3eefa24f5c61650e1e5f66d33ac23",
+    "apps/tui/test/extension.test.ts": "dd4279aea5476607742c1ce1a828c4ade51414b9899d4f98bcfb40678a4ad4e2",
+    "apps/tui/test/factory.test.ts": "dc0939fef9357ab82201c2806198aa11011a74e7c97ea8bcff14a3611cb0341f",
+    "apps/tui/test/key-dispatch.test.ts": "39c4c15df2840ed262fe60dcf79b66cdbb6270b15172229aa7e09559f35ccb69"
+  },
+  "qualification": {
+    "owningUnit": {
+      "command": "bun test ./test/factory.test.ts ./test/smithers.test.ts ./test/extension.test.ts ./test/key-dispatch.test.ts",
+      "exit": 0,
+      "pass": 249,
+      "fail": 0,
+      "expectCalls": 685
+    },
+    "actualTerminal": {
+      "command": "PATH=<Node26> TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=<existingabsolutehelper> SMITHERS_TUI_FACTORY_RETRY_RECEIPT=<externalreceipt> bun test ./e2e/factory-retry.test.ts",
+      "exit": 0,
+      "pass": 2,
+      "fail": 0,
+      "seconds": 10.36,
+      "expectCalls": 27,
+      "httpPosts": 3,
+      "boundary": "actual production src/main.tsx in isolated tmux PTY with real localHTTP CloudSession transport; controlled API state and scripted model replay"
+    },
+    "completeTypes": {
+      "command": "tsc -p apps/tui/tsconfig.json --noEmit",
+      "exit": 0,
+      "includes": [
+        "src",
+        "test",
+        "e2e"
+      ]
+    },
+    "owningLint": {
+      "command": "eslint src/panels.ts src/factory.ts src/app.tsx --max-warnings=0",
+      "exit": 0
+    },
+    "owningFormat": {
+      "command": "dprint check src/panels.ts src/factory.ts src/app.tsx test/factory.test.ts test/extension.test.ts test/key-dispatch.test.ts e2e/factory-retry.test.ts README.md",
+      "exit": 0
+    },
+    "finalSourceInputCount": 463,
+    "beforeAfterSourceIdentical": true
+  },
+  "acceptance": [
+    "Retry actions present for blocked/rejected/declined/reviewHeld proposed issues; absent on queued/running/retrying/landed/ordinaryproposed/noissue/group rows.",
+    "Actual row selection and action key persist requested before unresolved lookup, then POST; publication/display alone sends no POST or model call.",
+    "Actual duplicate row action and repeated command send only one lookup/POST while pending; Chat replies during unresolved lookup and POST.",
+    "Actual authenticated exact encoded item retry receives returned state and factory readback. Invalid/nonretryable/unknown issues never POST.",
+    "Actual403 permission refusal remains visible; full typed HTTP diagnostic retained in log, sensitive route/status not added to visible product copy; retry after refusal works.",
+    "Late response writes only original conversation journal after /new; resumed original conversation restores requested and actual result.",
+    "Explicit action schema rejects zero/negative/fractional/unsafe/non-number identities; ordinary slash-shaped panel prompt still sends literal model text."
+  ],
+  "limits": [
+    "Focused unit and actual terminal integration independently meaningful; no whole-TUI suite/100%coverage, compiled installed binary, fresh npm pack or release claim. Configured coverage policies unchanged.",
+    "API responses and model recording controlled locally to avoid outbound Cloud/provider actions; terminal, native local host, real HTTP, signed-in CloudSession transport and persisted session storage execute. Synthetic token only.",
+    "Existing API/refusal status semantics untouched; foreign issue3247 excluded.",
+    "First candidate types exposed boolean return and widened test literal; both corrected with final full TUI type gate green; failed receipt retained."
+  ],
+  "readinessSha256": "7990c6c588cd767325608f082db82505a6c7966501347d8dab84d871165ac5e3",
+  "archive": {
+    "file": "3065-proof.tar.gz",
+    "sha256": "5f16cec792e783e0c4569f92ff28d906b0b46d2d108d6e6b2f989646c99464ac"
+  },
+  "rootReview": "Selectable row action uses explicit validated private factory-retry variant and existing command path. Prompt actions remain literal model text. Retry publication does not execute; actual terminal selection/HTTP/durable pending/duplicate/refusal/late-owner/reload controls pass. PrivateTUI lacks public exports/declarationbuild; actualCLI program imports zeroTUI source files. No shared status contract3247 changes.",
+  "apiDisposition": {
+    "privatePackage": {
+      "name": "smithers-tui",
+      "private": true,
+      "exports": null,
+      "declarationBuild": false
+    },
+    "cliCompiler": {
+      "config": "packages/smithers/tsconfig.json",
+      "sourceFiles": 2761,
+      "appTuiSourceFiles": []
+    },
+    "cliPublicExportsReferencingTui": [],
+    "semanticDisposition": "Panels.Action union is an internal private TUI serializable contract. Existing variants retain their fields and literal prompt behavior. Added factory-retry is selected by the person and uses current signed-in repository retry route. CLI declaration compiler graph contains no apps/tui source; no owning public declaration changes or API baseline regeneration required. CLI shipped TUI bundle behavior changes, but no fresh bundle/pack/release qualification claimed."
+  }
+}
