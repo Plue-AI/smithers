@@ -10,6 +10,7 @@
 import { Duration, Effect, Option, Result, Schema } from "effect"
 import { existsSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
+import { matchesGlob } from "node:path"
 import { type Exited, type HostFailed, output, repository, run, tail, workspaces } from "./host.ts"
 
 export class LandFailed extends Schema.TaggedError<LandFailed>()("issue-sweep/LandFailed", {
@@ -40,13 +41,46 @@ export const packagesOf = (files: ReadonlyArray<string>, packages: ReadonlyArray
   return [...owners].sort()
 }
 
+/** One declared input as `smthrs index --format json` lists it; `git-diff` inputs carry no path. */
+export interface IndexedInput {
+  readonly kind: string
+  readonly path?: string | undefined
+  readonly pattern?: string | undefined
+  readonly exclude?: ReadonlyArray<string> | undefined
+}
+
 /** One target as `smthrs index --format json` lists it. */
 export interface IndexedTarget {
   readonly label: string
   readonly kinds: ReadonlyArray<string>
+  /** The exclusive tier (browser and end-to-end suites) that wildcard `test` and `ci` omit. */
+  readonly exclusive?: boolean | undefined
+  readonly inputs?: ReadonlyArray<IndexedInput> | undefined
 }
 
-/** The test targets of the packages `files` touch, in label order. */
+const isE2ePath = (path: string): boolean => path.split("/").includes("e2e")
+
+/**
+ * Whether `file` is one of `target`'s e2e inputs: it matches a declared input
+ * whose path or pattern runs through an `e2e` directory (`apps/app/e2e/**`).
+ */
+const touchesE2eInput = (target: IndexedTarget, file: string): boolean =>
+  (target.inputs ?? []).some((input) => {
+    if (input.pattern !== undefined) {
+      return isE2ePath(input.pattern) && matchesGlob(file, input.pattern) &&
+        !(input.exclude ?? []).some((exclude) => matchesGlob(file, exclude))
+    }
+    return input.path !== undefined && isE2ePath(input.path) && file === input.path
+  })
+
+/**
+ * The test targets of the packages `files` touch, in label order.
+ *
+ * An exclusive target (a browser or end-to-end tier, about 22 minutes for
+ * `//apps/app:browserE2e`) runs only when a changed file is one of its e2e
+ * inputs; CI runs every exclusive tier by label on `main`. Ordinary test
+ * targets of a touched package always run.
+ */
 export const testTargets = (
   files: ReadonlyArray<string>,
   index: ReadonlyArray<IndexedTarget>
@@ -55,6 +89,7 @@ export const testTargets = (
   const touched = new Set(packagesOf(files, packages))
   return index
     .filter((target) => target.kinds.includes("test") && touched.has(packageOf(target.label)))
+    .filter((target) => target.exclusive !== true || files.some((file) => touchesE2eInput(target, file)))
     .map((target) => target.label)
     .sort()
 }
@@ -189,7 +224,17 @@ export const install = (workspace: string) =>
 export const installHooks = [".pnpmfile.cjs", ".npmrc", "pnpm-workspace.yaml"]
 
 const IndexJson = Schema.fromJsonString(Schema.Struct({
-  targets: Schema.Array(Schema.Struct({ label: Schema.String, kinds: Schema.Array(Schema.String) }))
+  targets: Schema.Array(Schema.Struct({
+    label: Schema.String,
+    kinds: Schema.Array(Schema.String),
+    exclusive: Schema.optional(Schema.Boolean),
+    inputs: Schema.Array(Schema.Struct({
+      kind: Schema.String,
+      path: Schema.optional(Schema.String),
+      pattern: Schema.optional(Schema.String),
+      exclude: Schema.optional(Schema.Array(Schema.String))
+    }))
+  }))
 }))
 
 // The longest one landing's checks may take before the change fails to land.

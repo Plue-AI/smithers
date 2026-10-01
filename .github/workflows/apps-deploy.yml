@@ -90,6 +90,8 @@ jobs:
         run: pnpm exec smthrs test '//apps/app:browserE2e' --verbose
       - name: TUI typecheck and tests
         run: pnpm exec smthrs ci '//apps/tui/...' --verbose
+      - name: TUI end-to-end suite
+        run: pnpm exec smthrs test '//apps/tui:e2eTests' --verbose
       - name: Server typecheck and tests
         run: pnpm exec smthrs ci '//apps/server/...' --verbose
       - name: Site build and tests

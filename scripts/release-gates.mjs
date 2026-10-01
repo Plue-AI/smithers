@@ -98,6 +98,8 @@ export const releaseGates = [
   { name: "UI unit tests", verb: "test", target: "//apps/app:unitTests" },
   { name: "UI conformance lint", verb: "test", target: "//apps/app:conformance" },
   { name: "TUI typecheck, lint and tests", verb: "ci", target: "//apps/tui/..." },
+  // Exclusive, so the wildcard above omits it; the explicit label opts in.
+  { name: "TUI end-to-end suite", verb: "test", target: "//apps/tui:e2eTests" },
   { name: "Server typecheck and tests", verb: "ci", target: "//apps/server/..." },
   { name: "Review app and workers", verb: "ci", target: "//apps/review/..." },
   { name: "Bug worker", verb: "ci", target: "//apps/bug-worker/..." },

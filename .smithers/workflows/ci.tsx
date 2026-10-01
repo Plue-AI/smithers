@@ -37,7 +37,7 @@ export default () => (
     <Parallel>
       <Task id="drift" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group fmt target-index openapi-bundle openapi-clients docs-drift api-baseline conflict-markers drift-ci`}</Task>
       <Task id="packages" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group workspace packages faults`}</Task>
-      <Task id="rust" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group rust-lint wasm-build-script third-party-notices rust-test native-ffi tui backend-go scripts`}</Task>
+      <Task id="rust" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group rust-lint wasm-build-script third-party-notices rust-test native-ffi tui tui-e2e backend-go scripts`}</Task>
       <Task id="ui" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group ui-check ui-tests ui-conformance examples factory-harness ui-browser`}</Task>
       <Task id="apps" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group flows flows-egress flows-repository flows-fixtures bug-worker review-app docs site server`}</Task>
       <Task id="evals" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group agent-check authoring-check swebench-check review-check recommend-check agent-eval authoring-eval review-eval recommend-eval swebench`}</Task>

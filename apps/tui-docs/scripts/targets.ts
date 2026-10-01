@@ -68,5 +68,7 @@ export const browserTest = (build: ReturnType<typeof Smithers.ToolBuild>, docs: 
     bin: Smithers.Runtime.bin,
     args: ["apps/tui-docs/scripts/browser-test.mjs"],
     data: [build, sourceFiles, docs],
-    timeout: "10m"
+    timeout: "10m",
+    // A Playwright tier: wildcard `test` and `ci` selections omit it; CI's docs gate names it by label.
+    exclusive: true
   })

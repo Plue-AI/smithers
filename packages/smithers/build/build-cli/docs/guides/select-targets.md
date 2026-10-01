@@ -71,10 +71,12 @@ across every package that declares it, so a matrix is a property of the
 packages rather than of a central list. A package that does not declare the
 key is simply not selected.
 
-Fault suites declare `exclusive: true`. Wildcard `test` and `ci` selections
-omit exclusive targets, including suites exported under another name. An exact
-label or a named recursive pattern such as `//packages/...:faults` includes
-them. To include all tiers in one invocation:
+Fault suites declare `exclusive: true`, and so may `NodeTest` and
+`Shell.Test` targets; this repository marks its browser and end-to-end tiers
+that way. `index --format json` marks each such row `"exclusive": true`.
+Wildcard `test` and `ci` selections omit exclusive targets, including suites
+exported under another name. An exact label or a named recursive pattern such
+as `//packages/...:faults` includes them. To include all tiers in one invocation:
 
 ```bash
 pnpm exec smithers-build test '//packages/...' --include-exclusive

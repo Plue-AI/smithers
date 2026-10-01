@@ -41,6 +41,40 @@ test("testTargets runs only the test targets of the touched packages", () => {
   assert.deepEqual(testTargets(["WORKSPACE.ts"], index), [])
 })
 
+const app = [
+  { label: "//apps/app:unitTests", kinds: ["test"], inputs: [{ kind: "glob", pattern: "apps/app/src/**/*.ts", exclude: [] }] },
+  { label: "//apps/app:check", kinds: ["build"], inputs: [] },
+  {
+    label: "//apps/app:browserE2e",
+    kinds: ["test"],
+    exclusive: true,
+    inputs: [
+      { kind: "file", path: "apps/app/scripts/run-pr-e2e.mjs" },
+      { kind: "glob", pattern: "apps/app/src/**/*.ts", exclude: [] },
+      { kind: "glob", pattern: "apps/app/e2e/**/*", exclude: ["apps/app/e2e/fixtures/**"] },
+      { kind: "file", path: "apps/app/playwright.config.ts" },
+      { kind: "git-diff" }
+    ]
+  },
+  { label: "//apps/app:noInputs", kinds: ["test"], exclusive: true }
+]
+
+test("testTargets skips an exclusive tier for a change outside its e2e inputs", () => {
+  assert.deepEqual(testTargets(["apps/app/src/mainview/App.ts"], app), ["//apps/app:unitTests"])
+  // Declared, but not under an e2e directory.
+  assert.deepEqual(testTargets(["apps/app/playwright.config.ts", "apps/app/scripts/run-pr-e2e.mjs"], app), [
+    "//apps/app:unitTests"
+  ])
+})
+
+test("testTargets keeps an exclusive tier when the change touches its e2e inputs", () => {
+  assert.deepEqual(testTargets(["apps/app/src/mainview/App.ts", "apps/app/e2e/playwright/runs.spec.ts"], app), [
+    "//apps/app:browserE2e",
+    "//apps/app:unitTests"
+  ])
+  assert.deepEqual(testTargets(["apps/app/e2e/fixtures/burndown/empty.json"], app), ["//apps/app:unitTests"])
+})
+
 test("readChecks: an ok report is green", () => {
   assert.deepEqual(readChecks({ code: 0, stdout: JSON.stringify({ ok: true, results: [] }), stderr: "" }), {
     _tag: "Green"

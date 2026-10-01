@@ -311,6 +311,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "pnpm exec smthrs test '//apps/app:unitTests' --verbose",
     "pnpm exec smthrs test '//apps/app:conformance' --verbose",
     "pnpm exec smthrs ci '//apps/tui/...' --verbose",
+    "pnpm exec smthrs test '//apps/tui:e2eTests' --verbose",
     "pnpm exec smthrs test '//packages/smithers/flows/engine-store:disasterRecovery' --verbose",
     "pnpm exec smthrs test '//scripts:releaseVersion' --verbose"
   ]

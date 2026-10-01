@@ -195,6 +195,9 @@ const conformance = Smithers.NodeTest({
  * localhost, with nothing intercepted (e2e/graph/README.md). The steps run
  * serially (scripts/run-pr-e2e.mjs says why) in ~22 min on ubuntu-latest;
  * 30m keeps 30% headroom inside the apps-e2e job's 70.
+ *
+ * Exclusive: wildcard `test` and `ci` selections omit it, and CI's apps-e2e
+ * job names it by label.
  */
 const browserE2e = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("scripts/run-pr-e2e.mjs")),
@@ -206,6 +209,7 @@ const browserE2e = Smithers.NodeTest({
     Smithers.file("bunfig.toml"), Smithers.file("//package.json"), Smithers.file("//scripts/require-toolchain.mjs")],
   deps: [],
   env: { SMITHERS_CHAT_STUB: "1" },
+  exclusive: true,
   cwd
 })
 

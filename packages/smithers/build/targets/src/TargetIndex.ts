@@ -95,7 +95,8 @@ export type RowInput = typeof RowInput.Type
  * Paths are workspace-relative with no `//` prefix. `inputs` carries the
  * declared inputs as {@link RowInput} records with their paths resolved from
  * the declaring package. `mode` is present for the generator rules that
- * declare a `write` or `check` posture. `hosts` is present for a target
+ * declare a `write` or `check` posture. `exclusive` is present for a target
+ * in the exclusive tier. `hosts` is present for a target
  * whose declaration restricts the hosts it runs on. `destinations` is present
  * for a target that declares the network hosts it downloads from, and
  * `toolchain` for an `Environment.Toolchain` row. `source` names the PACKAGE.ts that
@@ -117,6 +118,8 @@ export const Row = Schema.Struct({
   summary: Schema.optional(Schema.String),
   featured: Schema.optional(Schema.Literal(true)),
   mode: Schema.optional(Schema.String),
+  /** Present when the target is in the exclusive tier that wildcard `test` and `ci` selections omit. */
+  exclusive: Schema.optional(Schema.Literal(true)),
   cacheable: Schema.Boolean,
   inputs: Schema.Array(RowInput),
   outputs: Schema.Array(Schema.String),

@@ -191,6 +191,13 @@ export const Attrs = Schema.Struct({
   ),
   cwd: Schema.NonEmptyString.pipe(Schema.withConstructorDefault(Effect.succeed("."))),
   /**
+   * Puts the gate in the exclusive tier: wildcard `test` and `ci` selections
+   * omit it unless `--include-exclusive` is set, a pattern that names it keeps
+   * it, and once selected it runs alone in its executor invocation. Declare
+   * it on slow browser and end-to-end tiers that CI selects by label.
+   */
+  exclusive: Schema.optional(Schema.Boolean),
+  /**
    * Replays a green verdict from the result cache. Set it only when `srcs` and
    * `deps` cover everything the program reads: an undeclared input cannot
    * re-key the target. The runtime executable, lockfile, and build

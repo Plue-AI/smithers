@@ -54,11 +54,16 @@ const unitTests = Smithers.NodeTest({
   cwd
 })
 
-/** The production terminal, command effects, cleanup, and packaged runtimes in tmux. */
+/**
+ * The production terminal, command effects, cleanup, and packaged runtimes in
+ * tmux. Exclusive: wildcard `test` and `ci` selections omit it, and CI's
+ * apps-e2e job names it by label.
+ */
 const e2eTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.testSuite(["./e2e"]),
   timeout: "20m",
+  exclusive: true,
   srcs: sources,
   deps: [cli.nativeSources],
   cwd

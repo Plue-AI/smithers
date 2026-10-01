@@ -1216,6 +1216,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {
@@ -17125,6 +17126,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [],
     "outputs": [],
@@ -25113,6 +25115,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {
@@ -37597,6 +37600,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {
@@ -42436,6 +42440,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {
@@ -44227,6 +44232,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {
@@ -52580,6 +52586,7 @@
     "kinds": [
       "test"
     ],
+    "exclusive": true,
     "cacheable": false,
     "inputs": [
       {

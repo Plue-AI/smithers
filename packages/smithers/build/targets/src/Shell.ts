@@ -122,6 +122,12 @@ export const BuildAttrs = Schema.Struct({
  */
 export const TestAttrs = Schema.Struct({
   ...sharedFields,
+  /**
+   * Puts the test in the exclusive tier: wildcard `test` and `ci` selections
+   * omit it unless `--include-exclusive` is set, and once selected it runs
+   * alone in its executor invocation.
+   */
+  exclusive: Schema.optional(Schema.Boolean),
   services: Schema.optional(Attr.Services),
   gates: Schema.optional(Attr.Gates),
   shards: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))

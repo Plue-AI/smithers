@@ -39,7 +39,9 @@ describe("required PR selection", () => {
       "pnpm exec smthrs build '//apps/app:check' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//apps/app:unitTests' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//apps/app:conformance' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//apps/app:browserE2e' --known-red '.github/ci-known-red.json' --verbose"
+      "pnpm exec smthrs test '//apps/app:browserE2e' --known-red '.github/ci-known-red.json' --verbose",
+      // Exclusive, so the job's `ci '//apps/tui/...'` step omits it.
+      "pnpm exec smthrs test '//apps/tui:e2eTests' --known-red '.github/ci-known-red.json' --verbose"
     ])
     for (const step of targets) {
       assert.equal(step.if, "${{ !cancelled() && steps.setup.conclusion == 'success' }}")

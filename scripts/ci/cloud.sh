@@ -445,6 +445,7 @@ gate_tools() {
     ui-conformance) echo 'js jj' ;;
     ui-browser) echo 'js jj' ;;
     tui) echo 'js jj rust' ;;
+    tui-e2e) echo 'js jj rust' ;;
     rust-lint) echo 'js rust' ;;
     third-party-notices) echo 'js rust' ;;
     rust-test) echo 'js rust' ;;
@@ -677,6 +678,11 @@ run_gate() {
     tui)
       native_jj_export
       pnpm exec smthrs ci '//apps/tui/...' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    tui-e2e)
+      # Exclusive, so the tui gate's wildcard omits it.
+      native_jj_export
+      pnpm exec smthrs test '//apps/tui:e2eTests' --known-red '.github/ci-known-red.json' --verbose
       ;;
     rust-lint)
       pnpm exec smthrs lint '//crates/flows-jj/...' --known-red '.github/ci-known-red.json' --verbose

@@ -354,7 +354,8 @@ pnpm exec smithers-build index '//packages/api/...' --format json
 
 Each row carries the label, the declaring package and target name, the rule,
 the kinds, the summary and featured flag, the generator mode when the rule
-declares one, whether the target is cacheable, the declared inputs as `kind`
+declares one, `"exclusive": true` when the target is in the exclusive tier
+that wildcard `test` and `ci` selections omit, whether the target is cacheable, the declared inputs as `kind`
 records (`file`, `glob`, `pnpm-workspace`, `git-diff`) with their paths
 resolved from the declaring package, the workspace-relative paths the
 target writes, its labeled dependencies, and the PACKAGE.ts that declared it.

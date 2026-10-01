@@ -721,7 +721,10 @@ const ci = Smithers.GithubCiGen({
         { name: "UI browser end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2e" },
         // The terminal UI's typecheck, lint, format check and Bun suite. Its
         // shell-change capture runs the native helper this job installs.
-        { name: "TUI typecheck, lint and tests", verb: Smithers.Verb.Ci, pattern: "//apps/tui/..." }
+        { name: "TUI typecheck, lint and tests", verb: Smithers.Verb.Ci, pattern: "//apps/tui/..." },
+        // The browser and tmux tiers are exclusive, so the wildcards above omit
+        // them and each runs here by label.
+        { name: "TUI end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/tui:e2eTests" }
       ]
     },
     {
