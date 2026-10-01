@@ -47,6 +47,9 @@ export const workspaceApi = (environment: Readonly<Record<string, string | undef
  */
 export interface Options {
   /** Local host spawner, used to run the SSH client. */
+  readonly persistence?: "ephemeral" | "sticky" | undefined
+  /** Retained workspace lease, renewed on every attach/probe. Default 900 seconds. */
+  readonly clientLeaseSeconds?: number | undefined
   readonly spawner: ChildProcessSpawner["Service"]
   /** Cloud repository, OWNER/REPO. */
   readonly repository: string
@@ -135,97 +138,145 @@ export const make = (options: Options): Sandbox.Provider => {
       catch: (error) =>
         error instanceof APIError && error.detail.code === "workspace_resources_exceeded"
           ? failure(`${message}: workspace_resources_exceeded`, "spawn_error")
-          : failure(message)
+          : failure(message, error instanceof APIError && error.status === 404 ? "not_found" : "unavailable")
+    })
+  const sticky = options.persistence === "sticky"
+  const lease = options.clientLeaseSeconds ?? 900
+  if (!Number.isInteger(lease) || lease < 60 || lease > 86400) {
+    throw new TypeError("cloud-sandbox: clientLeaseSeconds must be between 60 and 86400")
+  }
+  const remove = (id: string) =>
+    Effect.tryPromise({
+      try: (signal) =>
+        api.request(
+          "DELETE",
+          `${base}/${encodeURIComponent(id)}`,
+          undefined,
+          AbortSignal.any([signal, AbortSignal.timeout(30_000)])
+        ),
+      catch: (cause) => cause
+    }).pipe(
+      Effect.catch((cause) =>
+        cause instanceof APIError && cause.status === 404
+          ? Effect.void
+          : Effect.fail(failure("could not delete workspace"))
+      ),
+      Effect.asVoid
+    )
+  const acquire = (session: string, existing?: string) =>
+    Effect.gen(function*() {
+      if (!session.trim()) return yield* Effect.fail(failure("session must not be empty", "spawn_error"))
+      const name = prefix +
+        createHash("sha256").update(resourceKey ? JSON.stringify([session, resourceKey]) : session).digest("hex")
+      // Mask interruption until the returned id has a registered finalizer.
+      // Aborting a creation after admission would lose the id and leak a VM.
+      const create = request("POST", base, {
+        name,
+        ...sticky ? { client_lease_seconds: lease } : {},
+        ...(resourceKey ? { resources } : {}),
+        ...(options.sourceBookmark === undefined ? {} : { source_bookmark: options.sourceBookmark })
+      }, "could not create workspace").pipe(Effect.flatMap((response) => {
+        const id = object(response).id
+        return typeof id === "string" && /^[\w-]+$/.test(id)
+          ? Effect.succeed(id)
+          : Effect.fail(failure("workspace creation response omitted a valid id"))
+      }))
+      const id = existing !== undefined
+        ? existing
+        : yield* Effect.acquireRelease(create, (id) => sticky ? Effect.void : remove(id).pipe(Effect.orDie))
+      if (sticky) {
+        yield* request("POST", `${base}/${encodeURIComponent(id)}/lease`, undefined, "could not renew workspace lease")
+      }
+      let lastReadFailure: string | undefined
+      // A failed read does not prove provisioning failed. Retry transient
+      // control-plane failures within the existing readiness deadline.
+      const readStatus = Effect.suspend(() => {
+        const deadline = AbortSignal.timeout(30_000)
+        return Effect.tryPromise({
+          try: (signal) =>
+            api.request("GET", `${base}/${encodeURIComponent(id)}`, undefined, AbortSignal.any([signal, deadline])),
+          catch: (error) => {
+            const status = error instanceof APIError ? error.status : undefined
+            const code = object(error).code
+            const timedOut = deadline.aborted || error instanceof Error && error.name === "TimeoutError"
+            const transient = timedOut || status === 408 || status === 429 ||
+              status !== undefined && status >= 500 && status <= 599 ||
+              code === "backend_unavailable" || code === "backend_timed_out"
+            const category = timedOut ? "timeout" : status !== undefined ?
+              `HTTP ${status}` :
+              code === "backend_unavailable" || code === "backend_timed_out"
+              ? String(code)
+              : undefined
+            lastReadFailure = `could not read workspace status${category ? ` (${category})` : ""}`
+            return {
+              transient,
+              error: failure(lastReadFailure, status === 404 ? "not_found" : timedOut ? "timeout" : "unavailable")
+            }
+          }
+        })
+      }).pipe(
+        Effect.retry({
+          while: (error) => error.transient,
+          schedule: Schedule.spaced(poll)
+        }),
+        Effect.mapError((error) => error.error)
+      )
+      yield* Effect.gen(function*() {
+        for (;;) {
+          const workspace = object(yield* readStatus)
+          lastReadFailure = undefined
+          if (workspace.id !== id) return yield* Effect.fail(failure("workspace status response has a different id"))
+          if (workspace.status === "running") return
+          if (existing !== undefined) {
+            return yield* Effect.fail(
+              failure(
+                `workspace ${id} is ${workspace.status}`,
+                ["failed", "error", "deleted", "stopped"].includes(String(workspace.status))
+                  ? "not_found"
+                  : "unavailable"
+              )
+            )
+          }
+          if (["failed", "error", "deleted"].includes(String(workspace.status))) {
+            return yield* Effect.fail(failure(`workspace ${id} became ${workspace.status}`))
+          }
+          if (
+            !["pending", "creating", "provisioning", "starting", "stopped", "suspended"].includes(
+              String(workspace.status)
+            )
+          ) {
+            return yield* Effect.fail(failure("workspace status response omitted a valid status"))
+          }
+          yield* Effect.sleep(poll)
+        }
+      }).pipe(Effect.timeoutOrElse({
+        duration: timeout,
+        orElse: () =>
+          Effect.fail(failure(
+            `workspace did not become running${lastReadFailure ? `; ${lastReadFailure}` : ""}`,
+            "timeout"
+          ))
+      }))
+      const provider = CommandSandbox.make({
+        spawner: options.spawner,
+        workdir,
+        name: id,
+        prefix: Effect.tryPromise({
+          try: (signal) => api.sshPrefix(`${options.repository}/${id}`, signal),
+          catch: () => failure("could not obtain workspace SSH access")
+        }).pipe(Effect.map((prefix) => [...prefix, "env", ...guestHome]))
+      })
+      return yield* provider.acquire(session)
     })
   return {
-    acquire: (session) =>
-      Effect.gen(function*() {
-        if (!session.trim()) return yield* Effect.fail(failure("session must not be empty", "spawn_error"))
-        const name = prefix +
-          createHash("sha256").update(resourceKey ? JSON.stringify([session, resourceKey]) : session).digest("hex")
-        // Mask interruption until the returned id has a registered finalizer.
-        // Aborting a creation after admission would lose the id and leak a VM.
-        const id = yield* Effect.acquireRelease(
-          request("POST", base, {
-            name,
-            ...(resourceKey ? { resources } : {}),
-            ...(options.sourceBookmark === undefined ? {} : { source_bookmark: options.sourceBookmark })
-          }, "could not create workspace").pipe(Effect.flatMap((response) => {
-            const id = object(response).id
-            return typeof id === "string" && /^[\w-]+$/.test(id)
-              ? Effect.succeed(id)
-              : Effect.fail(failure("workspace creation response omitted a valid id"))
-          })),
-          (id) =>
-            request("DELETE", `${base}/${encodeURIComponent(id)}`, undefined, "could not delete workspace").pipe(
-              Effect.orDie,
-              Effect.asVoid
-            )
-        )
-        let lastReadFailure: string | undefined
-        // A failed read does not prove provisioning failed. Retry transient
-        // control-plane failures within the existing readiness deadline.
-        const readStatus = Effect.suspend(() => {
-          const deadline = AbortSignal.timeout(30_000)
-          return Effect.tryPromise({
-            try: (signal) =>
-              api.request("GET", `${base}/${encodeURIComponent(id)}`, undefined, AbortSignal.any([signal, deadline])),
-            catch: (error) => {
-              const status = error instanceof APIError ? error.status : undefined
-              const code = object(error).code
-              const timedOut = deadline.aborted || error instanceof Error && error.name === "TimeoutError"
-              const transient = timedOut || status === 408 || status === 429 ||
-                status !== undefined && status >= 500 && status <= 599 ||
-                code === "backend_unavailable" || code === "backend_timed_out"
-              const category = timedOut ? "timeout" : status !== undefined ?
-                `HTTP ${status}` :
-                code === "backend_unavailable" || code === "backend_timed_out"
-                ? String(code)
-                : undefined
-              lastReadFailure = `could not read workspace status${category ? ` (${category})` : ""}`
-              return { transient, error: failure(lastReadFailure, timedOut ? "timeout" : "unavailable") }
-            }
-          })
-        }).pipe(
-          Effect.retry({ while: (error) => error.transient, schedule: Schedule.spaced(poll) }),
-          Effect.mapError((error) => error.error)
-        )
-        yield* Effect.gen(function*() {
-          for (;;) {
-            const workspace = object(yield* readStatus)
-            lastReadFailure = undefined
-            if (workspace.id !== id) return yield* Effect.fail(failure("workspace status response has a different id"))
-            if (workspace.status === "running") return
-            if (["failed", "error", "deleted"].includes(String(workspace.status))) {
-              return yield* Effect.fail(failure(`workspace ${id} became ${workspace.status}`))
-            }
-            if (
-              !["pending", "creating", "provisioning", "starting", "stopped", "suspended"].includes(
-                String(workspace.status)
-              )
-            ) {
-              return yield* Effect.fail(failure("workspace status response omitted a valid status"))
-            }
-            yield* Effect.sleep(poll)
-          }
-        }).pipe(Effect.timeoutOrElse({
-          duration: timeout,
-          orElse: () =>
-            Effect.fail(failure(
-              `workspace did not become running${lastReadFailure ? `; ${lastReadFailure}` : ""}`,
-              "timeout"
-            ))
-        }))
-        const provider = CommandSandbox.make({
-          spawner: options.spawner,
-          workdir,
-          name: id,
-          prefix: Effect.tryPromise({
-            try: (signal) => api.sshPrefix(`${options.repository}/${id}`, signal),
-            catch: () => failure("could not obtain workspace SSH access")
-          }).pipe(Effect.map((prefix) => [...prefix, "env", ...guestHome]))
-        })
-        return yield* provider.acquire(session)
-      })
+    acquire: (session) => acquire(session),
+    ...sticky ?
+      {
+        retained: true as const,
+        jobDirectory: "/home/developer/.local/state/smthrs-jobs",
+        attach: (session: { readonly id: string; readonly remoteId: string }) => acquire(session.id, session.remoteId),
+        destroy: (session: { readonly id: string; readonly remoteId: string }) => remove(session.remoteId)
+      } :
+      {}
   }
 }

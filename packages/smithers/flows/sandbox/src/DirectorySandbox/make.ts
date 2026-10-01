@@ -50,6 +50,8 @@ export interface DirectorySandboxOptions {
   readonly spawner: ChildProcessSpawner["Service"]
   /** The directory session workspaces are created under. */
   readonly root: string
+  /** Leave scratch workspaces across scope closure until explicit destroy. */
+  readonly persistence?: "ephemeral" | "sticky" | undefined
 }
 
 const failure = providerFailure
@@ -97,7 +99,7 @@ export const make = (options: DirectorySandboxOptions): Provider => {
     "commands run as host processes under no provider-owned ceiling"
   )
   // `seed` is the workdir a fork copies; a fresh session starts empty.
-  const open = (sessionKey: string, seed?: string): Effect.Effect<Session, ProviderError, Scope> =>
+  const open = (sessionKey: string, seed?: string, attachOnly = false): Effect.Effect<Session, ProviderError, Scope> =>
     Effect.gen(function*() {
       if (!ContainedSpawner.isContained(options.spawner)) {
         return yield* Effect.fail(
@@ -108,11 +110,24 @@ export const make = (options: DirectorySandboxOptions): Provider => {
         )
       }
       const workdir = `${options.root.replace(/\/+$/, "")}/${sessionSlug(sessionKey)}`
+      if (
+        attachOnly &&
+        !(yield* options.fs.exists(workdir).pipe(
+          Effect.mapError(failure("unavailable", "scratch workspace lookup failed"))
+        ))
+      ) {
+        return yield* Effect.fail(
+          new ProviderError({ code: "not_found", message: `scratch workspace ${workdir} is absent` })
+        )
+      }
       yield* Effect.acquireRelease(
-        options.fs.makeDirectory(workdir, { recursive: true }).pipe(
+        (attachOnly ? Effect.void : options.fs.makeDirectory(workdir, { recursive: true })).pipe(
           Effect.mapError(failure("unavailable", `the scratch workspace ${workdir} could not be created`))
         ),
-        () => Effect.ignore(options.fs.remove(workdir, { recursive: true, force: true }))
+        () =>
+          options.persistence === "sticky"
+            ? Effect.void
+            : Effect.ignore(options.fs.remove(workdir, { recursive: true, force: true }))
       )
       if (seed !== undefined) {
         // The copy is the tree alone: host credentials live outside it.
@@ -213,5 +228,26 @@ export const make = (options: DirectorySandboxOptions): Provider => {
       }
       return session
     })
-  return { acquire: (sessionKey) => open(sessionKey) }
+  return {
+    acquire: (sessionKey) => open(sessionKey),
+    ...options.persistence === "sticky" ?
+      {
+        retained: true as const,
+        attach: (session: Pick<Session, "id" | "remoteId">) =>
+          session.remoteId === `${options.root.replace(/\/+$/, "")}/${sessionSlug(session.id)}`
+            ? open(session.id, undefined, true)
+            : Effect.fail(
+              new ProviderError({ code: "spawn_error", message: "scratch workspace identity differs from key" })
+            ),
+        destroy: (session: Pick<Session, "id" | "remoteId">) =>
+          session.remoteId === `${options.root.replace(/\/+$/, "")}/${sessionSlug(session.id)}`
+            ? options.fs.remove(session.remoteId, { recursive: true, force: true }).pipe(
+              Effect.mapError(failure("unavailable", "scratch workspace could not be removed"))
+            )
+            : Effect.fail(
+              new ProviderError({ code: "spawn_error", message: "scratch workspace identity differs from key" })
+            )
+      } :
+      {}
+  }
 }

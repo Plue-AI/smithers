@@ -30,20 +30,29 @@ Build this with the local host's `ChildProcessSpawner`. The provider uses the
 shared CLI login: `SMITHERS_API_ORIGIN` and `SMITHERS_TOKEN`, or the origin-bound
 login from `smthrs auth login`. Supply `environment` to resolve another local
 login. The token remains in the control transport; workspace creation contains
-only its name, optional source bookmark and requested resources.
+only its name, optional source bookmark, requested resources, and optional client lease.
 
 Each session key and canonical requested size map to `smthrs-` plus their SHA-256 hash. The Cloud API creates
 or resumes that name and the provider polls until it is running. Concurrent
 agents need distinct keys. Reusing a key resumes the same workspace and is an
-exclusive claim: releasing either holder deletes it.
+exclusive claim for ephemeral workspaces: releasing either holder deletes it.
 
 SSH commands use the same canonical transport that
 `NodeControl.workspaceSshPrefix` exports, with pinned advertised host keys.
 The `@smthrs/cli/CloudSandbox` subpath loads independently of the flow engine. Every command resolves a fresh grant and defaults `HOME` to `/home/developer` and the per-user locations (`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `NPM_CONFIG_CACHE`, `BUN_INSTALL`, `BUN_INSTALL_CACHE_DIR`) to directories under it, so `jj`, `npm` and `bun` use the workspace user's configuration and caches. An explicit child environment can override any of them for that command. Files and commands share
 `/home/developer/workspace`; set `workdir` to use another absolute guest path.
-Closing the layer scope ends commands and deletes the Cloud workspace,
+With the default `persistence: "ephemeral"`, closing the layer scope ends commands and deletes the Cloud workspace,
 including when provisioning or SSH setup fails or the caller is interrupted.
 A deletion failure fails release so it remains visible.
+
+Set `persistence: "sticky"` for [retained external jobs](https://sandbox.smithers.sh/guides/retained-jobs/).
+Scope closure leaves the workspace running. `attach` observes the existing
+workspace without provisioning or resuming it, and each attach renews its client
+lease. `clientLeaseSeconds` defaults to 900 and accepts 60 through 86400. Set it
+above the maximum probe interval; the backend reclaims abandoned workspaces when
+the lease lapses. Explicit `destroy` is idempotent. Job metadata uses the
+writable `/home/developer/.local/state/smthrs-jobs`, outside the checkout. A
+custom checkout that overlaps it is refused by `Sandbox.job`.
 
 `pollInterval` defaults to three seconds, `readyTimeout` to ten minutes, and
 `namePrefix` to `smthrs-`. Workspace control requests are bounded to thirty seconds. The optional

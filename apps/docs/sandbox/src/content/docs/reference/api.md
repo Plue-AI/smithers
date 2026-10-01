@@ -175,7 +175,9 @@ const useMachine = Effect.scoped(
 )
 ```
 
-`Provider.acquire(key)` is scoped. Acquisition registers teardown as a finalizer of that scope; closing the scope is the only lifecycle end exposed to the caller. The stable key lets an implementation deterministically name and reattach a crash-left machine when it can. Image, memory, network policy, and other machine shape belong to provider construction, not `acquire`.
+`Provider.acquire(key)` is scoped. Ephemeral providers register machine teardown as a scope finalizer. Retained providers advertise `retained: true`, leave the machine running, supply attach-only `attach(identity)`, and end it through explicit idempotent `destroy(identity)`. A missing or uncertain machine is never provisioned by `attach`. The stable key names crash-left machines; image, memory, and network policy belong to provider construction.
+
+`Sandbox.job(provider, { command, files, capture, jobDirectory? })` adapts a retained provider to start, status, collect, and cancel. `JobHandle` and `JobResult` are its durable schemas. Collect requires a shared durable Effect `KeyValueStore` and stores output plus `Work` before destroying the machine. See [retained jobs](/guides/retained-jobs/) for process fencing, replay, cleanup, and executed host-death evidence.
 
 Vercel, Daytona, Cloudflare, AWS, and Microsandbox tolerate teardown failures and log Warn records containing only the adapter's provider name, operation, and error code. Error messages and SDK causes are omitted. For teardown diagnostics, explicitly instrument the injected SDK's release method and redact captured errors before emitting a record.
 

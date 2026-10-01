@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
 import { Sandbox } from "@smthrs/sandbox"
-import { Effect, Exit, Fiber, FileSystem } from "effect"
+import { Cause, Effect, Exit, Fiber, FileSystem } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { mkdtempSync, rmSync } from "node:fs"
@@ -598,4 +598,84 @@ it("surfaces the typed sizing refusal without untrusted API message text", async
     return yield* Effect.scoped(p.acquire("over-max"))
   }))).rejects.toThrow("workspace_resources_exceeded")
   expect(f.grants()).toBe(0)
+})
+
+describe("CloudSandbox retained jobs", () => {
+  it("keeps sticky workspaces when scopes close and renews a lease on every attach", async () => {
+    const f = fixture()
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ persistence: "sticky", clientLeaseSeconds: 120 })
+      const session = yield* Effect.scoped(provider.acquire("execution#g1"))
+      expect(provider.retained).toBe(true)
+      expect(provider.jobDirectory).toBe("/home/developer/.local/state/smthrs-jobs")
+      expect(f.requests.filter((r) => r.method === "DELETE")).toHaveLength(0)
+      yield* Effect.scoped(provider.attach!(session))
+      yield* Effect.scoped(provider.attach!(session))
+      expect(f.requests.filter((r) => r.path.endsWith("/lease"))).toHaveLength(3)
+      expect(f.requests.filter((r) => r.method === "POST" && !r.path.endsWith("/lease"))).toHaveLength(1)
+      expect(f.requests[0]?.body).toMatchObject({ client_lease_seconds: 120 })
+      yield* provider.destroy!(session)
+      expect(f.requests.filter((r) => r.method === "DELETE")).toHaveLength(1)
+    }))
+  })
+  it("does not create or start a missing machine on attach", async () => {
+    const f = fixture(["deleted"])
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ persistence: "sticky" })
+      const result = yield* Effect.exit(Effect.scoped(provider.attach!({ id: "execution#g1", remoteId: "ws-123" })))
+      expect(Exit.isFailure(result)).toBe(true)
+      expect(f.requests.filter((r) => r.method === "POST" && !r.path.endsWith("/lease"))).toHaveLength(0)
+      expect(f.requests.filter((r) => r.method === "DELETE")).toHaveLength(0)
+    }))
+  })
+  it.each([0, 59, 86401, 1.5, NaN])("refuses invalid retained lease %s", async (clientLeaseSeconds) => {
+    const f = fixture()
+    await expect(run(f.make({ persistence: "sticky", clientLeaseSeconds }))).rejects.toThrow(/clientLeaseSeconds/)
+    expect(f.requests).toHaveLength(0)
+  })
+})
+
+describe("Cloud retained refusal boundaries", () => {
+  it.each(["suspended", "creating", "pending", "unknown"])("keeps %s uncertainty typed unavailable", async (status) => {
+    const f = fixture([status])
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ persistence: "sticky" })
+      const result = yield* Effect.exit(Effect.scoped(provider.attach!({ id: "job#g1", remoteId: "ws-123" })))
+      expect(Exit.isFailure(result) && Cause.squash(result.cause)).toMatchObject({ code: "unavailable" })
+      expect(f.requests.filter((r) => r.method === "POST" && !r.path.endsWith("/lease"))).toHaveLength(0)
+    }))
+  })
+  it("treats a vanished lease as absent and repeated missing deletion as successful", async () => {
+    const f = fixture()
+    f.api.request = async (method, path) => {
+      throw new APIError(404, { message: "missing" }, method, path, new Headers())
+    }
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ persistence: "sticky" })
+      const result = yield* Effect.exit(Effect.scoped(provider.attach!({ id: "job#g1", remoteId: "ws-123" })))
+      expect(Exit.isFailure(result) && Cause.squash(result.cause)).toMatchObject({ code: "not_found" })
+      yield* provider.destroy!({ id: "job#g1", remoteId: "ws-123" })
+      yield* provider.destroy!({ id: "job#g1", remoteId: "ws-123" })
+    }))
+  })
+  it("preserves failed retained deletion as typed unavailable", async () => {
+    const f = fixture()
+    f.api.request = async (method, path) => {
+      throw new APIError(503, { message: "offline" }, method, path, new Headers())
+    }
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make({ persistence: "sticky" })
+      const result = yield* Effect.exit(provider.destroy!({ id: "job#g1", remoteId: "ws-123" }))
+      expect(Exit.isFailure(result) && Cause.squash(result.cause)).toMatchObject({ code: "unavailable" })
+    }))
+  })
+})
+
+describe("Cloud retained default transport", () => {
+  it("constructs without requiring a network request or explicit environment", async () => {
+    const f = fixture()
+    const provider = await run(f.make({ api: undefined, environment: undefined, persistence: "sticky" }))
+    expect(provider.retained).toBe(true)
+    expect(f.requests).toHaveLength(0)
+  })
 })

@@ -2895,3 +2895,162 @@ describe("MicrosandboxSandbox snapshots", () => {
       expect([...fake.snapshots.keys()]).toEqual(["smthrs-env-aaaa-repo.new"])
     }))
 })
+
+const retainedFailure = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+describe("Microsandbox retained attach", () => {
+  it.effect("labels execution identity, attaches without provisioning, and explicitly destroys", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const provider = MicrosandboxSandbox.make({
+        sdk: fake.sdk,
+        persistence: "sticky",
+        network: "none",
+        workdir: join(root, "job-attach")
+      })
+      const session = yield* Effect.scoped(provider.acquire("external-execution#g2"))
+      expect(fake.recorded.builds[0]?.settings["labels"]).toMatchObject({ "smithers.execution": "external-execution" })
+      const builds = fake.recorded.builds.length
+      yield* Effect.scoped(provider.attach!(session))
+      expect(fake.recorded.builds).toHaveLength(builds)
+      expect(fake.recorded.starts).toHaveLength(0)
+      yield* provider.destroy!(session)
+      yield* provider.destroy!(session)
+      const result = yield* Effect.exit(Effect.scoped(provider.attach!(session)))
+      expect(retainedFailure(result)).toMatchObject({ code: "not_found" })
+      expect(fake.recorded.builds).toHaveLength(builds)
+    }))
+  it.effect("does not revive a stopped machine or mutate a foreign identity", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const provider = MicrosandboxSandbox.make({
+        sdk: fake.sdk,
+        persistence: "sticky",
+        network: "none",
+        workdir: join(root, "job-stopped")
+      })
+      const session = yield* Effect.scoped(provider.acquire("job-stopped#g1"))
+      fake.markStopped(session.remoteId)
+      expect(retainedFailure(yield* Effect.exit(Effect.scoped(provider.attach!(session))))).toMatchObject({
+        code: "not_found"
+      })
+      expect(fake.recorded.starts).toHaveLength(0)
+      const foreign = { id: session.id, remoteId: "foreign" }
+      expect(retainedFailure(yield* Effect.exit(provider.destroy!(foreign)))).toMatchObject({ code: "spawn_error" })
+      expect(retainedFailure(yield* Effect.exit(Effect.scoped(provider.attach!(foreign))))).toMatchObject({
+        code: "spawn_error"
+      })
+      yield* provider.destroy!(session)
+    }))
+  it.effect("the reaper retains a dead-holder machine while its labelled execution remains live", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("job-live", { ...ownership("job-owner", "dead"), "smithers.execution": "live-execution" })
+      fake.plant("job-done", { ...ownership("job-owner", "dead"), "smithers.execution": "done-execution" })
+      const reaped = yield* MicrosandboxSandbox.reap({
+        sdk: fake.sdk,
+        owner: "job-owner",
+        isAlive: () => Effect.succeed(false),
+        retain: (labels) => Effect.succeed(labels["smithers.execution"] === "live-execution")
+      })
+      expect(reaped.map((machine) => machine.name)).toEqual(["job-done"])
+      expect(fake.machines.has("job-live")).toBe(true)
+    }))
+})
+
+describe("Microsandbox job lifetime declaration", () => {
+  it("does not advertise host-death retention when detached was explicitly disabled", () => {
+    const fake = fakeSdk()
+    const provider = MicrosandboxSandbox.make({ sdk: fake.sdk, persistence: "sticky", detached: false })
+    expect(provider.retained).toBeUndefined()
+    expect(fake.recorded.builds).toHaveLength(0)
+  })
+})
+
+describe("retained microVM refusal boundaries", () => {
+  it.effect.each(["smithers.provider", "smithers.owner", "smithers.network", "smithers.limits"])(
+    "refuses changed %s before attach or destroy",
+    (label) =>
+      Effect.gen(function*() {
+        const fake = fakeSdk()
+        const provider = MicrosandboxSandbox.make({
+          sdk: fake.sdk,
+          persistence: "sticky",
+          network: "none",
+          limits: { memoryMib: 512 },
+          workdir: join(root, `job-refusal-${label}`)
+        })
+        const session = yield* Effect.scoped(provider.acquire(`${label}#g1`))
+        fake.machines.get(session.remoteId)!.labels[label] = "changed"
+        expect(retainedFailure(yield* Effect.exit(Effect.scoped(provider.attach!(session))))).toMatchObject({
+          code: "spawn_error"
+        })
+        expect(retainedFailure(yield* Effect.exit(provider.destroy!(session)))).toMatchObject({ code: "spawn_error" })
+        expect(fake.recorded.destroys).toHaveLength(0)
+      })
+  )
+  it.effect("unknown or unreachable machine state remains unavailable rather than lost", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const sdk: Sdk = {
+        ...fake.sdk,
+        Sandbox: {
+          ...fake.sdk.Sandbox,
+          get: async (name) => ({ ...await fake.sdk.Sandbox.get(name), status: "paused" })
+        }
+      }
+      const provider = MicrosandboxSandbox.make({
+        sdk,
+        persistence: "sticky",
+        network: "none",
+        workdir: join(root, "job-paused")
+      })
+      const session = yield* Effect.scoped(provider.acquire("job-paused#g1"))
+      expect(retainedFailure(yield* Effect.exit(Effect.scoped(provider.attach!(session))))).toMatchObject({
+        code: "unavailable"
+      })
+      const failing: Sdk = {
+        ...sdk,
+        Sandbox: {
+          ...sdk.Sandbox,
+          get: async () => {
+            throw new Error("network down")
+          }
+        }
+      }
+      const remote = MicrosandboxSandbox.make({ sdk: failing, persistence: "sticky", network: "none" })
+      expect(retainedFailure(yield* Effect.exit(Effect.scoped(remote.attach!(session))))).toMatchObject({
+        code: "unavailable"
+      })
+      expect(retainedFailure(yield* Effect.exit(remote.destroy!(session)))).toMatchObject({ code: "unavailable" })
+      expect(fake.recorded.starts).toHaveLength(0)
+      yield* provider.destroy!(session)
+    }))
+})
+
+describe("retained microVM security profile", () => {
+  it.effect("allows the recorded profile and refuses a changed profile before attach or teardown", () =>
+    Effect.gen(function*() {
+      let security = "restricted"
+      let fake: ReturnType<typeof fakeSdk>
+      fake = fakeSdk({
+        configJson: (name) => JSON.stringify({ name, security, labels: fake.machines.get(name)?.labels })
+      })
+      const provider = MicrosandboxSandbox.make({
+        sdk: fake.sdk,
+        persistence: "sticky",
+        network: "none",
+        security: "restricted",
+        workdir: join(root, "job-security")
+      })
+      const session = yield* Effect.scoped(provider.acquire("job-security#g1"))
+      yield* Effect.scoped(provider.attach!(session))
+      security = "default"
+      expect(retainedFailure(yield* Effect.exit(Effect.scoped(provider.attach!(session))))).toMatchObject({
+        code: "spawn_error"
+      })
+      expect(retainedFailure(yield* Effect.exit(provider.destroy!(session)))).toMatchObject({ code: "spawn_error" })
+      security = "restricted"
+      yield* provider.destroy!(session)
+    }))
+})

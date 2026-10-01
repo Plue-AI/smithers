@@ -44,3 +44,5 @@ export * from "./TestSession.ts"
 export * from "./TestSessionProvider.ts"
 export * from "./TestSessionState.ts"
 export * from "./Work.ts"
+
+export * from "./job.ts"
