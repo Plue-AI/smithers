@@ -1,0 +1,77 @@
+{
+  "issue": 3030,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:41:32.226447+00:00",
+  "disposition": "Intentional retirement, no claimed successful admission of the deleted flow",
+  "retirementCommit": "367758e954e3164210d245801d61ca2a92fe2efd",
+  "review": "Reviewed full immutable-host public CLI probe. Actual default list has55 entries and excludes old burndown/worker/monitor. Actual detached starts refuse both with FlowNotFound before executor/approval; read-only real SQLite control_runs count0 and no Git/JJ metadata prove no run admission/landing. Source and raw receipt hashes verified. Preserved unrelated owning discovery failures without assertion edits.",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --no-warnings /tmp/smithers-burndown-20260930-receipts/api-batch5/admission-3030/actual-cli-catalog.mjs",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "exitCode": 0,
+      "results": {
+        "actualDefaultCatalogItems": 55,
+        "retiredFlowsAbsent": [
+          "burndown",
+          "burndown/worker",
+          "burndown/monitor"
+        ],
+        "actualAdmissionRefusals": [
+          {
+            "name": "burndown",
+            "status": 1,
+            "error": {
+              "code": "FlowNotFound",
+              "message": "Flow burndown is not registered. Run `smthrs flow list` to see the flows you can start."
+            }
+          },
+          {
+            "name": "burndown/worker",
+            "status": 1,
+            "error": {
+              "code": "FlowNotFound",
+              "message": "Flow burndown/worker is not registered. Run `smthrs flow list` to see the flows you can start."
+            }
+          }
+        ],
+        "controlRunCount": 0,
+        "launches": 0,
+        "landing": 0,
+        "sourceDrift": false
+      },
+      "log": "actual-cli-catalog.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "exitCode": 1,
+      "passed": 2,
+      "failed": 3,
+      "log": "flow-pack-public-discovery.log",
+      "failures": [
+        "factory projection lacks discovered issue-sweep and issue-sweep/work",
+        "featured list lacks review",
+        "expected warnings list omits honest Module payload-document and conservative issue-sweep capability/tier warnings"
+      ],
+      "retiredBurndownPresent": false
+    }
+  ],
+  "sourceHashes": {
+    "packages/smithers/src/bin.ts": "e7a4e8b1be97052f2694f0e2f2c531df8e7d76e5544e552e11d8ae7c4fad1164",
+    "packages/smithers/src/Command.ts": "1785beaa973c896ca75f16a303071ccc91e344800a9ad7806c6635f971a644a0",
+    "packages/smithers/src/internal/NativeControl.ts": "60f2d2cbe29dd16d40ee7ec1e96a6693406d24be2fbb285ba5c6e78e60e8981b",
+    "flows/pack.test.mjs": "a80ec950eeb125ffd7f8ec1edca2471c4dabd58271441c1f23f2272ec5022d3f",
+    ".smithers/factory.json": "40266310810b3abf66cb227effbdc0039a152937c8082fe9c8cea51e067e6c57",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6"
+  },
+  "proofArchiveSha256": "bb278ab574a4d6f6d7f551dc810e105baf6c866b6121df24b1a3b277f4b3697e",
+  "additionalFailureIssue": 3337,
+  "limitations": [
+    "Exact old source, tests and authored docs intentionally retired; no successful admission of an equivalent restored feature is claimed.",
+    "Owning focused flow-pack check is RED on unrelated current catalog/fixture drift; retained unmodified and not silently weakened.",
+    "Generated .smithers/target-index.json still lists retired paths, known #3276 inventory prerequisite; no generated writes.",
+    "Three external probe fixture mistakes retained (nonexistent source hash path, old list shape, wrong refusal wording), corrected against current source and actual CLI output. They are not product defect claims.",
+    "Immutable isolated flow host copied current source and linked workspace dependencies; no new Git checkout/worktree, no current-byte native rebuild or remote provider launch."
+  ]
+}

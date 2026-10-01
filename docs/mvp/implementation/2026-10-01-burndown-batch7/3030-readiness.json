@@ -1,0 +1,107 @@
+{
+  "issue": 3030,
+  "readiness": "READY intentional retirement reconciliation only; original reusable example removed, not admitted successfully",
+  "retirementCommit": "367758e954e3164210d245801d61ca2a92fe2efd",
+  "currentHead": "823d6d3de2b3e4c1a68cbddb257d216e30320cdf",
+  "ownedSourcePaths": [],
+  "sourceWrites": false,
+  "activeJobs": [],
+  "sourceHashes": {
+    "packages/smithers/src/bin.ts": "e7a4e8b1be97052f2694f0e2f2c531df8e7d76e5544e552e11d8ae7c4fad1164",
+    "packages/smithers/src/Command.ts": "1785beaa973c896ca75f16a303071ccc91e344800a9ad7806c6635f971a644a0",
+    "packages/smithers/src/internal/NativeControl.ts": "60f2d2cbe29dd16d40ee7ec1e96a6693406d24be2fbb285ba5c6e78e60e8981b",
+    "flows/pack.test.mjs": "a80ec950eeb125ffd7f8ec1edca2471c4dabd58271441c1f23f2272ec5022d3f",
+    ".smithers/factory.json": "40266310810b3abf66cb227effbdc0039a152937c8082fe9c8cea51e067e6c57",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6"
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --no-warnings /tmp/smithers-burndown-20260930-receipts/api-batch5/admission-3030/actual-cli-catalog.mjs",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "exitCode": 0,
+      "results": {
+        "actualDefaultCatalogItems": 55,
+        "retiredFlowsAbsent": [
+          "burndown",
+          "burndown/worker",
+          "burndown/monitor"
+        ],
+        "actualAdmissionRefusals": [
+          {
+            "name": "burndown",
+            "status": 1,
+            "error": {
+              "code": "FlowNotFound",
+              "message": "Flow burndown is not registered. Run `smthrs flow list` to see the flows you can start."
+            }
+          },
+          {
+            "name": "burndown/worker",
+            "status": 1,
+            "error": {
+              "code": "FlowNotFound",
+              "message": "Flow burndown/worker is not registered. Run `smthrs flow list` to see the flows you can start."
+            }
+          }
+        ],
+        "controlRunCount": 0,
+        "launches": 0,
+        "landing": 0,
+        "sourceDrift": false
+      },
+      "log": "actual-cli-catalog.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "exitCode": 1,
+      "passed": 2,
+      "failed": 3,
+      "log": "flow-pack-public-discovery.log",
+      "failures": [
+        "factory projection lacks discovered issue-sweep and issue-sweep/work",
+        "featured list lacks review",
+        "expected warnings list omits honest Module payload-document and conservative issue-sweep capability/tier warnings"
+      ],
+      "retiredBurndownPresent": false
+    }
+  ],
+  "acceptanceDispositions": {
+    "burndownAndWorkerPublicAdmission": "Both absent from ordinary default discovery and refused by actual public CLI with FlowNotFound, no private Client import/load closure attempted",
+    "noRegistryBypass": "Used unmodified canonical src/bin.ts, ordinary default project discovery, detached start parser/control plan. No direct module import or injected registry adapter",
+    "zeroLaunchesLanding": "Actual isolated .flows/control.db control_runs count0 after both refusals; host has no Git/JJ metadata and no inherited Cloud/provider/remote credentials",
+    "terminalCancellation": "No run was admitted, so no terminal/cancellation receipt is invented"
+  },
+  "limitations": [
+    "Exact old source, tests and authored docs intentionally retired; no successful admission of an equivalent restored feature is claimed.",
+    "Owning focused flow-pack check is RED on unrelated current catalog/fixture drift; retained unmodified and not silently weakened.",
+    "Generated .smithers/target-index.json still lists retired paths, known #3276 inventory prerequisite; no generated writes.",
+    "Three external probe fixture mistakes retained (nonexistent source hash path, old list shape, wrong refusal wording), corrected against current source and actual CLI output. They are not product defect claims.",
+    "Immutable isolated flow host copied current source and linked workspace dependencies; no new Git checkout/worktree, no current-byte native rebuild or remote provider launch."
+  ],
+  "rawReceipts": {
+    "actual-cli-catalog-result.json": "b8d0c62dd5a54a498bb6d25168adbbf33997dc0349ec3e34824e2ff61aa8e240",
+    "actual-cli-catalog.log": "6091353bdac5f8accffa12a6b8bc45f38fe07b21c417a0bdc66499a116b7cebb",
+    "actual-cli-catalog.mjs": "4863652f3fa936bcf2341fe0c146223130c230693fd19a1fa4ed23b983068515",
+    "burndown-admission.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "burndown-admission.stdout": "a93278d44f6047fcfaa5a9c179c38cea7f7d91960fb0148a62e0ffb136fe759c",
+    "burndown-worker-admission.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "burndown-worker-admission.stdout": "60faf1cf09c8385d5d9febb7de36320fe76b0d4e70fa0727b4da848d5e57983b",
+    "default-catalog.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "default-catalog.stdout": "9b3dee9985a31571ddb2a20dd298f7fa30be024e015571515f54a6ca7db43427",
+    "flow-pack-public-discovery.log": "9402c1f8932dd9e111485b3785d81d128767522a0d4e21c0300f221fc864692e",
+    "issue-3030.json": "00f50dbebca270619892139320d20908b519a4badc824a1efde4408082ccea84",
+    "probe-fixture-initial-path-error.log": "88433ac7d0e35c156140708f9f1a4c328528ba2264352ca2af97b6978a1cdb82",
+    "probe-fixture-initial-path-error.mjs": "f91b022fbac95afae17ec33386c764864b5bb46ed95fb8caddacc26d70294bb3",
+    "probe-fixture-initial-refusal-wording-actual-cli-catalog.log": "81dcc6658a86a48c0784553fa8a138698e203bc2510a71f92ae37d848d935ec9",
+    "probe-fixture-initial-refusal-wording-actual-cli-catalog.mjs": "6e348621c15b0654d1532faed97cb05eda09f044b82939084f4dbfd72deb465c",
+    "probe-fixture-initial-refusal-wording-burndown-admission.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "probe-fixture-initial-refusal-wording-burndown-admission.stdout": "a93278d44f6047fcfaa5a9c179c38cea7f7d91960fb0148a62e0ffb136fe759c",
+    "probe-fixture-initial-shape-error-actual-cli-catalog.log": "28f30b9695c291f91cc9c084055ccc6a7e57d4b40c085849ba690dc490dd2b51",
+    "probe-fixture-initial-shape-error-actual-cli-catalog.mjs": "7843dda9ed4046b4c001688467beb62ac704a387cf410de6df447cada8595810",
+    "probe-fixture-initial-shape-error-default-catalog.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "probe-fixture-initial-shape-error-default-catalog.stdout": "9b3dee9985a31571ddb2a20dd298f7fa30be024e015571515f54a6ca7db43427",
+    "retirement-reference-audit.json": "d2d1719de0f69f7babbeeccecf06a4610d7ab6396ca08ed620ba96b6d0979237",
+    "retirement-registration.patch": "137a0eb5264e6081250a30e3977ca0d7d7b002cba73c4e9ee7cfe777a465b8d3"
+  }
+}
