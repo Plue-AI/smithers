@@ -49,6 +49,14 @@ type Config struct {
 	// Negotiation, reference-export lock, process, and read-lock waiting deadline;
 	// zero takes thirty seconds.
 	UploadPackQueueTimeout time.Duration
+	// PackObjectsCacheDir holds clone packs shared by identical fetches
+	// (pack_objects_cache.go); empty disables the cache. LoadConfig defaults
+	// it under StoragePath.
+	PackObjectsCacheDir string
+	// PackObjectsCacheMaxBytes bounds the cache; zero takes 4 GiB.
+	PackObjectsCacheMaxBytes int64
+	// PackObjectsCacheTTL bounds how long one pack is reused; zero takes ten minutes.
+	PackObjectsCacheTTL time.Duration
 }
 
 func (c Config) receivePackMaxDuration() time.Duration {
@@ -87,6 +95,10 @@ func LoadConfig() (Config, error) {
 	}
 
 	if err := userRefBoundsFromEnv(&cfg); err != nil {
+		return Config{}, err
+	}
+
+	if err := packObjectsCacheFromEnv(&cfg); err != nil {
 		return Config{}, err
 	}
 

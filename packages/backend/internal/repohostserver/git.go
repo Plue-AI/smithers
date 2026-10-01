@@ -122,8 +122,17 @@ func hiddenRefs(viewer int64) []string {
 // hide the same refs, so a mirror clone pushes back only refs it can see.
 // advertise enables the reachable-SHA capability for upload-pack discovery only.
 func gitServiceEnv(command string, maxInputSize, viewer int64, advertise bool) []string {
+	return gitServiceEnvWithCache(command, maxInputSize, viewer, advertise, nil)
+}
+
+// gitServiceEnvWithCache is gitServiceEnv with an upload-pack RPC's
+// pack-objects routed through the clone pack cache (pack_objects_cache.go).
+func gitServiceEnvWithCache(command string, maxInputSize, viewer int64, advertise bool, cache *packObjectsCache) []string {
 	section := "uploadpack"
 	var config []string
+	if command == "upload-pack" && !advertise {
+		config = append(config, cache.hookConfig()...)
+	}
 	if command == "upload-pack" && advertise {
 		// Let v0 clients request a pinned commit after its branch advances.
 		// Only advertise this capability: stateless upload-pack already accepts
@@ -142,7 +151,10 @@ func gitServiceEnv(command string, maxInputSize, viewer int64, advertise bool) [
 	}
 	// v2 accepts existing objects without the v0 visible-ref reachability
 	// check. Do not let an inherited process environment opt out of it.
-	env := append(os.Environ(), "GIT_PROTOCOL=version=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
+	env := append(packObjectsChildEnv(os.Environ()), "GIT_PROTOCOL=version=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
+	if command == "upload-pack" && !advertise {
+		env = append(env, cache.hookEnv()...)
+	}
 	for i := 0; i < len(config); i += 2 {
 		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i/2, config[i]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i/2, config[i+1]))
 	}
@@ -159,9 +171,15 @@ func streamGitRPC(ctx context.Context, gitDir, command string, body io.Reader, d
 // streamGitRPCCapped is streamGitRPC with receive-pack's pack size capped at
 // maxInputSize, for viewer (refViewer).
 func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize, viewer int64) error {
+	return streamGitRPCCached(ctx, gitDir, command, body, dst, maxInputSize, viewer, nil)
+}
+
+// streamGitRPCCached is streamGitRPCCapped with upload-pack's pack-objects
+// served through cache when it is non-nil.
+func streamGitRPCCached(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize, viewer int64, cache *packObjectsCache) error {
 	args := []string{command, "--stateless-rpc", gitDir}
 	cmd := streamGitCommandContext(ctx, "git", args...)
-	cmd.Env = gitServiceEnv(command, maxInputSize, viewer, false)
+	cmd.Env = gitServiceEnvWithCache(command, maxInputSize, viewer, false, cache)
 	// git builds a fetch's pack in a pack-objects child and indexes a push in
 	// an index-pack child. Ending the request ends its whole process group:
 	// killing only git left a clone's pack-objects running for minutes,

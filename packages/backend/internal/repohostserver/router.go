@@ -68,6 +68,7 @@ type Server struct {
 	// uploadPacks admits Config.MaxConcurrentUploadPacks upload-packs at once.
 	uploadPacks     *semaphore.Weighted
 	uploadPackQueue *uploadPackAdmission
+	packCache       *packObjectsCache
 }
 
 type loadableFFIClient interface {
@@ -178,6 +179,10 @@ func NewWithFFI(cfg Config, ffi FFIClient) (*Server, error) {
 		uploadPacks: semaphore.NewWeighted(int64(cfg.maxConcurrentUploadPacks())),
 	}
 	server.uploadPackQueue = newUploadPackAdmission(cfg, metrics)
+	server.packCache, err = newPackObjectsCache(cfg)
+	if err != nil {
+		return nil, err
+	}
 	server.pushOutbox = newPushHookOutbox(server)
 	server.reapOrphanedMaintenance()
 	return server, nil
@@ -1138,7 +1143,7 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	// server-side only — the broken stream will cause the git client to fail.
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
 	w.WriteHeader(http.StatusOK)
-	if err := streamGitRPCCapped(r.Context(), gitDir, "upload-pack", requestBody, &idleDeadlineWriter{rc: rc, w: w}, maxDecompressedGitRequestSize, refViewer(r)); err != nil {
+	if err := streamGitRPCCached(r.Context(), gitDir, "upload-pack", requestBody, &idleDeadlineWriter{rc: rc, w: w}, maxDecompressedGitRequestSize, refViewer(r), s.packCache); err != nil {
 		if s.logger != nil {
 			s.logger.Error("upload-pack stream failed after headers committed",
 				"owner", owner, "repo", repo, "error", err)

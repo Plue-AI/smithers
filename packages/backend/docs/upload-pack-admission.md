@@ -32,6 +32,31 @@ A full queue returns HTTP 503 with `Retry-After: 1`; an expired wait returns HTT
 504. Oversized negotiation returns HTTP 413. Malformed negotiation returns HTTP 400. These limits protect process and
 request memory; increasing them requires sizing the repo-host memory budget.
 
+## Clone pack cache
+
+Identical clones share one pack. upload-pack still negotiates and checks each
+request against the refs its caller may see; only its `pack-objects` step runs
+through `uploadpack.packObjectsHook`, which re-executes the repo-host binary.
+The hook keys a pack on the repository, the `pack-objects` arguments, and the
+revision list. The first request for a key builds the pack under a per-key file
+lock, and concurrent requests for that key wait and then stream the same file.
+Fetches that send haves bypass the cache.
+
+A shallow clone cannot use reachability bitmaps, so each one walks and
+compresses the whole tree. Twenty CI guests cloning one commit cost twenty
+packs without the cache and one with it.
+
+| Environment variable | Default | Accepted values |
+| --- | --- | --- |
+| `SMITHERS_REPO_HOST_PACK_CACHE_DIR` | `<storage>/.pack-objects-cache@` | Directory path, or `off` |
+| `SMITHERS_REPO_HOST_PACK_CACHE_MAX_BYTES` | `4294967296` | Positive byte count |
+| `SMITHERS_REPO_HOST_PACK_CACHE_TTL` | `10m` | Positive Go duration |
+
+A pack is reused for at most the TTL; a tag created in that window reaches
+`--include-tag` clients on their next fetch. A pack larger than the byte budget
+is served once and not kept. Eviction removes expired packs first, then the
+least recently served.
+
 ## Metrics
 
 - `smithers_repo_host_upload_pack_waiting`: requests reading negotiation, synchronizing references, or waiting for a process slot or repository read lock.
