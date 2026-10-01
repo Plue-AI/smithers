@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3262,
+    3167,
+    3307
+  ],
+  "sourceFrozen": true,
+  "allSourceDependentJobsCompleted": true,
+  "checkedCandidate": "49230e754391c561a2c4448439bc04599abc4639",
+  "candidateHeadAfterChecks": "49230e754391c561a2c4448439bc04599abc4639",
+  "qualifiedSources": {
+    "packages/smithers/agent/src/AgentSession.ts": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+    "packages/smithers/agent/test/AgentSessionFailures.test.ts": "f28ff58d6e4b32c56bff258219233bcf3589eb5833cdea33ca8e7835a1850f15",
+    "packages/smithers/test/CloudSandboxCommand.integration.test.ts": "36f31fe05436b1b0fa8d9fb73a4cb984e541a464bd778bb79150ee6dc16f9bfe"
+  },
+  "checks": [
+    {
+      "name": "authority-process",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/AgentSessionFailures.test.ts",
+        "test/CompletedRunPersistsAcrossProcesses.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 79,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/authority-process79.log",
+      "sha256": "73d3dc38b9e2c7437557904dc997b05d6451fd88d5d3a9a1e0735b437fb535a9"
+    },
+    {
+      "name": "actual-failed-turn-and-cloud",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "test/CloudSandboxCommand.integration.test.ts",
+        "-t",
+        "exits 1 for a run that settled failed|settles a failed launch with one terminal write|prints one operator-facing warning for one refusal|prints one operator-facing warning for one canonical agent refusal|CloudSandbox guarded command transport",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 7,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/actual-cli-and-cloud7.log",
+      "sha256": "3298471cee1a52a43a54229e8670ad6666bef1e16100d9148510c919e2ede02a"
+    },
+    {
+      "name": "agent-source-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/agent-source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "agent-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/agent-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "CLI-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/cli-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "owning-declaration-emission",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--emitDeclarationOnly",
+        "--declarationMap",
+        "false",
+        "--outDir",
+        "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/agent-declarations"
+      ],
+      "exitCode": 0,
+      "passed": 41,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/agent-declarations.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "environment": {
+    "node": "/Users/williamcory/.nvm/versions/node/v26.5.0/bin/node",
+    "TMPDIR": "/private/tmp",
+    "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": "/Users/williamcory/smithers/target/debug/smithers-jj-export"
+  },
+  "inputAudit": {
+    "count": 1903,
+    "changed": [],
+    "before": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/inputs-before.json",
+    "after": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/inputs-after.json"
+  },
+  "declarations": {
+    "count": 41,
+    "normalizedAdmittedMatches": 41,
+    "changed": 0,
+    "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/declaration-comparison.json"
+  },
+  "priorProofArchive": {
+    "path": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/3262-3167-evidence.tar.gz",
+    "sha256": "5f3655461826b2a14398d87c39b5a5f9a0a313ffac1345788ffa479bb1ae9463"
+  },
+  "limits": [
+    "No fresh full50/JS/pack/installed consumer/native rebuild/all-platform qualification",
+    "Whole-agent100% coverage not claimed; separate3317 golden identity diagnosis remains queued",
+    "3235 remains open until3315 guard repair and current full named4 CLI gate",
+    "Previous lint/format0 bound to byte-identical settlement files; not rerun for unrelated incoming source"
+  ]
+}
