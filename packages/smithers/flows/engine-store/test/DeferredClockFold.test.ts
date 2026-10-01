@@ -344,6 +344,67 @@ describe("DeferredClockFold", () => {
       expect(DeferredClockFold.fromCheckpoint(null)).toEqual(Option.none())
     })))
 
+  it.effect("continues the real journal across pages and restores the projection's complete checkpoint", () =>
+    run(Effect.gen(function*() {
+      yield* scenario
+      const journal = yield* Journal.Journal
+      const page = yield* journal.entries({ runId: "fired" as JournalEvent.RunId, limit: 100 })
+      const last = page.entries.at(-1)!.seq
+      const reads: Array<number | undefined> = []
+      // A bounded journal reader still delegates every page to the real store.
+      const paged = Journal.Journal.of({
+        ...journal,
+        entries: (options) => {
+          reads.push(options.after)
+          return journal.entries({ ...options, limit: 1 })
+        }
+      })
+      const captured = yield* DeferredClockFold.capture("fired", last).pipe(
+        Effect.provideService(Journal.Journal, paged)
+      )
+      expect(reads).toEqual([undefined, ...page.entries.slice(0, -1).map((entry) => entry.seq)])
+      const sql = yield* SqlClient.SqlClient
+      const [completion] = yield* sql<
+        { readonly deferred_name: string; readonly exit_json: string; readonly metadata_json: string }
+      >`
+        SELECT deferred_name, exit_json, metadata_json FROM flows_deferred_completions
+        WHERE execution_id = 'fired'
+      `
+      expect(captured).toEqual({
+        clocks: [{
+          flowName: TestFlow._tag,
+          executionId: "fired",
+          clockName: "short",
+          deferredName: completion!.deferred_name,
+          dueAtMs: 10_000,
+          completedAtMs: 10_000
+        }],
+        deferreds: [{
+          flowName: TestFlow._tag,
+          executionId: "fired",
+          deferredName: completion!.deferred_name,
+          completedAtMs: 10_000,
+          consumedAtMs: null,
+          exitDigest: JournalEvent.contentDigest(completion!.exit_json),
+          metadataDigest: JournalEvent.contentDigest(completion!.metadata_json)
+        }]
+      })
+      let projected = DeferredClockFold.projection.initial
+      for (const entry of page.entries) projected = yield* DeferredClockFold.projection.reduce(projected, entry)
+      expect(DeferredClockFold.projection.name).toBe("flows.engine.deferred-clock")
+      expect(DeferredClockFold.encode(projected)).toEqual(captured)
+      const restored = DeferredClockFold.fromCheckpoint({ [DeferredClockFold.checkpointKey]: captured })
+      expect(Option.isSome(restored)).toBe(true)
+      if (Option.isSome(restored)) {
+        expect(DeferredClockFold.encode(restored.value)).toEqual(captured)
+        expect(restored.value.deferreds.get(DeferredClockFold.deferredKey({
+          flowName: TestFlow._tag,
+          executionId: "fired",
+          deferredName: completion!.deferred_name
+        }))).toEqual(captured.deferreds[0])
+      }
+    })))
+
   it.effect("backfills the records of rows written before the fold existed", () =>
     run(Effect.gen(function*() {
       const live = yield* scenario
@@ -413,6 +474,9 @@ describe("DeferredClockFold", () => {
         entry("other", clock),
         entry(EventTypes.clockScheduled, null),
         entry(EventTypes.clockScheduled, { ...clock, dueAtMs: "soon" }),
+        entry(EventTypes.clockCompleted, { ...clock, completedAtMs: -1 }),
+        entry(EventTypes.deferredCompleted, { ...deferred, deferredName: "" }),
+        entry(EventTypes.deferredConsumed, { ...deferred, consumedAtMs: -1 }),
         entry(EventTypes.clockCompleted, { ...clock, completedAtMs: 1 }),
         entry(EventTypes.deferredConsumed, { ...deferred, consumedAtMs: 1 }),
         entry(EventTypes.clockScheduled, { ...clock, deferredName: "d", dueAtMs: 5 }),

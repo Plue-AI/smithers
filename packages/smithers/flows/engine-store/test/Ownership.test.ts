@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Flow, FlowRuntime } from "@smthrs/flow"
-import { Journal } from "@smthrs/journal"
+import { Journal, JournalEvent } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Cause from "effect/Cause"
@@ -85,6 +85,36 @@ const provideJournal = <A, E, R>(
   )
 
 describe("RunDriver ownership", () => {
+  it.effect("a fresh self-owned run is routine re-entry, with no probe, execution or steal evidence", () =>
+    withCrypto(provideJournal(Effect.gen(function*() {
+      const store = yield* RunStore.RunStore
+      yield* activate(store, "fresh-self", ownerA)
+      let probes = 0
+      let executions = 0
+      const driver = yield* makeDriver(ownerA, () =>
+        Effect.sync(() => {
+          probes++
+          return false
+        }))
+      yield* driver.register(TestFlow, () =>
+        Effect.sync(() => {
+          executions++
+          return "wrong"
+        }))
+      yield* driver.resume(TestFlow, "fresh-self")
+      const row = yield* store.get("fresh-self")
+      const journal = yield* Journal.Journal
+      const page = yield* journal.entries({ runId: "fresh-self" as JournalEvent.RunId, limit: 100 })
+      expect(probes).toBe(0)
+      expect(executions).toBe(0)
+      expect(row.owner).toEqual(ownerA)
+      expect(row.status).toBe("running")
+      expect(row.heartbeatAtMs).toBe(0)
+      expect(page.entries.map((entry) => entry.payload)).not.toContainEqual(
+        expect.objectContaining({ decision: "steal-refused-owner-alive" })
+      )
+    }))))
+
   it.effect("refuses a workspace-routed run before taking any ownership", () =>
     Effect.gen(function*() {
       let executions = 0

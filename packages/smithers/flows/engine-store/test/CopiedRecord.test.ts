@@ -43,7 +43,8 @@ const fixture = () => ({
   parents: { child: "parent", parent: null } as Record<string, string | null>,
   states: {} as Record<string, string>,
   record: { ...attempted },
-  missingRun: false
+  missingRun: false,
+  missingRuns: new Set<string>()
 })
 type Fixture = ReturnType<typeof fixture>
 const accept = (state: Fixture) =>
@@ -60,7 +61,7 @@ const accept = (state: Fixture) =>
     }),
     runs: RunStore.makeNoop({
       get: (runId) =>
-        state.missingRun
+        state.missingRun || state.missingRuns.has(runId)
           ? Effect.fail(
             new RunStore.RunStoreError({
               code: "not_found_row",
@@ -127,6 +128,18 @@ describe("copied producer record admission", () => {
       }],
       ["malformed carried state", (state: Fixture) => {
         state.states.child = "{}"
+      }],
+      ["invalid carried JSON", (state: Fixture) => {
+        state.states.child = "{"
+      }],
+      ["invalid carried source JSON", (state: Fixture) => {
+        state.states.parent = "{"
+      }],
+      ["disappeared carried source", (state: Fixture) => {
+        state.missingRuns.add("parent")
+      }],
+      ["disappeared carried parent", (state: Fixture) => {
+        state.missingRuns.add("fork-root")
       }],
       ["changed carried source", (state: Fixture) => {
         state.entries.parent![0] = entry("parent", { payload: {} })

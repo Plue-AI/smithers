@@ -1,0 +1,303 @@
+{
+  "issue": 3127,
+  "status": "READY/FROZEN, no source jobs/build writers running",
+  "at": "2026-10-01T07:47:00.975302+00:00",
+  "head": "2e7753c1580b2234b340b4d889c58f9d13009ab9",
+  "files": {
+    "packages/smithers/flows/engine-store/test/DeferredClockFold.test.ts": "75415d9826723ba4e36cf6801edd452d036f5ea6dc3bd10ba069511fd142f79a",
+    "packages/smithers/flows/engine-store/test/CopiedRecord.test.ts": "ca3dbfb292bbc0191c2444d1c533bd27ca6dc6fc2b782da33c1fb92450ff6962",
+    "packages/smithers/flows/engine-store/test/contract/DurableEngineStateContract.ts": "9b4e48c3b095b7a65b4d17b63aa225429b17b7303d5d780a2583ce615418e864",
+    "packages/smithers/flows/engine-store/test/ReplayOnly.test.ts": "5251bf512b67ceb12cc3e5809ad9e21e1d841c6f747633d92ead18d63267a867",
+    "packages/smithers/flows/engine-store/test/DeferredPersistence.test.ts": "c3716fe90883b9f8d6ffb3c2b9abe35036868e3d68b1912e7529813ce5aeab59",
+    "packages/smithers/flows/engine-store/test/Ownership.test.ts": "8a6069844770e9f3dc804e9f884d3a505c5a53139586f59e5dfd03b0fd2447c9",
+    "packages/smithers/flows/engine-store/test/RunDriverEdges.test.ts": "a32c466c996b54aa75d6a5d628bc97753ac9406a932105b7760b10eb2d49f42b",
+    "packages/smithers/flows/engine-store/test/ActionFailurePaths.test.ts": "b0be35618a3805a0eb09cdf5a67a0e2d148a2b04d0ee4d7a2e5df9e1a8b7fc94"
+  },
+  "sourceChanges": "Eight existing tests only; no production/cache/coverage-threshold/timeout/authority change and no original assertions removed",
+  "canonicalCommand": [
+    "node",
+    "packages/smithers/src/bin.ts",
+    "test",
+    "//packages/smithers/flows/engine-store:test",
+    "--jobs",
+    "2",
+    "--no-cache",
+    "--verbose",
+    "--format",
+    "json"
+  ],
+  "canonicalSummary": {
+    "issue": 3127,
+    "canonicalAttempts": [
+      {
+        "attempt": 1,
+        "exit": 0,
+        "seconds": 186.139,
+        "sourceCount": 1475,
+        "sourceDrift": [],
+        "legs": {
+          "sqlite": {
+            "files": 187,
+            "testStates": {
+              "pass": 1900,
+              "skip": 1
+            },
+            "failures": [],
+            "skips": [
+              "test/ExecutionSnapshotReadIsolation.test.ts > a read transaction sees one snapshot while a writer commits"
+            ],
+            "targetRegression": [
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes past the batch within two ticks and journals one refusal per lease",
+                "state": "pass",
+                "durationMs": 136.02479200000005
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > forgets a refusal once its row leaves the stale window",
+                "state": "pass",
+                "durationMs": 21.75729100000001
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes a new stall at once even when no tick saw the owner pulse between them",
+                "state": "pass",
+                "durationMs": 17.84083400000003
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > says why a lease was refused, so one lease can record both reasons",
+                "state": "pass",
+                "durationMs": 22.05604100000005
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > logs a refusal the journal will not admit, and keeps driving the run",
+                "state": "pass",
+                "durationMs": 14.37541699999997
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > two drivers over one database arbitrate by pid (B-09) > refuses a live owner's row and takes it once that process exits",
+                "state": "pass",
+                "durationMs": 28.134708000000046
+              }
+            ],
+            "errors": []
+          }
+        },
+        "host": {
+          "logicalCpuCount": 14,
+          "samples": 94,
+          "loadOneMin": {
+            "min": 2.47900390625,
+            "max": 7.0732421875
+          },
+          "hostCpuBusyPercent": {
+            "mean": 40.9842699775066,
+            "max": 62.34657039711191
+          },
+          "canonicalDescendantsMax": 14,
+          "observedOtherCpuPercentMax": 198,
+          "hostProcessCount": {
+            "min": 961,
+            "max": 990
+          },
+          "syntheticLoad": false,
+          "limit": "Genuine concurrent host workload; no saturated-host or portable performance claim. Percent uses aggregate OS CPU time deltas; process percent may exceed100 across cores."
+        },
+        "retentionLimit": "PostgreSQL/merged raw files missed stock cleanup; actual unchanged strict100 canonical result retained"
+      },
+      {
+        "attempt": 2,
+        "exit": 0,
+        "seconds": 176.964,
+        "sourceCount": 1475,
+        "sourceDrift": [],
+        "legs": {
+          "sqlite": {
+            "files": 187,
+            "testStates": {
+              "pass": 1900,
+              "skip": 1
+            },
+            "failures": [],
+            "skips": [
+              "test/ExecutionSnapshotReadIsolation.test.ts > a read transaction sees one snapshot while a writer commits"
+            ],
+            "targetRegression": [
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes past the batch within two ticks and journals one refusal per lease",
+                "state": "pass",
+                "durationMs": 136.5265
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > forgets a refusal once its row leaves the stale window",
+                "state": "pass",
+                "durationMs": 20.440791999999988
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes a new stall at once even when no tick saw the owner pulse between them",
+                "state": "pass",
+                "durationMs": 17.163082999999972
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > says why a lease was refused, so one lease can record both reasons",
+                "state": "pass",
+                "durationMs": 22.231749999999977
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > logs a refusal the journal will not admit, and keeps driving the run",
+                "state": "pass",
+                "durationMs": 14.434167000000002
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > two drivers over one database arbitrate by pid (B-09) > refuses a live owner's row and takes it once that process exits",
+                "state": "pass",
+                "durationMs": 28.995000000000005
+              }
+            ],
+            "errors": []
+          },
+          "postgres": {
+            "files": 187,
+            "testStates": {
+              "pass": 1901
+            },
+            "failures": [],
+            "skips": [],
+            "targetRegression": [
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes past the batch within two ticks and journals one refusal per lease",
+                "state": "pass",
+                "durationMs": 354.933208
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > forgets a refusal once its row leaves the stale window",
+                "state": "pass",
+                "durationMs": 146.1452079999999
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > probes a new stall at once even when no tick saw the owner pulse between them",
+                "state": "pass",
+                "durationMs": 126.16479100000004
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > says why a lease was refused, so one lease can record both reasons",
+                "state": "pass",
+                "durationMs": 167.998333
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > the stale-running sweep backs off refused rows (B-04) > logs a refusal the journal will not admit, and keeps driving the run",
+                "state": "pass",
+                "durationMs": 133.81095900000014
+              },
+              {
+                "test": "test/StaleSweepBackoff.test.ts > two drivers over one database arbitrate by pid (B-09) > refuses a live owner's row and takes it once that process exits",
+                "state": "pass",
+                "durationMs": 158.89416699999992
+              }
+            ],
+            "errors": []
+          }
+        },
+        "host": {
+          "logicalCpuCount": 14,
+          "samples": 90,
+          "loadOneMin": {
+            "min": 2.642578125,
+            "max": 6.56298828125
+          },
+          "hostCpuBusyPercent": {
+            "mean": 36.880630939418666,
+            "max": 67.40292126825793
+          },
+          "canonicalDescendantsMax": 13,
+          "observedOtherCpuPercentMax": 248.6,
+          "hostProcessCount": {
+            "min": 959,
+            "max": 983
+          },
+          "syntheticLoad": false,
+          "limit": "Genuine concurrent host workload; no saturated-host or portable performance claim. Percent uses aggregate OS CPU time deltas; process percent may exceed100 across cores."
+        },
+        "retentionLimit": "Both storage leg blobs and coverage retained; canonical stdout/stderr live output is capped by existing runner"
+      }
+    ],
+    "betweenRunInputDrift": [],
+    "independentRawMergedCoverage": {
+      "s": {
+        "total": 6115,
+        "covered": 6115,
+        "percent": 100.0,
+        "uncovered": 0
+      },
+      "f": {
+        "total": 1580,
+        "covered": 1580,
+        "percent": 100.0,
+        "uncovered": 0
+      },
+      "b": {
+        "total": 3525,
+        "covered": 3525,
+        "percent": 100.0,
+        "uncovered": 0
+      }
+    },
+    "coverageMapErrors": [],
+    "coverageLimit": "Independent identical-Istanbul-map summation from real leg artifacts, not relabeled as canonical merged artifact; both canonical exits0 prove unchanged configured100 lines/statements/branches/functions gate",
+    "noThirdRun": "Two predeclared attempts passed with identical captured inputs; no third required"
+  },
+  "declaredEnvironment": {
+    "PG": "existing credential-free postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable through canonical PACKAGE.ts env declaration",
+    "TMPDIR": "/private/tmp",
+    "helper": "existing absolute /Users/williamcory/smithers/target/release/smithers-jj-export; no rebuilt-native claim",
+    "Node": "v26.5.0",
+    "NodeSha256": "cbee2298aee5cc476bf8d5441e7348b627254a39d869743a5b04489028c729d4",
+    "cacheTokens": "withheld; command explicitly --no-cache",
+    "syntheticStress": false
+  },
+  "finalReadOnlyChecks": {
+    "commandTypes": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit (cwd engine-store)",
+    "typesExit": 0,
+    "commandFormat": "node_modules/.bin/dprint check <all eight owned test paths> (cwd engine-store)",
+    "formatExit": 0,
+    "postCheckFullInputDrift": []
+  },
+  "review": "Parent independently reviewed all eight source diffs and test semantics; Sol implementation, orchestrator review under explicit no-Fable override",
+  "limits": [
+    "Attempt1 raw PostgreSQL and merged artifacts missed stock cleanup; actual canonical success JSON/config/source proof retained. Attempt2 retains both raw storage legs.",
+    "Canonical live output is capped by existing runner; does not claim untruncated child stdout.",
+    "Existing SQLite PG-only snapshot-isolation skip preserved; PG runs it. No newly introduced skips.",
+    "Injected failure cases are justified isolated units, separate from actual SQL corruption/checkpoint/recovery integration. Shared memory contract and timer service race are memory controls, not PostgreSQL concurrency claims.",
+    "Measured genuine host load without synthetic stress, not saturated-host or portable timing evidence.",
+    "All earlier failed/canceled helper, recovery, coverage and loaded cohorts preserved; final two passes use changed meaningful test source, not retrying failing identical input until green."
+  ],
+  "artifacts": {
+    "3127-final-predeclared-plan.json": "7162ce975c1eb9aef2a0b21981aa81dd874b43d80190a1110d05395d21c9c729",
+    "3127-final-cohort-summary.json": "709a4ef2ee2a8fa59e2fed61449e8457e0b1eb84ec25f1e7402ec283cfa1a1ef",
+    "3127-final-current-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3127-final-current-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3127-final-summarize.py": "7b0a8984254ac807c32b8342afc4673c7272b7f9179acc5961b91561d7d56482",
+    "3127-eight-focused-frozen.json": "e460ca2f57dd6eb8227d6267061a9d15f451549b55c873f4141e412ba896ceed",
+    "3127-final-2e7753c158-attempt-1/stderr.log": "d6c4f66d14610eecb4a664c5a1bac6d876357209b3739dce60794eee8dbd87c7",
+    "3127-final-2e7753c158-attempt-1/smithers-sql-reports-Be2qdW-coverage-sqlite_coverage-final.json.gz": "00a91925ef69fe4d78eda991451e63c23b966c76d5e99260228d85c10df32686",
+    "3127-final-2e7753c158-attempt-1/source-before.json": "b188f4a8f4bc7fed8a005d767db6ca8d39704a69d1622cebb3d4548c6ad993bb",
+    "3127-final-2e7753c158-attempt-1/source-after.json": "3082c86194e731f0d6f2627653b14ea788f08e4a2eec91d790126fcd6d370eaf",
+    "3127-final-2e7753c158-attempt-1/leg-results.json": "49163c4c8e79fea939c2b5296ae3f43cf997b83cf46460595fabfceaaf59420c",
+    "3127-final-2e7753c158-attempt-1/stdout.log": "cc75f06833e57569df5290f898c2ffbc620e916a6f160ac339471f6c6cc9537c",
+    "3127-final-2e7753c158-attempt-1/host-load-summary.json": "bfb1aea0556f7b698283a8fadeb0f9ccfe1c7ddad3271c1c3b0884efa98d8118",
+    "3127-final-2e7753c158-attempt-1/run.json": "832a123422966cb2cb2ca184ca6ab5ef8dc6d76a6fe765760f1a087c1f58e587",
+    "3127-final-2e7753c158-attempt-1/smithers-sql-reports-Be2qdW-blobs_sqlite.json.gz": "5b3067b6050c29f521cb28dbfd42ae87de0ee444a53dfcc43e1f51a4b0f57139",
+    "3127-final-2e7753c158-attempt-2/stderr.log": "1aa0f6920bcba67b98dea6ff45738ad0de67a6ad4c9f3aea027321dff9caf9b2",
+    "3127-final-2e7753c158-attempt-2/source-before.json": "b188f4a8f4bc7fed8a005d767db6ca8d39704a69d1622cebb3d4548c6ad993bb",
+    "3127-final-2e7753c158-attempt-2/smithers-sql-reports-5P90ZL-blobs_sqlite.json.gz": "3e47768ebc832ff8c8c4d819670d47be54441e0be7b6b0dbc4314e1465f9d8e9",
+    "3127-final-2e7753c158-attempt-2/source-after.json": "3082c86194e731f0d6f2627653b14ea788f08e4a2eec91d790126fcd6d370eaf",
+    "3127-final-2e7753c158-attempt-2/leg-results.json": "8927a877ed8a7feaaae837b3b7f8c9daed9528225f32d30ab712bba6ac0a20dc",
+    "3127-final-2e7753c158-attempt-2/stdout.log": "7eddcbb1307937bdd8e95fbccf111aadeb896ab1631fcd5e30e3eee9c359eb87",
+    "3127-final-2e7753c158-attempt-2/host-load-summary.json": "8a9fd90e405ee01b14200f0df0ed8fa60d2bb2cecff890d50b5fe7e6faefb9b6",
+    "3127-final-2e7753c158-attempt-2/smithers-sql-reports-5P90ZL-coverage-postgres_coverage-final.json.gz": "2a7bdba2964a3479a6af7d6936abca8b4d58f99fc9b4debb4bf5d50b2301f66a",
+    "3127-final-2e7753c158-attempt-2/smithers-sql-reports-5P90ZL-blobs_postgres.json.gz": "50fd9df1e1fb701732d2fd73b27ae40eac6c1979c86578eff98869649354dfe8",
+    "3127-final-2e7753c158-attempt-2/run.json": "2800f438463f7d5a9a49750a064cbc2510d86850e18439dd4176438b81133075",
+    "3127-final-2e7753c158-attempt-2/smithers-sql-reports-5P90ZL-coverage-sqlite_coverage-final.json.gz": "cc1407540761de335450fccb2085e0ec18cbcf6538674df640660d41fc56c8c2",
+    "3127-final-attempt-1.mjs": "6d27995d49051863d5d203b4345f758e540b2f1d3e2f3636065a3c96365b762e",
+    "3127-final-attempt-2.mjs": "e5104a18ae052525f2bd56b8ea72babba124d3baf5ccd17a7faf8453697c81ca"
+  },
+  "cleanup": "Stock report dirs cleaned by unchanged runner; existing shared PostgreSQL server left running; no IPC/native artifacts touched"
+}

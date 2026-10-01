@@ -113,6 +113,36 @@ describe("samePayload", () => {
 })
 
 describe("RunDriver missing and foreign rows", () => {
+  it.effect("a store fault after resume authorization defects before claiming or executing the run", () =>
+    withCrypto(provideJournal(Effect.gen(function*() {
+      const base = yield* RunStore.RunStore
+      yield* base.create("read-fault-after-authorization", stateJson(EdgeFlow._tag))
+      let reads = 0
+      let executions = 0
+      const broken = RunStore.makeNoop({
+        ...base,
+        get: (runId) =>
+          Effect.suspend(() => {
+            reads++
+            return reads === 1 ? base.get(runId) : Effect.fail(storeError("persistence_failed", "get"))
+          })
+      })
+      const driver = yield* makeDriver().pipe(Effect.provideService(RunStore.RunStore, broken))
+      yield* driver.register(EdgeFlow, () =>
+        Effect.sync(() => {
+          executions++
+          return "wrong"
+        }))
+      const exit = yield* Effect.exit(driver.resume(EdgeFlow, "read-fault-after-authorization", { poll: true }))
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect(Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined).toMatchObject({
+        code: "persistence_failed"
+      })
+      expect(reads).toBe(2)
+      expect(executions).toBe(0)
+      expect(yield* base.get("read-fault-after-authorization")).toMatchObject({ status: "pending", owner: null })
+    }))))
+
   it.effect("drives nothing for an execution whose row does not exist", () =>
     Effect.gen(function*() {
       let executions = 0

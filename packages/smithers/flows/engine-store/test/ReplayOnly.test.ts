@@ -17,6 +17,10 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as ReplayOnly from "../src/ReplayOnly.ts"
@@ -24,6 +28,7 @@ import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
+import { remoteTestDatabases } from "./fixtures/RemoteTestDatabase.ts"
 import { withCrypto } from "./Sha256.ts"
 
 const jj = Jj.make({
@@ -126,6 +131,43 @@ const attempt = (stepKeyDigest: string) =>
   )
 
 describe("ReplayOnly", () => {
+  it.effect("a corrupt recorded attempt fails verification without reporting replay or executing its body", () =>
+    withCrypto(Effect.scoped(Effect.gen(function*() {
+      const directory = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "replay-corruption-")))
+      const databases = remoteTestDatabases(directory)
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          try {
+            await databases.close()
+          } finally {
+            await rm(directory, { recursive: true, force: true })
+          }
+        })
+      )
+      return yield* Effect.gen(function*() {
+        const { ran, action } = bodies()
+        const recorded = action("ReplayOnly/corrupt", "sealed")
+        yield* park(recorded)
+        const sql = yield* SqlClient.SqlClient
+        // Model damaged persisted bytes, which normal writes correctly reject.
+        yield* TestDatabase.checks(sql, false)
+        yield* sql`UPDATE flows_attempts SET meta_json = '{' WHERE run_id = 'verified'`.pipe(
+          Effect.ensuring(TestDatabase.checks(sql, true).pipe(Effect.orDie))
+        )
+        const { seen, row } = yield* verify(recorded)
+        expect(row.status).toBe("failed")
+        expect(seen).toEqual([])
+        expect(ran).toEqual(["ReplayOnly/corrupt"])
+        expect(JSON.stringify(JSON.parse(row.stateJson).result)).toContain("decode_failed")
+      }).pipe(
+        Effect.provideService(DurableEngineState.DurableEngineState, DurableEngineState.makeMemory()),
+        Effect.provideService(Jj.Jj, jj),
+        Effect.provide(StepBoundary.layerTest()),
+        Effect.provide(TestStores.layerAt(databases.filename("corrupt-attempt"))),
+        Effect.provide(TestClock.layer())
+      )
+    }))))
+
   it.effect("an unchanged flow replays every recorded step and parks where it was", () =>
     run(Effect.gen(function*() {
       const { ran, action } = bodies()

@@ -55,6 +55,54 @@ const awaitExit = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<Exit.
 
 export const describeContract = (harness: Harness): void => {
   describe(`DurableEngineState contract (${harness.label})`, () => {
+    it.effect("closes every pending run clock in stable flow/name order and preserves other runs", () =>
+      Effect.gen(function*() {
+        const result = yield* harness.run((context) =>
+          Effect.gen(function*() {
+            yield* context.seedRun("closing-clocks", owner)
+            yield* context.seedRun("other-clocks", owner)
+            const clock = {
+              executionId: "closing-clocks",
+              deferredName: "wake",
+              dueAtMs: 1_000,
+              completedAtMs: null
+            }
+            const rows = [
+              { ...clock, flowName: "b", clockName: "a" },
+              { ...clock, flowName: "a", clockName: "z" },
+              { ...clock, flowName: "a", clockName: "a" }
+            ]
+            for (const row of rows) yield* context.state.scheduleClock(row, owner)
+            const already = { ...clock, flowName: "a", clockName: "done" }
+            const other = { ...clock, executionId: "other-clocks", flowName: "a", clockName: "other" }
+            yield* context.state.scheduleClock(already, owner)
+            yield* context.state.completeClock(already, 50)
+            yield* context.state.scheduleClock(other, owner)
+            const completed = yield* context.state.completeRunClocks("closing-clocks", 100)
+            const restarted = yield* context.restart
+            return {
+              rows,
+              completed,
+              repeated: yield* restarted.completeRunClocks("closing-clocks", 200),
+              after: yield* Effect.forEach(rows, (row) => restarted.clock(row)),
+              already: yield* restarted.clock(already),
+              other: yield* restarted.clock(other)
+            }
+          })
+        )
+        expect(result.completed).toEqual([result.rows[2], result.rows[1], result.rows[0]].map((row) => ({
+          ...row,
+          completedAtMs: 100
+        })))
+        expect(result.repeated).toEqual([])
+        expect(result.after.map(Option.getOrThrow)).toEqual(result.rows.map((row) => ({
+          ...row,
+          completedAtMs: 100
+        })))
+        expect(Option.getOrThrow(result.already).completedAtMs).toBe(50)
+        expect(Option.getOrThrow(result.other).completedAtMs).toBeNull()
+      }))
+
     it.effect("round-trips a park through waiting and wake, surviving a restart", () =>
       Effect.gen(function*() {
         const result = yield* harness.run((context) =>

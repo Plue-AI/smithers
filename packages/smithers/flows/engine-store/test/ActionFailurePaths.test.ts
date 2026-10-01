@@ -21,6 +21,7 @@ import * as Option from "effect/Option"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
+import type * as ReplayOnly from "../src/ReplayOnly.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as StepSandbox from "../src/StepSandbox.ts"
 import * as TestStores from "../src/test/TestStores.ts"
@@ -147,6 +148,54 @@ const settleCause = (runId: string, cause: Cause.Cause<unknown>) => {
 const settleDefect = (runId: string, defect: unknown) => settleCause(runId, Cause.die(defect))
 
 describe("action executor failure paths", () => {
+  for (const mode of ["defect", "interruption"] as const) {
+    it.effect(`does not report replay when the persisted attempt read ends in ${mode}`, () =>
+      run(Effect.gen(function*() {
+        const runId = `replay-read-${mode}`
+        yield* activate(runId, ownerA)
+        const attempts = yield* AttemptStore.AttemptStore
+        const fault = new Error("persisted attempt unavailable")
+        let reads = 0
+        let executions = 0
+        const observed: Array<ReplayOnly.Dispatch> = []
+        // Only the failure is injected: ownership, journal and cache stay real.
+        const failing = AttemptStore.AttemptStore.of({
+          ...attempts,
+          get: () =>
+            Effect.suspend(() => {
+              reads++
+              return mode === "defect" ? Effect.die(fault) : Effect.interrupt
+            })
+        })
+        const key = `failure/${runId}`
+        const exit = yield* ActionPersistence.make({
+          runId,
+          owner: ownerA,
+          sourceId: runId,
+          replayOnly: { observe: (dispatch) => Effect.sync(() => void observed.push(dispatch)) },
+          execute: () =>
+            Effect.sync(() => {
+              executions++
+              return "wrong"
+            })
+        })(input(key)).pipe(Effect.provideService(AttemptStore.AttemptStore, failing), Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(mode === "defect" ? Cause.squash(exit.cause) : Cause.hasInterruptsOnly(exit.cause)).toBe(
+            mode === "defect" ? fault : true
+          )
+        }
+        expect(reads).toBe(1)
+        expect(executions).toBe(0)
+        expect(observed).toEqual([])
+        expect(yield* attempts.get({ runId, stepKeyDigest: sha256(key), attempt: 1 })).toEqual(Option.none())
+        const cache = yield* CacheStore.CacheStore
+        expect(yield* cache.get(sha256(key))).toEqual(Option.none())
+        const runs = yield* RunStore.RunStore
+        expect((yield* runs.get(runId)).owner).toEqual(ownerA)
+      })))
+  }
+
   it.effect("records a failed finish and journals a failed attempt-finished when execute fails", () =>
     Effect.gen(function*() {
       const key = "failure/execute"

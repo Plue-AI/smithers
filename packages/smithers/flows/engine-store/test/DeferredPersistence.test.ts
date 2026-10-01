@@ -90,6 +90,39 @@ const build = (
   )
 
 describe("DeferredPersistence", () => {
+  it.effect("two armed timer services complete the clock once and keep both deliveries idempotent", () =>
+    withCrypto(
+      Effect.scoped(Effect.gen(function*() {
+        const state = DurableEngineState.makeMemory()
+        const events: Array<string> = []
+        const resumes: Array<string> = []
+        const journal = makeJournal(events)
+        const first = yield* build(state, journal, resumes)
+        const second = yield* build(state, journal, resumes)
+        const clock = DurableClock.make({ name: "competing", duration: "1 second" })
+        yield* first.scheduleClock(TestFlow, { executionId: "competing-timers", clock })
+        yield* second.scheduleClock(TestFlow, { executionId: "competing-timers", clock })
+        yield* TestClock.adjust("1 second")
+        yield* TestDatabase.until(Effect.sync(() => resumes.length === 2))
+        const address = { flowName: TestFlow._tag, executionId: "competing-timers", clockName: clock.name }
+        expect(Option.getOrThrow(yield* state.clock(address)).completedAtMs).toBe(1_000)
+        expect(
+          Option.getOrThrow(
+            yield* state.deferred({
+              ...address,
+              deferredName: clock.deferred.name
+            })
+          ).exit
+        ).toEqual(Exit.void)
+        expect(resumes).toEqual(["competing-timers:clock", "competing-timers:clock"])
+        expect(events.filter((event) => event === "emit:flows.engine.clock-completed")).toHaveLength(1)
+        expect(events.filter((event) => event === "emit:flows.engine.deferred-completed")).toHaveLength(1)
+        yield* TestClock.adjust("1 second")
+        yield* Effect.yieldNow
+        expect(resumes).toHaveLength(2)
+      })).pipe(Effect.provide(TestClock.layer()))
+    ))
+
   it.effect("rehydrates valid exits and leaves malformed lookalikes inert", () =>
     Effect.gen(function*() {
       const state = DurableEngineState.makeMemory()
