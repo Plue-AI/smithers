@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-01T03:39:25.117200+00:00",
+  "candidateHead": "b80c11079b01db39dad6ca252c32a8228a70040b",
+  "ownedSourceFrozen": true,
+  "ownedFiles": {
+    "packages/smithers/agent/src/AgentSession.ts": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+    "packages/smithers/agent/test/AgentSessionFailures.test.ts": "f28ff58d6e4b32c56bff258219233bcf3589eb5833cdea33ca8e7835a1850f15"
+  },
+  "readyIssues": [
+    3262,
+    3167
+  ],
+  "readiness": {
+    "3262": {
+      "ready": true,
+      "behavior": "Already-settled body failures skip duplicate launch logging/writes; successful settlement marker follows actual write/scheduling. Distinct pending-settlement state preserves bounded shutdown grace; interrupt-only driver causes remain interrupts. Inline write failures log original cause and propagate."
+    },
+    "3167": {
+      "ready": true,
+      "behavior": "Per-execution registered handler settles non-interrupt pre-body failures without a surviving launch driver, using actual executionId and existing fenced writer. Live-owner/canceled controls write no failed status; failed terminal persistence remains visible and uncommitted."
+    },
+    "3235": {
+      "ready": false,
+      "reason": "Complete current named four-file CLI suite still running; current EndToEnd16 upstream proof retained, no fixture edits made",
+      "runningReceipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/named-cli-final-grace.log"
+    }
+  },
+  "checks": [
+    {
+      "name": "unit-and-independent-process-boundary",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/AgentSessionFailures.test.ts",
+        "test/CompletedRunPersistsAcrossProcesses.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 79,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-controls.log",
+      "sha256": "c8b06be83a0634ed3188068b15b03f0c380178d493bdaf53790193d892b47df0"
+    },
+    {
+      "name": "actual-CLI-failed-turn",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "-t",
+        "exits 1 for a run that settled failed|settles a failed launch with one terminal write|prints one operator-facing warning for one refusal|prints one operator-facing warning for one canonical agent refusal",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 4,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/bin-failed-turn-final-grace.log",
+      "sha256": "939a9ffe6cff05a5749eb20d5b8dacf6da10dabd047f1283b18b211f42a7d2ec"
+    },
+    {
+      "name": "agent-source-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "agent-full-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "CLI-full-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-cli-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "lint",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "eslint",
+        "src/AgentSession.ts",
+        "--max-warnings=0"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "format",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "src/AgentSession.ts",
+        "test/AgentSessionFailures.test.ts"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "owning-emitted-declarations",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--emitDeclarationOnly",
+        "--declarationMap",
+        "false",
+        "--outDir",
+        "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/agent-final-grace-declarations"
+      ],
+      "exitCode": 0,
+      "passed": 41,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-declarations.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "independentCases": [
+    "Detached real-memory-engine resume + one transient control fence read fault produces one failed control fact and zero body entries",
+    "Detached live-owner refusal stays Suspended and writes no failed status",
+    "Detached canceled control row stops body and writes no status",
+    "Detached terminal write refusal keeps control running, emits no failed lifecycle event, logs original write error",
+    "Inline terminal write refusal propagates through real attached driver and successful fallback records failed",
+    "Actual canonical Flow.make + AgentAction subprocess vendor failure exits1 with one WARN, no duplicate ERROR, two failed SQLite engine rows, one control.run.failed event",
+    "Actual cross-process completed engine rows survive launcher scope teardown and successor cannot reactivate/rebill them"
+  ],
+  "declarations": {
+    "actual": 41,
+    "matchedAdmittedNormalizedHashes": 41,
+    "changed": 0,
+    "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/agent-final-grace-declaration-comparison.json",
+    "limits": "Owning agent emission only, no full50/JS/pack rebuild"
+  },
+  "inputAudit": {
+    "criticalFiles": 198,
+    "changes": [],
+    "nativeHelper": {
+      "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+      "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655",
+      "provenance": "Existing absolute helper; no source rebuild or all-platform ABI qualification"
+    }
+  },
+  "rawReceipts": {
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/3167-owning-red.log": "4e918e5943b2855d2b6195d1c7e24ce56a1585020a05e64ef7f906768932e072",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/3262-owning-red.log": "db3a61ffeb8812e4fd049f6dc316813275a9af29f589f8cf9d6950948ed62d69",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/agent-final-grace-declaration-comparison.json": "70202afd9562769961638518f9a7d4506b4768005f21f531280bf1ca14d6abf6",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/bin-failed-turn-final-grace.log": "939a9ffe6cff05a5749eb20d5b8dacf6da10dabd047f1283b18b211f42a7d2ec",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/failures-driver-joined.log": "f6d25f484dd33d9643cb3b28eca39ce07cff640f38291834ed34a0f99cd2a343",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/failures-green.log": "c44c312d528049c4d257cfcf184d9ac99e9b50a15f17cac95e67ac4efc198008",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-declarations.log": "1682d1a0b7727ca6b73d57af8bca765b4db32263a09732a06b7bdac76c6c7d98",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-cli-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-controls.log": "c8b06be83a0634ed3188068b15b03f0c380178d493bdaf53790193d892b47df0",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-declarations.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-source-inputs-before.json": "58b99dc18df2375463d33b57e4a6645b3d05d724f3b0665584602faec9f87051",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-source-inputs-current.json": "92eeeb027d33e0f3058dc6da31c90915993396b6ba5c9024777bbe371fa6855f",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-test-types-v2.log": "c4cfc3804c17dab3305e1e799ca21bcbdfc68c18d89ebba0341235b6ffb5cf64",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/full-agent-configured-coverage.log": "e057650ad274864b99521c917bc442c124ae6c8d333a780fc6df026dff8920fb",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/independent-golden-mismatch.json": "91bd08c6515b215d99d640f5302256fc90ae1f028328406f0d1f8c09e900f304",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/prebody-authority-controls-corrected.log": "670a46d6f6db39f8bde5a5cdb571840ef6db3a9fda0dbad0b134fc97fcbc4f6e",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/prebody-authority-controls.log": "6935c6d25bf5d175873372b58ab1b6268d5b8ba922e3fead6f12dc5d5fd6058e",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/process-persistence-diagnosis.log": "fe42dabfc39d41a61f4e6baa57f954a68487cb467e7670294e06c0ac2db8372d",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-triage-8820709/3167-current-prebody-red.log": "3f9d6b74b33619333b1012c3e7c58914103f5f02535354aef92dc8e3db2fbfe9",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-triage-8820709/bin-failed-turn-current.log": "f740c24a00b9099c89f889488dbd6718527250c6f260201d2a280ea442a5b9b5",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-triage-8820709/read-only-triage-evidence.json": "7b8e9edb40a2ad4c732cc8f44faf6eb948636b4d5f5bec9d54f758310b45650d"
+  },
+  "qualificationLimits": [
+    "No final whole-agent100% coverage claim. Configured aggregate interrupted before final grace correction; independent golden3 remain red with separate canonical-material evidence and no repin",
+    "Original introduced early-marker finalizer race and incorrect Effect helper draft diagnostics retained; only final corrected46861429 production is ready",
+    "Control-store fault collaborator is intentional mock exception; durable memory engine and actual CLI/SQLite process boundaries are real",
+    "No wholeCLI suite green yet; no fresh full release build/all-platform/native rebuild claim"
+  ],
+  "sharedHunks": {
+    "3262": [
+      "Driver suppression before duplicate log, interrupt preservation",
+      "Drive.settling/settled and finalizer grace",
+      "Successful settlement marker + inline write failure propagation/diagnostic",
+      "Logger assertion/attached inline-write regression"
+    ],
+    "3167": [
+      "Per-execution registered handler pre-body exit hook through same settleAttempt",
+      "Four detached memory-engine storage/owner/cancel/write fault controls"
+    ]
+  }
+}

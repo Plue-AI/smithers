@@ -1,0 +1,180 @@
+{
+  "issues": [
+    3262,
+    3167
+  ],
+  "status": "Qualified coupled agent settlement change; root reviewed source, independent tests and every retained source/raw/archive hash. Landing requires incorporation of incoming main.",
+  "candidateHead": "b80c11079b01db39dad6ca252c32a8228a70040b",
+  "ownedFiles": {
+    "packages/smithers/agent/src/AgentSession.ts": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+    "packages/smithers/agent/test/AgentSessionFailures.test.ts": "f28ff58d6e4b32c56bff258219233bcf3589eb5833cdea33ca8e7835a1850f15"
+  },
+  "behavior": {
+    "3262": "Already-settled body failures skip duplicate launch logging/writes; successful settlement marker follows actual write/scheduling. Distinct pending-settlement state preserves bounded shutdown grace; interrupt-only driver causes remain interrupts. Inline write failures log original cause and propagate.",
+    "3167": "Per-execution registered handler settles non-interrupt pre-body failures without a surviving launch driver, using actual executionId and existing fenced writer. Live-owner/canceled controls write no failed status; failed terminal persistence remains visible and uncommitted."
+  },
+  "validation": [
+    {
+      "name": "unit-and-independent-process-boundary",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/AgentSessionFailures.test.ts",
+        "test/CompletedRunPersistsAcrossProcesses.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 79,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-controls.log",
+      "sha256": "c8b06be83a0634ed3188068b15b03f0c380178d493bdaf53790193d892b47df0"
+    },
+    {
+      "name": "actual-CLI-failed-turn",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "-t",
+        "exits 1 for a run that settled failed|settles a failed launch with one terminal write|prints one operator-facing warning for one refusal|prints one operator-facing warning for one canonical agent refusal",
+        "--coverage.enabled=false"
+      ],
+      "exitCode": 0,
+      "passed": 4,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/bin-failed-turn-final-grace.log",
+      "sha256": "939a9ffe6cff05a5749eb20d5b8dacf6da10dabd047f1283b18b211f42a7d2ec"
+    },
+    {
+      "name": "agent-source-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "agent-full-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "CLI-full-test-types",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-cli-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "lint",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "eslint",
+        "src/AgentSession.ts",
+        "--max-warnings=0"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "format",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "src/AgentSession.ts",
+        "test/AgentSessionFailures.test.ts"
+      ],
+      "exitCode": 0,
+      "passed": null,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "owning-emitted-declarations",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--emitDeclarationOnly",
+        "--declarationMap",
+        "false",
+        "--outDir",
+        "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/agent-final-grace-declarations"
+      ],
+      "exitCode": 0,
+      "passed": 41,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/final-grace-declarations.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "independentCases": [
+    "Detached real-memory-engine resume + one transient control fence read fault produces one failed control fact and zero body entries",
+    "Detached live-owner refusal stays Suspended and writes no failed status",
+    "Detached canceled control row stops body and writes no status",
+    "Detached terminal write refusal keeps control running, emits no failed lifecycle event, logs original write error",
+    "Inline terminal write refusal propagates through real attached driver and successful fallback records failed",
+    "Actual canonical Flow.make + AgentAction subprocess vendor failure exits1 with one WARN, no duplicate ERROR, two failed SQLite engine rows, one control.run.failed event",
+    "Actual cross-process completed engine rows survive launcher scope teardown and successor cannot reactivate/rebill them"
+  ],
+  "declarations": {
+    "actual": 41,
+    "matchedAdmittedNormalizedHashes": 41,
+    "changed": 0,
+    "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-ac307f1d5e/agent-final-grace-declaration-comparison.json",
+    "limits": "Owning agent emission only, no full50/JS/pack rebuild"
+  },
+  "limits": [
+    "No final whole-agent100% coverage claim. Configured aggregate interrupted before final grace correction; independent golden3 remain red with separate canonical-material evidence and no repin",
+    "Original introduced early-marker finalizer race and incorrect Effect helper draft diagnostics retained; only final corrected46861429 production is ready",
+    "Control-store fault collaborator is intentional mock exception; durable memory engine and actual CLI/SQLite process boundaries are real",
+    "No wholeCLI suite green yet; no fresh full release build/all-platform/native rebuild claim"
+  ],
+  "archive": {
+    "file": "3262-3167-evidence.tar.gz",
+    "sha256": "5f3655461826b2a14398d87c39b5a5f9a0a313ffac1345788ffa479bb1ae9463"
+  },
+  "readinessSha256": "b3cb7f20cb16a433ff85c667f81f1348311fbe470f5fccbc5904a74aa62c268c",
+  "rootReview": "Successful inline writes or owned ordered scheduling establish settled. Separate settling state protects bounded finalizer grace without accepting failed persistence. Engine resurfaced body cause produces no duplicate launch warning/write. Detached pre-body failures use actual execution identity and existing claim fence; cancellation/live owner never grant write authority."
+}

@@ -1580,7 +1580,10 @@ const budgetStops = () => {
       for (const entry of entries) {
         if (entry.eventType === "control.approval.requested") {
           const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
-          if (Option.isSome(fact) && fact.value.incident !== undefined && fact.value.requestId.startsWith(budgetRequestPrefix)) {
+          if (
+            Option.isSome(fact) && fact.value.incident !== undefined &&
+            fact.value.requestId.startsWith(budgetRequestPrefix)
+          ) {
             incidents.set(fact.value.requestId, fact.value.incident)
           }
         } else if (entry.eventType === "control.approval.denied") {
@@ -2943,7 +2946,21 @@ export const make = (
         Effect.ensuring(releaseSandbox(runId))
       )
       const order = options.orderTerminalStatus
-      if (order === undefined) return write
+      if (order === undefined) {
+        return write.pipe(
+          // A recovered round may have no launch driver to report its refusal.
+          // Keep the write's original cause visible without accepting settlement.
+          Effect.catchCause((cause) =>
+            Effect.andThen(
+              Effect.annotateLogs(
+                Effect.logError("A terminal control status could not be written"),
+                { runId, status, cause: Cause.pretty(cause) }
+              ),
+              Effect.failCause(cause)
+            )
+          )
+        )
+      }
       return Effect.sync(() => {
         const key = {}
         terminalWrites.set(
@@ -3106,7 +3123,8 @@ export const make = (
           return held.selection === selection ? Effect.succeed(held.run) : Effect.fail(
             new LaunchFailed({
               runId,
-              message: `Flow ${descriptor.name} changed its sandbox selection; this run keeps the machine it started on`,
+              message:
+                `Flow ${descriptor.name} changed its sandbox selection; this run keeps the machine it started on`,
               cause: new SandboxRefused({
                 provider: descriptor.sandbox?.provider ?? "none",
                 reason: "options",
@@ -3581,6 +3599,8 @@ export const make = (
 
     /** One launched run's drive, for as long as this composition owns its fiber. */
     interface Drive {
+      /** An exit is writing its outcome; scope closure must let it finish. */
+      settling: boolean
       /**
        * Whether the flow body has exited without parking, leaving only the
        * engine's own terminal write.
@@ -3632,7 +3652,7 @@ export const make = (
      */
     const releaseDrive = (drive: Drive, fiber: Fiber.Fiber<unknown, unknown>): Effect.Effect<void> =>
       Effect.suspend(() =>
-        drive.settled
+        drive.settled || drive.settling
           ? Effect.andThen(
             Effect.ignore(Effect.timeout(Fiber.await(fiber), settlementGrace)),
             Fiber.interrupt(fiber)
@@ -3696,12 +3716,13 @@ export const make = (
         )
       }).pipe(
         Effect.catchCause((cause) =>
-          settleDriverFailure(cause, runId, (detail) =>
-            // A body that exited has already recorded its own terminal status
-            // through `settle`; the engine only re-surfaces its failure here.
-            // Writing again lost the claim and logged a settlement error for a
-            // status that was written (#3262).
-            launchedDrives.get(runId)?.settled === true ? Effect.void : settleTerminal(runId, "failed", detail))
+          // The engine re-surfaces a body's failure after its settlement.
+          // That is neither a new launch failure nor another status write.
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : launchedDrives.get(runId)?.settled === true
+            ? Effect.void
+            : settleDriverFailure(cause, runId, (detail) => settleTerminal(runId, "failed", detail))
         )
       )
 
@@ -4012,139 +4033,159 @@ export const make = (
       )
 
     yield* engine.register(agentFlow, (input) =>
-      Effect.gen(function*() {
-        const instance = yield* FlowRuntime.FlowInstance
-        // A fork copies the parent's input, but belongs to its own execution.
-        // Never settle or send approvals to the parent named by copied data.
-        const payload = { ...input, runId: instance.executionId }
-        // A run the control plane has already settled is finished here without
-        // being executed again.
-        //
-        // A launcher killed between the two settlement writes leaves the
-        // engine row `suspended`/`released` with no result, and that row is
-        // reclaimable by design: `RunDriver.sweepCancelRequested` wakes every
-        // released row once per heartbeat, in EVERY process that opened the
-        // same `engine.db`. Without this guard each of them re-enters the
-        // agent body: the release validation counted ten processes replaying run-1,
-        // 162 journal events against 36 for an untouched run, and a token
-        // total six times the truth. Returning here records a terminal
-        // result instead, which is the one write the row is missing, so the
-        // next `gc` can collect it. The control row is the run's outcome of
-        // record and is not rewritten.
-        const controlRun = yield* controlRunBeforeRound(payload.runId)
-        if (controlRun !== undefined && ["completed", "failed", "cancelled"].includes(controlRun.status)) return []
-        // The approved deadline counts from the run's acceptance, which the
-        // control record holds durably, so every round and every process that
-        // drives the run reads the same bound. Its clock wakes a parked run at
-        // the deadline, and an expired run skips the park guard below so the
-        // body settles it as `deadline_exceeded` through the ordinary settlement.
-        const deadline = controlRun?.deadlineAt === undefined
-          ? undefined
-          : yield* Deadline.start({
-            flowName: agentFlow._tag,
-            deadline: controlRun.deadlineAt - controlRun.createdAt,
-            startedAtMs: controlRun.createdAt
-          })
-        const expired = deadline !== undefined && (yield* Deadline.remainingMs(deadline)) <= 0
-        const reclaimControl = claimForResume(payload.runId).pipe(
-          // Admission and the engine claim are separate transactions. A peer
-          // can acquire the control fence between them; losing that race is
-          // a release, never a terminal failure that cancels this run's children.
-          Effect.catchTag("/control/ClaimLost", () =>
-            Effect.andThen(
-              FlowRuntime.annotateWaiting({ reason: "released" }),
-              Flow.suspend(instance)
-            ))
-        )
-        // The engine follows a discarded execution through later rounds in
-        // the registration scope. Such a round can start before the control
-        // resume bridge runs; its previous park released the control fence.
-        // Only the hosting session may reclaim that record before executing.
-        //
-        // The delegation is what makes a round a resume. Without it the round
-        // re-entered the body of a run nobody had answered: the executor
-        // claimed the park, replayed every settled frame, and suspended on the
-        // same ask again, once per heartbeat, for as long as the run waited on
-        // a human. `Control.approve` records the delegation before it hands
-        // the decision over, so the approval a park is waiting on always
-        // arrives with one; a bare `Control.resume` claims the row itself and
-        // reaches this round on a status that no longer parks. An unrequested
-        // round therefore has nothing to drive, and driving it anyway made the
-        // incarnation that consumed the operator's decision one that had read
-        // the run's durable history before the operator touched it.
-        if (controlRun !== undefined && parks(controlRun.status) && expired) {
-          yield* reclaimControl
-        } else if (controlRun !== undefined && parks(controlRun.status)) {
-          const pending = (yield* runtime.pendingResumes).find((entry) => entry.runId === payload.runId)
-          if (
-            pending === undefined ||
-            !(yield* hostsPark(payload.runId, { _tag: "delegated", requestedAtMs: pending.requestedAtMs }))
-          ) {
-            // A trampoline poll may re-enter a parked timer before its durable
-            // deadline. Keep the timer classification so the host still sees
-            // the real wake; only the clock completion records a delegation.
-            const clocks = controlRun.status === "parked"
-              ? yield* engineState.pendingClocks({ executionId: payload.runId })
-              : []
-            const prior = Option.getOrUndefined(yield* engineState.waiting(payload.runId)) ??
-              (yield* pendingApprovalWait(payload.runId))
-            yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
-            return yield* Flow.suspend(instance)
-          }
-          yield* reclaimControl
-          // One answer buys one re-drive. The delegation is durable and only a
-          // host clears it, and this round IS the host taking it up: left
-          // standing it would re-drive the run's NEXT park too, which is the
-          // unrequested round this guard exists to refuse. The sequence check
-          // keeps a resume requested since this read.
-          yield* runtime.clearResume(payload.runId, pending.sequence)
-        } else if (controlRun !== undefined) {
-          // A running run this process does not own is one the engine took
-          // over from a host that died mid-run: it re-drives an execution only
-          // after its owner's lease expired. The control record still names
-          // the dead host, and every status write is fenced on it, so the run
-          // is claimed here before it executes; a live owner refuses.
-          const owned = yield* runtime.claimFence(payload.runId).pipe(
-            Effect.as(true),
-            Effect.catchTag("/control/ClaimLost", () => Effect.succeed(false))
-          )
-          if (!owned) yield* reclaimControl
-        }
-        const fiber = yield* Effect.forkChild(
-          body(payload, instance).pipe(
-            Deadline.within(deadline, agentFlow._tag),
-            Effect.withSpan("smithers.run", {
-              parent: runTraceParent(payload.runId),
-              attributes: { "smithers.run_id": payload.runId, "gen_ai.conversation.id": payload.runId }
+      Effect.suspend(() => {
+        let registeredInstance: FlowRuntime.FlowInstance["Service"] | undefined
+        let bodyStarted = false
+        const settleAttempt = (instance: FlowRuntime.FlowInstance["Service"], exit: Exit.Exit<unknown, unknown>) =>
+          Effect.andThen(
+            Effect.sync(() => {
+              // Control observers can close the scope before its write returns.
+              // Grace protects this attempt without declaring a successful write.
+              const drive = launchedDrives.get(instance.executionId)
+              if (drive !== undefined) drive.settling = !instance.suspended
             }),
-            Effect.onExit((exit) =>
+            settle(instance.executionId, instance.suspended, exit, instance.waiting?.reason).pipe(
+              Effect.andThen(Effect.sync(() => {
+                const drive = launchedDrives.get(instance.executionId)
+                if (drive !== undefined) drive.settled = !instance.suspended
+              }))
+            )
+          )
+        return Effect.gen(function*() {
+          const instance = yield* FlowRuntime.FlowInstance
+          registeredInstance = instance
+          // A fork copies the parent's input, but belongs to its own execution.
+          // Never settle or send approvals to the parent named by copied data.
+          const payload = { ...input, runId: instance.executionId }
+          // A run the control plane has already settled is finished here without
+          // being executed again.
+          //
+          // A launcher killed between the two settlement writes leaves the
+          // engine row `suspended`/`released` with no result, and that row is
+          // reclaimable by design: `RunDriver.sweepCancelRequested` wakes every
+          // released row once per heartbeat, in EVERY process that opened the
+          // same `engine.db`. Without this guard each of them re-enters the
+          // agent body: the release validation counted ten processes replaying run-1,
+          // 162 journal events against 36 for an untouched run, and a token
+          // total six times the truth. Returning here records a terminal
+          // result instead, which is the one write the row is missing, so the
+          // next `gc` can collect it. The control row is the run's outcome of
+          // record and is not rewritten.
+          const controlRun = yield* controlRunBeforeRound(payload.runId)
+          if (controlRun !== undefined && ["completed", "failed", "cancelled"].includes(controlRun.status)) return []
+          // The approved deadline counts from the run's acceptance, which the
+          // control record holds durably, so every round and every process that
+          // drives the run reads the same bound. Its clock wakes a parked run at
+          // the deadline, and an expired run skips the park guard below so the
+          // body settles it as `deadline_exceeded` through the ordinary settlement.
+          const deadline = controlRun?.deadlineAt === undefined
+            ? undefined
+            : yield* Deadline.start({
+              flowName: agentFlow._tag,
+              deadline: controlRun.deadlineAt - controlRun.createdAt,
+              startedAtMs: controlRun.createdAt
+            })
+          const expired = deadline !== undefined && (yield* Deadline.remainingMs(deadline)) <= 0
+          const reclaimControl = claimForResume(payload.runId).pipe(
+            // Admission and the engine claim are separate transactions. A peer
+            // can acquire the control fence between them; losing that race is
+            // a release, never a terminal failure that cancels this run's children.
+            Effect.catchTag("/control/ClaimLost", () =>
               Effect.andThen(
-                Effect.sync(() => {
-                  // A park is not a settlement: the drive follows the parked run
-                  // until a wake re-enters it, so a closing scope has no
-                  // terminal write of the engine's to wait for (#3210).
-                  const drive = launchedDrives.get(payload.runId)
-                  if (drive !== undefined) drive.settled = !instance.suspended
-                }),
-                settle(payload.runId, instance.suspended, exit, instance.waiting?.reason)
-              )
+                FlowRuntime.annotateWaiting({ reason: "released" }),
+                Flow.suspend(instance)
+              ))
+          )
+          // The engine follows a discarded execution through later rounds in
+          // the registration scope. Such a round can start before the control
+          // resume bridge runs; its previous park released the control fence.
+          // Only the hosting session may reclaim that record before executing.
+          //
+          // The delegation is what makes a round a resume. Without it the round
+          // re-entered the body of a run nobody had answered: the executor
+          // claimed the park, replayed every settled frame, and suspended on the
+          // same ask again, once per heartbeat, for as long as the run waited on
+          // a human. `Control.approve` records the delegation before it hands
+          // the decision over, so the approval a park is waiting on always
+          // arrives with one; a bare `Control.resume` claims the row itself and
+          // reaches this round on a status that no longer parks. An unrequested
+          // round therefore has nothing to drive, and driving it anyway made the
+          // incarnation that consumed the operator's decision one that had read
+          // the run's durable history before the operator touched it.
+          if (controlRun !== undefined && parks(controlRun.status) && expired) {
+            yield* reclaimControl
+          } else if (controlRun !== undefined && parks(controlRun.status)) {
+            const pending = (yield* runtime.pendingResumes).find((entry) => entry.runId === payload.runId)
+            if (
+              pending === undefined ||
+              !(yield* hostsPark(payload.runId, { _tag: "delegated", requestedAtMs: pending.requestedAtMs }))
+            ) {
+              // A trampoline poll may re-enter a parked timer before its durable
+              // deadline. Keep the timer classification so the host still sees
+              // the real wake; only the clock completion records a delegation.
+              const clocks = controlRun.status === "parked"
+                ? yield* engineState.pendingClocks({ executionId: payload.runId })
+                : []
+              const prior = Option.getOrUndefined(yield* engineState.waiting(payload.runId)) ??
+                (yield* pendingApprovalWait(payload.runId))
+              yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
+              return yield* Flow.suspend(instance)
+            }
+            yield* reclaimControl
+            // One answer buys one re-drive. The delegation is durable and only a
+            // host clears it, and this round IS the host taking it up: left
+            // standing it would re-drive the run's NEXT park too, which is the
+            // unrequested round this guard exists to refuse. The sequence check
+            // keeps a resume requested since this read.
+            yield* runtime.clearResume(payload.runId, pending.sequence)
+          } else if (controlRun !== undefined) {
+            // A running run this process does not own is one the engine took
+            // over from a host that died mid-run: it re-drives an execution only
+            // after its owner's lease expired. The control record still names
+            // the dead host, and every status write is fenced on it, so the run
+            // is claimed here before it executes; a live owner refuses.
+            const owned = yield* runtime.claimFence(payload.runId).pipe(
+              Effect.as(true),
+              Effect.catchTag("/control/ClaimLost", () => Effect.succeed(false))
+            )
+            if (!owned) yield* reclaimControl
+          }
+          bodyStarted = true
+          const fiber = yield* Effect.forkChild(
+            body(payload, instance).pipe(
+              Deadline.within(deadline, agentFlow._tag),
+              Effect.withSpan("smithers.run", {
+                parent: runTraceParent(payload.runId),
+                attributes: { "smithers.run_id": payload.runId, "gen_ai.conversation.id": payload.runId }
+              }),
+              Effect.onExit((exit) => settleAttempt(instance, exit)),
+              Effect.provide(services)
             ),
-            Effect.provide(services)
-          ),
-          { startImmediately: true }
+            { startImmediately: true }
+          )
+          activeBodies.set(payload.runId, fiber)
+          return yield* Fiber.join(fiber).pipe(
+            Effect.ensuring(Effect.sync(() => {
+              if (activeBodies.get(payload.runId) === fiber) activeBodies.delete(payload.runId)
+            }))
+          )
+        }).pipe(
+          Effect.onExit((exit) => {
+            const instance = registeredInstance
+            // Recovered rounds can outlive the launch driver. Settle their own
+            // pre-body failures, but never turn a release or cancellation race
+            // into terminal permission. The ordinary fenced writer stays final.
+            if (bodyStarted || instance === undefined || Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
+              return Effect.void
+            }
+            return settleAttempt(instance, exit)
+          }),
+          // Pre-body reads and control claims fail through this same boundary.
+          // Preserve their typed fields in the engine's JSON settlement too.
+          // `settle` still observes the body's original failure before conversion.
+          Effect.mapError(settlementFailure)
         )
-        activeBodies.set(payload.runId, fiber)
-        return yield* Fiber.join(fiber).pipe(
-          Effect.ensuring(Effect.sync(() => {
-            if (activeBodies.get(payload.runId) === fiber) activeBodies.delete(payload.runId)
-          }))
-        )
-      }).pipe(
-        // Pre-body reads and control claims fail through this same boundary.
-        // Preserve their typed fields in the engine's JSON settlement too.
-        // `settle` still observes the body's original failure before conversion.
-        Effect.mapError(settlementFailure)
-      )).pipe(Scope.provide(scope))
+      })).pipe(Scope.provide(scope))
 
     // Added after `agent/run` is registered, so a closing scope runs them
     // BEFORE that registration is released. A parked drive is still following
@@ -4317,7 +4358,7 @@ export const make = (
           }
         }
         const start = yield* Deferred.make<void>()
-        const drive: Drive = { settled: false }
+        const drive: Drive = { settling: false, settled: false }
         launchedDrives.set(input.run.runId, drive)
         const fiber = Effect.runForkWith(services)(
           Deferred.await(start).pipe(

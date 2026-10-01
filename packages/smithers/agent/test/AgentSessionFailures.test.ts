@@ -49,8 +49,10 @@ import {
   Exit,
   Fiber,
   Layer,
+  Logger,
   Option,
   PubSub,
+  References,
   Schedule,
   Schema,
   Scope,
@@ -316,6 +318,8 @@ type EngineService = FlowRuntime.FlowRuntime["Service"]
 
 interface ScenarioOptions {
   readonly nowMs?: number
+  readonly logs?: Array<string>
+  readonly logDetails?: Array<Readonly<Record<string, unknown>>>
   readonly abandonedParkAfter?: Duration.Duration | undefined
   readonly canExecute?: AgentSession.Options["canExecute"]
   readonly runs?: Partial<RunStore.Service> | undefined
@@ -371,6 +375,12 @@ const withExecutor = <A>(
       Layer.mergeAll(
         Layer.succeed(Agent.Agent)(options.agent ?? Agent.makeNoop({ run: () => completed })),
         seatLayer,
+        options.logs === undefined ? Layer.empty : Logger.layer([
+          Logger.make((entry) => {
+            options.logs!.push(String(entry.message))
+            options.logDetails?.push(entry.fiber.getRef(References.CurrentLogAnnotations))
+          })
+        ], { mergeWithExisting: false }),
         runtimeLayer(record, options.runtime),
         registryLayer(options.registry),
         options.catalog === undefined ? Layer.empty : Layer.succeed(Executable.Catalog, options.catalog),
@@ -442,12 +452,177 @@ const launched = (
       return { acceptance, status }
     }))
 
+/** Observe the real driver's exit before asserting its terminal journal/logs. */
+const launchedAndJoined = (record: Recorder, options: ScenarioOptions) => {
+  const registered = Deferred.makeUnsafe<Fiber.Fiber<unknown, unknown>>()
+  return withExecutor(record, {
+    ...options,
+    runtime: {
+      ...options.runtime,
+      registerFiber: (_id, fiber) => Deferred.succeed(registered, fiber).pipe(Effect.asVoid)
+    }
+  }, (executor) =>
+    Effect.gen(function*() {
+      const acceptance = yield* executor.launch(launchInput)
+      yield* Fiber.await(yield* Deferred.await(registered)).pipe(Effect.timeout(Duration.seconds(10)))
+      const status = yield* Deferred.await(record.settled).pipe(
+        Effect.timeout(Duration.seconds(10)),
+        Effect.catchCause(() => Effect.succeed("accepted" as RunStatus))
+      )
+      return { acceptance, status }
+    }))
+}
+
 const causeOf = (record: Recorder): string => {
   const failed = record.journaled.find((entry) => entry.eventType === "control.run.failed")
   return String((failed?.payload as { readonly cause?: unknown } | undefined)?.cause)
 }
 
 describe("the executor's control-store seam", () => {
+  it.each(["storage-read", "terminal-write", "live-owner", "cancelled"] as const)(
+    "handles a resumed pre-body boundary without an attached driver (%s)",
+    async (mode) => {
+      const record = recorder()
+      const logs: Array<string> = []
+      const logDetails: Array<Readonly<Record<string, unknown>>> = []
+      const registered = Deferred.makeUnsafe<Fiber.Fiber<unknown, unknown>>()
+      let status: RunStatus = "running"
+      let firstDrive = true
+      let resumed = false
+      let refused = false
+      let agentRuns = 0
+      let observe: EngineService["poll"] | undefined
+      const faulted = Deferred.makeUnsafe<void>()
+      const attemptedWrites: Array<RunStatus> = []
+      const outcome = await withExecutor(record, {
+        logs,
+        logDetails,
+        agent: Agent.makeNoop({
+          run: () => {
+            agentRuns++
+            return completed
+          }
+        }),
+        runtime: {
+          registerFiber: (_id, fiber) => Deferred.succeed(registered, fiber).pipe(Effect.asVoid),
+          getRun: () => Effect.succeed({ ...launchInput.run, status }),
+          resume: () =>
+            Effect.suspend(() => {
+              if (resumed && mode === "live-owner") {
+                return Effect.fail(new ClaimLost({ runId }))
+              }
+              status = "running"
+              return Effect.succeed({ ...launchInput.run, status })
+            }),
+          claimFence: () =>
+            Effect.suspend((): Effect.Effect<string, PersistenceError | ClaimLost> => {
+              if (resumed && !refused) {
+                refused = true
+                Deferred.doneUnsafe(faulted, Effect.void)
+                if (mode === "live-owner") {
+                  return Effect.fail(new ClaimLost({ runId }))
+                }
+                return Effect.fail(
+                  new PersistenceError({
+                    operation: "ControlRuntime.claimFence",
+                    message: "injected resumed pre-body fence read failure"
+                  })
+                )
+              }
+              return Effect.succeed("fence-1")
+            }),
+          writeStatus: (_id, _fence, next) =>
+            Effect.suspend(() => {
+              attemptedWrites.push(next)
+              if (mode === "terminal-write") {
+                return Effect.fail(
+                  new PersistenceError({
+                    operation: "ControlRuntime.writeStatus",
+                    message: "the terminal store is still unavailable"
+                  })
+                )
+              }
+              status = next
+              record.statuses.push(next)
+              return Effect.succeed({ ...launchInput.run, status })
+            })
+        },
+        engine: (engine) => {
+          observe = engine.poll
+          return {
+            ...engine,
+            execute: (flow, options) =>
+              Effect.suspend(() => {
+                if (firstDrive) {
+                  firstDrive = false
+                  // The real engine registers and parks the round without entering
+                  // the body. Only its control-store collaborator is simulated.
+                  status = "waiting-approval"
+                }
+                return engine.execute(flow, options)
+              }),
+            resume: (flow, executionId) =>
+              Effect.suspend(() => {
+                resumed = true
+                if (mode === "cancelled") status = "cancelled"
+                return engine.resume(flow, executionId)
+              })
+          }
+        }
+      }, (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch(launchInput)
+          const poll = () =>
+            observe!(AgentSession.agentFlow, runId).pipe(
+              Effect.catchTag("@smthrs/flow/FlowExecutionNotFound", () => Effect.succeed(Option.none()))
+            )
+          const parked = yield* Effect.suspend(poll).pipe(
+            Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced("10 millis") }),
+            Effect.timeout(Duration.seconds(10))
+          )
+          expect(parked).toEqual(Option.some(expect.objectContaining({ _tag: "Suspended" })))
+          // Recovery must work after the original launch driver has gone away;
+          // a still-attached driver can otherwise settle this resumed failure.
+          yield* Fiber.interrupt(yield* Deferred.await(registered))
+          const uptake = yield* executor.resumeRun({ runId })
+          if (mode !== "cancelled") yield* Deferred.await(faulted).pipe(Effect.timeout(Duration.seconds(10)))
+          const result = yield* Effect.suspend(poll).pipe(
+            Effect.repeat({
+              until: (value) =>
+                Option.isSome(value) && value.value._tag === (mode === "live-owner" ? "Suspended" : "Complete"),
+              schedule: Schedule.spaced("10 millis")
+            }),
+            Effect.timeout(Duration.seconds(10))
+          )
+          return { uptake, result, status }
+        }))
+      expect(outcome.uptake).toBe("resuming")
+      expect(refused).toBe(mode !== "cancelled")
+      expect(agentRuns).toBe(0)
+      if (mode === "live-owner") {
+        expect(outcome.result).toEqual(Option.some(expect.objectContaining({ _tag: "Suspended" })))
+      } else {
+        expect(outcome.result).toEqual(Option.some(expect.objectContaining({
+          _tag: "Complete",
+          exit: expect.objectContaining({ _tag: mode === "cancelled" ? "Success" : "Failure" })
+        })))
+      }
+      expect(outcome.status).toBe(mode === "storage-read" ? "failed" : mode === "cancelled" ? "cancelled" : "running")
+      expect(record.statuses).toEqual(mode === "storage-read" ? ["failed"] : [])
+      expect(attemptedWrites).toEqual(mode === "storage-read" || mode === "terminal-write" ? ["failed"] : [])
+      expect(record.journaled.filter((entry) => entry.eventType === "control.run.failed"))
+        .toHaveLength(mode === "storage-read" ? 1 : 0)
+      if (mode === "terminal-write") {
+        expect(logs).toContain("A terminal control status could not be written")
+        expect(logDetails).toContainEqual(expect.objectContaining({
+          runId,
+          status: "failed",
+          cause: expect.stringContaining("the terminal store is still unavailable")
+        }))
+      }
+    }
+  )
+
   /**
    * The settled-run guard reads the control row before every round, so a
    * control database that cannot answer must not stop a live run from being
@@ -1322,15 +1497,20 @@ describe("the executor's driver admission fence", () => {
 
   it("journals the provider code and message ahead of the outer frame stack", async () => {
     const record = recorder()
+    const logs: Array<string> = []
     const failure = new HarnessError({
       code: "model_failed",
       message: "The cell frame failed",
       cause: new ModelError({ code: "quota_exceeded", message: "Add credits to continue." })
     })
-    const result = await launched(record, {
+    const result = await launchedAndJoined(record, {
+      logs,
       agent: Agent.makeNoop({ run: () => Stream.fail(failure) })
     })
     expect(result.status).toBe("failed")
+    expect(record.statuses).toEqual(["failed"])
+    expect(logs.filter((message) => message === "An agent run failed")).toHaveLength(1)
+    expect(logs).not.toContain("An accepted agent run could not start on the engine")
     expect(causeOf(record).split("\n")[0]).toBe("quota_exceeded: Add credits to continue.")
     expect(causeOf(record)).toContain("The cell frame failed")
   })
@@ -2246,6 +2426,37 @@ describe("the executor's terminal ordering", () => {
       })
   })
 
+  it("does not hide an inline terminal write failure behind a settled body", async () => {
+    const record = recorder()
+    const logs: Array<string> = []
+    const attempts: Array<RunStatus> = []
+    const result = await launchedAndJoined(record, {
+      logs,
+      runtime: {
+        writeStatus: (_id, _fence, next) =>
+          Effect.suspend(() => {
+            attempts.push(next)
+            if (attempts.length === 1) {
+              return Effect.fail(
+                new PersistenceError({
+                  operation: "ControlRuntime.writeStatus",
+                  message: "injected inline terminal write failure"
+                })
+              )
+            }
+            record.statuses.push(next)
+            Deferred.doneUnsafe(record.settled, Effect.succeed(next))
+            return Effect.succeed({ ...launchInput.run, status: next })
+          })
+      }
+    })
+    expect(result.status).toBe("failed")
+    expect(attempts).toEqual(["completed", "failed"])
+    expect(record.statuses).toEqual(["failed"])
+    expect(logs).toContain("An accepted agent run could not start on the engine")
+    expect(causeOf(record)).toContain("injected inline terminal write failure")
+  })
+
   it("journals no terminal status while the host's ordering holds it", async () => {
     const record = recorder()
     const entered = Deferred.makeUnsafe<void>()
@@ -2319,8 +2530,10 @@ describe("the executor's terminal ordering", () => {
   it("says so when the ordered write is refused, rather than losing it silently", async () => {
     const record = recorder()
     const attempted = Deferred.makeUnsafe<void>()
+    const logs: Array<string> = []
 
     const observed = await withExecutor(record, {
+      logs,
       journal: {
         emitDurableUnfenced: (input) =>
           input.eventType.startsWith("control.run.")
@@ -2344,6 +2557,7 @@ describe("the executor's terminal ordering", () => {
     // Nothing joins the detached fiber, so the refusal has to be recorded where
     // it happens. The fenced transition still ran; only the record was refused.
     expect(observed.statuses).toEqual(["completed"])
+    expect(logs).toContain("A terminal control status could not be written")
   })
 
   it("writes nothing on a fiber interrupted out from under the ordering", async () => {
