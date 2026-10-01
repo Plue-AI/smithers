@@ -40,7 +40,25 @@ smthrs runs show <run-id>
 ```
 
 `runs show` returns the run and its `diagnosis`, computed from the run's
-journal events alone. The rendered diagnosis card:
+journal events alone. It names the run by its flow: the engine runs every
+planned flow inside an `agent/run` execution, and `runs show` reports that
+wrapper under the flow's own name. `updatedAt` is the run's last recorded
+progress; status-monitor checks do not advance it. `diagnosis.endedAt` stays
+empty until the run settles.
+
+`executions` lists what the run is doing: the run's own row first, then every
+execution it spawned that is still live, then the latest settled ones, up to
+20 rows (`executionsOmitted` counts the rest). Each row names the flow, its
+status, the execution that spawned it, its round, its start and finish times,
+and `running`, the actions it has scheduled and not yet settled:
+
+```text
+executions[2]{executionId,flowName,status,parent,round,startedAtMs,finishedAtMs,running}:
+  run-1,parent,running,null,0,1790824422570,null,parent/Spawn
+  1df0…/child,parent/child,running,run-1,0,1790824422810,null,parent/Hold
+```
+
+The rendered diagnosis card:
 
 ```text
 Verdict   failed: Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
@@ -89,15 +107,19 @@ processes. Cleanup does not undo filesystem writes or other completed effects.
 ## What did it do, step by step?
 
 ```bash
-smthrs runs logs <run-id>              # the transcript
+smthrs runs logs <run-id>              # the recorded events, then stop
+smthrs runs logs <run-id> --follow     # the recorded events, then new ones until the run settles
 smthrs runs logs <run-id> --json       # the raw event stream
-smthrs runs logs <run-id> --follow     # one line per event as it lands
 ```
 
-The human rendering is a turn-by-turn transcript, because a transcript needs
-the whole run. Follow mode renders one line per event instead, since the run is
-still going. `--json` is the raw `ControlEvent` stream in both modes, byte
-stable for a script.
+The human rendering prints one line per step: each action a run or its spawned
+executions start and settle, each spawned execution's start and outcome, agent
+turns, and printed output. Without `--follow` it stops at the newest recorded
+event and ends with `End of recorded events` and the run's state; a run that is
+still live suggests `--follow`. With `--follow` it keeps printing until the run
+settles or you press Ctrl-C, which stops watching and leaves the run running.
+`--json` is the raw `ControlEvent` stream in both modes, byte stable for a
+script.
 
 A finite read retains at most 50,000 events and 16 MiB, with a 1 MiB cap on any
 single event, and fails with a typed resource-limit error rather than

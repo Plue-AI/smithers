@@ -30,6 +30,7 @@ import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
 import { prepareHistoryRun, reconcileHistory } from "./HistoryCommands.ts"
 import * as Presentation from "./Presentation.ts"
+import * as RunActivity from "./RunActivity.ts"
 import * as RunProgress from "./RunProgress.ts"
 import * as TargetApprovals from "./TargetApprovals.ts"
 
@@ -356,7 +357,15 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
                   cursor: c.options.cursor
                 })
                 const listed = yield* (yield* Control.Control).list(listing)
-                return yield* RunListing.label(listed, yield* Clock.currentTimeMillis)
+                const labelled = yield* RunListing.label(listed, yield* Clock.currentTimeMillis)
+                return labelled._tag !== "runs" ? labelled : {
+                  ...labelled,
+                  items: labelled.items.map((run) =>
+                    run.executionView === undefined
+                      ? run
+                      : { ...run, executionView: RunActivity.presentView(run.executionView, run.flowId) }
+                  )
+                }
               }),
               c.options,
               runtime
@@ -401,7 +410,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
                   operation: "run diagnosis",
                   subject: run.runId
                 })
-                return { ...run, diagnosis: Forensics.digest(events, run.runId) }
+                return RunActivity.show(run, events)
               }),
               c.options,
               runtime
@@ -514,7 +523,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             message: String(Redaction.redactDiagnostic(Failure.operatorSentence(cause)))
           })
         } finally {
-          renderer?.close("ended")
+          renderer?.close(c.options.follow ? "ended" : "caught-up")
         }
       }
     })

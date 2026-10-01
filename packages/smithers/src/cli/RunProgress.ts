@@ -15,6 +15,7 @@ import { Cause, Context, Effect, Exit, HashMap, HashSet, Stream } from "effect"
 import type { Writable } from "node:stream"
 import { stripVTControlCharacters } from "node:util"
 import { causeLine } from "../internal/Failure.ts"
+import { flowNameOf } from "./RunActivity.ts"
 
 /**
  * Invocation-scoped display settings, independent of document encoding.
@@ -62,6 +63,11 @@ export interface State {
   /** Native facts can correct an earlier telemetry result without counting twice. */
   readonly nativeCalls: HashSet.HashSet<string>
   readonly callFailures: HashMap.HashMap<string, boolean>
+  /** Engine actions scheduled and not yet settled, by execution and node. */
+  readonly engineNodes: HashSet.HashSet<string>
+  /** Spawned executions already reported started, and those reported settled. */
+  readonly executionsStarted: HashSet.HashSet<string>
+  readonly executionsSettled: HashSet.HashSet<string>
   readonly status: string
   readonly settled: boolean
 }
@@ -95,6 +101,9 @@ export const initial = (): State => ({
   reportedCalls: HashSet.empty(),
   nativeCalls: HashSet.empty(),
   callFailures: HashMap.empty(),
+  engineNodes: HashSet.empty(),
+  executionsStarted: HashSet.empty(),
+  executionsSettled: HashSet.empty(),
   status: "Connecting to run",
   settled: false
 })
@@ -135,6 +144,100 @@ const logLines = (value: unknown): ReadonlyArray<Line> => {
     : shown
 }
 
+const settledExecution: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"])
+
+/**
+ * A native engine record a run's journal carries in a `control.engine.event`
+ * envelope: the actions it schedules and settles and the executions it spawns.
+ * The run's own execution and the engine wrappers around its flow are the run
+ * itself, so only the executions it spawned are reported.
+ */
+const projectEngine = (
+  state: State,
+  event: ControlSchema.ControlEvent
+): { readonly state: State; readonly lines: ReadonlyArray<Line> } => {
+  const envelope = record(event.payload)
+  const payload = record(envelope.payload)
+  const executionId = typeof envelope.executionId === "string" ? envelope.executionId : ""
+  const nodeId = typeof payload["nodeId"] === "string" ? payload["nodeId"] : ""
+  const key = `${executionId}\u0000${nodeId}`
+  switch (envelope.eventType) {
+    case "flows.engine.node-scheduled": {
+      if (payload["kind"] !== "ActionCall" || nodeId === "") return { state, lines: [] }
+      const name = text(payload["action"], 100) || text(nodeId, 100)
+      const retry = HashSet.has(state.engineNodes, key)
+      return {
+        state: {
+          ...state,
+          started: state.started + (retry ? 0 : 1),
+          active: retry ? state.active : [...state.active, name].slice(-8),
+          activeCallIds: retry ? state.activeCallIds : [...state.activeCallIds, key].slice(-8),
+          engineNodes: HashSet.add(state.engineNodes, key),
+          status: name,
+          settled: false
+        },
+        lines: [{ level: "step", text: `${retry ? "Retrying" : "Running"} ${name}` }]
+      }
+    }
+    case "flows.engine.node-settled": {
+      if (!HashSet.has(state.engineNodes, key)) return { state, lines: [] }
+      const name = text(payload["action"], 100) || text(nodeId, 100)
+      const outcome = payload["outcome"]
+      const failed = outcome === "failure" || outcome === "failed"
+      const skipped = outcome === "skipped" || outcome === "deferred"
+      const index = state.activeCallIds.indexOf(key)
+      const message = failed ? text(payload["message"]) : ""
+      return {
+        state: {
+          ...state,
+          completed: state.completed + (failed || skipped ? 0 : 1),
+          failed: state.failed + (failed ? 1 : 0),
+          skipped: state.skipped + (skipped ? 1 : 0),
+          skippedStarted: state.skippedStarted + (skipped ? 1 : 0),
+          active: index < 0 ? state.active : state.active.filter((_, position) => position !== index),
+          activeCallIds: index < 0
+            ? state.activeCallIds
+            : state.activeCallIds.filter((_, position) => position !== index),
+          engineNodes: HashSet.remove(state.engineNodes, key),
+          status: "Working",
+          settled: false
+        },
+        lines: [{
+          level: failed ? "error" : skipped ? "warn" : "success",
+          text: `${name}${failed ? " failed" : skipped ? " skipped" : outcome === "clean" ? " cached" : " completed"}${
+            message === "" ? "" : ` · ${message}`
+          }`
+        }]
+      }
+    }
+    default: {
+      const observation = record(record(payload["executionFact"])["observation"])
+      const flowName = typeof observation["flowName"] === "string" ? observation["flowName"] : ""
+      const status = typeof observation["status"] === "string" ? observation["status"] : ""
+      if (
+        observation["executionId"] !== executionId || executionId === event.runId || flowName === "" ||
+        flowNameOf(flowName, "") !== flowName
+      ) return { state, lines: [] }
+      const name = `${text(flowName, 100)} · ${text(executionId, 48)}`
+      if (settledExecution.has(status)) {
+        if (HashSet.has(state.executionsSettled, executionId)) return { state, lines: [] }
+        return {
+          state: { ...state, executionsSettled: HashSet.add(state.executionsSettled, executionId) },
+          lines: [{
+            level: status === "completed" ? "success" : status === "failed" ? "error" : "warn",
+            text: `${name} ${status}`
+          }]
+        }
+      }
+      if (HashSet.has(state.executionsStarted, executionId)) return { state, lines: [] }
+      return {
+        state: { ...state, executionsStarted: HashSet.add(state.executionsStarted, executionId) },
+        lines: [{ level: "info", text: `Started ${name}` }]
+      }
+    }
+  }
+}
+
 /**
  * Projects only deliberate lifecycle/log fields, never arbitrary inputs,
  * generated code, model reasoning, or complete task result payloads.
@@ -147,6 +250,7 @@ export const project = (
   event: ControlSchema.ControlEvent
 ): { readonly state: State; readonly lines: ReadonlyArray<Line> } => {
   const native = nativeCallEvent(event)
+  if (native === undefined && event.kind === "control.engine.event") return projectEngine(state, event)
   event = native ?? event
   const payload = record(event.payload)
   const callKey = callEventKey(event)
@@ -311,7 +415,11 @@ const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
  */
 export interface Renderer {
   readonly event: (event: ControlSchema.ControlEvent) => void
-  readonly close: (reason: "ended" | "interrupted" | "failed") => void
+  /**
+   * `caught-up` is a read of the recorded events that stops at the newest one
+   * without following the run.
+   */
+  readonly close: (reason: "ended" | "caught-up" | "interrupted" | "failed") => void
 }
 
 /**
@@ -422,13 +530,18 @@ export const make = (runId: string, options: Options): Renderer => {
           ? "Stopped watching · run status is retained"
           : reason === "failed"
           ? "Progress stream failed · inspect the saved run"
+          : reason === "caught-up"
+          ? `End of recorded events · ${summary(state)}`
           : "Stopped watching before settlement"
         if (lastSettlement !== result) conclude(result, reason === "failed")
+        const id = quote(text(runId, 100))
         const next = state.status === "Waiting for approval"
-          ? `smthrs approvals list\nsmthrs runs logs ${quote(text(runId, 100))}`
+          ? `smthrs approvals list\nsmthrs runs logs ${id}`
           : state.status === "Completed"
-          ? `smthrs runs output ${quote(text(runId, 100))}`
-          : `smthrs runs show ${quote(text(runId, 100))}\nsmthrs runs logs ${quote(text(runId, 100))}`
+          ? `smthrs runs output ${id}`
+          : reason === "caught-up" && !state.settled
+          ? `smthrs runs logs ${id} --follow\nsmthrs runs show ${id}`
+          : `smthrs runs show ${id}\nsmthrs runs logs ${id}`
         if (live) clack.note(next, "Next", common)
         else output.write(`${next}\n`)
       })

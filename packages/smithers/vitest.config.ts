@@ -25,7 +25,15 @@ export default defineConfig({
     // compile cache, keyed by source content, lets every start after the
     // first reuse that work. Spawned children inherit it from this
     // environment; nothing a command prints depends on it.
-    env: { NODE_COMPILE_CACHE: join(tmpdir(), "smithers-cli-test-compile-cache") },
+    //
+    // Incur appends "Skills are out of date" to every result when the skills
+    // this machine installed (recorded under $XDG_DATA_HOME/incur) predate the
+    // command surface. An empty data home keeps the suite's expected output
+    // independent of what the developer last ran `smthrs skills add` against.
+    env: {
+      NODE_COMPILE_CACHE: join(tmpdir(), "smithers-cli-test-compile-cache"),
+      XDG_DATA_HOME: join(tmpdir(), "smithers-cli-test-data-home")
+    },
     coverage: {
       enabled: true,
       provider: "v8",

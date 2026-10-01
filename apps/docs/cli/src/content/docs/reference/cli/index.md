@@ -232,7 +232,9 @@ version, both shown by `runs show`. A round or fork without its own record
 inherits its same-flow ancestor's. The check rescans the flow's files on disk,
 so an edit made while a host stays up counts. When the flow now has a different
 digest, is gone, or the engine version changed, `runs show` and `status <run>` report
-`codeDrift`, and every path that would re-drive the run refuses with
+`codeDrift`: the `recorded` digest, the `current` one when the flow is still on
+disk, and the engines' versions when they differ. `runs show` adds a `verdict`
+that says whether a resume needs `--allow-code-drift` or cannot happen. Every path that would re-drive the run refuses with
 `CodeDrift` and leaves it where it was: `runs resume`, `run --resume`, a node
 approval decision, and a steer wake. Pass `--allow-code-drift` to resume it on
 the changed code; the host loads that code before the resume is accepted, and

@@ -440,6 +440,10 @@ describe("unified control dispatch", () => {
     const output = JSON.parse(result.stdout)
     expect(output).toEqual({
       ...run,
+      // The last recorded event is newer than the row, and the run is live,
+      // so its diagnosis has no end yet.
+      updatedAt: 3,
+      executions: [],
       diagnosis: {
         status: "waiting-approval",
         turns: 0,
@@ -455,8 +459,7 @@ describe("unified control dispatch", () => {
         costUsd: 0,
         parkedQuestion: "Ship this change?",
         parkedApproval: JSON.stringify(approval),
-        startedAt: 2,
-        endedAt: 3
+        startedAt: 2
       },
       cta: {
         description: "Suggested commands:",
@@ -1034,12 +1037,26 @@ describe("unified durable log streams", () => {
     }
   )
 
-  it.each([false, true])("renders human events and closes the renderer after failure=%s", async (fail) => {
+  it.each(
+    [
+      [false, false, "caught-up"],
+      [true, false, "caught-up"],
+      [false, true, "ended"]
+    ] as const
+  )("renders human events and closes the renderer after failure=%s follow=%s", async (fail, follow, end) => {
     ports.events.mockImplementation(async function*() {
       yield event(1)
       if (fail) throw new Error("stream unavailable")
     })
-    const result = await invoke(["runs", "logs", "run-1", "--audience", "human", "--silent"], {
+    const result = await invoke([
+      "runs",
+      "logs",
+      "run-1",
+      "--audience",
+      "human",
+      "--silent",
+      ...(follow ? ["--follow"] : [])
+    ], {
       stdout: { isTTY: true, columns: 80, write: () => {} }
     })
     expect(ports.progress.mock.calls[0]![1].policy).toMatchObject({
@@ -1048,7 +1065,7 @@ describe("unified durable log streams", () => {
       structured: false
     })
     expect(ports.event).toHaveBeenCalledExactlyOnceWith(event(1))
-    expect(ports.close.mock.calls).toEqual(fail ? [["failed"], ["ended"]] : [["ended"]])
+    expect(ports.close.mock.calls).toEqual(fail ? [["failed"], [end]] : [[end]])
     expect(result.codes).toEqual(fail ? [1] : [])
   })
 
@@ -1069,7 +1086,7 @@ describe("unified durable log streams", () => {
     })
     expect(ports.progress.mock.calls[0]![1].output).toBe(process.stdout)
     expect(ports.event).toHaveBeenCalledExactlyOnceWith(event(1))
-    expect(ports.close).toHaveBeenCalledExactlyOnceWith("ended")
+    expect(ports.close).toHaveBeenCalledExactlyOnceWith("caught-up")
     expect(output).toBe("")
   })
 

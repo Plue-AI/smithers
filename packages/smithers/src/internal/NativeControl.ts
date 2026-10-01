@@ -1819,11 +1819,22 @@ export const make = (
     const stateRoot = config.stateRoot ?? config.root ?? process.cwd()
     const stores = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), Layer.fresh(RunStore.layer))
       .pipe(Layer.provideMerge(native.observe(config.databases?.control ?? databasePath(stateRoot))), Layer.orDie)
-    const runtime = SqlControlRuntime.layer({
-      approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local,
-      principal: config.principal,
-      engineVersion: packageVersion
-    }).pipe(Layer.provide([stores, native.crypto]), Layer.orDie)
+    const root = config.root ?? process.cwd()
+    // The drift a reader reports is read against the flows on disk, as the
+    // writer's own check reads them. With no flows here every live run of an
+    // authored flow read as drifted, with its recorded digest and no current one.
+    const runtime = Layer.unwrap(Effect.gen(function*() {
+      const discovered = yield* Registry.Registry
+      return SqlControlRuntime.layer({
+        approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local,
+        principal: config.principal,
+        engineVersion: packageVersion,
+        currentFlows: () =>
+          discovered.list().pipe(
+            Effect.map((flows) => [...systemFlows, ...flows.map((flow) => durableFlow(flow, root, emptyHost()))])
+          )
+      })
+    })).pipe(Layer.provide([stores, native.crypto, registry]), Layer.orDie)
     const engineFile = config.databases?.engine ?? executionDatabasePath(stateRoot)
     const executor = Layer.effect(ControlExecutor.ControlExecutor)(Effect.gen(function*() {
       const engine = DatabaseLocation.exists(engineFile)
