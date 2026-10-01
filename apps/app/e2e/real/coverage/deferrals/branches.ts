@@ -1,3 +1,1 @@
-export const branches = [
-  "branches.list",
-] as const
+export const branches = [] as const

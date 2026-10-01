@@ -1,0 +1,64 @@
+{
+  "issue": 3327,
+  "parentReview": "Reviewed every deletion against existing scenario reconciliation: exactly12 obsolete rows in5 families, retainedhistory.todo/search and remaining action debt. Existing strict negative/repository gates unchanged. Each of12 external reinjections correctly fails. Restoring all original rows proves the3 now-unmasked critical scenario gaps predated this change.",
+  "qualification": {
+    "gateBefore": {
+      "pass": 59,
+      "fail": 1,
+      "failure": "12stale-deferral rows rejected at first repository assertion",
+      "log": "3327-gate-before.log"
+    },
+    "fullCoverageDirectory": {
+      "pass": 191,
+      "skip": 1,
+      "fail": 1,
+      "assertions": 623,
+      "failure": "Previously masked existing second repository assertion: egress.allow/history.land/secrets.bind unscenarioed outside critical list",
+      "log": "3327-coverage-after.log"
+    },
+    "counterfactuals": {
+      "pass": 12,
+      "failure": 0,
+      "staleDeferralsAfter": 0,
+      "remainingScenarioGapsUnchanged": true,
+      "report": "3327-reconciliation.json"
+    },
+    "completeConfiguredAppTypes": {
+      "beforeDiagnostics": 43,
+      "afterDiagnostics": 43,
+      "added": [],
+      "removed": [],
+      "unchanged": 43,
+      "compilerUnchanged": true,
+      "optionsUnchanged": true,
+      "inputsBefore": 5976,
+      "inputsAfter": 5976,
+      "changedInputs": [
+        "apps/app/e2e/real/coverage/deferrals/branches.ts",
+        "apps/app/e2e/real/coverage/deferrals/commits.ts",
+        "apps/app/e2e/real/coverage/deferrals/files.ts",
+        "apps/app/e2e/real/coverage/deferrals/history.ts",
+        "apps/app/e2e/real/coverage/deferrals/search.ts"
+      ],
+      "addedInputs": [],
+      "removedInputs": [],
+      "diskDrift": []
+    },
+    "diffCheck": {
+      "exit": 0
+    }
+  },
+  "issueOwnership": {
+    "1876": "Existing repository/files scenario ownership retained; no original issue closure or deployment claim.",
+    "1921": "Original mythical stack real-host issue remains OPEN; retain history.todo and existing owning issue comment.",
+    "2458": "Remaining owed actions issue remains OPEN and foreign in-progress; no implementation/claim changes."
+  },
+  "limits": [
+    "No deployed/selfhost/Plue browser scenario executed or claimed; only local deterministic metadata and gate checks.",
+    "Whole coverage-directory gate remains red for3 unchanged existing unscenarioed gaps newly exposed after the stale assertion becomes green; parent notified for separate issue attribution. No policy/deferral invention added.",
+    "Existing actual CLI deadline case skips on dirty tree; request/header/body/health deadline controls executed.",
+    "Full configured app remains red with43 exactly unchanged foreign diagnostics. Both compiler/options and5976-input inventory stable except5owned ledger source hashes; no concurrent disk drift or type suppression."
+  ],
+  "proofSha256": "5ad892221f6125c8c2dc2aebb957768822880825306c50d00ad1c3b4a437ffe4",
+  "remainingCriticalActionDebt": "New precise issue pending; underlying #1921/#2458/#1879/#3268 retained"
+}

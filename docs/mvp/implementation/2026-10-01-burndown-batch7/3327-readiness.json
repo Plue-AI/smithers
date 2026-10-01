@@ -1,0 +1,138 @@
+{
+  "issue": 3327,
+  "status": "READY/FROZEN narrow12obsolete-deferral repair; broader gate limitation retained",
+  "head": "a19b878183fb042fbc519b006b045e42220135e6",
+  "ownedFiles": [
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals/branches.ts",
+      "sha256": "a512e5f6cd173c786fd37b994ff59ca0bc7b77a753ac889fb32125e14ad6ef37"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals/commits.ts",
+      "sha256": "e9d5726a7d9abb297bd9a832ce3abf9e4ad06d797ec3995b7a8b407dac4ccbcc"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals/files.ts",
+      "sha256": "1f8f810771a3ae9c20c14e1f81d0038f3322ddf702aa9766579bafc394bfa313"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals/history.ts",
+      "sha256": "121ff7e2e2ad06a9c5188888201394045e0989ab2619132aefe03ccb7fda8a5e"
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals/search.ts",
+      "sha256": "48c2bceac7f9509a19b2676998eed63e1770f880be30d6377b1acae785f32686"
+    }
+  ],
+  "referenceInputs": [
+    {
+      "path": "apps/app/e2e/real/coverage/gate.ts",
+      "sha256": "bf92e0abaca02ff4b8ecd81c15fb844cc45fabbf7037aa1b9e785241b799ac79",
+      "unchangedFromHEAD": true
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/gate.test.ts",
+      "sha256": "1c035fa68a9352c49f069cb26916f3f1a0d75f6d7a87898865d0d3e24b0c0b3c",
+      "unchangedFromHEAD": true
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/deferrals.ts",
+      "sha256": "fe718ef0f376b138cc49c0decbdf4d47b9eaf7ea64c8549d4a656ec61ee7d242",
+      "unchangedFromHEAD": true
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/types.ts",
+      "sha256": "2e5099deacbf693a34d47b2d1513d1a649a817cf9ea3a5619011af9eddcfefab",
+      "unchangedFromHEAD": true
+    },
+    {
+      "path": "apps/app/e2e/real/repository-files.spec.ts",
+      "sha256": "2681ccf484957353141c473dd51bfbce1431b17365427351252901c051c3392a",
+      "unchangedFromHEAD": true
+    },
+    {
+      "path": "apps/app/e2e/real/history.spec.ts",
+      "sha256": "0c4782e7c3031b489cbd686597e5891d0c993dc6ddbf4fc48ca130ea1309d099",
+      "unchangedFromHEAD": true
+    }
+  ],
+  "change": "Delete only12 covered-action rows in existing five family arrays. Preserve all remaining debts, release-critical declarations, scenario bodies and strict gate assertions. Empty family exports retain existing ledger composition contract.",
+  "regressionBasis": "Existing generic gate unit test refuses covered/removed/duplicate/critical deferrals; repository gate enumerates actual actions independently. No implementation-mirroring new test added. External actual gate counterfactual reinserts each removed row and confirms its exact stale-deferral refusal.",
+  "qualification": {
+    "gateBefore": {
+      "pass": 59,
+      "fail": 1,
+      "failure": "12stale-deferral rows rejected at first repository assertion",
+      "log": "3327-gate-before.log"
+    },
+    "fullCoverageDirectory": {
+      "pass": 191,
+      "skip": 1,
+      "fail": 1,
+      "assertions": 623,
+      "failure": "Previously masked existing second repository assertion: egress.allow/history.land/secrets.bind unscenarioed outside critical list",
+      "log": "3327-coverage-after.log"
+    },
+    "counterfactuals": {
+      "pass": 12,
+      "failure": 0,
+      "staleDeferralsAfter": 0,
+      "remainingScenarioGapsUnchanged": true,
+      "report": "3327-reconciliation.json"
+    },
+    "completeConfiguredAppTypes": {
+      "beforeDiagnostics": 43,
+      "afterDiagnostics": 43,
+      "added": [],
+      "removed": [],
+      "unchanged": 43,
+      "compilerUnchanged": true,
+      "optionsUnchanged": true,
+      "inputsBefore": 5976,
+      "inputsAfter": 5976,
+      "changedInputs": [
+        "apps/app/e2e/real/coverage/deferrals/branches.ts",
+        "apps/app/e2e/real/coverage/deferrals/commits.ts",
+        "apps/app/e2e/real/coverage/deferrals/files.ts",
+        "apps/app/e2e/real/coverage/deferrals/history.ts",
+        "apps/app/e2e/real/coverage/deferrals/search.ts"
+      ],
+      "addedInputs": [],
+      "removedInputs": [],
+      "diskDrift": []
+    },
+    "diffCheck": {
+      "exit": 0
+    }
+  },
+  "issueOwnership": {
+    "1876": "Existing repository/files scenario ownership retained; no original issue closure or deployment claim.",
+    "1921": "Original mythical stack real-host issue remains OPEN; retain history.todo and existing owning issue comment.",
+    "2458": "Remaining owed actions issue remains OPEN and foreign in-progress; no implementation/claim changes."
+  },
+  "limits": [
+    "No deployed/selfhost/Plue browser scenario executed or claimed; only local deterministic metadata and gate checks.",
+    "Whole coverage-directory gate remains red for3 unchanged existing unscenarioed gaps newly exposed after the stale assertion becomes green; parent notified for separate issue attribution. No policy/deferral invention added.",
+    "Existing actual CLI deadline case skips on dirty tree; request/header/body/health deadline controls executed.",
+    "Full configured app remains red with43 exactly unchanged foreign diagnostics. Both compiler/options and5976-input inventory stable except5owned ledger source hashes; no concurrent disk drift or type suppression."
+  ],
+  "jobs": "All owned source-dependent processes complete; source frozen, no further writes planned.",
+  "receipts": {
+    "3327-action-debt-issue.json": "cfa8b6b7159ed6ff8906655c42d52694f5a2a0591947ab46afb96b9c621b07c2",
+    "3327-live-issue.json": "9e73bee4351205bde99ba5e7d23c948c95e616f246671a38c577924858563e91",
+    "3327-after-configured-types.json": "77eab686cfd6360b74ba3efabf36eaa0164d1db9f68a94a6fdeedf940fc913da",
+    "3327-source.diff": "f961cadd34f6b6120a67280e2eacb98ef6b726e7048829c9d0591e9e446358dc",
+    "3327-counterfactual.ts": "d30d00d32e7f3445fd79a5f3c96fc0e29949940a29adce41f0e0980e8b8bc7f7",
+    "3327-gate-before.log": "ad194fc332da9bf36f2ef4da547e100a4fe6998f8f1ff0a6be7ec8cedb25fbba",
+    "3327-type-delta.json": "1a6c95e6411e8329a570723816ab9e7190cfaacb139a4e4fc5671a2c06cfd122",
+    "3327-coverage-after.log": "b5bfe587d21a79d66704770177b0aaf8b6b857ddaf9b8a01f53b797731f93867",
+    "3327-reconciliation.json": "573b3faebfb80db4c6ee02b41e59fc77531cd0771584d570f583cd90fbdf60f0",
+    "3327-counterfactual.log": "33cda3c167cd623d5e5eb931367bc6fb66210feaadcfdadc24c17d3f92fa5ccb",
+    "3327-capture-types.cjs": "bfaa5bcb1b286087a05e7406d11ad7e8a8463734e3f7a5a43f29038a23a3d224",
+    "3327-baseline-input-audit.json": "ab5f314d1ec60c54fbb29b8b4a3db4f294f6f818ab5ced0720fa216351025a1b",
+    "3327-after-configured-types.log": "ce4ab7b5549fc12b92d7eb9654e0b3a087ad29694db8c987c5df665bd452042f",
+    "3327-scenario-history.log": "7826a6781868aacf79b850b60d88794559cc4b530e7626b5c8034d6aee11e5ca",
+    "3327-repository-debt-issue.json": "27d6f3ad30d6f184354049cef7052e77ed76241861d1fd9624c11790bd290767",
+    "3327-history-debt-issue.json": "787dacafa529276cdea2821b9f5f43317b5ffa3cad4d1a2b6921f2b6fba61b43"
+  }
+}
