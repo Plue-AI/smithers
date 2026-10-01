@@ -74,6 +74,23 @@ func TestOwnerCredentialValidationBeforeStorage(t *testing.T) {
 	}
 }
 
+func TestOwnerCredentialRejectsNonlocalHTTPBeforeStorage(t *testing.T) {
+	for _, origin := range []string{"http://127.evil.example:8123", "http://127.0.0.1.evil.example:8123", "http://127.999.0.1:8123"} {
+		t.Run(origin, func(t *testing.T) {
+			body, err := json.Marshal(credentialRequest{Action: "enroll", RequestID: "request-123", Name: "CUSTOM_KEY", Origin: origin, Value: "private-api-key"})
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodPost, "/api/model", strings.NewReader(string(body)))
+			request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 7}}))
+			response := httptest.NewRecorder()
+			// A nil pool proves the origin is rejected before persisting the key.
+			OwnerModels{}.Credential(response, request)
+			require.Equal(t, http.StatusOK, response.Code)
+			require.JSONEq(t, `{"ok":false,"failure":{"code":"invalid","field":"origin"},"fault":"user"}`, response.Body.String())
+			require.NotContains(t, response.Body.String(), "private-api-key")
+		})
+	}
+}
+
 func TestOwnerResolverRejectsConfigurationBeforeDatabase(t *testing.T) {
 	for _, providers := range []struct{ url, key func() string }{{nil, func() string { return "key" }}, {func() string { return "url" }, nil}, {nil, nil}} {
 		resolver, err := NewOwnerSecretResolver(providers.url, providers.key)

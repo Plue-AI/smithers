@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -79,7 +80,7 @@ func modelOrigin(raw string) (string, bool) {
 	if u.Scheme == "https" {
 		return u.Scheme + "://" + u.Host, true
 	}
-	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "::1" || u.Hostname() == "host.docker.internal" || strings.HasPrefix(u.Hostname(), "127.")) {
+	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "host.docker.internal" || net.ParseIP(u.Hostname()).IsLoopback()) {
 		return u.Scheme + "://" + u.Host, true
 	}
 	return "", false
