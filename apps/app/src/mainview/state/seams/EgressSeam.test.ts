@@ -1,6 +1,8 @@
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
+import type { FailureController } from "../controller/failures"
+import { TOAST_SUPERSEDED } from "../controller/failures"
 import {
   agentSessionEgressPath,
   createEgressSeam,
@@ -16,8 +18,6 @@ import {
   UNREADABLE_ALLOWLIST,
   workspaceEgressPath
 } from "./EgressSeam"
-import type { FailureController } from "../controller/failures"
-import { TOAST_SUPERSEDED } from "../controller/failures"
 import type { SeamContext } from "./SeamContext"
 import { createWorkspaceSeam } from "./WorkspaceSeam"
 
@@ -59,10 +59,10 @@ const UNREADABLE_PAYLOAD = "Smithers Cloud answered an egress audit payload in a
 
 const malformedPayloads = [
   ["invalid JSON", "{"],
-  ["an unexpected object", '{"unexpected":true}'],
-  ["an items envelope", '{"items":[]}'],
+  ["an unexpected object", "{\"unexpected\":true}"],
+  ["an items envelope", "{\"items\":[]}"],
   ["null", "null"],
-  ["a scalar", '"not an audit"']
+  ["a scalar", "\"not an audit\""]
 ] as const
 
 type Route = Response | ((url: URL, init?: RequestInit) => Response | Promise<Response>)
@@ -210,7 +210,9 @@ describe("one page of an audit", () => {
   })
 
   test("a refusal is the server's own message, verbatim", async () => {
-    const { ctx } = await harness({ [SESSION_PATH]: json(403, { message: "you do not have access to this repository" }) })
+    const { ctx } = await harness({
+      [SESSION_PATH]: json(403, { message: "you do not have access to this repository" })
+    })
     expect(await loadEgressPage(ctx, agentSessionEgressPath("will/smithers", "as-1"))).toEqual({
       error: "you do not have access to this repository"
     })
@@ -287,13 +289,14 @@ describe("workspace egress payload failures", () => {
   test.each(malformedPayloads)("%s preserves previously loaded rows and the cursor", async (_, body) => {
     let payload = JSON.stringify([CALL])
     const { store, ctx } = await harness({
-      [WORKSPACE_PATH]: () => new Response(payload, {
-        status: 200,
-        headers: {
-          "content-type": "application/json",
-          link: `</${WORKSPACE_PATH}?limit=30&cursor=older>; rel="next"`
-        }
-      })
+      [WORKSPACE_PATH]: () =>
+        new Response(payload, {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            link: `</${WORKSPACE_PATH}?limit=30&cursor=older>; rel="next"`
+          }
+        })
     })
     await store.dispatch({
       type: "workspace.updated",
@@ -358,13 +361,17 @@ describe("allowing a blocked host (#2653)", () => {
 
   test("adds a normalized host through the canonical atomic PATCH without reading or replacing the list", async () => {
     const sent: Array<unknown> = []
-    const h = await harness({ [POLICY]: (_url, init) => {
-      sent.push({ method: init?.method, body: JSON.parse(String(init?.body ?? "null")) })
-      return init?.method === "PATCH"
-        ? json(200, { allow_domains: ["concurrent.example.com", "api.example.com"], reloads: [] })
-        : json(405, { message: "atomic PATCH required" })
-    } })
-    expect(await h.seam.allowEgressHost(" API.Example.com. ")).toEqual({ value: "Allowing api.example.com for will/smithers." })
+    const h = await harness({
+      [POLICY]: (_url, init) => {
+        sent.push({ method: init?.method, body: JSON.parse(String(init?.body ?? "null")) })
+        return init?.method === "PATCH"
+          ? json(200, { allow_domains: ["concurrent.example.com", "api.example.com"], reloads: [] })
+          : json(405, { message: "atomic PATCH required" })
+      }
+    })
+    expect(await h.seam.allowEgressHost(" API.Example.com. ")).toEqual({
+      value: "Allowing api.example.com for will/smithers."
+    })
     await settle(h)
     expect(sent).toEqual([{ method: "PATCH", body: { add: ["api.example.com"] } }])
     expect(h.toasts[0]?.outcome).toBe(true)
@@ -387,9 +394,15 @@ describe("allowing a blocked host (#2653)", () => {
     const gate = new Promise<void>((resolve) => void (open = resolve))
     const cloud = policy(["registry.npmjs.org"], gate)
     const h = await harness({ [POLICY]: cloud.route })
-    expect(await h.seam.allowEgressHost("API.Example.com.")).toEqual({ value: "Allowing api.example.com for will/smithers." })
+    expect(await h.seam.allowEgressHost("API.Example.com.")).toEqual({
+      value: "Allowing api.example.com for will/smithers."
+    })
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(h.toasts).toEqual([{ key: "egress-allow:will/smithers:api.example.com", title: "Allowing api.example.com…", doneTitle: "api.example.com allowed" }])
+    expect(h.toasts).toEqual([{
+      key: "egress-allow:will:will/smithers:api.example.com",
+      title: "Allowing api.example.com…",
+      doneTitle: "api.example.com allowed"
+    }])
     expect(cloud.writes).toEqual([])
     open()
     await settle(h)
@@ -466,7 +479,14 @@ describe("allowing a blocked host (#2653)", () => {
     const h = await harness({ [POLICY]: cloud.route })
     await h.seam.allowEgressHost("api.example.com")
     await h.seam.allowEgressHost("b.example.com")
-    await h.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
+    await h.store.dispatch({
+      type: "cloud.session.loaded",
+      actor: "system",
+      state: "signed-out",
+      username: null,
+      expiresAt: null,
+      scopes: null
+    })
     open()
     await settle(h)
     expect(h.toasts.map((toast) => toast.outcome)).toEqual([TOAST_SUPERSEDED, TOAST_SUPERSEDED])
@@ -486,7 +506,10 @@ describe("allowing a blocked host (#2653)", () => {
 
   test("a PATCH refusal and an unreadable committed list both fail the toast", async () => {
     const refused = await harness({
-      [POLICY]: (_url, init) => init?.method === "PATCH" ? json(400, { message: "egress domain \"*\" would allow every host" }) : json(200, { allow_domains: [] })
+      [POLICY]: (_url, init) =>
+        init?.method === "PATCH"
+          ? json(400, { message: "egress domain \"*\" would allow every host" })
+          : json(200, { allow_domains: [] })
     })
     await refused.seam.allowEgressHost("api.example.com")
     await settle(refused)
@@ -505,7 +528,9 @@ describe("allowing a blocked host (#2653)", () => {
     expect(await degraded.seam.allowEgressHost("api.example.com")).toBe(DEGRADED_EGRESS_REFUSAL)
     const h = await harness({})
     expect(await h.seam.allowEgressHost("  ")).toBe("Name a host to allow.")
-    expect(await h.seam.allowEgressHost("api.example.com", "not a repo")).toBe("\"not a repo\" is not an owner/repo name")
+    expect(await h.seam.allowEgressHost("api.example.com", "not a repo")).toBe(
+      "\"not a repo\" is not an owner/repo name"
+    )
     for (const run of [signedOut, degraded, h]) {
       expect(run.urls).toEqual([])
       expect(run.toasts).toEqual([])

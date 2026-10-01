@@ -222,6 +222,7 @@ export const APP_TRANSITION_TYPES = {
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "secret.requests.changed": true,
+  "egress.requests.changed": true,
   "theme.changed": true,
   "palette.changed": true,
   "composer.control.changed": true,
@@ -816,6 +817,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.runOpenRequests
     delete draft.codingProviderRequests
     delete draft.secretRequests
+    delete draft.egressRequests
     draft.phase = "idle"
     draft.composerOwner = "user"
     draft.turnTabId = null
@@ -2113,6 +2115,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.secretRequests = transition.requests })
           break
         }
+        case "egress.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.egressRequests = transition.requests })
+          break
+        }
         case "stack.wiki.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.wikiRequests = transition.requests })
           break
@@ -3105,6 +3111,17 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const previousCloud = collections.cloudSessions.get("cloud")
           const previousOwner = previousCloud?.state === "signed-in" ? previousCloud.username : null
           const nextCloudOwner = transition.state === "signed-in" ? transition.username : null
+          // Definitive Cloud account changes retire only this account's egress intents.
+          // Startup probes and outages carry no new authority and retain pending work.
+          const egress = collections.sessions.get(SESSION_ID)?.egressRequests ?? []
+          const retiredEgress = egress.filter(request => transition.state === "signed-out" ||
+            (transition.state === "signed-in" && nextCloudOwner !== null && request.owner !== nextCloudOwner))
+          if (retiredEgress.length > 0) {
+            const ids = new Set(retiredEgress.map(request => request.id))
+            collections.sessions.update(SESSION_ID, draft => { draft.egressRequests = egress.filter(request => !ids.has(request.id)) })
+            const notices = [...collections.toasts.values()].filter(toast => ids.has(toast.key)).map(toast => toast.id)
+            if (notices.length > 0) collections.toasts.delete(notices)
+          }
           const row: CloudSessionRow = {
             id: "cloud",
             state: transition.state,

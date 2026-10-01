@@ -21,17 +21,17 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  * `PATCH /api/repos/{o}/{r}/egress-policy` allowlist, which every running
  * sandbox of the repository reloads without a restart.
  */
-import { createCloudClient } from "./CloudClient"
-import type { SandboxEgressRow } from "../AppState"
+import type { Actor, SandboxEgressRow, Session } from "../AppState"
+import { browserWriteRefusal, LOST_ACT_COPY } from "../BrowserWriteFailure"
 import type { FailureController } from "../controller/failures"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import { resolveTargetRepo } from "../RepoContext"
+import { createCloudClient } from "./CloudClient"
 import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner } from "./SeamContext"
 
 export const DEGRADED_EGRESS_REFUSAL =
   "This Smithers Cloud sign-in can't read the egress audit — sign in again to enable it."
-
 
 /** plue's own default page size for the audit (routes/pagination.go parsePagination). */
 export const EGRESS_PAGE_LIMIT = 30
@@ -200,12 +200,31 @@ export interface EgressSeam {
    * the shared toast, which settles with the write.
    */
   readonly allowEgressHost: (host: string, repo?: string) => Promise<string | { readonly value: string }>
+  /** Reconnect only durable requests belonging to the currently authorized Cloud account. */
+  readonly resumeEgressRequests: () => void
+}
+
+type EgressRequest = NonNullable<Session["egressRequests"]>[number]
+type Flight = { readonly current: () => boolean; readonly admitted: Promise<true | string> }
+/** User and agent seams over one store share admission and background work. */
+const shared = new WeakMap<
+  object,
+  {
+    readonly flights: Map<string, Flight>
+    readonly queues: Map<string, { readonly current: () => boolean; readonly done: Promise<unknown> }>
+    readonly restoring: Set<string>
+  }
+>()
+const sharedFor = (store: object) => {
+  let state = shared.get(store)
+  if (state === undefined) shared.set(store, state = { flights: new Map(), queues: new Map(), restoring: new Set() })
+  return state
 }
 
 export const createEgressSeam = (ctx: SeamContext, withToast: FailureController["withToast"]): EgressSeam => {
   const gate = (): string | void => {
     const session = ctx.store.collections.cloudSessions.get("cloud")
-    if (session?.state !== "signed-in") return refuseCloudSignIn(ctx)
+    if (session?.state !== "signed-in" || !session.username) return refuseCloudSignIn(ctx)
     if (session.scopes === "degraded") return DEGRADED_EGRESS_REFUSAL
   }
 
@@ -228,16 +247,42 @@ export const createEgressSeam = (ctx: SeamContext, withToast: FailureController[
     return { value: listing }
   }
 
-  /* One write per host at a time, with this controller's repository writes in order. */
-  const allowing = new Set<string>()
-  const queues = new Map<string, Promise<unknown>>()
+  const { flights, queues, restoring } = sharedFor(ctx.store)
+  const requests = (): EgressRequest[] => ctx.store.session().egressRequests ?? []
+  const save = async (row: EgressRequest, current: () => boolean, actor: Actor = "system"): Promise<boolean> => {
+    if (!current()) return false
+    const others = requests().filter((item) => item.id !== row.id)
+    // Bound receipts, never work that has not settled yet.
+    const terminal = new Set(
+      others.filter((item) => item.state !== "requested").slice(row.state === "requested" ? -64 : -63).map((item) =>
+        item.id
+      )
+    )
+    await ctx.dispatch({
+      type: "egress.requests.changed",
+      actor,
+      requests: [...others.filter((item) => item.state === "requested" || terminal.has(item.id)), row]
+    }).isPersisted.promise
+    return current()
+  }
+  const flightAt = (id: string): Flight | undefined => {
+    const flight = flights.get(id)
+    return flight?.current() ? flight : undefined
+  }
+  const release = (id: string, flight: Flight): void => {
+    if (flights.get(id) === flight) flights.delete(id)
+  }
 
   /*
    * Atomic additions preserve another writer's removals. Adding a listed host
    * again also reloads running sandboxes, so a failed reload remains retryable.
    * Work whose account has changed stops before it writes.
    */
-  const allow = async (repo: string, host: string, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
+  const allow = async (
+    repo: string,
+    host: string,
+    current: () => boolean
+  ): Promise<true | string | typeof TOAST_SUPERSEDED> => {
     if (!current()) return TOAST_SUPERSEDED
     const client = createCloudClient(ctx)
     const path = egressPolicyPath(repo)
@@ -247,9 +292,51 @@ export const createEgressSeam = (ctx: SeamContext, withToast: FailureController[
     const domains = parseAllowDomains(write.body)
     if (domains === null || !domains.includes(host)) return UNREADABLE_ALLOWLIST
     const stale = staleReloads(write.body)
-    return stale === 0 ? true : `${host} allowed; ${stale} running ${stale === 1 ? "box gets" : "boxes get"} it on restart.`
+    return stale === 0
+      ? true
+      : `${host} allowed; ${stale} running ${stale === 1 ? "box gets" : "boxes get"} it on restart.`
   }
 
+  const run = (row: EgressRequest, flight: Flight): void => {
+    const queue = `${row.owner}:${row.repo}`
+    const previous = queues.get(queue)
+    const queued = (previous?.current() ? previous.done : Promise.resolve()).catch(() => undefined).then(async () => {
+      if (await flight.admitted !== true || !flight.current()) return TOAST_SUPERSEDED
+      try {
+        const refusal = gate()
+        const outcome = refusal ?? await allow(row.repo, row.host, flight.current)
+        if (outcome === TOAST_SUPERSEDED) return outcome
+        if (
+          !await save({
+            ...row,
+            state: typeof outcome === "string" ? "failed" : "completed",
+            ...(typeof outcome === "string" ? { error: outcome } : {})
+          }, flight.current)
+        ) return TOAST_SUPERSEDED
+        return outcome
+      } catch (error) {
+        if (!flight.current()) return TOAST_SUPERSEDED
+        ctx.report?.("egress.request", error)
+        const detail = browserWriteRefusal(error)
+        await save({ ...row, state: "failed", error: detail }, flight.current).catch(() => false)
+        return detail
+      }
+    })
+    const slot = { current: flight.current, done: queued }
+    queues.set(queue, slot)
+    // The notice spans the queue as well as the HTTP write, without delaying acknowledgment.
+    void flight.admitted.then(async (admitted) => {
+      if (admitted !== true) return
+      await withToast(row.id, `Allowing ${row.host}…`, `${row.host} allowed`, () => queued, false, flight.current)
+    }).finally(() => {
+      release(row.id, flight)
+      if (queues.get(queue) === slot) queues.delete(queue)
+    }).catch((error) => ctx.report?.("egress.request", error))
+  }
+  const acknowledge = async (flight: Flight, value: string): Promise<string | { readonly value: string }> => {
+    const admitted = await flight.admitted
+    return admitted !== true ? admitted : flight.current() ? { value } : LOST_ACT_COPY.cancelled.sentence
+  }
   const allowEgressHost: EgressSeam["allowEgressHost"] = async (raw, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
@@ -257,17 +344,55 @@ export const createEgressSeam = (ctx: SeamContext, withToast: FailureController[
     if ("error" in target) return target.error
     const host = egressHost(raw)
     if (host === "") return "Name a host to allow."
-    const key = `egress-allow:${target.repo}:${host}`
-    const acknowledged = { value: `Allowing ${host} for ${target.repo}.` }
-    if (allowing.has(key)) return acknowledged
-    allowing.add(key)
+    const owner = ctx.store.collections.cloudSessions.get("cloud")!.username!
+    const id = `egress-allow:${owner}:${target.repo}:${host}`
+    const value = `Allowing ${host} for ${target.repo}.`
+    const existing = flightAt(id)
+    if (existing !== undefined) return acknowledge(existing, value)
     const current = captureCloudOwner(ctx)
-    const queued = (queues.get(target.repo) ?? Promise.resolve())
-      .then(() => withToast(key, `Allowing ${host}…`, `${host} allowed`, () => allow(target.repo, host, current), false, current))
-      .finally(() => allowing.delete(key))
-    queues.set(target.repo, queued.catch(() => undefined))
-    return acknowledged
+    const saved = requests().find((row) => row.id === id && row.state === "requested")
+    const row: EgressRequest = saved ?? { id, owner, repo: target.repo, host, state: "requested" }
+    const actor = ctx.actor()
+    const flight: Flight = {
+      current,
+      admitted: saved !== undefined ?
+        Promise.resolve(true)
+        : save(row, current, actor).then((ok) => ok ? true as const : LOST_ACT_COPY.cancelled.sentence).catch(
+          browserWriteRefusal
+        )
+    }
+    flights.set(id, flight)
+    run(row, flight)
+    return acknowledge(flight, value)
+  }
+  const resumeEgressRequests: EgressSeam["resumeEgressRequests"] = () => {
+    const cloud = ctx.store.collections.cloudSessions.get("cloud")
+    if (cloud?.state !== "signed-in" || !cloud.username || ctx.isDisposed?.()) return
+    for (const row of requests().filter((item) => item.owner === cloud.username && !flightAt(item.id))) {
+      const current = captureCloudOwner(ctx)
+      const flight: Flight = { current, admitted: Promise.resolve(true) }
+      if (row.state === "requested") {
+        flights.set(row.id, flight)
+        run(row, flight)
+      } else {
+        const notice = [...ctx.store.collections.toasts.values()].find((toast) => toast.key === row.id)
+        if (
+          !restoring.has(row.id) && (notice?.status === "running" || (row.state === "failed" && notice === undefined))
+        ) {
+          restoring.add(row.id)
+          void withToast(
+            row.id,
+            `Allowing ${row.host}…`,
+            `${row.host} allowed`,
+            async () => row.state === "failed" ? row.error ?? UNREADABLE_ALLOWLIST : true,
+            false,
+            current
+          )
+            .finally(() => restoring.delete(row.id)).catch((error) => ctx.report?.("egress.request", error))
+        }
+      }
+    }
   }
 
-  return { listSessionEgress, allowEgressHost }
+  return { listSessionEgress, allowEgressHost, resumeEgressRequests }
 }

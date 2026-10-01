@@ -1,0 +1,88 @@
+{
+  "issue": 3264,
+  "status": "Qualified durable egress behavior; full app gates red and retained; type delta qualification pending",
+  "ownedPaths": [
+    {
+      "path": "apps/app/src/mainview/state/AppState.ts",
+      "sha256": "a08cd6a415b6b071e37e7f902d4e72425c1b70e5406718ede557baaa06d2b532"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppTransitionValidation.ts",
+      "sha256": "0a62ddd52b78edca6f8c3e31f1822f82e9748427e345146dc74414adfb8824fe"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppProjection.ts",
+      "sha256": "d148e9493b8f33d5a3e045473bf8330be481a9d9a69095da3ec649cf7dd82412"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppEventStream.ts",
+      "sha256": "137ae74dcb50d98ac32ae5b38bd775705d3eac28a1e2cd34cce268ef968325c8"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppController.ts",
+      "sha256": "324389cff96a5ab44079d457e096e8e06d677aeda4165baaaccc2fac0e365266"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppStore.events.test.ts",
+      "sha256": "26913f932fe64a21f1081ef7ae3877a947a850dfaecdf3a78960458d70321f88"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/EgressSeam.ts",
+      "sha256": "9c29835d020488fd3f712d18109e9533883afbec3be35bc5a7e51314ec2e67ea"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/EgressSeam.test.ts",
+      "sha256": "193dc496831c221e54b60ce89831fdbd7bc4024e86146f88550625579e9be26d"
+    },
+    {
+      "path": "apps/app/src/mainview/state/EgressRequests.test.ts",
+      "sha256": "6ead5588fcf204ad22e7a85031bd697676534998a435303d1e18485480611573"
+    }
+  ],
+  "behavior": "Real SQLite persisted admission and terminal receipts, held commit ordering, distinct-host admission/reopen preservation, user/agent duplicates, failed storage retains pending without success, actual HTTP PATCH, real shared300ms notices, controller startup/reload/chat, owner/signout/ABA fences, failure retry, v29 checkpoint migration, bounded receipts/no pending eviction.",
+  "storageFailurePolicy": "When SQLite rejects terminal persistence, canonical browser write refusal is reported; committed pending row and running notice remain, no completed result. Healthy reload retries same idempotent PATCH.",
+  "validation": {
+    "owning": "148pass/0fail/1124 assertions across9 suites, including independent real SQLite/HTTP/shared300ms toast/controller controls",
+    "fullApp": {
+      "exit": 1,
+      "pass": 8241,
+      "skip": 1,
+      "fail": 94,
+      "uncaughtErrors": 14,
+      "seconds": 324.18,
+      "limits": "Full production source unchanged since full gate. New fixture-only scope correction and concurrency/storage-failure assertions qualified subsequently; no repeat broad gate."
+    },
+    "types": {
+      "exit": 2,
+      "diagnostics": 48,
+      "owningPathDiagnostics": 0,
+      "baselineDelta": "pending independent compiler overlay proof"
+    },
+    "style": "Optional3-file real dprint check0; no declared app format gate"
+  },
+  "coverage": {
+    "observed": [
+      "SF:apps/app/src/mainview/state/seams/EgressSeam.ts",
+      "FNF:54",
+      "FNH:52",
+      "LF:250",
+      "LH:249"
+    ],
+    "limits": "Bun LCOV line/function coverage only; legacy parser line84 unexecuted; no whole-app100% or branch claim"
+  },
+  "rootReview": "Request and terminal writes await real SQLite receipts. Store optimistic dispatch protects concurrent distinct-host admissions; both committed rows independently read/reopened. Storage refusal keeps committed pending/running notice and forbids success. Owner revision fences, explicit retirement, transient restore, replay, dedupe and bounded terminal history preserve pending authority. No additional physical collection or duplicate RMW implementation.",
+  "foreignPrerequisites": [
+    {
+      "issue": 3257,
+      "holder": "codex-surface-20260930-native-journal",
+      "expires": "2026-10-01T06:17:57Z",
+      "action": "Skip unexpired foreign claim; retain missing server imports/types evidence"
+    }
+  ],
+  "otherGateEvidence": "See full retained failure inventory; no broad app gate/100%/hosted browser claim.",
+  "archive": {
+    "file": "3264-owning-and-full-gate-proof.tar.gz",
+    "sha256": "5f544bfd748af81ea4fa514bdde79719eeeecb9406d0dd1d0c520fd3a1f2ddda"
+  },
+  "readinessSha256": "39ee4e4621f9a7299cc3f073a7f07cc750182dbff68dc0ee94a52ab1c9560499"
+}

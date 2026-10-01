@@ -2087,6 +2087,7 @@ export const createAppController = (
   repoImportSeam.resume()
   secretsSeam.resumeCodingProviders()
   secretsSeam.resumeSecretRequests()
+  egressSeam.resumeEgressRequests()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
   repositorySetup.resumeRepositorySetups()
@@ -2098,7 +2099,7 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     queueMicrotask(() => { if (!ctx.disposed) { resumeModels(); resumeModelCalls(); account.resumeAccount() } })
@@ -2113,7 +2114,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   subscribeToAgent()

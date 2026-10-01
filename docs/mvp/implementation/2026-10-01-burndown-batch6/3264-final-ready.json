@@ -1,0 +1,452 @@
+{
+  "issue": 3264,
+  "status": "READY and FROZEN owning scope; whole-app gates remain red",
+  "head": "dbcbc7ad5e82d8a927535bb43a509bf7b48969ee",
+  "capturedAt": "2026-10-01T04:04:57.647272+00:00",
+  "sourceDependentJobsRunning": false,
+  "ownedPaths": [
+    {
+      "path": "apps/app/src/mainview/state/AppState.ts",
+      "sha256": "a08cd6a415b6b071e37e7f902d4e72425c1b70e5406718ede557baaa06d2b532"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppTransitionValidation.ts",
+      "sha256": "0a62ddd52b78edca6f8c3e31f1822f82e9748427e345146dc74414adfb8824fe"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppProjection.ts",
+      "sha256": "d148e9493b8f33d5a3e045473bf8330be481a9d9a69095da3ec649cf7dd82412"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppEventStream.ts",
+      "sha256": "137ae74dcb50d98ac32ae5b38bd775705d3eac28a1e2cd34cce268ef968325c8"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppController.ts",
+      "sha256": "324389cff96a5ab44079d457e096e8e06d677aeda4165baaaccc2fac0e365266"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppStore.events.test.ts",
+      "sha256": "26913f932fe64a21f1081ef7ae3877a947a850dfaecdf3a78960458d70321f88"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/EgressSeam.ts",
+      "sha256": "9c29835d020488fd3f712d18109e9533883afbec3be35bc5a7e51314ec2e67ea"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/EgressSeam.test.ts",
+      "sha256": "193dc496831c221e54b60ce89831fdbd7bc4024e86146f88550625579e9be26d"
+    },
+    {
+      "path": "apps/app/src/mainview/state/EgressRequests.test.ts",
+      "sha256": "6ead5588fcf204ad22e7a85031bd697676534998a435303d1e18485480611573"
+    }
+  ],
+  "commands": [
+    {
+      "command": "bun test --coverage --coverage-reporter=lcov --coverage-dir=<external> EgressRequests.test.ts EgressSeam.test.ts entries/egress.test.ts AppTransitionValidation.test.ts AppStore.events.test.ts PrivacyRetirement.test.ts SecretEditorController.test.ts CodingProviderController.test.ts ControllerTestScope.test.ts",
+      "cwd": "workspace",
+      "exit": 0,
+      "log": "3264-final-focused.log"
+    },
+    {
+      "command": "bun test src e2e/contracts e2e/real/coverage e2e/real/support e2e/real/auth-permissions/profile.test.ts scripts",
+      "cwd": "apps/app",
+      "exit": 1,
+      "result": {
+        "pass": 8241,
+        "skip": 1,
+        "fail": 94,
+        "errors": 14,
+        "assertions": 43036,
+        "seconds": 324.18
+      },
+      "log": "3264-rebased-full-app.log",
+      "limits": "Same app production source. After this run only new EgressRequests fixture migrated to scopedControllers and gained concurrency/no-success assertions; corrected scope inventory passed. No repeat broad gate."
+    },
+    {
+      "command": "node_modules/.bin/tsc --noEmit",
+      "cwd": "apps/app",
+      "exit": 2,
+      "log": "3264-final-types.log",
+      "types": {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "cwd": "apps/app",
+        "exit": 2,
+        "diagnosticCount": 48,
+        "ownedDiagnosticCount": 0,
+        "errors": [
+          {
+            "path": "apps/app/scripts/flow-graph-e2e-gateway.mts",
+            "line": 61,
+            "column": 44,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/repositoryTriggers' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 4,
+            "column": 33,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/cloudToken' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 5,
+            "column": 42,
+            "code": "TS2459",
+            "message": "Module '\"smithers-server/Http\"' declares 'readBoundedText' locally, but it is not exported."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 5,
+            "column": 59,
+            "code": "TS2724",
+            "message": "'\"smithers-server/Http\"' has no exported member named 'transportLayer'. Did you mean 'TransportLive'?"
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 6,
+            "column": 10,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/Responses\"' has no exported member 'json'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 6,
+            "column": 16,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/Responses\"' has no exported member 'readBody'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 6,
+            "column": 26,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/Responses\"' has no exported member 'refuse'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 6,
+            "column": 34,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/Responses\"' has no exported member 'upstreamUnreachable'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 36,
+            "column": 72,
+            "code": "TS2322",
+            "message": "Type 'Effect<any, never, unknown>' is not assignable to type 'Effect<Response, never, never>'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 43,
+            "column": 12,
+            "code": "TS18046",
+            "message": "'read.failure' is of type 'unknown'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 47,
+            "column": 42,
+            "code": "TS2345",
+            "message": "Argument of type 'unknown' is not assignable to parameter of type 'string'."
+          },
+          {
+            "path": "apps/app/scripts/workerRelay.ts",
+            "line": 52,
+            "column": 21,
+            "code": "TS2345",
+            "message": "Argument of type 'Effect<any, any, any>' is not assignable to parameter of type 'Effect<any, any, never>'."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 8,
+            "column": 75,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/DurableTurn' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 9,
+            "column": 15,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/DurableStorage\"' has no exported member 'NativeNamespace'."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 10,
+            "column": 56,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/Environment' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 11,
+            "column": 41,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/TurnJournalClient' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 12,
+            "column": 36,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/turns' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 65,
+            "column": 17,
+            "code": "TS7006",
+            "message": "Parameter 'name' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 66,
+            "column": 10,
+            "code": "TS7006",
+            "message": "Parameter 'id' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 66,
+            "column": 32,
+            "code": "TS7006",
+            "message": "Parameter 'request' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/bun/NativeTurnJournal.ts",
+            "line": 92,
+            "column": 62,
+            "code": "TS7006",
+            "message": "Parameter 'work' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/flows/parity-hosts.test.ts",
+            "line": 30,
+            "column": 63,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/index' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/flows/parity-hosts.test.ts",
+            "line": 31,
+            "column": 36,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/githubAppInstall' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/flows/parity-hosts.test.ts",
+            "line": 296,
+            "column": 30,
+            "code": "TS7006",
+            "message": "Parameter 'rule' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/flows/parity-hosts.test.ts",
+            "line": 479,
+            "column": 52,
+            "code": "TS7006",
+            "message": "Parameter 'rule' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/flows/parity-hosts.test.ts",
+            "line": 481,
+            "column": 12,
+            "code": "TS7006",
+            "message": "Parameter 'rule' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 5,
+            "column": 32,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/clientErrorLog' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 7,
+            "column": 15,
+            "code": "TS2305",
+            "message": "Module '\"smithers-server/DurableStorage\"' has no exported member 'NativeNamespace'."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 8,
+            "column": 71,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/Environment' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 9,
+            "column": 32,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/Environment' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 11,
+            "column": 31,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/index' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 26,
+            "column": 52,
+            "code": "TS7006",
+            "message": "Parameter 'name' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 28,
+            "column": 17,
+            "code": "TS7006",
+            "message": "Parameter 'name' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 60,
+            "column": 79,
+            "code": "TS7006",
+            "message": "Parameter 'work' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/ClientErrorTelemetry.test.ts",
+            "line": 150,
+            "column": 51,
+            "code": "TS7006",
+            "message": "Parameter 'name' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/controller/gateway.test.ts",
+            "line": 681,
+            "column": 47,
+            "code": "TS2769",
+            "message": "No overload matches this call."
+          },
+          {
+            "path": "apps/app/src/mainview/state/controller/gateway.test.ts",
+            "line": 688,
+            "column": 48,
+            "code": "TS2769",
+            "message": "No overload matches this call."
+          },
+          {
+            "path": "apps/app/src/mainview/state/controller/registration.test.ts",
+            "line": 22,
+            "column": 135,
+            "code": "TS2322",
+            "message": "Type '(url: string, init?: RequestInit | undefined) => Promise<Response>' is not assignable to type 'FetchLike'."
+          },
+          {
+            "path": "apps/app/src/mainview/state/controller/registration.ts",
+            "line": 79,
+            "column": 89,
+            "code": "TS2345",
+            "message": "Argument of type '{ workspaceId: string | null; } | undefined' is not assignable to parameter of type 'GatewayWorkspaceBinding | undefined'."
+          },
+          {
+            "path": "apps/app/src/mainview/state/controller/signup.test.ts",
+            "line": 35,
+            "column": 97,
+            "code": "TS2353",
+            "message": "Object literal may only specify known properties, and 'allowlisted' does not exist in type '{ type: \"identity.session.loaded\"; provider?: \"local\" | \"github\" | undefined; actor: \"system\"; state: \"signed-in\" | \"unavailable\" | \"signed-out\"; login: string | null; admin: boolean; scopesPlain: string | null; }'."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 3,
+            "column": 31,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/index' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 4,
+            "column": 71,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/Environment' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 5,
+            "column": 32,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/Environment' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 6,
+            "column": 10,
+            "code": "TS2724",
+            "message": "'\"smithers-server/Http\"' has no exported member named 'transportLayer'. Did you mean 'TransportLive'?"
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 198,
+            "column": 45,
+            "code": "TS7006",
+            "message": "Parameter 'input' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/CloudSeam.test.ts",
+            "line": 198,
+            "column": 52,
+            "code": "TS7006",
+            "message": "Parameter 'init' implicitly has an 'any' type."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/tutorial2-repository.test.ts",
+            "line": 2,
+            "column": 63,
+            "code": "TS2307",
+            "message": "Cannot find module 'smithers-server/index' or its corresponding type declarations."
+          },
+          {
+            "path": "apps/app/src/mainview/state/seams/tutorial2-repository.test.ts",
+            "line": 20,
+            "column": 60,
+            "code": "TS7006",
+            "message": "Parameter 'rule' implicitly has an 'any' type."
+          }
+        ],
+        "rawLogSha256": "380ad0c505ac21cf9ad82c64a02f1a0c4cf1901837bb88dfd272855a131a1dc6"
+      }
+    },
+    {
+      "command": "packages/smithers/node_modules/.bin/dprint check --config packages/rpc/dprint.json <three authored egress files>",
+      "exit": 0,
+      "log": "3264-final-optional-format.log",
+      "limits": "Optional style qualification only; app has no declared whole-app format gate"
+    }
+  ],
+  "coverage": {
+    "observed": [
+      "SF:apps/app/src/mainview/state/seams/EgressSeam.ts",
+      "FNF:54",
+      "FNH:52",
+      "LF:250",
+      "LH:249"
+    ],
+    "limits": "Bun LCOV line/function coverage only; legacy parser line84 unexecuted; no whole-app100% or branch claim"
+  },
+  "behavior": "Real SQLite persisted admission and terminal receipts, held commit ordering, distinct-host admission/reopen preservation, user/agent duplicates, failed storage retains pending without success, actual HTTP PATCH, real shared300ms notices, controller startup/reload/chat, owner/signout/ABA fences, failure retry, v29 checkpoint migration, bounded receipts/no pending eviction.",
+  "storageFailurePolicy": "When SQLite rejects terminal persistence, canonical browser write refusal is reported; committed pending row and running notice remain, no completed result. Healthy reload retries same idempotent PATCH.",
+  "foreignGateLimits": "#3257 retired server import/exports is foreign claimed. Other failures and all type diagnostics preserved, not repaired or thresholds changed. Parent tracks remaining issue attribution.",
+  "review": "Parent source review accepted conditional meaningful concurrency/no-success controls; both passed. AppController appearance merge reviewed; eight other restored paths exact.",
+  "format3263Correction": "Parent corrected absent dprint setup false success; exact b80 optional style probe exit20 retained.",
+  "fullGateFailureInventory": "3264-full-gate-failures.json",
+  "receiptHashes": {
+    "3264-final-focused.log": "24f4a1b9fe6d348b348e33d3c2ee190010b9bb801ff339eb238551f888d818e6",
+    "3264-final-types.log": "380ad0c505ac21cf9ad82c64a02f1a0c4cf1901837bb88dfd272855a131a1dc6",
+    "3264-final-optional-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3264-post-review-controls.log": "a0ca88ac4762e79c07019e043ebb56a5adfed829021035fede1e7da7ee7bb7aa",
+    "3264-rebased-full-app.log": "4b32b6df4534a25391f1c9247fea68b99650068c72c3c3bd5c64bb57d21bdedd",
+    "3264-final-focused-coverage/lcov.info": "53bd4559fa89254adc897ee28f1e8a331532aa1a4537cf8edc4a0a245b1a0e1f",
+    "3264-full-gate-failures.json": "d00cb267396389e7c8ca812952aac4c8a025cb81192d3fd3fa59432263ffe6a6",
+    "3264-final-type-diagnostics.json": "4ec17f8e1f65782e7b92345d60f65529cc73ca18649cdf730ed36d9900f6ca70"
+  }
+}

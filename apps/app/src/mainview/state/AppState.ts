@@ -818,6 +818,11 @@ export const SessionSchema = z.object({
     id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete"]),
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
+  /** Atomic egress additions can be replayed; only the authorized owner, repository and host are saved. */
+  egressRequests: z.array(z.object({
+    id: z.string(), owner: z.string(), repo: z.string(), host: z.string(),
+    state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
+  }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
@@ -1281,6 +1286,7 @@ export type AppTransition =
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
+  | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */
   | { type: "palette.changed"; actor: "user"; palette: Palette }

@@ -70,6 +70,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "librarian.launches.changed": z.object({ type: z.literal("librarian.launches.changed"), actor: ActorSchema, launches: z.array(z.unknown()) }).strict(),
   "coding.provider.requests.changed": z.object({ type: z.literal("coding.provider.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.codingProviderRequests.unwrap() }).strict(),
   "secret.requests.changed": z.object({ type: z.literal("secret.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.secretRequests.unwrap() }).strict(),
+  "egress.requests.changed": z.object({ type: z.literal("egress.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.egressRequests.unwrap() }).strict(),
   "stack.wiki.requests.changed": z.object({ type: z.literal("stack.wiki.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiRequests.unwrap() }).strict(),
   "first-run.dismissed": z.object({ type: z.literal("first-run.dismissed"), actor: ActorSchema }).strict(),
   "signup.changed": z.object({ type: z.literal("signup.changed"), actor: ActorSchema, patch: SignupSchema.partial() }).strict(),

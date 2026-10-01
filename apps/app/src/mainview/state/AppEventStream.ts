@@ -41,7 +41,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // `identity.access.requested`/`identity.access.failed` transitions and the `request-queue` card retire (#2145).
 // 28: box inventory loads carry scoped readiness; old rows seed a fresh stream (#3200).
 // 29: retired health charges and timestamps leave persisted card payloads (#3189).
-export const APP_PROJECTOR_VERSION = 29
+// 30: durable owner-scoped egress additions reconnect through the shared toast after reload (#3264).
+export const APP_PROJECTOR_VERSION = 30
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)
