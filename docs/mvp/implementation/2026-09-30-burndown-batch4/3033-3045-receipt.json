@@ -1,0 +1,92 @@
+{
+  "issue": 3033,
+  "status": "PASS; post-rebase owning qualification complete and frozen; no source changes",
+  "head": "bd2b7b81d6bfa31ea4b72ce5c97f6285a2784598",
+  "upstreamReviewed": "edf5b7c2cf; six #3045 TUI commits, 52 paths from our prior 2fedcdc6e8 boundary",
+  "captured": "2026-10-01T00:37:53.679472+00:00",
+  "sources": {
+    "apps/app/src/mainview/App.tsx": "bee4c81308af5267dd3ebe2bcea311ad08af833b10c7bec5aa235a3248c358ef",
+    "apps/app/src/mainview/SubagentGrid.tsx": "a1848a676fb15ea50cb92330ad4601bfaeb5e67f7cd5d408d2488ea4cd12c430",
+    "apps/app/src/mainview/state/ChatShell.test.tsx": "bc0037f8c0006f3df9297fd37bc8805b351fb53c3d0538eddc4bf58df2f9a27f",
+    "apps/app/src/mainview/state/ChatTimeline.test.ts": "cf8e237633c4139302bb3f0984a113ea0ba0546ac1f6aab1b3af94f6e0c8fc17",
+    "apps/app/src/mainview/state/ChatTimeline.ts": "157f7b5c4ea2cf1ef26eacba29ae0378e73af9368b9f3bd92a0ce85c3cc62642",
+    "apps/tui/AGENTS.md": "4232001df5118aa78bd900597f66e3fb47989b18669ee6f3e8ab552d099ffaac",
+    "apps/tui/README.md": "6589fbaa093c6c84c83abc30831ea132f426d4e7cf8b0eff04853dc635e0ce91",
+    "apps/tui/e2e/subagent-fold.test.ts": "72e47c0dd18cac4b8d85a1be95166b6931a821c14457eabf530c8a642599c555",
+    "apps/tui/e2e/tmux.ts": "68111e02b754efde3267ed702936f8e703861697ace4ed449d7cb110c6af1d2b",
+    "apps/tui/package.json": "8514a816276cc466dcfe06f30bd5cca03f14bbddad3f0b7961158e6afa60fc7b",
+    "apps/tui/src/app.tsx": "25178a34cd62c2b3b811c907c67b56aaba3bccdf40ed6bcf5cc6fb757bdf6e31",
+    "apps/tui/src/subagent-view.tsx": "b3ed2c8fd04e5d7c49dcf196508ca7f2428f2f9d91730f9edbf240f5550d571c",
+    "apps/tui/src/subagents.ts": "25f6eb4ee8c24329c194f16fc6356a4ff133e6721c570cc27664e3eb1c989ec7",
+    "apps/tui/src/tabs-view.tsx": "8611ce365c90cb1af96764040a80e1d9fc8a248cc3c073dc0f0955ebc6c74d84",
+    "apps/tui/src/transcript-view.ts": "0a387d9f4a80d591b253e27bbb8869e7255fccfce0a10d6ddcc63b4de6cf30c0",
+    "apps/tui/test/app-session-controls.test.tsx": "b7134c89c41184d9b525e594a1e8612ffd86178dfd2f3a5475740c361d1a99f9",
+    "apps/tui/test/subagent-view.test.tsx": "b30b0911209c8ef316299daa7c0ff14c6c1195ab46266e13fc24ad118af11202",
+    "apps/tui/test/subagents.test.tsx": "bbe34cc698761bdca5ddfa35f2db6f7df85a009c1e6bb9735bbd06d7ed13f712",
+    "apps/tui/test/tabs.test.tsx": "91c0bcabb02ed8ffa70ec597b36f2bbe7e3c7ab8fd53d21e0ca3f491561b2d53",
+    "apps/tui/test/transcript-view.test.tsx": "ce9d5ffed4b0257e7e8f1b4c097875779174cffd348215fcccdd5d81ae3016c1",
+    "apps/tui/tsconfig.json": "46ac0aed629aece048748ffec84f6c21ffb006cd92798057af66c356fe7a359e",
+    "packages/rpc/src/SubagentCard.ts": "a280d850cbaba1aa338b3763956119c4fb2ae03bb5e887b4812a0c1b154cd42d",
+    "packages/rpc/src/WorkerControls.ts": "f6a8566c9971193d5c833b5eeb03cd041330dfa45d558c4b63fa68395c379252"
+  },
+  "sourceInputUnchanged": true,
+  "results": {
+    "focused": "308/308; 1177 assertions; six TUI subagent/transcript/session/tab/key suites",
+    "gui": "23/23; 152 assertions; ChatTimeline and ChatShell shared fold controls",
+    "native": "3/3; 14 assertions; actual production main.tsx via PTY, real saved sessions, replayed model completion. 10/11 boundary, keyboard Enter+draft same write, mouse expansion, unchanged journal until actual chat submission/completion",
+    "types": "TUI own tsconfig noEmit PASS",
+    "format": "Three owned follow-up tests PASS owning TUI dprint config"
+  },
+  "review": "Orchestrator inspected incoming common-ancestor diff: TUI/docs only, no grant/recovery or public package/config overlap. Sol reran owning focused, GUI, real native PTY, type and format checks on actual merged source with unchanged source hashes. #3033 remains closed; no extra closure counted.",
+  "commands": [
+    {
+      "cwd": ".",
+      "command": "bun test apps/tui/test/subagent-view.test.tsx apps/tui/test/transcript-view.test.tsx apps/tui/test/subagents.test.tsx apps/tui/test/tabs.test.tsx apps/tui/test/key-dispatch.test.ts apps/tui/test/app-session-controls.test.tsx",
+      "exit": 0
+    },
+    {
+      "cwd": "apps/app",
+      "command": "bun test src/mainview/state/ChatTimeline.test.ts src/mainview/state/ChatShell.test.tsx",
+      "exit": 0
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "bun test ./e2e/subagent-fold.test.ts",
+      "exit": 0
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "node_modules/.bin/tsc -p tsconfig.json --noEmit",
+      "exit": 0
+    },
+    {
+      "cwd": ".",
+      "command": "packages/smithers/node_modules/.bin/dprint check --config apps/tui/dprint.json apps/tui/e2e/subagent-fold.test.ts apps/tui/test/app-session-controls.test.tsx apps/tui/test/subagents.test.tsx",
+      "exit": 0
+    }
+  ],
+  "environment": {
+    "PATH": "/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/Users/williamcory/.bun/bin:$PATH",
+    "TMPDIR": "/private/tmp",
+    "guiHelper": "/Users/williamcory/smithers/target/release/smithers-jj-export; existing artifact, not rebuilt",
+    "nativeFFI": "/Users/williamcory/smithers/target/debug/libsmithers_ffi.dylib; existing artifact, not rebuilt"
+  },
+  "limits": [
+    "No full TUI campaign repeated; no broader defect found.",
+    "Replay avoids live provider calls; actual PTY/native activation, focus and durable session readback are executed.",
+    "No hosted release/deployment claim.",
+    "No source or git mutations; all check processes completed."
+  ],
+  "logs": {
+    "3033-3045-focused.log": "14bb0c870d96c687aa3552cd195b0239667ae555b55eeb4663f31c0f8806cd0a",
+    "3033-3045-gui.log": "ad3866409471739a95674225e23087dadb03eec14847f490a13bea98f4372be3",
+    "3033-3045-native.log": "1ed59a702dae5aeaaad1b21d45cc9bf35c3fd1317423cbd187a838d9b09e2c24",
+    "3033-3045-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3033-3045-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3033-3045-before.json": "31c41940c65b9d57e94897b3c30a8141c8060b73a5e377ecdd492af6f096ed70"
+  },
+  "archive": {
+    "path": "docs/mvp/implementation/2026-09-30-burndown-batch4/3033-3045-validation.tar.gz",
+    "sha256": "6954ad60b1feeb5af658db8e0a32de009c1cf83d811f20b18422c90e0e6e4213"
+  }
+}
