@@ -1,0 +1,13 @@
+{
+  "checkedCandidate": "44b0b2a23a90c121f3172bcf6b90ffc6eea880f4",
+  "originMain": "7bb9358dd5",
+  "incoming": "Sandbox work/merge and SandboxFlow public additions",
+  "affectedChecks": {
+    "3326": "52 actual matrix/readiness cases (prior opt-in also ran),15HostCapabilities andRPCtesttypes; actual43 app diagnostics allfacts/5976inputs unchanged",
+    "3325": "21env/body/declaration/pincontrols andcompleteowningtypes/declarationtypes; old276secondfullfailure retained separately",
+    "3240": "2actualNode26/PG affectedcases pass;2924backendfiles unchanged,9521currentinputs stable"
+  },
+  "allJobsFrozen": true,
+  "mainRewrite": false,
+  "fullGateClaims": false
+}

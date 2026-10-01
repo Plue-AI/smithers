@@ -1,0 +1,61 @@
+{
+  "issue": 3240,
+  "readiness": "postrebase named acceptance READY; prior unrelated whole-services failures remain3288/3265; no fullsuite green claim",
+  "sourceFrozen": true,
+  "ownedSourcePaths": [],
+  "activeJobs": [],
+  "result": {
+    "issue": 3240,
+    "argv": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "-timeout=5m",
+      "./internal/services",
+      "-run",
+      "^(TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel|TestInvokedFlowJournalAndFailureReachTheRunLog)$"
+    ],
+    "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+    "exitCode": 0,
+    "seconds": 11.38,
+    "checkedHead": "44b0b2a23a90c121f3172bcf6b90ffc6eea880f4",
+    "headAfter": "44b0b2a23a90c121f3172bcf6b90ffc6eea880f4",
+    "nodeVersion": "v26.5.0",
+    "environment": {
+      "PATH": "/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/opt/homebrew/bin:/Users/williamcory/.nvm/versions/node/v22.4.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path:/Users/williamcory/.codex/tmp/arg0/codex-arg0xUlUse:/Users/williamcory/.local/bin:/usr/local/zig:/Users/williamcory/.deno/bin:/Users/williamcory/go/bin:/Users/williamcory/.nvm/versions/node/v22.4.1/bin:/Users/williamcory/.bun/bin:/Users/williamcory/.cargo/bin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:/opt/homebrew/sbin:/Applications/Ghostty.app/Contents/MacOS:/Users/williamcory/.foundry/bin:/Users/williamcory/.orbstack/bin:/Users/williamcory/.orbstack/bin",
+      "TMPDIR": "/private/tmp",
+      "SMITHERS_TEST_DATABASE_URL": "postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable",
+      "SMITHERS_REQUIRE_DATABASE_TESTS": "1",
+      "SMITHERS_FFI_LIBRARY_PATH": "/Users/williamcory/smithers/target/release/deps/libsmithers_ffi.dylib"
+    },
+    "passed": [
+      "TestInvokedFlowJournalAndFailureReachTheRunLog",
+      "TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel"
+    ],
+    "failed": [],
+    "skipped": [],
+    "changedDuringChecks": [],
+    "inputCount": 9521,
+    "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/backend-3240/postrebase-44b0b2a23a/affected-node26-realpg.jsonl",
+    "receiptSHA256": "2ec970f954aa705b748913835b6c375ee6ba54a6c4302921f0d6cc6e89f3119d",
+    "ffiArtifactSHA256": "01daaa71b0f92f09b1c58f86ca8ddc45a134d0ffc5c8b6fbe053c689216ffa39",
+    "nativeRebuilt": false
+  },
+  "deltaAudit": {
+    "previousCapturedBackendFiles": 2924,
+    "changedBackendFiles": [],
+    "priorWholeServicesCandidate": "275d58eeb0e2916b5f34ccb9cf517a1cdbbb2dab",
+    "currentCandidate": "44b0b2a23a90c121f3172bcf6b90ffc6eea880f4",
+    "rebaseAffectedProof": "Two actual named Node26/realPG cases independently passed; 9521 current scoped inputs unchanged during checks",
+    "fullSuiteRepeated": false,
+    "earlierNamed71AndWholeFailedProofRetained": true
+  },
+  "rawReceipts": {
+    "affected-node26-realpg.jsonl": "2ec970f954aa705b748913835b6c375ee6ba54a6c4302921f0d6cc6e89f3119d",
+    "delta-audit.json": "71f629396cc3a7898e7e4c15b503e996e2e7db85ba13a18ecefd3ff35fa6089c",
+    "inputs-after.json": "7084c91ec0acc79f7bbdcecb572f08d9e95d287d27f886103a9dae9ddc5e91ad",
+    "inputs-before.json": "a3aa4317fe4ae677ae1c81d37b58c7e315b0844b09a786b31eca512e56762907",
+    "result.json": "51d110357f7a0f0badb9f5af327373b32319c4a0e1bd1bb7f203e461fa25cfdd"
+  }
+}

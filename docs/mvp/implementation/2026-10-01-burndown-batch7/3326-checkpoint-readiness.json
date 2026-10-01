@@ -1,0 +1,69 @@
+{
+  "issue": 3326,
+  "status": "READY/FROZEN",
+  "head": "44b0b2a23a90c121f3172bcf6b90ffc6eea880f4",
+  "owningFiles": [
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.ts",
+      "sha256": "562fc3e49e60c271ca4e3797ffae60e6190d9124daf59f85404b74be0d23a78e",
+      "unchanged": true
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/matrix.test.ts",
+      "sha256": "5f0dcd8f616e241a30ef474251280745928188fee3ec3036e3f02a867ac067fe",
+      "unchanged": true
+    },
+    {
+      "path": "apps/app/e2e/real/coverage/README.md",
+      "sha256": "99dc3800edfaee341087d61782c105179f495fe870a186b0f431a02a4b401edc",
+      "unchanged": true
+    },
+    {
+      "path": "packages/rpc/test/HostCapabilities.test.ts",
+      "sha256": "fc48a7886a3efdf7a48fb3a48d9d1903db7188be849abfd16e798739029c4e28",
+      "unchanged": true
+    }
+  ],
+  "qualification": {
+    "matrixAndReadiness": {
+      "pass": 52,
+      "fail": 0,
+      "skip": 0,
+      "assertions": 324,
+      "log": "3326-checkpoint-owning.log",
+      "additionalExecutedControl": "Clean committed source lets existing actual CLI stalled-mode deadline test execute, reporting timeout and continuing to next mode."
+    },
+    "hostCapabilities": {
+      "pass": 15,
+      "fail": 0,
+      "report": "3326-checkpoint-host-capabilities.json"
+    },
+    "rpcCompleteConfiguredTestTypes": {
+      "exit": 0,
+      "log": "3326-checkpoint-rpc-test-types.log"
+    },
+    "appConfiguredTypes": {
+      "exit": 2,
+      "remainingDiagnostics": 43,
+      "exactSameDiagnosticFacts": true,
+      "capture": "3326-checkpoint-after-configured-types.json",
+      "audit": "3326-checkpoint-type-audit.json"
+    }
+  },
+  "limits": [
+    "No live deployment/provider or full app coverage claim. Full configured app remains red with43 unchanged foreign diagnostics.",
+    "Incoming input changes inventoried independently; no input-drift pass claimed across different commits. Current capture has no concurrent disk drift.",
+    "Prior unrelated stale-deferral failure retained; broad suite not repeated. Original issue proof/archive remains immutable."
+  ],
+  "jobs": "All jobs complete; no source edits made or planned.",
+  "receipts": {
+    "3326-checkpoint-capture-types.cjs": "80266386af09e0273554a09d38c401ad988e745842e57d754367851abdbfe7b0",
+    "3326-checkpoint-after-configured-types.json": "012af12488487c8efb476a22f5f5fe9cfb74e3c186de0694de353e182b965610",
+    "3326-checkpoint-configured-types.log": "5caa04643de9e3bcd926cae0fb8a400117551411756ea4ad520a95140e414128",
+    "3326-checkpoint-type-audit.json": "465e26b2400971362e7c403cb8678cc5264de04b759435bf235df40e786172fc",
+    "3326-checkpoint-owning.log": "e3e692d88555b2ff3cacde81b1a209f16afb8ef2a7a9a33bfb7ed8a939ad0328",
+    "3326-checkpoint-host-capabilities.json": "d99098bad87691c285daa15c9ac61c74ef73dac1f86716aba2a83881a4b8a305",
+    "3326-checkpoint-rpc-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3326-checkpoint-host-capabilities.log": "f029098747e361a50be9aba371c72b38d3057cbac58d7e81b947dd1fbd2e83a6"
+  }
+}
