@@ -10,9 +10,9 @@
  *
  * The guest contract is the Cloud one: a jj-colocated checkout of
  * smithersai/smithers at `guestCheckout` (`/home/developer/workspace`), HOME
- * `/home/developer`, `git`, `jj`, Node 26, pnpm, `gh`, `codex`, and `claude`
- * on PATH, dependencies installed. At acquire the checkout moves to a fresh
- * `main` (`refresh`). Closing the scope removes the microVM, on success,
+ * `/home/developer`, `git`, `jj`, Node 26, pnpm, `gh`, `codex`, `claude`, and the
+ * Go and Rust toolchains the checkout pins on PATH, dependencies installed. At
+ * acquire the checkout moves to a fresh `main` (`refresh`). Closing the scope removes the microVM, on success,
  * failure and interruption; `reapOrphans` removes the microVMs of a host
  * process that died without closing its scopes. `provider()` is one
  * process-wide instance whose `maxVms` gate (default 32) queues acquires beyond
@@ -56,10 +56,48 @@ export const agentHosts: ReadonlyArray<string> = [
   "*.chatgpt.com",
   "*.openai.com",
   "*.anthropic.com",
-  "claude.ai"
+  "claude.ai",
+  // Go modules and crates an agent's change adds beyond the prefetched ones.
+  "proxy.golang.org",
+  "sum.golang.org",
+  "index.crates.io",
+  "static.crates.io"
 ]
 
-/** The shell commands that turn `baseImage` into the Smithers image. */
+/**
+ * Toolchain state an agent writes lives inside the checkout, under paths the
+ * repository ignores (rustup's proxies too: rustup refuses a CARGO_HOME it is
+ * not installed in): Codex's workspace-write sandbox writes only there and in
+ * /tmp, and the snapshot carries the prefetched modules and warm caches.
+ * `.backend-go-modcache` is the module cache the backend test target reads.
+ */
+export const toolchainEnv: Readonly<Record<string, string>> = {
+  GOTOOLCHAIN: "local",
+  GOMODCACHE: `${guestCheckout}/.backend-go-modcache`,
+  GOCACHE: `${guestCheckout}/.cache/go-build`,
+  // The guest /tmp is too small for linking backend test binaries.
+  GOTMPDIR: `${guestCheckout}/.cache/go-tmp`,
+  RUSTUP_HOME: "/usr/local/rustup",
+  CARGO_HOME: `${guestCheckout}/.cache/cargo`
+}
+
+/** The guest PATH: the Go and Rust toolchains before the system directories. */
+export const guestPath =
+  `/usr/local/go/bin:${guestCheckout}/.cache/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`
+
+// Prints the SHA-256 go.dev publishes for the file named by argv[1] (go.dev's release JSON on stdin).
+const goChecksum = "let s=\"\";process.stdin.on(\"data\",(d)=>s+=d).on(\"end\",()=>{" +
+  "const f=JSON.parse(s).flatMap((r)=>r.files).find((f)=>f.filename===process.argv[1]);" +
+  "if(!f)process.exit(1);console.log(f.sha256)})"
+
+/**
+ * The shell commands that turn `baseImage` into the Smithers image. Go is the
+ * release go.mod names (its `toolchain` line, else its `go` line), checked
+ * against go.dev's published SHA-256; Rust is the channel rust-toolchain.toml
+ * pins, installed by a checksum-verified rustup. Modules and crates are
+ * prefetched and the backend packages compiled, so an agent's first `go test`
+ * or `cargo test` downloads nothing.
+ */
 export const provisionScript = (revision: string): string =>
   `set -eux
 mkdir -p ${guestHome}/.config/jj
@@ -69,11 +107,33 @@ curl -fsSL https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_
 install -m755 /tmp/gh_2.83.0_linux_arm64/bin/gh /usr/local/bin/gh
 npm install -g pnpm@11.25.0 @openai/codex @anthropic-ai/claude-code
 npm cache clean --force
+rm -rf ${guestCheckout}
 git clone -q https://github.com/smithersai/smithers.git ${guestCheckout}
 cd ${guestCheckout}
 git checkout -q ${revision}
+${Object.entries(toolchainEnv).map(([name, value]) => `export ${name}=${value}`).join("\n")}
+export PATH=${guestPath}
+go_version=$(sed -n 's/^toolchain go//p' go.mod)
+[ -n "$go_version" ] || go_version=$(sed -n 's/^go //p' go.mod)
+go_file=go$go_version.linux-arm64.tar.gz
+go_sha=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | node -e '${goChecksum}' "$go_file")
+curl -fsSL -o /tmp/go.tar.gz "https://go.dev/dl/$go_file"
+echo "$go_sha  /tmp/go.tar.gz" | sha256sum -c -
+tar -xzf /tmp/go.tar.gz -C /usr/local
+rustup_init=https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init
+curl -fsSL -o /tmp/rustup-init "$rustup_init"
+echo "$(curl -fsSL "$rustup_init.sha256" | cut -d' ' -f1)  /tmp/rustup-init" | sha256sum -c -
+chmod +x /tmp/rustup-init
+/tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain none
+rustup toolchain install
 jj git init --colocate
 CI=1 pnpm install --frozen-lockfile
+mkdir -p "$GOTMPDIR"
+go mod download
+go build ./packages/backend/...
+cargo fetch --locked
+go version
+cargo --version
 jj st >/dev/null
 rm -rf /tmp/* /root/.npm
 `
@@ -200,7 +260,8 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
         HOME: guestHome,
         XDG_CONFIG_HOME: `${guestHome}/.config`,
         XDG_CACHE_HOME: `${guestHome}/.cache`,
-        PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ...toolchainEnv,
+        PATH: guestPath
       },
       cpus: options.cpus ?? 2,
       memoryMib: options.memoryMib ?? 3072,
@@ -268,9 +329,19 @@ export const buildImage = (
       rootDiskMib: 24_576,
       owner
     })
+    // The builder is sticky so its disk outlives the session for the capture;
+    // a failed provisioning removes it, or the next build would reuse its half-made disk.
     const machine = yield* Effect.scoped(Effect.gen(function*() {
       const session = yield* builder.acquire(`image-${revision}`)
-      yield* required(session, "provisioning", provisionScript(revision))
+      yield* required(session, "provisioning", provisionScript(revision)).pipe(
+        Effect.tapError(() =>
+          Effect.promise(() =>
+            sdk.Sandbox.get(session.remoteId)
+              .then((handle) => handle.destroy({ timeoutMs: 60_000, force: true }))
+              .catch(() => undefined)
+          )
+        )
+      )
       return session.remoteId
     }))
     return yield* MicrosandboxSandbox.captureSnapshot({

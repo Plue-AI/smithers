@@ -28,6 +28,7 @@ const fakeSdk = (
   const created: Array<Record<string, unknown>> = []
   const destroyed: Array<string> = []
   const lines: Array<string> = []
+  const envs: Array<Record<string, string>> = []
   const killed: Array<string> = []
   // A guest kill script (`p=<pid>; ...`) ends every hanging command, as the guest's signal would.
   const hanging = new Set<() => void>()
@@ -63,11 +64,17 @@ const fakeSdk = (
       readToString: async () => name
     }),
     execStreamWith: async (program: string, configure: (b: unknown) => unknown) => {
-      const call = { args: [] as Array<string> }
-      const b = { args: (a: Array<string>) => (call.args = a, b), cwd: () => b, envs: () => b, stdinBytes: () => b }
+      const call = { args: [] as Array<string>, envs: {} as Record<string, string> }
+      const b = {
+        args: (a: Array<string>) => (call.args = a, b),
+        cwd: () => b,
+        envs: (vars: Record<string, string>) => (call.envs = vars, b),
+        stdinBytes: () => b
+      }
       configure(b)
       const line = [program, ...call.args].join(" ")
       lines.push(line)
+      envs.push(call.envs)
       if (line.includes("p=7;")) {
         killed.push(line)
         for (const end of hanging) end()
@@ -118,7 +125,7 @@ const fakeSdk = (
     defaultBackendKind: () => "local" as const,
     setDefaultBackend: () => undefined
   } as unknown as MicrosandboxSandbox.Sdk
-  return { sdk, live, created, destroyed, lines, killed, boots }
+  return { sdk, live, created, destroyed, lines, envs, killed, boots }
 }
 
 const ok: Answer = { code: 0 }
@@ -147,6 +154,11 @@ test("acquire boots the newest issue-sweep snapshot at the Cloud checkout path a
   assert.equal(policy.defaultEgress, "deny")
   assert.ok(policy.rules.some((rule) => rule.destination.domain === "github.com"))
   assert.ok(fake.lines.some((line) => line.includes(refreshLine)), "the checkout moves to current main")
+  // #3321: agents ran Go and Cargo commands that were not on PATH.
+  const env = fake.envs[fake.lines.findIndex((line) => line.includes(refreshLine))] ?? {}
+  assert.match(env["PATH"] ?? "", /^\/usr\/local\/go\/bin:\/home\/developer\/workspace\/\.cache\/cargo\/bin:/)
+  assert.equal(env["GOTOOLCHAIN"], "local", "go never downloads a toolchain")
+  assert.equal(env["GOCACHE"], `${guestCheckout}/.cache/go-build`, "caches stay writable inside the checkout")
   assert.deepEqual([...fake.live], [], "the microVM is removed when the scope closes")
   assert.equal(fake.destroyed.length, 1)
   assert.equal(agentHosts.includes("example.com"), false)
