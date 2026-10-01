@@ -1,0 +1,17 @@
+{
+  "originMain": "7ffa325ca0a3c7d3a1144b23905dc00dbbae0c73",
+  "candidateBeforeReceipt": "9944cdba1e65db677552b23b462571dad8b7ab7b",
+  "rebase": "ordinary rebase of owned unlanded commits, no main rewrite",
+  "owningHashes": "all7 app/RPC/matrix owning files match qualified final hashes",
+  "incomingChanges": [
+    "flows/issue-sweep flow/VM/brief/test helpers",
+    "build-cli test-only ServeCli PATH anchors"
+  ],
+  "affectedScopeReview": "No incoming app/RPC, backend service/database/routes, engine-store production or owning declarations changed. No repeated full tests justified by these unrelated changes. All agents source/jobs frozen before rebase.",
+  "qualifications": {
+    "3326": "focused tests/configured44\u219243types; whole coverage-dir preexisting stale deferrals remain #3327",
+    "3325": "declared realPG setup verified; strict canonical full failures retained and #3127 remains open",
+    "3240": "original71namedcases pass, original timeout not reproduced; full-suite2separateforeigngaps #3288/#3265 remain open"
+  },
+  "safety": "One owned shared worktree; normal fast-forward push only"
+}
