@@ -241,18 +241,18 @@ export const removeWorkspace = (issue: number) =>
     yield* Effect.promise(() => rm(directory, { recursive: true, force: true }))
   })
 
-/** Adds the issue's workspace at `revision`, with its dependencies installed. */
-const addWorkspace = (issue: number, revision: string) =>
+/** Adds the issue's workspace at `revision`; an agent working in it also needs its dependencies. */
+const addWorkspace = (issue: number, revision: string, withDependencies: boolean) =>
   Effect.gen(function*() {
     const directory = workspaceOf(issue)
     yield* removeWorkspace(issue)
     yield* jj(repository, ["workspace", "add", directory, "--name", workspaceName(issue), "-r", revision])
     const base = (yield* jj(directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
-    yield* install(directory)
+    if (withDependencies) yield* install(directory)
     return { directory, base }
   }).pipe(Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message })))
 
-const prepareWorkspace = PrepareWorkspace.toLayer((input) => addWorkspace(input.issue, "main"))
+const prepareWorkspace = PrepareWorkspace.toLayer((input) => addWorkspace(input.issue, "main", true))
 
 // The longest one agent may work on one issue before the flow stops it.
 const agentBudget = Duration.hours(2)
@@ -485,7 +485,8 @@ const adopt = Adopt.toLayer((input) =>
   Effect.gen(function*() {
     // The machine fetched main itself; this repository may not have that commit yet.
     yield* Effect.mapError(output("jj", ["-R", repository, "git", "fetch", "--branch", "main"]), agentFailed)
-    const { directory, base } = yield* addWorkspace(input.issue, input.remote.base)
+    // Only the landing checks need dependencies, and landing installs them.
+    const { directory, base } = yield* addWorkspace(input.issue, input.remote.base, false)
     const patchFile = `${directory}/.issue-sweep.patch`
     yield* Effect.promise(() => writeFile(patchFile, input.remote.patch))
     const applied = yield* Effect.mapError(

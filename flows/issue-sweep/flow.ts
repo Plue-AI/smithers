@@ -132,7 +132,13 @@ const listIssues = ListIssues.toLayer(({ input }) =>
 
 // RR_MAX_PER_ACCOUNT agents per ready account, never more than maxAgents.
 const readCapacity = (input: typeof Input.Type) =>
-  Effect.map(readPools, (pools) => capacity(pools, perAccount, input.maxAgents ?? 4))
+  Effect.map(readPools, (pools) =>
+    capacity(
+      // A microVM runs Codex only: the Claude login lives in the macOS keychain, which a guest cannot borrow.
+      input.placement === "vm" ? { codex: pools.codex, claude: { ready: [], unavailable: [] } } : pools,
+      perAccount,
+      input.maxAgents ?? 4
+    ))
 
 const accounts = Accounts.toLayer(({ input }) => readCapacity(input))
 
