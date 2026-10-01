@@ -85,3 +85,13 @@ test("spreadAccount spreads remote runs over the ready Codex accounts by issue",
 test("the brief asks for synced docs when an agent edits docs", () => {
   assert.match(brief("r", 1, { title: "t", body: "b", comments: [] }), /pnpm docs:sync[\s\S]*pnpm docs:check/)
 })
+
+// #3240: an agent ran the nonexistent `//packages/backend:test` and reported no change.
+test("the brief names a runnable narrow test per language and how to discover target labels", () => {
+  const text = brief("r", 1, { title: "t", body: "b", comments: [] })
+  assert.match(text, /vitest run <test file> --coverage\.enabled=false/)
+  assert.match(text, /`go test \.\/<directory of the Go package>\/`/)
+  assert.match(text, /`cargo test -p <crate> --locked`/)
+  assert.match(text, /no `\/\/packages\/backend:test` target/)
+  assert.match(text, /`pnpm exec smthrs targets '\/\/<package dir>\/\.\.\.'`/)
+})

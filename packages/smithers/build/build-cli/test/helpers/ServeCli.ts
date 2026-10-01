@@ -6,6 +6,7 @@
  */
 import type * as Audience from "../../src/Audience.ts"
 import { makeCli, normalizeArgv } from "../../src/Cli.ts"
+import * as Environment from "../../src/Environment.ts"
 import type * as PackageExec from "../../src/PackageExec.ts"
 import type * as Reporter from "../../src/Reporter.ts"
 import { executionPresentation } from "../fixtures/presentation.ts"
@@ -46,6 +47,10 @@ export const serve = async (
   let exitCode = 0
   let output = ""
   let logs = ""
+  // The process entry anchors relative PATH entries before anything reads
+  // them; a suite launched by `pnpm exec` inherits `./node_modules/.bin`, so
+  // the ambient environment gets the same treatment the real CLI gives it.
+  if (options.environment === undefined) Environment.anchorSearchPath(process.env, process.cwd())
   await makeCli({
     presentation: options.presentation ?? executionPresentation,
     environment: options.environment,
