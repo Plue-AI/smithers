@@ -417,15 +417,38 @@ func (s *WorkspaceService) readRuntimeRepositoryFile(ctx context.Context, row db
 }
 
 func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) error {
-	operationCtx, err := s.runtimeRepositoryContext(ctx, row, requesterID, step)
-	if err != nil {
-		return err
-	}
-	execCtx, cancel := context.WithTimeout(operationCtx, workspaceCloneTimeout)
+	// Fetch only mutates Git's object/ref store and safely retries an admission
+	// refusal. Give each completed failed attempt its own durable operation ID;
+	// otherwise the adapter would replay that failure instead of fetching again.
+	execCtx, cancel := context.WithTimeout(ctx, workspaceCloneTimeout)
 	defer cancel()
-	result, err := s.runtime.ExecuteCommand(execCtx, row.ID, command)
-	if err != nil {
-		return runtimeOperationError("initialize workspace repository ("+step+")", err)
+	var result workspaceapi.CommandResult
+	for attempt := 0; ; attempt++ {
+		attemptStep := step
+		if attempt > 0 {
+			attemptStep += "-retry-" + strconv.Itoa(attempt)
+		}
+		operationCtx, err := s.runtimeRepositoryContext(execCtx, row, requesterID, attemptStep)
+		if err != nil {
+			return err
+		}
+		if err := operationCtx.Err(); err != nil {
+			return err
+		}
+		result, err = s.runtime.ExecuteCommand(operationCtx, row.ID, command)
+		if err != nil {
+			return runtimeOperationError("initialize workspace repository ("+step+")", err)
+		}
+		if attempt >= 3 || !retryableWorkspaceFetch(command, result) {
+			break
+		}
+		timer := time.NewTimer(time.Second << attempt)
+		select {
+		case <-execCtx.Done():
+			timer.Stop()
+			return execCtx.Err()
+		case <-timer.C:
+		}
 	}
 	if result.ExitCode == 0 && !result.OutputTruncated {
 		return nil
@@ -444,6 +467,15 @@ func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row 
 		detail = strings.TrimSpace(detail + "\ncommand output was truncated")
 	}
 	return &workspaceRepositoryPreparationFailure{err: pkgerrors.Internal(fmt.Sprintf("initialize workspace repository (%s) failed with status %d: %s", step, result.ExitCode, detail))}
+}
+
+// Git reports an HTTP refusal in stderr. Do not retry authentication errors,
+// truncated evidence, transport uncertainty, or commands that change checkout.
+func retryableWorkspaceFetch(command workspaceapi.Command, result workspaceapi.CommandResult) bool {
+	if len(command.Args) < 2 || command.Args[0] != "git" || command.Args[1] != "fetch" || result.ExitCode == 0 || result.OutputTruncated {
+		return false
+	}
+	return strings.Contains(result.Stderr, "The requested URL returned error: 503") || strings.Contains(result.Stderr, "The requested URL returned error: 504")
 }
 
 func (s *WorkspaceService) runtimeRepositoryCommandOutput(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) (string, error) {
@@ -492,8 +524,13 @@ func (s *WorkspaceService) continueRuntimeRepositoryCheckout(ctx context.Context
 	if err := s.verifyRuntimeRepositoryOrigin(ctx, row, requesterID, cloneURL); err != nil {
 		return err
 	}
+	args := []string{"git", "fetch"}
+	if depth := workspaceSourceFetchDepth(s.workspaceCloneDepth(ctx, row.RepositoryID)); depth != "" {
+		args = append(args, depth)
+	}
+	args = append(args, "origin", bookmark)
 	if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "fetch", workspaceapi.Command{
-		Args: []string{"git", "fetch", "origin", bookmark}, Environment: environment,
+		Args: args, Environment: environment,
 	}); err != nil {
 		return err
 	}
