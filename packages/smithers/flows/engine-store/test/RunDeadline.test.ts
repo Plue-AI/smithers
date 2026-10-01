@@ -169,10 +169,11 @@ describe("Flow deadline across restarts", () => {
 
 // A lineage whose originator declares the hour and hands off at once to a round
 // that parks. The parked round declares no deadline of its own.
+const AwaitGate = Action.make("RunDeadline/await-gate", { payload: {}, success: Schema.String })
 const Gated = Flow.make("RunDeadline/Gated", {
   payload: {},
   success: Schema.String,
-  body: opaqueHandlerBody
+  body: () => AwaitGate.call({})
 })
 const Opening = Flow.make("RunDeadline/Opening", {
   payload: {},
@@ -199,9 +200,11 @@ const lineageIncarnation = <A, E>(
         journalSource: hostId,
         isAlive: () => Effect.succeed(false)
       })) as FlowRuntime.FlowRuntime["Service"]
-      yield* engine.register(Gated, () => DurableDeferred.await(gate))
       const wiring = yield* Layer.build(
-        Interpreter.layer(Opening).pipe(
+        // A fresh host must serve the already parked round without executing
+        // its completed originator to rediscover the handoff declaration.
+        Layer.mergeAll(Interpreter.layer(Opening), Interpreter.layer(Gated)).pipe(
+          Layer.provide(AwaitGate.toLayer(() => DurableDeferred.await(gate))),
           Layer.provideMerge(Action.layerImplementations),
           Layer.provideMerge(Layer.succeed(FlowRuntimeService, engine))
         )

@@ -1,0 +1,35 @@
+{
+  "issue": 3330,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:10:55.216648+00:00",
+  "review": "Reachable handoff interpreter now executes Gated authored body, replacing the old direct handler over an opaque failing body. On restart Opening is already completed and cannot rediscover Gated; the explicit host catalog serves both declarations through Interpreter.layer and supplies AwaitGate Action implementation. RunDriver intentionally leaves unregistered flows parked, so only serving Opening left the deadline wake parked.",
+  "sourceDiffReviewed": true,
+  "unchangedPriorAssertions": [
+    "Original persisted deadline exact startedAtMs0/deadlineMs3600000 remains",
+    "Actual same SQLite file reopened under another engine incarnation",
+    "Successor failure is DeadlineExceeded for Gated counted from original1970 start",
+    "Expiry occurs by61 minutes, not a restarted hour",
+    "All other prior deadline/completed-run/attached-tree cancellation assertions remain"
+  ],
+  "files": {
+    "packages/smithers/flows/engine-store/test/RunDeadline.test.ts": "2c80bb822e94f839e400774e45f77e55967ca314bfc04380b229ccedab9529d6"
+  },
+  "sourceInputsVerified": 298,
+  "sourceScopeLimit": "Minimal explicit owning source/config/test closure; not a claim of every compiler input",
+  "checks": {
+    "sqlite": "exit0; 23/23 pass, no skips; 16.84s",
+    "postgresConfigured": "exit0; 23/23 pass, no skips; 17.78s",
+    "fullTestTypes": "exit0",
+    "owningFormat": "exit0"
+  },
+  "storage": "Specific originator-handoff restart always real SQLite, including PG-configured command. Separate attached-tree fixture supports and executes actual PG under that command; no PG causation claim for the handoff restart.",
+  "proofArchive": "3330-3331-proof.tar.gz",
+  "proofArchiveSha256": "75a4b10d2a214589d4cd8d1b1340221900ef9888d6edbefceeabbb8566247195",
+  "limits": [
+    "Focused behavior only: no whole engine-store coverage claim; stock thresholds unchanged",
+    "No deadline, polling cap, authorization, ownership, cache or cancellation assertion weakened",
+    "Existing Jj test layer remains; no native VCS/rebuild claim",
+    "Original failures and intermediate fixture implementation failures retained; not labeled production defects",
+    "No whole canonical or loaded #3127 cohort rerun yet"
+  ]
+}
