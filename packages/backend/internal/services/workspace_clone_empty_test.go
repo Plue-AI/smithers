@@ -10,7 +10,7 @@ import (
 
 // runWorkspaceCloneScript runs the VM clone script against a local remote
 // with real git and jj, the developer user and clone path redirected to temp.
-func runWorkspaceCloneScript(t *testing.T, remote, bookmark string) (string, string, error) {
+func runWorkspaceCloneScript(t *testing.T, remote, bookmark string, rewrite ...func(string) string) (string, string, error) {
 	t.Helper()
 	for _, tool := range []string{"bash", "git", "jj"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -28,6 +28,9 @@ func runWorkspaceCloneScript(t *testing.T, remote, bookmark string) (string, str
 	}
 	require(os.MkdirAll(filepath.Join(home, ".config"), 0o755))
 	script := buildWorkspaceCloneCommand("file://"+remote, "tok", bookmark, 0, workspaceCloneSource{})
+	for _, transform := range rewrite {
+		script = transform(script)
+	}
 	asDev := "runuser -u " + shellQuote(defaultWorkspaceUser) + " -- "
 	if !strings.Contains(script, asDev) || !strings.Contains(script, workspaceRuntimeReadyCommand()) {
 		t.Fatalf("script shape changed:\n%s", script)
@@ -119,5 +122,35 @@ func TestWorkspaceCloneCommandFailsWhenAdvertisementFails(t *testing.T) {
 	}
 	if _, statErr := os.Stat(clone); !os.IsNotExist(statErr) {
 		t.Fatalf("unreachable remote left a working copy: %v", statErr)
+	}
+}
+
+// A tag pushed after the empty advertisement still makes the source populated.
+// Its missing bookmark must fail through the ordinary branch checkout.
+func TestWorkspaceCloneCommandTagArrivesAfterEmptyAdvertisement(t *testing.T) {
+	remote := bareRemote(t, "main")
+	gitIn(t, remote, "tag", "first", "main")
+	gitIn(t, remote, "update-ref", "-d", "refs/heads/main")
+	_, out, err := runWorkspaceCloneScript(t, remote, "missing", func(script string) string {
+		// Reproduce the advertisement/clone race deterministically: Git clones
+		// the real tag-only remote after observing an earlier empty snapshot.
+		lines := strings.Split(script, "\n")
+		advertisements := 0
+		for i, line := range lines {
+			if strings.HasPrefix(line, "source_refs=") {
+				lines[i] = `source_refs=""`
+				advertisements++
+			}
+		}
+		if advertisements != 1 {
+			t.Fatalf("advertisement assignments = %d, want 1", advertisements)
+		}
+		return strings.Join(lines, "\n")
+	})
+	if err == nil {
+		t.Fatalf("clone of a tag-only remote with a missing bookmark succeeded:\n%s", out)
+	}
+	if !strings.Contains(out, "missing") {
+		t.Fatalf("failure does not name the bookmark:\n%s", out)
 	}
 }

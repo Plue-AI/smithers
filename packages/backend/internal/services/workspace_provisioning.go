@@ -2059,7 +2059,7 @@ func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth in
 		"source_refs=\"$("+asDev+"git ls-remote -- "+shellQuote(cloneURL)+")\"",
 		"if [ -z \"$source_refs\" ]; then",
 		"  "+asDev+"git clone -- "+shellQuote(cloneURL)+" "+clonePath,
-		"  if [ -z \"$("+asDev+"git -C "+clonePath+" for-each-ref --count=1 --format='%(refname)' refs/remotes/origin/)\" ]; then",
+		"  if [ -z \"$("+asDev+"git -C "+clonePath+" for-each-ref --count=1 --format='%(refname)')\" ]; then",
 		"    "+asDev+"git -C "+clonePath+" symbolic-ref HEAD "+shellQuote("refs/heads/"+bookmark),
 		"    command -v jj >/dev/null 2>&1",
 		"    "+asDev+"jj git init --colocate "+clonePath,
