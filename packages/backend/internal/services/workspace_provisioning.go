@@ -2131,9 +2131,13 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 	}
 	if err != nil {
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
-		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		failure := workspaceProvisioningError("create sandbox from snapshot", err)
+		if goldenSnapshotCreateErrorIsSnapshotSpecific(err, snapshot.SnapshotID) {
+			failure = unavailableWorkspaceSnapshot(workspace, err)
+		}
+		s.markWorkspaceProvisionFailed(ctx, workspace, failure)
 		slog.Error("sandbox creation failed", "error", err, "type", "workspace")
-		return workspace, workspaceProvisioningError("create sandbox from snapshot", err)
+		return workspace, failure
 	}
 	// A restored snapshot starts signed out of its taker's vendor logins (#2805).
 	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {

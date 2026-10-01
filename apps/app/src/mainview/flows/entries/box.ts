@@ -47,19 +47,21 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     name: "box.open",
     form: {
       fields: { bookmark: { optionsFrom: "bookmarks", kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
-      args: (payload) => line(text(payload, "bookmark"), text(payload, "repo"), flag(payload, "kind"))
+      args: (payload) => line(text(payload, "bookmark"), text(payload, "repo"), flag(payload, "kind"), flag(payload, "snapshot"), flag(payload, "recoveryOf"))
     },
     summary: "Open (create or reuse) a Linux box in Smithers Cloud on a bookmark: a real machine with a terminal, files, and services the user can use",
     runtime: ["cloud"],
     /* ADR 0002: three sandbox kinds share one option surface, and the kind is the choice. */
-    args: "[bookmark] [owner/repo] [--kind container|vm|desktop]",
+    args: "[bookmark] [owner/repo] [--kind container|vm|desktop] [--snapshot id] [--recoveryOf id]",
     requires: ["signed-in"],
     input: Schema.Struct({
       bookmark: Schema.optional(Schema.String),
       repo: Schema.optional(Schema.String),
-      kind: Schema.optional(Schema.Literals(["container", "vm", "desktop"]))
+      kind: Schema.optional(Schema.Literals(["container", "vm", "desktop"])),
+      snapshot: Schema.optional(Schema.String),
+      recoveryOf: Schema.optional(Schema.String)
     }),
-    handler: ({ bookmark, repo, kind }) => actions.openWorkspace(bookmark, repo, kind)
+    handler: ({ bookmark, repo, kind, snapshot, recoveryOf }) => actions.openWorkspace(bookmark, repo, kind, snapshot, recoveryOf)
   }),
   flow({
     name: "box.view",

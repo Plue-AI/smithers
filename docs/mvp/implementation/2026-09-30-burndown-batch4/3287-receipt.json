@@ -1,0 +1,333 @@
+{
+  "issue": 3287,
+  "holder": "codex-burndown-20260930",
+  "status": "READY_SCOPED_QUALIFICATION_FROZEN",
+  "head": "7bc13bd8e87cc5709b91018cb23435b203c43ef8",
+  "files": [
+    {
+      "path": "packages/backend/internal/pkg/errors/registry.go",
+      "sha256": "c167e9ed3e5d9e1cff7dca3eb64eb1f37dd799a88c3203f4b3e353055ee171bd"
+    },
+    {
+      "path": "packages/backend/internal/services/workspace_recovery.go",
+      "sha256": "2d4b9b1a9ac2891a7fcdeee174070df7c5a4703f6a84342dfa2b748333a12b75"
+    },
+    {
+      "path": "packages/backend/internal/services/workspace_lifecycle.go",
+      "sha256": "580a56e8c03c399d4de8fb5a54e58ecf03dae4cadd92e14f465e93c643cfd05e"
+    },
+    {
+      "path": "packages/backend/internal/services/workspace_provisioning.go",
+      "sha256": "3cacaef3c6227d13ee27d62221e8dcc4a1126236dc70b45763f48ace42eb2bd2"
+    },
+    {
+      "path": "packages/backend/internal/services/workspace_runtime.go",
+      "sha256": "34345d64ee14ad4f51f4d635233c6f94ecac07b4eac2bc6f1963ddce04989954"
+    },
+    {
+      "path": "packages/backend/internal/services/workspace_recovery_test.go",
+      "sha256": "eb71589920835aee038d10bd892d8274209cdef8a3954da592ec5041e7da2123"
+    },
+    {
+      "path": "packages/backend/internal/services/box_host_test.go",
+      "sha256": "dee2a8be458579e9cd5599a2c59c5b6f5e25466cbda52c250856230d45513d24"
+    },
+    {
+      "path": "packages/backend/internal/routes/workspace_recovery_integration_test.go",
+      "sha256": "32970cef8d69e491b311e78fd2aa79c542ae2fc82b74cae5a93c2c92886348d7"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppState.ts",
+      "sha256": "0cd9183f4eed90be853649ffa8f22901f87db1c44fe5d08826b5141e2880c5f1"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/CloudClient.ts",
+      "sha256": "629a05b6ea16bfb68716f73d53411cb85a88d1f1fd60aaf6409b47be71b9695f"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.ts",
+      "sha256": "688f4f46875df28a22ae7ea4a76daef9cf0d7264f76b3680b6eda121ee4a3042"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.test.ts",
+      "sha256": "dc65ec88c24e4b0b7c794125fb22db416272ea2c155a3afa8e36339b7632f415"
+    },
+    {
+      "path": "apps/app/src/mainview/flows/FlowArgs.ts",
+      "sha256": "2231788b8a0c2f5d7a4ff2d2893d041d867bc67af531174f2e05eef8e0631587"
+    },
+    {
+      "path": "apps/app/src/mainview/flows/entries/box.ts",
+      "sha256": "39a0ae38a8a26771c6e06641b2ff44b39fe33e70b2b42b2b9b6cc8815a30b6ca"
+    },
+    {
+      "path": "apps/app/src/mainview/cards/WorkspaceCard.tsx",
+      "sha256": "a0496f82788617177af54853f9c4269aa909bada217ed0d52c037e24ec1863eb"
+    },
+    {
+      "path": "apps/app/src/mainview/cards/WorkspaceCard.test.tsx",
+      "sha256": "9b58432497f2e4846d229231cbd3f759b9eba271ae859a5f499a6e67a30c6465"
+    }
+  ],
+  "parentGenerated": [
+    {
+      "path": "docs/api/failure-codes.json",
+      "sha256": "6990fcafd8c258a2d65239286ddfe8d39dade881aea7c97fd0f9f1192d2c5662"
+    }
+  ],
+  "behavior": "Owned repository-scoped snapshot metadata is a candidate for the existing create(snapshot_id) action. Creation uses a distinct new named row. Old rows/snapshot identifiers are retained. Failed provider restoration retains the new failed row and offers fresh creation. Private app intent records source, name and actor before POST, returns immediately, deduplicates, reconciles reload without reposting ambiguous writes, verifies omitted source facts via existing detail GET, and keeps the shared toast through actual completion. Recovery request persists the original effective bookmark and explicitly selected kind before POST. Launch, owner-scoped reconciliation and completion use those immutable source facts; ordinary old-row refresh cannot change them. A source mismatch retains the original request/new-row identity, refuses completion and cannot resend the ambiguous operation. A null bookmark records an explicit backend-default choice: current CreateWorkspace resolves omitted source to the repository default before fresh or snapshot creation. The predicate accepts that backend-selected bookmark while retaining exact snapshot and selected-kind checks, explicit bookmark checks, name reconciliation, owner stamps and no-repost semantics.",
+  "checks": [
+    {
+      "name": "final nullable/default intent focused app behavioral plus LCOV",
+      "result": "pass",
+      "tests": 282,
+      "expects": 1117,
+      "seconds": 10.19,
+      "log": "3287-default-intent-app-final.log",
+      "lcov": "3287-final-lcov/lcov.info",
+      "summary": "3287-final-coverage-summary.json",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH bun test src/mainview/state/seams/WorkspaceSeam.test.ts src/mainview/cards/WorkspaceCard.test.tsx src/mainview/state/seams/CloudClient.test.ts src/mainview/flows/FlowArgs.test.ts --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=/tmp/smithers-burndown-20260930-receipts/runtime-batch4/3287-final-lcov",
+      "cwd": "apps/app"
+    },
+    {
+      "name": "null-input baseline red",
+      "result": "expected failure: both valid retained-null reload controls fail under strict equality. Direct-null fixture initially retained known repository head through ordinary projection; corrected to initial headless repository fixture before final positive tests. All failed receipts retained.",
+      "log": "3287-default-intent-red.log",
+      "fixtureFailureLog": "3287-default-intent-app-fixture-failure.log"
+    },
+    {
+      "name": "actual current backend omitted-source semantics",
+      "result": "reviewed: resolver chooses repository default or main before fresh/snapshot row creation; owner-scoped user list omits source and detail route confirms it",
+      "log": "3287-default-source-semantics.txt"
+    },
+    {
+      "name": "final nullable-intent whitespace",
+      "result": "pass",
+      "log": "3287-default-intent-whitespace.log"
+    },
+    {
+      "name": "final post-rebase original-intent app behavioral suite",
+      "result": "pass",
+      "tests": 273,
+      "expects": 1075,
+      "log": "3287-intent-app-final.log",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH bun test src/mainview/state/seams/WorkspaceSeam.test.ts src/mainview/cards/WorkspaceCard.test.tsx src/mainview/state/seams/CloudClient.test.ts src/mainview/flows/FlowArgs.test.ts",
+      "cwd": "apps/app"
+    },
+    {
+      "name": "independent original-intent baseline red",
+      "result": "expected failure: 5 fail / 3 pass before fix; refreshed bookmark pin and changed snapshot/bookmark/kind controls",
+      "log": "3287-intent-red.log"
+    },
+    {
+      "name": "post-rebase real HTTP/PG and actual source CLI",
+      "result": "pass",
+      "cases": 3,
+      "log": "3287-intent-http-pg-cli.log",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_JJ_EXPORT_HELPER=/Users/williamcory/smithers/target/release/smithers-jj-export SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 go test -tags=integration ./internal/routes -run '^TestWorkspaceRecovery_PublicHTTPRetainsOldIdentityAndCreatesNewRow$' -count=1 -v",
+      "cwd": "packages/backend"
+    },
+    {
+      "name": "final app workspace/card/transport/args behavioral suite",
+      "result": "pass",
+      "tests": 268,
+      "log": "3287-app-final-scoped.log"
+    },
+    {
+      "name": "Go recovery/resume/snapshot/rebuild/runtime-lost-worker and journal compatibility",
+      "result": "pass",
+      "log": "3287-services-final.log",
+      "coverage": "workspace_recovery.go helper functions each 100% statements; whole package focused 2.4%, no threshold weakening",
+      "profile": "3287-services-final-coverage.out"
+    },
+    {
+      "name": "public authenticated HTTP plus isolated actual PostgreSQL plus actual unchanged canonical source CLI",
+      "result": "pass",
+      "cases": [
+        "owned snapshot positive",
+        "provider snapshot unavailable",
+        "no snapshot fresh create"
+      ],
+      "log": "3287-http-pg-cli-second.log"
+    },
+    {
+      "name": "full Go errors package after parent-generated registry",
+      "result": "pass",
+      "log": "3287-errors-final.log"
+    },
+    {
+      "name": "Go vet services/routes/errors",
+      "result": "pass",
+      "log": "3287-go-vet.log"
+    },
+    {
+      "name": "Go formatting and owning diff whitespace",
+      "result": "pass",
+      "log": "3287-source-format.log"
+    },
+    {
+      "name": "whole app TypeScript",
+      "result": "failed existing foreign diagnostics; no diagnostics in owning files",
+      "log": "3287-app-types-final-2.log"
+    },
+    {
+      "name": "app conformance",
+      "result": "failed foreign/stale literals; no recovery violations",
+      "log": "3287-app-final.log"
+    },
+    {
+      "name": "whole Go services/errors prior final fixture correction and generated projection",
+      "result": "failed",
+      "seconds": 530.763,
+      "coverage": {
+        "services": 82.0,
+        "errors": 98.4
+      },
+      "log": "3287-services-whole.log"
+    },
+    {
+      "name": "whole app types post-intent",
+      "result": "exit 2: 73 lines of foreign diagnostics; no diagnostics in any owned files",
+      "log": "3287-intent-types.log"
+    },
+    {
+      "name": "complete errors after rebase",
+      "result": "pass (1.471s)",
+      "log": "3287-intent-errors.log"
+    },
+    {
+      "name": "final whitespace",
+      "result": "pass",
+      "log": "3287-intent-whitespace.log"
+    }
+  ],
+  "limits": [
+    "The external compute provider and guest artifact/execution responses are deliberate fixtures because this host has no available Linux/Cloud execution location. Actual product HTTP auth, service provisioning, PostgreSQL persistence, and canonical source CLI processes ran. This does not prove a live VM restore or qualify published CLI artifacts.",
+    "The final whole app TypeScript and conformance gates are not green; owned workspace files have no diagnostics/violations. Parent/UI own admin-grant literal reconciliation.",
+    "Whole service test retains unrelated egress SQL failures (#3286 currently claimed elsewhere), SignupProfile expected nil Many versus actual canonical empty []string{} fixture failure (now narrow claimed #3295; no broader #1901 product verdict), workspace-child injected-failure assertion (exact existing #3288, not part of #3287), and TerminalFactoryLoop generic CLI failure (#2785/#2978 evidence gates; initial whole run lacked pinned Node PATH). No foreign fixes or closures claimed. The owned box-host text expectation and APIError.Cause test assumption were corrected; generated registry refreshed by parent; final owning compatibility and complete errors suite pass.",
+    "No mandatory local Fable review under explicit user override.",
+    "No source-dependent processes remain active.",
+    "Final post-rebase whole app types remain exit 2 with no owning-file diagnostics; full Go services gate is retained as failed, not rerun for this private UI-only follow-up. All 12 unchanged Go/other app source hashes match the original qualified manifest; four original-intent files are requalified above.",
+    "Final nullable predicate has no schema/API/type change; only private WorkspaceSeam.ts and its test changed after prior actual HTTP/PG/source CLI and whole-types receipt. No Go or broad type repetition for that correction. Provider fixtures still do not prove live VM restore. LCOV selected recovery line scopes all hit; aggregate whole-seam coverage remains below 100%, and Bun supplies no branch/named-function counters."
+  ],
+  "receiptsRoot": "/tmp/smithers-burndown-20260930-receipts/runtime-batch4",
+  "sourceArchive": {
+    "path": "3287-source.tar.gz",
+    "sha256": "e776e13436a07bb3bf0f9ce30762827ec60735f28608a66761d3165203500be9"
+  },
+  "followupFiles": [
+    {
+      "path": "apps/app/src/mainview/state/AppState.ts",
+      "sha256": "0cd9183f4eed90be853649ffa8f22901f87db1c44fe5d08826b5141e2880c5f1"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.ts",
+      "sha256": "820c94d9c8fb56a1d291586dd472749254d93ed40975a5b2860fa1b55b3c5f0f"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.test.ts",
+      "sha256": "08913cede09054b169d57246298b2fcb8aaa2d1a6a0bb61fcaea6fc4e1de4fa9"
+    },
+    {
+      "path": "apps/app/src/mainview/cards/WorkspaceCard.test.tsx",
+      "sha256": "9b58432497f2e4846d229231cbd3f759b9eba271ae859a5f499a6e67a30c6465"
+    }
+  ],
+  "attribution": {
+    "WorkspaceChildren": "Exact existing #3288: missing child guard permits direct child suspension; expected injected storage fault instead returned nil. No edits or closure here.",
+    "SignupProfile": "Expected Many nil, actual []string{}; canonical JSON roundtrip intentionally normalizes multi-choice nil to []. Narrow fixture/wire qualification claimed #3295 by parent, no proven lost profile data and no #1901 closure."
+  },
+  "activeSourceProcesses": [],
+  "finalFollowupFiles": [
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.ts",
+      "sha256": "688f4f46875df28a22ae7ea4a76daef9cf0d7264f76b3680b6eda121ee4a3042"
+    },
+    {
+      "path": "apps/app/src/mainview/state/seams/WorkspaceSeam.test.ts",
+      "sha256": "dc65ec88c24e4b0b7c794125fb22db416272ea2c155a3afa8e36339b7632f415"
+    }
+  ],
+  "coverage": {
+    "source": "apps/app/src/mainview/state/seams/WorkspaceSeam.ts",
+    "sourceSha256": "688f4f46875df28a22ae7ea4a76daef9cf0d7264f76b3680b6eda121ee4a3042",
+    "wholeSeam": {
+      "FNF": 168,
+      "FNH": 163,
+      "LF": 1497,
+      "LH": 1462
+    },
+    "recoveryLineScopes": {
+      "recoveryOwner": {
+        "firstLine": 899,
+        "lastLine": 906,
+        "measuredLines": 7,
+        "hitLines": 7,
+        "zeroHitLines": []
+      },
+      "ownsRecovery": {
+        "firstLine": 907,
+        "lastLine": 911,
+        "measuredLines": 4,
+        "hitLines": 4,
+        "zeroHitLines": []
+      },
+      "writeRecovery": {
+        "firstLine": 912,
+        "lastLine": 918,
+        "measuredLines": 5,
+        "hitLines": 5,
+        "zeroHitLines": []
+      },
+      "recoverySourceMatches": {
+        "firstLine": 1252,
+        "lastLine": 1256,
+        "measuredLines": 4,
+        "hitLines": 4,
+        "zeroHitLines": []
+      },
+      "finishRecovery": {
+        "firstLine": 1257,
+        "lastLine": 1283,
+        "measuredLines": 26,
+        "hitLines": 26,
+        "zeroHitLines": []
+      },
+      "launchRecovery": {
+        "firstLine": 1284,
+        "lastLine": 1291,
+        "measuredLines": 7,
+        "hitLines": 7,
+        "zeroHitLines": []
+      },
+      "reconnectRecovery": {
+        "firstLine": 1292,
+        "lastLine": 1329,
+        "measuredLines": 35,
+        "hitLines": 35,
+        "zeroHitLines": []
+      },
+      "openWorkspace": {
+        "firstLine": 1330,
+        "lastLine": 1356,
+        "measuredLines": 25,
+        "hitLines": 25,
+        "zeroHitLines": []
+      }
+    },
+    "branchEntries": 0,
+    "limitation": "Bun LCOV emits aggregate function counters, line hits and no branch counters or named FN/FNDA entries. Selected line scopes demonstrate execution; no per-function or branch percentage and no whole-app 100% claim. No thresholds changed."
+  },
+  "review": {
+    "reviewer": "codex-burndown-20260930 /root",
+    "result": "Reviewed canonical owned snapshot/create path, typed failures and preserved old/new rows; approved persistent source/type/name intent, owner fences, unknown-write reconciliation and explicit backend-default bookmark semantics. Final282 app tests include meaningful source-mismatch/no-watch negatives; every measured line in8 new recovery function scopes hit. Retained actual HTTP/PostgreSQL/source CLI3cases and newGo helper100% statements; explicit external provider and Bun branch-measurement limits."
+  },
+  "archive": {
+    "path": "docs/mvp/implementation/2026-09-30-burndown-batch4/3287-validation.tar.gz",
+    "sha256": "da395dd0fbdfdc2733d0616e67e4d37251518098d24b3f03c682f29f91cdd813"
+  },
+  "parentClarifications": [
+    "Complete errors package passed on canonically generated failure-code projection.",
+    "No whole app/services or live VM restoration success claim. Required source/transport tests and source-bound receipts qualify the issue\u2019s public API/UI/CLI acceptance."
+  ]
+}

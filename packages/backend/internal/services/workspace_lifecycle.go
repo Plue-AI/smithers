@@ -491,7 +491,7 @@ func (s *WorkspaceService) ensureExistingWorkspaceRunningAuthorized(ctx context.
 			// provisioning input, so advise a fresh create (which — with the
 			// delete-tolerates-404 fix — the user can now do after removing the
 			// zombie) rather than 500ing forever on every resume/SSH attempt.
-			return workspace, pkgerrors.New(pkgerrors.CodeWorkspaceVMMissing, "workspace VM no longer exists; run `smithers workspace create` to provision a fresh workspace")
+			return workspace, s.missingWorkspaceVM(ctx, workspace, requesterID)
 		}
 		// The same funnel the session-create path uses for the same call.
 		// Internal() threw the controller's verdict away and reported every
@@ -796,7 +796,7 @@ func (s *WorkspaceService) reprovisionWorkspaceVM(ctx context.Context, workspace
 	if !workspace.IsFork {
 		// Session/SSH opens must not silently replace the primary's recovery
 		// identity. Create retires the old row and allocates a distinct primary.
-		return workspace, pkgerrors.New(pkgerrors.CodeWorkspaceVMMissing, "workspace VM no longer exists; run `smithers workspace create` to provision a fresh workspace")
+		return workspace, s.missingWorkspaceVM(ctx, workspace, input.UserID)
 	}
 	// If the row still holds the gauge's +1 (DB said running while the VM was
 	// actually down), release it via the running->suspended CAS so the -1 pairs

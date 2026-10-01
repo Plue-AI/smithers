@@ -359,7 +359,26 @@ export const WORKSPACE_STATUSES = ["pending", "starting", "running", "suspended"
 export const CloudWorkspaceStatusSchema = z.enum(WORKSPACE_STATUSES)
 export type CloudWorkspaceStatus = z.infer<typeof CloudWorkspaceStatusSchema>
 
+export const WorkspaceRecoverySchema = z.object({
+  owner: z.string(),
+  ownerRevision: z.number(),
+  identityOwnerRevision: z.number().optional(),
+  snapshotId: z.string().optional(),
+  createFresh: z.boolean(),
+  request: z.object({
+    id: z.string(), name: z.string(), actor: z.enum(["user", "smithers"]),
+    bookmark: z.string().nullable(), kind: z.enum(["container", "vm", "desktop"]).optional(),
+    snapshotId: z.string().optional(),
+    state: z.enum(["requested", "running", "completed", "failed"]),
+    workspaceId: z.string().optional(), error: z.string().optional()
+  }).optional()
+})
+export type WorkspaceRecovery = z.infer<typeof WorkspaceRecoverySchema>
+
 export const CloudWorkspaceRowSchema = z.object({
+  /** Local recovery intent survives ordinary remote observations. */
+  recovery: WorkspaceRecoverySchema.optional(),
+  sourceSnapshotId: z.string().nullable().optional(),
   /** plue's workspace id. */
   id: z.string(),
   /** `org/repo` — the repositories row this workspace is bound to. */

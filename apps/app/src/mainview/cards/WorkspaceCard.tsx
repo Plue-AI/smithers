@@ -30,6 +30,8 @@ import { flowAction, flowProps } from "../flows/FlowAction"
  * the pointer path drops an unregistered name silently, so a button bound to
  * it would be a dead control.
  */
+import { eq } from "@tanstack/db"
+import { useLiveQuery } from "@tanstack/react-db"
 import { useState, useSyncExternalStore } from "react"
 import { Button, Spinner, StatusPill } from "@smthrs/ui"
 import { Globe, Monitor, Play, RefreshCw, Server, Square, Trash2 } from "lucide-react"
@@ -516,6 +518,19 @@ export const WorkspaceCardBody = ({
   const facet = payload.facet ?? "terminal"
   /* The registry is the truth about the terminal door: the Worker registers box.terminal only once its relay is on. */
   const controller = useController()
+  const { data: recoveryRows } = useLiveQuery(q => q.from({ workspace: controller.store.collections.cloudWorkspaces })
+    .where(({ workspace }) => eq(workspace.id, payload.workspaceId))
+    .select(({ workspace }) => ({ recovery: workspace.recovery, kind: workspace.kind })))
+  const { data: owners } = useLiveQuery(q => q.from({ cloud: controller.store.collections.cloudSessions }))
+  const { data: identities } = useLiveQuery(q => q.from({ identity: controller.store.collections.identitySessions }))
+  const offered = recoveryRows[0]?.recovery
+  const owner = owners[0]
+  const identity = identities[0]
+  const recovery = offered !== undefined && owner?.state === "signed-in" && owner.username === offered.owner
+    && (owner.ownerRevision ?? owner.revision) === offered.ownerRevision
+    && (identity?.ownerRevision ?? identity?.revision) === offered.identityOwnerRevision ? offered : undefined
+  const recoveryKind = recoveryRows[0]?.kind
+  const recoveryPending = recovery?.request?.state === "requested" || recovery?.request?.state === "running"
   const canTerminal = controller.commands.find("box.terminal") !== undefined
   const terminalUnavailableOnWeb = controller.bootstrap?.host === "cloud"
     && !controller.bootstrap.capabilities.includes("cloud.terminal")
@@ -582,12 +597,25 @@ export const WorkspaceCardBody = ({
         <FailureNotice className="world-card-empty" failure={describedFailure("BoxFailed", BOX_FAILURE_COPY.BoxFailed,
           [payload.failureCode, payload.failureMessage].filter(part => part != null).join(" — "))} /> :
         null}
+      {recovery === undefined ? null : <p className="world-card-row">
+        {recovery.snapshotId === undefined ? null : <Button size="sm" variant="outline" disabled={recoveryPending}
+          aria-label="Restore snapshot"
+          {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo,
+            snapshot: recovery.snapshotId, recoveryOf: payload.workspaceId,
+            ...(recoveryKind === "container" || recoveryKind === "vm" || recoveryKind === "desktop" ? { kind: recoveryKind } : {}) }))}>Restore</Button>}
+        {recovery.createFresh ? <Button size="sm" variant="outline" disabled={recoveryPending}
+          aria-label="Create fresh box"
+          {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo, recoveryOf: payload.workspaceId,
+            ...(recoveryKind === "container" || recoveryKind === "vm" || recoveryKind === "desktop" ? { kind: recoveryKind } : {}) }))}>Create</Button> : null}
+      </p>}
+      {recovery?.request?.error === undefined ? null : <FailureNotice className="world-card-empty"
+        failure={describedFailure("BoxActRefused", BOX_FAILURE_COPY.BoxActRefused, recovery.request.error)} />}
       {/*
         The card's create affordance (ADR 0002): one option surface, three
         kinds, each in plue's own words. The kind rides the invocation so it
         reaches the POST body; there is no environment or image picker.
       */}
-      {payload.status === "failed" ?
+      {payload.status === "failed" && recovery === undefined ?
         (
           <p className="world-card-row">
             {payload.provisioningStage !== null ?

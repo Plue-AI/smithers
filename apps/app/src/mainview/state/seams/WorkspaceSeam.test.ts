@@ -1,5 +1,7 @@
 import type { StorageApi } from "@tanstack/db"
 import { afterEach, describe, expect, test } from "bun:test"
+import { createAppController } from "../AppController"
+import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { createAppStore } from "../AppStore"
 import { createActorBindings } from "../ActorBindings"
 import type { AppStore } from "../AppStore"
@@ -224,7 +226,7 @@ afterEach(async () => {
 
 const harness = async (
   routes: Record<string, Route>,
-  options: { readonly signedIn?: boolean; readonly degraded?: boolean; readonly desktopWaitMs?: number } = {}
+  options: { readonly signedIn?: boolean; readonly degraded?: boolean; readonly desktopWaitMs?: number; readonly headless?: boolean } = {}
 ) => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
@@ -285,7 +287,7 @@ const harness = async (
         org: "will",
         ownerKind: "user",
         name: "smithers",
-        head: { bookmark: "main", changeId: "qupxosqw", commitId: "c0ffee1" }
+        head: options.headless === true ? null : { bookmark: "main", changeId: "qupxosqw", commitId: "c0ffee1" }
       }
     ]
   }).isPersisted.promise
@@ -3067,5 +3069,322 @@ describe("workspace authorization and transition receipts", () => {
     expect(urls).toEqual(["GET api/repos/team%20name/repo%23x/workspaces/box%2F%CE%B1/files?path=src%20%26%20notes"])
     expect(payloadOf(store, "box/α")?.filesPath).toBe("src & notes")
     expect(payloadOf(store, "box/α")?.files).toEqual([{ name: "hi.txt", path: "src & notes/hi.txt", type: "file", size: 2 }])
+  })
+})
+
+describe("missing workspace recreation", () => {
+  const missing = (snapshot?: string, workspaceId = "ws-1") => json(409, {
+    code: "workspace_vm_missing", fault: "infra", message: "Workspace VM no longer exists",
+    details: { workspace_id: workspaceId, create_fresh: true, ...(snapshot === undefined ? {} : { snapshot_id: snapshot }) }
+  })
+  const until = async (predicate: () => boolean) => bounded((async () => { while (!predicate()) await checkpoint() })())
+  test("persists selected snapshot, returns before launch, deduplicates, and watches real completion", async () => {
+    let releaseCreate!: () => void, releaseRunning!: () => void
+    const launch = new Promise<Response>(resolve => { releaseCreate = () => resolve(json(202, { ...WS_RUNNING, id: "ws-new", name: "restored", kind: "container", status: "starting", snapshot_id: "snapshot-owned" })) })
+    const running = new Promise<Response>(resolve => { releaseRunning = () => resolve(json(200, { ...WS_RUNNING, id: "ws-new", name: "restored", kind: "container", snapshot_id: "snapshot-owned" })) })
+    heldReleases.add(releaseCreate); heldReleases.add(releaseRunning)
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("snapshot-owned"),
+      "POST api/repos/will/smithers/workspaces": () => launch,
+      "GET api/repos/will/smithers/workspaces/ws-new": () => running
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" })
+    await h.seam.resumeWorkspace("ws-1")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.snapshotId).toBe("snapshot-owned")
+    expect(await bounded(h.seam.openWorkspace(undefined, "will/smithers", "container", "snapshot-owned", "ws-1"))).toEqual({ value: "Creation requested." })
+    await until(() => h.bodies.length === 1)
+    const request = h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request
+    expect(request).toMatchObject({ actor: "user", bookmark: "main", kind: "container", snapshotId: "snapshot-owned", state: "requested" })
+    expect(h.storage.written()).toContain("snapshot-owned")
+    expect(h.bodies[0]?.body).toEqual({ source_bookmark: "main", kind: "container", snapshot_id: "snapshot-owned", name: request?.name })
+    expect(await h.seam.openWorkspace(undefined, "will/smithers", "container", "snapshot-owned", "ws-1")).toEqual({ value: "Creation requested." })
+    expect(h.bodies).toHaveLength(1)
+    await h.store.dispatch({ type: "composer.changed", actor: "user", draft: "chat remains usable" }).isPersisted.promise
+    expect(h.store.session().draft).toBe("chat remains usable")
+    releaseCreate()
+    await until(() => h.requests.includes("GET api/repos/will/smithers/workspaces/ws-new"))
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state).toBe("running")
+    releaseRunning()
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.name).toBe("review")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.status).toBe("suspended")
+    expect(h.store.collections.cloudWorkspaces.get("ws-new")?.status).toBe("running")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ snapshotId: "snapshot-owned", workspaceId: "ws-new", actor: "user" })
+  })
+  test("real controller keeps the shared toast through unresolved launch and running creation", async () => {
+    let releaseCreate!: () => void, releaseRunning!: () => void
+    const launch = new Promise<Response>(resolve => { releaseCreate = () => resolve(json(202, { ...WS_RUNNING, id: "toast-new", status: "starting", snapshot_id: "toast-snapshot" })) })
+    const running = new Promise<Response>(resolve => { releaseRunning = () => resolve(json(200, { ...WS_RUNNING, id: "toast-new", snapshot_id: "toast-snapshot" })) })
+    heldReleases.add(releaseCreate); heldReleases.add(releaseRunning)
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("toast-snapshot"),
+      "POST api/repos/will/smithers/workspaces": () => launch,
+      "GET api/repos/will/smithers/workspaces/toast-new": () => running,
+      "GET api/repos/will/smithers/contents/.smithers/factory.json": json(404, { message: "No factory" }),
+      "GET api/repos/will/smithers/home": json(404, { message: "No apps" })
+    })
+    h.seam.dispose()
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" })
+    const controller = createAppController(h.store, {
+      available: false, startTurn: async () => ({ status: "error", message: "unavailable" }),
+      cancelTurn: async () => {}, subscribe: () => () => {}
+    }, { fetchImpl: (input, init) => h.ctx.http(String(input), init), toastAutoDismissMs: 60_000,
+      bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "local", authFlow: "redirect", sandbox: null,
+        capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: false }) } })
+    try {
+      await controller.resumeWorkspace("ws-1")
+      expect(await bounded(controller.openWorkspace(undefined, "will/smithers", undefined, "toast-snapshot", "ws-1"))).toEqual({ value: "Creation requested." })
+      await new Promise(resolve => setTimeout(resolve, 330))
+      expect(h.store.collections.toasts.get("toast-box.recreate:ws-1")?.status).toBe("running")
+      await h.store.dispatch({ type: "composer.changed", actor: "user", draft: "still typing" }).isPersisted.promise
+      expect(h.store.session().draft).toBe("still typing")
+      releaseCreate()
+      await until(() => h.requests.includes("GET api/repos/will/smithers/workspaces/toast-new"))
+      expect(h.store.collections.toasts.get("toast-box.recreate:ws-1")?.status).toBe("running")
+      releaseRunning()
+      await until(() => h.store.collections.toasts.get("toast-box.recreate:ws-1")?.status === "ok")
+      expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state).toBe("completed")
+    } finally { releaseCreate(); releaseRunning(); await controller.dispose() }
+  })
+  test("ordinary old-row refresh and reload retain original source and never replay an uncertain POST", async () => {
+    let releaseCreate!: () => void
+    const launch = new Promise<Response>(resolve => { releaseCreate = () => resolve(json(202, { ...WS_RUNNING, id: "late-new", status: "starting" })) })
+    heldReleases.add(releaseCreate)
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("snap-reload"),
+      "POST api/repos/will/smithers/workspaces": () => launch
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" })
+    await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", "container", "snap-reload", "ws-1")
+    await until(() => h.bodies.length === 1)
+    const request = h.store.collections.cloudWorkspaces.get("ws-1")!.recovery!.request!
+    h.seam.dispose()
+    const reloaded = await createAppStore({ kind: "localStorage", storage: h.storage }); ownedStores.add(reloaded)
+    let listed = false, posts = 0, polls = 0
+    const old = { ...WS_RUNNING, status: "suspended", target_bookmark: "changed-after-request", kind: "desktop" }
+    const late = { ...WS_RUNNING, id: "late-new", name: request.name, snapshot_id: "snap-reload", kind: "container", status: "starting" }
+    const ctx: SeamContext = { ...h.ctx, store: reloaded, dispatch: reloaded.dispatch, http: async (_url, init) => {
+      if (init?.method === "POST") { posts++; throw new Error("uncertain creation must not repeat") }
+      if (_url.endsWith("/workspaces/late-new")) { polls++; return json(200, { ...late, status: "running" }) }
+      return json(200, listed ? [old, late] : [old])
+    } }
+    const seam = createWorkspaceSeam(ctx, { pollMs: 1 })
+    await seam.refreshWorkspaces("will/smithers")
+    expect(reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ id: request.id, bookmark: "main", kind: "container", snapshotId: "snap-reload", state: "requested" })
+    expect(reloaded.collections.cloudWorkspaces.get("ws-1")).toMatchObject({ targetBookmark: "changed-after-request", kind: "desktop" })
+    await seam.openWorkspace(undefined, "will/smithers", "desktop", "snap-reload", "ws-1")
+    expect(posts).toBe(0)
+    listed = true
+    await seam.refreshWorkspaces("will/smithers")
+    await until(() => reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed")
+    expect(polls).toBe(1); expect(posts).toBe(0); expect(h.bodies).toHaveLength(1)
+    expect(reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ id: request.id, workspaceId: "late-new", bookmark: "main", kind: "container", snapshotId: "snap-reload" })
+    releaseCreate(); await checkpoint()
+    expect(h.store.collections.cloudWorkspaces.has("late-new")).toBe(false)
+  })
+  test.each(["matched source", "different source", "different bookmark", "different kind"])("per-user inventory verifies %s through the existing detail route before reconnecting", async mode => {
+    const h = await harness({})
+    const cloud = h.store.collections.cloudSessions.get("cloud")!
+    const identity = h.store.collections.identitySessions.get("identity")
+    const request = { id: "retained-request", name: "recovery-retained", actor: "user" as const, bookmark: "main", kind: "container" as const, state: "requested" as const, snapshotId: "retained-source" }
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended", recovery: {
+      owner: cloud.username!, ownerRevision: cloud.ownerRevision ?? cloud.revision,
+      identityOwnerRevision: identity?.ownerRevision ?? identity?.revision, snapshotId: "retained-source", createFresh: true, request
+    } })
+    h.seam.dispose()
+    let posts = 0, reads = 0
+    const seam = createWorkspaceSeam({ ...h.ctx, http: async (url, init) => {
+      if (init?.method === "POST") { posts++; throw new Error("cannot repeat creation") }
+      if (url.endsWith("/workspaces/candidate-new")) { reads++; return json(200, { ...WS_RUNNING, id: "candidate-new", name: request.name,
+        snapshot_id: mode === "different source" ? "different-source" : request.snapshotId,
+        target_bookmark: mode === "different bookmark" ? "rewritten" : request.bookmark, kind: mode === "different kind" ? "desktop" : request.kind }) }
+      return json(200, [USER_ROW, { ...USER_ROW, workspace_id: "candidate-new", workspace_title: request.name, state: "starting" }])
+    } }, { pollMs: 1 })
+    await seam.refreshWorkspaces()
+    await until(() => mode === "matched source" ? h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed"
+      : h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    expect(reads).toBe(1); expect(posts).toBe(0)
+    const retained = h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request
+    if (mode === "matched source") expect(retained).toMatchObject({ state: "completed", workspaceId: "candidate-new", snapshotId: "retained-source" })
+    else {expect(retained?.state).toBe("requested");expect(retained?.workspaceId).toBeUndefined();expect(retained?.snapshotId).toBe("retained-source")}
+  })
+  test.each([
+    ["snapshot", "named source"], ["bookmark", "named source"], ["kind", "named source"],
+    ["snapshot", "backend default"], ["kind", "backend default"]
+  ])("completion refuses a changed %s for %s without replacing original intent or resending creation", async (field, source) => {
+    const changed = { ...WS_RUNNING, id: "changed-new", snapshot_id: field === "snapshot" ? "another-snapshot" : "selected-snapshot",
+      target_bookmark: field === "bookmark" ? "another-bookmark" : "main", kind: field === "kind" ? "desktop" : "container" }
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("selected-snapshot"),
+      "POST api/repos/will/smithers/workspaces": json(202, { ...WS_RUNNING, id: "changed-new", snapshot_id: "selected-snapshot", kind: "container", status: "starting" }),
+      "GET api/repos/will/smithers/workspaces/changed-new": json(200, changed)
+    }, { headless: source === "backend default" })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended", targetBookmark: source === "backend default" ? null : "main" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", "container", "selected-snapshot", "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state !== "requested")
+    await until(() => h.requests.includes("GET api/repos/will/smithers/workspaces/changed-new"))
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined
+      || h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed")
+    const request = h.store.collections.cloudWorkspaces.get("ws-1")!.recovery!.request!
+    expect(request).toMatchObject({ bookmark: source === "backend default" ? null : "main", kind: "container", snapshotId: "selected-snapshot", workspaceId: "changed-new", state: "running", error: "Creation source changed." })
+    await h.seam.openWorkspace(undefined, "will/smithers", "desktop", undefined, "ws-1")
+    expect(h.bodies).toHaveLength(1)
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.id).toBe(request.id)
+  })
+  test.each(["snapshot", "bookmark", "kind"])("acknowledged creation with changed %s is refused before joining its completion watch", async field => {
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("ack-snapshot"),
+      "POST api/repos/will/smithers/workspaces": json(202, { ...WS_RUNNING, id: "ack-mismatch", status: "starting",
+        snapshot_id: field === "snapshot" ? "different-snapshot" : "ack-snapshot",
+        target_bookmark: field === "bookmark" ? "different-bookmark" : "main", kind: field === "kind" ? "desktop" : "container" })
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", "container", "ack-snapshot", "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ bookmark: "main", kind: "container",
+      snapshotId: "ack-snapshot", state: "running", workspaceId: "ack-mismatch", error: "Creation source changed." })
+    expect(h.requests).not.toContain("GET api/repos/will/smithers/workspaces/ack-mismatch")
+    await h.seam.openWorkspace(undefined, "will/smithers", "desktop", undefined, "ws-1")
+    expect(h.bodies).toHaveLength(1)
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.status).toBe("suspended")
+  })
+  test.each(["snapshot restore", "fresh create"])("null source records backend-default intent for %s and accepts the resolved bookmark", async mode => {
+    const snapshot = mode === "snapshot restore" ? "default-snapshot" : undefined
+    const created = { ...WS_RUNNING, id: "default-new", target_bookmark: "backend-default", kind: "container",
+      ...(snapshot === undefined ? {} : { snapshot_id: snapshot }) }
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing(snapshot),
+      "POST api/repos/will/smithers/workspaces": json(202, { ...created, status: "starting" }),
+      "GET api/repos/will/smithers/workspaces/default-new": json(200, created)
+    }, { headless: true })
+    expect(h.store.collections.repositories.get("will/smithers")?.head).toBeNull()
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended", targetBookmark: null })
+    await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", "container", snapshot, "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed"
+      || h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    const request = h.store.collections.cloudWorkspaces.get("ws-1")!.recovery!.request!
+    expect(request).toMatchObject({ bookmark: null, kind: "container", state: "completed", workspaceId: "default-new" })
+    expect(request.error).toBeUndefined()
+    expect(h.bodies[0]?.body).toEqual({ kind: "container", name: request.name, ...(snapshot === undefined ? {} : { snapshot_id: snapshot }) })
+    expect(h.bodies[0]?.body).not.toHaveProperty("source_bookmark")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.targetBookmark).toBeNull()
+    expect(h.store.collections.cloudWorkspaces.get("default-new")?.targetBookmark).toBe("backend-default")
+    expect(h.bodies).toHaveLength(1)
+  })
+  test.each(["snapshot restore", "fresh create"])("reload reconciles retained backend-default %s through owner-scoped list and detail without POST", async mode => {
+    const h = await harness({})
+    const cloud = h.store.collections.cloudSessions.get("cloud")!
+    const identity = h.store.collections.identitySessions.get("identity")
+    const request = { id: "default-retained", name: "default-retained-name", actor: "user" as const, bookmark: null,
+      kind: "container" as const, state: "requested" as const, ...(mode === "snapshot restore" ? { snapshotId: "default-retained-snapshot" } : {}) }
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended", targetBookmark: null, recovery: {
+      owner: cloud.username!, ownerRevision: cloud.ownerRevision ?? cloud.revision,
+      identityOwnerRevision: identity?.ownerRevision ?? identity?.revision, createFresh: true, request
+    } })
+    h.seam.dispose()
+    const reloaded = await createAppStore({ kind: "localStorage", storage: h.storage }); ownedStores.add(reloaded)
+    let posts = 0, reads = 0
+    const seam = createWorkspaceSeam({ ...h.ctx, store: reloaded, dispatch: reloaded.dispatch, http: async (url, init) => {
+      if (init?.method === "POST") { posts++; throw new Error("cannot repeat uncertain creation") }
+      if (url.endsWith("/workspaces/default-known")) { reads++; return json(200, { ...WS_RUNNING, id: "default-known", name: request.name,
+        target_bookmark: "backend-default", kind: "container", ...(request.snapshotId === undefined ? {} : { snapshot_id: request.snapshotId }) }) }
+      return json(200, [USER_ROW, { ...USER_ROW, workspace_id: "default-known", workspace_title: request.name, state: "starting" }])
+    } }, { pollMs: 1 })
+    await seam.refreshWorkspaces()
+    await until(() => reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "completed"
+      || reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    expect(reloaded.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ ...request, state: "completed", workspaceId: "default-known" })
+    expect(reloaded.collections.cloudWorkspaces.get("default-known")?.targetBookmark).toBe("backend-default")
+    expect(reads).toBe(1); expect(posts).toBe(0)
+  })
+  test.each(["no snapshot", "snapshot unavailable"])("%s offers fresh named creation and retains original intent", async mode => {
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing(mode === "no snapshot" ? undefined : "gone-snapshot"),
+      "POST api/repos/will/smithers/workspaces": mode === "no snapshot"
+        ? json(202, { ...WS_RUNNING, id: "fresh", name: "fresh", status: "starting" })
+        : json(404, { code: "snapshot_not_found", message: "Snapshot unavailable; create fresh", details: { workspace_id: "new-failed", create_fresh: true } }),
+      "GET api/repos/will/smithers/workspaces/fresh": json(200, { ...WS_RUNNING, id: "fresh" })
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, mode === "no snapshot" ? undefined : "gone-snapshot", "ws-1")
+    await until(() => ["completed", "failed"].includes(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state ?? ""))
+    const facts = h.store.collections.cloudWorkspaces.get("ws-1")!.recovery!
+    expect(facts.createFresh).toBe(true); expect(facts.snapshotId).toBeUndefined()
+    expect(h.bodies[0]?.body).toMatchObject({ name: facts.request?.name })
+    expect(facts.request?.name).not.toBe("review")
+    if (mode === "no snapshot") expect(h.bodies[0]?.body).not.toHaveProperty("snapshot_id")
+    else { expect(facts.request).toMatchObject({ snapshotId: "gone-snapshot", state: "failed" }); expect(facts.request?.error).toContain("Snapshot unavailable") }
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.status).toBe("suspended")
+  })
+  test("provider failure after acknowledgment retains the failed new row and original selected snapshot", async () => {
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("provider-gone"),
+      "POST api/repos/will/smithers/workspaces": json(202, { ...WS_RUNNING, id: "failed-new", status: "starting", snapshot_id: "provider-gone" }),
+      "GET api/repos/will/smithers/workspaces/failed-new": json(200, { ...WS_RUNNING, id: "failed-new", status: "failed", snapshot_id: "provider-gone",
+        failure_code: "snapshot_not_found", failure_message: "Snapshot unavailable; create fresh" })
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, "provider-gone", "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.state === "failed")
+    expect(h.store.collections.cloudWorkspaces.get("failed-new")).toMatchObject({ status: "failed", sourceSnapshotId: "provider-gone", failureCode: "snapshot_not_found" })
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery).toMatchObject({ createFresh: true,
+      request: { snapshotId: "provider-gone", workspaceId: "failed-new", state: "failed", error: "Snapshot unavailable; create fresh" } })
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.snapshotId).toBeUndefined()
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.status).toBe("suspended")
+  })
+  test.each(["transport lost", "gateway failure", "malformed acknowledgment"])("%s remains ambiguous and never resends creation", async mode => {
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("ambiguous-snapshot"),
+      "POST api/repos/will/smithers/workspaces": mode === "transport lost" ? () => { throw new Error("connection lost") }
+        : mode === "gateway failure" ? json(502, { message: "gateway lost reply" }) : json(202, { accepted: true })
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, "ambiguous-snapshot", "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    const facts = h.store.collections.cloudWorkspaces.get("ws-1")!.recovery!
+    expect(facts.request).toMatchObject({ state: "requested", snapshotId: "ambiguous-snapshot" })
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, "ambiguous-snapshot", "ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, undefined, "ws-1")
+    expect(h.bodies).toHaveLength(1)
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.id).toBe(facts.request?.id)
+  })
+  test("a bounded watch that remains starting keeps its confirmed row and forbids a duplicate creation", async () => {
+    const h = await harness({
+      "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("slow-snapshot"),
+      "POST api/repos/will/smithers/workspaces": json(202, { ...WS_RUNNING, id: "slow-new", status: "starting", snapshot_id: "slow-snapshot" }),
+      "GET api/repos/will/smithers/workspaces/slow-new": json(200, { ...WS_RUNNING, id: "slow-new", status: "starting", snapshot_id: "slow-snapshot" })
+    })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, "slow-snapshot", "ws-1")
+    await until(() => h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request?.error !== undefined)
+    expect(h.requests.filter(key => key === "GET api/repos/will/smithers/workspaces/slow-new")).toHaveLength(120)
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery?.request).toMatchObject({ state: "running", workspaceId: "slow-new", error: "Creation not confirmed." })
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, undefined, "ws-1")
+    expect(h.bodies).toHaveLength(1)
+  })
+  test("a changed account retires the unresolved launch without publishing its new row", async () => {
+    let release!: () => void
+    const launch = new Promise<Response>(resolve => { release = () => resolve(json(202, { ...WS_RUNNING, id: "stale-new", status: "starting" })) })
+    heldReleases.add(release)
+    const h = await harness({ "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("stale-snapshot"), "POST api/repos/will/smithers/workspaces": () => launch })
+    await seedWorkspace(h.store, { ...wsRow, status: "suspended" }); await h.seam.resumeWorkspace("ws-1")
+    await h.seam.openWorkspace(undefined, "will/smithers", undefined, "stale-snapshot", "ws-1")
+    await until(() => h.bodies.length === 1)
+    await h.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "another", scopes: null, expiresAt: null }).isPersisted.promise
+    release(); await drainWork()
+    expect(h.store.collections.cloudWorkspaces.has("stale-new")).toBe(false)
+    expect(await h.seam.openWorkspace(undefined, "will/smithers", undefined, "stale-snapshot", "ws-1")).toContain("unavailable")
+    expect(h.bodies).toHaveLength(1)
+  })
+  test("foreign, forged, or stale-owner recovery never launches", async () => {
+    const h = await harness({ "POST api/repos/will/smithers/workspaces/ws-1/resume": missing("owned-snapshot", "foreign-box") })
+    await seedWorkspace(h.store); await h.seam.resumeWorkspace("ws-1")
+    expect(h.store.collections.cloudWorkspaces.get("ws-1")?.recovery).toBeUndefined()
+    expect(await h.seam.openWorkspace(undefined, "will/smithers", undefined, "owned-snapshot", "ws-1")).toContain("unavailable")
+    await seedWorkspace(h.store, { ...wsRow, recovery: { owner: "another", ownerRevision: 0, createFresh: true, snapshotId: "owned-snapshot" } })
+    expect(await h.seam.openWorkspace(undefined, "will/smithers", undefined, "owned-snapshot", "ws-1")).toContain("unavailable")
+    expect(h.requests).toHaveLength(1)
   })
 })

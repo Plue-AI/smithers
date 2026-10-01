@@ -308,7 +308,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	}
 	if err != nil {
 		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
-			return row, pkgerrors.Conflict("workspace runtime no longer exists; create a fresh workspace")
+			return row, s.missingWorkspaceVM(ctx, row, requesterID)
 		}
 		return row, runtimeOperationError("inspect workspace runtime", err)
 	}
@@ -432,6 +432,9 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	}
 	observed, err := snapshots.ForkColdSnapshot(operationCtx, snapshot.SnapshotID, workspaceapi.WorkspaceSpec{ID: row.ID})
 	if err != nil {
+		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+			return row, unavailableWorkspaceSnapshot(row, err)
+		}
 		return row, runtimeOperationError("restore workspace snapshot", err)
 	}
 	cleanupRestored := true

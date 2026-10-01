@@ -58,7 +58,8 @@ import type {
   WorkspaceEnvironment,
   WorkspaceFileEntry,
   WorkspaceHead,
-  WorkspaceService
+  WorkspaceService,
+  WorkspaceRecovery
 } from "../AppState"
 import { canonicalStoredJsonValue } from "../EventValue"
 import { CARD_CONTENT_CAP, fileValue, listingValue } from "./FilesSeam"
@@ -162,7 +163,9 @@ export interface WorkspaceSeam {
   readonly openWorkspace: (
     bookmark?: string,
     repo?: string,
-    kind?: WorkspaceKind
+    kind?: WorkspaceKind,
+    snapshot?: string,
+    recoveryOf?: string
   ) => Promise<string | void | { readonly value: string }>
   /** `box.view <id>`: re-read one workspace and render its card. */
   readonly viewWorkspace: (workspaceId: string) => Promise<string | void | { readonly value: string }>
@@ -475,6 +478,7 @@ const parseWorkspaceWire = (value: unknown, fallbackRepo?: string): CloudWorkspa
     id,
     repoId,
     name,
+    sourceSnapshotId: textOrNull(value.snapshot_id),
     targetBookmark: textOrNull(value.target_bookmark),
     status: value.status,
     /* plue#482: why a failed workspace failed, in the provider's own words. */
@@ -625,7 +629,7 @@ const splitRepo = (repoId: string): { readonly owner: string; readonly name: str
   return { owner, name }
 }
 
-const WorkspaceObservationSchema = CloudWorkspaceRowSchema.omit({ updatedAt: true, revision: true })
+const WorkspaceObservationSchema = CloudWorkspaceRowSchema.omit({ updatedAt: true, revision: true, recovery: true })
 
 export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = {}): WorkspaceSeam => {
   const pollMs = deps.pollMs ?? 5_000
@@ -635,7 +639,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${rest}`
   }
 
-  const { runtime, watching, sleepers, desktopMintEpochs, terminalOpenEpochs, lifecycle, workspaceEpochs } = actorSharedState(ctx, "workspace", () => {
+  const { runtime, watching, sleepers, desktopMintEpochs, terminalOpenEpochs, lifecycle, workspaceEpochs, recoveryFlights } = actorSharedState(ctx, "workspace", () => {
     const runtime = ManagedRuntime.make(Layer.empty)
     const [watching, sleepers] = Effect.runSync(Effect.all([
       FiberMap.make<string, void>(),
@@ -646,6 +650,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       desktopMintEpochs: new Map<string, number>(),
       terminalOpenEpochs: new Map<string, number>(),
       lifecycle: { disposed: false },
+      recoveryFlights: new Map<string, Promise<unknown>>(),
       workspaceEpochs: new Map<string, number>()
     }
   })
@@ -891,14 +896,47 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
    * its credential boundary, and "service unavailable" alone would hide which
    * boundary failed.
    */
+  const recoveryOwner = (): Pick<WorkspaceRecovery, "owner" | "ownerRevision" | "identityOwnerRevision"> | undefined => {
+    const cloud = ctx.store.collections.cloudSessions.get("cloud")
+    if (cloud?.state !== "signed-in" || cloud.username === null) return undefined
+    const identity = ctx.store.collections.identitySessions.get("identity")
+    const identityOwnerRevision = identity?.ownerRevision ?? identity?.revision
+    return { owner: cloud.username, ownerRevision: cloud.ownerRevision ?? cloud.revision,
+      ...(identityOwnerRevision === undefined ? {} : { identityOwnerRevision }) }
+  }
+  const ownsRecovery = (recovery: WorkspaceRecovery): boolean => {
+    const owner = recoveryOwner()
+    return owner !== undefined && owner.owner === recovery.owner && owner.ownerRevision === recovery.ownerRevision
+      && owner.identityOwnerRevision === recovery.identityOwnerRevision
+  }
+  const writeRecovery = async (oldId: string, recovery: WorkspaceRecovery): Promise<void> => {
+    const row = ctx.store.collections.cloudWorkspaces.get(oldId)
+    if (row === undefined || !ownsRecovery(recovery) || lifecycle.disposed) return
+    await ctx.dispatch({ type: "workspace.updated", actor: "system",
+      workspace: { ...row, recovery } }).isPersisted.promise
+  }
+
   const failOnCard = (
     workspace: CloudWorkspaceInput,
-    refusal: string | { readonly error: string; readonly code: string | null; readonly refusal?: Refusal }
+    refusal: string | { readonly error: string; readonly code: string | null; readonly refusal?: Refusal; readonly details?: unknown }
   ): string | Promise<string> => {
     if (typeof refusal !== "string" && refusal.refusal?.rawCode === "plan_limit_exceeded") {
       return renderPlanLimit(ctx.store, refusal.refusal, ctx.checkout ?? true, ctx.actor())
     }
     const error = typeof refusal === "string" ? refusal : refusal.error
+    if (typeof refusal !== "string" && refusal.code === "workspace_vm_missing" && isRecord(refusal.details)
+      && refusal.details.workspace_id === workspace.id && refusal.details.create_fresh === true) {
+      const owner = recoveryOwner()
+      if (owner !== undefined) {
+        const existing = ctx.store.collections.cloudWorkspaces.get(workspace.id)?.recovery
+        ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: {
+          ...workspace, recovery: { ...owner, createFresh: true,
+            ...(typeof refusal.details.snapshot_id === "string" && refusal.details.snapshot_id !== ""
+              ? { snapshotId: refusal.details.snapshot_id } : {}),
+            ...(existing !== undefined && ownsRecovery(existing) && existing.request !== undefined ? { request: existing.request } : {}) }
+        } })
+      }
+    }
     const proxyGone = typeof refusal !== "string" && refusal.code === EGRESS_PROXY_UNAVAILABLE
     renderWorkspace(workspace, { error, ...(proxyGone ? { egressProxyUnavailable: true } : {}) })
     /*
@@ -1086,6 +1124,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const current = currentOperation()
     const loaded = await loadList(repo === undefined || repo === "" ? undefined : repo, current)
     if (!current()) return SIGN_OUT_REFUSAL
+    if (typeof loaded !== "string") reconnectRecovery()
     return typeof loaded === "string" ? loaded : undefined
   }
 
@@ -1099,6 +1138,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const loaded = await loadList(scope, current)
     if (!current()) return SIGN_OUT_REFUSAL
     if (typeof loaded === "string") return loaded
+    reconnectRecovery()
     const listing = loaded.length === 0
       ? scope === undefined
         ? "No boxes."
@@ -1113,7 +1153,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     return { value: listing }
   }
 
-  const openWorkspace: WorkspaceSeam["openWorkspace"] = async (bookmark, repo, kind) => {
+  const openWorkspaceNow = async (bookmark?: string, repo?: string, kind?: WorkspaceKind, snapshot?: string,
+    recovery?: { readonly oldId: string; readonly facts: WorkspaceRecovery }): Promise<string | void | { readonly value: string }> => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
     const accountCurrent = currentOperation()
@@ -1126,7 +1167,9 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      * source is omitted, never invented.
      */
     const repoRow = ctx.store.collections.repositories.get(target.repo)
-    const source = bookmark === undefined || bookmark === "" ? repoRow?.head?.bookmark ?? undefined : bookmark
+    const source = recovery === undefined
+      ? bookmark === undefined || bookmark === "" ? repoRow?.head?.bookmark ?? undefined : bookmark
+      : recovery.facts.request!.bookmark ?? undefined
     /*
      * ADR 0002: three sandbox kinds share one option surface and the kind IS
      * the choice. A call that named one sends it; a call that named none
@@ -1136,7 +1179,9 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      */
     const created = await sendJson("POST", repoPath(target.repo, "/workspaces"), {
       ...(source === undefined ? {} : { source_bookmark: source }),
-      ...(kind === undefined ? {} : { kind })
+      ...(kind === undefined ? {} : { kind }),
+      ...(snapshot === undefined ? {} : { snapshot_id: snapshot }),
+      ...(recovery === undefined ? {} : { name: recovery.facts.request!.name })
     })
     /*
      * The code travels in the answer itself: a creation refused for the
@@ -1154,6 +1199,12 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      */
     if (!accountCurrent()) return SIGN_OUT_REFUSAL
     if ("error" in created) {
+      if (recovery !== undefined) {
+        const facts = recovery.facts
+        await writeRecovery(recovery.oldId, { ...facts,
+          ...(created.code === "snapshot_not_found" ? { snapshotId: undefined } : {}),
+          request: { ...facts.request!, state: created.status === null || created.status >= 500 ? "requested" : "failed", error: created.error } })
+      }
       if (created.refusal.rawCode === "plan_limit_exceeded") return renderPlanLimit(ctx.store, created.refusal, ctx.checkout ?? true, ctx.actor())
       for (const row of ctx.store.collections.cloudWorkspaces.values()) {
         if (row.repoId !== target.repo || row.status !== "failed") continue
@@ -1164,12 +1215,22 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       return refusalSentence(created.refusal)
     }
     const workspace = parseWorkspaceWire(created.body, target.repo)
-    if (workspace === null) return `Smithers Cloud's answer for the new box on ${target.repo} was malformed.`
+    if (workspace === null) {
+      if (recovery !== undefined) await writeRecovery(recovery.oldId, { ...recovery.facts,
+        request: { ...recovery.facts.request!, error: "Creation not confirmed." } })
+      return `Smithers Cloud's answer for the new box on ${target.repo} was malformed.`
+    }
     ctx.dispatch({ type: "workspace.updated", actor: "system", workspace })
     // Opening a computer also makes it the target of subsequent coding runs.
     // A slow create must not pull the user back after they chose another repo.
     if (ctx.store.session().activeRepoKey === requestedSelection) {
       ctx.dispatch({ type: "repo.selected", actor: ctx.actor(), id: `${workspace.repoId}#workspace:${workspace.id}` })
+    }
+    if (recovery !== undefined) {
+      await writeRecovery(recovery.oldId, { ...recovery.facts,
+        request: { ...recovery.facts.request!, state: "running", workspaceId: workspace.id } })
+      renderWorkspace(workspace)
+      return finishRecovery(recovery.oldId, workspace.id, accountCurrent)
     }
     if (UNSETTLED.has(workspace.status)) watch(workspace.id)
     const [bookmarkHead, sessions] = await Promise.all([
@@ -1186,6 +1247,111 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         workspace.targetBookmark === null ? "" : `@${workspace.targetBookmark}`
       } — the card tracks it.`
     }
+  }
+
+  const recoverySourceMatches = (row: CloudWorkspaceInput, request: NonNullable<WorkspaceRecovery["request"]>): boolean =>
+    // null records an omitted source: the backend selects its repository default.
+    (request.bookmark === null || row.targetBookmark === request.bookmark)
+      && (request.kind === undefined || row.kind === request.kind)
+      && (request.snapshotId === undefined ? row.sourceSnapshotId === null : row.sourceSnapshotId === request.snapshotId)
+  const finishRecovery = async (oldId: string, newId: string, current: () => boolean): Promise<string | { readonly value: string }> => {
+    if (!current()) return SIGN_OUT_REFUSAL
+    const row = ctx.store.collections.cloudWorkspaces.get(newId)
+    const initialFacts = ctx.store.collections.cloudWorkspaces.get(oldId)?.recovery
+    if (row !== undefined && initialFacts?.request !== undefined && ownsRecovery(initialFacts)
+      && !recoverySourceMatches(row, initialFacts.request)) {
+      await writeRecovery(oldId, { ...initialFacts, request: { ...initialFacts.request, error: "Creation source changed." } })
+      return "Creation source changed."
+    }
+    if (row !== undefined && UNSETTLED.has(row.status)) {
+      await runtime.runPromise(Effect.flatMap(FiberMap.run(watching, newId, poll(newId, current), { onlyIfMissing: true }), Fiber.join))
+    }
+    if (!current()) return SIGN_OUT_REFUSAL
+    const facts = ctx.store.collections.cloudWorkspaces.get(oldId)?.recovery
+    const settled = ctx.store.collections.cloudWorkspaces.get(newId)
+    if (facts?.request === undefined || facts.request.workspaceId !== newId || !ownsRecovery(facts)) return SIGN_OUT_REFUSAL
+    if (settled !== undefined && !recoverySourceMatches(settled, facts.request)) {
+      await writeRecovery(oldId, { ...facts, request: { ...facts.request, error: "Creation source changed." } })
+      return "Creation source changed."
+    }
+    const error = settled?.status === "running" ? undefined : settled?.failureMessage ?? "Creation not confirmed."
+    await writeRecovery(oldId, { ...facts,
+      ...(settled?.failureCode === "snapshot_not_found" ? { snapshotId: undefined } : {}),
+      request: { ...facts.request, state: error === undefined ? "completed" : settled === undefined || UNSETTLED.has(settled.status) ? "running" : "failed", ...(error === undefined ? {} : { error }) } })
+    if (settled !== undefined) renderWorkspace(settled)
+    return error === undefined ? { value: "Box ready." } : error
+  }
+  const launchRecovery = (oldId: string, work: () => Promise<unknown>, current: () => boolean): void => {
+    if (recoveryFlights.has(oldId)) return
+    const flight = (ctx.withToast === undefined ? Promise.resolve().then(work)
+      : ctx.withToast(`box.recreate:${oldId}`, "Creating box…", "Box ready", work, false, current, cardIdOf(oldId)))
+      .catch(error => { ctx.report?.("workspace recreation", error) })
+      .finally(() => { if (recoveryFlights.get(oldId) === flight) recoveryFlights.delete(oldId) })
+    recoveryFlights.set(oldId, flight)
+  }
+  const reconnectRecovery = (): void => {
+    for (const old of ctx.store.collections.cloudWorkspaces.values()) {
+      const facts = old.recovery
+      const request = facts?.request
+      if (facts === undefined || request === undefined || !ownsRecovery(facts)
+        || !["requested", "running"].includes(request.state) || recoveryFlights.has(old.id)) continue
+      // An uncertain POST is never repeated. Reconcile its retained identity
+      // against the owner-scoped list, then join the ordinary completion watch.
+      const candidate = request.workspaceId === undefined
+        ? [...ctx.store.collections.cloudWorkspaces.values()].find(row => row.id !== old.id && row.repoId === old.repoId
+          && row.name === request.name)
+        : ctx.store.collections.cloudWorkspaces.get(request.workspaceId)
+      if (candidate === undefined) continue
+      const current = currentOperation(old.id)
+      launchRecovery(old.id, async () => {
+        let confirmed: CloudWorkspaceInput = candidate
+        if (request.workspaceId === undefined && candidate.sourceSnapshotId === undefined) {
+          const answer = await getJson(repoPath(old.repoId, `/workspaces/${encodeURIComponent(candidate.id)}`))
+          if (!current()) return SIGN_OUT_REFUSAL
+          const parsed = "error" in answer ? null : parseWorkspaceWire(answer.body, old.repoId)
+          if (parsed === null || parsed.id !== candidate.id || parsed.name !== request.name || !recoverySourceMatches(parsed, request)) {
+            await writeRecovery(old.id, { ...facts, request: { ...request, error: "Creation not confirmed." } })
+            return "Creation not confirmed."
+          }
+          confirmed = parsed
+          await persistWorkspaceObservation(parsed)
+        }
+        if (!current()) return SIGN_OUT_REFUSAL
+        if (!recoverySourceMatches(confirmed, request)) {
+          await writeRecovery(old.id, { ...facts, request: { ...request, error: "Creation source changed." } })
+          return "Creation source changed."
+        }
+        await writeRecovery(old.id, { ...facts, request: { ...request, state: "running", workspaceId: confirmed.id } })
+        renderWorkspace(confirmed)
+        return finishRecovery(old.id, confirmed.id, current)
+      }, current)
+    }
+  }
+  const openWorkspace: WorkspaceSeam["openWorkspace"] = async (bookmark, repo, kind, snapshot, recoveryOf) => {
+    if (recoveryOf === undefined) return openWorkspaceNow(bookmark, repo, kind, snapshot)
+    const refusal = gate()
+    if (refusal !== undefined) return refusal
+    const old = ctx.store.collections.cloudWorkspaces.get(recoveryOf)
+    const facts = old?.recovery
+    if (old === undefined || facts === undefined || !ownsRecovery(facts) || old.repoId !== repo
+      || (snapshot === undefined ? !facts.createFresh : facts.snapshotId !== snapshot)) return "Recovery is unavailable. Refresh this box."
+    if (facts.request !== undefined && ["requested", "running"].includes(facts.request.state)) {
+      reconnectRecovery()
+      return { value: "Creation requested." }
+    }
+    const id = crypto.randomUUID()
+    const request: NonNullable<WorkspaceRecovery["request"]> = { id, name: `recovery-${id}`, actor: ctx.actor(),
+      bookmark: old.targetBookmark ?? ctx.store.collections.repositories.get(old.repoId)?.head?.bookmark ?? null,
+      ...(kind === undefined ? {} : { kind }), state: "requested", ...(snapshot === undefined ? {} : { snapshotId: snapshot }) }
+    const next = { ...facts, request }
+    const persisted = ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...old, recovery: next } }).isPersisted.promise
+    const current = currentOperation(old.id)
+    launchRecovery(old.id, async () => {
+      await persisted
+      if (!current()) return SIGN_OUT_REFUSAL
+      return openWorkspaceNow(request.bookmark ?? undefined, old.repoId, request.kind, request.snapshotId, { oldId: old.id, facts: next })
+    }, current)
+    return { value: "Creation requested." }
   }
 
   const viewWorkspace: WorkspaceSeam["viewWorkspace"] = async (workspaceId) => {

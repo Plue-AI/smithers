@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:21a0c1a689f5163c988339e74a6c7c25418e40e020bcb37522f5e01d4fe0a442",
+  "digest": "sha256:05247e8a9c3f9277f27fee13bd4b48371634a98ec29af1cf372b718b073dcdc0",
   "faults": [
     "user",
     "wait",
@@ -968,7 +968,7 @@
       "fault": "infra",
       "status": 409,
       "retry_after": 0,
-      "doc": "The recorded workspace VM no longer exists. An unbound setup may select another compatible workspace within quota; established bindings remain explicit."
+      "doc": "The recorded workspace VM no longer exists. Recovery details offer creation of a new workspace from owned snapshot metadata, or fresh creation. Provider restoration must succeed; the old workspace and recovery identifiers remain intact."
     }
   ]
 }

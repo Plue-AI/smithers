@@ -1,3 +1,4 @@
+import { isRecord } from "@smthrs/canonical/Record"
 import { Data } from "effect"
 import { clientRefusal, refusalOf, retryAfterHeader } from "@smthrs/rpc/Refusal"
 import type { Refusal } from "@smthrs/rpc/Refusal"
@@ -20,6 +21,7 @@ export interface CloudFailure {
   readonly code: string | null
   readonly status: number | null
   readonly retryAfterSeconds: number | null
+  readonly details?: unknown
   readonly refusal: Refusal
 }
 
@@ -51,7 +53,8 @@ export const cloudFailure = async (response: Response, fallback: string): Promis
     code: refusal.rawCode,
     status: refusal.status,
     retryAfterSeconds: refusal.retryAfter,
-    refusal
+    refusal,
+    ...(isRecord(body) && body.details !== undefined ? { details: body.details } : {})
   }
 }
 

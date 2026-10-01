@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -264,7 +265,7 @@ func (p *refusingResumePolicy) AuthorizeCountedSandboxResume(context.Context, in
 // held running, or for a box that is still there, nothing is created.
 func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
 	refused := errors.New("sandbox slot refused")
-	missing := "workspace runtime no longer exists"
+	missing := "workspace VM no longer exists"
 	for _, tc := range []struct {
 		name      string
 		status    string
@@ -316,6 +317,13 @@ func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
 			}
 			err := service.RestartLostBox(context.Background(), row.ID, row.RepositoryID, row.UserID)
 			require.ErrorContains(t, err, tc.want)
+			if tc.want == missing {
+				var failure *pkgerrors.APIError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, pkgerrors.CodeWorkspaceVMMissing, failure.Code)
+				require.Equal(t, WorkspaceRecoveryDetails{WorkspaceID: row.ID, CreateFresh: true}, failure.Details)
+				require.Equal(t, row, current, "missing-runtime refusal must retain its old row")
+			}
 			require.Equal(t, tc.events, events)
 			if len(tc.events) == 2 {
 				require.Equal(t, row.ID, runtime.created[0].ID)

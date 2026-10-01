@@ -1072,3 +1072,58 @@ describe("the environment images card", () => {
     host.remove()
   })
 })
+
+describe("missing VM recovery actions", () => {
+  test("snapshot and fresh creation use the existing public flow with keyboard-accessible buttons", async () => {
+    const controller = await controllerFor({ apiVersion: 1, host: "local", version: "test", buildSha: "test",
+      capabilities: localCapabilities({ agent: true, identity: true, cloud: true }), authFlow: "native-handoff", sandbox: { platform: "darwin", mode: "enforced" } })
+    try {
+      await controller.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+      const cloud = controller.store.collections.cloudSessions.get("cloud")!
+      await controller.store.dispatch({ type: "workspace.updated", actor: "system", workspace: {
+        id: "ws-1", repoId: "will/smithers", name: "old", targetBookmark: "main", status: "suspended", kind: "container",
+        provisioningStage: null, suspendedAt: null, createdAt: null,
+        recovery: { owner: "owner", ownerRevision: cloud.ownerRevision ?? cloud.revision, identityOwnerRevision: controller.store.collections.identitySessions.get("identity")?.ownerRevision ?? controller.store.collections.identitySessions.get("identity")?.revision, createFresh: true, snapshotId: "snapshot-retained" }
+      } }).isPersisted.promise
+      const view = render(workspaceCard({ status: "suspended", error: "workspace_vm_missing" }), { controller })
+      const restore = view.host.querySelector<HTMLButtonElement>('button[aria-label="Restore snapshot"]')!
+      const fresh = view.host.querySelector<HTMLButtonElement>('button[aria-label="Create fresh box"]')!
+      expect(restore.tagName).toBe("BUTTON");expect(fresh.tagName).toBe("BUTTON")
+      restore.focus();expect(document.activeElement).toBe(restore)
+      click(view.host,"Restore snapshot")
+      expect(view.commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", snapshot: "snapshot-retained", recoveryOf: "ws-1", kind: "container" }) })
+      fresh.focus();expect(document.activeElement).toBe(fresh)
+      click(view.host,"Create fresh box")
+      expect(view.commands[1]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", recoveryOf: "ws-1", kind: "container" }) })
+      const row = controller.store.collections.cloudWorkspaces.get("ws-1")!
+      await controller.store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...row,
+        recovery: { ...row.recovery!, request: { id: "intent", name: "retained", actor: "user", bookmark: "main", state: "requested", snapshotId: "snapshot-retained" } } } }).isPersisted.promise
+      await new Promise(resolve => setTimeout(resolve,0))
+      expect(view.host.querySelector<HTMLButtonElement>('button[aria-label="Restore snapshot"]')?.disabled).toBe(true)
+      expect(view.host.querySelector<HTMLButtonElement>('button[aria-label="Create fresh box"]')?.disabled).toBe(true)
+      view.unmount()
+      await controller.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "another-owner", expiresAt: null, scopes: null }).isPersisted.promise
+      const stale = render(workspaceCard({ status: "suspended" }), { controller })
+      expect(stale.host.querySelector('button[aria-label="Restore snapshot"]')).toBeNull()
+      expect(stale.host.querySelector('button[aria-label="Create fresh box"]')).toBeNull()
+      stale.unmount()
+    } finally {await controller.dispose(); await controller.store.dispose?.()}
+  })
+  test("fresh-only typed recovery exposes no restore action", async () => {
+    const controller = await controllerFor({ apiVersion: 1, host: "local", version: "test", buildSha: "test",
+      capabilities: localCapabilities({ agent: true, identity: true, cloud: true }), authFlow: "native-handoff", sandbox: { platform: "darwin", mode: "enforced" } })
+    try {
+      await controller.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null }).isPersisted.promise
+      const cloud = controller.store.collections.cloudSessions.get("cloud")!
+      await controller.store.dispatch({ type: "workspace.updated", actor: "system", workspace: {
+        id: "ws-1", repoId: "will/smithers", name: "old", targetBookmark: "main", status: "suspended",
+        provisioningStage: null, suspendedAt: null, createdAt: null,
+        recovery: { owner: "owner", ownerRevision: cloud.ownerRevision ?? cloud.revision, identityOwnerRevision: controller.store.collections.identitySessions.get("identity")?.ownerRevision ?? controller.store.collections.identitySessions.get("identity")?.revision, createFresh: true }
+      } }).isPersisted.promise
+      const view = render(workspaceCard({ status: "suspended" }), { controller })
+      expect(view.host.querySelector('button[aria-label="Restore snapshot"]')).toBeNull()
+      expect(view.host.querySelector('button[aria-label="Create fresh box"]')).not.toBeNull()
+      view.unmount()
+    } finally {await controller.dispose(); await controller.store.dispose?.()}
+  })
+})
