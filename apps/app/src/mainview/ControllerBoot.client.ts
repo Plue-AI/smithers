@@ -67,7 +67,8 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         agent,
         {
           fetchImpl: runtime.http,
-          commandSelector: httpCommandSelector(runtime.http, client.baseUrl),
+          // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.
+          ...(hasCapability(bootstrap, "commands.select") ? { commandSelector: httpCommandSelector(runtime.http, client.baseUrl) } : {}),
           pageLifetime: pageLifetime.signal,
           clientErrors: options.clientErrors,
           baseUrl: client.baseUrl,

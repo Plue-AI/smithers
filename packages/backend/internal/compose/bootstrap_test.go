@@ -43,6 +43,15 @@ func TestAppBootstrapGitHubRequiresConfiguredIntegration(t *testing.T) {
 	require.Contains(t, with.Capabilities, "github")
 }
 
+// The selection route is the recommender's handler, so a backend advertises it
+// exactly when it serves recommendations; the app binds selection only then.
+func TestAppBootstrapCommandSelectionFollowsTheRecommender(t *testing.T) {
+	without := newAppBootstrap(bootstrapFeatures{role: hostedAPITopology, identity: true})
+	require.NotContains(t, without.Capabilities, "commands.select")
+	with := newAppBootstrap(bootstrapFeatures{role: hostedAPITopology, identity: true, recommend: true})
+	require.Subset(t, with.Capabilities, []string{"recommend", "commands.select"})
+}
+
 func TestAppBootstrapBalanceIsIndependentOfCheckout(t *testing.T) {
 	for _, balance := range []bool{false, true} {
 		for _, checkout := range []bool{false, true} {

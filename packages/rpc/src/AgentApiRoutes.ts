@@ -403,6 +403,6 @@ export const SHARED_BACKEND_CLIENT_ROUTES = [
   { method: "GET", path: PUBLIC_REPOS_PATH },
   { method: "POST", path: RECOMMEND_PATH, capability: "recommend" },
   { method: "POST", path: RECOMMEND_OUTCOME_PATH, capability: "recommend" },
-  { method: "POST", path: COMMANDS_SELECT_PATH, capability: "recommend" },
+  { method: "POST", path: COMMANDS_SELECT_PATH, capability: "commands.select" },
   { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" }
 ] as const

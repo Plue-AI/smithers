@@ -694,8 +694,9 @@ export interface AppServices {
   readonly clientErrors?: ClientErrorReporter
   /**
    * The decision model's command selection (state/CommandSelection.ts). The
-   * composition root binds the HTTP door; absent, a test harness's turns run
-   * on the pinned commands alone and the list action's query discloses none.
+   * composition root binds the HTTP door when the backend advertises
+   * `commands.select`; absent, turns run on the pinned commands alone and the
+   * list action's query discloses none.
    */
   readonly commandSelector?: CommandSelector
   /** Fence late observations as soon as the embedding page starts leaving. */

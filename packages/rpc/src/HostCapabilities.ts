@@ -73,7 +73,8 @@ export const cloudCapabilities = (env: CloudCapabilityEnv): Array<RuntimeCapabil
     ["billing.checkout", env.checkout],
     ["billing.portal", env.portal === true],
     ["cloud.terminal", env.terminal],
-    ["recommend", env.recommend === true]
+    ["recommend", env.recommend === true],
+    ["commands.select", env.recommend === true]
   ])
 
 /**
@@ -97,5 +98,6 @@ export const localCapabilities = (opts: LocalCapabilityOptions): Array<RuntimeCa
     ["cloud.terminal", opts.cloud],
     ["cloud.pat", opts.cloud],
     ["recommend", opts.recommend === true],
+    ["commands.select", opts.recommend === true],
     ["native.shell", opts.nativeShell === true]
   ])

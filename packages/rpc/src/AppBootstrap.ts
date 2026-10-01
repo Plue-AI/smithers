@@ -31,6 +31,7 @@ export const RuntimeCapabilitySchema = z.enum([
   "agent",
   "model.turn", // sealed turns on a configured model, independent of the default agent
   "recommend", // provider-backed command recommendations
+  "commands.select", // the decision model selects each chat message's commands (POST /api/commands/select)
   "browser.read", // guarded, pinned HTTPS page reads on this host
   "identity",
   "github", // GitHub OAuth and import are configured on this host

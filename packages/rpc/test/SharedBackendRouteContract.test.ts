@@ -17,6 +17,11 @@ describe("shared backend client route contract", () => {
         expect(router).toContain("if extras.Recommender != nil")
         expect(bootstrap).toContain("\"recommend\"")
       }
+      if ("capability" in route && route.capability === "commands.select") {
+        // The selection handler is the recommender's: one decision model, one condition.
+        expect(router).toContain("if extras.Recommender != nil")
+        expect(bootstrap).toContain("\"commands.select\"")
+      }
       if ("capability" in route && route.capability === "model.turn") {
         expect(router).toContain("if extras.ModelStream != nil")
         expect(bootstrap).toContain("\"model.turn\"")

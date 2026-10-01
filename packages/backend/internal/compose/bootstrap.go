@@ -76,7 +76,8 @@ func newAppBootstrap(features bootstrapFeatures) appBootstrap {
 		result.Capabilities = append(result.Capabilities, "model.turn")
 	}
 	if features.recommend {
-		result.Capabilities = append(result.Capabilities, "recommend")
+		// Selection is served by the same Jev handler as recommendations.
+		result.Capabilities = append(result.Capabilities, "recommend", "commands.select")
 	}
 	if features.workspace {
 		result.Capabilities = append(result.Capabilities, "cloud")
