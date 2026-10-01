@@ -1,14 +1,106 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { artifactDigest, decideDeploy, preflightDeploy, readLiveFacts, verifyActivated } from "./deployGuard"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { dryRunChecks, readPreviousRevision, siteProbeTimeout, workerRolloutHost, writeRolloutReceipt } from "./rollout"
-import { rollout } from "../../../flows/rollout/runtime.ts"
+import { rollout, type RolloutReceipt } from "../../../flows/rollout/runtime.ts"
 
 const previous = { version: "11111111-1111-1111-1111-111111111111", revision: "a".repeat(40) }
 const next = { version: "22222222-2222-2222-2222-222222222222", revision: "b".repeat(40) }
+
+const receipt = (status: RolloutReceipt["status"]): RolloutReceipt => ({
+  startedAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z", status,
+  previous, candidate: next, baseline: [], checks: [], failedChecks: [], skippedChecks: [], rollback: "not-needed", reverification: []
+})
+
+// Files and recovery state are real; deterministic provider ports avoid mutating a live Worker.
+const durableHost = (serverDir: string) => {
+  let live = previous.version
+  const events: string[] = []
+  const records: RolloutReceipt[] = []
+  const host = workerRolloutHost({ serverDir, accountId: "account", worker: "worker", token: "fake",
+    previous: async () => { events.push("capture"); return previous },
+    publish: async () => { events.push("publish"); live = next.version; return next },
+    record: async r => { records.push(structuredClone(r)); writeRolloutReceipt(join(serverDir, "deploy-receipts", "rollout"), r) },
+    run: async cmd => { if (cmd.includes("rollback")) { events.push("restore"); live = previous.version }; return { exitCode: 0, output: "" } },
+    get: async path => path.endsWith("/deployments")
+      ? { success: true, result: { deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] } }
+      : { success: true, result: { id: previous.version } }
+  })
+  return { host, events, records }
+}
+
+test("missing and every terminal durable receipt permit a new deployment", async () => {
+  for (const status of [null, "passed", "failed", "refused", "rolled-back", "rollback-failed"] as const) {
+    const directory = mkdtempSync(join(tmpdir(), "worker-receipt-terminal-"))
+    try {
+      const last = status ? { ...receipt(status), ...(status === "refused" ? { previous: null, candidate: null } : {}) } : null
+      if (last) writeRolloutReceipt(join(directory, "deploy-receipts", "rollout"), last)
+      const { host, events } = durableHost(directory)
+      expect(await host.lastReceipt()).toEqual(last)
+      expect((await rollout(host)).status).toBe("passed")
+      expect(events).toEqual(["capture", "publish"])
+      expect((await host.lastReceipt())?.status).toBe("passed")
+    } finally { rmSync(directory, { recursive: true, force: true }) }
+  }
+})
+
+test("durable interrupted runs reconcile before capture and never republish after recovery", async () => {
+  for (const status of ["captured", "prepared", "publishing", "checking", "restoring"] as const) {
+    const directory = mkdtempSync(join(tmpdir(), "worker-receipt-interrupted-"))
+    try {
+      writeRolloutReceipt(join(directory, "deploy-receipts", "rollout"), receipt(status))
+      const { host, events, records } = durableHost(directory)
+      expect(await dryRunChecks({ serverDir: directory, accountId: "account", run: async () => ({ exitCode: 0, output: "" }) }))
+        .toEqual({ checks: [{ name: "CN-18", status: "passed" }] })
+      expect(await host.lastReceipt()).toEqual(receipt(status))
+      expect(events).toEqual([])
+      const result = await rollout(host)
+      if (status === "captured" || status === "prepared") {
+        expect(records[0]).toMatchObject({ status: "refused", failedChecks: ["interrupted"] })
+        expect(events).toEqual(["capture", "publish"])
+        expect(result.status).toBe("passed")
+      } else {
+        expect(events).toEqual(["restore"])
+        expect(result).toMatchObject({ status: "rolled-back", previous, failedChecks: ["interrupted"], rollback: "succeeded" })
+        expect(result.reverification).toHaveLength(4)
+        expect(result.reverification.every(check => check.status === "passed")).toBe(true)
+        expect(await host.lastReceipt()).toEqual(result)
+      }
+    } finally { rmSync(directory, { recursive: true, force: true }) }
+  }
+})
+
+test("invalid or unreadable durable history refuses deployment instead of hiding an interruption", async () => {
+  const valid = receipt("checking")
+  const invalid = ["not json", "null", "{}", ...Object.keys(valid).map(key => JSON.stringify({ ...valid, [key]: undefined })),
+    ...[{ status: "unknown" }, { previous: { version: "" } }, { candidate: [] }, { baseline: [{ name: "site", status: "unknown" }] },
+      { checks: [null] }, { reverification: {} }, { failedChecks: [1] }, { skippedChecks: [""] }, { rollback: "unknown" },
+      { startedAt: "invalid" }, { updatedAt: "invalid" }].map(change => JSON.stringify({ ...valid, ...change })), "directory"]
+  for (const content of invalid) {
+    const directory = mkdtempSync(join(tmpdir(), "worker-receipt-invalid-"))
+    try {
+      const path = join(directory, "deploy-receipts", "rollout", "latest.json")
+      mkdirSync(join(directory, "deploy-receipts", "rollout"), { recursive: true })
+      if (content === "directory") mkdirSync(path)
+      else writeFileSync(path, content)
+      const { host, events } = durableHost(directory)
+      await expect(host.lastReceipt()).rejects.toThrow()
+      const records: RolloutReceipt[] = []
+      // The EISDIR case cannot overwrite latest.json, so retain its refusal in an independent sink.
+      const result = await rollout({ ...host, record: async r => { records.push(structuredClone(r)) } })
+      expect(result).toMatchObject({ status: "refused", failedChecks: ["receipt"], previous: null })
+      expect(records).toEqual([result])
+      expect(events).toEqual([])
+      expect((await dryRunChecks({ serverDir: directory, accountId: "account", run: async () => ({ exitCode: 0, output: "" }) })).checks)
+        .toEqual([{ name: "CN-18", status: "passed" }])
+      await expect(host.lastReceipt()).rejects.toThrow()
+    } finally { rmSync(directory, { recursive: true, force: true }) }
+  }
+})
+
 test("Worker failing site probe invokes pinned rollback and checks restored SHA", async () => {
   let live = previous.version
   const commands: string[][] = []

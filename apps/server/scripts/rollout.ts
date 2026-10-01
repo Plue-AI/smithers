@@ -1,6 +1,6 @@
 /** Worker ports for the shared deterministic rollout. All commands and reads are bounded. */
 import { join } from "node:path"
-import { mkdirSync, renameSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { parseDeployedVersions } from "./canary/rollback-verdict"
 import type { RecoveryEvidence } from "./deployGuard"
 import type { CheckResult, Release, RolloutHost, RolloutReceipt } from "../../../flows/rollout/runtime.ts"
@@ -38,6 +38,7 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
   let previous: Release
   let recovery: RecoveryEvidence | undefined = options.identity ? { ...options.identity, newestVersion: options.identity.target.versionId } : undefined
   return {
+    lastReceipt: async () => readRolloutReceipt(join(options.serverDir, "deploy-receipts", "rollout", "latest.json")),
     checks: ["CN-1", "site", "CN-18", "CN-24"],
     rollbackChecks: ["CN-1", "site", "CN-24"],
     capture: async () => {
@@ -86,6 +87,29 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
       return { status: passed ? "passed" : "failed" }
     }
   }
+}
+
+/** Missing history permits a first deploy; unreadable or malformed history must refuse it. */
+const readRolloutReceipt = (path: string): RolloutReceipt | null => {
+  let content: string
+  try { content = readFileSync(path, "utf8") }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null
+    throw error
+  }
+  const receipt: unknown = JSON.parse(content)
+  const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
+  const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+  const release = (value: unknown) => value === null || (object(value) && text(value.version) && text(value.revision))
+  const checks = (value: unknown) => Array.isArray(value) && value.every(check => object(check) && text(check.name) && ["passed", "failed"].includes(check.status as string))
+  const strings = (value: unknown) => Array.isArray(value) && value.every(text)
+  if (!object(receipt) || !text(receipt.startedAt) || !Number.isFinite(Date.parse(receipt.startedAt)) ||
+    !text(receipt.updatedAt) || !Number.isFinite(Date.parse(receipt.updatedAt)) ||
+    !["captured", "prepared", "publishing", "checking", "restoring", "passed", "failed", "refused", "rolled-back", "rollback-failed"].includes(receipt.status as string) ||
+    !release(receipt.previous) || !release(receipt.candidate) || !checks(receipt.baseline) || !checks(receipt.checks) ||
+    !checks(receipt.reverification) || !strings(receipt.failedChecks) || !strings(receipt.skippedChecks) ||
+    !["not-needed", "succeeded", "failed"].includes(receipt.rollback as string)) throw new Error("Invalid rollout receipt")
+  return receipt as unknown as RolloutReceipt
 }
 
 /**
