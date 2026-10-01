@@ -1,0 +1,144 @@
+{
+  "issue": 3325,
+  "status": "READY/FROZEN for supported canonical external-PG configuration; whole canonical gate remains red",
+  "#3127": "OPEN; original three loaded failures retained; no new loaded campaign",
+  "head": "0e7ff2c48b43efc345bdc4135bc1f8fb5ee0285e",
+  "at": "2026-10-01T05:29:58.057538+00:00",
+  "files": {
+    "packages/smithers/flows/engine-store/PACKAGE.ts": "950a0ba5a67dcf5134ad4a4fe05e0c857b2ebd0ce65132d08d22b6c20512bae1",
+    "packages/smithers/flows/engine-store/README.md": "ef6bda97d1f25f8ad5303abebf5c893e58317b86f35319d09717f2d30ef7ef2b",
+    "packages/smithers/flows/engine-store/test/MatrixEnvironment.test.ts": "b90f28831f7d524b11f47ab4c65e552a0d085f4e3e26057d958cbb24200ec41a"
+  },
+  "scope": "package-owned NodeTest replaces only exported macro test; no public npm API/production engine/matrix runner/Exec allowlist/cache/threshold changes",
+  "changes": [
+    "Optional outer PG URL is explicitly declared in existing NodeTest.env; default retains stock disposable PostgreSQL.",
+    "Every prior macro input/dependency/runtime inheritance/runner/deadline/cachefalse preserved and independently compared.",
+    "Credential-free PostgreSQL URI only; unique sslmode and positive two-digit connect_timeout query config; no password, fragment, whitespace/control chars, credential/config-file indirection or unsupported options. Generic pre-plan refusal does not echo input. Direct stock script password support unchanged.",
+    "Literal env object retains existing source-bound test-pin inventory; exact serialized default/external attrs before/after wrapping identical."
+  ],
+  "validation": [
+    {
+      "command": "node node_modules/vitest/vitest.mjs run test/MatrixEnvironment.test.ts --coverage.enabled=false",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "result": "21/21 controls; focused behavioral qualification only, not production coverage",
+      "log": "3325-final-literal-tests.log"
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "log": "3325-final-literal-types.log"
+    },
+    {
+      "command": "node_modules/.bin/dprint check PACKAGE.ts test/MatrixEnvironment.test.ts --config dprint.json",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "log": "3325-final-literal-format-check.log"
+    },
+    {
+      "command": "actual root tsconfig Compiler API createProgram rootNames=[owning PACKAGE.ts], unchanged inherited options",
+      "exit": 0,
+      "result": "0 owning/0 transitive diagnostics; not full root gate",
+      "log": "3325-owning-declaration-types.log",
+      "evidence": "3325-owning-declaration-types.json"
+    },
+    {
+      "command": "owning suppliedEnv/undocumentedPins assert existing PG-only pin remains admitted",
+      "exit": 0,
+      "log": "3325-final-test-pins.log"
+    },
+    {
+      "command": "node packages/smithers/src/bin.ts test //packages/smithers/flows/engine-store:test --plan --no-cache --format json",
+      "cases": "absent/declared/different URL plus password-bearing generic refusal",
+      "exit": "0/0/0/nonzero respectively",
+      "result": "three distinct target keys/cachefalse/no credential marker echo",
+      "evidence": "3325-canonical-plan-controls.json"
+    },
+    {
+      "command": "node packages/smithers/src/bin.ts test //packages/smithers/flows/engine-store:test --jobs 2 --no-cache --verbose --format json",
+      "env": "Node26 canonical TMPDIR existing absolute native helper + credential-free PG55491 URL explicitly declared; no synthetic CPU load",
+      "exit": 1,
+      "result": "both storage legs ran; lib3.8sec; test276.7sec; six foreign failures + unchanged stock100% threshold refusal",
+      "evidence": "3325-canonical-prerequisites.json"
+    },
+    {
+      "command": "node ../database/scripts/test-matrix.mjs test/TestStores.test.ts --coverage.enabled=false with explicit unavailablePG localhost:1 connect_timeout=1",
+      "exit": 1,
+      "result": "SQLite2pass; PG2connectionrefusals; no fallback/no disposable server",
+      "log": "3325-unavailable-pg-focused.log",
+      "limitation": "Focused stock runner refusal, not a second full canonical invocation."
+    }
+  ],
+  "canonicalProofSource": {
+    "capturedInputs": 1470,
+    "duringRunChanges": 0,
+    "before": "3325-canonical-source-before.json",
+    "after": "3325-canonical-source-after.json",
+    "postRunChanges": "Only env literal wrapping and test inventory assertion; declared attrs byte-identical both default/external; fresh focused/types/format/pin proofs run after those changes",
+    "equivalence": "3325-env-literal-equivalence.json"
+  },
+  "storageEvidence": "3325-canonical-cleanup-proof.json: six realPG child schemas created+retired+catalog absent; sixSQLite child files removed; canonicalreportsdir removed; existingPG18.6 port55491 left running; no new server/IPC alteration",
+  "coverageClaim": "No whole100% claim; exact strict failures retained. Changed declaration logic covered behaviorally via actual module/target body controls; no numeric declaration coverage claimed.",
+  "setupReceipts": "First two environment red logs exposed test fixture missing runtime binding; preserved as setup diagnostics. 3325-original-declaration-red.log separately proves actual baseline dropped declared URL. No fictional causal regression count.",
+  "jobs": "All owning tests/compiler/watchers stopped; no load workers, server starts or new worktrees",
+  "receiptHashes": {
+    "3325-before-env-literal.json": "0963f37cec3403cc613580784e3fd0ee0a4d50f8d4b4b82e7aa5695c4db200ee",
+    "3325-canonical-absent-plan.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-canonical-absent-plan.stdout": "9feef36a907157f0c884342f9fdbf6825b6c05ba752f7d940ede1317c37dcaa2",
+    "3325-canonical-captured-stderr.log": "9cd874eadb8f6937fc2d82c510a6599f83eed4c3701135e6d583c74847455397",
+    "3325-canonical-captured-stdout.log": "630fd41ae781fc094f641d5b49e914fbac965586c41cf057a4d6588bb938b379",
+    "3325-canonical-cleanup-proof.json": "2666b718bc0924bea9948c8750fd848f4d77d609d9286a14a9a8e2f3a15ec1ed",
+    "3325-canonical-declared-plan.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-canonical-declared-plan.stdout": "eb7a0d709d4e9806a598fc3186827ff599245bd5c9f90bfdcf995c917fd69a44",
+    "3325-canonical-different-plan.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-canonical-different-plan.stdout": "c8325bc5c808e50e0bc9f6a8ad3bf9b18ac2db3057246bd623447b0b8b6c192f",
+    "3325-canonical-exec-error.json": "fe1af20c74fea657ea1f732471551353ecd4f55e75ac3471a1f0679c6f4a309a",
+    "3325-canonical-full.stderr.log": "4ec86de16deec04538d556edd2c6d2612f061fdd644a8509504acb2fcc620abd",
+    "3325-canonical-full.stdout.log": "37c07a86492a40f5171b0c9e73825ce92790e578381ac72e0823729e322954dc",
+    "3325-canonical-leg-results.json": "d8cf25b2280de93ef9d4598d334dcc8c062e9b789f4f30ea454b38f8430b554d",
+    "3325-canonical-plan-absent.json": "c95b1a2a0fb7b58082030be8970c6441b1628e854fddc62882791c1cafdc2d1b",
+    "3325-canonical-plan-absent.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-canonical-plan-controls.json": "d88dbd0df7b87f489fc922e24c37f24b0d3463bf50df3b0742e27d2c93e286b9",
+    "3325-canonical-prerequisites.json": "9cea5448ea546b7e6eef7767a1b5119e5317f5aabfe971f37b22523a24b5ec61",
+    "3325-canonical-source-after.json": "5cbce19da41c6a45ad165c2671b79a74072bc70479e86efd93aef94184ee7096",
+    "3325-canonical-source-before.json": "f461a173a2bd1d61843753552d5137a476f0ff681bcd165a719b49b2d680ccb3",
+    "3325-canonical-unusable-plan.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-canonical-unusable-plan.stdout": "92ec42b37bbd14468d28936882e30a572e74784ccb0379acbdfca4f15e7634ec",
+    "3325-engine-program-files.txt": "54e78f636df5c83c3226d640a110a9e98501f0ddf0ed043e2202d937658c3236",
+    "3325-env-literal-equivalence.json": "1ac59bf27c9a7993c79caf5ad4cbefe1ba56acb9ce4a5ef7fc15d188bec86dc2",
+    "3325-environment-green-resolved.log": "70a7776902781e166d45d1c82257d5ce78492e77e03fa6828b91c54222c3087c",
+    "3325-environment-green.log": "6f090f1899ce2b46c31f9abbe4fda8561098eec9e29aca894f9a0d8df777a902",
+    "3325-environment-red-corrected.log": "70c52dc1bc5e1f62d8dbe98281f858ea8ea77eaed32f419e92611866c17a76d3",
+    "3325-environment-red.log": "5c4275e01e56a6d2be6672b814e8bc4e0bbb325af9a95dc081ac8a9b63420018",
+    "3325-final-environment-tests.log": "32f07034af9717890a568a9b8747bc88f384e5c8be74b53ee47b62193298be57",
+    "3325-final-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-final-format-write.log": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831",
+    "3325-final-literal-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-final-literal-format-write.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-final-literal-tests.log": "cc77a29e89fe5a77f1e913fd3a06c5745daf4cdefd6b72750a342871f4e84678",
+    "3325-final-literal-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-final-test-pins.log": "865cc322ae6cee7c650b3b8f2a29ee394f587c0914e09df060b2dfbd06c52b94",
+    "3325-final-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-format-write.log": "3d8b3a61f123bfb9629923b56a9546589dcabaa89633ecde04b15d19b237f47a",
+    "3325-issue.json": "0b0a9437c5ffd8e8aca16c3b989dffa64e45ca5c11d20d7be2be8c3c1a942285",
+    "3325-open-deadline-issues.json": "dfa620d966779b01caa33155190a6fc87b97bec7b463c0f9ebe68d6f1a2694f1",
+    "3325-open-join-issues.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "3325-open-trampoline-issues.json": "948f5003e8cff8ff685127fff7f262c70b9292ea1f0ada68c60f0119efdd3a38",
+    "3325-original-declaration-red.log": "5132970703434141f2009c32c8851fa82d4b6bd34ea9afca5ba1a2a95f9797a4",
+    "3325-owning-declaration-types.json": "caec77c24901e2521398bbc83caa63dd2ce6fcc08625fc0c39ffc240d15ff84f",
+    "3325-owning-declaration-types.log": "bb6f00a80765209325fbebf6de563e7c7d25470fd547df67929506ec2819054c",
+    "3325-pg-observations.jsonl": "4481687a800cdfce35df73b3bd88b6671ff6d1c94addcc7e0335d60c0a0f3284",
+    "3325-readonly-plan.json": "0d5d1f64cba455dc884c00970ee4195064232e1695c1475e51affb74be2d150e",
+    "3325-real-pg-readonly-before.json": "f544c513ece796e4df593af6bf908529cfd29b5e526114270d2acffc162846e9",
+    "3325-test-pins-source-audit.log": "d1f53caf51c22142b7707cb9c897d3d74300b4adf18fcd07b2fec96aa70affb7",
+    "3325-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3325-unavailable-pg-focused.log": "4af451a5df9b6b4083f37fa4bb9f59827f6a31d01deb4180ef3bd2990502adc7"
+  },
+  "retainedStockBlobs": {
+    "3325-canonical-retained/blobs-postgres.json.gz": "4731266416e8f63ba7013f4b0b50270b118c72ffd428863693489e0dcf2ae1ed",
+    "3325-canonical-retained/blobs-sqlite.json.gz": "2a6155e713c310d6ca5bdb53a7df537c8a804151bf4794af60f35f4ddafa6664",
+    "3325-canonical-retained/capture-manifest.json": "14204b1dde558d02c2e43ad334ad441b93ad9b20516f2b1eb490040a0efefe9d"
+  }
+}

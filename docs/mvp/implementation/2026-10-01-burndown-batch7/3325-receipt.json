@@ -1,0 +1,84 @@
+{
+  "issue": 3325,
+  "status": "canonical PostgreSQL configuration/setup qualified; full CI remains red",
+  "parentReview": "Reviewed replacement exported NodeTest preserves macro runner, full source/test/config/dependency/deadline inputs and uncached default. Explicit credential-free PG connection is key material and reaches existing stock matrix; absent config retains stock ephemeral server; generic refusals retain direct-matrix credential support. Existing env-literal pin inventory preserved; captured pre-wrap complete failure proof is not called source-identical final full pass.",
+  "checks": [
+    {
+      "command": "node node_modules/vitest/vitest.mjs run test/MatrixEnvironment.test.ts --coverage.enabled=false",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "result": "21/21 controls; focused behavioral qualification only, not production coverage",
+      "log": "3325-final-literal-tests.log"
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "log": "3325-final-literal-types.log"
+    },
+    {
+      "command": "node_modules/.bin/dprint check PACKAGE.ts test/MatrixEnvironment.test.ts --config dprint.json",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "log": "3325-final-literal-format-check.log"
+    },
+    {
+      "command": "actual root tsconfig Compiler API createProgram rootNames=[owning PACKAGE.ts], unchanged inherited options",
+      "exit": 0,
+      "result": "0 owning/0 transitive diagnostics; not full root gate",
+      "log": "3325-owning-declaration-types.log",
+      "evidence": "3325-owning-declaration-types.json"
+    },
+    {
+      "command": "owning suppliedEnv/undocumentedPins assert existing PG-only pin remains admitted",
+      "exit": 0,
+      "log": "3325-final-test-pins.log"
+    },
+    {
+      "command": "node packages/smithers/src/bin.ts test //packages/smithers/flows/engine-store:test --plan --no-cache --format json",
+      "cases": "absent/declared/different URL plus password-bearing generic refusal",
+      "exit": "0/0/0/nonzero respectively",
+      "result": "three distinct target keys/cachefalse/no credential marker echo",
+      "evidence": "3325-canonical-plan-controls.json"
+    },
+    {
+      "command": "node packages/smithers/src/bin.ts test //packages/smithers/flows/engine-store:test --jobs 2 --no-cache --verbose --format json",
+      "env": "Node26 canonical TMPDIR existing absolute native helper + credential-free PG55491 URL explicitly declared; no synthetic CPU load",
+      "exit": 1,
+      "result": "both storage legs ran; lib3.8sec; test276.7sec; six foreign failures + unchanged stock100% threshold refusal",
+      "evidence": "3325-canonical-prerequisites.json"
+    },
+    {
+      "command": "node ../database/scripts/test-matrix.mjs test/TestStores.test.ts --coverage.enabled=false with explicit unavailablePG localhost:1 connect_timeout=1",
+      "exit": 1,
+      "result": "SQLite2pass; PG2connectionrefusals; no fallback/no disposable server",
+      "log": "3325-unavailable-pg-focused.log",
+      "limitation": "Focused stock runner refusal, not a second full canonical invocation."
+    }
+  ],
+  "sourceHashes": {
+    "packages/smithers/flows/engine-store/PACKAGE.ts": "950a0ba5a67dcf5134ad4a4fe05e0c857b2ebd0ce65132d08d22b6c20512bae1",
+    "packages/smithers/flows/engine-store/README.md": "ef6bda97d1f25f8ad5303abebf5c893e58317b86f35319d09717f2d30ef7ef2b",
+    "packages/smithers/flows/engine-store/test/MatrixEnvironment.test.ts": "b90f28831f7d524b11f47ab4c65e552a0d085f4e3e26057d958cbb24200ec41a"
+  },
+  "canonicalProofSource": {
+    "capturedInputs": 1470,
+    "duringRunChanges": 0,
+    "before": "3325-canonical-source-before.json",
+    "after": "3325-canonical-source-after.json",
+    "postRunChanges": "Only env literal wrapping and test inventory assertion; declared attrs byte-identical both default/external; fresh focused/types/format/pin proofs run after those changes",
+    "equivalence": "3325-env-literal-equivalence.json"
+  },
+  "stockBlobs": {
+    "3325-canonical-retained/blobs-postgres.json.gz": "4731266416e8f63ba7013f4b0b50270b118c72ffd428863693489e0dcf2ae1ed",
+    "3325-canonical-retained/blobs-sqlite.json.gz": "2a6155e713c310d6ca5bdb53a7df537c8a804151bf4794af60f35f4ddafa6664",
+    "3325-canonical-retained/capture-manifest.json": "14204b1dde558d02c2e43ad334ad441b93ad9b20516f2b1eb490040a0efefe9d"
+  },
+  "remainingFailurePrerequisites": [
+    "JoinLoserChildCrash cancellation recovery",
+    "RunDeadline originator deadline after restart",
+    "Trampoline worker-loss round re-derivation"
+  ],
+  "coverageClaim": "No whole100% claim; exact strict failures retained. Changed declaration logic covered behaviorally via actual module/target body controls; no numeric declaration coverage claimed.",
+  "proofSha256": "6430982b8560d8e6d18906cfd40a0f075b4d7c92c87543eb2ded590535432bee"
+}

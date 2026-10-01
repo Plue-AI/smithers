@@ -22,6 +22,21 @@ Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-th
 Node.js 26.4.0 or later. The package ships as both ESM and CommonJS with
 TypeScript declarations.
 
+## Testing
+
+`smthrs test '//packages/smithers/flows/engine-store:test'` runs the existing
+suite on SQLite and real PostgreSQL. By default the matrix starts and cleans
+up its own disposable PostgreSQL server. To use an existing server, supply
+`SMITHERS_TEST_PG_URL` before invoking the command; the target declares that
+connection in its environment and execution key.
+
+The canonical override accepts a credential-free `postgres:` or `postgresql:`
+URL with optional `sslmode` and positive, at most two-digit `connect_timeout`.
+Declared configuration is visible in plans, so passwords, credential files,
+service configuration and other query options are refused without echoing the
+URL. An unavailable configured server fails the PostgreSQL leg. The direct
+matrix script retains its existing password support and disposable-server path.
+
 ## The shortest real use
 
 `EngineStore.layer` is the composition. It provides `FlowRuntime`, the service

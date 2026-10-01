@@ -7,9 +7,46 @@ import { ReviewTagsMigrationsAndKeys } from "@smthrs/repo-targets"
  */
 import { Smithers } from "@smthrs/targets"
 
-const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
-  testProgram: Smithers.file("//packages/smithers/flows/database/scripts/test-matrix.mjs"),
+const { check, circular, docs, docsFiles, fmt, lib, lint } = BuildAndCheckTypeScriptPackage({
   deps: [],
+  cwd: "packages/smithers/flows/engine-store"
+})
+
+// Declared env appears in plans, so an external connection must carry no
+// password or libpq credential/config-file indirection. The stock matrix's
+// private disposable-server password stays inside its existing runner.
+const postgresUrl = process.env["SMITHERS_TEST_PG_URL"]
+if (postgresUrl !== undefined) {
+  let usable = false
+  try {
+    const url = new URL(postgresUrl)
+    const query = Array.from(url.searchParams)
+    usable = postgresUrl.length <= 4096 && !/[\u0000-\u0020\u007f]/.test(postgresUrl) &&
+      (url.protocol === "postgres:" || url.protocol === "postgresql:") && url.hostname !== "" &&
+      url.password === "" && url.hash === "" &&
+      new Set(query.map(([name]) => name)).size === query.length &&
+      query.every(([name, value]) =>
+        name === "sslmode" ?
+          ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"].includes(value) :
+          name === "connect_timeout" && /^[1-9][0-9]?$/.test(value)
+      )
+  } catch { /* Refuse unusable configuration without echoing the URL. */ }
+  if (!usable) throw new Error("SMITHERS_TEST_PG_URL requires a credential-free PostgreSQL URL")
+}
+
+/** The same SQLite/PostgreSQL matrix, optionally using a declared external server. */
+const test = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//packages/smithers/flows/database/scripts/test-matrix.mjs")),
+  srcs: [
+    Smithers.glob("src/**/*.ts"),
+    Smithers.glob("test/**/*.ts"),
+    Smithers.file("package.json"),
+    Smithers.file("vitest.config.ts"),
+    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*")
+  ],
+  deps: [lib],
+  env: { ...(postgresUrl === undefined ? {} : { SMITHERS_TEST_PG_URL: postgresUrl }) },
+  timeout: "1200000ms",
   cwd: "packages/smithers/flows/engine-store"
 })
 
