@@ -212,6 +212,18 @@ describe("shared command presentation", () => {
     }
   })
 
+  it("leads with a resume for a run parked over released executions (#3328)", () => {
+    const shown = { runId: "run-1", status: "parked", waitingReason: "released" }
+    expect(Presentation.nextActions(shown, {}, Presentation.runs({ show: false }))).toEqual([
+      { command: "runs resume run-1", description: "Restart the released executions" },
+      { command: "runs logs run-1 --format jsonl", description: "Read detailed events only when needed" }
+    ])
+    expect(Presentation.nextActions({ ...shown, waitingReason: "event" }, {}, Presentation.runs({ show: false })))
+      .not.toContainEqual(expect.objectContaining({ command: "runs resume run-1" }))
+    expect(Presentation.nextActions({ ...shown, status: "running" }, {}, Presentation.runs({ show: false })))
+      .not.toContainEqual(expect.objectContaining({ command: "runs resume run-1" }))
+  })
+
   it("retains bounded approval guidance for a parked run and ignores non-record results", () => {
     expect(Presentation.nextActions({ runId: "run-1", _tag: "Parked" }).map((action) => action.command))
       .toEqual(["runs show run-1", "runs logs run-1 --format jsonl", "approvals list"])

@@ -346,6 +346,9 @@ describe("waitingTree", () => {
         expect(yield* state.waitingTree("other-root")).toEqual([])
         // The detached run still owns its own subtree's question.
         expect((yield* state.waitingTree("detached")).map((row) => row.runId)).toEqual(["under-detached"])
+        // A caller asking what a resume would restart walks the detached subtree too (#3328).
+        expect((yield* state.waitingTree("root", { detached: "include" })).map((row) => row.runId))
+          .toEqual(["attached", "under-detached"])
       })
     ))
 
@@ -560,5 +563,7 @@ describe("waitingTree, in memory", () => {
 
       expect((yield* state.waitingTree("root")).map((row) => row.runId)).toEqual(["attached"])
       expect((yield* state.waitingTree("detached")).map((row) => row.runId)).toEqual(["under-detached"])
+      expect((yield* state.waitingTree("root", { detached: "include" })).map((row) => row.runId))
+        .toEqual(["attached", "under-detached"])
     }))
 })

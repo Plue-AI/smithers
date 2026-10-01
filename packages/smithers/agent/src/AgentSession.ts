@@ -2261,9 +2261,22 @@ export const readExecution = (
       // A module run's budget parks the native child that made the call, and
       // the root only awaits that child. The tree's budget wait is why the
       // run waits, and what an operator acts on (#2739).
+      //
+      // An execution its still-alive owner released is not restarted by any
+      // sweep (#2982); only `smthrs runs resume` restarts it, and a resume
+      // restarts detached spawns too. A root parked on an event over one is
+      // therefore parked until an operator resumes it (#3328).
+      const awaitsResume = (): Effect.Effect<boolean> =>
+        tree.some((wait) => wait.reason === "released")
+          ? Effect.succeed(true)
+          : state.waitingTree(current.runId, { detached: "include" }).pipe(
+            Effect.map((all) => all.some((wait) => wait.reason === "released"))
+          )
       const reason = Option.isSome(waiting)
         ? waiting.value.reason === "event" && tree.some((wait) => wait.reason === "budget")
           ? "budget"
+          : waiting.value.reason === "event" && (yield* awaitsResume())
+          ? "released"
           : waiting.value.reason
         : undefined
       // Every open human wait in the TREE, not just this row's own.

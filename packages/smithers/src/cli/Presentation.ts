@@ -147,6 +147,10 @@ export const runs = (
   const runId = text(data["runId"]) ?? text(args["run"])
   if (runId === undefined) return options.otherwise ?? []
   const actions: Array<Next> = []
+  // A run parked over released executions waits for an operator (#3328).
+  if (data["status"] === "parked" && data["waitingReason"] === "released") {
+    actions.push({ command: `runs resume ${quote(runId)}`, description: "Restart the released executions" })
+  }
   if (options.show !== false) {
     actions.push({
       command: `runs show ${quote(runId)}`,

@@ -45,6 +45,37 @@ wrapper under the flow's own name. `updatedAt` is the run's last recorded
 progress; status-monitor checks do not advance it. `diagnosis.endedAt` stays
 empty until the run settles.
 
+`health` is the run's health as the app's run card reads it: `health`,
+`attention`, and `reason`. A run parked over executions its owner released
+reports `attention: "needs-resume"` and lists them under `released`, each with
+the `cause` its release recorded: `lease-lapsed` with `unconfirmedMs` when its
+host stalled past the run lease, or `interrupted` for a shutdown. A release
+recorded by an older build has no `cause`. Nothing
+restarts them until `smthrs runs resume <run-id>`, which `runs show` offers
+first among its next steps.
+
+```text
+runs show
+runId: run-1
+flowId: external-peer
+status: parked
+waitingReason: released
+health
+  health: awaiting-human
+  attention: needs-resume
+  reason: released
+released
+  1
+    executionId: fad1…6e6c/worker
+    flowName: external-peer/Worker
+    cause: lease-lapsed
+    unconfirmedMs: 20481
+…
+Next:
+smthrs runs resume run-1
+smthrs runs logs run-1 --format jsonl
+```
+
 `executions` lists what the run is doing: the run's own row first, then every
 execution it spawned that is still live, then the latest settled ones, up to
 20 rows (`executionsOmitted` counts the rest). Each row names the flow, its
@@ -85,6 +116,8 @@ what ends the wait:
 - A run parked on an approval:
   `smthrs approvals approve '<payload>' --scope run`, then
   `smthrs runs resume <run-id>`.
+- A run parked over executions its owner released, which `runs list` lists as
+  `parked` with `waitingReason: "released"`: `smthrs runs resume <run-id>`.
 - A run no executor took, which `runs list` lists as `accepted` with
   `waitingReason: "executor"` and the card calls `pending`:
   `smthrs runs cancel <run-id>`, or run the flow from the host program that

@@ -57,7 +57,7 @@ export const StatusRollupSchema = z.object({
   ]),
   activity: z.enum(["working", "idle", "needs-input", "unknown"]),
   health: z.enum(["healthy", "stalled", "wedged-node", "runaway-loop", "awaiting-human", "failing", "unknown"]),
-  attention: z.enum(["none", "awaiting-approval", "needs-input", "unhealthy"]),
+  attention: z.enum(["none", "awaiting-approval", "needs-input", "needs-resume", "unhealthy"]),
   freshness: z.enum(["fresh", "stale", "unobserved"]),
   reason: z.enum([
     "ok",
@@ -67,6 +67,7 @@ export const StatusRollupSchema = z.object({
     "quota-wait",
     "timer-wait",
     "event-wait",
+    "released",
     "unreachable",
     "probe-timeout",
     "probe-error",

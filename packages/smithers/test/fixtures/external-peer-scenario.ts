@@ -1,5 +1,5 @@
 import { Control } from "@smthrs/control"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
+import * as RunActivity from "../../src/cli/RunActivity.ts"
 import { host } from "./native-control-external-peer.ts"
 
 const fixture = fileURLToPath(new URL("./native-control-external-peer.ts", import.meta.url))
@@ -252,6 +253,17 @@ if (
           assert.equal(rows(root).some((row) => row.status === "suspended" && row.waiting_reason === "released"), true)
           const parked = yield* control.list({ _tag: "runs", filters: { runId } })
           assert.equal(parked._tag === "runs" && parked.items[0]?.status, "parked")
+          // The run reports why it is parked and what it needs (#3328): its
+          // worker's lease lapsed on a live host, so only a resume restarts it.
+          const summary = parked._tag === "runs" ? parked.items[0]! : undefined
+          assert.equal(summary?.waitingReason, "released", JSON.stringify(summary))
+          const journal = Array.from(yield* Stream.runCollect(control.watch({ runId, follow: false })))
+          const shown = RunActivity.show(summary!, journal)
+          process.stderr.write(`runs show after the stall: ${JSON.stringify(shown)}\n`)
+          assert.deepEqual(shown.health, { health: "awaiting-human", attention: "needs-resume", reason: "released" })
+          const worker = shown.released?.find((execution) => execution.executionId.endsWith("/worker"))
+          assert.equal(worker?.cause, "lease-lapsed", JSON.stringify(shown.released))
+          assert.ok((worker?.unconfirmedMs ?? 0) >= 19_000, JSON.stringify(worker))
           enter("explicit public resume")
           const resume = yield* control.resume({ runId, idempotencyKey: "explicit-retry-after-stall" })
           assert.equal(resume._tag, "Accepted")

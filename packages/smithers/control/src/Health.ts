@@ -57,11 +57,12 @@ export const Activity = Schema.Literals(["working", "idle", "needs-input", "unkn
  * @since 1.0.0
  */
 export type Activity = typeof Activity.Type
-/** Attention never confers permission to act.
+/** Attention never confers permission to act. `needs-resume` is a run parked over
+ * executions its owner released: nothing restarts them until `smthrs runs resume`.
  * @category schemas
  * @since 1.0.0
  */
-export const Attention = Schema.Literals(["none", "awaiting-approval", "needs-input", "unhealthy"])
+export const Attention = Schema.Literals(["none", "awaiting-approval", "needs-input", "needs-resume", "unhealthy"])
 /** Human attention.
  * @category models
  * @since 1.0.0
@@ -89,6 +90,7 @@ export const ReasonCode = Schema.Literals([
   "quota-wait",
   "timer-wait",
   "event-wait",
+  "released",
   "unreachable",
   "probe-timeout",
   "probe-error",
@@ -529,15 +531,17 @@ export const rollup = (input: RollupInput): StatusRollup => {
   const terminal = input.state === "completed" || input.state === "failed" || input.state === "cancelled" ||
     input.state === "exited"
   const approval = input.state === "waiting-approval" || input.state === "parked" && input.waitingReason === "approval"
+  // Released executions stay parked until an operator resumes the run (#3328).
+  const released = input.state === "parked" && input.waitingReason === "released"
   const waiting = waitReason(input.state, input.waitingReason)
-  let activity: typeof Activity.Type = freshness === "fresh" && !terminal && !approval
+  let activity: typeof Activity.Type = freshness === "fresh" && !terminal && !approval && !released
     ? reading!.report!.activity
     : "unknown"
   let health: HealthState = input.state === "failed" ? "failing" : input.state === "exited" ?
     input.exitCode === 0 ? "healthy" : input.exitCode == null ? "unknown" : "failing" :
     terminal ?
     "healthy" :
-    approval ?
+    approval || released ?
     "awaiting-human" :
     waiting !== undefined ?
     "healthy" :
@@ -548,13 +552,16 @@ export const rollup = (input: RollupInput): StatusRollup => {
     : input.baseHealth ?? "unknown"
   const reason = approval
     ? "awaiting-reply"
+    : released
+    ? "released"
     : waiting ?? (freshness === "fresh" ? reading?.report?.reason : reading?.reason)
-  if (!terminal && !approval && waiting === undefined && freshness === "fresh") {
+  if (!terminal && !approval && !released && waiting === undefined && freshness === "fresh") {
     if (reason === "unreachable" && health !== "awaiting-human") health = "failing"
     else if (reason === "no-progress" && health === "healthy") health = "stalled"
   }
   if (waiting !== undefined) activity = "unknown"
-  const attention: typeof Attention.Type = approval ? "awaiting-approval" : activity === "needs-input" ?
+  const attention: typeof Attention.Type = approval ? "awaiting-approval" : released ? "needs-resume" :
+    activity === "needs-input" ?
     "needs-input" :
     ["stalled", "wedged-node", "runaway-loop", "failing"].includes(health)
     ? "unhealthy"

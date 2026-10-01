@@ -424,7 +424,12 @@ describe("the ports when a store answers badly", () => {
 
   it.each([
     { tree: ["event", "budget"], expected: "budget" },
-    { tree: ["event", "timer"], expected: "event" }
+    { tree: ["event", "timer"], expected: "event" },
+    // A child released by a still-alive owner stays parked until an operator
+    // resumes the run (#2982), so the root reports that, not an event wait (#3328).
+    { tree: ["event", "released"], expected: "released" },
+    { tree: ["event", "budget", "released"], expected: "budget" },
+    { tree: ["timer", "released"], expected: "timer" }
   ])(
     "reports a module root awaiting a child as $expected when its tree holds $tree",
     async ({ expected, tree }) => {
@@ -456,6 +461,31 @@ describe("the ports when a store answers badly", () => {
       expect(observed).toMatchObject({ _tag: "Observed", status: "parked", waitingReason: expected })
     }
   )
+
+  it("reports a root awaiting a released detached worker as released, without listing it as a human wait (#3328)", async () => {
+    const observed = await run(Effect.gen(function*() {
+      const store = yield* RunStore.RunStore
+      yield* store.create("worker-root", "{}")
+      const row = yield* store.get("worker-root")
+      const own = { runId: "worker-root", reason: "event", wakeAt: null, token: null }
+      const worker = { runId: "worker-root/worker", reason: "released", wakeAt: null, token: null }
+      return yield* AgentSession.readExecution(row.runId).pipe(
+        Effect.provideService(RunStore.RunStore, {
+          ...store,
+          latestRound: () => Effect.succeed({ ...row, status: "suspended" })
+        }),
+        Effect.provideService(DurableEngineState.DurableEngineState, {
+          ...DurableEngineState.makeMemory(),
+          waiting: () => Effect.succeedSome(own),
+          // A detached spawn is outside the attached tree, but a resume restarts it.
+          waitingTree: (_runId, options) => Effect.succeed(options?.detached === "include" ? [own, worker] : [own])
+        } as DurableEngineState.Service)
+      )
+    }))
+
+    expect(observed).toMatchObject({ _tag: "Observed", status: "parked", waitingReason: "released" })
+    expect(observed).not.toHaveProperty("pendingWaits")
+  })
 
   it("reports an engine that cannot record the cancellation as a typed failure", async () => {
     const failing = RunStore.layerNoop({

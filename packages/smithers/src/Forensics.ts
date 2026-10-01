@@ -281,6 +281,8 @@ export const renderDiagnosis = (
   run: {
     readonly runId?: string
     readonly flowId?: string
+    readonly status?: string
+    readonly waitingReason?: string | undefined
     readonly codeDrift?: {
       readonly recorded?: string | undefined
       readonly current?: string | undefined
@@ -364,6 +366,13 @@ export const renderDiagnosis = (
       `${label("Unblock")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${
         shellCommand("smthrs", "runs", "resume", runId)
       }`
+    )
+  }
+  if (run?.status === "parked" && run.waitingReason === "released") {
+    // Executions a live owner released stay parked until an operator resumes
+    // the run; no sweep restarts them (#2982, #3328).
+    lines.push(
+      `${label("Unblock")}${shellCommand("smthrs", "runs", "resume", runId)}    # its owner released executions`
     )
   }
   if (d.status === "pending") {

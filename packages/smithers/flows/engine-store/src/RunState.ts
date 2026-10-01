@@ -86,3 +86,52 @@ export const RunState = Schema.Struct({
  * @category models
  */
 export type RunState = typeof RunState.Type
+
+/**
+ * Why a driver released a run it still owned, recorded on its
+ * `interrupt-released` run decision.
+ *
+ * `lease-lapsed` means the host went `unconfirmedMs` without confirming its
+ * run lease (a stalled or overloaded host), so the heartbeat loop stopped the
+ * run's work before a peer could take it. `interrupted` is any other
+ * interruption that was not a cancellation, usually a host shutdown.
+ *
+ * Decisions written before this field existed carry no cause; read them with
+ * {@link releaseCauseOf}, which answers `undefined` for them.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ReleaseCause = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("lease-lapsed"),
+    unconfirmedMs: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+  }),
+  Schema.Struct({ kind: Schema.Literal("interrupted") })
+])
+
+/**
+ * The value form of {@link ReleaseCause}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type ReleaseCause = typeof ReleaseCause.Type
+
+const decodeReleaseCause = Schema.decodeUnknownOption(ReleaseCause)
+
+/**
+ * The release cause a run decision payload records, or `undefined` for a
+ * decision that is not `interrupt-released`, one written before causes were
+ * recorded, or one whose cause does not decode.
+ *
+ * @since 1.0.0
+ * @category decoding
+ */
+export const releaseCauseOf = (decision: unknown): ReleaseCause | undefined => {
+  if (decision === null || typeof decision !== "object") return undefined
+  const record = decision as { readonly decision?: unknown; readonly cause?: unknown }
+  if (record.decision !== "interrupt-released") return undefined
+  const decoded = decodeReleaseCause(record.cause)
+  return decoded._tag === "Some" ? decoded.value : undefined
+}

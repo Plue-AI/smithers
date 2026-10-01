@@ -242,6 +242,40 @@ describe("RunActivity.show", () => {
     expect(shown.executionsOmitted).toBe(1)
   })
 
+  it("reports a run parked over released executions as needing a resume, with each release's cause (#3328)", () => {
+    const released = (executionId: string, cause?: Record<string, unknown>) =>
+      engine(executionId, "flows.engine.run-decision", {
+        decision: "interrupt-released",
+        owner: { hostId: "host", pid: 7, nonce: "n" },
+        ...(cause === undefined ? {} : { cause })
+      })
+    const events = [
+      ...tree(),
+      released("work-1", { kind: "lease-lapsed", unconfirmedMs: 20_412 }),
+      // An older build's record: the same decision with no cause field.
+      fact("work-3", "sweep/work", "running", { parent: "rounds", started: 7 }),
+      released("work-3"),
+      // A release a later round superseded is not a parked execution.
+      fact("work-4", "sweep/work", "running", { parent: "rounds", started: 8 }),
+      released("work-4", { kind: "interrupted" }),
+      fact("work-4", "sweep/work", "running", { parent: "rounds", started: 8, generation: 1 }),
+      // A diagnostic decision after a release does not undo it.
+      engine("work-1", "flows.engine.run-decision", { decision: "steal-refused-owner-alive" })
+    ]
+    const shown = RunActivity.show({ ...run("parked"), waitingReason: "released" }, events, 1_000)
+    expect(shown.health).toEqual({ health: "awaiting-human", attention: "needs-resume", reason: "released" })
+    expect(shown.released).toEqual([
+      { executionId: "work-1", flowName: "sweep/work", cause: "lease-lapsed", unconfirmedMs: 20_412 },
+      { executionId: "work-3", flowName: "sweep/work" }
+    ])
+
+    const waiting = RunActivity.show({ ...run("parked"), waitingReason: "event" }, events, 1_000)
+    expect(waiting.health).toEqual({ health: "healthy", attention: "none", reason: "event-wait" })
+    expect(waiting).not.toHaveProperty("released")
+    // The verdict leads, so the bounded human summary shows it before the run's other fields.
+    expect(Object.keys(shown).slice(0, 6)).toEqual(["runId", "flowId", "status", "waitingReason", "health", "released"])
+  })
+
   it("keeps the recorded end of a settled run and a row newer than its journal", () => {
     const { codeDrift: _drift, ...settled } = run("completed")
     const shown = RunActivity.show({ ...settled, updatedAt: 1e15 }, [

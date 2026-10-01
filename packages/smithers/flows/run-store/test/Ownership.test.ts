@@ -405,6 +405,31 @@ describe("heartbeatLoop write deadline", () => {
       expect(warnings).toHaveLength(2)
     }))
 
+  it.effect("reports a lapsed lease's unconfirmed duration, and never a lost fence, to onLapse (#3328)", () =>
+    Effect.gen(function*() {
+      const lapses: Array<number> = []
+      const onLapse = (unconfirmedMs: number) => Effect.sync(() => void lapses.push(unconfirmedMs))
+      const lapsing = yield* Effect.raceFirst(Effect.never, heartbeatLoop("lapsing", ownerA, { onLapse })).pipe(
+        Effect.provide(RunStoreLive.layerNoop({ heartbeat: () => Effect.fail(heartbeatFailure) })),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* TestClock.adjust(toleranceMs)
+      yield* Effect.yieldNow
+      const lapsed = lapsing.pollUnsafe()
+      expect(lapsed !== undefined && Exit.isFailure(lapsed) && Cause.hasInterruptsOnly(lapsed.cause)).toBe(true)
+      expect(lapses).toEqual([toleranceMs])
+
+      const fenced = yield* Effect.raceFirst(Effect.never, heartbeatLoop("fenced", ownerA, { onLapse })).pipe(
+        Effect.provide(RunStoreLive.layerNoop({ heartbeat: () => Effect.succeed({ _tag: "NotFound" as const }) })),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* TestClock.adjust(intervalMs)
+      yield* Effect.yieldNow
+      const lost = fenced.pollUnsafe()
+      expect(lost !== undefined && Exit.isFailure(lost) && Cause.hasInterruptsOnly(lost.cause)).toBe(true)
+      expect(lapses).toEqual([toleranceMs])
+    }))
+
   for (
     const [gapMs, expired] of [[toleranceMs - 1, false], [toleranceMs, true], [toleranceMs + intervalMs, true]] as const
   ) {

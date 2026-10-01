@@ -529,8 +529,15 @@ export interface Service {
    * child's value, whether its own row has flipped to `suspended` yet or not.
    * Trampoline links continue the same run, so an inherited detach policy
    * does not hide later rounds from that run's own tree.
+   *
+   * `{ detached: "include" }` walks detached subtrees too, for a caller asking
+   * what an explicit resume of the run would restart rather than what the run
+   * itself waits on.
    */
-  readonly waitingTree: (runId: string) => Effect.Effect<ReadonlyArray<WaitingRow>>
+  readonly waitingTree: (
+    runId: string,
+    options?: WaitingTreeOptions | undefined
+  ) => Effect.Effect<ReadonlyArray<WaitingRow>>
   /**
    * Lists parked runs matching an optional reason/due-before filter, ordered
    * for sweeper consumption (earliest wake first, untimed waits last, then
@@ -923,6 +930,17 @@ const deferredAddressRowKey = (row: Record<string, unknown>): string =>
 
 /** The primary key of a run-parent edge, read the same way. */
 const runParentRowKey = (row: Record<string, unknown>): string => JSON.stringify([row["childId"], row["parentId"]])
+
+/**
+ * How far {@link Service.waitingTree} walks: detached subtrees are skipped
+ * unless `detached` is `"include"`.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface WaitingTreeOptions {
+  readonly detached?: "skip" | "include" | undefined
+}
 
 /**
  * The deepest nesting {@link Service.waitingTree} walks.
@@ -1483,7 +1501,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
    * Correlated edge lookups seek each parent's indexes instead of building
    * an edge set from the database's entire execution history.
    */
-  const waitingTree: Service["waitingTree"] = Effect.fn("DurableEngineState.waitingTree")((runId) =>
+  const waitingTree: Service["waitingTree"] = Effect.fn("DurableEngineState.waitingTree")((runId, options) =>
     sql<WaitingDatabaseRow>`
       WITH RECURSIVE tree(run_id, depth) AS (
         SELECT run_id, 0 FROM flows_runs WHERE run_id = ${runId}
@@ -1496,7 +1514,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           SELECT run_id FROM flows_runs WHERE parent_run_id = tree.run_id
         )
         WHERE tree.depth < ${waitingTreeMaxDepth}
-          AND (child.parent_run_id = tree.run_id
+          AND (${options?.detached === "include" ? 1 : 0} = 1
+            OR child.parent_run_id = tree.run_id
             OR COALESCE(${Dialect.jsonText(sql, sql`child.state_json`, "$.onParentExit")}, 'cancel') <> 'detach')
       ), reachable(run_id, depth) AS (
         SELECT run_id, MIN(depth) FROM tree GROUP BY run_id
@@ -2283,7 +2302,7 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
         return row === undefined ? Option.none() : Option.some(snapshotWaiting(row))
       })
     ),
-    waitingTree: Effect.fn("DurableEngineState.waitingTree")((runId) =>
+    waitingTree: Effect.fn("DurableEngineState.waitingTree")((runId, walk) =>
       Effect.sync(() => {
         // Breadth-first over recorded spawn edges: the named run first, then
         // each generation beneath it. This memory view does not model the
@@ -2302,7 +2321,10 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
               // view that records the policy. A view that does not describes an
               // attached child, which is the default.
               const view = options.runs?.(childId)
-              if (view !== undefined && Option.isSome(view) && view.value.onParentExit === "detach") continue
+              if (
+                walk?.detached !== "include" && view !== undefined && Option.isSome(view) &&
+                view.value.onParentExit === "detach"
+              ) continue
               seen.add(childId)
               next.push(childId)
             }
@@ -2508,7 +2530,7 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     park: (runId, waiting, owner) => guard(unguarded.park(runId, waiting, owner)),
     wake: (runId) => guard(unguarded.wake(runId)),
     waiting: (runId) => guard(unguarded.waiting(runId)),
-    waitingTree: (runId) => guard(unguarded.waitingTree(runId)),
+    waitingTree: (runId, options) => guard(unguarded.waitingTree(runId, options)),
     waitingRuns: (filter) => guard(unguarded.waitingRuns(filter)),
     pendingRuns: (flowName, limit, after, through, eligibleBeforeMs) =>
       guard(unguarded.pendingRuns(flowName, limit, after, through, eligibleBeforeMs)),

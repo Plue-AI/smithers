@@ -26,7 +26,7 @@ import * as DurableEngineState from "../DurableEngineState.ts"
 import * as EngineStoreMetrics from "../EngineStoreMetrics.ts"
 import { EventTypes } from "../EventTypes.ts"
 import * as ExecutionFacts from "../ExecutionFacts.ts"
-import { type OnParentExit, RunState } from "../RunState.ts"
+import { type OnParentExit, type ReleaseCause, RunState } from "../RunState.ts"
 import * as WakeBus from "../WakeBus.ts"
 import * as ActionPersistence from "./ActionPersistence.ts"
 import * as EffectRecords from "./EffectRecords.ts"
@@ -1391,6 +1391,7 @@ export const make = (
     const releaseOwned = (
       runId: string,
       state: RunState,
+      cause: ReleaseCause,
       round?: {
         readonly flow: Flow.Any
         readonly instance: FlowRuntime.FlowInstance["Service"]
@@ -1425,7 +1426,9 @@ export const make = (
               ? withoutResult(state)
               : { ...withoutResult(state), result: suspension }
           ),
-          { decision: "interrupt-released", owner: dependencies.owner },
+          // Why the run was released (#3328): an operator reading a parked run
+          // must be able to tell a lapsed lease on a live host from a shutdown.
+          { decision: "interrupt-released", owner: dependencies.owner, cause },
           undefined,
           undefined,
           waiting
@@ -1441,6 +1444,7 @@ export const make = (
     const settleInterrupted = (
       runId: string,
       state: RunState,
+      cause: ReleaseCause,
       round?: {
         readonly flow: Flow.Any
         readonly instance: FlowRuntime.FlowInstance["Service"]
@@ -1458,7 +1462,7 @@ export const make = (
           if (row.status !== "running" || row.owner === null || !sameOwner(row.owner, dependencies.owner)) {
             return Effect.void
           }
-          return row.cancelRequestedAtMs !== null ? cancelOwned(runId, state) : releaseOwned(runId, state, round)
+          return row.cancelRequestedAtMs !== null ? cancelOwned(runId, state) : releaseOwned(runId, state, cause, round)
         }),
         Effect.catch((error) => error.code === "not_found_row" ? Effect.void : Effect.die(error))
       )
@@ -1916,6 +1920,9 @@ export const make = (
         let interruptState: RunState | undefined
         let round: { readonly flow: Flow.Any; readonly instance: FlowRuntime.FlowInstance["Service"] } | undefined
         let durableParkAccepted = false
+        // Set by the heartbeat loop when this round's lease lapses, so the
+        // release it causes records why (#3328).
+        let lapsedMs: number | undefined
         return Effect.gen(function*() {
           const initial = yield* store.get(executionId).pipe(
             Effect.catch((error) =>
@@ -2056,7 +2063,12 @@ export const make = (
                     Effect.provideService(FlowRuntime.FlowInstance, instance),
                     Effect.provideService(FlowRuntime.FlowRuntime, flowEngine)
                   ),
-                  Ownership.heartbeatLoop(executionId, dependencies.owner).pipe(
+                  Ownership.heartbeatLoop(executionId, dependencies.owner, {
+                    onLapse: (unconfirmedMs) =>
+                      Effect.sync(() => {
+                        lapsedMs = unconfirmedMs
+                      })
+                  }).pipe(
                     Effect.provideService(RunStore.RunStore, store)
                   )
                 ),
@@ -2245,7 +2257,14 @@ export const make = (
           Effect.onInterrupt(() =>
             interruptState === undefined
               ? Effect.void
-              : settleInterrupted(executionId, interruptState, round)
+              : settleInterrupted(
+                executionId,
+                interruptState,
+                lapsedMs === undefined
+                  ? { kind: "interrupted" }
+                  : { kind: "lease-lapsed", unconfirmedMs: Math.max(0, Math.floor(lapsedMs)) },
+                round
+              )
           ),
           Effect.onExit(() =>
             Effect.suspend(() => {

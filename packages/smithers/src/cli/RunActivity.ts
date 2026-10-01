@@ -11,7 +11,9 @@
  * @since 1.0.0
  */
 
-import type { ControlSchema } from "@smthrs/control"
+import type { ControlSchema, Health } from "@smthrs/control"
+import { type ReleaseCause, releaseCauseOf } from "@smthrs/engine-store/RunState"
+import { statusRollup } from "@smthrs/gateway/GatewayProjection"
 import * as Forensics from "../Forensics.ts"
 
 /** The engine flow that executes an approved plan. */
@@ -241,6 +243,71 @@ export const driftVerdict = (drift: NonNullable<ControlSchema.RunSummary["codeDr
     : "engine changed since the run started; resume needs --allow-code-drift"
 
 /**
+ * Run decisions that record evidence about an execution without changing its
+ * lifecycle, so they never supersede a release.
+ */
+const diagnosticDecisions: ReadonlySet<string> = new Set([
+  "wake-scheduled",
+  "claim-lost",
+  "activation-lost",
+  "steal-refused-owner-alive",
+  "child-policy-applied"
+])
+
+/**
+ * One execution its owner released and nothing has re-driven since.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Released {
+  readonly executionId: string
+  readonly flowName: string
+  /** Why the owner released it; absent on a decision recorded before causes were. */
+  readonly cause?: ReleaseCause["kind"]
+  /** How long the lease went unconfirmed, for a `lease-lapsed` release. */
+  readonly unconfirmedMs?: number
+}
+
+/**
+ * The executions whose latest lifecycle decision is `interrupt-released`, in
+ * journal order, each with the cause its decision recorded.
+ *
+ * @param events the run's journal, in order
+ * @param runFlow the flow the run was started from
+ * @category constructors
+ * @since 1.0.0
+ */
+export const released = (
+  events: ReadonlyArray<ControlSchema.ControlEvent>,
+  runFlow: string
+): ReadonlyArray<Released> => {
+  const flows = new Map<string, string>()
+  const latest = new Map<string, { readonly cause: ReleaseCause | undefined } | undefined>()
+  for (const event of events) {
+    if (event.kind !== "control.engine.event") continue
+    const envelope = record(event.payload)
+    const executionId = text(envelope.executionId)
+    if (executionId === undefined || envelope.eventType !== "flows.engine.run-decision") continue
+    const payload = record(envelope.payload)
+    const flowName = text(record(record(payload.executionFact).observation).flowName)
+    if (flowName !== undefined) flows.set(executionId, flowName)
+    const decision = text(payload.decision)
+    if (decision === undefined || diagnosticDecisions.has(decision)) continue
+    latest.delete(executionId)
+    latest.set(executionId, decision === "interrupt-released" ? { cause: releaseCauseOf(payload) } : undefined)
+  }
+  return [...latest].flatMap(([executionId, release]) =>
+    release === undefined ? [] : [{
+      executionId,
+      flowName: flowNameOf(flows.get(executionId) ?? runFlow, runFlow),
+      ...(release.cause === undefined ? {} : { cause: release.cause.kind }),
+      ...(release.cause?.kind === "lease-lapsed" ? { unconfirmedMs: release.cause.unconfirmedMs } : {})
+    }]
+  )
+}
+
+/**
  * A run as `runs show` prints it.
  *
  * @category models
@@ -250,11 +317,21 @@ export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
   readonly codeDrift?: NonNullable<ControlSchema.RunSummary["codeDrift"]> & { readonly verdict: string }
   readonly executions: ReadonlyArray<Execution>
   readonly executionsOmitted?: number
+  /** The run's health, as the app's run card reads it. */
+  readonly health: {
+    readonly health: Health.HealthState
+    readonly attention: Health.Attention
+    readonly reason?: Health.ReasonCode
+  }
+  /** The released executions a run parked on `released` waits for a resume to restart. */
+  readonly released?: ReadonlyArray<Released>
   readonly diagnosis: Forensics.Digest
 }
 
 /**
- * The run `runs show` prints: its flow named in place of the engine wrapper,
+ * The run `runs show` prints: its health first, with the executions a run
+ * parked on `released` waits for a resume to restart, then its flow named in
+ * place of the engine wrapper,
  * its last progress as `updatedAt`, its executions, its drift verdict, and a
  * diagnosis whose `endedAt` is absent until the run settles.
  *
@@ -265,12 +342,25 @@ export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
  */
 export const show = (
   run: ControlSchema.RunSummary,
-  events: ReadonlyArray<ControlSchema.ControlEvent>
+  events: ReadonlyArray<ControlSchema.ControlEvent>,
+  now: number = Date.now()
 ): Shown => {
   const activity = fold(events, run)
   const diagnosis = Forensics.digest(events, run.runId)
-  const { codeDrift, ...recorded } = run
+  const rollup = statusRollup(run, events, now)
+  const { codeDrift, runId, flowId, status, waitingReason, ...recorded } = run
   return {
+    // What a reader needs first leads, so the bounded human summary shows it.
+    runId,
+    flowId,
+    status,
+    ...(waitingReason === undefined ? {} : { waitingReason }),
+    health: {
+      health: rollup.health,
+      attention: rollup.attention,
+      ...(rollup.reason === undefined ? {} : { reason: rollup.reason })
+    },
+    ...(rollup.attention === "needs-resume" ? { released: released(events, run.flowId) } : {}),
     ...recorded,
     ...(run.executionView === undefined ? {} : { executionView: presentView(run.executionView, run.flowId) }),
     updatedAt: Math.max(run.updatedAt, activity.lastProgressAt ?? run.updatedAt),

@@ -86,6 +86,19 @@ describe("Health authority and freshness", () => {
       attention: "none"
     })
   })
+  it.each([
+    { latest: undefined, baseHealth: undefined },
+    { latest: { observation: observation({ state: "parked" }), sequence: 9 }, baseHealth: "healthy" as const }
+  ])("a run parked over released executions needs a resume, whatever a probe said (#3328)", (input) => {
+    expect(roll({ state: "parked", waitingReason: "released", incarnation: "owner-one", ...input })).toMatchObject({
+      activity: "unknown",
+      health: "awaiting-human",
+      attention: "needs-resume",
+      reason: "released"
+    })
+    // A released row that is not parked is mid-reclaim, not stuck.
+    expect(roll({ state: "running", waitingReason: "released" }).attention).not.toBe("needs-resume")
+  })
   it("an operator park remains awaiting-human", () => {
     expect(roll({ state: "parked", latest: undefined })).toMatchObject({ health: "awaiting-human" })
   })

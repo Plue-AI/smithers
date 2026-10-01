@@ -221,6 +221,7 @@ permit deadlocks against a fiber doing the opposite.
 | `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
 | `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
 | `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
+| `waitingTree`            | `(runId: string, options?: WaitingTreeOptions) => Effect<ReadonlyArray<WaitingRow>>`                                                                             |
 | `pendingRuns`            | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
 | `pendingRunTail`         | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
 | `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
@@ -1347,6 +1348,14 @@ The versioned state envelope stored in each run row.
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
 | `RunState`     | `{ version: 1, flowName, payload, parentExecutionId?, onParentExit?, maxRounds?, result?, cancellation? }` |
 | `OnParentExit` | `"cancel"` or `"detach"`                                                                                   |
+
+`ReleaseCause` is why a driver released a run it still owned, recorded as the
+optional `cause` of its `interrupt-released` run decision:
+`{ kind: "lease-lapsed", unconfirmedMs }` when the host went that long without
+confirming its run lease, or `{ kind: "interrupted" }` for any other
+non-cancel interruption, usually a host shutdown. `releaseCauseOf(decision)`
+reads it and answers `undefined` for decisions recorded before the field
+existed.
 
 `parentExecutionId` is present only on a child run. `onParentExit` is recorded
 at first admission, including independent runs that a later caller may join as

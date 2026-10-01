@@ -295,6 +295,14 @@ describe("Forensics.renderDiagnosis", () => {
     )
   })
 
+  it("prints the resume that restarts a run parked over released executions (#3328)", () => {
+    const d = Forensics.digest([event("control.run.parked", { runId: "run-1", status: "parked" }, 1)])
+    const card = Forensics.renderDiagnosis({ runId: "run-1", status: "parked", waitingReason: "released" }, d)
+    expect(card).toContain("Unblock   smthrs runs resume run-1    # its owner released executions")
+    expect(Forensics.renderDiagnosis({ runId: "run-1", status: "parked", waitingReason: "event" }, d))
+      .not.toContain("Unblock")
+  })
+
   it("passes hostile approval text and run ids as their exact argv elements", () => {
     const approval = "apostrophe '\n$(printf substituted)\n`printf substituted`"
     const runId = "run-'id\n$(printf changed)\n`printf changed`"

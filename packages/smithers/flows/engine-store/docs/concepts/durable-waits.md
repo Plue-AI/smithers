@@ -47,7 +47,8 @@ A run that suspends parks first. The driver writes a `Waiting` payload with a
 - reason `timer`, with the earliest pending clock deadline as `wakeAt`, when a
   durable clock is outstanding.
 - reason `event` otherwise.
-- reason `released` for a run interrupt-released by shutdown.
+- reason `released` for a run interrupt-released by shutdown or a lapsed lease;
+  its `interrupt-released` decision records which as `cause`.
 - reason `quarantine` for a run parked on corrupt attempt evidence.
 
 Every resume clears the payload when the run re-enters `running`. Because the

@@ -13,6 +13,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type { Journal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
+import { Journal as JournalService } from "@smthrs/journal"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -23,7 +24,9 @@ import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
+import * as JournalRecords from "../src/internal/JournalRecords.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
+import { releaseCauseOf } from "../src/RunState.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -69,6 +72,90 @@ const releaseMidAction = (executionId: string) =>
     // Process shutdown: the scope closes and interrupts the drive fiber.
     yield* Scope.close(driverScope, Exit.void)
   })
+
+/** The `interrupt-released` decisions a run recorded, as written. */
+const releases = (runId: string) =>
+  Effect.gen(function*() {
+    const journal = yield* JournalService.Journal
+    yield* journal.flush
+    const page = yield* JournalRecords.entries(runId, undefined, 100)
+    return page.entries
+      .filter((entry) => entry.eventType === "flows.engine.run-decision")
+      .map((entry) => entry.payload as { readonly decision: string; readonly cause?: unknown })
+      .filter((payload) => payload.decision === "interrupt-released")
+  })
+
+describe("interrupt-released records why the run was released (#3328)", () => {
+  it("decodes a recorded cause and answers undefined for a decision written before causes existed", () => {
+    expect(releaseCauseOf({ decision: "interrupt-released", cause: { kind: "lease-lapsed", unconfirmedMs: 20_412 } }))
+      .toEqual({ kind: "lease-lapsed", unconfirmedMs: 20_412 })
+    expect(releaseCauseOf({ decision: "interrupt-released", cause: { kind: "interrupted" } }))
+      .toEqual({ kind: "interrupted" })
+    // A journal written by an older build: same decision, no cause field.
+    expect(releaseCauseOf({ decision: "interrupt-released", owner: { hostId: "h", pid: 1, nonce: "n" } }))
+      .toBeUndefined()
+    expect(releaseCauseOf({ decision: "interrupt-released", cause: { kind: "lease-lapsed", unconfirmedMs: -1 } }))
+      .toBeUndefined()
+    expect(releaseCauseOf({ decision: "interrupt-released", cause: { kind: "solar-flare" } })).toBeUndefined()
+    expect(releaseCauseOf({ decision: "transitioned", cause: { kind: "interrupted" } })).toBeUndefined()
+    expect(releaseCauseOf(null)).toBeUndefined()
+    expect(releaseCauseOf("interrupt-released")).toBeUndefined()
+  })
+
+  it.effect("records an interrupted cause when the host shuts down", () =>
+    Effect.gen(function*() {
+      const recorded = yield* withCrypto(provideJournal(Effect.gen(function*() {
+        yield* releaseMidAction("release-shutdown")
+        return yield* releases("release-shutdown")
+      })))
+
+      expect(recorded).toHaveLength(1)
+      expect(recorded[0]!.cause).toEqual({ kind: "interrupted" })
+    }))
+
+  it.effect("records lease-lapsed with the unconfirmed duration when heartbeat writes stall", () =>
+    Effect.gen(function*() {
+      const toleranceMs = Duration.toMillis(Ownership.heartbeatWriteTolerance)
+      const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
+        const store = yield* RunStore.RunStore
+        const stalled = RunStore.makeNoop({
+          ...store,
+          heartbeat: () =>
+            Effect.fail(
+              new RunStore.RunStoreError({
+                method: "heartbeat",
+                code: "persistence_failed",
+                message: "database unavailable",
+                cause: undefined
+              })
+            )
+        })
+        const driver = yield* makeDriver("owner-1").pipe(Effect.provideService(RunStore.RunStore, stalled))
+        const started = yield* Latch.make(false)
+        yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
+        yield* executeAndDrain(driver, TestFlow, {
+          executionId: "release-lapsed",
+          payload: {},
+          discard: true
+        }).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Latch.await(started)
+        let row = yield* store.get("release-lapsed")
+        for (let i = 0; i < 200 && row.status !== "suspended"; i++) {
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
+          yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
+          row = yield* store.get("release-lapsed")
+        }
+        return { row, recorded: yield* releases("release-lapsed") }
+      })))
+
+      expect(result.row.status).toBe("suspended")
+      expect(result.recorded).toHaveLength(1)
+      const cause = result.recorded[0]!.cause as { readonly kind: string; readonly unconfirmedMs: number }
+      expect(cause.kind).toBe("lease-lapsed")
+      expect(cause.unconfirmedMs).toBeGreaterThanOrEqual(toleranceMs)
+      expect(cause.unconfirmedMs).toBeLessThan(toleranceMs + Duration.toMillis(Ownership.heartbeatInterval) * 2)
+    }))
+})
 
 describe("interrupt-released runs are reclaimable (issue #39)", () => {
   it.effect("clears its release marker when the ownership fence is lost", () =>

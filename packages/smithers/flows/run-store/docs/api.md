@@ -757,7 +757,11 @@ stranding that host's runs forever. Node hosts only.
 ### heartbeatLoop
 
 ```ts
-const heartbeatLoop: (runId: string, owner: OwnerId) => Effect<never, never, RunStore>
+const heartbeatLoop: (
+  runId: string,
+  owner: OwnerId,
+  options?: HeartbeatLoopOptions
+) => Effect<never, never, RunStore>
 ```
 
 Pulses every `heartbeatInterval` on the injected `Clock`, each pulse renewing
@@ -768,6 +772,10 @@ and interrupts immediately. An independent deadline bounds failing or stalled
 writes by `heartbeatWriteTolerance` and interrupts the pending write at expiry.
 Successful pulses re-arm that deadline from the timestamp supplied to the store,
 not their completion time.
+
+`options.onLapse(unconfirmedMs)` runs once when the lease lapses, before the
+self-interrupt, with how long the lease went unconfirmed. A lost fence does not
+call it. The engine's run driver uses it to record a `lease-lapsed` release cause.
 
 ### The heartbeat constants
 

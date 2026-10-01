@@ -262,6 +262,17 @@ export {
 } from "./Heartbeat.ts"
 
 /**
+ * Hooks a {@link heartbeatLoop} caller may supply.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface HeartbeatLoopOptions {
+  /** Called with the unconfirmed milliseconds when the lease lapses, before the loop interrupts itself. */
+  readonly onLapse?: ((unconfirmedMs: number) => Effect.Effect<void>) | undefined
+}
+
+/**
  * Runs heartbeats until the persisted ownership fence is lost, then interrupts
  * itself. Race this effect with owned work so structured concurrency
  * interrupts the work when ownership disappears.
@@ -291,12 +302,17 @@ export {
  * its completion time. The deadline re-reads the clock after waking, so delayed
  * writes cannot hide expiry behind a stale clock reading.
  *
+ * `options.onLapse` runs once, before the self-interrupt, when the lease
+ * lapses: it receives how long the lease went unconfirmed, so the caller can
+ * record why its work stopped. A lost fence does not call it.
+ *
  * @since 0.1.0
  * @category supervision
  */
 export const heartbeatLoop = (
   runId: string,
-  owner: OwnerId
+  owner: OwnerId,
+  options: HeartbeatLoopOptions = {}
 ): Effect.Effect<never, never, RunStore> =>
   Effect.gen(function*() {
     const runStore = yield* RunStore
@@ -307,6 +323,7 @@ export const heartbeatLoop = (
     const expire = (nowMs: number) =>
       Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
         Effect.annotateLogs({ runId, unconfirmedMs: nowMs - lastConfirmedPulseMs }),
+        Effect.andThen(options.onLapse?.(nowMs - lastConfirmedPulseMs) ?? Effect.void),
         Effect.andThen(Effect.interrupt)
       )
     const deadline = Effect.gen(function*() {

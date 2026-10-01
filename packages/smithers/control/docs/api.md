@@ -714,7 +714,10 @@ before publication.
 
 `rollup(input)` combines authoritative lifecycle, optional independent base
 health, and the latest `{ observation, sequence }` into `StatusRollup`. The wire
-axes are `state`, `activity`, `health`, `attention`, and `freshness`; provenance
+axes are `state`, `activity`, `health`, `attention`, and `freshness`. Attention
+is `none`, `awaiting-approval`, `needs-input`, `needs-resume`, or `unhealthy`;
+`needs-resume` (reason `released`) marks a run parked over executions its owner
+released, which only an explicit resume restarts. Provenance
 carries checker/monitor IDs, opaque incarnation, evidence position, durable
 version, observation time, and expiry. `latestObservation` compares only matching
 incarnations and uses journal order for equal evidence. `runIncarnation` derives

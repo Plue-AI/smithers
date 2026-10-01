@@ -41,6 +41,12 @@ any of these semantics. The lifecycle defaults return unknown activity. Explicit
 `no-progress` or `unreachable` reasons may mark health unhealthy. Known engine
 timer, event, quota, and approval waits retain their authoritative meaning.
 
+A run parked on `released` reports `health: "awaiting-human"`,
+`attention: "needs-resume"`, and reason `released`, whatever a probe says. Its
+owner released executions while still alive, usually because the run lease
+lapsed on a stalled host, and nothing restarts them until an operator runs
+`smthrs runs resume <run>`.
+
 ## Detect a session waiting on a person
 
 `jev.session` is registered in every host, so a binding is the whole opt-in. It is
