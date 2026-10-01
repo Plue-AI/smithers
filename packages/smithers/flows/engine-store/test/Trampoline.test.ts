@@ -89,7 +89,7 @@ const counter = (tag: string, maxRounds?: number): CounterFlow => {
 const Counter = counter("trampoline/counter")
 const Bounded = counter("trampoline/bounded", 2)
 
-/** A two-leg lineage, so one worker can know the first leg and not the second. */
+/** A two-leg lineage, so host routing can admit one leg while refusing the other. */
 const LegTwo = Flow.make("trampoline/leg-two", {
   payload: { value: Schema.Number },
   success: Schema.Number,
@@ -523,19 +523,40 @@ describe("a durable lineage", () => {
   it.effect("re-derives the same round after a worker that could not run it goes away", () =>
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
+        const sql = yield* SqlClient.SqlClient
+        expect(sql.onDialectOrElse({ pg: () => "pg", orElse: () => "sqlite" })).toBe(
+          process.env.SMITHERS_TEST_PG_URL ? "pg" : "sqlite"
+        )
         const store = yield* RunStore.RunStore
-        // This worker knows the first leg only. It settles round 0, opens round
-        // 1 durably, and then has nothing that can drive it — the crash window
-        // the derived id exists for.
-        const partial = yield* incarnation("crash-partial", [Interpreter.layer(LegOne)])
-        yield* LegOne.execute({ value: 0 }, {
-          executionId: "crash-lineage",
-          discard: true
-        }).pipe(Effect.provide(partial.wiring))
-        yield* TestDatabase.until(Effect.map(store.get("crash-lineage"), (row) => row.status === "completed"))
-
-        const stranded = yield* store.get(roundId("crash-lineage", 1))
-        const settledRoot = yield* store.get("crash-lineage")
+        // Reachable handoffs register their declarations now. This host is
+        // routed only to leg one: it commits the successor but cannot claim it.
+        // Closing its actual engine scope leaves the next worker only storage.
+        const partial = yield* Effect.scoped(Effect.gen(function*() {
+          const refused: Array<string> = []
+          const worker = yield* incarnation("crash-partial", [Interpreter.layer(LegOne)], undefined, (row) =>
+            Effect.sync(() => {
+              if (row.runId !== roundId("crash-lineage", 1)) {
+                return true
+              }
+              refused.push(row.runId)
+              return false
+            }))
+          yield* LegOne.execute({ value: 0 }, {
+            executionId: "crash-lineage",
+            discard: true
+          }).pipe(Effect.provide(worker.wiring))
+          yield* TestDatabase.until(Effect.map(store.get("crash-lineage"), (row) =>
+            row.status === "completed"))
+          yield* TestDatabase.until(Effect.sync(() =>
+            refused.length > 0
+          ))
+          return {
+            calls: worker.calls,
+            refused,
+            stranded: yield* store.get(roundId("crash-lineage", 1)),
+            settledRoot: yield* store.get("crash-lineage")
+          }
+        }))
 
         // A worker that knows both legs picks the lineage up from the root, and
         // re-derives the id of the round that is already durable.
@@ -545,18 +566,29 @@ describe("a durable lineage", () => {
         }).pipe(Effect.provide(whole.wiring))
 
         const finished = yield* store.get(roundId("crash-lineage", 1))
-        return { partial: partial.calls, whole: whole.calls, stranded, settledRoot, value, finished }
+        return {
+          partial: partial.calls,
+          refused: partial.refused,
+          whole: whole.calls,
+          stranded: partial.stranded,
+          settledRoot: partial.settledRoot,
+          value,
+          finished
+        }
       }))
 
       expect(observed.settledRoot.status).toBe("completed")
       expect(observed.stranded.status).toBe("pending")
       expect(observed.stranded.roundOrdinal).toBe(1)
+      expect(observed.stranded.owner).toBeNull()
+      expect(observed.refused).toContain(roundId("crash-lineage", 1))
       expect(observed.value).toBe(2)
       // Round 0's increment ran on the first worker and was NOT run again on the
       // second: the re-drive resolved the settled round from storage.
       expect(observed.partial).toEqual([0])
       expect(observed.whole).toEqual([1])
       expect(observed.finished.status).toBe("completed")
+      expect(observed.finished.runId).toBe(observed.stranded.runId)
     }))
 
   it.effect("rolls successor creation back when cancellation races the handoff transition", () =>

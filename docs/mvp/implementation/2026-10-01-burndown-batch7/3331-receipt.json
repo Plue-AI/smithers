@@ -1,0 +1,37 @@
+{
+  "issue": 3331,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:10:55.217048+00:00",
+  "review": "The old partial host assumed Interpreter.layer(LegOne) could not know LegTwo. Reachable handoff registration now installs LegTwo automatically. The fixture uses the existing canExecute host routing boundary to explicitly refuse the exact successor RunRow.runId and closes that actual worker scope before a replacement claims it.",
+  "sourceDiffReviewed": true,
+  "unchangedPriorAssertions": [
+    "Actual SqlClient dialect matches configured SQLite or PG",
+    "Original root completed and successor pending/ordinal1 remain",
+    "canExecute recorded refusal for exact derived successor ID",
+    "Unclaimable successor owner is null",
+    "Partial action calls exactly[0], replacement exactly[1] and result2",
+    "Replacement completed row has exact same persisted stranded runId",
+    "All remaining trampoline journal/replay/cancellation/round-budget assertions preserved"
+  ],
+  "files": {
+    "packages/smithers/flows/engine-store/test/Trampoline.test.ts": "278d59e899e757d11f38d0f3bb4e092c4a741132f30e9e2ebaedd456ee1c8226"
+  },
+  "sourceInputsVerified": 298,
+  "sourceScopeLimit": "Minimal explicit owning source/config/test closure; not a claim of every compiler input",
+  "checks": {
+    "sqlite": "exit0; 23/23 pass, no skips; 16.84s",
+    "postgresConfigured": "exit0; 23/23 pass, no skips; 17.78s",
+    "fullTestTypes": "exit0",
+    "owningFormat": "exit0"
+  },
+  "storage": "Trampoline services use TestDatabase.layer: actual SQLite default and actual PostgreSQL under explicit PGURL. New owning-test dialect assertion executed independently with 1/1 selected case PASS per leg; other17 tests deselected by explicit focused filter in those two supplemental controls, not suite skips.",
+  "proofArchive": "3330-3331-proof.tar.gz",
+  "proofArchiveSha256": "75a4b10d2a214589d4cd8d1b1340221900ef9888d6edbefceeabbb8566247195",
+  "limits": [
+    "Focused behavior only: no whole engine-store coverage claim; stock thresholds unchanged",
+    "No deadline, polling cap, authorization, ownership, cache or cancellation assertion weakened",
+    "Existing Jj test layer remains; no native VCS/rebuild claim",
+    "Original failures and intermediate fixture implementation failures retained; not labeled production defects",
+    "No whole canonical or loaded #3127 cohort rerun yet"
+  ]
+}

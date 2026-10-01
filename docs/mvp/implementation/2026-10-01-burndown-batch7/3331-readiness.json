@@ -1,0 +1,59 @@
+{
+  "status": "READY/FROZEN",
+  "head": "1d034089151ea0cd8e27a62ffcbd591b3f93040c",
+  "timeUtc": "2026-10-01T06:07:48.133636+00:00",
+  "productionChanges": false,
+  "sourceInputsReceipt": {
+    "file": "3330-3331-final-source-inputs.json",
+    "sha256": "f3c4162dcfbb15ebb59814c142c6f0f0c373aff3e498f67572f3a0b96b18aef6",
+    "count": 298,
+    "endAuditDrift": [],
+    "limit": "Minimal explicit owning source/config/test closure; not a claim of every compiler input"
+  },
+  "logs": {
+    "3329-3331-original-focused-red.log": "e7533547d3c7398a9baaf6bf0964ee1e89a17e2417bbf9a73ab6078c17e4c933",
+    "3329-3331-first-reconciliation.log": "add78d2d9700584d009dfadae1a7ff4cd4b1bfcff8d7b68917cc581809bf8b72",
+    "3330-3331-sqlite-final.log": "868112479cc049e758f1a7e231f6af60e66bdaf746c7077c1d5af55e496a129e",
+    "3330-3331-pg-final.log": "ce7d4d2457c113fb477270c1e92493eb4453e5622a05c82ce0e1b93e56c05f46",
+    "3330-3331-final-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3330-3331-final-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3331-final-dialect-sqlite.log": "249e9189c9e54c42ad89f55668b8c7e82b97b14cde6421782968d919b31f6fba",
+    "3331-final-dialect-pg.log": "0201fba0107880fd3c38fbf82d975e090156aaf644ebbbdab271f47a0caf4ec8"
+  },
+  "commands": {
+    "cwd": "packages/smithers/flows/engine-store",
+    "sqlite": "node node_modules/vitest/vitest.mjs run test/RunDeadline.test.ts test/Trampoline.test.ts --coverage.enabled=false --disableConsoleIntercept",
+    "postgres": "same command with explicit SMITHERS_TEST_PG_URL=credential-free existing port55491 URL",
+    "types": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+    "format": "node_modules/.bin/dprint check test/RunDeadline.test.ts test/Trampoline.test.ts"
+  },
+  "results": {
+    "sqlite": "exit0; 23/23 pass, no skips; 16.84s",
+    "postgresConfigured": "exit0; 23/23 pass, no skips; 17.78s",
+    "fullTestTypes": "exit0",
+    "owningFormat": "exit0"
+  },
+  "limits": [
+    "Focused behavior only: no whole engine-store coverage claim; stock thresholds unchanged",
+    "No deadline, polling cap, authorization, ownership, cache or cancellation assertion weakened",
+    "Existing Jj test layer remains; no native VCS/rebuild claim",
+    "Original failures and intermediate fixture implementation failures retained; not labeled production defects",
+    "No whole canonical or loaded #3127 cohort rerun yet"
+  ],
+  "issue": 3331,
+  "files": {
+    "packages/smithers/flows/engine-store/test/Trampoline.test.ts": "278d59e899e757d11f38d0f3bb4e092c4a741132f30e9e2ebaedd456ee1c8226"
+  },
+  "cause": "The old partial host assumed Interpreter.layer(LegOne) could not know LegTwo. Reachable handoff registration now installs LegTwo automatically. The fixture uses the existing canExecute host routing boundary to explicitly refuse the exact successor RunRow.runId and closes that actual worker scope before a replacement claims it.",
+  "assertions": [
+    "Actual SqlClient dialect matches configured SQLite or PG",
+    "Original root completed and successor pending/ordinal1 remain",
+    "canExecute recorded refusal for exact derived successor ID",
+    "Unclaimable successor owner is null",
+    "Partial action calls exactly[0], replacement exactly[1] and result2",
+    "Replacement completed row has exact same persisted stranded runId",
+    "All remaining trampoline journal/replay/cancellation/round-budget assertions preserved"
+  ],
+  "storage": "Trampoline services use TestDatabase.layer: actual SQLite default and actual PostgreSQL under explicit PGURL. New owning-test dialect assertion executed independently with 1/1 selected case PASS per leg; other17 tests deselected by explicit focused filter in those two supplemental controls, not suite skips.",
+  "supplementalCommands": "node node_modules/vitest/vitest.mjs run test/Trampoline.test.ts -t \"re-derives the same round\" --coverage.enabled=false --disableConsoleIntercept; executed once SQLite and once PG after adding only the dialect assertion"
+}
