@@ -514,7 +514,7 @@ export type DecisionModelId = z.infer<typeof DecisionModelIdSchema>
  * @since 1.0.0
  * @category constants
  */
-export const MODEL_SEAT_IDS = ["chat", "explainer", "front-door", "recommend"] as const
+export const MODEL_SEAT_IDS = ["chat", "explainer", "recommend"] as const
 /**
  * Validates a seat id at the RPC boundary.
  *
@@ -544,7 +544,7 @@ export interface ModelSeat {
 }
 /**
  * The seats, each with a live reader: `explainer` is the sealed `agent.explain`
- * side turn, `front-door` and `recommend` are the Worker's two decision sites.
+ * side turn, `recommend` is the decision model's next-step site.
  *
  * @since 1.0.0
  * @category constants
@@ -552,7 +552,6 @@ export interface ModelSeat {
 export const MODEL_SEATS = [
   { id: "chat", label: "Chat", kind: "generation", hosts: ["local"] },
   { id: "explainer", label: "Explainer", kind: "generation", hosts: ["local", "cloud"] },
-  { id: "front-door", label: "Front door", kind: "decision", hosts: ["cloud"] },
   { id: "recommend", label: "Recommendations", kind: "decision", hosts: ["cloud"] }
 ] as const satisfies ReadonlyArray<ModelSeat>
 /**

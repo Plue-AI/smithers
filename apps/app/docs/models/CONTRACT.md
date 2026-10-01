@@ -39,7 +39,7 @@ Both hosts answer both routes themselves. Neither is proxied: no `PLATFORM_PROXY
 - 200 body: `ModelCatalog` = `{ models: ConfiguredModel[], credentials: ModelCredentialListing[], seats: SeatId[] }` (strict).
   - `models`: built-in rows this host can serve, each with `builtin: true`. List a row only when a Test of it on this host would plan ok (credential `present` AND endpoint reachable under this host's egress): `servableModels(rows, table, options)` with the SAME options the host's Test plans with. An offline Bun host therefore lists no non-loopback row.
   - `credentials`: Bun host = operator environment credentials plus previously enrolled keychain entries (read-only). Worker = deployment rows only, `CEREBRAS_API_KEY` and `AI_GATEWAY_API_KEY`, `present` from `ServerConfig`, `origins` copied from `MODEL_CREDENTIALS`. The Worker never scans env or reads an account credential vault.
-  - `seats`: `modelSeatsOf("local")` = `["explainer"]`; `modelSeatsOf("cloud")` = `["explainer", "front-door", "recommend"]`.
+  - `seats`: `modelSeatsOf("local")` = `["explainer"]`; `modelSeatsOf("cloud")` = `["explainer", "recommend"]`.
 - Never a value anywhere in the body.
 - Non-200: the host's existing refusal envelope. Worker: PUBLIC and `no-store` — listing deployment credentials spends nothing, so a signed-out caller reads them too. Local: behind the existing local session header and Origin gate; no sign-in.
 
@@ -186,13 +186,12 @@ Pinning is judged before presence. A plan never holds a value.
 export const DECISION_MODEL_IDS = ["typesafe-ai/jev"] as const
 export const DecisionModelIdSchema: z.ZodEnum
 export type DecisionModelId = "typesafe-ai/jev"
-export const MODEL_SEAT_IDS = ["explainer", "front-door", "recommend"] as const
+export const MODEL_SEAT_IDS = ["explainer", "recommend"] as const
 export const SeatIdSchema: z.ZodEnum
-export type SeatId = "explainer" | "front-door" | "recommend"
+export type SeatId = "explainer" | "recommend"
 export interface ModelSeat { readonly id: SeatId; readonly label: string; readonly kind: ModelKind; readonly hosts: ReadonlyArray<ModelHost> }
 export const MODEL_SEATS = [
   { id: "explainer", label: "Explainer", kind: "generation", hosts: ["local", "cloud"] },
-  { id: "front-door", label: "Front door", kind: "decision", hosts: ["cloud"] },
   { id: "recommend", label: "Recommendations", kind: "decision", hosts: ["cloud"] }
 ] as const
 export const modelSeat: (id: SeatId) => ModelSeat
@@ -346,7 +345,7 @@ Toast key for a test: `` `model.test:${id}` ``. A test in flight is keyed by mod
 Local bootstrap advertises `model.turn` independently of the default `agent`. The runtime constructs the HTTP transport when either is present, but ordinary agent availability still requires `agent`. `agent.explain` accepts a valid configured binding on `model.turn`, including an operator-declared loopback provider while offline. An unbound offline turn remains unavailable.
 
 - `StartAgentTurnRequest.model?: ModelBinding`: the sealed `agent.explain` side turn, seat `explainer`. Host: `planModelBinding(body.model, table, { kind: "generation" })`; failure -> `refuse(modelFailureRefusalCode(failure), ...)`. `model` plus tools -> `tools_not_supported`. Never a fallback to the upstream. Local turns publish one sanitized text delta at completion (including partial text on failure); Worker turns sanitize their whole answer. Removing echoes cannot reconstruct the exact credential in published text (R4).
-- `StartAgentTurnRequest.decisionModel?: ModelBinding`: seat `front-door`. `/api/recommend` body `model?: ModelBinding`: seat `recommend`. Worker: `planModelBinding(binding, workerTable, { kind: "decision" })`; any failure is 400 `request_invalid` via `modelFailureRefusalCode` (an id off `DECISION_MODEL_IDS` is `model_not_allowed` -> `request_invalid`). Absent = today's default. The Jev call uses `plan.modelId`.
+- `/api/recommend` body `model?: ModelBinding`: seat `recommend`. Worker: `planModelBinding(binding, workerTable, { kind: "decision" })`; any failure is 400 `request_invalid` via `modelFailureRefusalCode` (an id off `DECISION_MODEL_IDS` is `model_not_allowed` -> `request_invalid`). Absent = today's default. The Jev call uses `plan.modelId`.
 - The client builds each with `bindingOf(model)` and sends it only when the seat has a row, the record exists and `seatAccepts(seat, record.protocol)`.
 
 ## 7. DOM contract (ONE spelling each)

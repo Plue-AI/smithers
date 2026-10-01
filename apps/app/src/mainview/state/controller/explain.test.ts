@@ -233,7 +233,7 @@ describe("the explainer seat", () => {
     const launch = t.launches[0]!
     expect(launch.model).toEqual({ protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" })
     expect(launch.tools).toBeUndefined()
-    expect(launch.decisionModel).toBeUndefined()
+    expect("decisionModel" in launch).toBe(false)
     expect(launch.role).toBe("explainer")
     expect(t.card()?.payload).toMatchObject({ answeredBy: "mine" })
     await t.close()

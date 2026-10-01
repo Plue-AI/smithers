@@ -8,9 +8,10 @@ import { createControllerContext } from "./context"
 import { createTurnController } from "./turns"
 
 /*
- * The `front-door` seat on the conversation's own turns: the assigned decision
- * model rides the turn body as `decisionModel`, and an unassigned seat leaves
- * the body exactly what it was.
+ * No model seat rides the conversation's own turns. The `front-door` seat and
+ * its `decisionModel` field were deleted with the server front door (#3313);
+ * the explainer and recommend seats serve other calls, so assigning them leaves
+ * the turn body exactly what it was.
  */
 
 const cleanups: Array<() => Promise<void>> = []
@@ -57,24 +58,20 @@ const fixture = async () => {
   return { store, ask }
 }
 
-test("an unassigned front-door seat sends the turn it always sent", async () => {
+test("an unassigned seat sends a turn with no model binding", async () => {
   const f = await fixture()
   const launch = await f.ask("show me my runs")
   expect("decisionModel" in launch).toBe(false)
   expect("model" in launch).toBe(false)
 })
 
-test("an assigned front-door seat rides the conversation turn as decisionModel, and a turn with tools never binds `model`", async () => {
+test("assigned explainer and recommend seats leave the conversation turn unchanged, and a turn with tools never binds `model`", async () => {
   const f = await fixture()
   const bare = await f.ask("show me my runs")
-  await f.store.dispatch({ type: "seat.assigned", actor: "user", seat: "front-door", recordId: "jev" }).isPersisted.promise
-  // The explainer's own assignment is not this turn's to carry.
+  await f.store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "jev" }).isPersisted.promise
   await f.store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" }).isPersisted.promise
   const bound = await f.ask("show me my runs")
-  expect(bound.decisionModel).toEqual({ protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" })
+  expect("decisionModel" in bound).toBe(false)
   expect("model" in bound).toBe(false)
-  expect(Object.keys(bound).sort()).toEqual([...Object.keys(bare), "decisionModel"].sort())
-
-  await f.store.dispatch({ type: "seat.assigned", actor: "user", seat: "front-door", recordId: null }).isPersisted.promise
-  expect("decisionModel" in (await f.ask("show me my runs"))).toBe(false)
+  expect(Object.keys(bound).sort()).toEqual(Object.keys(bare).sort())
 })

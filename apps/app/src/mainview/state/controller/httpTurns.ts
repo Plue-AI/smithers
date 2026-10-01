@@ -5,6 +5,7 @@ import type { HttpTurn, HttpTurnLeg } from "../HttpTurn"
 import { HttpTurnIntegrityError, httpToolItems, httpToolLegCount } from "../HttpTurn"
 import { boundTurnRequest } from "../AgentTurnPolicy"
 import { agentFailureText } from "../../flows/agentTools"
+import type { AgentCommandDiscovery } from "../../flows/agentTools"
 import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import { AgentJournalIntegrityError } from "../../runtime/AgentPort"
@@ -13,7 +14,10 @@ interface Dependencies {
   readonly ownTurn: (turn: ActiveTurn) => ActiveTurn
   readonly isCurrentTurn: (turn: ActiveTurn) => boolean
   readonly contextMessages: () => ReadonlyArray<AgentChatMessage>
-  readonly composeTurn: () => Pick<StartAgentTurnRequest, "commands" | "context" | "instructions">
+  readonly composeTurn: () => Pick<StartAgentTurnRequest, "context" | "instructions">
+  /** Command selection for the turn's message, before its first leg (CommandSelection.ts). */
+  readonly select: (turnId: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>
+  readonly discover: AgentCommandDiscovery
   readonly settled: () => void
   readonly refused: (turnId: string, result: Extract<StartAgentTurnResult, { status: "error" }>, attemptId?: string) => void | Promise<void>
 }
@@ -132,7 +136,7 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
         if (!turn || store.collections.httpTurnLegs.get(leg.id)?.status !== "tool-executing") return
         const call = leg.call!
         const result = await ctx.commands.executeForAgent({ name: call.name, arguments: call.args,
-          httpCall: { turnId: turn.turnId, attemptId, legId: leg.id, callId: call.callId } }).catch((error: unknown) =>
+          httpCall: { turnId: turn.turnId, attemptId, legId: leg.id, callId: call.callId } }, dependencies.discover).catch((error: unknown) =>
           agentFailureText(agentRefusalText(clientRefusal(error))))
         if (!active(attemptId)) return
         await store.dispatch({ type: "http.tool.settled", actor: "smithers", attemptId, legId: leg.id, result }).isPersisted.promise
@@ -274,7 +278,13 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
       if (ctx.activeTurn === pendingTurn) ctx.activeTurn = undefined
       throw error
     })
-    void admitted.then(() => { if (active(attemptId)) return launch(attemptId) }).catch(error => ctx.failures.report("http.turn.driver", error))
+    void admitted.then(async () => {
+      if (!active(attemptId)) return
+      const selection = await dependencies.select(turnId)
+      if (!active(attemptId)) return
+      if (!selection.ok) return interrupt(attemptId, "failed", selection.message)
+      return launch(attemptId)
+    }).catch(error => ctx.failures.report("http.turn.driver", error))
     return admitted
   }
   const stop = (): boolean => {

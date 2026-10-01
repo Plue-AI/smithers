@@ -400,7 +400,9 @@ const PRODUCT_PROXY_PREFIXES: ReadonlyArray<string> = [
   "/api/user/",
   "/api/notifications/",
   "/api/billing/",
-  "/api/admin/"
+  "/api/admin/",
+  /* The decision model's command selection (state/CommandSelection.ts); the turn's own admission. */
+  "/api/commands/"
 ]
 
 /** The identity routes are the Worker's too, so an offline refusal uses its vocabulary. */

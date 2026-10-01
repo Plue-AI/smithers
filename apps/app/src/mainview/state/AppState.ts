@@ -560,15 +560,12 @@ export const MessageSchema = z.object({
    */
   spoken: z.literal(true).optional(),
   /**
-   * This act IS its turn's whole answer, so the model reads it as the
-   * assistant's words in every later turn (controller/turns.ts
-   * contextMessages). Only the Jev front door sets it: that turn was answered
-   * by running the command, the continuation leg carries no text, and without
-   * this the turn left no trace at all — the concierge then read the user's
-   * question as unanswered and re-routed it, turn after turn. Every other act
-   * line is a step inside a turn the model answers in its own words.
+   * On a user message: the commands the decision model selected for it, and
+   * those the agent discovered while answering it (`commands` list with a
+   * query). Every retained message's names are listed in full in the turn's
+   * prompt (controller/turns.ts); absent means selection has not run.
    */
-  answersTurn: z.literal(true).optional(),
+  disclosed: z.array(z.string().min(1).max(160)).max(64).optional(),
   createdAt: z.number(),
   ordinal: z.number().int().nonnegative(),
   /**
@@ -1629,8 +1626,6 @@ export type AppTransition =
     actor: "smithers"
     turnId: string
     text: string
-    /* Set only by a front-door route: this act is the turn's whole answer. */
-    answersTurn?: true
   }
   | {
     /*
@@ -1656,6 +1651,13 @@ export type AppTransition =
     actor: "system"
     turnId: string
     text: string
+  }
+  | {
+    /* Commands disclosed to the agent for one user message (CommandSelection.ts); names add to its `disclosed`. */
+    type: "message.commands.disclosed"
+    actor: "system" | "smithers"
+    turnId: string
+    names: ReadonlyArray<string>
   }
   | {
     /* A complete one-line Smithers message (admin results, honest states, auth replies). */

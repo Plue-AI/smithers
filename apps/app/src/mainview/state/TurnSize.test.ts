@@ -31,9 +31,10 @@ describe("a long conversation still sends a turn the boundary accepts", () => {
     const requests: StartAgentTurnRequest[] = []
     const controller = createAppController(store, recordingAgent(requests))
 
-    // Six long turns is roughly where canary crossed the limit.
+    // Six turns, each a quarter of the limit, cross it: the oldest must go.
+    const quarter = Math.ceil(MAX_TURN_REQUEST_BYTES / 4)
     for (let turn = 0; turn < 6; turn += 1) {
-      controller.send(`turn ${turn} ${"w".repeat(15_000)}`)
+      controller.send(`turn ${turn} ${"w".repeat(quarter)}`)
       await settled()
     }
     controller.send("say ok")
@@ -46,6 +47,7 @@ describe("a long conversation still sends a turn the boundary accepts", () => {
     )
     expect(textOf(last?.messages.at(-1))).toBe("say ok")
     expect(textOf(last?.messages[0])).toContain("dropped to fit this turn's size limit")
+    expect(last?.messages.some(message => textOf(message).startsWith("turn 0 "))).toBe(false)
   })
 
   for (const practice of [false, true]) test(`a short conversation in ${practice ? "a retained legacy selection" : "the workspace"} is sent whole, with no notice invented`, async () => {

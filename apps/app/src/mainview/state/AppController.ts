@@ -79,6 +79,7 @@ import { createRegistrationController, type RegistrationController } from "./con
 import { createPluginsController } from "./controller/plugins"
 import { createPresentationController } from "./controller/presentation"
 import type { RecommenderConfig } from "./controller/recommend"
+import type { CommandSelector } from "./CommandSelection"
 import { createRecommendController } from "./controller/recommend"
 import { createRepositoryUpdate } from "./controller/repositoryUpdate"
 import { createTakeoverController, type TakeoverController } from "./controller/takeover"
@@ -691,6 +692,12 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
  */
 export interface AppServices {
   readonly clientErrors?: ClientErrorReporter
+  /**
+   * The decision model's command selection (state/CommandSelection.ts). The
+   * composition root binds the HTTP door; absent, a test harness's turns run
+   * on the pinned commands alone and the list action's query discloses none.
+   */
+  readonly commandSelector?: CommandSelector
   /** Fence late observations as soon as the embedding page starts leaving. */
   readonly pageLifetime?: AbortSignal
   /** Trusted local handoff, injectable by the embedding host; never projected as a tool. */

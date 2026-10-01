@@ -2,25 +2,23 @@ import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { releaseInterruptedApproval } from "../ApprovalRecovery"
 import { lostActRefusal } from "../BrowserWriteFailure"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
-import type { ModelBinding } from "@smthrs/rpc/ConfiguredModel"
-import { AGENT_RUNTIME_CONTEXT_VERSION,composeAgentInstructions,renderAgentRuntimeContext } from "@smthrs/rpc/AgentContext"
+import { AGENT_RUNTIME_CONTEXT_VERSION } from "@smthrs/rpc/AgentContext"
 import { hasCapability, nativeShell } from "@smthrs/rpc/AppBootstrap"
 import { setupCandidate, storedSetupCandidate } from "@smthrs/rpc/RepositorySetup"
-import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
-import type { AgentChatMessage,AgentTurnCommand,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
+import type { AgentChatMessage,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
 import type { CommandOutcome } from "../../flows/Commands"
 import { agentFailureText,agentVisibleCatalog } from "../../flows/agentTools"
-import { itemOf, parseSubmit, unmetRequirements, visible } from "../../flows/registry"
+import { parseSubmit } from "../../flows/registry"
 import { boundToolResult,boundTurnRequest } from "../AgentTurnPolicy"
 import type { Card } from "../AppState"
 import { CardPatchSchema,CardSchema,conversationTabIdOf,inConversation,MAIN_TAB_ID } from "../AppState"
 import { isCurrentApprovalAnswer,prepareApprovalAnswer } from "../ApprovalAnswerState"
 import { parseApprovalActionId } from "../ApprovalReference"
-import type { ImpossibleAskClass,InstructionStage } from "../Instructions"
-import { bytesOf,CHAT_INSTRUCTIONS_CAP_BYTES,INSTRUCTIONS_HEADROOM_BYTES,smithersInstructions } from "../Instructions"
-import { COMMANDS_MAX } from "../Recommend"
+import type { ImpossibleAskClass } from "../Instructions"
+import { smithersInstructions,STANDING_INSTRUCTION_TEXT } from "../Instructions"
+import { commandSelectRequest,disclosedCommandNames,pinnedCommandNames,QUERY_DISCLOSURE_LIMIT,selectFailureText } from "../CommandSelection"
 import { activeCatalogRepositoryId,activeRepositoryId } from "../RepoContext"
 import { currentRepositoryUpdate } from "../RepositoryContext"
 import { setupContextSummary } from "./repositorySetup"
@@ -43,7 +41,6 @@ import type { FailureController } from "./failures"
 import { createHttpTurnDriver } from "./httpTurns"
 import { ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
 import { outOfCreditRefusal, renderCreditExhausted } from "../seams/BillingSeam"
-import { assignedBinding } from "./modelSeats"
 import { latestOrdinal } from "./spokenLines"
 
 /**
@@ -181,21 +178,13 @@ export const createTurnController = (
 
   /**
    * The transcript as the chat contract reads it: no tool-act lines, no empty
-   * bubbles.
-   *
-   * With one exception, and it is not an exception to the rule. An ordinary
-   * act line is a step inside a turn the model then answers in its own words,
-   * so repeating it would say the same thing twice. A front-door route
-   * (apps/server frontDoor.ts) has no such words: the act IS the answer, and
-   * that row is marked `answersTurn`. Dropping it left a routed turn with no
-   * trace at all, so the next turn's model read the user's question as
-   * unanswered and re-routed it — seven legs of the same command against one
-   * question, live, 2026-09-18.
+   * bubbles. An act line is a step inside a turn the model then answers in
+   * its own words, so repeating it would say the same thing twice.
    */
   const contextMessages = (): ReadonlyArray<AgentChatMessage> => {
     return [...store
       .agentContextSnapshot()
-      .messages.filter((message) => (message.act === undefined || message.answersTurn === true) && message.text.trim() !== "")
+      .messages.filter((message) => message.act === undefined && message.text.trim() !== "")
       .map((message) => ({
         role: message.role === "user" ? ("user" as const) : ("assistant" as const),
         content: message.text
@@ -237,11 +226,7 @@ export const createTurnController = (
     }
   }
 
-  const agentRuntimeContext = (
-    worldBodyBudget: number = WORLD_BODY_BUDGET,
-    setupDrafts: number = Number.POSITIVE_INFINITY,
-    cardLines: number = RECENT_CARD_WINDOW
-  ): AgentRuntimeContext => {
+  const agentRuntimeContext = (): AgentRuntimeContext => {
     const snapshot = store.agentContextSnapshot()
     const current = store.session()
     const identity = store.collections.identitySessions.get("identity")
@@ -257,32 +242,9 @@ export const createTurnController = (
     const selected = current.selectedWorldDocumentId === null
       ? undefined
       : store.collections.worldDocuments.get(current.selectedWorldDocumentId)
-    const windowed = [...store.collections.cards.values()]
+    const recent = [...store.collections.cards.values()]
       .filter(card => inConversation(card, conversationTabIdOf(current)) && knowledgeCardAvailable(card.kind, ctx.services.features))
       .sort((a, b) => a.ordinal - b.ordinal).slice(-RECENT_CARD_WINDOW)
-    /*
-     * The card lines that give way when the turn does not fit are the ones that
-     * are ONLY a line, oldest first; a setup card keeps its place because its
-     * draft is what a question asked beside it is answered from. Twelve lines at
-     * production's card ids spend the whole budget on their own (canary walk run
-     * 3, B3 step 3: every draft shed and the turn still refused, HTTP 400).
-     */
-    let surplus = windowed.length - cardLines
-    const recent = surplus <= 0 ? windowed : windowed.filter(card => {
-      if (surplus <= 0 || card.kind === "repository-setup") return true
-      surplus -= 1
-      return false
-    })
-    /*
-     * The open setup's own draft. Asked "what will run automatically?" beside an
-     * issues card whose research, duplicates and reproduce steps were all
-     * automatic, the model answered "Nothing runs automatically": the draft
-     * reached it only through the setup.guide tool it had no reason to call for
-     * an ordinary question. `setupDrafts` is how many of them, newest card
-     * first, composeTurn can afford under the chat seam's cap.
-     */
-    const drafted = new Set([...recent].reverse()
-      .filter(card => card.kind === "repository-setup").slice(0, setupDrafts).map(card => card.id))
     return {
       repositoryUpdate: currentRepositoryUpdate(store),
       recentCards: recent
@@ -295,7 +257,14 @@ export const createTurnController = (
             facet: card.payload.facet ?? "terminal",
             streaming: readDesktopStream(card.payload.workspaceId) !== null,
           } } : {}),
-          ...(card.kind === "repository-setup" && drafted.has(card.id) ? { setup: setupContextSummary(card.payload) } : {}),
+          /*
+           * The open setup's own draft. Asked "what will run automatically?"
+           * beside an issues card whose research, duplicates and reproduce
+           * steps were all automatic, the model answered "Nothing runs
+           * automatically": the draft reached it only through setup.guide,
+           * which it had no reason to call for an ordinary question.
+           */
+          ...(card.kind === "repository-setup" ? { setup: setupContextSummary(card.payload) } : {}),
         })),
       version: AGENT_RUNTIME_CONTEXT_VERSION,
       product: "smithers",
@@ -362,7 +331,7 @@ export const createTurnController = (
         documents: worldContextDocuments(
           snapshot.worldState.documents,
           current.selectedWorldDocumentId,
-          worldBodyBudget
+          WORLD_BODY_BUDGET
         )
       },
       /*
@@ -408,24 +377,15 @@ export const createTurnController = (
    * truth — so the model's offers are bounded by what actually exists, and a
    * workflow is never presented as laundering an effect the catalog lacks.
    */
-  const turnInstructions = (context?: AgentRuntimeContext, lastStage: InstructionStage = 3): string => {
+  const turnInstructions = (context: AgentRuntimeContext): string => {
     const identity = store.collections.identitySessions.get("identity")
     const signedIn = identity?.state === "signed-in"
     const githubConnected = hasGitHubIdentity(identity, identityProviderFor(ctx.services))
-    const recent = new Set(context?.recentCards?.map(card => card.id))
+    const recent = new Set(context.recentCards?.map(card => card.id))
     const prompt = contextMessages().filter(message => "role" in message && message.role === "user").at(-1)
     const mentioned = (id: string) => prompt !== undefined && "content" in prompt && prompt.content.includes(id)
-    /*
-     * The Bun side composes prompt + rendered context into ONE string the chat
-     * seam caps at CHAT_INSTRUCTIONS_CAP_BYTES, so the prompt's budget is what
-     * the cap leaves after this turn's context (world notes ride under their
-     * own 8 000-char budget, tabs and repositories grow with the session).
-     * The catalog degrades in stages to fit, down to `lastStage`; composeTurn
-     * below owns the floor under that.
-     */
-    const contextBytes = context === undefined ? 0 : bytesOf(renderAgentRuntimeContext(context)) + 2
-    const budgetBytes = CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES - contextBytes
-    return smithersInstructions(agentVisibleCatalog(ctx.commands.callable()), {
+    const catalog = agentVisibleCatalog(ctx.commands.callable())
+    return smithersInstructions(catalog, {
       // The bootstrap is the one authority for the mode: the desktop shell's row says native; every web origin, hosted or self-hosted, is the web app.
       host: nativeShell(ctx.services.bootstrap) ? "native" : "web",
       nativeDownloadable: downloadUrlOf(ctx.services) !== null,
@@ -447,144 +407,82 @@ export const createTurnController = (
             state: active?.enabled && active.revision === revision && storedSetupCandidate(card.payload, active.digest) ? "enabled" as const
               : active?.enabled === false ? "paused" as const : "draft" as const }]
         })
-    }, { budgetBytes, lastStage })
+    }, {
+      pinned: pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog),
+      disclosed: disclosedCommandNames(store.agentContextSnapshot().messages)
+    })
   }
 
   /*
-   * The floor under the budget. The catalog degrades first (stages 0→2 keep
-   * every command's name); when the namespace list plus this turn's context
-   * still exceeds the cap, the World bodies give way (each cut note says so
-   * in the context, and the pane still holds it); only when even bodiless
-   * notes do not fit does the catalog fall to stage 3 (namespaces and
-   * counts, every name behind the list action). Under that floor the oldest
-   * card lines that carry no draft give way, then the open setups' drafts,
-   * oldest card first. A turn fails on size only past that: a context whose
-   * tabs and repositories alone pass the cap, which no session has produced.
+   * One leg's instructions and hidden context, both derived fresh. No byte
+   * budget: the 16 KiB instructions cap this once fitted is gone (the backend
+   * turn route takes 1 MiB), and the catalog no longer rides the prompt whole
+   * (CommandSelection.ts), so nothing here degrades.
    */
-  /** The note text (characters) command names never crowd out. */
-  const NOTE_BODY_FLOOR = 1_000
-  const composeInstructions = (): { readonly context: AgentRuntimeContext; readonly instructions: string } => {
-    const limit = CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES
-    const render = (worldBodyBudget: number, lastStage: InstructionStage = 2, setupDrafts?: number, cardLines?: number) => {
-      const context = agentRuntimeContext(worldBodyBudget, setupDrafts, cardLines)
-      const instructions = turnInstructions(context, lastStage)
-      return { context, instructions, over: bytesOf(composeAgentInstructions(instructions, context)) - limit }
-    }
-    const whole = render(WORLD_BODY_BUDGET)
-    if (whole.over <= 0) return { context: whole.context, instructions: whole.instructions }
-    /*
-     * The bodies give way to the largest budget that still fits, found by
-     * bisection in a bounded number of renders. Cutting the budget by the
-     * overshoot in one step landed on zero whenever the overshoot exceeded
-     * the budget (a full catalog beside three notes at budget), which left
-     * hundreds of bytes of room unused and every note bodiless.
-     */
-    let fit = render(0)
-    /*
-     * Command names by namespace stay only while the notes keep a floor of
-     * text beside them; a catalog that fits with a sliver left would cut
-     * every note body to nothing, so the names give way first.
-     */
-    const lastStage = fit.over > 0 || render(NOTE_BODY_FLOOR).over > 0 ? 3 : 2
-    let setupDrafts: number | undefined
-    let cardLines: number | undefined
-    if (lastStage === 3) {
-      // The namespace-count floor frees room. Refill the note bodies under
-      // that same cap instead of carrying the zero-budget probe into the turn.
-      const floorWhole = render(WORLD_BODY_BUDGET, lastStage)
-      if (floorWhole.over <= 0) return { context: floorWhole.context, instructions: floorWhole.instructions }
-      fit = render(0, lastStage)
-      if (fit.over > 0) {
-        /*
-         * Twelve card lines at production's card ids spend the whole budget on
-         * their own, so the oldest of them give way next, oldest first, keeping
-         * the setup cards whose drafts answer questions asked beside them: a
-         * repeated `flow-run@<repo>@<workspace>@run-N` line is worth less than
-         * the draft the person is looking at.
-         */
-        for (let keep = (fit.context.recentCards ?? []).length - 1; keep > 0; keep -= 1) {
-          cardLines = keep
-          fit = render(0, lastStage, undefined, keep)
-          if (fit.over <= 0) break
-        }
-      }
-      if (fit.over > 0) {
-        /*
-         * The drafts are the last thing to give, and the newest card keeps its
-         * own longest: a native session at the namespace-count floor leaves
-         * about 1 300 bytes, which an issues draft (six steps and their cut
-         * prompts) does not fit, so that draft is left to setup.guide instead
-         * of failing the turn on size. Past even the bare turn the fewest
-         * bytes go, because the seam refuses it either way.
-         */
-        for (let keep = (fit.context.recentCards ?? []).filter(card => card.setup !== undefined).length - 1; keep >= 0; keep -= 1) {
-          setupDrafts = keep
-          fit = render(0, lastStage, keep, cardLines)
-          if (fit.over <= 0) break
-        }
-        if (fit.over > 0) return { context: fit.context, instructions: fit.instructions }
-      }
-    }
-    let low = 0
-    let high = WORLD_BODY_BUDGET
-    for (let round = 0; round < 8 && high - low > 16; round += 1) {
-      const middle = Math.floor((low + high) / 2)
-      const candidate = render(middle, lastStage, setupDrafts, cardLines)
-      if (candidate.over <= 0) {
-        low = middle
-        fit = candidate
-      } else {
-        high = middle
-      }
-    }
-    return { context: fit.context, instructions: fit.instructions }
+  const composeTurn = (): { readonly context: AgentRuntimeContext; readonly instructions: string } => {
+    const context = agentRuntimeContext()
+    return { context, instructions: turnInstructions(context) }
   }
 
   /*
-   * The catalog as DATA, beside the prompt that renders it as prose.
-   *
-   * The serving side's front door (apps/server frontDoor.ts) asks a decision
-   * model whether this message simply IS one of the commands the app can run,
-   * and answers the turn itself when it is. It needs the options, and the
-   * prompt's catalog is not them: it degrades in stages to fit the
-   * instructions cap, and parsing it back would be a second contract that
-   * breaks the first time a stage drops. So every turn carries the same
-   * `{ name, summary }` list the recommender posts (state/Recommend.ts
-   * recommendRequest) — `visible(catalog)`, capped — and the front door reads
-   * data.
-   *
-   * With one narrowing the recommender does not make. Choosing a command here
-   * RUNS it, so an option this client would refuse is not an option: the
-   * catalog is the model-invocable set (`callable()` — the human's own
-   * browser mechanics, chat.stop and sign-in among them, are refused with
-   * userOnlyError) and, of those, the ones whose requirements are met right
-   * now (`unmetRequirements`, which at the agent boundary is an honest
-   * failure and never a deferral: Commands.ts runAs). The live front door
-   * offered all 208 visible commands and routed "show me my runs" to one that
-   * answered with a refusal. The pills keep the wider list on purpose: a
-   * recommendation is a suggestion the human clicks, and that click is what
-   * renders the sign-in step or the first-run choice.
+   * Selection before the first leg (CommandSelection.ts). The user's message
+   * is already persisted and acknowledged; the decision model names the
+   * commands this message needs, and the names land on that message before
+   * any model leg is posted. A message that already carries a selection (a
+   * retry, a recovered turn) reuses it. A failed selection is the turn's
+   * failure, retryable, never a fallback.
    */
-  const turnCommands = (): ReadonlyArray<AgentTurnCommand> => {
-    const state = ctx.commands.state()
-    return visible(ctx.commands.callable().map(itemOf))
-      .filter((command) => unmetRequirements(command, state).length === 0)
-      .slice(0, COMMANDS_MAX)
-      .map((command) => ({ name: command.name, summary: command.summary }))
+  /** Only names this request offered, in the selector's order: a selector never widens the set. */
+  const offeredNames = (selected: ReadonlyArray<{ readonly name: string }>, offered: ReadonlyArray<{ readonly name: string }>): ReadonlyArray<string> => {
+    const allowed = new Set(offered.map(command => command.name))
+    return [...new Set(selected.map(row => row.name))].filter(name => allowed.has(name))
   }
 
-  // The `front-door` seat rides every conversation leg. `model` never does:
-  // these turns carry tools, and a bound turn is sealed.
-  const composeTurn = (): {
-    readonly context: AgentRuntimeContext
-    readonly instructions: string
-    readonly commands: ReadonlyArray<AgentTurnCommand>
-    readonly decisionModel?: ModelBinding
-  } => {
-    const decisionModel = assignedBinding(ctx, "front-door")
-    return { ...composeInstructions(), commands: turnCommands(), ...(decisionModel === undefined ? {} : { decisionModel }) }
+  const selectFor = async (turnId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+    const selector = ctx.services.commandSelector
+    const messageId = `message-${turnId}-user`
+    const message = store.collections.messages.get(messageId)
+    if (selector === undefined || message === undefined || message.disclosed !== undefined) return { ok: true }
+    const snapshot = store.agentContextSnapshot().messages
+    const index = snapshot.findIndex(row => row.id === messageId)
+    const catalog = agentVisibleCatalog(ctx.commands.callable())
+    const pinned = new Set(pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog))
+    const offered = catalog.filter(command => !pinned.has(command.name))
+    try {
+      const selected = await selector(commandSelectRequest({
+        message: message.text,
+        earlier: index === -1 ? [] : snapshot.slice(0, index),
+        repo: activeRepositoryId(store),
+        commands: offered
+      }))
+      const names = offeredNames(selected, offered)
+      await store.dispatch({ type: "message.commands.disclosed", actor: "system", turnId, names }).isPersisted.promise
+      return { ok: true }
+    } catch (error) {
+      ctx.failures.report("turn.select", error, turnId)
+      return { ok: false, message: selectFailureText(error) }
+    }
   }
 
+  /*
+   * The list action's query: the decision model's pick among the commands
+   * this conversation has not disclosed, recorded on the turn's user message
+   * so every later leg's prompt lists them in full.
+   */
+  const discover = async (query: string, turnId: string | undefined): Promise<ReadonlyArray<string>> => {
+    const selector = ctx.services.commandSelector
+    if (selector === undefined) return []
+    const catalog = agentVisibleCatalog(ctx.commands.callable())
+    const known = new Set([...pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog), ...disclosedCommandNames(store.agentContextSnapshot().messages, Number.POSITIVE_INFINITY)])
+    const offered = catalog.filter(command => !known.has(command.name))
+    if (offered.length === 0) return []
+    const selected = await selector(commandSelectRequest({ message: query, earlier: [], repo: activeRepositoryId(store), commands: offered }))
+    const names = offeredNames(selected, offered).slice(0, QUERY_DISCLOSURE_LIMIT)
+    if (turnId !== undefined && names.length > 0 && store.collections.messages.get(`message-${turnId}-user`) !== undefined) {
+      await store.dispatch({ type: "message.commands.disclosed", actor: "smithers", turnId, names }).isPersisted.promise
+    }
+    return names
+  }
   // Retries keep their transcript id, so its previous backend run must finish
   // cancelling before that id can launch again. The map also fences final
   // frames from the cancelled run while a retry holds the turn seat.
@@ -639,16 +537,14 @@ export const createTurnController = (
      * every later turn failed the same way, and /clear could not recover it
      * because /clear runs a model turn of its own into the same wall.
      */
-    const { commands, context, instructions, decisionModel } = composeTurn()
+    const { context, instructions } = composeTurn()
     const { request } = boundTurnRequest(
       {
         runId: turnId,
         messages,
         instructions,
         tools: ctx.commands.toolSpecs(),
-        commands,
-        context,
-        ...(decisionModel === undefined ? {} : { decisionModel })
+        context
       },
       keepTail
     )
@@ -704,6 +600,27 @@ export const createTurnController = (
   }
 
   /*
+   * A turn's first leg waits for its command selection (selectFor); a failed
+   * selection fails the turn visibly, and /chat.retry selects again.
+   */
+  const firstLeg = (turn: ActiveTurn): void => {
+    if (ctx.services.commandSelector === undefined) {
+      launchLeg(turn.id, contextMessages())
+      return
+    }
+    void selectFor(turn.id).then((selection) => {
+      if (!isCurrentTurn(turn)) return
+      if (selection.ok) {
+        launchLeg(turn.id, contextMessages())
+        return
+      }
+      ctx.activeTurn = undefined
+      store.dispatch({ type: "message.response.failed", actor: "system", turnId: turn.id, message: selection.message })
+      settleTurnBilling()
+    })
+  }
+
+  /*
    * The visible one-line record of a tool act (§2b transcript hygiene): at
    * most a compact Smithers-side line, actor smithers — the raw arguments or
    * result payload (the commands list's JSON, the browser read's text) NEVER
@@ -731,7 +648,7 @@ export const createTurnController = (
      * read as the user's mistake and apologised for. It is infra by
      * construction, and now says so.
      */
-    const result = await ctx.commands.executeForAgent({ name: call.name, arguments: call.args, httpCall: { turnId: turn.id, callId: call.callId } }).catch((error: unknown) =>
+    const result = await ctx.commands.executeForAgent({ name: call.name, arguments: call.args, httpCall: { turnId: turn.id, callId: call.callId } }, discover).catch((error: unknown) =>
       agentFailureText(agentRefusalText(clientRefusal(error)))
     )
     if (!isCurrentTurn(turn)) return
@@ -740,16 +657,8 @@ export const createTurnController = (
      * rest of this turn. A refusal or a chooser route launched nothing, so
      * there is no run for the model to misdescribe and its prose stands.
      */
-    /*
-     * A call the front door minted (apps/server frontDoor.ts) is the whole
-     * turn: its act line is the answer — the registry's own honest result,
-     * success or refusal — and the continuation leg carries no prose, so the
-     * claim surface has nothing to police and this row is what every later
-     * turn reads (contextMessages above).
-     */
-    const answersTurn = call.callId.startsWith(AGENT_TURN_FRONT_DOOR_CALL_PREFIX)
     const launched = runLaunchCommandOf(call.name, call.args)
-    if (!answersTurn && launched !== undefined && toolResultLaunchedRun(result)) turn.runLaunch = launched
+    if (launched !== undefined && toolResultLaunchedRun(result)) turn.runLaunch = launched
     store.dispatch({
       type: "toolcall.recorded",
       actor: "smithers",
@@ -762,8 +671,7 @@ export const createTurnController = (
       type: "message.tool.executed",
       actor: "smithers",
       turnId: turn.id,
-      text: toolActLine(call, result),
-      ...(answersTurn ? { answersTurn: true as const } : {})
+      text: toolActLine(call, result)
     })
     /*
      * The record above keeps the whole result; the model gets it bounded, so
@@ -839,11 +747,6 @@ export const createTurnController = (
         // The model asked for a command; the done frame right after it ends
         // this leg, and the continuation is driven from there.
         ctx.activeTurn.pendingCall = { callId: frame.call_id, name: frame.name, args: frame.arguments }
-        // A call the front door minted (apps/server frontDoor.ts) IS the
-        // turn's answer: the act line this call renders says what happened,
-        // so its continuation leg carries no text, and a silent leg there is
-        // the ordinary end of a worked turn, not an empty response.
-        if (frame.call_id.startsWith(AGENT_TURN_FRONT_DOOR_CALL_PREFIX)) ctx.activeTurn.receivedText = true
         return
       }
       if (frame.type === "delta") {
@@ -1123,9 +1026,9 @@ export const createTurnController = (
     })
     const pendingTurn = ctx.activeTurn
     const receipt = store.dispatch({ type: "message.submitted", actor: ctx.commandActor, turnId, text: prompt, preserveDraft: !draftCurrent() })
-    if (!admission) launchLeg(turnId, contextMessages())
+    if (!admission) firstLeg(pendingTurn)
     const admitted = receipt.isPersisted.promise.then(() => {
-      if (admission && isCurrentTurn(pendingTurn)) launchLeg(turnId, contextMessages())
+      if (admission && isCurrentTurn(pendingTurn)) firstLeg(pendingTurn)
       return true
     }, error => {
       if (ctx.activeTurn === pendingTurn) ctx.activeTurn = undefined
@@ -1276,11 +1179,11 @@ export const createTurnController = (
       askClass: impossibleAskOf(last?.text ?? ""),
       claimBuffer: ""
     })
-    launchLeg(turnId, contextMessages())
+    firstLeg(ctx.activeTurn)
   }
 
   const httpTurns = createHttpTurnDriver(ctx, {
-    ownTurn, isCurrentTurn, contextMessages, composeTurn, settled: settleTurnBilling,
+    ownTurn, isCurrentTurn, contextMessages, composeTurn, select: selectFor, discover, settled: settleTurnBilling,
     refused: (turnId, result, attemptId) => {
       if (result.refusal?.code === "sign_in_required") return offerChatSignIn(store.collections.messages.get(`message-${turnId}-user`)?.text ?? "", turnId, attemptId)
       else if (result.refusal?.code === "out_of_credit") offerCreditUpgrade()

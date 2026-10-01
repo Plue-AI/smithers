@@ -1,0 +1,2419 @@
+{
+ "catalog": [
+  {
+   "name": "connect",
+   "summary": "Connect work to Smithers"
+  },
+  {
+   "name": "wiki",
+   "summary": "See what Smithers understands (Wiki)"
+  },
+  {
+   "name": "appearance.theme",
+   "summary": "Set the color theme"
+  },
+  {
+   "name": "appearance.dark-mode",
+   "summary": "Switch to light or dark mode; bare toggles"
+  },
+  {
+   "name": "debug.verbose",
+   "summary": "Show everything Smithers is doing"
+  },
+  {
+   "name": "debug.errors",
+   "summary": "Read recent app errors and toast history, including dismissed notifications; no repository or sign-in needed"
+  },
+  {
+   "name": "chat",
+   "summary": "Back to the conversation"
+  },
+  {
+   "name": "chat.retry",
+   "summary": "Retry the last turn"
+  },
+  {
+   "name": "chat.clear",
+   "summary": "Archive this conversation and start fresh; optionally summarize into Wiki notes"
+  },
+  {
+   "name": "chat.filter",
+   "summary": "Open the chat filter"
+  },
+  {
+   "name": "chat.filter.toggle",
+   "summary": "Hide or show a chat source or kind"
+  },
+  {
+   "name": "chat.filter.grep",
+   "summary": "Search visible chat rows"
+  },
+  {
+   "name": "chat.filter.reset",
+   "summary": "Show all chat rows"
+  },
+  {
+   "name": "browser.open",
+   "summary": "Open a web page as a card Smithers can read"
+  },
+  {
+   "name": "flow.create",
+   "summary": "Create a Smithers flow from a description"
+  },
+  {
+   "name": "flow.list",
+   "summary": "List the flows on your workspace"
+  },
+  {
+   "name": "flow.run",
+   "summary": "Run a flow on your workspace"
+  },
+  {
+   "name": "flow.plan",
+   "summary": "See what a flow would run"
+  },
+  {
+   "name": "triggers.list",
+   "summary": "Show the dispatcher: the events the repository's rules wait for and the flows they start"
+  },
+  {
+   "name": "triggers.register",
+   "summary": "Register a repository flow to run on a schedule"
+  },
+  {
+   "name": "triggers.run",
+   "summary": "Run a registered schedule now"
+  },
+  {
+   "name": "triggers.resume",
+   "summary": "Resume a paused schedule with its reviewed configuration"
+  },
+  {
+   "name": "runs.handoff",
+   "summary": "Prepare an editable handoff brief from a recorded run or plan; the human copies it"
+  },
+  {
+   "name": "runs.attention",
+   "summary": "Show pending approvals and parked or failed runs on this repository"
+  },
+  {
+   "name": "runs.list",
+   "summary": "List the runs on your workspace"
+  },
+  {
+   "name": "runs.open",
+   "summary": "Open a run as a card that tracks it"
+  },
+  {
+   "name": "runs.resume",
+   "summary": "Resume a parked run"
+  },
+  {
+   "name": "runs.rerun",
+   "summary": "Run a run's flow again with the same input"
+  },
+  {
+   "name": "runs.signal",
+   "summary": "Deliver a named signal to a waiting run"
+  },
+  {
+   "name": "runs.steer",
+   "summary": "Send an operator message into a running run"
+  },
+  {
+   "name": "runs.seat",
+   "summary": "Move a run to a different model seat"
+  },
+  {
+   "name": "runs.thinking",
+   "summary": "Change a run's thinking level"
+  },
+  {
+   "name": "runs.tools",
+   "summary": "Add tools to a run's active set"
+  },
+  {
+   "name": "runs.logs",
+   "summary": "Show a run's transcript on its card (--follow keeps it live)"
+  },
+  {
+   "name": "runs.steps",
+   "summary": "Show a run's steps on its card"
+  },
+  {
+   "name": "runs.takeover",
+   "summary": "Take over a run from its box's terminal, on its harness session when it has one"
+  },
+  {
+   "name": "runs.release",
+   "summary": "Hand a taken-over run back; it carries on by itself"
+  },
+  {
+   "name": "runs.events",
+   "summary": "Show a run's raw events on its card (verbose)"
+  },
+  {
+   "name": "approvals.list",
+   "summary": "List the workspace's pending approvals"
+  },
+  {
+   "name": "approvals.open",
+   "summary": "Open a run's pending approvals as cards"
+  },
+  {
+   "name": "card.history.back",
+   "summary": "Go back inside an embedded frame"
+  },
+  {
+   "name": "card.history.forward",
+   "summary": "Go forward inside an embedded frame"
+  },
+  {
+   "name": "wiki.create",
+   "summary": "Refresh the repository Wiki in the background"
+  },
+  {
+   "name": "wiki.cloud",
+   "summary": "Browse the repository Wiki"
+  },
+  {
+   "name": "wiki.cloud.open",
+   "summary": "Open a collaborative repository Wiki page in the conversation"
+  },
+  {
+   "name": "wiki.sync",
+   "summary": "Refresh a cloud Wiki page and retry its saved edits"
+  },
+  {
+   "name": "wiki.edit",
+   "summary": "Edit a Wiki page as Markdown"
+  },
+  {
+   "name": "wiki.new-note",
+   "summary": "Create a Wiki note"
+  },
+  {
+   "name": "wiki.open",
+   "summary": "Open a Wiki note by path or title"
+  },
+  {
+   "name": "wiki.backlinks",
+   "summary": "Notes that link to a note, and where it links out"
+  },
+  {
+   "name": "wiki.graph",
+   "summary": "The Wiki link graph, whole or around one note"
+  },
+  {
+   "name": "wiki.space",
+   "summary": "Show the public or the private part of the repository Wiki"
+  },
+  {
+   "name": "wiki.view",
+   "summary": "Show the Wiki page rendered, or its editor"
+  },
+  {
+   "name": "wiki.cloud.new",
+   "summary": "Create a page in the repository Wiki"
+  },
+  {
+   "name": "wiki.cloud.rename",
+   "summary": "Move a Wiki page to another path"
+  },
+  {
+   "name": "wiki.cloud.delete",
+   "summary": "Delete a Wiki page; its history stays"
+  },
+  {
+   "name": "wiki.history",
+   "summary": "Show a Wiki page's history: every revision, renames and the deletion included"
+  },
+  {
+   "name": "auth.prompt",
+   "summary": "Offer the GitHub sign-in step in the chat"
+  },
+  {
+   "name": "account.show",
+   "summary": "Show account"
+  },
+  {
+   "name": "app.download.prompt",
+   "summary": "Offer the native app download in the chat"
+  },
+  {
+   "name": "storage.recovery",
+   "summary": "Offer a private local recovery download in the chat"
+  },
+  {
+   "name": "cloud.prompt",
+   "summary": "Offer the Smithers Cloud sign-in step in the chat"
+  },
+  {
+   "name": "repos.import",
+   "summary": "Import a GitHub repository into Smithers Cloud"
+  },
+  {
+   "name": "repository.register",
+   "summary": "Register a repository: Smithers analyzes it, then we review it"
+  },
+  {
+   "name": "issue.flows",
+   "summary": "Inspect the flows available for an issue"
+  },
+  {
+   "name": "issue.repro",
+   "summary": "Research and reproduce an issue before implementation"
+  },
+  {
+   "name": "issue.poc",
+   "summary": "Build a proof of concept for an issue"
+  },
+  {
+   "name": "issue.implement",
+   "summary": "Plan and implement an issue with the workspace's coding flow"
+  },
+  {
+   "name": "issue.add-flow",
+   "summary": "Add a flow to an issue"
+  },
+  {
+   "name": "issues.sync.resolve",
+   "summary": "Resolve an unconfirmed delivery; retry may duplicate it"
+  },
+  {
+   "name": "issues.list",
+   "summary": "List a repository's issues and conversations, only one kind, or a saved view"
+  },
+  {
+   "name": "issues.view",
+   "summary": "Open an issue with its comments; use source github for GitHub rows"
+  },
+  {
+   "name": "issues.create",
+   "summary": "Create an issue, or a private conversation with --kind conversation"
+  },
+  {
+   "name": "issues.close",
+   "summary": "Close an issue"
+  },
+  {
+   "name": "issues.reopen",
+   "summary": "Reopen a closed issue"
+  },
+  {
+   "name": "issues.fix",
+   "summary": "Mark an issue fixed; you become its fixer"
+  },
+  {
+   "name": "issues.verify",
+   "summary": "Verify a fixed issue; the verifier must differ from the fixer"
+  },
+  {
+   "name": "issues.comment.react",
+   "summary": "Add or remove a reaction on a message"
+  },
+  {
+   "name": "issues.set",
+   "summary": "Set an issue's owner, due date, priority or parent"
+  },
+  {
+   "name": "issues.comment",
+   "summary": "Comment on an issue"
+  },
+  {
+   "name": "integrations.admit",
+   "summary": "Admit a Slack channel to a repository's conversations"
+  },
+  {
+   "name": "integrations.list",
+   "summary": "Show the services connected to a repository's conversations, issues and wiki"
+  },
+  {
+   "name": "issues.setup",
+   "summary": "Handle issues"
+  },
+  {
+   "name": "review.setup",
+   "summary": "Review PRs"
+  },
+  {
+   "name": "ci.setup",
+   "summary": "Set up CI"
+  },
+  {
+   "name": "feature.setup",
+   "summary": "Build a feature"
+  },
+  {
+   "name": "chores.setup",
+   "summary": "Automate a chore"
+  },
+  {
+   "name": "setup.guide",
+   "summary": "Read this setup's configuration and repository evidence"
+  },
+  {
+   "name": "setup.configure",
+   "summary": "Edit a repository job draft"
+  },
+  {
+   "name": "setup.view",
+   "summary": "Show a setup section"
+  },
+  {
+   "name": "setup.work",
+   "summary": "Prepare manual work for a configured repository job"
+  },
+  {
+   "name": "setup.run",
+   "summary": "Inspect, test, enable or run a repository job"
+  },
+  {
+   "name": "setup.discard",
+   "summary": "Return a repository job draft to its enabled configuration"
+  },
+  {
+   "name": "setup.retry",
+   "summary": "Retry the setup request"
+  },
+  {
+   "name": "prs.list",
+   "summary": "List a repository's pull requests"
+  },
+  {
+   "name": "prs.view",
+   "summary": "Open a pull request with reviews and checks"
+  },
+  {
+   "name": "prs.tab",
+   "summary": "Show a pull request's conversation, commits, checks, or files"
+  },
+  {
+   "name": "prs.create",
+   "summary": "Open a pull request"
+  },
+  {
+   "name": "prs.land",
+   "summary": "Land a pull request (queues the merge)"
+  },
+  {
+   "name": "prs.triage",
+   "summary": "Review a pull request with the repository's pr-triage flow"
+  },
+  {
+   "name": "prs.review",
+   "summary": "Review a pull request"
+  },
+  {
+   "name": "feature.prototype",
+   "summary": "Prototype a feature request as a run: exploration only, never promoted"
+  },
+  {
+   "name": "notifications.read-update",
+   "summary": "Mark this repository update read in Smithers"
+  },
+  {
+   "name": "notifications.tag",
+   "summary": "Tag a repository notification"
+  },
+  {
+   "name": "notifications.list",
+   "summary": "Show your notifications"
+  },
+  {
+   "name": "notifications.read",
+   "summary": "Mark every notification read"
+  },
+  {
+   "name": "env.view",
+   "summary": "Show a repository's agent environment"
+  },
+  {
+   "name": "env.set",
+   "summary": "Set an agent-environment variable"
+  },
+  {
+   "name": "env.remove-token",
+   "summary": "Remove a refused subscription token from a repository's agent environment"
+  },
+  {
+   "name": "secrets.connect",
+   "summary": "Connect Claude for coding in your repositories"
+  },
+  {
+   "name": "secrets.connect.codex",
+   "summary": "Connect Codex for coding in your repositories"
+  },
+  {
+   "name": "secrets.connections",
+   "summary": "Show coding accounts"
+  },
+  {
+   "name": "secrets.move",
+   "summary": "Move a coding account up or down its provider's order"
+  },
+  {
+   "name": "secrets.revoke",
+   "summary": "Revoke coding connection"
+  },
+  {
+   "name": "secrets.scope",
+   "summary": "Limit a repository secret to trusted runs on main, or give it to every run"
+  },
+  {
+   "name": "secrets.bind",
+   "summary": "Set the hosts and headers a repository secret may be sent to"
+  },
+  {
+   "name": "secrets.set",
+   "summary": "Add a repository secret or replace its value"
+  },
+  {
+   "name": "secrets.delete",
+   "summary": "Delete a repository secret"
+  },
+  {
+   "name": "secrets.list",
+   "summary": "Show the secrets a repository's sessions may use: names and bindings, never values"
+  },
+  {
+   "name": "model.list",
+   "summary": "List the models and their seats"
+  },
+  {
+   "name": "model.new",
+   "summary": "Add a model"
+  },
+  {
+   "name": "model.edit",
+   "summary": "Edit a model"
+  },
+  {
+   "name": "model.save",
+   "summary": "Save a model"
+  },
+  {
+   "name": "model.show",
+   "summary": "Select a model on the Models card"
+  },
+  {
+   "name": "model.remove",
+   "summary": "Remove a model"
+  },
+  {
+   "name": "model.test",
+   "summary": "Test a model with one real call"
+  },
+  {
+   "name": "model.compose",
+   "summary": "Compose a request for a model"
+  },
+  {
+   "name": "model.ask",
+   "summary": "Ask a model its composed request"
+  },
+  {
+   "name": "model.recall",
+   "summary": "Reset a composer to the last test"
+  },
+  {
+   "name": "model.fixture",
+   "summary": "Script the last decision answer as a test fixture"
+  },
+  {
+   "name": "model.prompt",
+   "summary": "Set a composed prompt"
+  },
+  {
+   "name": "model.state",
+   "summary": "Set or remove a composed state field"
+  },
+  {
+   "name": "model.question",
+   "summary": "Add, set or remove a composed question"
+  },
+  {
+   "name": "model.option",
+   "summary": "Set or remove a question's option or rung"
+  },
+  {
+   "name": "model.assign",
+   "summary": "Assign a model to a seat, or `default`"
+  },
+  {
+   "name": "history.show",
+   "summary": "Show the history: every change, each issue's lane, checks and pull request"
+  },
+  {
+   "name": "history.view",
+   "summary": "Show the history as its issue list or its metrics"
+  },
+  {
+   "name": "history.bootstrap",
+   "summary": "Create the history from main's commits"
+  },
+  {
+   "name": "history.backfill",
+   "summary": "Admit every open issue to the history now"
+  },
+  {
+   "name": "history.parallel",
+   "summary": "Set how many lanes work at once"
+  },
+  {
+   "name": "history.todo",
+   "summary": "File a TODO for the coding factory and follow it to its pull request"
+  },
+  {
+   "name": "branches.list",
+   "summary": "List a repository's branches (bookmarks)"
+  },
+  {
+   "name": "commits.list",
+   "summary": "List a branch's commits, newest first"
+  },
+  {
+   "name": "commits.read",
+   "summary": "Show one commit: its message, parents and diff"
+  },
+  {
+   "name": "files.open-diff",
+   "summary": "Read a file at the diff revision in its frame"
+  },
+  {
+   "name": "files.list",
+   "summary": "List a repository directory"
+  },
+  {
+   "name": "files.read",
+   "summary": "Read a file from a repository"
+  },
+  {
+   "name": "code.hover",
+   "summary": "The type and docs of the symbol at a position"
+  },
+  {
+   "name": "code.definition",
+   "summary": "Where the symbol at a position is defined; opens that file at the line"
+  },
+  {
+   "name": "code.diagnostics",
+   "summary": "The language server's errors and warnings for a file"
+  },
+  {
+   "name": "github.app",
+   "summary": "Check the Smithers GitHub App on a repository"
+  },
+  {
+   "name": "github.reconcile",
+   "summary": "Re-derive the GitHub App's wiring, then re-read the status"
+  },
+  {
+   "name": "github.mirror-sync",
+   "summary": "Sync the repository to GitHub"
+  },
+  {
+   "name": "github.mirror.retry-ref",
+   "summary": "Retry one failed mirror ref"
+  },
+  {
+   "name": "repos.import.retry",
+   "summary": "Retry a failed GitHub import job"
+  },
+  {
+   "name": "box.list",
+   "summary": "List your boxes"
+  },
+  {
+   "name": "box.open",
+   "summary": "Open (create or reuse) a Linux box in Smithers Cloud on a bookmark: a real machine with a terminal, files, and services the user can use"
+  },
+  {
+   "name": "box.view",
+   "summary": "Open one box's card"
+  },
+  {
+   "name": "box.terminal",
+   "summary": "Open a terminal on a box"
+  },
+  {
+   "name": "box.suspend",
+   "summary": "Suspend a box"
+  },
+  {
+   "name": "box.resume",
+   "summary": "Resume a box"
+  },
+  {
+   "name": "box.sessions",
+   "summary": "List a box's sessions"
+  },
+  {
+   "name": "box.facet",
+   "summary": "Switch a box card's facet"
+  },
+  {
+   "name": "box.files",
+   "summary": "List a box's files under a directory"
+  },
+  {
+   "name": "box.file",
+   "summary": "Read one file out of a box"
+  },
+  {
+   "name": "box.services",
+   "summary": "List a box's services"
+  },
+  {
+   "name": "box.egress",
+   "summary": "List what a box called out to, and which secret names were swapped in"
+  },
+  {
+   "name": "box.desktop.open",
+   "summary": "Open a desktop box on a bookmark and stream its screen into the card: create or reuse it, wait for it, and start the stream"
+  },
+  {
+   "name": "box.images",
+   "summary": "List the environment images a repository has built for its boxes"
+  },
+  {
+   "name": "egress.allow",
+   "summary": "Let a repository's sandboxes reach a host"
+  },
+  {
+   "name": "egress.session",
+   "summary": "List what an agent session called out to, and which secret names were swapped in"
+  },
+  {
+   "name": "change.request",
+   "summary": "Make a code change in a repository and land it on main: the Cloud workspace plans, implements, checks and lands it"
+  },
+  {
+   "name": "change.view",
+   "summary": "Open a change's card"
+  },
+  {
+   "name": "change.diff",
+   "summary": "Open a change's diff at two pins"
+  },
+  {
+   "name": "change.land",
+   "summary": "Land a change (its landing request, or its changeset atomically)"
+  },
+  {
+   "name": "change.split",
+   "summary": "Move a change's named paths into a new change"
+  },
+  {
+   "name": "change.resolve",
+   "summary": "Dispatch an agent to resolve a change's conflict"
+  },
+  {
+   "name": "change.revert",
+   "summary": "Revert a landed change"
+  },
+  {
+   "name": "change.facet",
+   "summary": "Switch a change card's facet"
+  },
+  {
+   "name": "change.pins",
+   "summary": "Pin a change card's diff between two revisions (parent|\u003crev\u003e → \u003crev\u003e|current)"
+  },
+  {
+   "name": "change.checks",
+   "summary": "Read a change's checks at one revision"
+  },
+  {
+   "name": "review.since-mine",
+   "summary": "Open a change's diff since my last review"
+  },
+  {
+   "name": "review.done",
+   "summary": "Mark a review comment done: the author addressed it at the current revision"
+  },
+  {
+   "name": "review.ack",
+   "summary": "Acknowledge a done review comment: the reviewer accepts the author's work"
+  },
+  {
+   "name": "review.reopen",
+   "summary": "Reopen a done or resolved review comment"
+  },
+  {
+   "name": "review.request",
+   "summary": "Ask someone to review a change"
+  },
+  {
+   "name": "review.unrequest",
+   "summary": "Dismiss a review request on a change"
+  },
+  {
+   "name": "findings.please-fix",
+   "summary": "Dispatch the agent on one finding"
+  },
+  {
+   "name": "findings.not-useful",
+   "summary": "Mark a finding not useful"
+  },
+  {
+   "name": "chat.reload",
+   "summary": "Reload the app"
+  },
+  {
+   "name": "chat.commands",
+   "summary": "List everything Smithers can do"
+  },
+  {
+   "name": "agent.explain",
+   "summary": "Ask the Explainer to explain something"
+  },
+  {
+   "name": "agent.list",
+   "summary": "Show the agents and their runs"
+  },
+  {
+   "name": "agent.session.new",
+   "summary": "Start a cloud agent session (Codex, Claude, or Smithers) on a repository: Smithers Cloud runs it in a sandbox, and the session card streams its transcript"
+  },
+  {
+   "name": "agent.session.list",
+   "summary": "List a repository's cloud agent sessions"
+  },
+  {
+   "name": "agent.session.view",
+   "summary": "Open one cloud agent session's card: its transcript, live while the session is active"
+  },
+  {
+   "name": "agent.session.say",
+   "summary": "Send a follow-up message to a cloud agent session (dispatches its next run)"
+  },
+  {
+   "name": "agent.session.stop",
+   "summary": "Stop a cloud agent session (its run is cancelled and the session is deleted)"
+  },
+  {
+   "name": "tab.card",
+   "summary": "Open a card in a tab"
+  },
+  {
+   "name": "tab.close",
+   "summary": "Close a session"
+  },
+  {
+   "name": "repo.overview",
+   "summary": "Show the repository update overview"
+  },
+  {
+   "name": "repo.update",
+   "summary": "Read repository activity into context without displaying an overview"
+  },
+  {
+   "name": "repo.tree",
+   "summary": "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)"
+  },
+  {
+   "name": "repo.choose",
+   "summary": "Choose a recently pushed GitHub repository"
+  },
+  {
+   "name": "repo.create",
+   "summary": "Create repository"
+  },
+  {
+   "name": "workspace.rename",
+   "summary": "Name this workspace"
+  },
+  {
+   "name": "files.add",
+   "summary": "Add files to the conversation"
+  },
+  {
+   "name": "smithers.who",
+   "summary": "Say who Smithers is and what it hands off"
+  },
+  {
+   "name": "search.open",
+   "summary": "Search everything by name: files, flows, targets, runs, changes, issues, boxes, secret names"
+  },
+  {
+   "name": "search.files",
+   "summary": "Find files by fuzzy path among the directories the app has listed"
+  },
+  {
+   "name": "search.flows",
+   "summary": "The slash tree as data: every flow this session may run"
+  },
+  {
+   "name": "search.targets",
+   "summary": "Find targets by label, and the flows the factory projection declares"
+  },
+  {
+   "name": "search.wiki",
+   "summary": "Find wiki pages and notes by title"
+  },
+  {
+   "name": "search.history",
+   "summary": "Find changes in the history"
+  },
+  {
+   "name": "search.runs",
+   "summary": "Find runs by id, flow or status"
+  },
+  {
+   "name": "search.changes",
+   "summary": "Find changes by id or title"
+  },
+  {
+   "name": "search.issues",
+   "summary": "Find issues by number or title"
+  },
+  {
+   "name": "search.boxes",
+   "summary": "Find boxes by name, repository or state"
+  },
+  {
+   "name": "search.secrets",
+   "summary": "Find secret names and the hosts they bind to; values never exist on the wire"
+  },
+  {
+   "name": "palette.recent",
+   "summary": "The palette's recent items as data: what was opened in the last seven days, most recent first"
+  },
+  {
+   "name": "input.mode",
+   "summary": "Choose Normal, Vim, or Dictation input mode"
+  },
+  {
+   "name": "debug.reset",
+   "summary": "Clear this app’s local data, sign out, and restart as a new user"
+  }
+ ],
+ "cases": [
+  {
+   "id": "dark-mode-action",
+   "message": "switch to dark mode",
+   "expect": [
+    [
+     "appearance.dark-mode"
+    ]
+   ],
+   "answer": {
+    "answers": {
+     "command1": {
+      "type": "choice",
+      "choice": "appearance.dark-mode",
+      "probabilities": {
+       "box.terminal": 0,
+       "agent.list": 0,
+       "issues.comment": 0,
+       "github.mirror.retry-ref": 0,
+       "runs.release": 0,
+       "github.reconcile": 0,
+       "env.remove-token": 0,
+       "chat.retry": 0,
+       "issue.repro": 0,
+       "chat": 0,
+       "issue.add-flow": 0,
+       "runs.seat": 0,
+       "issues.view": 0,
+       "issues.set": 0,
+       "model.ask": 0,
+       "branches.list": 0,
+       "wiki.sync": 0,
+       "repo.overview": 0,
+       "change.diff": 0,
+       "files.open-diff": 0,
+       "issues.reopen": 0,
+       "prs.review": 0,
+       "cloud.prompt": 0,
+       "runs.rerun": 0,
+       "secrets.bind": 0,
+       "agent.session.list": 0,
+       "history.backfill": 0,
+       "feature.prototype": 0,
+       "repo.create": 0,
+       "chores.setup": 0,
+       "triggers.list": 0,
+       "flow.create": 0,
+       "box.suspend": 0,
+       "history.todo": 0,
+       "review.setup": 0,
+       "files.read": 0,
+       "prs.land": 0,
+       "search.issues": 0,
+       "auth.prompt": 0,
+       "runs.resume": 0,
+       "issues.verify": 0,
+       "model.state": 0,
+       "box.services": 0,
+       "ci.setup": 0,
+       "model.edit": 0,
+       "review.since-mine": 0,
+       "prs.triage": 0,
+       "issues.list": 0,
+       "card.history.back": 0,
+       "review.unrequest": 0,
+       "setup.run": 0,
+       "secrets.list": 0,
+       "input.mode": 0,
+       "secrets.connect.codex": 0,
+       "review.done": 0,
+       "search.wiki": 0,
+       "notifications.read-update": 0,
+       "secrets.revoke": 0,
+       "github.mirror-sync": 0,
+       "box.facet": 0,
+       "model.question": 0,
+       "tab.close": 0,
+       "change.split": 0,
+       "debug.verbose": 0,
+       "box.file": 0,
+       "setup.discard": 0,
+       "runs.open": 0,
+       "change.view": 0,
+       "model.recall": 0,
+       "debug.reset": 0,
+       "wiki.create": 0,
+       "code.hover": 0,
+       "wiki.backlinks": 0,
+       "findings.not-useful": 0,
+       "issues.create": 0,
+       "runs.signal": 0,
+       "commits.read": 0,
+       "repository.register": 0,
+       "setup.work": 0,
+       "search.flows": 0,
+       "runs.steps": 0,
+       "issues.comment.react": 0,
+       "integrations.admit": 0,
+       "issues.setup": 0,
+       "prs.list": 0,
+       "wiki.cloud": 0,
+       "search.targets": 0,
+       "box.resume": 0,
+       "wiki.graph": 0,
+       "connect": 0,
+       "search.files": 0,
+       "change.pins": 0,
+       "setup.retry": 0,
+       "model.list": 0,
+       "notifications.list": 0,
+       "search.boxes": 0,
+       "runs.tools": 0,
+       "wiki": 0,
+       "wiki.cloud.open": 0,
+       "agent.session.view": 0,
+       "notifications.tag": 0,
+       "issue.poc": 0,
+       "appearance.theme": 0.01,
+       "integrations.list": 0,
+       "box.images": 0,
+       "agent.explain": 0,
+       "findings.please-fix": 0,
+       "files.add": 0,
+       "flow.list": 0,
+       "agent.session.say": 0,
+       "triggers.resume": 0,
+       "wiki.cloud.rename": 0,
+       "setup.view": 0,
+       "files.list": 0,
+       "egress.session": 0,
+       "box.sessions": 0,
+       "runs.takeover": 0,
+       "chat.filter.reset": 0,
+       "repo.choose": 0,
+       "search.runs": 0,
+       "storage.recovery": 0,
+       "review.request": 0,
+       "wiki.new-note": 0,
+       "issue.flows": 0,
+       "flow.run": 0,
+       "history.show": 0,
+       "chat.filter.grep": 0,
+       "model.prompt": 0,
+       "runs.thinking": 0,
+       "issues.sync.resolve": 0,
+       "wiki.edit": 0,
+       "wiki.history": 0,
+       "runs.list": 0,
+       "change.land": 0,
+       "box.egress": 0,
+       "search.open": 0,
+       "triggers.run": 0,
+       "none": 0.01,
+       "repo.tree": 0,
+       "debug.errors": 0,
+       "box.files": 0,
+       "issues.fix": 0,
+       "triggers.register": 0,
+       "env.view": 0,
+       "runs.events": 0,
+       "runs.logs": 0,
+       "secrets.delete": 0,
+       "secrets.move": 0,
+       "review.ack": 0,
+       "appearance.dark-mode": 0.98,
+       "change.revert": 0,
+       "setup.guide": 0,
+       "secrets.set": 0,
+       "wiki.space": 0,
+       "prs.create": 0,
+       "agent.session.new": 0,
+       "commits.list": 0,
+       "search.changes": 0,
+       "account.show": 0,
+       "approvals.open": 0,
+       "workspace.rename": 0,
+       "secrets.scope": 0,
+       "model.assign": 0,
+       "model.compose": 0,
+       "review.reopen": 0,
+       "box.open": 0,
+       "box.list": 0,
+       "notifications.read": 0,
+       "repos.import.retry": 0,
+       "tab.card": 0,
+       "egress.allow": 0,
+       "flow.plan": 0,
+       "chat.commands": 0,
+       "chat.clear": 0,
+       "palette.recent": 0,
+       "code.definition": 0,
+       "env.set": 0,
+       "change.facet": 0,
+       "feature.setup": 0,
+       "model.remove": 0,
+       "wiki.view": 0,
+       "app.download.prompt": 0,
+       "setup.configure": 0,
+       "wiki.cloud.new": 0,
+       "change.request": 0,
+       "issue.implement": 0,
+       "secrets.connect": 0,
+       "box.view": 0,
+       "wiki.cloud.delete": 0,
+       "issues.close": 0,
+       "wiki.open": 0,
+       "chat.filter.toggle": 0,
+       "runs.handoff": 0,
+       "history.view": 0,
+       "model.fixture": 0,
+       "approvals.list": 0,
+       "github.app": 0,
+       "change.checks": 0,
+       "change.resolve": 0,
+       "code.diagnostics": 0,
+       "model.show": 0,
+       "prs.tab": 0,
+       "search.history": 0,
+       "runs.steer": 0,
+       "history.parallel": 0,
+       "model.option": 0,
+       "history.bootstrap": 0,
+       "model.save": 0,
+       "card.history.forward": 0,
+       "repos.import": 0,
+       "model.new": 0,
+       "prs.view": 0,
+       "smithers.who": 0,
+       "box.desktop.open": 0,
+       "secrets.connections": 0,
+       "search.secrets": 0,
+       "chat.filter": 0,
+       "agent.session.stop": 0,
+       "browser.open": 0,
+       "runs.attention": 0,
+       "chat.reload": 0,
+       "model.test": 0,
+       "repo.update": 0
+      }
+     }
+    },
+    "model": "typesafe-ai/jev",
+    "rounding": {
+     "probabilityDecimals": 2,
+     "scoreDecimals": 2
+    },
+    "usage": {
+     "inputTokens": 5176,
+     "outputTokens": 1944
+    },
+    "warnings": [],
+    "providerMetadata": {
+     "typesafe": {
+      "confidence": {
+       "command1": 0.98
+      }
+     },
+     "gateway": {
+      "routing": {
+       "originalModelId": "typesafe-ai/jev",
+       "resolvedProvider": "digitalocean",
+       "fallbacksAvailable": [
+        "typesafe-ai"
+       ],
+       "planningReasoning": "System credentials planned for: digitalocean, typesafe-ai. ZDR requested: 2 attempts → 1 ZDR attempts. Pre-ZDR order: digitalocean(system) → typesafe-ai(system). ZDR execution order: typesafe-ai(system)",
+       "canonicalSlug": "typesafe-ai/jev",
+       "finalProvider": "typesafe-ai",
+       "modelAttemptCount": 1,
+       "modelAttempts": [
+        {
+         "canonicalSlug": "typesafe-ai/jev",
+         "success": true,
+         "providerAttemptCount": 1,
+         "providerAttempts": [
+          {
+           "provider": "typesafe-ai",
+           "credentialType": "system",
+           "success": true,
+           "startTime": 1790826314612,
+           "endTime": 1790826314749,
+           "statusCode": 200
+          }
+         ]
+        }
+       ],
+       "totalProviderAttemptCount": 1,
+       "skippedProviderAttempts": [
+        {
+         "credentialType": "system",
+         "provider": "digitalocean",
+         "reason": "zdr_ineligible_model"
+        }
+       ]
+      },
+      "cost": "0.000217392",
+      "marketCost": "0.000217392",
+      "surchargeCost": "0",
+      "gatewayCost": "0.000217392",
+      "inferenceCost": "0.000217392",
+      "inputInferenceCost": "0.000217392",
+      "outputInferenceCost": "0",
+      "generationId": "gen_01M3TS1YN2JMFGACTPXYYF9TDB"
+     }
+    }
+   }
+  },
+  {
+   "id": "dark-mode-question",
+   "message": "where is the dark mode button",
+   "expect": [
+    [
+     "appearance.dark-mode"
+    ]
+   ],
+   "answer": {
+    "answers": {
+     "command1": {
+      "type": "choice",
+      "choice": "none",
+      "probabilities": {
+       "prs.review": 0,
+       "issues.verify": 0,
+       "box.desktop.open": 0,
+       "search.history": 0,
+       "setup.discard": 0,
+       "github.app": 0,
+       "issues.create": 0,
+       "palette.recent": 0,
+       "search.boxes": 0,
+       "secrets.bind": 0,
+       "setup.view": 0,
+       "files.open-diff": 0,
+       "integrations.list": 0,
+       "runs.events": 0,
+       "commits.list": 0,
+       "change.split": 0,
+       "search.wiki": 0,
+       "box.list": 0,
+       "wiki.cloud.open": 0,
+       "box.facet": 0,
+       "issue.add-flow": 0,
+       "repos.import.retry": 0,
+       "runs.attention": 0,
+       "ci.setup": 0,
+       "chat": 0,
+       "debug.errors": 0,
+       "change.request": 0,
+       "model.recall": 0,
+       "box.files": 0,
+       "wiki.view": 0.01,
+       "secrets.connections": 0,
+       "issues.setup": 0,
+       "files.add": 0,
+       "github.mirror-sync": 0,
+       "wiki.backlinks": 0,
+       "wiki.graph": 0,
+       "card.history.forward": 0,
+       "model.ask": 0,
+       "egress.allow": 0,
+       "chat.filter.toggle": 0,
+       "github.mirror.retry-ref": 0,
+       "triggers.list": 0,
+       "change.pins": 0,
+       "input.mode": 0,
+       "model.show": 0,
+       "chat.clear": 0,
+       "connect": 0,
+       "chat.filter.grep": 0,
+       "env.view": 0,
+       "prs.list": 0,
+       "flow.list": 0,
+       "box.sessions": 0,
+       "env.remove-token": 0,
+       "integrations.admit": 0,
+       "findings.please-fix": 0,
+       "env.set": 0,
+       "box.suspend": 0,
+       "prs.triage": 0,
+       "review.done": 0,
+       "change.land": 0,
+       "smithers.who": 0,
+       "search.flows": 0,
+       "history.backfill": 0,
+       "issues.set": 0,
+       "agent.session.say": 0,
+       "history.bootstrap": 0,
+       "box.services": 0,
+       "runs.rerun": 0,
+       "setup.retry": 0,
+       "runs.seat": 0,
+       "issues.comment.react": 0,
+       "model.compose": 0,
+       "model.edit": 0,
+       "history.parallel": 0,
+       "prs.tab": 0,
+       "secrets.connect.codex": 0,
+       "box.file": 0,
+       "secrets.list": 0,
+       "approvals.open": 0,
+       "model.question": 0,
+       "files.list": 0,
+       "model.new": 0,
+       "box.resume": 0,
+       "search.issues": 0,
+       "wiki.edit": 0,
+       "change.revert": 0,
+       "issues.comment": 0,
+       "approvals.list": 0,
+       "review.reopen": 0,
+       "runs.steps": 0,
+       "repo.tree": 0,
+       "setup.work": 0,
+       "box.terminal": 0,
+       "wiki.new-note": 0,
+       "model.fixture": 0,
+       "search.secrets": 0,
+       "wiki": 0,
+       "box.egress": 0,
+       "model.prompt": 0,
+       "tab.card": 0,
+       "notifications.read": 0,
+       "box.images": 0,
+       "agent.session.new": 0,
+       "runs.resume": 0,
+       "egress.session": 0,
+       "runs.takeover": 0,
+       "model.option": 0,
+       "issues.view": 0,
+       "code.diagnostics": 0,
+       "chat.retry": 0,
+       "flow.run": 0,
+       "flow.plan": 0,
+       "wiki.cloud.new": 0,
+       "prs.create": 0,
+       "flow.create": 0,
+       "appearance.dark-mode": 0.35000000000000003,
+       "wiki.cloud.rename": 0,
+       "issues.reopen": 0,
+       "setup.configure": 0,
+       "repo.create": 0,
+       "review.setup": 0,
+       "cloud.prompt": 0,
+       "feature.prototype": 0,
+       "search.targets": 0,
+       "chat.reload": 0,
+       "none": 0.63,
+       "debug.verbose": 0,
+       "change.view": 0,
+       "repo.choose": 0,
+       "review.request": 0,
+       "issue.flows": 0,
+       "agent.explain": 0,
+       "agent.session.view": 0,
+       "runs.steer": 0,
+       "search.runs": 0,
+       "history.todo": 0,
+       "change.resolve": 0,
+       "auth.prompt": 0,
+       "chat.commands": 0,
+       "agent.session.list": 0,
+       "repo.update": 0,
+       "search.files": 0,
+       "browser.open": 0,
+       "prs.view": 0,
+       "notifications.read-update": 0,
+       "runs.open": 0,
+       "change.facet": 0,
+       "chores.setup": 0,
+       "wiki.open": 0,
+       "model.state": 0,
+       "issues.list": 0,
+       "files.read": 0,
+       "triggers.run": 0,
+       "app.download.prompt": 0,
+       "box.open": 0,
+       "branches.list": 0,
+       "review.since-mine": 0,
+       "repository.register": 0,
+       "runs.handoff": 0,
+       "issue.poc": 0,
+       "history.view": 0,
+       "runs.tools": 0,
+       "runs.release": 0,
+       "account.show": 0,
+       "change.diff": 0,
+       "runs.list": 0,
+       "findings.not-useful": 0,
+       "notifications.tag": 0,
+       "model.remove": 0,
+       "github.reconcile": 0,
+       "runs.signal": 0,
+       "repo.overview": 0,
+       "agent.list": 0,
+       "storage.recovery": 0,
+       "model.assign": 0,
+       "wiki.cloud": 0,
+       "tab.close": 0,
+       "wiki.create": 0,
+       "box.view": 0,
+       "issues.close": 0,
+       "issue.repro": 0,
+       "wiki.history": 0,
+       "triggers.register": 0,
+       "chat.filter": 0,
+       "runs.thinking": 0,
+       "setup.guide": 0,
+       "secrets.scope": 0,
+       "runs.logs": 0,
+       "secrets.set": 0,
+       "secrets.connect": 0,
+       "triggers.resume": 0,
+       "change.checks": 0,
+       "commits.read": 0,
+       "review.unrequest": 0,
+       "model.list": 0,
+       "workspace.rename": 0.01,
+       "card.history.back": 0,
+       "prs.land": 0,
+       "issue.implement": 0,
+       "secrets.revoke": 0,
+       "chat.filter.reset": 0,
+       "notifications.list": 0,
+       "secrets.move": 0,
+       "debug.reset": 0,
+       "wiki.cloud.delete": 0,
+       "model.test": 0,
+       "issues.sync.resolve": 0,
+       "search.changes": 0,
+       "appearance.theme": 0,
+       "setup.run": 0,
+       "secrets.delete": 0,
+       "issues.fix": 0,
+       "history.show": 0,
+       "code.hover": 0,
+       "agent.session.stop": 0,
+       "wiki.sync": 0,
+       "repos.import": 0,
+       "feature.setup": 0,
+       "review.ack": 0,
+       "model.save": 0,
+       "wiki.space": 0,
+       "code.definition": 0,
+       "search.open": 0
+      }
+     }
+    },
+    "model": "typesafe-ai/jev",
+    "rounding": {
+     "probabilityDecimals": 2,
+     "scoreDecimals": 2
+    },
+    "usage": {
+     "inputTokens": 5178,
+     "outputTokens": 1942
+    },
+    "warnings": [],
+    "providerMetadata": {
+     "typesafe": {
+      "confidence": {
+       "command1": 0.62
+      }
+     },
+     "gateway": {
+      "routing": {
+       "originalModelId": "typesafe-ai/jev",
+       "resolvedProvider": "digitalocean",
+       "fallbacksAvailable": [
+        "typesafe-ai"
+       ],
+       "planningReasoning": "System credentials planned for: digitalocean, typesafe-ai. ZDR requested: 2 attempts → 1 ZDR attempts. Pre-ZDR order: digitalocean(system) → typesafe-ai(system). ZDR execution order: typesafe-ai(system)",
+       "canonicalSlug": "typesafe-ai/jev",
+       "finalProvider": "typesafe-ai",
+       "modelAttemptCount": 1,
+       "modelAttempts": [
+        {
+         "canonicalSlug": "typesafe-ai/jev",
+         "success": true,
+         "providerAttemptCount": 1,
+         "providerAttempts": [
+          {
+           "provider": "typesafe-ai",
+           "credentialType": "system",
+           "success": true,
+           "startTime": 1790826314905,
+           "endTime": 1790826315049,
+           "statusCode": 200
+          }
+         ]
+        }
+       ],
+       "totalProviderAttemptCount": 1,
+       "skippedProviderAttempts": [
+        {
+         "credentialType": "system",
+         "provider": "digitalocean",
+         "reason": "zdr_ineligible_model"
+        }
+       ]
+      },
+      "cost": "0.000217476",
+      "marketCost": "0.000217476",
+      "surchargeCost": "0",
+      "gatewayCost": "0.000217476",
+      "inferenceCost": "0.000217476",
+      "inputInferenceCost": "0.000217476",
+      "outputInferenceCost": "0",
+      "generationId": "gen_01M3TS1Z432EFQEK6D2SAK8NQD"
+     }
+    }
+   }
+  },
+  {
+   "id": "two-commands",
+   "message": "open issue 4 and list the open pull requests",
+   "expect": [
+    [
+     "issues.view"
+    ],
+    [
+     "prs.list"
+    ]
+   ],
+   "answer": {
+    "answers": {
+     "command1": {
+      "type": "choice",
+      "choice": "issues.view",
+      "probabilities": {
+       "box.terminal": 0,
+       "card.history.forward": 0,
+       "history.todo": 0,
+       "chat.filter.toggle": 0,
+       "agent.session.view": 0,
+       "wiki.cloud.new": 0,
+       "box.sessions": 0,
+       "agent.list": 0,
+       "review.done": 0,
+       "storage.recovery": 0,
+       "issues.set": 0,
+       "repo.update": 0,
+       "ci.setup": 0,
+       "wiki.open": 0,
+       "change.split": 0,
+       "review.request": 0,
+       "issues.view": 0.44,
+       "secrets.move": 0,
+       "runs.takeover": 0,
+       "runs.open": 0,
+       "change.diff": 0,
+       "triggers.run": 0,
+       "files.add": 0,
+       "runs.signal": 0,
+       "issues.list": 0.02,
+       "prs.triage": 0,
+       "setup.retry": 0,
+       "triggers.list": 0,
+       "files.read": 0,
+       "change.facet": 0,
+       "secrets.revoke": 0,
+       "branches.list": 0,
+       "change.checks": 0,
+       "runs.release": 0,
+       "chat": 0,
+       "model.prompt": 0,
+       "issues.create": 0,
+       "secrets.bind": 0,
+       "code.hover": 0,
+       "runs.rerun": 0,
+       "model.option": 0,
+       "github.mirror.retry-ref": 0,
+       "env.view": 0,
+       "chat.reload": 0,
+       "model.compose": 0,
+       "chat.clear": 0,
+       "files.list": 0,
+       "box.files": 0,
+       "chat.filter.reset": 0,
+       "commits.list": 0,
+       "model.edit": 0,
+       "search.open": 0,
+       "wiki.history": 0,
+       "runs.steps": 0,
+       "wiki.cloud.open": 0,
+       "box.desktop.open": 0,
+       "debug.errors": 0,
+       "issues.comment": 0,
+       "issue.implement": 0,
+       "code.definition": 0,
+       "triggers.register": 0,
+       "history.view": 0,
+       "wiki.backlinks": 0,
+       "search.history": 0,
+       "change.view": 0,
+       "agent.session.new": 0,
+       "findings.not-useful": 0,
+       "model.question": 0,
+       "model.assign": 0,
+       "prs.tab": 0,
+       "secrets.scope": 0,
+       "search.secrets": 0,
+       "prs.land": 0,
+       "model.new": 0,
+       "change.land": 0,
+       "flow.list": 0,
+       "issue.flows": 0,
+       "model.remove": 0,
+       "auth.prompt": 0,
+       "wiki.space": 0,
+       "chat.filter": 0,
+       "setup.guide": 0,
+       "model.test": 0,
+       "wiki": 0,
+       "runs.list": 0,
+       "box.egress": 0,
+       "prs.list": 0.37,
+       "secrets.connections": 0,
+       "findings.please-fix": 0,
+       "github.mirror-sync": 0,
+       "review.unrequest": 0,
+       "setup.discard": 0,
+       "secrets.connect.codex": 0,
+       "review.since-mine": 0,
+       "search.changes": 0,
+       "agent.session.stop": 0,
+       "search.issues": 0.03,
+       "smithers.who": 0,
+       "search.boxes": 0,
+       "change.pins": 0,
+       "model.state": 0,
+       "change.resolve": 0,
+       "model.save": 0,
+       "palette.recent": 0,
+       "agent.session.say": 0,
+       "runs.resume": 0,
+       "history.show": 0,
+       "setup.configure": 0,
+       "history.parallel": 0,
+       "wiki.view": 0,
+       "integrations.admit": 0,
+       "repo.choose": 0.06999999999999999,
+       "history.backfill": 0,
+       "notifications.tag": 0,
+       "issues.close": 0,
+       "wiki.create": 0,
+       "review.ack": 0,
+       "card.history.back": 0,
+       "box.images": 0,
+       "setup.work": 0,
+       "agent.explain": 0,
+       "box.open": 0,
+       "secrets.list": 0,
+       "prs.view": 0,
+       "issues.verify": 0,
+       "box.resume": 0,
+       "workspace.rename": 0,
+       "issues.sync.resolve": 0,
+       "runs.steer": 0,
+       "setup.view": 0,
+       "change.request": 0,
+       "wiki.cloud.delete": 0,
+       "model.fixture": 0,
+       "egress.session": 0,
+       "review.reopen": 0,
+       "flow.plan": 0,
+       "commits.read": 0,
+       "tab.card": 0,
+       "feature.setup": 0,
+       "notifications.list": 0,
+       "box.view": 0,
+       "issues.fix": 0,
+       "search.runs": 0,
+       "issue.repro": 0,
+       "wiki.new-note": 0,
+       "runs.tools": 0,
+       "review.setup": 0,
+       "app.download.prompt": 0,
+       "chat.commands": 0,
+       "repository.register": 0,
+       "egress.allow": 0,
+       "agent.session.list": 0,
+       "env.set": 0,
+       "files.open-diff": 0,
+       "debug.reset": 0,
+       "wiki.cloud": 0,
+       "search.targets": 0,
+       "runs.events": 0,
+       "prs.create": 0,
+       "prs.review": 0,
+       "box.facet": 0,
+       "input.mode": 0,
+       "wiki.edit": 0,
+       "chat.filter.grep": 0,
+       "search.files": 0,
+       "search.wiki": 0,
+       "runs.handoff": 0,
+       "feature.prototype": 0,
+       "box.suspend": 0,
+       "wiki.sync": 0,
+       "history.bootstrap": 0,
+       "box.list": 0,
+       "search.flows": 0,
+       "wiki.graph": 0,
+       "account.show": 0,
+       "repo.overview": 0,
+       "model.ask": 0,
+       "flow.create": 0,
+       "runs.thinking": 0,
+       "repos.import": 0,
+       "integrations.list": 0,
+       "chat.retry": 0,
+       "issues.comment.react": 0,
+       "runs.attention": 0,
+       "issues.reopen": 0.02,
+       "browser.open": 0,
+       "runs.logs": 0,
+       "model.recall": 0,
+       "appearance.theme": 0,
+       "change.revert": 0,
+       "connect": 0,
+       "github.reconcile": 0,
+       "issue.add-flow": 0,
+       "setup.run": 0,
+       "appearance.dark-mode": 0,
+       "repos.import.retry": 0,
+       "approvals.open": 0,
+       "repo.tree": 0,
+       "code.diagnostics": 0,
+       "env.remove-token": 0,
+       "issue.poc": 0,
+       "box.file": 0,
+       "triggers.resume": 0,
+       "github.app": 0,
+       "wiki.cloud.rename": 0,
+       "issues.setup": 0,
+       "secrets.set": 0,
+       "chores.setup": 0,
+       "runs.seat": 0,
+       "none": 0.05,
+       "cloud.prompt": 0,
+       "debug.verbose": 0,
+       "tab.close": 0,
+       "secrets.connect": 0,
+       "approvals.list": 0,
+       "notifications.read": 0,
+       "repo.create": 0,
+       "secrets.delete": 0,
+       "model.show": 0,
+       "flow.run": 0,
+       "notifications.read-update": 0,
+       "model.list": 0,
+       "box.services": 0
+      }
+     }
+    },
+    "model": "typesafe-ai/jev",
+    "rounding": {
+     "probabilityDecimals": 2,
+     "scoreDecimals": 2
+    },
+    "usage": {
+     "inputTokens": 5182,
+     "outputTokens": 1943
+    },
+    "warnings": [],
+    "providerMetadata": {
+     "typesafe": {
+      "confidence": {
+       "command1": 0.42
+      }
+     },
+     "gateway": {
+      "routing": {
+       "originalModelId": "typesafe-ai/jev",
+       "resolvedProvider": "digitalocean",
+       "fallbacksAvailable": [
+        "typesafe-ai"
+       ],
+       "planningReasoning": "System credentials planned for: digitalocean, typesafe-ai. ZDR requested: 2 attempts → 1 ZDR attempts. Pre-ZDR order: digitalocean(system) → typesafe-ai(system). ZDR execution order: typesafe-ai(system)",
+       "canonicalSlug": "typesafe-ai/jev",
+       "finalProvider": "typesafe-ai",
+       "modelAttemptCount": 1,
+       "modelAttempts": [
+        {
+         "canonicalSlug": "typesafe-ai/jev",
+         "success": true,
+         "providerAttemptCount": 1,
+         "providerAttempts": [
+          {
+           "provider": "typesafe-ai",
+           "credentialType": "system",
+           "success": true,
+           "startTime": 1790826315203,
+           "endTime": 1790826315581,
+           "statusCode": 200
+          }
+         ]
+        }
+       ],
+       "totalProviderAttemptCount": 1,
+       "skippedProviderAttempts": [
+        {
+         "credentialType": "system",
+         "provider": "digitalocean",
+         "reason": "zdr_ineligible_model"
+        }
+       ]
+      },
+      "cost": "0.000217644",
+      "marketCost": "0.000217644",
+      "surchargeCost": "0",
+      "gatewayCost": "0.000217644",
+      "inferenceCost": "0.000217644",
+      "inputInferenceCost": "0.000217644",
+      "outputInferenceCost": "0",
+      "generationId": "gen_01M3TS1ZDG3AXWXK1GSX4TPHH3"
+     }
+    }
+   }
+  },
+  {
+   "id": "small-talk",
+   "message": "hi",
+   "expect": [],
+   "answer": {
+    "answers": {
+     "command1": {
+      "type": "choice",
+      "choice": "none",
+      "probabilities": {
+       "prs.review": 0,
+       "notifications.tag": 0,
+       "wiki.edit": 0,
+       "input.mode": 0,
+       "ci.setup": 0,
+       "issues.sync.resolve": 0,
+       "appearance.theme": 0,
+       "auth.prompt": 0,
+       "wiki": 0,
+       "palette.recent": 0,
+       "runs.list": 0,
+       "issues.create": 0,
+       "chat.reload": 0,
+       "search.changes": 0,
+       "history.parallel": 0,
+       "chat.commands": 0,
+       "chores.setup": 0,
+       "github.reconcile": 0,
+       "box.files": 0,
+       "change.resolve": 0,
+       "app.download.prompt": 0,
+       "branches.list": 0,
+       "secrets.bind": 0,
+       "issue.repro": 0,
+       "box.resume": 0,
+       "issue.flows": 0,
+       "model.assign": 0,
+       "files.list": 0,
+       "box.images": 0,
+       "change.view": 0,
+       "repo.update": 0,
+       "box.egress": 0,
+       "wiki.cloud.rename": 0,
+       "findings.please-fix": 0,
+       "github.mirror.retry-ref": 0,
+       "model.compose": 0,
+       "runs.attention": 0,
+       "repos.import.retry": 0,
+       "prs.triage": 0,
+       "history.backfill": 0,
+       "wiki.space": 0,
+       "review.since-mine": 0,
+       "review.unrequest": 0,
+       "files.read": 0,
+       "search.wiki": 0,
+       "agent.explain": 0,
+       "notifications.list": 0,
+       "model.edit": 0,
+       "issue.add-flow": 0,
+       "model.prompt": 0,
+       "flow.create": 0,
+       "integrations.list": 0,
+       "chat.filter.reset": 0,
+       "notifications.read": 0,
+       "history.view": 0,
+       "commits.read": 0,
+       "box.file": 0,
+       "prs.create": 0,
+       "issues.fix": 0,
+       "runs.rerun": 0,
+       "repo.create": 0,
+       "secrets.connect": 0,
+       "review.request": 0,
+       "search.runs": 0,
+       "code.diagnostics": 0,
+       "search.secrets": 0,
+       "change.land": 0,
+       "model.state": 0,
+       "box.facet": 0,
+       "runs.takeover": 0,
+       "wiki.cloud.open": 0,
+       "chat.clear": 0,
+       "issues.comment": 0,
+       "integrations.admit": 0,
+       "runs.signal": 0,
+       "issues.setup": 0,
+       "triggers.register": 0,
+       "repo.tree": 0,
+       "wiki.sync": 0,
+       "agent.session.view": 0,
+       "smithers.who": 0,
+       "review.done": 0,
+       "runs.open": 0,
+       "workspace.rename": 0,
+       "change.request": 0,
+       "change.facet": 0,
+       "issues.set": 0,
+       "box.view": 0,
+       "box.terminal": 0,
+       "change.pins": 0,
+       "model.show": 0,
+       "wiki.new-note": 0,
+       "account.show": 0,
+       "box.suspend": 0,
+       "wiki.create": 0,
+       "setup.configure": 0,
+       "egress.session": 0,
+       "secrets.set": 0,
+       "chat.filter.toggle": 0,
+       "storage.recovery": 0,
+       "setup.discard": 0,
+       "runs.logs": 0,
+       "wiki.cloud": 0,
+       "wiki.cloud.new": 0,
+       "browser.open": 0,
+       "setup.guide": 0,
+       "model.list": 0,
+       "approvals.open": 0,
+       "wiki.cloud.delete": 0,
+       "flow.run": 0,
+       "issues.list": 0,
+       "setup.work": 0,
+       "search.history": 0,
+       "model.ask": 0,
+       "triggers.resume": 0,
+       "debug.verbose": 0,
+       "runs.steer": 0,
+       "issue.implement": 0,
+       "chat.filter": 0,
+       "change.split": 0,
+       "triggers.run": 0,
+       "env.set": 0,
+       "box.open": 0,
+       "agent.session.stop": 0,
+       "issues.comment.react": 0,
+       "search.flows": 0,
+       "wiki.open": 0,
+       "search.open": 0,
+       "secrets.revoke": 0,
+       "box.sessions": 0,
+       "runs.thinking": 0,
+       "model.question": 0,
+       "runs.steps": 0,
+       "runs.handoff": 0,
+       "review.reopen": 0,
+       "runs.release": 0,
+       "model.remove": 0,
+       "secrets.connect.codex": 0,
+       "repo.overview": 0,
+       "review.ack": 0,
+       "prs.view": 0,
+       "setup.run": 0,
+       "chat.retry": 0,
+       "flow.plan": 0,
+       "card.history.back": 0,
+       "agent.session.new": 0,
+       "chat.filter.grep": 0,
+       "change.diff": 0,
+       "issues.view": 0,
+       "runs.resume": 0,
+       "box.list": 0,
+       "search.boxes": 0,
+       "flow.list": 0,
+       "prs.land": 0,
+       "model.test": 0,
+       "search.files": 0,
+       "appearance.dark-mode": 0,
+       "egress.allow": 0,
+       "model.save": 0,
+       "agent.list": 0,
+       "findings.not-useful": 0,
+       "prs.list": 0,
+       "repos.import": 0,
+       "model.recall": 0,
+       "repo.choose": 0,
+       "issues.reopen": 0,
+       "review.setup": 0,
+       "history.todo": 0,
+       "env.view": 0,
+       "secrets.move": 0,
+       "wiki.view": 0,
+       "triggers.list": 0,
+       "issue.poc": 0,
+       "notifications.read-update": 0,
+       "secrets.scope": 0,
+       "files.open-diff": 0,
+       "tab.card": 0,
+       "box.services": 0,
+       "none": 0.99,
+       "search.issues": 0,
+       "code.hover": 0,
+       "cloud.prompt": 0,
+       "runs.seat": 0,
+       "debug.errors": 0,
+       "wiki.backlinks": 0,
+       "tab.close": 0,
+       "repository.register": 0,
+       "issues.close": 0,
+       "debug.reset": 0,
+       "prs.tab": 0,
+       "change.checks": 0,
+       "runs.events": 0,
+       "approvals.list": 0,
+       "issues.verify": 0,
+       "runs.tools": 0,
+       "model.new": 0,
+       "secrets.list": 0,
+       "chat": 0.01,
+       "github.mirror-sync": 0,
+       "agent.session.say": 0,
+       "setup.view": 0,
+       "feature.prototype": 0,
+       "github.app": 0,
+       "box.desktop.open": 0,
+       "code.definition": 0,
+       "card.history.forward": 0,
+       "agent.session.list": 0,
+       "model.fixture": 0,
+       "connect": 0,
+       "secrets.delete": 0,
+       "setup.retry": 0,
+       "change.revert": 0,
+       "feature.setup": 0,
+       "wiki.history": 0,
+       "commits.list": 0,
+       "env.remove-token": 0,
+       "model.option": 0,
+       "search.targets": 0,
+       "history.show": 0,
+       "history.bootstrap": 0,
+       "wiki.graph": 0,
+       "secrets.connections": 0,
+       "files.add": 0
+      }
+     }
+    },
+    "model": "typesafe-ai/jev",
+    "rounding": {
+     "probabilityDecimals": 2,
+     "scoreDecimals": 2
+    },
+    "usage": {
+     "inputTokens": 5173,
+     "outputTokens": 1942
+    },
+    "warnings": [],
+    "providerMetadata": {
+     "typesafe": {
+      "confidence": {
+       "command1": 0.98
+      }
+     },
+     "gateway": {
+      "routing": {
+       "originalModelId": "typesafe-ai/jev",
+       "resolvedProvider": "digitalocean",
+       "fallbacksAvailable": [
+        "typesafe-ai"
+       ],
+       "planningReasoning": "System credentials planned for: digitalocean, typesafe-ai. ZDR requested: 2 attempts → 1 ZDR attempts. Pre-ZDR order: digitalocean(system) → typesafe-ai(system). ZDR execution order: typesafe-ai(system)",
+       "canonicalSlug": "typesafe-ai/jev",
+       "finalProvider": "typesafe-ai",
+       "modelAttemptCount": 1,
+       "modelAttempts": [
+        {
+         "canonicalSlug": "typesafe-ai/jev",
+         "success": true,
+         "providerAttemptCount": 1,
+         "providerAttempts": [
+          {
+           "provider": "typesafe-ai",
+           "credentialType": "system",
+           "success": true,
+           "startTime": 1790826315692,
+           "endTime": 1790826315861,
+           "statusCode": 200
+          }
+         ]
+        }
+       ],
+       "totalProviderAttemptCount": 1,
+       "skippedProviderAttempts": [
+        {
+         "credentialType": "system",
+         "provider": "digitalocean",
+         "reason": "zdr_ineligible_model"
+        }
+       ]
+      },
+      "cost": "0.000217266",
+      "marketCost": "0.000217266",
+      "surchargeCost": "0",
+      "gatewayCost": "0.000217266",
+      "inferenceCost": "0.000217266",
+      "inputInferenceCost": "0.000217266",
+      "outputInferenceCost": "0",
+      "generationId": "gen_01M3TS1ZWXYTHTG2FKAKA2S0T6"
+     }
+    }
+   }
+  },
+  {
+   "id": "list-repos",
+   "message": "list my repos",
+   "expect": [
+    [
+     "repo.choose",
+     "repos.import"
+    ]
+   ],
+   "answer": {
+    "answers": {
+     "command1": {
+      "type": "choice",
+      "choice": "none",
+      "probabilities": {
+       "runs.signal": 0,
+       "feature.setup": 0,
+       "appearance.dark-mode": 0,
+       "review.request": 0,
+       "secrets.revoke": 0,
+       "notifications.read": 0,
+       "prs.create": 0,
+       "code.hover": 0,
+       "wiki.space": 0,
+       "secrets.connections": 0,
+       "review.unrequest": 0,
+       "search.wiki": 0,
+       "runs.release": 0,
+       "model.assign": 0,
+       "runs.takeover": 0,
+       "search.secrets": 0,
+       "wiki.create": 0,
+       "agent.session.new": 0,
+       "box.open": 0,
+       "ci.setup": 0,
+       "model.recall": 0,
+       "history.todo": 0,
+       "connect": 0,
+       "flow.run": 0,
+       "setup.retry": 0,
+       "search.issues": 0,
+       "review.ack": 0,
+       "search.flows": 0,
+       "notifications.tag": 0,
+       "tab.card": 0,
+       "change.land": 0,
+       "secrets.list": 0,
+       "secrets.set": 0,
+       "issues.fix": 0,
+       "model.state": 0,
+       "triggers.resume": 0,
+       "chat.reload": 0,
+       "model.prompt": 0,
+       "code.definition": 0,
+       "chores.setup": 0,
+       "box.desktop.open": 0,
+       "setup.configure": 0,
+       "issue.implement": 0,
+       "debug.reset": 0,
+       "search.files": 0,
+       "change.facet": 0,
+       "appearance.theme": 0,
+       "runs.tools": 0,
+       "env.remove-token": 0,
+       "feature.prototype": 0,
+       "issue.poc": 0,
+       "search.open": 0,
+       "chat.clear": 0,
+       "card.history.forward": 0,
+       "chat.filter": 0,
+       "model.ask": 0,
+       "issues.close": 0,
+       "box.list": 0.04,
+       "model.remove": 0,
+       "model.show": 0,
+       "browser.open": 0,
+       "search.runs": 0,
+       "review.done": 0,
+       "wiki.cloud.open": 0,
+       "setup.discard": 0,
+       "flow.list": 0,
+       "wiki.graph": 0,
+       "wiki.cloud.rename": 0,
+       "box.suspend": 0,
+       "repository.register": 0,
+       "files.open-diff": 0,
+       "agent.explain": 0,
+       "box.services": 0,
+       "github.mirror.retry-ref": 0,
+       "flow.create": 0,
+       "wiki.open": 0,
+       "notifications.read-update": 0,
+       "issues.list": 0.02,
+       "github.app": 0,
+       "triggers.register": 0,
+       "auth.prompt": 0,
+       "integrations.admit": 0,
+       "agent.session.list": 0,
+       "review.since-mine": 0,
+       "issues.view": 0,
+       "issues.set": 0,
+       "runs.steer": 0,
+       "change.revert": 0,
+       "files.list": 0,
+       "model.new": 0,
+       "search.targets": 0,
+       "commits.read": 0,
+       "findings.please-fix": 0,
+       "box.facet": 0,
+       "runs.resume": 0,
+       "triggers.run": 0,
+       "chat": 0,
+       "agent.session.view": 0,
+       "box.file": 0,
+       "flow.plan": 0,
+       "chat.filter.reset": 0,
+       "wiki.sync": 0,
+       "issues.verify": 0,
+       "integrations.list": 0,
+       "prs.land": 0,
+       "github.reconcile": 0,
+       "agent.list": 0.02,
+       "runs.logs": 0,
+       "storage.recovery": 0,
+       "change.split": 0,
+       "issues.sync.resolve": 0,
+       "issues.reopen": 0,
+       "box.terminal": 0,
+       "env.view": 0,
+       "runs.list": 0,
+       "files.read": 0,
+       "repo.overview": 0.02,
+       "tab.close": 0,
+       "wiki.edit": 0,
+       "debug.verbose": 0,
+       "setup.guide": 0,
+       "issues.create": 0,
+       "egress.allow": 0,
+       "approvals.open": 0,
+       "wiki.cloud.delete": 0,
+       "secrets.scope": 0,
+       "card.history.back": 0,
+       "env.set": 0,
+       "box.view": 0,
+       "agent.session.stop": 0,
+       "runs.attention": 0,
+       "setup.view": 0,
+       "runs.rerun": 0,
+       "wiki.cloud.new": 0,
+       "app.download.prompt": 0,
+       "chat.commands": 0,
+       "chat.filter.grep": 0,
+       "secrets.connect": 0,
+       "wiki.backlinks": 0,
+       "repo.update": 0,
+       "box.files": 0,
+       "repos.import.retry": 0,
+       "smithers.who": 0,
+       "change.pins": 0,
+       "issues.comment.react": 0,
+       "issue.flows": 0,
+       "repo.create": 0.02,
+       "review.reopen": 0,
+       "change.request": 0,
+       "runs.events": 0,
+       "workspace.rename": 0,
+       "issue.repro": 0,
+       "model.test": 0,
+       "input.mode": 0,
+       "notifications.list": 0,
+       "runs.steps": 0,
+       "issue.add-flow": 0,
+       "wiki.history": 0,
+       "model.list": 0.02,
+       "box.resume": 0,
+       "history.backfill": 0,
+       "runs.thinking": 0,
+       "wiki.cloud": 0,
+       "secrets.move": 0,
+       "egress.session": 0,
+       "cloud.prompt": 0,
+       "model.fixture": 0,
+       "model.save": 0,
+       "approvals.list": 0,
+       "prs.view": 0,
+       "setup.run": 0,
+       "secrets.delete": 0,
+       "search.history": 0,
+       "issues.comment": 0,
+       "model.compose": 0,
+       "box.egress": 0,
+       "prs.triage": 0,
+       "history.show": 0,
+       "repo.tree": 0,
+       "debug.errors": 0,
+       "change.checks": 0,
+       "palette.recent": 0,
+       "runs.handoff": 0,
+       "commits.list": 0,
+       "wiki.view": 0,
+       "box.images": 0,
+       "change.diff": 0,
+       "triggers.list": 0,
+       "prs.review": 0,
+       "review.setup": 0,
+       "change.resolve": 0,
+       "model.question": 0,
+       "history.bootstrap": 0,
+       "secrets.bind": 0,
+       "agent.session.say": 0,
+       "history.parallel": 0,
+       "secrets.connect.codex": 0,
+       "search.boxes": 0,
+       "model.option": 0,
+       "findings.not-useful": 0,
+       "repo.choose": 0.28,
+       "code.diagnostics": 0,
+       "runs.open": 0,
+       "prs.tab": 0,
+       "setup.work": 0,
+       "history.view": 0,
+       "chat.filter.toggle": 0,
+       "none": 0.47000000000000003,
+       "prs.list": 0.02,
+       "account.show": 0.04,
+       "repos.import": 0.03,
+       "files.add": 0,
+       "wiki.new-note": 0,
+       "change.view": 0,
+       "branches.list": 0.02,
+       "issues.setup": 0,
+       "wiki": 0,
+       "chat.retry": 0,
+       "search.changes": 0,
+       "runs.seat": 0,
+       "box.sessions": 0,
+       "model.edit": 0,
+       "github.mirror-sync": 0
+      }
+     }
+    },
+    "model": "typesafe-ai/jev",
+    "rounding": {
+     "probabilityDecimals": 2,
+     "scoreDecimals": 2
+    },
+    "usage": {
+     "inputTokens": 5175,
+     "outputTokens": 1942
+    },
+    "warnings": [],
+    "providerMetadata": {
+     "typesafe": {
+      "confidence": {
+       "command1": 0.46
+      }
+     },
+     "gateway": {
+      "routing": {
+       "originalModelId": "typesafe-ai/jev",
+       "resolvedProvider": "digitalocean",
+       "fallbacksAvailable": [
+        "typesafe-ai"
+       ],
+       "planningReasoning": "System credentials planned for: digitalocean, typesafe-ai. ZDR requested: 2 attempts → 1 ZDR attempts. Pre-ZDR order: digitalocean(system) → typesafe-ai(system). ZDR execution order: typesafe-ai(system)",
+       "canonicalSlug": "typesafe-ai/jev",
+       "finalProvider": "typesafe-ai",
+       "modelAttemptCount": 1,
+       "modelAttempts": [
+        {
+         "canonicalSlug": "typesafe-ai/jev",
+         "success": true,
+         "providerAttemptCount": 1,
+         "providerAttempts": [
+          {
+           "provider": "typesafe-ai",
+           "credentialType": "system",
+           "success": true,
+           "startTime": 1790826315974,
+           "endTime": 1790826316158,
+           "statusCode": 200
+          }
+         ]
+        }
+       ],
+       "totalProviderAttemptCount": 1,
+       "skippedProviderAttempts": [
+        {
+         "credentialType": "system",
+         "provider": "digitalocean",
+         "reason": "zdr_ineligible_model"
+        }
+       ]
+      },
+      "cost": "0.00021735",
+      "marketCost": "0.00021735",
+      "surchargeCost": "0",
+      "gatewayCost": "0.00021735",
+      "inferenceCost": "0.00021735",
+      "inputInferenceCost": "0.00021735",
+      "outputInferenceCost": "0",
+      "generationId": "gen_01M3TS2057472QRCP1ASE9AWSP"
+     }
+    }
+   }
+  }
+ ]
+}

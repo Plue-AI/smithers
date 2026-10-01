@@ -58,103 +58,6 @@ export interface AgentToolSpec {
   readonly parameters: Record<string, unknown>
 }
 
-/*
- * The command catalog a turn carries as DATA.
- *
- * The decision model in front of the chat upstream (apps/server frontDoor.ts)
- * has to choose among the commands this client can run right now. The system
- * prompt already names them, but a prompt is prose: parsing a catalog back out
- * of it would be a second, weaker contract that drifts the first time the
- * prompt's catalog stage degrades. So the same `{ name, summary }` list the
- * recommender posts to /api/recommend rides the turn body, and the front door
- * reads data.
- *
- * The bounds are the recommender's, spelled once here and re-exported from
- * apps/server recommend.ts, so both routes refuse the same oversized list.
- */
-/**
- * The most commands a turn (or a recommendation) may offer.
- *
- * @since 1.0.0
- * @category constants
- */
-export const AGENT_TURN_COMMANDS_MAX = 300
-
-/**
- * The prefix on the tool-call id the serving side's front door
- * (apps/server frontDoor.ts) mints when it answers a turn by running a
- * command instead of spending the chat upstream.
- *
- * It rides through the client's tool loop untouched, which is how the Worker
- * recognises the continuation leg as its own without any server-side state —
- * and how the client knows that leg's act line is the turn's whole answer,
- * so a `done` with no text is the ordinary end of a worked turn rather than
- * an empty response. Spelled here so both halves read the same constant.
- *
- * @since 1.0.0
- * @category constants
- */
-export const AGENT_TURN_FRONT_DOOR_CALL_PREFIX = "frontdoor-"
-
-/**
- * The most characters a command name may carry.
- *
- * @since 1.0.0
- * @category constants
- */
-export const AGENT_TURN_COMMAND_NAME_MAX_CHARS = 100
-
-/**
- * The most characters a command's one-line summary may carry.
- *
- * @since 1.0.0
- * @category constants
- */
-export const AGENT_TURN_COMMAND_SUMMARY_MAX_CHARS = 300
-
-/**
- * Validates one offered command at the RPC boundary.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const AgentTurnCommandSchema = z.object({
-  name: z.string().min(1).max(AGENT_TURN_COMMAND_NAME_MAX_CHARS),
-  summary: z.string().max(AGENT_TURN_COMMAND_SUMMARY_MAX_CHARS)
-})
-
-/**
- * Validates the offered command list at the RPC boundary.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const AgentTurnCommandsSchema = z.array(AgentTurnCommandSchema).max(AGENT_TURN_COMMANDS_MAX)
-
-/**
- * One command a turn offers the decision model: the registry name and the
- * one-line summary the slash menu shows.
- *
- * @since 1.0.0
- * @category models
- */
-export type AgentTurnCommand = z.infer<typeof AgentTurnCommandSchema>
-
-/**
- * The offered command list, read LENIENTLY: a body without it, or with a list
- * this contract does not allow, answers `undefined` — never a refusal. The
- * catalog only decides whether the front door may run; a client older than
- * this field, or one that sent a malformed list, still gets its turn from the
- * chat upstream exactly as before.
- *
- * @since 1.0.0
- * @category conversions
- */
-export const readAgentTurnCommands = (value: unknown): ReadonlyArray<AgentTurnCommand> | undefined => {
-  const parsed = AgentTurnCommandsSchema.safeParse(value)
-  return parsed.success ? parsed.data : undefined
-}
-
 /**
  * The start agent turn request contract shared by the host and its clients.
  *
@@ -199,26 +102,12 @@ export interface StartAgentTurnRequest {
    */
   readonly role?: AgentRoleId | CloudRoleId
   /**
-   * Every command the user can invoke right now, as data — the same
-   * `{ name, summary }` list the client posts to /api/recommend. The serving
-   * side's front door (apps/server frontDoor.ts) offers these to the decision
-   * model as the options of one choice question; a body without them simply
-   * goes to the chat upstream, as every body did before this field existed.
-   */
-  readonly commands?: ReadonlyArray<AgentTurnCommand>
-  /**
    * The generation model a SEALED side turn asks to be answered on (seat
    * `explainer`, ConfiguredModel.ts). Unlike `tier` and `role` this is not a
    * hint: a serving side that cannot serve the binding refuses the turn, and
    * a turn carrying it plus tools is `tools_not_supported`. Never a fallback.
    */
   readonly model?: ModelBinding
-  /**
-   * The decision model the front door reads this turn's message with (seat
-   * `front-door`). Not a hint either: a binding the serving side does not
-   * allow is `request_invalid`; absent leaves its default to decide.
-   */
-  readonly decisionModel?: ModelBinding
 }
 
 /**

@@ -12,12 +12,21 @@
 import type { AgentToolSpec } from "@smthrs/rpc/NativeAgent"
 import { agentFaultNote } from "@smthrs/rpc/RefusalCopy"
 import { MAX_TOOL_RESULT_BYTES, utf8Bytes } from "../state/AgentTurnPolicy"
+import { selectFailureToolResult } from "../state/CommandSelection"
 import { canonicalCommandName } from "@smthrs/ui/command-line"
 import type { CommandRegistry } from "./Commands"
 import type { CatalogItem, CommandState, FlowEntry } from "./registry"
 import { disclosedToAgent, itemOf } from "./registry"
 
 export type { AgentToolSpec }
+
+/**
+ * The list action's query door (state/CommandSelection.ts): the decision
+ * model's pick among the commands this conversation has not disclosed yet,
+ * recorded on the turn's user message before it answers. Rejects with the
+ * selection's typed failure.
+ */
+export type AgentCommandDiscovery = (query: string, turnId: string | undefined) => Promise<ReadonlyArray<string>>
 
 export interface AgentToolCall {
   readonly name: string
@@ -117,13 +126,18 @@ export const commandsToolSpec: AgentToolSpec = {
   name: "commands",
   description: "action \"list\" returns {state, commands}: the live app state (surface, whether work is " +
     "connected, whether a turn is streaming) and every command callable right now; an optional " +
-    "\"namespace\" narrows it to one namespace with every command's args. " +
+    "\"namespace\" narrows it to one namespace with every command's args, and an optional \"query\" " +
+    "(the act you need, in words) returns the few commands that do it with their args. " +
     "action \"execute\" runs one command by name through the same code path the UI buttons " +
     "and slash commands use.",
   parameters: {
     type: "object",
     properties: {
       action: { type: "string", enum: ["list", "execute"], description: "list commands or execute one." },
+      query: {
+        type: "string",
+        description: "For list: the act you need, in words (\"switch to dark mode\"); answers the matching commands not already in your prompt."
+      },
       namespace: {
         type: "string",
         description: "For list: only the commands in this namespace, the part of the name before the first dot (repo, search, target)."
@@ -149,8 +163,7 @@ const SUMMARIES_OMITTED_NOTE = "summaries and args omitted to fit the tool-resul
  * The list must reach the model whole. Both tool loops cut every result at
  * MAX_TOOL_RESULT_BYTES; the full registry rendered with args measured 20 to
  * 23 KiB, so the model got a 16 KiB prefix that did not parse and lost the
- * tail namespaces (search.*, repo.*, target.*) — its only discovery channel
- * once the prompt is in stage 3. Render the fullest shape that fits, and when
+ * tail namespaces (search.*, repo.*, target.*). Render the fullest shape that fits, and when
  * fields go, the note says how to get them back.
  */
 const listResult = (state: CommandState, catalog: ReturnType<typeof agentVisibleCatalog>): string => {
@@ -173,10 +186,11 @@ const listResult = (state: CommandState, catalog: ReturnType<typeof agentVisible
  */
 export const executeAgentToolCall = async (
   registry: CommandRegistry,
-  call: AgentToolCall
+  call: AgentToolCall,
+  discover?: AgentCommandDiscovery
 ): Promise<string> => {
   if (call.name !== commandsToolSpec.name) return `unknown-tool: ${call.name}`
-  let input: { readonly action?: unknown; readonly name?: unknown; readonly args?: unknown; readonly namespace?: unknown }
+  let input: { readonly action?: unknown; readonly name?: unknown; readonly args?: unknown; readonly namespace?: unknown; readonly query?: unknown }
   try {
     input = JSON.parse(call.arguments) as typeof input
   } catch {
@@ -184,6 +198,17 @@ export const executeAgentToolCall = async (
   }
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return "failed: the commands tool arguments must be an object"
+  }
+  if (input.action === "list" && typeof input.query === "string" && input.query.trim() !== "") {
+    if (discover === undefined) return "failed: the list action's query is not available in this conversation; list a namespace instead"
+    let names: ReadonlyArray<string>
+    try {
+      names = await discover(input.query.trim(), call.httpCall?.turnId)
+    } catch (error) {
+      return selectFailureToolResult(error)
+    }
+    const catalog = agentVisibleCatalog(registry.callable())
+    return listResult(registry.state(), names.flatMap(name => catalog.filter(command => command.name === name)))
   }
   if (input.action === "list") {
     const namespace = typeof input.namespace === "string" ? canonicalCommandName(input.namespace).replace(/\.$/u, "") : ""

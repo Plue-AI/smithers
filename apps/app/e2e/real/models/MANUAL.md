@@ -266,26 +266,19 @@ serves all three.
    `Remove` on `garbled`. See: the row is gone and `Explainer` reads
    `Default`. `/model.assign explainer default` hands a seat back without
    removing the model. `loopback-chat` is still listed; step 12 tests it.
-8. Run `/model.assign front-door loopback-jev`.
-   See: `This host has no Front door seat.`
+### Recommendations (cloud host, signed in)
 
-### Front door and Recommendations (cloud host, signed in)
-
-Not run for this script: both need the deployed Worker and a signed-in
+Not run for this script: it needs the deployed backend and a signed-in
 account. The automated proof is `src/mainview/state/controller/models.test.ts`
 and the Worker's route tests.
 
 1. On the cloud app, sign in and run `/model.list`, `Maximize card`.
-   See: three seat rows, `Explainer`, `Front door`, `Recommendations`, and a
-   host row `typesafe-ai-jev` `decision`.
-2. In `Front door` pick `typesafe-ai-jev`. Open DevTools, Network. Send any
-   chat message. Open the turn request.
-   See: the payload carries `"decisionModel":{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`.
-   With `Default` the key is absent.
-3. In `Recommendations` pick `typesafe-ai-jev`. Do anything that refreshes the
+   See: two seat rows, `Explainer` and `Recommendations`, and a host row
+   `typesafe-ai-jev` `decision`.
+2. In `Recommendations` pick `typesafe-ai-jev`. Do anything that refreshes the
    next-step pills. Open `POST /api/recommend`.
-   See: the payload carries the same object under `"model"`.
-4. A decision model whose id is not `typesafe-ai/jev` on a built-in credential
+   See: the payload carries `"model":{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`.
+3. A decision model whose id is not `typesafe-ai/jev` on a built-in credential
    is refused: the request answers 400 `request_invalid`. It never falls back.
 
 ## 12. Rotate, remove, and use your own endpoint

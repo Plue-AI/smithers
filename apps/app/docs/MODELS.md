@@ -57,8 +57,9 @@ file `{credential: "CEREBRAS_API_KEY", baseUrl: "https://attacker"}`. Therefore:
 R11 adds in-app key enrollment while preserving these endpoint restrictions.
 
 ## R5. Seats: only seats something reads
-`MODEL_SEATS`, closed, three rows: `explainer` (generation; local + cloud),
-`front-door` (decision; cloud), `recommend` (decision; cloud). A seat nothing reads is a
+`MODEL_SEATS`, closed: `chat` (generation; local), `explainer` (generation; local + cloud),
+`recommend` (decision; cloud). The `front-door` seat retired with the Worker front door (#3313):
+chat command selection always asks Jev through `POST /api/commands/select`. A seat nothing reads is a
 failed feature and MINIMAL TEXT forbids a row whose value is "not wired". The six agent roles are not seats: nothing reads them since the local backend was retired. `DECISION_MODEL_IDS = ["typesafe-ai/jev"]`.
 
 ## R6. Consumers wired
@@ -73,8 +74,8 @@ failed feature and MINIMAL TEXT forbids a row whose value is "not wired". The si
   text. Partial answers on failure use the same rule; output beyond the bound
   fails `invalid · protocol`. Worker answers use that same sanitizer before
   checking for empty text or building frames. Test samples use it too.
-- `front-door` and `recommend`: the client sends the assigned decision model id; the
-  Worker validates against `DECISION_MODEL_IDS`; an id off the list is `request_invalid`
+- `recommend`: the client sends the assigned decision model id; the
+  server validates against `DECISION_MODEL_IDS`; an id off the list is `request_invalid`
   400, never a silent default; absent = today's default.
 - `/api/jev`, `/api/model/stream`: untouched. `keys.byok` is deleted; e2e scenarios do
   NOT use it as a capability.

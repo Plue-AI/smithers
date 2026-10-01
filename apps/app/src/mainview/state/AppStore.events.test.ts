@@ -610,42 +610,42 @@ describe("the live store's authoritative event path", () => {
     expect(restored.session()).not.toHaveProperty("librarianLaunches")
   })
 
-  test("version 9 upgrade rotates a store whose journal holds a front-door turn", async () => {
+  test("version 30 upgrade rotates a store holding the retired front door's answer mark and seat", async () => {
     /*
-     * A front-door leg (apps/server frontDoor.ts) now projects differently:
-     * the minted call id marks the turn as worked (`receivedText`) and its
-     * act row as the turn's answer. Version 9 wrote those same events the
-     * other way, so replaying them under this build would mismatch the saved
-     * state hash and refuse the boot. The version moves instead, and the
-     * rotation re-seeds from the rows already on disk.
+     * Version 31 deleted the front door (#3313): `message.tool.executed` lost
+     * `answersTurn`, messages lost the field, and the `front-door` seat left
+     * SeatId. A version 30 store can hold both on disk. The version moves, the
+     * rotation re-seeds from the rows, and the boot verifies.
      */
     const storage = memoryStorage(), store = await open(storage)
-    const token = "b".repeat(64)
-    await store.dispatch({ type: "http.turn.started", actor: "user", attemptId: "attempt", turnId: "turn", text: "show me my runs", retry: false,
-      journal: { version: 1, legId: "leg", token } }).isPersisted.promise
-    await store.dispatch({ type: "message.tool.executed", actor: "smithers", turnId: "turn", text: "Smithers ran /runs.list", answersTurn: true }).isPersisted.promise
+    await store.dispatch({ type: "message.submitted", actor: "user", turnId: "turn", text: "show me my runs" }).isPersisted.promise
+    await store.dispatch({ type: "message.tool.executed", actor: "smithers", turnId: "turn", text: "Smithers ran /runs.list" }).isPersisted.promise
+    await store.dispatch({ type: "model.saved", actor: "user", model: { id: "jev", protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" } }).isPersisted.promise
     await store.compactEvents()
     const old = await store.eventHistory()
-    const snapshot = structuredClone(old.checkpoint.snapshot)
-    // What version 9 wrote for that leg: a worked turn read as an empty one.
-    Object.assign(snapshot.httpTurns![0]!, { receivedText: false })
-    const stateHash = appProjectionHash(snapshot as unknown as Parameters<typeof appProjectionHash>[0])
-    const head = { ...old.head, projectorVersion: 9, stateHash }
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 9, snapshot, stateHash }
+    const actId = [...store.collections.messages.values()].find(message => message.act !== undefined)!.id
+    const head = { ...old.head, projectorVersion: 30 }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 30 }
     const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
     await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
     editEnvelope(storage, entries => {
       for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
         entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
       }
+      const messages = JSON.parse(entries["smithers-mvp.app-messages"]!)
+      messages[`s:${actId}`].data.answersTurn = true
+      entries["smithers-mvp.app-messages"] = JSON.stringify(messages)
+      entries["smithers-mvp.app-seats"] = JSON.stringify({ "s:front-door": { versionKey: "fixture", data: { id: "front-door", recordId: "jev" } } })
     })
     const restored = await open(storage)
     expect((await restored.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
     expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect((await restored.verifyState()).valid).toBe(true)
-    // The routed turn's one line survives the rotation, answer mark and all.
-    const act = [...restored.collections.messages.values()].find(message => message.act !== undefined)
-    expect(act).toMatchObject({ text: "Smithers ran /runs.list", answersTurn: true })
+    // The routed turn's act line survives the rotation without the retired mark; the retired seat does not.
+    expect(restored.collections.messages.get(actId)).toMatchObject({ text: "Smithers ran /runs.list" })
+    expect(restored.collections.messages.get(actId)).not.toHaveProperty("answersTurn")
+    expect([...restored.collections.seats.values()]).toEqual([])
+    expect(restored.collections.models.has("jev")).toBe(true)
   })
 
   test("version 10 upgrade rotates a checkpoint written before models and seats existed", async () => {
@@ -759,7 +759,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 30, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 31, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -1152,6 +1152,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage()
     const first = await open(storage)
     await first.dispatch({ type: "message.submitted", actor: "user", turnId: "t", text: "Keep the original question" }).isPersisted.promise
+    await first.dispatch({ type: "message.commands.disclosed", actor: "system", turnId: "t", names: ["appearance.dark-mode"] }).isPersisted.promise
     await first.dispatch({ type: "message.response.delta", actor: "smithers", turnId: "t", channel: "text", delta: "An answer" }).isPersisted.promise
     await first.dispatch({ type: "message.response.completed", actor: "smithers", turnId: "t" }).isPersisted.promise
     await first.dispatch({ type: "card.upsert", actor: "user", card: {
@@ -1166,6 +1167,7 @@ describe("the live store's authoritative event path", () => {
     })
     const restored = await open(storage)
     expect(restored.collections.messages.get("message-t-user")?.text).toBe("Keep the original question")
+    expect(restored.collections.messages.get("message-t-user")?.disclosed).toEqual(["appearance.dark-mode"])
     expect(restored.collections.messages.get("message-t-smithers")?.text).toBe("An answer")
     expect(restored.collections.cards.get("file")?.payload).not.toHaveProperty("line", 7)
     expect((await restored.verifyState()).valid).toBe(true)

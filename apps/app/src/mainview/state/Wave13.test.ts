@@ -15,7 +15,7 @@ import { describe, expect, test } from "bun:test"
 import { executeAgentToolCall } from "../flows/agentTools"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { instructionStageOf, smithersInstructions } from "./Instructions"
+import { smithersInstructions } from "./Instructions"
 import { offersImpossibleCapability, renderedRunTurnText } from "./RunClaims"
 import { loadBox, memoryStorage, scriptedToolAgent, settle } from "./TestFixtures"
 
@@ -57,21 +57,26 @@ const transcript = (store: Awaited<ReturnType<typeof webStore>>): string =>
     .join("\n")
 
 describe("wave 13 §F — the capability section is generated from the live catalog", () => {
-  test("the section enumerates the catalog it is handed and states the can't-yet rule", () => {
-    const prompt = smithersInstructions(
-      [
-        { name: "world", summary: "See what Smithers understands" },
-        { name: "flow.create", summary: "Create a Smithers workflow", args: "<description>" }
-      ],
-      {
-        host: "native",
-        github: { connected: false, login: null, repositories: null },
-        localRepositories: [],
-        localRepositoriesAvailable: false
-      }
-    )
-    expect(prompt).toContain("/world — See what Smithers understands")
-    expect(prompt).toContain("/flow.create <description> — Create a Smithers workflow")
+  test("the section lists the disclosed commands it is handed, counts the rest, and states the can't-yet rule", () => {
+    const catalog = [
+      { name: "world", summary: "See what Smithers understands" },
+      { name: "flow.create", summary: "Create a Smithers workflow", args: "<description>" }
+    ]
+    const honesty = {
+      host: "native" as const,
+      github: { connected: false, login: null, repositories: null },
+      localRepositories: [],
+      localRepositoriesAvailable: false
+    }
+    const prompt = smithersInstructions(catalog, honesty, { disclosed: ["world", "flow.create"] })
+    expect(prompt).toContain("Commands for this conversation (2 exist;")
+    expect(prompt).toContain("- /world — See what Smithers understands")
+    expect(prompt).toContain("- /flow.create <description> — Create a Smithers workflow")
+    // Undisclosed, the catalog is counted, never listed: the list action's query finds it.
+    const quiet = smithersInstructions(catalog, honesty)
+    expect(quiet).toContain("Commands for this conversation (2 exist;")
+    expect(quiet).not.toContain("- /world")
+    expect(quiet).not.toContain("- /flow.create")
     expect(prompt).toContain("GitHub is NOT connected")
     expect(prompt).toContain("this web client cannot connect any")
     // The five §F asks, named as can't-yets: email, Slack, local files, push/PR.
@@ -130,7 +135,7 @@ describe("wave 13 §F — the capability section is generated from the live cata
       localRepositoriesAvailable: false
     })
     expect(prompt).toContain(phrase)
-    expect(prompt).toContain("name the one honest next step that IS in the catalog above")
+    expect(prompt).toContain("name the one honest next step that IS in the catalog — never offer")
   })
 
   test("the ask is the permission: the prompt forbids Shall-I and the slash-command handback", () => {
@@ -181,14 +186,15 @@ describe("wave 13 §F — the capability section is generated from the live cata
     expect(requests.length).toBeGreaterThan(0)
     const instructions = requests[0]?.instructions ?? ""
     // The generated section reflects THIS session's truth.
-    expect(instructions).toContain("What you can do is EXACTLY this")
+    expect(instructions).toMatch(/Commands for this conversation \(\d+ exist;/)
     const catalog = JSON.parse(await executeAgentToolCall(controller.commands, { name: "commands", arguments: JSON.stringify({ action: "list" }) }))
     const names = catalog.commands.map((command: { name: string }) => command.name)
     expect(names).toContain("flow.create")
-    expect(instructions).toContain(instructionStageOf(instructions) === 3 ? "flow (" : "/flow.create")
+    // flow.create is named by the standing instructions, so it is pinned and listed in full.
+    expect(instructions).toMatch(/^- \/flow\.create\b.* — /m)
     for (const name of ["chat.send", "chat.open", "chat.dictate", "auth.sign-in"]) expect(names).not.toContain(name)
     expect(instructions).toContain("GitHub is connected as codeplanesmithers, 1 repositories loaded")
-    expect(instructions).toContain("Everything else is a can't-yet")
+    expect(instructions).toContain("Everything the catalog lacks is a can't-yet")
     // User-only browser mechanics are not the agent's to offer.
     expect(instructions).not.toContain("/theme")
     expect(instructions).not.toContain("/send")

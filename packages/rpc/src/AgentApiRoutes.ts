@@ -304,6 +304,15 @@ export const RECOMMEND_PATH = "/api/recommend"
  */
 export const RECOMMEND_OUTCOME_PATH = "/api/recommend/outcome"
 /**
+ * The decision model's command selection for one chat message: the commands
+ * whose full descriptors the turn's prompt discloses. Same admission as a
+ * chat turn.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const COMMANDS_SELECT_PATH = "/api/commands/select"
+/**
  * The admin read of the recommendation log, newest first, for the scorer.
  *
  * @since 1.0.0
@@ -394,5 +403,6 @@ export const SHARED_BACKEND_CLIENT_ROUTES = [
   { method: "GET", path: PUBLIC_REPOS_PATH },
   { method: "POST", path: RECOMMEND_PATH, capability: "recommend" },
   { method: "POST", path: RECOMMEND_OUTCOME_PATH, capability: "recommend" },
+  { method: "POST", path: COMMANDS_SELECT_PATH, capability: "recommend" },
   { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" }
 ] as const

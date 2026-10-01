@@ -75,33 +75,15 @@ describe("one turn request is bounded to the boundary's body limit", () => {
     expect(bounded.request).toBe(request)
   })
 
-  /*
-   * The offered command catalog is a routing hint for the serving side's
-   * front door, and the conversation is the answer. A turn that fits only
-   * because history went would be paying for the hint with the answer.
-   */
-  test("the command catalog gives way before a single message does, and is kept when the turn already fits", () => {
-    const commands = Array.from({ length: 300 }, (_, index) => ({
-      name: `namespace.command-${index}`,
-      summary: "x".repeat(60)
-    }))
-    const small = { ...turn([{ role: "user", content: "hello" }]), commands }
-    expect(boundTurnRequest(small).request.commands).toEqual(commands)
-
-    const long = "x".repeat(50_000)
-    const tight = {
-      ...turn([{ role: "user", content: long }, { role: "user", content: "and now say ok" }]),
-      commands
-    }
-    const bounded = boundTurnRequest(tight)
-    expect(bounded.request.commands).toBeUndefined()
-    expect(bounded.dropped).toBe(0)
-    expect(bounded.request.messages).toEqual(tight.messages)
-    expect(turnRequestBytes(bounded.request)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+  test("the limit is the backend turn route's 1 MiB body less the envelope headroom", () => {
+    expect(MAX_TURN_REQUEST_BYTES).toBe(1024 * 1024 - 4 * 1024)
   })
 
+  /* A message a third of the limit: five of them overflow it, two fit. */
+  const third = Math.ceil(MAX_TURN_REQUEST_BYTES / 3)
+
   test("the oldest messages are dropped until the turn fits, and the newest survives", () => {
-    const long = "x".repeat(20_000)
+    const long = "x".repeat(third)
     const request = turn([
       { role: "user", content: long },
       { role: "assistant", content: long },
@@ -117,7 +99,7 @@ describe("one turn request is bounded to the boundary's body limit", () => {
   })
 
   test("what was dropped is stated, never silently missing", () => {
-    const long = "y".repeat(40_000)
+    const long = "y".repeat(2 * third)
     const bounded = boundTurnRequest(
       turn([
         { role: "user", content: long },
@@ -130,7 +112,7 @@ describe("one turn request is bounded to the boundary's body limit", () => {
   })
 
   test("a tool leg's call and output are never split by the bound", () => {
-    const long = "z".repeat(20_000)
+    const long = "z".repeat(third)
     // Keep the actual wire call/result pair intact.
     const bounded = boundTurnRequest(
       turn([
@@ -152,7 +134,8 @@ describe("one turn request is bounded to the boundary's body limit", () => {
   test("a single message over the limit is still sent, so the seam refuses it honestly", () => {
     // Dropping the user's own words to hide the refusal would be the worse
     // answer: the boundary's message already names what happened.
-    const bounded = boundTurnRequest(turn([{ role: "user", content: "q".repeat(80_000) }]))
+    const bounded = boundTurnRequest(turn([{ role: "user", content: "q".repeat(MAX_TURN_REQUEST_BYTES + 1) }]))
+    expect(turnRequestBytes(bounded.request)).toBeGreaterThan(MAX_TURN_REQUEST_BYTES)
     expect(bounded.dropped).toBe(0)
     expect(bounded.request.messages).toHaveLength(1)
   })
@@ -218,9 +201,10 @@ describe("one turn request is bounded to the boundary's body limit", () => {
       const request = turn(
         Array.from({ length }, (_, index) => ({
           role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
-          content: `${index} ${"x".repeat(2_000)}`
+          content: `${index} ${"x".repeat(8_000)}`
         }))
       )
+      expect(turnRequestBytes(request)).toBeGreaterThan(MAX_TURN_REQUEST_BYTES)
       const original = JSON.stringify
       let serialized = 0
       JSON.stringify = ((value: unknown, ...rest: Array<never>) => {
@@ -228,14 +212,21 @@ describe("one turn request is bounded to the boundary's body limit", () => {
         serialized += text.length
         return text
       }) as typeof JSON.stringify
+      let dropped = 0
       try {
-        const bounded = boundTurnRequest(request)
-        expect(bounded.dropped).toBe(length - 30)
-        expect(turnRequestBytes(bounded.request)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+        dropped = boundTurnRequest(request).dropped
       } finally {
         JSON.stringify = original
       }
       expect(serialized).toBeLessThanOrEqual(4 * turnRequestBytes(request))
+      // Minimal: the kept history fits, and keeping one more message would not.
+      const keeping = (count: number): StartAgentTurnRequest => ({
+        ...request,
+        messages: [{ role: "user", content: droppedHistoryNotice(count) }, ...request.messages.slice(count)]
+      })
+      expect(dropped).toBeGreaterThan(0)
+      expect(turnRequestBytes(keeping(dropped))).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+      expect(turnRequestBytes(keeping(dropped - 1))).toBeGreaterThan(MAX_TURN_REQUEST_BYTES)
     }
   })
 

@@ -13,7 +13,7 @@ import { MODELS_CARD_ID,createModelsController,modelFailureLine,resolvedSeats,se
 
 const mine: ConfiguredModel = { id: "mine", protocol: "openai-chat", baseUrl: "https://openrouter.ai", modelId: "moonshotai/kimi-k3", credential: "OPENROUTER_API_KEY" }
 const jev: ConfiguredModel = { id: "jev", protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY", builtin: true }
-const catalog: ModelCatalog = { models: [jev], seats: ["explainer", "front-door", "recommend"], credentials: [
+const catalog: ModelCatalog = { models: [jev], seats: ["explainer", "recommend"], credentials: [
   { name: "OPENROUTER_API_KEY", present: true, origins: ["https://openrouter.ai"] },
   { name: "AI_GATEWAY_API_KEY", present: true, origins: ["https://ai-gateway.vercel.sh"] }
 ] }
@@ -327,7 +327,7 @@ test("an assigned seat whose credential the host lacks surfaces once, and boot a
   expect(await t.models.assignSeat("explainer", "mine")).toBeUndefined()
   await t.models.observeModels()
   expect(t.card()?.payload).toMatchObject({ attention: { kind: "seat-unresolved", seat: "explainer" },
-    seats: [{ id: "explainer", recordId: "mine", resolvable: false }, { id: "front-door", recordId: null, resolvable: true }, { id: "recommend", recordId: null, resolvable: true }] })
+    seats: [{ id: "explainer", recordId: "mine", resolvable: false }, { id: "recommend", recordId: null, resolvable: true }] })
   const raised = t.card()!.ordinal
   await t.store.dispatch({ type: "message.appended", actor: "user", text: "meanwhile" }).isPersisted.promise
   await t.models.observeModels()
@@ -363,14 +363,16 @@ test("save, assign and remove refuse what the record cannot be, and write nothin
   expect(t.card()?.payload.selected).toBe("mine")
 
   expect(await t.models.assignSeat("role:ui", "mine")).toBeString()
-  expect(await t.models.assignSeat("front-door", "mine")).toBeString()
+  // The deleted front-door seat is an unknown seat now, and a generation model never takes a decision seat.
+  expect(await t.models.assignSeat("front-door", "jev")).toBeString()
+  expect(await t.models.assignSeat("recommend", "mine")).toBeString()
   expect(await t.models.assignSeat("explainer", "absent")).toBeString()
   expect(t.store.collections.seats.size).toBe(0)
   expect(await t.models.assignSeat("explainer", "mine")).toBeUndefined()
   expect(await t.models.assignSeat("recommend", "jev")).toBeUndefined()
   expect(resolvedSeats(t.store)).toEqual([{ seat: "explainer", model: mine }, { seat: "recommend", model: jev }])
   expect(seatBinding(t.store, "explainer")).toEqual({ protocol: "openai-chat", baseUrl: "https://openrouter.ai", modelId: "moonshotai/kimi-k3", credential: "OPENROUTER_API_KEY" })
-  expect(seatBinding(t.store, "front-door")).toBeUndefined()
+  expect(seatBinding(t.store, "chat")).toBeUndefined()
   expect(await t.models.assignSeat("explainer", "default")).toBeUndefined()
   expect(resolvedSeats(t.store).map((row) => row.seat)).toEqual(["recommend"])
 

@@ -7,8 +7,11 @@
  */
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
-/** The deployed Worker rejects request bodies above 64 KiB. Leave framing headroom. */
-export const MAX_TURN_REQUEST_BYTES = 60 * 1024
+/**
+ * The backend turn route's body cap (packages/backend middleware.MaxRequestBodySize,
+ * 1 MiB), less framing headroom.
+ */
+export const MAX_TURN_REQUEST_BYTES = 1024 * 1024 - 4 * 1024
 /** A single tool result must not consume most of the next request. */
 export const MAX_TOOL_RESULT_BYTES = 16 * 1024
 export const MAX_TOOL_RESULT_LINES = 1_000
@@ -98,19 +101,7 @@ export const boundTurnRequest = (
   keepTail = 1,
   maxBytes = MAX_TURN_REQUEST_BYTES
 ): BoundedTurnRequest => {
-  /*
-   * The offered command catalog is the first thing to give.
-   *
-   * It is a few kilobytes of routing hint for the serving side's front door
-   * (apps/server frontDoor.ts) — worth carrying, worth nothing beside the
-   * conversation. A turn that fits only by dropping the user's own history
-   * would be paying for the hint with the answer, so the catalog leaves
-   * before a single message does: the turn then simply goes to the chat
-   * upstream, exactly as every turn did before the front door existed.
-   */
-  const request = full.commands === undefined || turnRequestBytes(full) <= maxBytes
-    ? full
-    : (({ commands: _dropped, ...rest }) => rest)(full)
+  const request = full
   const messages = request.messages
   const floor = Math.min(Math.max(keepTail, 1), messages.length)
   if (messages.length <= floor) return { request, dropped: 0 }

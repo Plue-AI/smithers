@@ -1,3 +1,4 @@
+import { httpCommandSelector } from "./state/CommandSelection"
 import type { ClientErrorReporter } from "./state/ClientErrors"
 import { isWriterOwnershipError } from "./state/StorageRecoveryContract"
 import { selectFirstRunRepository } from "./state/FirstRunRepository"
@@ -66,6 +67,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         agent,
         {
           fetchImpl: runtime.http,
+          commandSelector: httpCommandSelector(runtime.http, client.baseUrl),
           pageLifetime: pageLifetime.signal,
           clientErrors: options.clientErrors,
           baseUrl: client.baseUrl,

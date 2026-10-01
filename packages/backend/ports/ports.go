@@ -62,10 +62,47 @@ type RecommendationUsage struct {
 	OutputTokens int64
 }
 
-// Recommender is the deployment-provided decision model. Implementations own
-// provider credentials; the HTTP route only supplies bounded product input.
+// CommandSelectionRequest asks the decision model which offered commands a
+// user message asks the app to run or asks about.
+type CommandSelectionRequest struct {
+	Message  string                      `json:"message"`
+	Tail     []RecommendationTailMessage `json:"tail"`
+	Repo     *string                     `json:"repo"`
+	Commands []RecommendationCommand     `json:"commands"`
+}
+
+// SelectedCommand is one offered command with the probability the decision
+// model gave it.
+type SelectedCommand struct {
+	Name        string  `json:"name"`
+	Probability float64 `json:"probability"`
+}
+
+// CommandSelectionResult lists the selected commands by probability,
+// highest first. An empty list means the message concerns no command.
+type CommandSelectionResult struct {
+	Commands []SelectedCommand
+	Model    string
+	// Usage is the token count the model reported, nil when it reported
+	// none. The route meters it; it never reaches the client.
+	Usage *RecommendationUsage
+}
+
+const (
+	// CommandSelectionMinProbability is the lowest probability a selected
+	// command may carry.
+	CommandSelectionMinProbability = 0.02
+	// CommandSelectionMax caps the selected commands.
+	CommandSelectionMax = 12
+)
+
+// Recommender is the deployment-provided decision model. It recommends the
+// next commands for a conversation and selects the commands a message asks
+// for. Implementations own provider credentials; the HTTP route only supplies
+// bounded product input.
 type Recommender interface {
 	Recommend(context.Context, RecommendationRequest) (RecommendationResult, error)
+	SelectCommands(context.Context, CommandSelectionRequest) (CommandSelectionResult, error)
 }
 
 // RecommendationLog persists the receipt that pairs a recommendation with

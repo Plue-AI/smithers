@@ -23,7 +23,7 @@ const fixture = async (host?: AppBootstrap["host"]) => {
 
 test("an unassigned seat carries nothing", async () => {
   const { ctx } = await fixture("cloud")
-  for (const seat of ["explainer", "front-door", "recommend"] as const) {
+  for (const seat of ["chat", "explainer", "recommend"] as const) {
     expect(assignedModel(ctx, seat)).toBeUndefined()
     expect(assignedBinding(ctx, seat)).toBeUndefined()
   }
@@ -36,7 +36,6 @@ test("an assigned seat carries the record without its name, and nothing a key co
   expect(assignedModel(ctx, "explainer")).toEqual(MINE)
   expect(assignedBinding(ctx, "explainer")).toEqual({ protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" })
   expect(assignedBinding(ctx, "recommend")).toEqual({ protocol: "evaluation", modelId: "typesafe-ai/jev", credential: "AI_GATEWAY_API_KEY" })
-  expect(assignedBinding(ctx, "front-door")).toBeUndefined()
 })
 
 test("a removed record and a reassignment to the default both leave the seat carrying nothing", async () => {
@@ -52,17 +51,17 @@ test("a removed record and a reassignment to the default both leave the seat car
 test("a record of the wrong kind never rides a seat", async () => {
   const { store, ctx } = await fixture("cloud")
   await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "jev" }).isPersisted.promise
-  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "front-door", recordId: "mine" }).isPersisted.promise
+  await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "mine" }).isPersisted.promise
   expect(assignedBinding(ctx, "explainer")).toBeUndefined()
-  expect(assignedBinding(ctx, "front-door")).toBeUndefined()
+  expect(assignedBinding(ctx, "recommend")).toBeUndefined()
 })
 
 test("a seat this host does not serve carries nothing there; a host that has not said what it is decides for itself", async () => {
   for (const [host, served] of [["local", false], ["cloud", true], [undefined, true]] as const) {
     const { store, ctx } = await fixture(host)
-    await store.dispatch({ type: "seat.assigned", actor: "user", seat: "front-door", recordId: "jev" }).isPersisted.promise
+    await store.dispatch({ type: "seat.assigned", actor: "user", seat: "recommend", recordId: "jev" }).isPersisted.promise
     await store.dispatch({ type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" }).isPersisted.promise
-    expect(assignedBinding(ctx, "front-door") !== undefined).toBe(served)
+    expect(assignedBinding(ctx, "recommend") !== undefined).toBe(served)
     // The explainer is served by both hosts.
     expect(assignedBinding(ctx, "explainer")).toBeDefined()
   }

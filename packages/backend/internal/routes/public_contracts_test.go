@@ -3,6 +3,7 @@ package routes
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,6 +34,12 @@ type recommendationFake struct {
 func (f *recommendationFake) Recommend(_ context.Context, request ports.RecommendationRequest) (ports.RecommendationResult, error) {
 	f.got = request
 	return ports.RecommendationResult{Commands: []string{"review", "fabricated"}, Model: "fixture-jev", Usage: f.usage}, nil
+}
+
+// SelectCommands is not part of the recommendation contract; the selection
+// tests use selectionFake.
+func (f *recommendationFake) SelectCommands(context.Context, ports.CommandSelectionRequest) (ports.CommandSelectionResult, error) {
+	return ports.CommandSelectionResult{}, errors.New("recommendationFake does not select")
 }
 
 type recommendationLogFake struct {

@@ -1063,6 +1063,18 @@ export const getApiBuildCacheHealthz = (transport: Transport): Promise<GetApiBui
 export const headApiBuildCacheHealthz = (transport: Transport): Promise<void> =>
   transport.request("HEAD", `/api/build-cache/healthz`).then(() => undefined)
 
+export type PostApiCommandsSelectBody = AnyJSON
+
+export type PostApiCommandsSelectResponse = AnyJSON
+
+export interface PostApiCommandsSelectInput {
+  readonly body?: PostApiCommandsSelectBody
+}
+
+/** POST /api/commands/select */
+export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
+  transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
+
 export type GetApiFeatureFlagsResponse = AnyJSON
 
 /** GET /api/feature-flags */

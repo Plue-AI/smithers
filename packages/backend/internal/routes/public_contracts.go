@@ -8,8 +8,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -72,7 +75,14 @@ type RecommendationHandler struct {
 	Recommender ports.Recommender
 	Log         ports.RecommendationLog
 	Meter       *modelproxy.Meter
+	// SelectDeadline bounds the Jev call behind Select; zero means
+	// CommandSelectDeadline.
+	SelectDeadline time.Duration
 }
+
+// CommandSelectDeadline bounds one command selection call: the app waits on
+// it before answering a chat message.
+const CommandSelectDeadline = 1500 * time.Millisecond
 
 func NewRecommendationHandler(recommender ports.Recommender, log ports.RecommendationLog, meter *modelproxy.Meter) *RecommendationHandler {
 	return &RecommendationHandler{Recommender: recommender, Log: log, Meter: meter}
@@ -139,22 +149,32 @@ func (h *RecommendationHandler) Recommend(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "commands": result.Commands, "model": result.Model})
 }
 
-// recommend runs one Jev call, metered to user when the deployment pays.
+// recommend runs one Jev recommendation, metered to user when the deployment pays.
 func (h *RecommendationHandler) recommend(ctx context.Context, user *db.User, input ports.RecommendationRequest) (ports.RecommendationResult, error) {
-	if h.Meter == nil {
-		return h.Recommender.Recommend(ctx, input)
-	}
 	var result ports.RecommendationResult
+	err := h.metered(ctx, user, func(ctx context.Context) (*ports.RecommendationUsage, error) {
+		var err error
+		result, err = h.Recommender.Recommend(ctx, input)
+		return result.Usage, err
+	})
+	return result, err
+}
+
+// metered runs one Jev call, metered to user when the deployment pays. call
+// reports the token count Jev returned, nil when it reported none.
+func (h *RecommendationHandler) metered(ctx context.Context, user *db.User, call func(context.Context) (*ports.RecommendationUsage, error)) error {
+	if h.Meter == nil {
+		_, err := call(ctx)
+		return err
+	}
 	caller := modelproxy.Caller{OwnerType: "user", OwnerID: user.ID, UserID: user.ID, Source: modelproxy.SourceRecommendation}
 	maximum := modelproxy.JevMaximum
 	_, err := h.Meter.Execute(ctx, caller, modelproxy.Call{Provider: modelproxy.ProviderVercel, Model: modelproxy.JevModel, Maximum: maximum},
 		func(ctx context.Context) (modelproxy.Result, error) {
-			var callErr error
-			result, callErr = h.Recommender.Recommend(ctx, input)
+			usage, callErr := call(ctx)
 			switch {
-			case callErr == nil && result.Usage != nil:
-				usage := modelprice.Usage{InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens}
-				return modelproxy.Result{Outcome: credits.ModelSucceeded, Usage: usage}, nil
+			case callErr == nil && usage != nil:
+				return modelproxy.Result{Outcome: credits.ModelSucceeded, Usage: modelprice.Usage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}}, nil
 			case callErr == nil:
 				// An answer without a token count is charged at the request ceiling.
 				return modelproxy.Result{Outcome: credits.ModelSucceeded, Usage: maximum}, nil
@@ -164,7 +184,144 @@ func (h *RecommendationHandler) recommend(ctx context.Context, user *db.User, in
 				return modelproxy.Result{Outcome: credits.ModelUnknown}, callErr
 			}
 		})
-	return result, err
+	return err
+}
+
+// Select asks Jev which offered commands a chat message asks the app to run
+// or asks about. Selections are not logged.
+func (h *RecommendationHandler) Select(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.Recommender == nil {
+		http.Error(w, `{"status":"error","code":"recommend_unavailable"}`, http.StatusNotFound)
+		return
+	}
+	user := middleware.UserFromContext(r.Context())
+	if h.Meter != nil && user == nil {
+		writeRecommendationError(w, http.StatusUnauthorized, "auth_required")
+		return
+	}
+	var input ports.CommandSelectionRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, recommendBodyLimit))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || !validCommandSelectionRequest(input) {
+		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
+		return
+	}
+	input.Message = strings.TrimSpace(input.Message)
+	deadline := h.SelectDeadline
+	if deadline <= 0 {
+		deadline = CommandSelectDeadline
+	}
+	// The deadline bounds the Jev call; metering reserves and settles on the
+	// request context so a late answer is still recorded.
+	callCtx, cancel := context.WithTimeout(r.Context(), deadline)
+	defer cancel()
+	callDeadline, _ := callCtx.Deadline()
+	var result ports.CommandSelectionResult
+	err := h.metered(r.Context(), user, func(ctx context.Context) (*ports.RecommendationUsage, error) {
+		ctx, cancel := context.WithDeadline(ctx, callDeadline)
+		defer cancel()
+		var err error
+		result, err = h.Recommender.SelectCommands(ctx, input)
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+			err = errors.Join(err, context.DeadlineExceeded)
+		}
+		return result.Usage, err
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, credits.ErrInsufficient), errors.Is(err, credits.ErrSealed):
+			writeRecommendationError(w, http.StatusPaymentRequired, modelproxy.OutOfCredit)
+		case errors.Is(err, modelproxy.ErrSpendCapReached):
+			w.Header().Set("Retry-After", modelproxy.SpendCapRetryAfter)
+			writeRecommendationError(w, http.StatusTooManyRequests, "spend_cap_reached")
+		case errors.Is(err, ports.ErrModelCredentialMissing):
+			writeRecommendationError(w, http.StatusServiceUnavailable, "credential_missing")
+		case errors.Is(err, context.DeadlineExceeded):
+			writeRecommendationError(w, http.StatusGatewayTimeout, "select_timeout")
+		default:
+			writeRecommendationError(w, http.StatusBadGateway, "select_failed")
+		}
+		return
+	}
+	if strings.TrimSpace(result.Model) == "" {
+		writeRecommendationError(w, http.StatusBadGateway, "select_failed")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"commands": filterSelectedCommands(result.Commands, input.Commands), "model": result.Model})
+}
+
+var commandSelectionRepo = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+func validCommandSelectionRequest(input ports.CommandSelectionRequest) bool {
+	message := strings.TrimSpace(input.Message)
+	if message == "" || utf8.RuneCountInString(message) > recommendTextMax || len(input.Tail) > recommendTailMax {
+		return false
+	}
+	for _, message := range input.Tail {
+		if message.Role != "user" && message.Role != "assistant" && message.Role != "system" {
+			return false
+		}
+		if utf8.RuneCountInString(message.Text) > recommendTextMax {
+			return false
+		}
+	}
+	if input.Repo != nil {
+		owner, name, _ := strings.Cut(*input.Repo, "/")
+		if !commandSelectionRepo.MatchString(*input.Repo) || strings.Trim(owner, ".") == "" || strings.Trim(name, ".") == "" {
+			return false
+		}
+	}
+	if len(input.Commands) == 0 || len(input.Commands) > recommendCommandsMax {
+		return false
+	}
+	names := make(map[string]struct{}, len(input.Commands))
+	for _, command := range input.Commands {
+		if strings.TrimSpace(command.Name) == "" || utf8.RuneCountInString(command.Name) > recommendNameMax || utf8.RuneCountInString(command.Summary) > recommendSummaryMax {
+			return false
+		}
+		if _, duplicate := names[command.Name]; duplicate {
+			return false
+		}
+		names[command.Name] = struct{}{}
+	}
+	return true
+}
+
+// filterSelectedCommands keeps the offered commands at or above the minimum
+// probability, highest first, at most CommandSelectionMax. none is never a
+// command.
+func filterSelectedCommands(selected []ports.SelectedCommand, offered []ports.RecommendationCommand) []ports.SelectedCommand {
+	known := make(map[string]struct{}, len(offered))
+	for _, command := range offered {
+		known[command.Name] = struct{}{}
+	}
+	best := make(map[string]float64, len(selected))
+	for _, command := range selected {
+		if _, ok := known[command.Name]; !ok || command.Name == "none" || !(command.Probability >= ports.CommandSelectionMinProbability) {
+			continue
+		}
+		best[command.Name] = max(best[command.Name], min(command.Probability, 1))
+	}
+	filtered := make([]ports.SelectedCommand, 0, len(best))
+	for name, probability := range best {
+		filtered = append(filtered, ports.SelectedCommand{Name: name, Probability: probability})
+	}
+	sort.Slice(filtered, func(left, right int) bool {
+		if filtered[left].Probability != filtered[right].Probability {
+			return filtered[left].Probability > filtered[right].Probability
+		}
+		return filtered[left].Name < filtered[right].Name
+	})
+	if len(filtered) > ports.CommandSelectionMax {
+		filtered = filtered[:ports.CommandSelectionMax]
+	}
+	return filtered
 }
 
 func (h *RecommendationHandler) Outcome(w http.ResponseWriter, r *http.Request) {

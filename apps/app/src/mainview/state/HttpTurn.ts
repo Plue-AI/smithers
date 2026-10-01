@@ -3,7 +3,6 @@ import { z } from "zod"
 import { digest } from "@smthrs/core/Digest"
 import { AgentTurnBatchSchema, AgentTurnCursorSchema, AgentTurnJournalRequestSchema, agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnBatch, AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
-import { AGENT_TURN_FRONT_DOOR_CALL_PREFIX } from "@smthrs/rpc/NativeAgent"
 import type { AgentChatMessage, AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AppTransition, Card } from "./AppState"
 import { CardPatchSchema, CardSchema } from "./AppState"
@@ -107,11 +106,6 @@ export const projectHttpFrame = (prior: HttpTurn, priorLeg: HttpTurnLeg, frame: 
     const call = { callId: frame.call_id, name: frame.name, args: frame.arguments }
     if (leg.call !== undefined && JSON.stringify(leg.call) !== JSON.stringify(call)) throw new HttpTurnIntegrityError("HTTP leg contains conflicting tool calls")
     leg.call = call
-    // A call the front door minted (apps/server frontDoor.ts) IS the turn's
-    // answer: the act line this call renders says what happened and is kept
-    // as the turn's assistant words, so the continuation leg carries no text
-    // and must not be read as an empty response.
-    if (frame.call_id.startsWith(AGENT_TURN_FRONT_DOOR_CALL_PREFIX)) turn.receivedText = true
   } else if (frame.type === "delta" && frame.text !== "") {
     if (frame.kind === "text") turn.receivedText = true
     if (frame.kind === "text" && (turn.runLaunch !== undefined || turn.askClass !== undefined)) turn.claimBuffer += frame.text

@@ -14,7 +14,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { executeAgentToolCall } from "../flows/agentTools"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { IDENTITY_LINE, NO_DOWNLOAD_LINE, instructionStageOf, smithersInstructions, WEB_HOST_LINE } from "./Instructions"
+import { IDENTITY_LINE, NO_DOWNLOAD_LINE, smithersInstructions, WEB_HOST_LINE } from "./Instructions"
 import type { InstructionHonesty } from "./Instructions"
 import { memoryStorage, settle } from "./TestFixtures"
 
@@ -138,7 +138,8 @@ describe("a turn asking who you are is answered with the name", () => {
       expect(IDENTITY_LINE).toContain("answer with the single word Smithers")
       expect(IDENTITY_LINE).toContain("execute smithers.who")
       expect(names).toContain("smithers.who")
-      expect(instructions).toContain(instructionStageOf(instructions) === 3 ? "smithers (" : "/smithers.who")
+      // smithers.who is pinned: the standing instructions name it, so its line is listed in full.
+      expect(instructions).toMatch(/^- \/smithers\.who\b.* — /m)
       expect(instructions).toContain("Your name is exactly \"Smithers\"")
       expect(instructions).toContain("Do not suggest features absent from your catalog.")
       expect(names).toContain("wiki")
@@ -152,7 +153,7 @@ describe("the turn passes the host from the bootstrap", () => {
     expect(instructions).toContain(WEB_HOST_LINE)
     // The line names a flow this host's catalog actually has.
     expect(names).toContain("app.download.prompt")
-    expect(instructions).toContain(instructionStageOf(instructions) === 3 ? "app (" : "/app.download.prompt")
+    expect(instructions).toMatch(/^- \/app\.download\.prompt\b.* — /m)
     // And the live download fact: no native release carries an asset today (AppLinks.ts).
     expect(instructions).toContain(NO_DOWNLOAD_LINE)
   })
@@ -161,6 +162,40 @@ describe("the turn passes the host from the bootstrap", () => {
     const { instructions } = await firstTurnInstructions("local")
     expect(instructions).not.toContain("Smithers web app")
     expect(instructions).not.toContain("/app.download.prompt")
+  })
+})
+
+describe("the command section lists pinned and disclosed commands in full, and only those", () => {
+  const catalog = [
+    { name: "appearance.dark-mode", summary: "Switch to the dark theme" },
+    { name: "auth.prompt", summary: "Render the sign-in button" },
+    { name: "runs.list", summary: "List runs", args: "[--limit <n>]" },
+    { name: "issues.list", summary: "List issues" }
+  ]
+  const header = 'Commands for this conversation (4 exist; the list action with a "query" finds the rest, with their arguments):'
+
+  test("with nothing pinned or disclosed, the header counts the catalog and no command line follows", () => {
+    const prompt = smithersInstructions(catalog, honesty("native"))
+    expect(prompt).toContain(`${header}\n\n`)
+    for (const { name } of catalog) expect(prompt).not.toContain(`- /${name}`)
+  })
+
+  test("a disclosed command is listed with its arguments and summary; an undisclosed one stays out", () => {
+    const prompt = smithersInstructions(catalog, honesty("native"), { pinned: ["auth.prompt"], disclosed: ["appearance.dark-mode", "runs.list"] })
+    const section = prompt.slice(prompt.indexOf(header) + header.length).split("\n\n")[0]!.trim().split("\n")
+    // Catalog order, not request order; one line per command.
+    expect(section).toEqual([
+      "- /appearance.dark-mode — Switch to the dark theme",
+      "- /auth.prompt — Render the sign-in button",
+      "- /runs.list [--limit <n>] — List runs"
+    ])
+    expect(prompt).not.toContain("- /issues.list")
+  })
+
+  test("a disclosed name the catalog no longer has is dropped, and a name both pinned and disclosed is listed once", () => {
+    const prompt = smithersInstructions(catalog, honesty("native"), { pinned: ["runs.list"], disclosed: ["runs.list", "gone.command"] })
+    expect(prompt.split("- /runs.list")).toHaveLength(2)
+    expect(prompt).not.toContain("gone.command")
   })
 })
 

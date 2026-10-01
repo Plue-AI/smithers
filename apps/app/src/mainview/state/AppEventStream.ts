@@ -42,7 +42,9 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 28: box inventory loads carry scoped readiness; old rows seed a fresh stream (#3200).
 // 29: retired health charges and timestamps leave persisted card payloads (#3189).
 // 30: durable owner-scoped egress additions reconnect through the shared toast after reload (#3264).
-export const APP_PROJECTOR_VERSION = 30
+// 31: Jev command selection adds `message.commands.disclosed`; the front door's `answersTurn` and `front-door`
+// seat retire (#3313).
+export const APP_PROJECTOR_VERSION = 31
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

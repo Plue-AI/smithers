@@ -10,7 +10,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { setupContextSummary, setupQuestionCardId } from "./controller/repositorySetup"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { CHAT_INSTRUCTIONS_CAP_BYTES, INSTRUCTIONS_HEADROOM_BYTES, instructionStageOf } from "./Instructions"
+import { MAX_TURN_REQUEST_BYTES, turnRequestBytes } from "./AgentTurnPolicy"
 import { memoryStorage, recordingAgent, scriptedToolAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
@@ -465,7 +465,7 @@ test("a specific change asked in chat stays usable beside the question, and prun
   } finally { await t.close() }
 })
 
-test("the chat prompt keeps the setup handoff, states that the app asks, and stays under the cap", async () => {
+test("the chat prompt keeps the setup handoff, states that the app asks, and stays under the request limit", async () => {
   const t = await fixture()
   try {
     await t.controller.send("what is set up for this repo?")
@@ -481,9 +481,7 @@ test("the chat prompt keeps the setup handoff, states that the app asks, and sta
     expect(request.instructions).toContain("The app asks this setup's first question itself")
     expect(request.instructions).not.toContain("one short question at a time")
     expect(request.instructions).not.toContain("setup.ask")
-    const composed = new TextEncoder().encode(composeAgentInstructions(request.instructions, request.context)).length
-    expect(composed).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
-    console.info(`setup guide instructions: stage ${instructionStageOf(request.instructions)}, ${composed} composed bytes`)
+    expect(turnRequestBytes(request)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
   } finally { await t.close() }
 })
 
@@ -508,7 +506,7 @@ test("a compacted setup card injects no full prompts or eval answers, and a name
     const compacted = t.requests[0]!
     expect(compacted.context?.recentCards?.some(card => card.id === id)).toBe(false)
     expect(compacted.instructions).not.toContain(marker)
-    expect(new TextEncoder().encode(composeAgentInstructions(compacted.instructions, compacted.context)).length).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
+    expect(turnRequestBytes(compacted)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
     await waitFor(() => t.store.session().phase === "idle")
     await t.controller.send(`what is set up in ${id}?`)
     await waitFor(() => t.requests.length > 1)
@@ -593,7 +591,7 @@ test("a chat question beside the open setup carries that setup's real draft into
     expect(seen).toContain("Run evals for this draft.")
     // A held-out eval answer is never carried into a turn, at any window position.
     expect(seen).not.toContain("HELD-OUT-ANSWER-NEVER-IN-A-TURN")
-    expect(new TextEncoder().encode(seen).length).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
+    expect(turnRequestBytes(request)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
   } finally { await t.close() }
 })
 

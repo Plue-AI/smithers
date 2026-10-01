@@ -29,7 +29,7 @@ const LISTED: Pick<ModelsCardPayload, "credentials" | "seats"> = {
   ],
   seats: [
     { id: "explainer", recordId: null, resolvable: true },
-    { id: "front-door", recordId: null, resolvable: true }
+    { id: "recommend", recordId: null, resolvable: true }
   ]
 }
 
@@ -129,7 +129,7 @@ describe("the seat form", () => {
     const app = fixture()
     expect(app.field(app.ask("model.assign").cardId, "seat").options).toEqual([
       { value: "explainer", label: "Explainer" },
-      { value: "front-door", label: "Front door" }
+      { value: "recommend", label: "Recommendations" }
     ])
   })
 
@@ -142,15 +142,15 @@ describe("the seat form", () => {
       { value: "default", label: "Default" },
       { value: "fast-kimi", label: "fast-kimi · kimi-for-coding/k3" }
     ])
-    await app.forms.setFormField(cardId, "seat", "front-door")
+    await app.forms.setFormField(cardId, "seat", "recommend")
     expect(app.field(cardId, "recordId").options?.map((option) => option.value)).toEqual(["default", "jev"])
   })
 
   test("the card's Assign button names the seat, and the form opens on the models that seat takes", () => {
     const app = fixture()
-    const { cardId, missing } = app.ask("model.assign", "front-door")
+    const { cardId, missing } = app.ask("model.assign", "recommend")
     expect(missing).toEqual(["recordId"])
-    expect(app.card(cardId).payload.draft).toEqual({ seat: "front-door" })
+    expect(app.card(cardId).payload.draft).toEqual({ seat: "recommend" })
     expect(app.field(cardId, "recordId").options?.map((option) => option.value)).toEqual(["default", "jev"])
   })
 })

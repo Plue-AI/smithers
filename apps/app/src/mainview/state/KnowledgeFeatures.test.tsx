@@ -188,11 +188,14 @@ describe("the optional Wiki summary on chat.clear", () => {
     expect(clearEntry(controller)?.args).toBe("[--summarize]")
     const catalog = agentVisibleCatalog(controller.commands.callable())
     expect(JSON.stringify(catalog.find((row) => row.name === "chat.clear"))).toMatch(/summarize/i)
-    const prompt = smithersInstructions(catalog, {
-      host: "web", github: { connected: false, login: null, repositories: null },
+    const honesty = {
+      host: "web" as const, github: { connected: false, login: null, repositories: null },
       localRepositories: [], localRepositoriesAvailable: false
-    }, { budgetBytes: 1_000_000 })
-    expect(prompt).toContain("--summarize")
+    }
+    // Disclosed for the conversation, the prompt lists chat.clear with its option; undisclosed, the list action's query finds it.
+    expect(smithersInstructions(catalog, honesty, { disclosed: ["chat.clear"] }))
+      .toContain("- /chat.clear [--summarize] — Archive this conversation and start fresh; optionally summarize into Wiki notes")
+    expect(smithersInstructions(catalog, honesty)).not.toContain("- /chat.clear")
 
     const outcome = await controller.commands.run("chat.clear", "--summarize")
     expect(outcome.status).toBe("executed")

@@ -464,11 +464,11 @@ describe("seats", () => {
     expect(MODEL_SEATS.map(({ id, kind, hosts }) => ({ id, kind, hosts }))).toEqual([
       { id: "chat", kind: "generation", hosts: ["local"] },
       { id: "explainer", kind: "generation", hosts: ["local", "cloud"] },
-      { id: "front-door", kind: "decision", hosts: ["cloud"] },
       { id: "recommend", kind: "decision", hosts: ["cloud"] }
     ])
     expect(modelSeatsOf("local")).toEqual(["chat", "explainer"])
-    expect(modelSeatsOf("cloud")).toEqual(["explainer", "front-door", "recommend"])
+    expect(modelSeatsOf("cloud")).toEqual(["explainer", "recommend"])
+    expect(SeatIdSchema.safeParse("front-door").success).toBe(false)
     expect(SeatIdSchema.safeParse("role:ui").success).toBe(false)
   })
 
@@ -477,7 +477,6 @@ describe("seats", () => {
     expect(accepted).toEqual([
       ["anthropic-messages", "openai-responses", "openai-chat"],
       ["anthropic-messages", "openai-responses", "openai-chat"],
-      ["evaluation"],
       ["evaluation"]
     ])
   })

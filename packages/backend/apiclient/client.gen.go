@@ -1826,6 +1826,13 @@ func (c *Client) HeadAPIBuildCacheHealthz(ctx context.Context) error {
 	return c.do(ctx, "HEAD", "/api/build-cache/healthz", nil, nil, nil)
 }
 
+// PostAPICommandsSelect calls POST /api/commands/select.
+func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/commands/select", nil, body, &out)
+	return out, err
+}
+
 // GetAPIFeatureFlags calls GET /api/feature-flags.
 func (c *Client) GetAPIFeatureFlags(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON

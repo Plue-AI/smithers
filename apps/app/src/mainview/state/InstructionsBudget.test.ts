@@ -7,28 +7,29 @@ import { createAppStore } from "./AppStore"
 import { composeAgentInstructions } from "@smthrs/rpc/AgentContext"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { initialSetup, REPOSITORY_JOB_TITLES, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
-import { CHAT_INSTRUCTIONS_CAP_BYTES, CODE_INTEL_LINE, INSTRUCTIONS_BUDGET_BYTES, INSTRUCTIONS_HEADROOM_BYTES, instructionStageOf, smithersInstructions, type InstructionHonesty } from "./Instructions"
-import { WORLD_BODY_BUDGET, WORLD_BODY_PER_DOCUMENT } from "./WorldContext"
+import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { MAX_TURN_REQUEST_BYTES, turnRequestBytes } from "./AgentTurnPolicy"
+import { CODE_INTEL_LINE, smithersInstructions } from "./Instructions"
+import { worldContextDocuments } from "./WorldContext"
 import { addWorldNote } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
 /*
  * 2026-09-02: a turn failed with "Smithers Cloud chat failed (HTTP 400):
- * instructions must be a string within the size limit" — the chat seam caps
- * instructions at 16 KiB and the live catalog had grown past it. The prompt
- * now has a budget and degrades its catalog honestly instead of failing the
- * turn. This pins the budget against the REAL registry with a repository open
- * and every local capability on, the largest prompt the app builds.
+ * instructions must be a string within the size limit". The prompt then grew
+ * a 16 KiB budget that degraded the catalog, cut World notes, and shed card
+ * lines and setup drafts. That cap was stale: the backend turn route takes
+ * 1 MiB, and since #3313 the prompt lists only pinned and disclosed commands.
+ * The budget is gone. What stays pinned here, against the REAL registry with
+ * a repository open: the largest sessions the app builds still send one turn
+ * under MAX_TURN_REQUEST_BYTES, and nothing in them is cut to get there.
  */
 
-const CHAT_SEAM_CAP_BYTES = 16 * 1024
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
   return { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => void data.set(key, value), removeItem: (key) => void data.delete(key) }
 }
-
-const bytes = (text: string): number => new TextEncoder().encode(text).length
 
 const NATIVE_EVERYTHING = {
   apiVersion: 1 as const,
@@ -57,11 +58,11 @@ const capturedTurn = async (prepare: (store: Awaited<ReturnType<typeof createApp
   // The selected note a person keeps, which the budget spends room on first.
   await addWorldNote(store, true)
   prepare(store)
-  let captured: { instructions?: string; context?: AgentRuntimeContext } | undefined
+  let captured: StartAgentTurnRequest | undefined
   const agent: AgentPort = {
     available: true,
     startTurn: async (request) => {
-      captured = request as { instructions?: string; context?: AgentRuntimeContext }
+      captured = request
       return { status: "started" }
     },
     cancelTurn: async () => {},
@@ -73,29 +74,25 @@ const capturedTurn = async (prepare: (store: Awaited<ReturnType<typeof createApp
   const instructions = captured?.instructions ?? ""
   // What the seam actually measures is the COMPOSED string the Bun side sends: prompt plus the rendered runtime context.
   const composed = composeAgentInstructions(instructions, captured?.context)
-  return { store, instructions, context: captured?.context, composed }
+  if (captured === undefined) throw new Error("no turn captured")
+  return { store, instructions, context: captured.context, composed, requestBytes: turnRequestBytes(captured) }
 }
 
-describe("the instructions budget", () => {
-  test("the full live registry with a repository open fits the chat seam's cap with headroom", async () => {
-    const { instructions, composed } = await capturedTurn(() => {})
-    expect(instructions).toContain("What you can do is EXACTLY this")
-    expect(bytes(composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - 256)
-    expect(CHAT_SEAM_CAP_BYTES).toBe(CHAT_INSTRUCTIONS_CAP_BYTES)
-    expect(INSTRUCTIONS_BUDGET_BYTES).toBeLessThanOrEqual(CHAT_SEAM_CAP_BYTES - 2048)
-    // The lane report reads the stage the live catalog lands in with an empty context.
-    console.info(`instructions budget: empty-context session lands in stage ${instructionStageOf(instructions)} (${bytes(instructions)} prompt bytes, ${bytes(composed)} composed)`)
+describe("the turn size without a budget", () => {
+  test("the full live registry with a repository open sends a turn under the request limit, listing the pinned commands in full", async () => {
+    const { instructions, requestBytes } = await capturedTurn(() => {})
+    expect(instructions).toMatch(/Commands for this conversation \(\d+ exist; the list action with a "query" finds the rest, with their arguments\):/)
+    // auth.prompt is named by the standing instructions, so its line is there in full.
+    expect(instructions).toMatch(/^- \/auth\.prompt\b.* — /m)
+    expect(requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
   })
 
   /*
-   * The floor. Stage 2 had no floor: with World notes at WORLD_BODY_BUDGET
-   * and the orchestrator roles present, the composed string measured 22 650
-   * bytes and the seam's 400 came back as a failed turn. The World bodies
-   * now give way before the cap does, each cut note saying so, and only
-   * with none left does the catalog fall to stage 3.
+   * World notes are bounded by the World context's own budget
+   * (WorldContext.ts), never cut further to fit a prompt cap.
    */
-  test("a session with World notes at the body budget composes under the cap, and the notes are cut before the turn is", async () => {
-    const { instructions, context, composed } = await capturedTurn((store) => {
+  test("a session with World notes at the body budget carries exactly the World context's bodies, under the request limit", async () => {
+    const { store, context, requestBytes } = await capturedTurn((store) => {
       for (const index of [1, 2, 3]) {
         store.dispatch({
           type: "world.document.upserted",
@@ -115,48 +112,20 @@ describe("the instructions budget", () => {
       }
     })
     if (context === undefined) throw new Error("no context captured")
-    expect(bytes(composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
-    /*
-     * The catalog degrades only as far as it must. Since the local backend
-     * retired (docs/LOCAL-BACKEND-RETIREMENT.md) the registry is smaller, so
-     * the namespace list at stage 2 leaves room the notes then spend — the
-     * assertions below are what proves that room went to the notes.
-     */
-    /*
-     * With every note cut, the names-by-namespace catalog alone left 23
-     * bytes under the cap once the stack flows (#1745) joined the registry
-     * it no longer fits, so the catalog falls to namespaces and counts —
-     * the documented floor — and the notes keep the room it frees.
-     */
-    expect(instructionStageOf(instructions)).toBe(3)
-    expect(instructions).toContain("Commands: ")
-    // Every note is still listed with its body (the head of it) and says when it was cut; none silently vanished.
+    expect(requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+    const expected = worldContextDocuments(store.agentContextSnapshot().worldState.documents, store.session().selectedWorldDocumentId)
+    expect(context.worldState.documents).toEqual(expected)
     const notes = context.worldState.documents.filter((document) => document.path.startsWith("notes/"))
     expect(notes).toHaveLength(3)
-    for (const note of notes) expect(note.body).toBeDefined()
-    expect(notes.some((note) => note.bodyTruncated === true)).toBe(true)
-    expect(notes.reduce((sum, note) => sum + (note.body?.length ?? 0), 0)).toBeGreaterThan(0)
-    expect(notes.reduce((sum, note) => sum + (note.body?.length ?? 0), 0)).toBeLessThan(Math.min(WORLD_BODY_BUDGET, 3 * WORLD_BODY_PER_DOCUMENT))
-    /*
-     * The cut spends the room it has: a one-step cut by the overshoot used to
-     * land on a zero budget with hundreds of bytes unused (and passed this
-     * floor by a single line only while the catalog stayed small enough).
-     * Bisection stops within a few characters, so the slack under the cap is
-     * bounded by one note line plus the search's resolution.
-     */
-    expect(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES - bytes(composed)).toBeLessThan(256)
-    console.info(`instructions budget: World notes at budget land in stage ${instructionStageOf(instructions)} (${bytes(instructions)} prompt bytes, ${bytes(composed)} composed)`)
+    for (const note of notes) expect(note.body?.length ?? 0).toBeGreaterThan(0)
   })
 
   /*
    * The open setups' drafts (controller/repositorySetup.ts setupContextSummary)
-   * are the last thing the cap cuts. Budgeting them by their JSON size instead
-   * admitted two drafts that the RENDERED turn had no room for: three setup
-   * cards behind ten file cards composed 17 292 bytes, past the seam's cap,
-   * which it answers with "instructions must be a string within the size
-   * limit". composeTurn now sheds them oldest first.
+   * used to be shed oldest first to fit 16 KiB: three setup cards behind ten
+   * file cards lost the issues draft. Every draft in the card window rides now.
    */
-  test("the open setups' drafts ride the turn while there is room and are shed before the cap is passed", async () => {
+  test("every open setup's draft in the card window rides the turn, however busy the window", async () => {
     const setupCards = (store: Awaited<ReturnType<typeof createAppStore>>, jobs: ReadonlyArray<RepositoryJob>) => {
       for (const job of jobs) {
         store.dispatch({ type: "card.upsert", actor: "user", card: {
@@ -170,21 +139,19 @@ describe("the instructions budget", () => {
       (turn.context?.recentCards ?? []).filter((card) => card.setup !== undefined).map((card) => card.id)
 
     const one = await capturedTurn((store) => setupCards(store, ["issues"]))
-    expect(bytes(one.composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
+    expect(one.requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+    expect(drafted(one)).toEqual(["setup:will:will%2Fcanary:issues"])
     expect(one.composed).toContain("- Research issue: automatic |")
     expect(one.composed).toContain("Settings: replies draft, landing ask, time limit 10 minutes, apply to new and edited issues.")
-    console.info(`instructions budget: one open issues setup carries ${drafted(one).length} draft (${bytes(one.composed)} composed)`)
 
     const open = await capturedTurn((store) => setupCards(store, ["issues", "review", "ci"]))
-    expect(bytes(open.composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
-    // Three drafts and nothing else still fit: a draft is shed only under pressure.
+    expect(open.requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
     expect(drafted(open)).toEqual([
       "setup:will:will%2Fcanary:issues",
       "setup:will:will%2Fcanary:review",
       "setup:will:will%2Fcanary:ci"
     ])
     expect(open.composed).toContain("- Run repository checks: automatic |")
-    console.info(`instructions budget: three open setups carry ${drafted(open).length} drafts (${bytes(open.composed)} composed)`)
 
     const busy = await capturedTurn((store) => {
       setupCards(store, ["issues", "review", "ci"])
@@ -196,17 +163,11 @@ describe("the instructions budget", () => {
         } })
       }
     })
-    /*
-     * Twelve card lines alone spent this fixture's headroom (16 062 bytes with
-     * no draft at all, and past the limit the composer then sent anyway). The
-     * card window holds twelve of the thirteen cards; the drafts are what
-     * gives way, oldest first, and the newest one the person is looking at
-     * still rides the turn.
-     */
-    expect(bytes(busy.composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
+    // The window holds the newest twelve of thirteen cards: ten file cards and the review and CI setups. Neither draft is shed.
+    expect(busy.requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
     expect((busy.context?.recentCards ?? []).length).toBe(12)
     expect(drafted(busy)).toEqual(["setup:will:will%2Fcanary:review", "setup:will:will%2Fcanary:ci"])
-    console.info(`instructions budget: the same setups behind ten cards carry ${drafted(busy).length} drafts in ${(busy.context?.recentCards ?? []).length} card lines (${bytes(busy.composed)} composed)`)
+    expect(busy.composed).toContain("- Run repository checks: automatic |")
   })
 
   /*
@@ -216,9 +177,10 @@ describe("the instructions budget", () => {
    * and a review setup — answered "I couldn't complete that turn. The model
    * service refused this turn (HTTP 400)." / "Turn failed". Twelve card lines
    * spend the whole budget: every draft is shed AND the composition still
-   * passes the app's own limit, which the composer used to send anyway.
+   * passes the app's own limit, which the composer used to send anyway. The
+   * 16 KiB limit was stale; the same conversation now sends whole.
    */
-  test("the canary's twelve-card conversation composes under the cap and still answers from the open setups' drafts", async () => {
+  test("the canary's twelve-card conversation sends under the request limit and answers from the open setups' drafts", async () => {
     const repo = "codeplanesmithers/canary-sandbox"
     const workspaceId = "af1e3bc5-6388-419e-98cc-e13372a89646"
     const setupId = (job: RepositoryJob) => `setup:codeplanesmithers:${encodeURIComponent(repo)}:${job}`
@@ -242,21 +204,21 @@ describe("the instructions budget", () => {
       setupCard("review")
     }, CLOUD_HOST, "what will run automatically?")
     const cards = turn.context?.recentCards ?? []
-    expect(bytes(turn.composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
+    expect(turn.requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+    expect(cards).toHaveLength(12)
     // The draft is what an ordinary question beside the card is answered from.
     expect(cards.filter((card) => card.setup !== undefined).map((card) => card.id)).toEqual([setupId("issues"), setupId("review")])
     expect(turn.composed).toContain("- Research issue: automatic |")
     expect(turn.composed).toContain("- Find duplicates: automatic |")
     expect(turn.composed).toContain("- Reproduce bugs: automatic |")
-    console.info(`instructions budget: the canary's twelve-card conversation carries ${cards.filter((card) => card.setup !== undefined).length} drafts in ${cards.length} card lines (${bytes(turn.composed)} composed)`)
   })
 
   /*
-   * The floor under every stage. A card title is bounded at 250 characters
-   * (controller/turns.ts), so a full window of them is a state the product
-   * itself allows: it must cost card lines, never the turn.
+   * A card title is bounded at 250 characters (controller/turns.ts), so a
+   * full window of them is a state the product itself allows. It once cost
+   * card lines; it now costs nothing.
    */
-  test("a card window whose titles alone pass the cap loses card lines, not the turn", async () => {
+  test("a full card window of 250-character titles keeps every card line, each title bounded", async () => {
     const turn = await capturedTurn((store) => {
       for (let index = 0; index < 12; index += 1) {
         store.dispatch({ type: "card.upsert", actor: "user", card: {
@@ -264,9 +226,10 @@ describe("the instructions budget", () => {
           createdAt: 2, ordinal: store.nextOrdinal(), payload: { repo: "will/canary", path: `file-${index}.md`, content: "Source", truncated: false } } })
       }
     })
-    expect(bytes(turn.composed)).toBeLessThanOrEqual(CHAT_INSTRUCTIONS_CAP_BYTES - INSTRUCTIONS_HEADROOM_BYTES)
-    expect((turn.context?.recentCards ?? []).length).toBeLessThan(12)
-    console.info(`instructions budget: a window of 250-character titles keeps ${(turn.context?.recentCards ?? []).length} card lines (${bytes(turn.composed)} composed)`)
+    expect(turn.requestBytes).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
+    const titles = (turn.context?.recentCards ?? []).map((card) => card.title)
+    expect(titles).toHaveLength(12)
+    for (const title of titles) expect(title).toHaveLength(250)
   })
 
   test("code intelligence is stated only where its flows are registered", async () => {
@@ -277,60 +240,5 @@ describe("the instructions budget", () => {
     const native = smithersInstructions([...catalog, { name: "code.hover", summary: "The type at a position" }], { ...honesty, host: "native" })
     expect(native).toContain(CODE_INTEL_LINE)
     expect(native).not.toContain("code intelligence (hover, definitions, diagnostics) need the native app")
-  })
-
-  /*
-   * Stage 1 — the argument grammars leave, every summary stays. Only stages
-   * 0, 2 and 3 were pinned, so widening the stage-0 predicate to `stage <= 1`
-   * kept every grammar in stage 1 and the suite stayed green: the oversized
-   * fixture simply fell through to stage 2.
-   */
-  test("a catalog that fits only once the argument grammars go lands in stage 1, keeping every summary", () => {
-    const honesty: InstructionHonesty = { host: "native", github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true }
-    const catalog = Array.from({ length: 40 }, (_entry, index) => ({
-      name: `ns${index % 4}.command-${index}`,
-      summary: `Does the ${index}th thing, in a sentence long enough to be worth keeping`,
-      args: "<one> [two] [three]"
-    }))
-    // The two renderings the budget chooses between, measured through the public seam.
-    const atStage0 = bytes(smithersInstructions(catalog, honesty, { lastStage: 0, budgetBytes: 0 }))
-    const atStage1 = bytes(smithersInstructions(catalog, honesty, { lastStage: 1, budgetBytes: 0 }))
-    // Dropping the grammars is what buys the room; without that, stage 1 is stage 0.
-    expect(atStage0).toBeGreaterThan(atStage1)
-
-    const text = smithersInstructions(catalog, honesty, { budgetBytes: atStage1 })
-    expect(instructionStageOf(text)).toBe(1)
-    expect(bytes(text)).toBeLessThanOrEqual(atStage1)
-    // Every command keeps its name AND its summary — only the grammar left.
-    for (const command of catalog) {
-      expect(text).toContain(`- /${command.name} — ${command.summary}`)
-    }
-    expect(text).not.toContain("<one>")
-    expect(text).not.toContain("[three]")
-  })
-
-  test("a catalog too large for the budget degrades in stages and never drops a command's name", () => {
-    const honesty: InstructionHonesty = { host: "native", github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true }
-    const many = Array.from({ length: 400 }, (_entry, index) => ({
-      name: `ns${index % 12}.command-${index}`,
-      summary: `Does the ${index}th thing, at length, so that the catalog alone outgrows the budget many times over`,
-      args: "<one> [two] [three]"
-    }))
-    const text = smithersInstructions(many, honesty, { lastStage: 2 })
-    expect(bytes(text)).toBeLessThanOrEqual(INSTRUCTIONS_BUDGET_BYTES + 4096)
-    expect(text).toContain("Commands, by namespace")
-    expect(instructionStageOf(text)).toBe(2)
-    for (const command of many.slice(0, 20)) expect(text).toContain(`/${command.name}`)
-    // A small catalog keeps every argument grammar.
-    const small = smithersInstructions(many.slice(0, 5), honesty)
-    expect(small).toContain("<one> [two] [three]")
-    expect(instructionStageOf(small)).toBe(0)
-    // The floor: a budget the namespace list cannot meet leaves the namespaces and their counts, every name behind the list action.
-    const floor = smithersInstructions(many, honesty, { budgetBytes: 4096 })
-    expect(instructionStageOf(floor)).toBe(3)
-    expect(floor).toContain("Commands: 400, in these namespaces")
-    expect(floor).toContain("ns0 (34)")
-    expect(floor).not.toContain("/ns0.command-0")
-    expect(bytes(floor)).toBeLessThan(bytes(text))
   })
 })

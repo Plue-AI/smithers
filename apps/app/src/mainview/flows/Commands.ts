@@ -24,7 +24,7 @@ import * as Cell from "@smthrs/harness/Cell"
 import type * as Descriptor from "@smthrs/registry/Descriptor"
 import { Effect } from "effect"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
-import type { AgentToolCall, AgentToolSpec } from "./agentTools"
+import type { AgentCommandDiscovery, AgentToolCall, AgentToolSpec } from "./agentTools"
 import { agentFailureText, agentToolSpecs, executeAgentToolCall, userOnlyError } from "./agentTools"
 import type { AppTransition } from "../state/AppState"
 import type { CommandActions } from "./Flows"
@@ -211,7 +211,7 @@ export interface CommandRegistry {
    * The agent's entry point: one call through the identical run path buttons
    * and slash use. The result is an honest string that round-trips to the model.
    */
-  readonly executeForAgent: (call: AgentToolCall) => Promise<string>
+  readonly executeForAgent: (call: AgentToolCall, discover?: AgentCommandDiscovery) => Promise<string>
   /**
    * One flow as the agent actor, answered as a TYPED outcome. The string
    * channel executeForAgent returns cannot distinguish a failure from a success
@@ -815,7 +815,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // Preserve the native host's direct tool path. Form continuations
     // still enter runForAgent below and must bring authority or fail closed.
     runAsAgent: (name, args, httpCall) => runAs("agent", name, args, new Set(), undefined, undefined, httpCall),
-    executeForAgent: (call) => executeAgentToolCall(registry, call),
+    executeForAgent: (call, discover) => executeAgentToolCall(registry, call, discover),
     runForAgent: async (name, args, invocation, signal) => {
       const clean = canonicalCommandName(name)
       const early = lifecycle?.before?.({ name: clean, actor: "smithers", source: "command", invocation }, args)

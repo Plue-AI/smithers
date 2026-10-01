@@ -61,13 +61,26 @@ describe("pure app event projection", () => {
     let state = boot()
     for (const turnId of ["earlier", "retry"]) {
       state = apply(state, { type: "message.submitted", actor: "user", turnId, text: turnId })
-      state = apply(state, { type: "message.tool.executed", actor: "smithers", turnId, text: `act ${turnId}`, answersTurn: true })
+      state = apply(state, { type: "message.tool.executed", actor: "smithers", turnId, text: `act ${turnId}` })
       state = apply(state, { type: "message.response.failed", actor: "system", turnId, message: "upstream unavailable" })
     }
     expect(state.messages.filter(message => message.act)).toHaveLength(2)
     state = apply(state, { type: "message.retried", actor: "user", turnId: "retry" })
     expect(state.messages.filter(message => message.act).map(message => message.text)).toEqual(["act earlier"])
     expect(state.messages.filter(message => message.role === "user").map(message => message.text)).toEqual(["earlier", "retry"])
+  })
+
+  test("disclosed commands add to the turn's user message in first-seen order, capped at 64, and an unknown turn writes nothing", () => {
+    let state = apply(boot(), { type: "message.submitted", actor: "user", turnId: "t1", text: "switch to dark mode" })
+    state = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "t1", names: ["appearance.dark-mode", "runs.list"] })
+    state = apply(state, { type: "message.commands.disclosed", actor: "smithers", turnId: "t1", names: ["runs.list", "issues.list"] })
+    const user = () => state.messages.find(message => message.id === "message-t1-user")!
+    expect(user().disclosed).toEqual(["appearance.dark-mode", "runs.list", "issues.list"])
+    const unknown = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "absent", names: ["a.b"] })
+    expect(unknown.messages).toEqual(state.messages)
+    state = apply(state, { type: "message.commands.disclosed", actor: "system", turnId: "t1", names: Array.from({ length: 70 }, (_, index) => `n.c${index}`) })
+    expect(user().disclosed).toHaveLength(64)
+    expect(user().disclosed!.slice(0, 3)).toEqual(["appearance.dark-mode", "runs.list", "issues.list"])
   })
 
   test("owns exactly the domain roster and its stable keys", () => {
@@ -426,15 +439,15 @@ describe("models and seats", () => {
 
   test("a seat takes only a model of its kind, and default frees it", () => {
     let state = observe(save(boot(), mine), [jev])
-    state = apply(state, { type: "seat.assigned", actor: "user", seat: "front-door", recordId: "mine" })
+    state = apply(state, { type: "seat.assigned", actor: "user", seat: "recommend", recordId: "mine" })
     state = apply(state, { type: "seat.assigned", actor: "user", seat: "explainer", recordId: "jev" })
     state = apply(state, { type: "seat.assigned", actor: "user", seat: "explainer", recordId: "absent" })
     expect(state.seats).toEqual([])
     state = apply(state, { type: "seat.assigned", actor: "user", seat: "explainer", recordId: "mine" })
-    state = apply(state, { type: "seat.assigned", actor: "smithers", seat: "front-door", recordId: "jev" })
-    expect(state.seats).toEqual([{ id: "explainer", recordId: "mine" }, { id: "front-door", recordId: "jev" }])
+    state = apply(state, { type: "seat.assigned", actor: "smithers", seat: "recommend", recordId: "jev" })
+    expect(state.seats).toEqual([{ id: "explainer", recordId: "mine" }, { id: "recommend", recordId: "jev" }])
     state = apply(state, { type: "seat.assigned", actor: "user", seat: "explainer", recordId: null })
-    expect(state.seats).toEqual([{ id: "front-door", recordId: "jev" }])
+    expect(state.seats).toEqual([{ id: "recommend", recordId: "jev" }])
   })
 
   test("removing a model frees every seat it held, and a host row cannot be removed", () => {

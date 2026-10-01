@@ -1,15 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, test } from "vitest"
-import {
-  AGENT_TURN_COMMAND_NAME_MAX_CHARS,
-  AGENT_TURN_COMMAND_SUMMARY_MAX_CHARS,
-  AGENT_TURN_COMMANDS_MAX,
-  AgentTurnCommandsSchema,
-  AgentTurnFrameSchema,
-  decodeAgentTurnFrame,
-  readAgentTurnCommands
-} from "../src/NativeAgent.ts"
+import { AgentTurnFrameSchema, decodeAgentTurnFrame } from "../src/NativeAgent.ts"
 import type { AgentTurnFrame } from "../src/NativeAgent.ts"
 
 const parses = (value: unknown): boolean => AgentTurnFrameSchema.safeParse(value).success
@@ -202,46 +194,5 @@ describe("RPC sources stay runtime-free", () => {
       expect(source).not.toMatch(/(from\s+|import\()\s*["']@smthrs\/(?!canonical\/(?:Record|Serializer)["'])/)
       expect(source).not.toMatch(/(from\s+|import\()\s*["']effect(["']|\/)/)
     }
-  })
-})
-
-/*
- * The command catalog a turn carries as data. The serving side's front door
- * (apps/server frontDoor.ts) offers it to a decision model, so it is bounded
- * exactly like the recommender's list — and read leniently, because a client
- * that sends a catalog this contract does not allow must still get its turn.
- */
-describe("the turn body's offered command catalog", () => {
-  const commands = (count: number) =>
-    Array.from({ length: count }, (_, index) => ({ name: `namespace.command-${index}`, summary: "does a thing" }))
-
-  test("accepts a well-formed list and answers it decoded", () => {
-    const list = commands(3)
-    expect(readAgentTurnCommands(list)).toEqual(list)
-    expect(AgentTurnCommandsSchema.safeParse(list).success).toBe(true)
-  })
-
-  test("accepts exactly the cap and refuses one more", () => {
-    expect(readAgentTurnCommands(commands(AGENT_TURN_COMMANDS_MAX))).toHaveLength(AGENT_TURN_COMMANDS_MAX)
-    expect(readAgentTurnCommands(commands(AGENT_TURN_COMMANDS_MAX + 1))).toBeUndefined()
-  })
-
-  test("bounds a name and a summary by length, and refuses an empty name", () => {
-    const long = (length: number) => "n".repeat(length)
-    expect(readAgentTurnCommands([{ name: long(AGENT_TURN_COMMAND_NAME_MAX_CHARS), summary: "" }])).toHaveLength(1)
-    expect(readAgentTurnCommands([{ name: long(AGENT_TURN_COMMAND_NAME_MAX_CHARS + 1), summary: "" }])).toBeUndefined()
-    expect(readAgentTurnCommands([{ name: "a", summary: long(AGENT_TURN_COMMAND_SUMMARY_MAX_CHARS) }])).toHaveLength(1)
-    expect(readAgentTurnCommands([{ name: "a", summary: long(AGENT_TURN_COMMAND_SUMMARY_MAX_CHARS + 1) }]))
-      .toBeUndefined()
-    expect(readAgentTurnCommands([{ name: "", summary: "" }])).toBeUndefined()
-  })
-
-  test("a body without the field, or with a shape this contract does not allow, is undefined rather than a refusal", () => {
-    expect(readAgentTurnCommands(undefined)).toBeUndefined()
-    expect(readAgentTurnCommands(null)).toBeUndefined()
-    expect(readAgentTurnCommands("runs.list")).toBeUndefined()
-    expect(readAgentTurnCommands([{ name: "a" }])).toBeUndefined()
-    expect(readAgentTurnCommands([{ name: "a", summary: 7 }])).toBeUndefined()
-    expect(readAgentTurnCommands([])).toEqual([])
   })
 })

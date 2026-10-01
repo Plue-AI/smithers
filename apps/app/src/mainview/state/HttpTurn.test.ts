@@ -79,45 +79,16 @@ test("withheld claims, pending calls, settled results and continuation input all
   expect(JSON.stringify(state.transitions)).not.toContain(token)
 })
 
-test("a front-door leg's act IS the answer: one act row, kept for the model, and no empty-response failure", () => {
-  /*
-   * The Jev front door (apps/server frontDoor.ts) answers a routed turn with
-   * a tool call it minted itself, and the act line the registry renders for
-   * that call is the whole answer — including when the act was refused. Its
-   * continuation leg therefore carries no text, which used to fall into the
-   * empty-response failure the next test still holds.
-   */
-  const callId = "frontdoor-b0a1"
-  let state = accepted("show me my runs")
-  state = step(state, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
-    batch: batchOf(initialCursor(), [
-      { type: "tool_call", runId: "turn", call_id: callId, name: "commands", arguments: '{"action":"execute","name":"runs.list"}' },
-      { type: "done", runId: "turn", reason: "tool_call" }
-    ]) })
-  state = step(state, { type: "http.tool.started", actor: "smithers", attemptId: "attempt", legId: "leg" })
-  state = step(state, { type: "http.tool.settled", actor: "smithers", attemptId: "attempt", legId: "leg",
-    result: "failed: smithersai/smithers isn't on Smithers Cloud yet" })
-  state = step(state, { type: "http.leg.prepared", actor: "system", attemptId: "attempt", journal: { version: 1, legId: "leg2", token } })
-  state = step(state, { type: "http.leg.accepted", actor: "system", attemptId: "attempt", legId: "leg2", cursor: initialCursor("turn", "leg2") })
-  state = step(state, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg2",
-    batch: batchOf(initialCursor("turn", "leg2"), [{ type: "done", runId: "turn", reason: "stop" }]) })
-
-  // One row on screen, and it says what really happened.
-  expect(state.messages.find(row => row.id === "message-turn-smithers")).toBeUndefined()
-  const acts = state.messages.filter(row => row.act !== undefined)
-  expect(acts).toHaveLength(1)
-  expect(acts[0]?.text).toBe("Smithers tried /runs.list — failed: smithersai/smithers isn't on Smithers Cloud yet")
-  // And that row is this turn's answer, so later turns read it (turns.ts contextMessages).
-  expect(acts[0]?.answersTurn).toBe(true)
-  expect(state.httpTurns[0]).toMatchObject({ status: "complete", receivedText: true })
-  expect(state.sessions[0]?.phase).toBe("idle")
-})
-
-test("a tool leg the front door did not mint still refuses an answer with no text, and its act is not the answer", () => {
+/*
+ * The server front door is gone (#3313), and with it the minted
+ * `frontdoor-` call id that once made a tool leg's act the turn's answer.
+ * Every tool leg now needs text from its continuation, whatever the call id.
+ */
+test.each(["call_1", "frontdoor-b0a1"])("a tool leg (call id %s) whose continuation carries no text fails as an empty response, and its act stays", (callId) => {
   let state = accepted("list my commands")
   state = step(state, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
     batch: batchOf(initialCursor(), [
-      { type: "tool_call", runId: "turn", call_id: "call_1", name: "commands", arguments: '{"action":"list"}' },
+      { type: "tool_call", runId: "turn", call_id: callId, name: "commands", arguments: '{"action":"list"}' },
       { type: "done", runId: "turn", reason: "tool_call" }
     ]) })
   state = step(state, { type: "http.tool.started", actor: "smithers", attemptId: "attempt", legId: "leg" })
@@ -128,7 +99,8 @@ test("a tool leg the front door did not mint still refuses an answer with no tex
     batch: batchOf(initialCursor("turn", "leg2"), [{ type: "done", runId: "turn", reason: "stop" }]) })
 
   expect(state.messages.find(row => row.id === "message-turn-smithers")?.text).toContain("empty response")
-  expect(state.messages.filter(row => row.act !== undefined)[0]?.answersTurn).toBeUndefined()
+  expect(state.messages.filter(row => row.act !== undefined)).toHaveLength(1)
+  expect(state.messages.some(row => "answersTurn" in row)).toBe(false)
   expect(state.httpTurns[0]?.status).toBe("failed")
 })
 

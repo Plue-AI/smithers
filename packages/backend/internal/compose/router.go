@@ -938,6 +938,7 @@ func buildRouter(
 		if extras.Recommender != nil {
 			r.Post("/recommend", extras.Recommender.Recommend)
 			r.Post("/recommend/outcome", extras.Recommender.Outcome)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/commands/select", extras.Recommender.Select)
 		}
 		if extras.ModelStream != nil {
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/model/stream", extras.ModelStream.ServeHTTP)

@@ -365,7 +365,7 @@ describe("the Models card, surfaced unasked", () => {
 describe("the Models card, maximized", () => {
   const seats: Payload["seats"] = [
     { id: "explainer", recordId: "fast-kimi", resolvable: true },
-    { id: "front-door", recordId: null, resolvable: true }
+    { id: "recommend", recordId: null, resolvable: true }
   ]
   const render = (payload: Partial<Payload> = {}) => {
     const { calls, onRunCommand } = recorder()
@@ -423,12 +423,12 @@ describe("the Models card, maximized", () => {
     const { host } = render()
     const table = host.querySelector('[data-testid="model-seats"]')!
     expect([...table.querySelectorAll("[data-seat-row]")].map((tr) => [tr.getAttribute("data-seat-row"), tr.getAttribute("data-resolvable")]))
-      .toEqual([["explainer", "true"], ["front-door", "true"]])
+      .toEqual([["explainer", "true"], ["recommend", "true"]])
     const options = (seat: string) => [...table.querySelectorAll(`select[data-seat="${seat}"] option`)].map((option) => [option.getAttribute("value"), option.textContent])
     expect(options("explainer")).toEqual([["default", "Default"], ["cerebras", "cerebras"], ["fast-kimi", "fast-kimi"]])
-    expect(options("front-door")).toEqual([["default", "Default"], ["jev", "jev"]])
+    expect(options("recommend")).toEqual([["default", "Default"], ["jev", "jev"]])
     expect(table.querySelector<HTMLSelectElement>('select[data-seat="explainer"]')?.value).toBe("fast-kimi")
-    expect(table.querySelector<HTMLSelectElement>('select[data-seat="front-door"]')?.value).toBe("default")
+    expect(table.querySelector<HTMLSelectElement>('select[data-seat="recommend"]')?.value).toBe("default")
     expect(table.querySelector('select[data-seat="explainer"]')?.getAttribute("data-flow")).toBe("model.assign")
     expect(table.querySelector<HTMLSelectElement>('select[data-seat="explainer"]')?.getAttribute("aria-label")).toBe("Explainer")
   })

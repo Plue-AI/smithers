@@ -1619,7 +1619,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       ],
       seats: [
         { id: "explainer", recordId: "ollama", resolvable: true },
-        { id: "front-door", recordId: null, resolvable: true }
+        { id: "recommend", recordId: null, resolvable: true }
       ],
       credentials: [
         { name: "CEREBRAS_API_KEY", present: false, origins: ["https://api.cerebras.ai"] },

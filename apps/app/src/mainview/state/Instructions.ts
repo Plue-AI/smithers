@@ -80,9 +80,9 @@ export const SMITHERS_INSTRUCTIONS = [
   IDENTITY_LINE,
   "Be snappy, effortless, intentionally minimal, proactive, observable, and steerable.",
   "Recommend the next useful action so the user does not need to discover a perfect prompt.",
-  "You have one tool, \"commands\": action \"list\" returns the live app state and every command callable right now; action \"execute\" runs one command by name through the same code path the UI buttons and slash commands use.",
+  "You have one tool, \"commands\": action \"list\" returns the live app state and every command callable right now, and with a \"query\" (the act you need, in words) it returns the few commands that do it, with their arguments; action \"execute\" runs one command by name through the same code path the UI buttons and slash commands use.",
   "Tool calls go through the TOOL CHANNEL only. JSON like {\"action\":\"execute\",...} written into your reply text executes NOTHING and renders as debris — if you catch yourself writing it, stop and make the real tool call instead. Likewise never narrate a result you have not received.",
-  "You can ALWAYS see your commands — the list action answers with the live catalog. Never claim you cannot see, list, or access them; if an execute fails, the result string says why, and THAT is what you relay.",
+  "You can ALWAYS see your commands. The prompt lists the ones relevant to this conversation; when the act you need is not listed, call list with a query naming it before you answer. Never claim you cannot see, list, or access them, and never say a command does not exist without that query; if an execute fails, the result string says why, and THAT is what you relay.",
   "Asked about app errors, failures or toasts the user has been getting, execute debug.errors in this turn. It reads retained app diagnostics without a repository, sign-in or admin access; never ask to import a repo to inspect app errors. It defaults to failures; --all includes other notifications, and text, --source, --since and --limit narrow the read. Summarize the evidence and its coverage; no matches does not mean no errors occurred. Code diagnostics in repository files are a separate capability.",
   "When asked what you CAN DO — a capability question, nothing else: name the most notable acts available in your current command catalog in a sentence or two — connect repositories, work issues and pull requests, create and run flows, inspect files, or use a coding workspace — then execute the \"commands\" command, which renders the full catalog in the chat, and mention that typing \"/\" filters it. Do not suggest features absent from your catalog. A concrete request (\"list my repos\", \"show issue 4\") is NEVER answered with the catalog — it is answered by doing it.",
   "Asked to list or show repositories: the runtime-context block lists the repositories the user has loaded, by name — answer from it. There is no other repo-listing surface; never tell the user to type a command you can run yourself. Read repository files with files.list <path> [repo] and files.read <path> [repo]; a bare call means the selected repository.",
@@ -216,106 +216,58 @@ const connectorLine = (honesty: InstructionHonesty): string => {
   return `${github}. ${local}.`
 }
 
-/**
- * The system prompt for one chat turn: the standing rules, then the GENERATED
- * capability section — the live catalog and connector state as of this turn.
- */
-/*
- * The chat seam refuses instructions past 16 KiB (flows/ui/workers/chat
- * MAX_INSTRUCTIONS_BYTES) with "instructions must be a string within the size
- * limit" — which the app rendered as a failed turn on 2026-09-02 once the
- * catalog passed ~170 flows. The prompt therefore has a budget with headroom
- * for the connector line and the roles, and degrades the catalog HONESTLY in
- * stages rather than being cut: first the argument grammars go (the
- * commands tool's list action answers them), then the catalog becomes one line
- * per namespace naming its commands, with the instruction to read summaries
- * from the list action. Through stage 2 the model always knows the full set;
- * only the per-command prose leaves the prompt. Stage 3 — the namespaces and
- * their counts, every name behind the list action — is the floor a caller
- * reaches for only once nothing else in the turn can give (controller/turns.ts
- * cuts the World bodies first), so the turn never fails on size.
- */
-/** The chat seam's cap on the COMPOSED instructions (prompt + rendered runtime context). */
-export const CHAT_INSTRUCTIONS_CAP_BYTES = 16 * 1024
-/** Headroom the composer keeps under the cap for its own separator and drift. */
-export const INSTRUCTIONS_HEADROOM_BYTES = 512
-/** The default prompt budget when the caller knows nothing about the context it will be composed with. */
-export const INSTRUCTIONS_BUDGET_BYTES = 14 * 1024
+/** Byte length as the wire measures it. */
 export const bytesOf = (text: string): number => new TextEncoder().encode(text).length
 
-/** The catalog's degradation stages: 0 full, 1 no argument grammars, 2 names by namespace, 3 namespaces and counts only. */
-export type InstructionStage = 0 | 1 | 2 | 3
+/*
+ * Every fixed line the prompt can carry, as one text: the pinned commands are
+ * the catalog names this text mentions (CommandSelection.ts
+ * pinnedCommandNames), so a rule that says "execute auth.prompt" always has
+ * auth.prompt's grammar beside it.
+ */
+export const STANDING_INSTRUCTION_TEXT = [
+  SMITHERS_INSTRUCTIONS,
+  CODE_INTEL_LINE,
+  WEB_HOST_LINE,
+  NO_DOWNLOAD_LINE,
+  ...NAMED_CANT_YETS,
+  ...WORKFLOW_LAUNDERING_RULE
+].join("\n")
 
-const catalogLinesFor = (catalog: ReadonlyArray<InstructionCommand>, stage: InstructionStage): ReadonlyArray<string> => {
-  if (stage >= 2) {
-    const byNamespace = new Map<string, string[]>()
-    for (const command of catalog) {
-      const dot = command.name.indexOf(".")
-      const namespace = dot === -1 ? command.name : command.name.slice(0, dot)
-      const rest = byNamespace.get(namespace) ?? []
-      rest.push(`/${command.name}`)
-      byNamespace.set(namespace, rest)
-    }
-    if (stage === 3) {
-      return [
-        `Commands: ${catalog.length}, in these namespaces (call the "commands" tool with action "list" for their names, summaries and arguments before you use one): ${
-          [...byNamespace.entries()].map(([namespace, names]) => `${namespace} (${names.length})`).join(", ")
-        }.`
-      ]
-    }
-    return [
-      "Commands, by namespace (call \"commands\" with action \"list\" for each one's summary and arguments before use):",
-      ...[...byNamespace.entries()].map(([namespace, names]) => `- ${namespace}: ${names.join(", ")}`)
-    ]
-  }
-  return catalog.map((command) =>
-    `- /${command.name}${stage === 0 && command.args !== undefined ? ` ${command.args}` : ""} — ${command.summary}`
-  )
-}
+const commandLine = (command: InstructionCommand): string =>
+  `- /${command.name}${command.args === undefined ? "" : ` ${command.args}`} — ${command.summary}`
 
-/** The stage a rendered prompt landed in (the budget tests and the lane report read it). */
-export const instructionStageOf = (text: string): InstructionStage =>
-  text.includes("\nCommands: ") ? 3 : text.includes("Commands, by namespace") ? 2 : /^- \/[\w.-]+ [<[]/m.test(text) ? 0 : 1
-
+/**
+ * The system prompt for one chat turn: the standing rules, then the GENERATED
+ * capability section — the pinned and disclosed commands in full, and the
+ * connector state as of this turn. `disclosed` is what the decision model
+ * selected for the retained messages (CommandSelection.ts); a name the
+ * catalog no longer has is dropped.
+ */
 export const smithersInstructions = (
   catalog: ReadonlyArray<InstructionCommand>,
   honesty: InstructionHonesty,
-  options: { readonly budgetBytes?: number; readonly lastStage?: InstructionStage } = {}
+  options: { readonly pinned?: ReadonlyArray<string>; readonly disclosed?: ReadonlyArray<string> } = {}
 ): string => {
-  const budget = Math.max(0, options.budgetBytes ?? INSTRUCTIONS_BUDGET_BYTES)
-  const lastStage = options.lastStage ?? 3
+  const wanted = new Set([...(options.pinned ?? []), ...(options.disclosed ?? [])])
   const codeIntel = catalog.some((command) => command.name === "code.hover")
-  const render = (stage: InstructionStage): string => assembleInstructions(catalogLinesFor(catalog, stage), honesty, codeIntel, catalog)
-  for (const stage of [0, 1, 2] as const) {
-    if (stage >= lastStage) break
-    const text = render(stage)
-    if (bytesOf(text) <= budget) return text
-  }
-  return render(lastStage)
-}
-
-const assembleInstructions = (
-  catalogLines: ReadonlyArray<string>,
-  honesty: InstructionHonesty,
-  codeIntel: boolean,
-  catalog: ReadonlyArray<InstructionCommand>
-): string => {
+  // A setup handoff keeps every setup control's call grammar beside the cards it controls.
+  const setupLines = repositorySetupLines(honesty.repositorySetups ?? [], catalog.filter(command => command.name.startsWith("setup.")).map(commandLine))
+  const listed = catalog.filter(command => wanted.has(command.name) && (setupLines.length === 0 || !command.name.startsWith("setup.")))
   return [
     SMITHERS_INSTRUCTIONS,
     ...(codeIntel ? [CODE_INTEL_LINE] : []),
-    ...repositorySetupLines(honesty.repositorySetups ?? [], catalogLinesFor(
-      // A setup handoff must keep its actual call grammar even when the general catalog compacts.
-      catalog.filter(command => command.name.startsWith("setup.")), 0)),
+    ...setupLines,
     "",
-    "What you can do is EXACTLY this — the app's live command catalog — plus conversation in this chat:",
-    ...catalogLines,
+    `Commands for this conversation (${catalog.length} exist; the list action with a "query" finds the rest, with their arguments):`,
+    ...listed.map(commandLine),
     "",
     `Connector state right now: ${connectorLine(honesty)}`,
     ...(honesty.host === "web" ? [webHostLine(honesty)] : []),
     "",
-    `Everything else is a can't-yet. You cannot ${
+    `Everything the catalog lacks is a can't-yet; when you are unsure whether a command exists, call list with a query before you answer. You cannot ${
       NAMED_CANT_YETS.join("; ")
-    }. When the user asks for one of those, say plainly that you can't do it yet and name the one honest next step that IS in the catalog above — never offer, imply, or let the user believe you can do it.`,
+    }. When the user asks for one of those, say plainly that you can't do it yet and name the one honest next step that IS in the catalog — never offer, imply, or let the user believe you can do it.`,
     ...WORKFLOW_LAUNDERING_RULE
   ].join("\n")
 }
