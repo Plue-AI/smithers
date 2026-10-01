@@ -1342,6 +1342,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.Commerce != nil {
 		modelLedger = options.Commerce.CreditLedger()
 	}
+	adminGrantHandler := &routes.AdminGrantHandler{Service: services.NewAdminGrantService(pool, modelLedger)}
 	modelMeter := &modelproxy.Meter{Ledger: modelLedger, DailyCapNanos: modelDailyCap}
 	var modelProxyHandler http.Handler
 	if len(modelSeats) > 0 {
@@ -1446,7 +1447,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		smithersMetrics,
 		routerExtras{CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
-			AdminSystemHealth: adminSystemHealthHandler, AdminAnalytics: adminAnalyticsHandler,
+			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
 			AdminWorkspaces:    &routes.AdminWorkspaceHandler{Service: adminManageService},
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},

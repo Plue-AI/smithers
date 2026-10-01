@@ -6,7 +6,7 @@ import type { AppServices } from "./AppController"
 import type { Card } from "./AppState"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { json, memoryStorage, silentAgent } from "./TestFixtures"
+import { json, memoryStorage, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -85,7 +85,7 @@ describe("the admin plugin (admin session)", () => {
     const controller = createAppController(store, silentAgent, {
       ...backend(
         {
-          "/api/admin/grant": json(201, { granted: true, grantId: "admin:product-x", userId: "octocat" })
+          "/api/admin/grant": async request => json(200, { ...await request.json() as object, granted: true, grantId: "credit-grant:1", duplicate: false })
         },
         recorded
       )
@@ -101,12 +101,13 @@ describe("the admin plugin (admin session)", () => {
     expect(card.payload.login).toBe("octocat")
 
     expect((await controller.commands.run("admin.grant.confirm", card.id)).status).toBe("executed")
+    await waitFor(() => cardOf(store, card.id, "grant-confirm").payload.phase === "granted")
     const posted = recorded.find((r) => r.path === "/api/admin/grant")
     expect(posted?.body).toEqual({ login: "octocat", amountUsd: 25, operationKey: card.id })
     const granted = cardOf(store, card.id, "grant-confirm")
     expect(granted.status).toBe("acted")
     expect(granted.payload.phase).toBe("granted")
-    expect(granted.payload.grantId).toBe("admin:product-x")
+    expect(granted.payload.grantId).toBe("credit-grant:1")
   })
 
   test("a failed grant retried from its card sends the same operation key", async () => {
@@ -116,11 +117,11 @@ describe("the admin plugin (admin session)", () => {
     const controller = createAppController(store, silentAgent, {
       ...backend(
         {
-          "/api/admin/grant": () => {
+          "/api/admin/grant": async request => {
             attempts += 1
             return attempts === 1
               ? json(502, { status: "error", message: "The billing service is unreachable right now." })
-              : json(200, { granted: true, duplicate: true, grantId: "admin:product-x", userId: "octocat" })
+              : json(200, { ...await request.json() as object, granted: true, duplicate: true, grantId: "credit-grant:1" })
           }
         },
         recorded
@@ -129,9 +130,11 @@ describe("the admin plugin (admin session)", () => {
     await controller.commands.run("admin.grant", "25 octocat")
     const card = [...store.collections.cards.values()].find((c) => c.kind === "grant-confirm")
     await controller.commands.run("admin.grant.confirm", card?.id ?? "")
+    await waitFor(() => cardOf(store, card?.id ?? "", "grant-confirm").payload.phase === "failed")
     const failed = store.collections.cards.get(card?.id ?? "")
     expect(failed?.kind === "grant-confirm" ? failed.payload.phase : undefined).toBe("failed")
     await controller.commands.run("admin.grant.confirm", card?.id ?? "")
+    await waitFor(() => cardOf(store, card?.id ?? "", "grant-confirm").payload.phase === "granted")
     const bodies = recorded.filter((r) => r.path === "/api/admin/grant").map((r) => r.body)
     expect(bodies).toEqual([
       { login: "octocat", amountUsd: 25, operationKey: card?.id },

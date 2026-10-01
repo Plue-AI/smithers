@@ -1000,7 +1000,7 @@ test("a grant whose route fails remains retryable with one stable operation key"
       if (!String(input).endsWith(ADMIN_GRANT_PATH)) throw Error("Unexpected route")
       posted.push(JSON.parse(String(init?.body)))
       if (networkFails) throw Error("offline")
-      return Response.json({ grantId: "grant-from-host" })
+      return Response.json({ ...posted.at(-1), granted: true, grantId: "credit-grant:1", duplicate: true })
     } })
   ctx.withToast = createFailureController(ctx).withToast
   const controller = createAuthBillingController(ctx, store.nextOrdinal)
@@ -1010,12 +1010,14 @@ test("a grant whose route fails remains retryable with one stable operation key"
     expect(card).toMatchObject({ title: "Grant $25 to recipient?", payload: { login: "recipient", amountUsd: 25, phase: "confirm" } })
     expect(posted).toEqual([])
     expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
+    await waitFor(() => store.collections.cards.get(card.id)?.status === "error")
     expect(store.collections.cards.get(card.id)).toMatchObject({ status: "error",
       payload: { phase: "failed", error: "The grant didn't go through — the admin route didn't answer." } })
     networkFails = false
     expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
+    await waitFor(() => store.collections.cards.get(card.id)?.status === "acted")
     expect(store.collections.cards.get(card.id)).toMatchObject({ status: "acted",
-      payload: { phase: "granted", grantId: "grant-from-host" } })
+      payload: { phase: "granted", grantId: "credit-grant:1" } })
     expect(posted).toEqual([{ login: "recipient", amountUsd: 25, operationKey: card.id },
       { login: "recipient", amountUsd: 25, operationKey: card.id }])
     expect(await controller.adminGrantConfirm(card.id)).toBe("That grant was already posted.")
@@ -1039,6 +1041,7 @@ test("a refused grant keeps its exact confirmation card and does not claim credi
     controller.adminGrant(25, "recipient")
     const card = [...store.collections.cards.values()].find(row => row.kind === "grant-confirm")!
     expect(await controller.adminGrantConfirm(card.id)).toBeUndefined()
+    await waitFor(() => store.collections.cards.get(card.id)?.status === "error")
     expect(store.collections.cards.get(card.id)).toMatchObject({ status: "error",
       payload: { login: "recipient", amountUsd: 25, phase: "failed",
         error: `The grant didn't go through. ${uncodedLead(503)}` } })
@@ -1078,10 +1081,11 @@ test("grant cancellation removes an unposted card but cannot interrupt a posted 
     expect(store.collections.cards.get(second.id)).toMatchObject({ payload: { phase: "sending" } })
     expect(controller.adminGrantCancel(second.id)).toBe("That grant is already being posted — a moment.")
     expect(store.collections.cards.has(second.id)).toBe(true)
-    remote.resolve(Response.json({ grantId: "host-7" }))
+    remote.resolve(Response.json({ ...(posted[0] as object), granted: true, grantId: "credit-grant:7", duplicate: false }, { status: 200 }))
     await posting
+    await waitFor(() => store.collections.cards.get(second.id)?.status === "acted")
     expect(store.collections.cards.get(second.id)).toMatchObject({ status: "acted",
-      payload: { phase: "granted", grantId: "host-7" } })
+      payload: { phase: "granted", grantId: "credit-grant:7" } })
     expect(posted).toEqual([{ login: "second", amountUsd: 7, operationKey: second.id }])
   } finally { remote.resolve(Response.json({})); await ctx.dispose(); await store.dispose?.() }
 })

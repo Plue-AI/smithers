@@ -1,4 +1,44 @@
 paths:
+  /api/admin/grant:
+    post:
+      summary: Grant credit to a user
+      description: Requires a verified administrator and write:admin for personal access tokens. The operation key globally binds the recipient, amount and administrator; retries return the original receipt.
+      operationId: post_api_admin_grant
+      tags:
+        - Admin
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreditGrantRequest'
+      responses:
+        '200':
+          description: Committed credit receipt; duplicate identifies a retry of the original grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCreditGrantReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Operation key already binds a different grant
+        '413':
+          description: Request body exceeds the product JSON limit
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/admin/users/{username}:
     delete:
       summary: DELETE /api/admin/users/{username}
@@ -845,3 +885,41 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+components:
+  schemas:
+    AdminCreditGrantRequest:
+      type: object
+      additionalProperties: false
+      required: [login, amountUsd, operationKey]
+      properties:
+        login:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Recipient login, normalized to lowercase after trimming
+        amountUsd:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 9223372036.854775807
+          multipleOf: 0.000000001
+        operationKey:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+    AdminCreditGrantReceipt:
+      type: object
+      additionalProperties: false
+      required: [granted, grantId, login, amountUsd, operationKey, duplicate]
+      properties:
+        granted:
+          const: true
+        grantId:
+          type: string
+          pattern: '^credit-grant:[1-9][0-9]*$'
+        login:
+          type: string
+        amountUsd:
+          type: number
+        operationKey:
+          type: string
+        duplicate:
+          type: boolean

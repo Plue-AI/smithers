@@ -948,6 +948,23 @@ type SSHKey struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// AdminCreditGrantRequest is generated from docs/api/openapi.yaml.
+type AdminCreditGrantRequest struct {
+	Login        string  `json:"login"`
+	AmountUsd    float64 `json:"amountUsd"`
+	OperationKey string  `json:"operationKey"`
+}
+
+// AdminCreditGrantReceipt is generated from docs/api/openapi.yaml.
+type AdminCreditGrantReceipt struct {
+	Granted      bool    `json:"granted"`
+	GrantID      string  `json:"grantId"`
+	Login        string  `json:"login"`
+	AmountUsd    float64 `json:"amountUsd"`
+	OperationKey string  `json:"operationKey"`
+	Duplicate    bool    `json:"duplicate"`
+}
+
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
 type PostAPIAdminUsersUsernameEraseBody struct {
 	RequestDate string `json:"request_date"`
@@ -1347,6 +1364,13 @@ type PutAPIUserSettingsSignupResponseProfile struct {
 	Question int64                      `json:"question"`
 	Answers  map[string]json.RawMessage `json:"answers"`
 	Repo     *string                    `json:"repo,omitempty"`
+}
+
+// PostAPIAdminGrant calls POST /api/admin/grant.
+func (c *Client) PostAPIAdminGrant(ctx context.Context, body AdminCreditGrantRequest) (AdminCreditGrantReceipt, error) {
+	var out AdminCreditGrantReceipt
+	err := c.do(ctx, "POST", "/api/admin/grant", nil, body, &out)
+	return out, err
 }
 
 // DeleteAPIAdminUsersUsername calls DELETE /api/admin/users/{username}.

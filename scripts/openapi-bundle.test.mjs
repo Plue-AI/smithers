@@ -44,11 +44,18 @@ test("the bundle is the parsed merge of its sources", () => {
   for (const [name, text] of files) {
     if (name === rootFile) continue
     const part = YAML.parse(text)
-    assert.deepEqual(Object.keys(part), ["paths"], `${name} holds only paths today`)
+    assert.deepEqual(Object.keys(part), part.components === undefined ? ["paths"] : ["paths", "components"], `${name} holds authored paths and optional component entries`)
     for (const [path, item] of Object.entries(part.paths)) {
       assert.equal(merged.paths[path], undefined, `${path} is declared once`)
       for (const op of Object.values(item)) assert.equal(tagFile(op.tags[0]), name, `${path} lives in its tag's file`)
       merged.paths[path] = item
+    }
+    for (const [kind, items] of Object.entries(part.components ?? {})) {
+      assert.ok(Object.hasOwn(merged.components, kind), `${kind} is declared by the root`)
+      for (const [key, value] of Object.entries(items)) {
+        assert.equal(merged.components[kind][key], undefined, `${kind}.${key} is declared once`)
+        merged.components[kind][key] = value
+      }
     }
   }
   assert.deepEqual(YAML.parse(committed()), merged)
@@ -139,7 +146,10 @@ test("operations added under different tags merge into the bundle without a conf
   const base = readSources(layout.sources)
   const withOperation = (file, path, tag) => {
     const next = new Map(base)
-    next.set(file, `${next.get(file)}${source(operation("get", path, tag))}`)
+    const text = next.get(file)
+    const components = text.indexOf("\ncomponents:")
+    const at = components === -1 ? text.length : components + 1
+    next.set(file, text.slice(0, at) + source(operation("get", path, tag)) + text.slice(at))
     return next
   }
   const ours = withOperation("admin.yaml", "/api/admin/merge-probe", "Admin")

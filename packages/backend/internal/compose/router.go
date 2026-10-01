@@ -47,6 +47,7 @@ type routerExtras struct {
 	UserRefs            *routes.UserRefHandler
 	AdminSystemStatus   *routes.AdminSystemStatusHandler
 	AdminSystemHealth   *routes.AdminSystemHealthHandler
+	AdminGrant          *routes.AdminGrantHandler
 	AdminAnalytics      *routes.AdminAnalyticsHandler
 	AdminAgentSessions  *routes.AdminAgentSessionHandler
 	AdminWorkspaces     *routes.AdminWorkspaceHandler
@@ -1913,6 +1914,9 @@ func buildRouter(
 				}
 				writeAdmin := []func(http.Handler) http.Handler{
 					middleware.RequireScope(middleware.ScopeWriteAdmin),
+				}
+				if extras.AdminGrant != nil {
+					r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
 				}
 				if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
 					// Platform base NixOS images (repository_id NULL) for kind=vm/desktop.

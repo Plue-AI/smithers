@@ -1,3 +1,5 @@
+import { AdminGrantRequestSchema, adminGrantReceipt } from "../AdminGrant"
+import type { AdminGrantRequest } from "../AdminGrant"
 import { accountProviderChanged } from "../AccountOwner"
 import { identityProviderFor, signInByHandoff } from "../IdentityProvider"
 import {
@@ -69,6 +71,11 @@ export const createAuthBillingController = (
   openLocalAuth?: () => boolean
 ): AuthBillingController => {
   const { store, services, baseUrl, boundedFetch: http, errorMessageOf, unref } = ctx
+  // Only already-approved writes reconnect, after a fresh same-account admin answer.
+  const hydratedGrantOwner = store.collections.identitySessions.get("identity")
+  const approvedOnReload = new Set([...store.collections.cards.values()]
+    .filter(card => card.kind === "grant-confirm" && card.payload.phase === "sending").map(card => card.id))
+  const activeGrantKeys = new Set<string>()
   const balanceAvailable = services.bootstrap?.capabilities.includes("billing.balance") ?? true
   // Only a session validated during this controller lifetime can complete login.
   // A hydrated identity row, local capability or cloud PAT is not proof.
@@ -238,6 +245,7 @@ export const createAuthBillingController = (
     // logged by the browser as a console error anyway.
     void refreshBalanceSilently()
     if (disposed || probe !== mine) return
+    resumeApprovedGrants()
     // Wave 11: a live run card's event pump resumes from its lastSeq.
     resumeWorkflowRuns()
     // The signed-in answer can satisfy a parked command's requirement — the
@@ -745,93 +753,107 @@ export const createAuthBillingController = (
    * is unavailable; an ordinary account's refusal never counts as a read.
    */
   const adminGrant = (amountUsd: number, login: string): string | void => {
-    // Never post directly: the confirmation card states exactly what will happen first.
+    const identity = store.collections.identitySessions.get("identity")
+    if (identity?.state !== "signed-in" || !identity.admin) return "Admin access required."
+    const id = `grant-${crypto.randomUUID()}`
+    const parsed = AdminGrantRequestSchema.safeParse({ login, amountUsd, operationKey: id })
+    if (!parsed.success) return "Enter a valid amount and login."
+    const request = parsed.data
     const card: Card = {
-      id: `grant-${crypto.randomUUID()}`,
+      id,
       kind: "grant-confirm",
-      title: `Grant $${amountUsd} to ${login}?`,
+      title: `Grant $${request.amountUsd} to ${request.login}?`,
       status: "active",
       createdAt: Date.now(),
       ordinal: nextTranscriptOrdinal(),
-      payload: { login, amountUsd, phase: "confirm" }
+      payload: { login: request.login, amountUsd: request.amountUsd, phase: "confirm" }
     }
     store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
     return undefined
   }
 
+  const postApprovedGrant = async (cardId: string, request: AdminGrantRequest): Promise<void> => {
+    if (activeGrantKeys.has(cardId)) return
+    activeGrantKeys.add(cardId)
+    const current = admitAccount()
+    try {
+      // Persist the human's approval before launching. Reload reuses this key.
+      await store.dispatch({
+        type: "card.updated",
+        actor: ctx.commandActor,
+        id: cardId,
+        patch: { status: "active", payload: { login: request.login, amountUsd: request.amountUsd, phase: "sending" } }
+      }).isPersisted.promise
+      if (!current()) return
+      void withToast(
+        "admin.grant",
+        `Granting $${request.amountUsd} to ${request.login}…`,
+        `Granted $${request.amountUsd} to ${request.login}`,
+        async () => {
+          const fail = (message: string): string | typeof TOAST_SUPERSEDED => {
+            if (!current()) return TOAST_SUPERSEDED
+            store.dispatch({ type: "card.updated", actor: "system", id: cardId,
+              patch: { status: "error", payload: { login: request.login, amountUsd: request.amountUsd, phase: "failed", error: message } } })
+            return message
+          }
+          try {
+            const response = await http(`${baseUrl}${ADMIN_GRANT_PATH}`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(request)
+            })
+            if (!response.ok) return fail(await errorMessageOf(response, "The grant didn't go through."))
+            const receipt = adminGrantReceipt(request, await response.json().catch(() => undefined), response.status)
+            if (!current()) return TOAST_SUPERSEDED
+            if (receipt === undefined) return fail("The grant receipt didn't match.")
+            store.dispatch({ type: "card.updated", actor: "system", id: cardId,
+              patch: { status: "acted", payload: { login: request.login, amountUsd: request.amountUsd, phase: "granted", grantId: receipt.grantId } } })
+            return true
+          } catch {
+            return fail("The grant didn't go through — the admin route didn't answer.")
+          }
+        },
+        false,
+        current
+      ).finally(() => { activeGrantKeys.delete(cardId) })
+    } catch (error) {
+      activeGrantKeys.delete(cardId)
+      throw error
+    } finally {
+      if (!current()) activeGrantKeys.delete(cardId)
+    }
+  }
+
   const adminGrantConfirm = async (cardId: string): Promise<string | void> => {
+    const identity = store.collections.identitySessions.get("identity")
+    if (identity?.state !== "signed-in" || !identity.admin) return "Admin access required."
     const card = store.collections.cards.get(cardId)
     if (card === undefined || card.kind !== "grant-confirm") return "That grant confirmation is gone."
     if (card.payload.phase === "granted") return "That grant was already posted."
-    if (card.payload.phase === "sending") return undefined
-    const { login, amountUsd } = card.payload
-    store.dispatch({
-      type: "card.updated",
-      actor: ctx.commandActor,
-      id: card.id,
-      patch: { payload: { login, amountUsd, phase: "sending" } }
-    })
-    const current = admitAccount()
-    await withToast(
-      "admin.grant",
-      `Granting $${amountUsd} to ${login}…`,
-      `Granted $${amountUsd} to ${login}`,
-      async () => {
-        try {
-          // The card id is the grant's operation key: a retry after a lost
-          // answer carries the same key, so the Worker forwards the same
-          // billing grant id and the credit lands once.
-          const response = await http(`${baseUrl}${ADMIN_GRANT_PATH}`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ login, amountUsd, operationKey: card.id })
-          })
-          if (!response.ok) {
-            const message = await errorMessageOf(response, "The grant didn't go through.")
-            if (!current()) return TOAST_SUPERSEDED
-            store.dispatch({
-              type: "card.updated",
-              actor: "system",
-              id: card.id,
-              patch: { status: "error", payload: { login, amountUsd, phase: "failed", error: message } }
-            })
-            return message
-          }
-          const echo = (await response.json().catch(() => undefined)) as
-            | { grantId?: unknown; duplicate?: unknown }
-            | undefined
-          if (!current()) return TOAST_SUPERSEDED
-          store.dispatch({
-            type: "card.updated",
-            actor: "system",
-            id: card.id,
-            patch: {
-              status: "acted",
-              payload: {
-                login,
-                amountUsd,
-                phase: "granted",
-                ...(typeof echo?.grantId === "string" ? { grantId: echo.grantId } : {})
-              }
-            }
-          })
-        } catch {
-          if (!current()) return TOAST_SUPERSEDED
-          const message = "The grant didn't go through — the admin route didn't answer."
-          store.dispatch({
-            type: "card.updated",
-            actor: "system",
-            id: card.id,
-            patch: { status: "error", payload: { login, amountUsd, phase: "failed", error: message } }
-          })
-          return message
-        }
-        return true
-      },
-      false,
-      current
-    )
+    if (card.payload.phase === "sending" || activeGrantKeys.has(cardId)) return undefined
+    const parsed = AdminGrantRequestSchema.safeParse({ login: card.payload.login, amountUsd: card.payload.amountUsd, operationKey: card.id })
+    if (!parsed.success) return "Enter a valid amount and login."
+    // Acknowledgment waits for local persistence, never for the remote grant.
+    await postApprovedGrant(card.id, parsed.data)
     return undefined
+  }
+
+  const resumeApprovedGrants = (): void => {
+    const identity = store.collections.identitySessions.get("identity")
+    if (identity?.state !== "signed-in" || !identity.admin || hydratedGrantOwner?.state !== "signed-in" ||
+      identity.login !== hydratedGrantOwner.login || accountProviderChanged(hydratedGrantOwner.provider, identity.provider)) return
+    for (const id of approvedOnReload) {
+      approvedOnReload.delete(id)
+      const card = store.collections.cards.get(id)
+      if (card?.kind !== "grant-confirm" || card.payload.phase !== "sending") continue
+      const parsed = AdminGrantRequestSchema.safeParse({ login: card.payload.login, amountUsd: card.payload.amountUsd, operationKey: id })
+      if (parsed.success) {
+        const current = admitAccount()
+        void postApprovedGrant(id, parsed.data).catch(error => {
+          if (current()) ctx.failures.report("command.boundary", error, "admin.grant")
+        })
+      }
+    }
   }
 
   const adminGrantCancel = (cardId: string): string | void => {

@@ -496,6 +496,33 @@ export type SSHKey = {
   created_at: string
 }
 
+export type AdminCreditGrantRequest = {
+  login: string
+  amountUsd: number
+  operationKey: string
+}
+
+export type AdminCreditGrantReceipt = {
+  granted: true
+  grantId: string
+  login: string
+  amountUsd: number
+  operationKey: string
+  duplicate: boolean
+}
+
+export type PostApiAdminGrantBody = AdminCreditGrantRequest
+
+export type PostApiAdminGrantResponse = AdminCreditGrantReceipt
+
+export interface PostApiAdminGrantInput {
+  readonly body: PostApiAdminGrantBody
+}
+
+/** POST /api/admin/grant: Grant credit to a user */
+export const postApiAdminGrant = (transport: Transport, input: PostApiAdminGrantInput): Promise<PostApiAdminGrantResponse> =>
+  transport.request("POST", `/api/admin/grant`, input.body) as Promise<PostApiAdminGrantResponse>
+
 export interface DeleteApiAdminUsersUsernameInput {
   readonly path: { readonly username: string }
 }
