@@ -1,0 +1,12 @@
+{
+  "issue": 3184,
+  "status": "Producer integration prerequisite;50 actual declaration compatibility review and explicit baseline approval remain pending.",
+  "sourceHashes": {
+    "scripts/check-api-baseline.mjs": "0467f6b606d987fae46deaa54bb22daab0085f83476bafecfc1544d0a8b336ae",
+    "scripts/check-api-baseline.test.mjs": "e79c046c5c98252c4d3236c4fe973a3cc1f55949fb06da5e834156659de4b724"
+  },
+  "behavior": "Canonical withDeclarationBuild uses each package compiler in temporary output, copies authored declarations, invokes the same private adapter producer for8 owners, inventories both private declaration branches under ../vendor API keys, and removes temp output. Workspace dist is untouched by this declaration-only gate.",
+  "review": "Orchestrator reviewed shared producer reuse, temporary distRoot, private signature inventory and meaningful actual build-cli compiler/temp-output/hidden-private-change tests. No alternate declaration producer, no baseline update, no fullJS/CJS qualification claim.",
+  "qualifiedChecks": "See3093-production-prereq-receipt.json and its raw archive:34 scoped contracts including5 canonical API regressions pass.",
+  "baselineBeforeSha256": "c4749827f97a70149476ea38a99ae931fdd4cce18b8ca2ab01a992f0b87e8112"
+}
