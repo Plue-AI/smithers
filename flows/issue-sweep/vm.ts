@@ -28,7 +28,7 @@
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
 import { Effect, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
-import { readdirSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -42,15 +42,16 @@ import { fileURLToPath } from "node:url"
  */
 export const niceWrapper = fileURLToPath(new URL("./msb-nice.sh", import.meta.url))
 if (process.env.MSB_PATH === undefined) {
-  const resolver = new URL("./internal/resolve-binary.js", import.meta.resolve("microsandbox"))
-  const bundled = ((await import(resolver.href)) as { msbPath: () => string | undefined }).msbPath()
-  if (bundled === undefined) throw new Error("issue-sweep vm: the microsandbox package bundles no msb binary")
+  // The SDK's platform package sits beside it, as Node resolution finds it.
+  const sdk = fileURLToPath(new URL("..", import.meta.resolve("microsandbox")))
+  const platform = join(dirname(sdk), "@superradcompany", `microsandbox-${process.platform}-${process.arch}`)
+  const bundled = join(platform, "bin", "msb")
+  if (!existsSync(bundled)) throw new Error(`issue-sweep vm: no bundled msb at ${bundled}`)
   // msb looks for libkrunfw beside the binary MSB_PATH names, which is now the wrapper.
-  const lib = join(dirname(dirname(bundled)), "lib")
-  const krunfw = readdirSync(lib).find((name) => name.startsWith("libkrunfw."))
-  if (krunfw === undefined) throw new Error(`issue-sweep vm: no libkrunfw in ${lib}`)
+  const krunfw = readdirSync(join(platform, "lib")).find((name) => name.startsWith("libkrunfw."))
+  if (krunfw === undefined) throw new Error(`issue-sweep vm: no libkrunfw in ${platform}/lib`)
   process.env.ISSUE_SWEEP_MSB = bundled
-  process.env.MSB_LIBKRUNFW_PATH ??= join(lib, krunfw)
+  process.env.MSB_LIBKRUNFW_PATH ??= join(platform, "lib", krunfw)
   process.env.MSB_PATH = niceWrapper
 }
 
