@@ -1,0 +1,17 @@
+{
+  "issue": 3350,
+  "fix": "Import node:util TextDecoder in the Node filesystem protocol, preserving valid encoding labels and typed invalid-label failures.",
+  "review": "Root reviewed narrow production import and behavioral encoding/ambient override/real file regression tests. Authenticated every sealed raw receipt and archive member; three source hashes match.",
+  "readySha256": "e2dfa79a8f6658aab781b243974ef7d3d5cc78e3779479058ea58cc01107311a",
+  "archiveSha256": "7e2c0244f7c0ecacf0068cb415a1df17ba3405511b62b1177fcb79a5608ad686",
+  "limits": [
+    "Focused coverage is explicitly disabled, no whole-platform package100% claim.",
+    "Existing native helper identified; no rebuild/current-source artifact provenance.",
+    "Original eval qualification includes unlanded2271; independent clean gate follows."
+  ],
+  "independentGate": "3350-independent-readiness.json",
+  "independentRaw": "3350-independent-proof.tar.gz",
+  "independentArchiveSha256": "5ceee392610f5775649b0d036ff99d493785ead3407d8c2675c97a80f8f0b54a",
+  "independentReadinessSha256": "260ac6977b2311b8b0e939c698c3134fb7e0715abd6e6146096b3c266bb927b6",
+  "independentChecks": "57 behavioral controls, platform source/test and clean eval compiler, owning source lint/3fileformat all0 with390 unrelatedWIP paths absent."
+}

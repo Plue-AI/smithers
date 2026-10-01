@@ -1,0 +1,81 @@
+{
+  "issue": 3350,
+  "sourceCommitDuringIndependentGate": "204fc002e9ae88e42fcbc7b5762ef1a75b811174",
+  "unrelatedMigrationAnd3346Wip": "All390 paths archived/hash-verified, stashed as0e0a30c857ecda2e3de8154120780d49cbf8cfe1 during independent gates.",
+  "sources": [
+    {
+      "path": "packages/smithers/flows/platform-node/src/internal/AtomicFileSystemProtocol.ts",
+      "sha256": "2e3ecbc70f0f6f26e7490a1670f667795a044f8b3ac95d62daa5632ca56982a4"
+    },
+    {
+      "path": "packages/smithers/flows/platform-node/test/AtomicFileSystemProtocol.test.ts",
+      "sha256": "8f2b88ec0cb0421a8fdc6a546de475a63a5d31eb2b7a43afd433aca463a4b527"
+    },
+    {
+      "path": "packages/smithers/flows/platform-node/test/AtomicFileSystem.test.ts",
+      "sha256": "ad940f82e9c2409acb647dee38c7a8013af2f9552b2f8c1aebc1508993443c1d"
+    }
+  ],
+  "checks": [
+    {
+      "command": "pnpm exec vitest run test/AtomicFileSystemProtocol.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "testsPassed": 56,
+      "rawReceipt": "protocol.log",
+      "sha256": "eeeb4412c52ea0d92025a1159099bcfde763924978acf0ff1c2018d065c9ecd3"
+    },
+    {
+      "command": "pnpm exec vitest run test/AtomicFileSystem.test.ts -t 'classifies flag, encoding, and errno failures' --coverage.enabled=false",
+      "exit": 0,
+      "testsPassed": 1,
+      "rawReceipt": "native.log",
+      "sha256": "681d2beef9d988e9cd6dc88a02e61845ec03845b2cf44b09a8b81138b0f28ac2"
+    },
+    {
+      "command": "pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "exit": 0,
+      "testsPassed": null,
+      "rawReceipt": "types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "pnpm exec tsc -p tsconfig.json --noEmit (evals/agent)",
+      "exit": 0,
+      "testsPassed": null,
+      "rawReceipt": "eval-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "pnpm exec eslint src/internal/AtomicFileSystemProtocol.ts --max-warnings=0",
+      "exit": 0,
+      "testsPassed": null,
+      "rawReceipt": "lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "pnpm exec dprint check src/internal/AtomicFileSystemProtocol.ts test/AtomicFileSystemProtocol.test.ts test/AtomicFileSystem.test.ts",
+      "exit": 0,
+      "testsPassed": null,
+      "rawReceipt": "format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "sourceInputs": {
+    "boundedRepositoryFiles": 6559,
+    "manifest": "inputs-before.json",
+    "sha256": "51156270ce508dfd531e08a304ad5dd103421ba1363274b017c2a61142b7189a",
+    "stableAfterGatesAndFreshRebase": true
+  },
+  "nativeHelper": {
+    "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+    "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655",
+    "builtDuringGate": false
+  },
+  "limits": [
+    "56 protocol assertions and1 real native boundary passed;47 unrelated native tests deliberately deselected.",
+    "Coverage explicitly disabled for focused gates; no complete platform-node100% coverage claim.",
+    "Stock owning tsconfig.test and clean eval tsconfig unchanged; skipLibCheck retained.",
+    "Input stability inventory bounds repository source files, not a complete installed dependency/cache identity.",
+    "Existing debug helper only, no current-source native rebuild or release evidence."
+  ]
+}

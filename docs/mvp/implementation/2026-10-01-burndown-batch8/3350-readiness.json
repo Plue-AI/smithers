@@ -1,0 +1,122 @@
+{
+  "issue": 3350,
+  "status": "READY_FROZEN",
+  "head": "8cc9e5e7fad446a76ed0223de732e6ce6825bf25",
+  "source": [
+    {
+      "path": "packages/smithers/flows/platform-node/src/internal/AtomicFileSystemProtocol.ts",
+      "sha256": "2e3ecbc70f0f6f26e7490a1670f667795a044f8b3ac95d62daa5632ca56982a4"
+    },
+    {
+      "path": "packages/smithers/flows/platform-node/test/AtomicFileSystemProtocol.test.ts",
+      "sha256": "8f2b88ec0cb0421a8fdc6a546de475a63a5d31eb2b7a43afd433aca463a4b527"
+    },
+    {
+      "path": "packages/smithers/flows/platform-node/test/AtomicFileSystem.test.ts",
+      "sha256": "ad940f82e9c2409acb647dee38c7a8013af2f9552b2f8c1aebc1508993443c1d"
+    }
+  ],
+  "change": "Use node:util TextDecoder explicitly for Node adapter framing/file decode; preserve arbitrary valid Node labels and typed BadArgument for invalid labels.",
+  "red": "Unchanged eval noEmit and authenticated HEAD baseline TS2345; new ambient-decoder regression55pass/1fail before import.",
+  "checks": [
+    {
+      "cwd": "packages/smithers/flows/platform-node",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/AtomicFileSystemProtocol.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "passed": 56,
+      "log": "protocol-green.log"
+    },
+    {
+      "cwd": "packages/smithers/flows/platform-node",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/AtomicFileSystem.test.ts -t 'classifies flag, encoding, and errno failures' --coverage.enabled=false",
+      "exit": 0,
+      "passed": 1,
+      "deselected": 47,
+      "log": "native-boundary-green.log"
+    },
+    {
+      "cwd": "packages/smithers/flows/platform-node",
+      "command": "pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "exit": 0,
+      "log": "platform-types.log"
+    },
+    {
+      "cwd": "evals/agent",
+      "command": "pnpm exec tsc -p tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "eval-types-green.log"
+    },
+    {
+      "cwd": "packages/smithers/flows/platform-node",
+      "command": "pnpm exec eslint src/internal/AtomicFileSystemProtocol.ts --max-warnings=0",
+      "exit": 0,
+      "log": "lint.log"
+    },
+    {
+      "cwd": "packages/smithers/flows/platform-node",
+      "command": "pnpm exec dprint check src/internal/AtomicFileSystemProtocol.ts test/AtomicFileSystemProtocol.test.ts test/AtomicFileSystem.test.ts",
+      "exit": 0,
+      "log": "format-check.log"
+    }
+  ],
+  "helper": {
+    "path": "/Users/williamcory/smithers/target/debug/smithers-jj-export",
+    "sha256": "eb4706782bf000c92e3b6ff3e44970bc31c6790c50ab3dd228b7e04add2b9655",
+    "limit": "Existing artifact, no rebuild/current-source artifact provenance claim; owning Vitest setup found no local worktree helper to rebuild."
+  },
+  "limits": [
+    "Focused coverage disabled explicitly; no whole-package100% coverage claim.",
+    "Eval compiler check includes uncommitted2271 typed profile migration; attributed old/current sole TS2345 fixed without settings/casts.",
+    "Global shim is concrete regression for ambient decoder replacement; actual integration uses real native helper/file bytes."
+  ],
+  "rawReceipts": [
+    {
+      "path": "attributed-baseline.json",
+      "sha256": "33241eac249a60c96fc3e0fa5b3d1908619be685bffd1cca7330a2d40ef72d49"
+    },
+    {
+      "path": "before.json",
+      "sha256": "b57116b167ae2baeff340f2a7ec02237eb719b7f96d05c667c387cbf93a52f51"
+    },
+    {
+      "path": "eval-red.log",
+      "sha256": "21ad9336502b8a032f5073957be597e84deab1184e6ade840656911b54710917"
+    },
+    {
+      "path": "eval-types-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "format-check.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "format.log",
+      "sha256": "13dd8d24cb06171ef89795c6f1669ffec4ccbd0e21dc925d7868e04abb8c2831"
+    },
+    {
+      "path": "lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "native-boundary-green.log",
+      "sha256": "6cd0fc256ae320017e166d5d64dfdfe49da4b8bd5bc50290ccb224edaa783a02"
+    },
+    {
+      "path": "platform-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "protocol-green.log",
+      "sha256": "d35d492e57c8ce2d684d5325911e04c1cff38a2cec3266653a64c398b0b44b77"
+    },
+    {
+      "path": "protocol-red.log",
+      "sha256": "48cd78ab4a6d362ec63bd2c9790f08a4a82c0bf09deed3fe3a9c0c892c6f2dc8"
+    },
+    {
+      "path": "source.diff",
+      "sha256": "2ca4a9408987772225257f243c83f4bc4a448a4351c9d701b625b5e6d1f7e0c8"
+    }
+  ]
+}

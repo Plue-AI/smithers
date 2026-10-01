@@ -9,6 +9,7 @@
 import type * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, type FileSystem, Option, PlatformError, Result } from "effect"
 import * as ByteSize from "effect/ByteSize"
+import { TextDecoder } from "node:util"
 import type { Limits } from "../AtomicFileSystem.ts"
 import { atomicHelperFault, AtomicHelperRejection } from "./AtomicHelperFault.ts"
 

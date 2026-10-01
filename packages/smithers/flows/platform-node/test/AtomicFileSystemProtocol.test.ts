@@ -1,6 +1,6 @@
 import type * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, Option } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { defaultLimits } from "../src/AtomicFileSystem.ts"
 import * as Protocol from "../src/internal/AtomicFileSystemProtocol.ts"
 
@@ -28,6 +28,63 @@ const info = {
 }
 
 describe("atomic helper response validation", () => {
+  it.each([
+    { label: undefined, bytes: [104, 105], text: "hi" },
+    { label: "utf8", bytes: [239, 187, 191, 104, 105], text: "hi" },
+    { label: "utf-16le", bytes: [104, 0, 105, 0], text: "hi" },
+    { label: "windows-1252", bytes: [128, 233], text: "€é" },
+    { label: "iso-8859-1", bytes: [128, 233], text: "€é" },
+    { label: "utf-8", bytes: [], text: "" }
+  ])("preserves Node encoding label $label", async ({ label, bytes, text }) => {
+    const request: Protocol.FramedRequest = {
+      operation: "readFileString",
+      path: "/a",
+      ...(label === undefined ? {} : { encoding: label })
+    }
+    expect(
+      await Effect.runPromise(
+        Protocol.convert<string>(request, { base64: Buffer.from(bytes).toString("base64") }, defaultLimits)
+      )
+    ).toBe(text)
+  })
+
+  it.each(["", "not-an-encoding"])("reports invalid label %j as a typed BadArgument", async (encoding) => {
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Protocol.convert({ operation: "readFileString", path: "/a", encoding }, { base64: "YQ==" }, defaultLimits)
+      )
+    )
+    expect(failure.reason).toMatchObject({
+      _tag: "BadArgument",
+      module: "FileSystem",
+      method: "readFileString",
+      description: "invalid encoding"
+    })
+    expect(failure.reason.cause).toBeInstanceOf(RangeError)
+  })
+
+  it("uses the Node decoder even when a runtime supplies a different ambient decoder", async () => {
+    vi.stubGlobal(
+      "TextDecoder",
+      class AmbientDecoder {
+        constructor() {
+          throw new Error("ambient decoder selected")
+        }
+      }
+    )
+    try {
+      expect(
+        await Effect.runPromise(
+          Protocol.convert<string>({ operation: "readFileString", path: "/a", encoding: "windows-1252" }, {
+            base64: "gOk="
+          }, defaultLimits)
+        )
+      ).toBe("€é")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     ["other/1 2\n{}", "response_tag_unknown"],
     ["flows-atomic/1 NaN\n{}", "response_length_invalid"],

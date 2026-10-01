@@ -1775,6 +1775,7 @@ describe("Node atomic filesystem", () => {
       yield* Effect.promise(() => mkdir(join(root, "occupied")))
       yield* Effect.promise(() => writeFile(join(root, "occupied", "child.txt"), "child"))
       yield* Effect.promise(() => writeFile(join(root, "empty.txt"), ""))
+      yield* Effect.promise(() => writeFile(join(root, "encoded.txt"), new Uint8Array([128, 233])))
 
       const outcome = yield* run(
         root,
@@ -1784,6 +1785,7 @@ describe("Node atomic filesystem", () => {
             bytes: yield* fs.readFile(join(root, "empty.txt")),
             empty: yield* fs.readFileString(join(root, "empty.txt")),
             encoding: yield* Effect.flip(fs.readFileString(target, "not-an-encoding")),
+            windows1252: yield* fs.readFileString(join(root, "encoded.txt"), "windows-1252"),
             exclusive: yield* Effect.flip(fs.writeFileString(target, "ab", { flag: "wx" })),
             flag: yield* Effect.flip(
               fs.writeFileString(target, "ab", { flag: "nonsense" as FileSystem.OpenFlag })
@@ -1797,6 +1799,7 @@ describe("Node atomic filesystem", () => {
 
       // An empty file decodes to an empty string, not to the helper's envelope.
       expect(outcome.empty).toBe("")
+      expect(outcome.windows1252).toBe("€é")
       expect([...outcome.bytes]).toEqual([])
       expect(outcome.encoding.reason).toMatchObject({
         _tag: "BadArgument",
