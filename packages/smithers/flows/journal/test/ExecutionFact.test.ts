@@ -71,6 +71,28 @@ describe("native execution fact fold", () => {
     ).toBe("unverified-observation")
   })
 
+  it("keeps verified observation coverage after a lease reconfirm diagnostic", () => {
+    const root = row("root", { status: "running", treeVersion: 1, parentPolicy: "cancel" })
+    const observed = { root, current: root, humanWaits: [] }
+    const diagnostic: Facts.Input = {
+      executionId: root.executionId,
+      generation: 0,
+      sequence: 1,
+      eventType: "flows.engine.run-decision",
+      payload: { decision: "lease-reconfirmed", unconfirmedMs: 25_000 }
+    }
+    const folded = Facts.fold([entry(root), diagnostic], "root", observed)
+    expect(folded.view).toEqual(observed)
+    expect(folded.provenance).toMatchObject({ source: "events", humanWaits: "events" })
+    // A release changes lifecycle state; diagnostic acceptance must not
+    // silently cover a real mutation without an execution fact.
+    expect(
+      Facts.fold([entry(root), { ...diagnostic, payload: { decision: "interrupt-released" } }], "root", observed)
+        .provenance.source
+    )
+      .toBe("unverified-observation")
+  })
+
   it("does not grant old v1 facts tree-wait coverage merely because their own wait matches", () => {
     const old = row("root", { status: "running" })
     const observed = { root: old, current: old, humanWaits: [] }

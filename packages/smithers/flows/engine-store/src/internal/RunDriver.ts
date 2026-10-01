@@ -621,14 +621,15 @@ export const make = (
       )
 
     const decisionRecord = (runId: string, payload: unknown, sourceId: string) =>
-      // Unfenced by design: a decision record commits in the SAME transaction
+      // Lifecycle decisions normally use the unfenced channel: they commit in the SAME transaction
       // as the store-level owner CAS that is its fence (`transitionOwned`,
       // `activate`, `claim`/`steal` outcomes), and by then the run is often no
       // longer `running` under this owner, which is the exact predicate the
       // journal fence asserts. Several call sites (claim-lost,
       // steal-refused-owner-alive, activation-lost) also record decisions for
       // runs this driver never owned at all — first-writer-wins evidence,
-      // which is what the unfenced channel exists for.
+      // which is what the unfenced channel exists for. Lease reconfirmation
+      // retains ownership and emits this record through the fenced channel.
       JournalRecords.runDecision({
         runId,
         lineageId: FlowEngine.Lineage.root(runId),
@@ -800,8 +801,12 @@ export const make = (
           if (transitioned._tag !== "Transitioned") {
             return yield* Effect.fail({ _tag: "TransitionRefused" as const, outcome: transitioned })
           }
-          if (waiting === null) yield* engineState.wake(runId)
-          if (afterTransitioned !== undefined) yield* afterTransitioned
+          if (waiting === null) {
+            yield* engineState.wake(runId)
+          }
+          if (afterTransitioned !== undefined) {
+            yield* afterTransitioned
+          }
           // Every terminal round closes its own deadlines, including a
           // handoff whose successor and linked children continue separately.
           if (toStatus === "completed" || toStatus === "failed") {
@@ -817,7 +822,8 @@ export const make = (
           return transitioned
         })
       ).pipe(
-        Effect.catchTag("TransitionRefused", ({ outcome }) => Effect.succeed(outcome)),
+        Effect.catchTag("TransitionRefused", ({ outcome }) =>
+          Effect.succeed(outcome)),
         Effect.orDie
       )
 
@@ -832,7 +838,9 @@ export const make = (
     )(function*(row: RunStore.RunRow) {
       return yield* Effect.gen(function*() {
         yield* Effect.annotateCurrentSpan({ runId: row.runId, status: row.status })
-        if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) return false
+        if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) {
+          return false
+        }
         if (row.status === "completed" || row.status === "failed" || row.status === "cancelled") {
           yield* Effect.annotateCurrentSpan({ outcome: "terminal" })
           yield* Metric.update(EngineStoreMetrics.claim.Terminal, 1)
@@ -843,7 +851,9 @@ export const make = (
         // preserve quarantine. Cancellation still claims the row to close it.
         if (row.cancelRequestedAtMs === null) {
           const waiting = yield* engineState.waiting(row.runId)
-          if (Option.isSome(waiting) && waiting.value.reason === "quarantine") return false
+          if (Option.isSome(waiting) && waiting.value.reason === "quarantine") {
+            return false
+          }
         }
 
         const expected = snapshot(row)
@@ -973,7 +983,9 @@ export const make = (
               claim.claimedAtMs,
               expected
             ).pipe(Effect.orDie)
-            if (activation._tag !== "Activated") return activation
+            if (activation._tag !== "Activated") {
+              return activation
+            }
             yield* emitDecision(row.runId, {
               decision: row.status === "running" ? "stolen-and-activated" : "claimed-and-activated",
               previousStatus: row.status,
@@ -1059,7 +1071,8 @@ export const make = (
         const descendants = yield* descendantsOf(runId)
         yield* Effect.forEach(
           descendants,
-          (childId) => requestCancellation(childId, nowMs),
+          (childId) =>
+            requestCancellation(childId, nowMs),
           { discard: true }
         )
         return descendants
@@ -1252,7 +1265,9 @@ export const make = (
         // Admission reads the child's recorded policy in this transaction.
         // A later caller awaiting a detached execution cannot change the
         // policy chosen by its original spawn.
-        if ((yield* exitPolicyOf(yield* store.get(childId).pipe(Effect.orDie))) === "detach") return
+        if ((yield* exitPolicyOf(yield* store.get(childId).pipe(Effect.orDie))) === "detach") {
+          return
+        }
         yield* requestCancellation(childId, yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))).pipe(
           Effect.orDie
         )
@@ -1343,7 +1358,9 @@ export const make = (
         // failed one, so every parent already parked on it — through any round
         // of its lineage — is woken to read the cancellation (#2758). Only
         // after the transition this call committed: a lost fence woke nobody.
-        if (settled) yield* announceSettled(runId, state)
+        if (settled) {
+          yield* announceSettled(runId, state)
+        }
       })
 
     /**
@@ -1964,7 +1981,9 @@ export const make = (
               (initial.status === "suspended" || initial.status === "running") &&
               initial.cancelRequestedAtMs !== null
             ) {
-              if (!(yield* claimAndActivate(initial))) return
+              if (!(yield* claimAndActivate(initial))) {
+                return
+              }
               return yield* cancelOwned(executionId, withoutResult(state))
             }
             // A wake for a flow this process has not registered — after a full
@@ -1983,7 +2002,9 @@ export const make = (
             }
             return
           }
-          if (!(yield* claimAndActivate(initial))) return
+          if (!(yield* claimAndActivate(initial))) {
+            return
+          }
           yield* Effect.logDebug("run activated", { flowName: state.flowName })
 
           const activeState = withoutResult(state)
@@ -2064,6 +2085,13 @@ export const make = (
                     Effect.provideService(FlowRuntime.FlowRuntime, flowEngine)
                   ),
                   Ownership.heartbeatLoop(executionId, dependencies.owner, {
+                    onReconfirm: (unconfirmedMs) => {
+                      const record = decisionRecord(executionId, {
+                        decision: "lease-reconfirmed",
+                        detail: { unconfirmedMs }
+                      }, dependencies.journalSource)
+                      return journal.emitDurable(record, dependencies.owner).pipe(Effect.asVoid, Effect.orDie)
+                    },
                     onLapse: (unconfirmedMs) =>
                       Effect.sync(() => {
                         lapsedMs = unconfirmedMs
@@ -2378,9 +2406,15 @@ export const make = (
             // Advance after successful reads or permanent row errors; transient failures retry this
             // position, while a retained query cursor skips deleted rows safely.
             cycle.after = cursor
-            if (row === undefined || row.status !== "pending" || (yield* coordinator.active).has(cursor.runId)) continue
-            if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) continue
-            if (registrations.get(name) !== registration || (yield* coordinator.active).has(cursor.runId)) continue
+            if (row === undefined || row.status !== "pending" || (yield* coordinator.active).has(cursor.runId)) {
+              continue
+            }
+            if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) {
+              continue
+            }
+            if (registrations.get(name) !== registration || (yield* coordinator.active).has(cursor.runId)) {
+              continue
+            }
             yield* coordinator.schedule(cursor.runId)
           }
           const last = pending.at(-1)

@@ -12,6 +12,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import type { DurableWriter } from "@smthrs/database"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as Consensus from "@smthrs/journal/Consensus"
 import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -499,4 +500,318 @@ describe("heartbeatLoop write deadline", () => {
       expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
       yield* Fiber.interrupt(owning)
     }))
+})
+
+describe("heartbeatLoop lease reconfirm", () => {
+  const toleranceMs = Duration.toMillis(heartbeatWriteTolerance)
+  const intervalMs = Duration.toMillis(heartbeatInterval)
+
+  for (const state of ["untouched", "pending claim", "foreign owner"] as const) {
+    it.effect(`reconfirms an untouched lease and interrupts with ${state}`, () =>
+      Effect.gen(function*() {
+        const consensus = yield* Consensus.Consensus
+        yield* consensus.claim("reconfirm-loop", ownerA, 0)
+        yield* consensus.activate("reconfirm-loop", ownerA, 0, 0)
+        if (state !== "untouched") {
+          const atMs = staleAfterMs + 1
+          expect((yield* consensus.steal("reconfirm-loop", otherHost, atMs, leaseExpired(ownerA, atMs)))._tag).toBe(
+            "Claimed"
+          )
+          if (state === "foreign owner") yield* consensus.activate("reconfirm-loop", otherHost, atMs, atMs)
+        }
+        const reconfirmed: Array<number> = []
+        const lapsed: Array<number> = []
+        const owning = yield* heartbeatLoop("reconfirm-loop", ownerA, {
+          onReconfirm: (ms) =>
+            Effect.sync(() => {
+              reconfirmed.push(ms)
+            }),
+          onLapse: (ms) =>
+            Effect.sync(() => {
+              lapsed.push(ms)
+            })
+        }).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: (runId, owner, nowMs) =>
+              consensus.reconfirm(runId, owner, nowMs).pipe(
+                Effect.orDie,
+                Effect.map((result) =>
+                  result._tag === "Renewed"
+                    ? { _tag: "Updated" as const, heartbeatAtMs: result.heartbeatAtMs }
+                    : { _tag: "FenceLost" as const }
+                )
+              )
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs - 1)
+        expect(owning.pollUnsafe()).toBeUndefined()
+        expect(reconfirmed).toEqual([])
+        yield* TestClock.adjust(1)
+        yield* Effect.yieldNow
+        if (state === "untouched") {
+          expect(owning.pollUnsafe()).toBeUndefined()
+          expect(reconfirmed).toEqual([toleranceMs])
+          expect(lapsed).toEqual([])
+          expect(yield* consensus.heartbeat("reconfirm-loop", ownerA, 0)).toEqual({
+            _tag: "Renewed",
+            heartbeatAtMs: toleranceMs
+          })
+          // A second outage period can also be reconfirmed; the deadline is
+          // reset by the committed lease, rather than ending the supervisor.
+          yield* TestClock.adjust(toleranceMs)
+          expect(owning.pollUnsafe()).toBeUndefined()
+          expect(reconfirmed).toEqual([toleranceMs, toleranceMs])
+        } else {
+          const exit = owning.pollUnsafe()
+          expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+          expect(reconfirmed).toEqual([])
+          expect(lapsed).toEqual([toleranceMs])
+        }
+        yield* Fiber.interrupt(owning)
+      }).pipe(Effect.provide(Consensus.layerLocal)))
+  }
+
+  it.effect("continues after reconfirm without an optional audit hook", () =>
+    Effect.gen(function*() {
+      let calls = 0
+      const owning = yield* heartbeatLoop("reconfirm-no-hook", ownerA).pipe(
+        Effect.provide(RunStoreLive.layerNoop({
+          heartbeat: () => Effect.never,
+          reconfirm: () =>
+            Effect.sync(() => {
+              calls++
+              return { _tag: "Updated" as const }
+            })
+        })),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* TestClock.adjust(toleranceMs)
+      expect(calls).toBe(1)
+      expect(owning.pollUnsafe()).toBeUndefined()
+      yield* Fiber.interrupt(owning)
+    }))
+
+  for (const renewed of [true, false]) {
+    it.effect(`settles simultaneous overdue pulse and watchdog once when reconfirm ${renewed ? "succeeds" : "loses"}`, () =>
+      Effect.gen(function*() {
+        const baseClock = yield* Clock.Clock
+        const timers = yield* Deferred.make<void>()
+        const entered = yield* Deferred.make<void>()
+        const finish = yield* Deferred.make<void>()
+        let now = 0
+        let waits = 0
+        let calls = 0
+        const receipts: Array<string> = []
+        const clock: Clock.Clock = {
+          ...baseClock,
+          currentTimeMillis: Effect.sync(() => now),
+          currentTimeMillisUnsafe: () => now,
+          sleep: () => ++waits <= 2 ? Deferred.await(timers) : Effect.never
+        }
+        const owning = yield* heartbeatLoop("simultaneous-expiry", ownerA, {
+          onReconfirm: () =>
+            Effect.sync(() => {
+              receipts.push("reconfirmed")
+            }),
+          onLapse: () =>
+            Effect.sync(() => {
+              receipts.push("lapsed")
+            }).pipe(Effect.andThen(Effect.yieldNow))
+        }).pipe(
+          Effect.provideService(Clock.Clock, clock),
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.die("an overdue pulse must reconfirm"),
+            reconfirm: () =>
+              Effect.gen(function*() {
+                calls++
+                yield* Deferred.succeed(entered, undefined)
+                yield* Deferred.await(finish)
+                return renewed ? { _tag: "Updated" as const } : { _tag: "FenceLost" as const }
+              })
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Effect.yieldNow
+        expect(waits).toBe(2)
+        now = toleranceMs
+        yield* Deferred.succeed(timers, undefined)
+        yield* Deferred.await(entered)
+        yield* Effect.yieldNow
+        expect(calls).toBe(1)
+        yield* Deferred.succeed(finish, undefined)
+        for (let index = 0; index < 10; index++) yield* Effect.yieldNow
+        expect(calls).toBe(1)
+        expect(receipts).toEqual([renewed ? "reconfirmed" : "lapsed"])
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(!renewed)
+        yield* Fiber.interrupt(owning)
+      }))
+  }
+
+  for (const interrupted of ["reconfirm", "receipt"] as const) {
+    it.effect(`propagates a self-interrupted ${interrupted} without recording lapse`, () =>
+      Effect.gen(function*() {
+        const lapsed: Array<number> = []
+        const owning = yield* heartbeatLoop("self-interrupt-reconfirm", ownerA, {
+          onReconfirm: () => Effect.interrupt,
+          onLapse: (ms) =>
+            Effect.sync(() => {
+              lapsed.push(ms)
+            })
+        }).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: () => interrupted === "reconfirm" ? Effect.interrupt : Effect.succeed({ _tag: "Updated" })
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs)
+        yield* Effect.yieldNow
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        expect(lapsed).toEqual([])
+        yield* Fiber.interrupt(owning)
+      }))
+  }
+
+  for (const pending of ["reconfirm", "receipt"] as const) {
+    it.effect(`preserves parent cancellation while ${pending} is pending`, () =>
+      Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        let interrupted = false
+        const lapsed: Array<number> = []
+        const blocked = Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              interrupted = true
+            })
+          )
+        )
+        const owning = yield* heartbeatLoop("cancel-reconfirm", ownerA, {
+          onReconfirm: () => blocked,
+          onLapse: (ms) =>
+            Effect.sync(() => {
+              lapsed.push(ms)
+            })
+        }).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: () => pending === "reconfirm" ? blocked : Effect.succeed({ _tag: "Updated" })
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs)
+        yield* Deferred.await(started)
+        yield* Fiber.interrupt(owning)
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        expect(interrupted).toBe(true)
+        expect(lapsed).toEqual([])
+      }))
+  }
+
+  for (const receipt of ["timeout", "error", "defect"] as const) {
+    it.effect(`interrupts owned work when the reconfirm receipt ends in ${receipt}`, () =>
+      Effect.gen(function*() {
+        let receiptInterrupted = false
+        let ownedInterrupted = false
+        const lapsed: Array<number> = []
+        const owning = yield* Effect.raceFirst(
+          Effect.never.pipe(Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              ownedInterrupted = true
+            })
+          )),
+          heartbeatLoop("reconfirm-receipt", ownerA, {
+            onReconfirm: () =>
+              (receipt === "timeout" ? Effect.never : receipt === "defect" ?
+                Effect.die("receipt unavailable")
+                // Exercise a runtime callback that violates its infallible contract.
+                : Effect.fail("receipt unavailable") as unknown as Effect.Effect<void>).pipe(
+                  Effect.onInterrupt(() =>
+                    Effect.sync(() => {
+                      receiptInterrupted = true
+                    })
+                  )
+                ),
+            onLapse: (ms) =>
+              Effect.sync(() => {
+                lapsed.push(ms)
+              })
+          })
+        ).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: () => Effect.succeed({ _tag: "Updated" })
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs)
+        if (receipt === "timeout") {
+          yield* TestClock.adjust(intervalMs - 1)
+          expect(owning.pollUnsafe()).toBeUndefined()
+          yield* TestClock.adjust(1)
+        }
+        yield* Effect.yieldNow
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        expect(lapsed).toEqual([toleranceMs])
+        expect(ownedInterrupted).toBe(true)
+        if (receipt === "timeout") expect(receiptInterrupted).toBe(true)
+        yield* Fiber.interrupt(owning)
+      }))
+  }
+
+  for (const failure of ["timeout", "error"] as const) {
+    it.effect(`interrupts when reconfirm ends in ${failure}`, () =>
+      Effect.gen(function*() {
+        let calls = 0
+        let writeInterrupted = false
+        const lapsed: Array<number> = []
+        const owning = yield* heartbeatLoop("reconfirm-unavailable", ownerA, {
+          onReconfirm: () => Effect.die("failed reconfirm must not report success"),
+          onLapse: (ms) =>
+            Effect.sync(() => {
+              lapsed.push(ms)
+            })
+        }).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: () => {
+              calls++
+              return (failure === "timeout" ? Effect.never : Effect.fail(
+                new RunStoreLive.RunStoreError({
+                  code: "persistence_failed",
+                  method: "reconfirm",
+                  message: "offline",
+                  cause: new Error("offline")
+                })
+              )).pipe(Effect.onInterrupt(() =>
+                Effect.sync(() => {
+                  writeInterrupted = true
+                })
+              ))
+            }
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs)
+        expect(calls).toBe(1)
+        if (failure === "timeout") {
+          expect(owning.pollUnsafe()).toBeUndefined()
+          yield* TestClock.adjust(intervalMs - 1)
+          expect(owning.pollUnsafe()).toBeUndefined()
+          yield* TestClock.adjust(1)
+        }
+        yield* Effect.yieldNow
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        expect(lapsed).toHaveLength(1)
+        if (failure === "timeout") expect(writeInterrupted).toBe(true)
+        yield* Fiber.interrupt(owning)
+      }))
+  }
 })

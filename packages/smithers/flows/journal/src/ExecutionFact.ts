@@ -200,7 +200,14 @@ export const fold = (inputs: ReadonlyArray<Input>, rootExecutionId: string, obse
       // Diagnostic decisions and wake requests are not lifecycle mutations.
       if (
         state.observation !== undefined && input.eventType === "flows.engine.run-decision" &&
-        !["wake-scheduled", "claim-lost", "activation-lost", "steal-refused-owner-alive", "child-policy-applied"]
+        ![
+          "wake-scheduled",
+          "claim-lost",
+          "activation-lost",
+          "steal-refused-owner-alive",
+          "child-policy-applied",
+          "lease-reconfirmed"
+        ]
           .includes(String(payload.decision))
       ) {
         state.uncovered = true

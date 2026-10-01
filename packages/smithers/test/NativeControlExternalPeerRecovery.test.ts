@@ -8,12 +8,13 @@ const fixture = fileURLToPath(new URL("./fixtures/external-peer-scenario.ts", im
 for (
   const [mode, behavior] of [
     ["observe", "keeps one external worker through peer registration and observation"],
-    ["stall", "requires explicit retry after a live owner stalls beyond heartbeat write tolerance"],
+    ["stall", "reconfirms a live owner after a 25-second stall without restarting external work"],
     ["cancel", "cancels the external worker from another host"],
+    ["stolen", "stops external work when a cross-host peer steals the paused owner’s lease"],
     ["recover", "recovers a genuinely dead owner and settles the parent"],
     ["recover-released", "recovers a gracefully released worker after the owner exits"],
     ["recover-running", "releases a still-running root on graceful shutdown for peer recovery"],
-    ["detached-stall", "never respawns a detached worker of a completed root after its lease lapses"]
+    ["detached-stall", "reconfirms a detached worker of a completed root after a 25-second stall"]
   ]
 ) {
   const timeout = mode === "recover-released" || mode === "recover-running" ? 300_000 : 180_000

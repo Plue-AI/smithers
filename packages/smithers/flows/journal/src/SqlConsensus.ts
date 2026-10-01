@@ -182,6 +182,31 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     }))
   )
 
+  const reconfirm: Service["reconfirm"] = Effect.fn("Consensus.reconfirm")((
+    runId: string,
+    owner: OwnerId,
+    nowMs: number
+  ) =>
+    write(Effect.gen(function*() {
+      // A pending steal has already reserved the lease, even before activation.
+      // Compare both owner and claim in the same update as the renewal.
+      const rows = yield* sql<{ readonly heartbeat_at_ms: number }>`
+        UPDATE flows_consensus_leases
+        SET heartbeat_at_ms = ${Dialect.greatest(sql)}(heartbeat_at_ms, ${nowMs})
+        WHERE run_id = ${runId}
+          AND owner_host_id = ${owner.hostId}
+          AND owner_pid = ${owner.pid}
+          AND owner_nonce = ${owner.nonce}
+          AND claim_host_id IS NULL
+        RETURNING heartbeat_at_ms
+      `
+      const row = rows[0]
+      return (row === undefined
+        ? lost
+        : { _tag: "Renewed", heartbeatAtMs: Number(row.heartbeat_at_ms) }) satisfies HeartbeatOutcome
+    }))
+  )
+
   const release: Service["release"] = Effect.fn("Consensus.release")((runId: string, owner: OwnerId) =>
     write(Effect.gen(function*() {
       yield* sql`
@@ -307,7 +332,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     }))
   )
 
-  return Consensus.of({ claim, activate, heartbeat, release, steal, recover, guard })
+  return Consensus.of({ claim, activate, heartbeat, reconfirm, release, steal, recover, guard })
 })
 
 /**

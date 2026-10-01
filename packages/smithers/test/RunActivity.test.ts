@@ -276,6 +276,37 @@ describe("RunActivity.show", () => {
     expect(Object.keys(shown).slice(0, 6)).toEqual(["runId", "flowId", "status", "waitingReason", "health", "released"])
   })
 
+  it.each(["running", "completed"] as const)("reports lease reconfirmation as a warning while %s (#3372)", (status) => {
+    const event = engine("work-1", "flows.engine.run-decision", {
+      decision: "lease-reconfirmed",
+      detail: { unconfirmedMs: 20_412 }
+    }, 100)
+    const shown = RunActivity.show(run(status), [...tree(), event], 100)
+    expect(shown.status).toBe(status)
+    expect(shown.health.attention).not.toBe("needs-resume")
+    expect(shown).not.toHaveProperty("released")
+    expect(shown.warnings).toEqual([
+      { code: "lease-reconfirmed", executionId: "work-1", unconfirmedMs: 20_412, occurredAt: 100 }
+    ])
+  })
+
+  it("keeps a real release after reconfirmation evidence and ignores malformed warnings", () => {
+    const events = [
+      ...tree(),
+      engine("work-1", "flows.engine.run-decision", { decision: "interrupt-released", cause: { kind: "interrupted" } }),
+      engine("work-1", "flows.engine.run-decision", { decision: "lease-reconfirmed", detail: { unconfirmedMs: 0 } }),
+      ...[undefined, "1", -1, Infinity].map((unconfirmedMs) =>
+        engine("work-2", "flows.engine.run-decision", { decision: "lease-reconfirmed", detail: { unconfirmedMs } })
+      )
+    ]
+    const shown = RunActivity.show({ ...run("parked"), waitingReason: "released" }, events, 100)
+    expect(shown.health.attention).toBe("needs-resume")
+    expect(shown.released).toEqual([{ executionId: "work-1", flowName: "sweep/work", cause: "interrupted" }])
+    expect(shown.warnings).toHaveLength(1)
+    expect(shown.warnings?.[0]?.unconfirmedMs).toBe(0)
+    expect(RunActivity.show(run("running"), [])).not.toHaveProperty("warnings")
+  })
+
   it("keeps the recorded end of a settled run and a row newer than its journal", () => {
     const { codeDrift: _drift, ...settled } = run("completed")
     const shown = RunActivity.show({ ...settled, updatedAt: 1e15 }, [

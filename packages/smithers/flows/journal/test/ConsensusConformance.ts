@@ -124,6 +124,67 @@ export const conformance = (
         expect(yield* consensus.heartbeat("run-claim-only", ownerA, 1)).toEqual({ _tag: "Lost" })
       })))
 
+    it.effect("reconfirms only an activated exact owner without a pending claim", () =>
+      withStack(Effect.gen(function*() {
+        const consensus = yield* Consensus
+        expect(yield* consensus.reconfirm("reconfirm-missing", ownerA, 100)).toEqual({ _tag: "Lost" })
+        yield* consensus.claim("reconfirm", ownerA, 0)
+        expect(yield* consensus.reconfirm("reconfirm", ownerA, 100)).toEqual({ _tag: "Lost" })
+        yield* consensus.activate("reconfirm", ownerA, 0, 0)
+        expect(yield* consensus.reconfirm("reconfirm", ownerB, 100)).toEqual({ _tag: "Lost" })
+        const nowMs = staleAfterMs + 1
+        expect(yield* consensus.reconfirm("reconfirm", ownerA, nowMs)).toEqual({
+          _tag: "Renewed",
+          heartbeatAtMs: nowMs
+        })
+        expect(yield* consensus.reconfirm("reconfirm", ownerA, 1)).toEqual({ _tag: "Renewed", heartbeatAtMs: nowMs })
+        yield* consensus.guard("reconfirm", ownerA)
+        const stealAt = nowMs + staleAfterMs + 1
+        expect((yield* consensus.steal("reconfirm", ownerB, stealAt, evidence(ownerA, ownerB, stealAt)))._tag).toBe(
+          "Claimed"
+        )
+        // A steal has only installed its claim: the original owner still
+        // occupies the row, but it can no longer reconfirm exclusivity.
+        expect(yield* consensus.reconfirm("reconfirm", ownerA, stealAt)).toEqual({ _tag: "Lost" })
+        expect(yield* consensus.activate("reconfirm", ownerB, stealAt, stealAt)).toEqual({ _tag: "Activated" })
+        expect(yield* consensus.reconfirm("reconfirm", ownerA, stealAt + 1)).toEqual({ _tag: "Lost" })
+        expect(yield* consensus.reconfirm("reconfirm", ownerB, stealAt + 1)).toEqual({
+          _tag: "Renewed",
+          heartbeatAtMs: stealAt + 1
+        })
+        yield* consensus.release("reconfirm", ownerB)
+        expect(yield* consensus.reconfirm("reconfirm", ownerB, stealAt + 2)).toEqual({ _tag: "Lost" })
+      })))
+
+    it.effect("serializes reconfirm against a competing steal with exactly one winner", () =>
+      withStack(Effect.gen(function*() {
+        const consensus = yield* Consensus
+        const nowMs = staleAfterMs + 1
+        for (let index = 0; index < 12; index++) {
+          const run = `reconfirm-race-${index}`
+          yield* consensus.claim(run, ownerA, 0)
+          yield* consensus.activate(run, ownerA, 0, 0)
+          const renewal = consensus.reconfirm(run, ownerA, nowMs)
+          const steal = consensus.steal(run, ownerB, nowMs, evidence(ownerA, ownerB, nowMs))
+          const outcomes = yield* Effect.all(index % 2 === 0 ? [renewal, steal] : [steal, renewal], {
+            concurrency: "unbounded"
+          })
+          const reconfirmed = outcomes[index % 2 === 0 ? 0 : 1]
+          const stolen = outcomes[index % 2 === 0 ? 1 : 0]
+          expect([reconfirmed._tag, stolen._tag]).toEqual(
+            reconfirmed._tag === "Renewed" ? ["Renewed", "Rejected"] : ["Lost", "Claimed"]
+          )
+          if (reconfirmed._tag === "Renewed") {
+            expect(stolen).toEqual({ _tag: "Rejected", reason: "owner_live" })
+            yield* consensus.guard(run, ownerA)
+            expect(yield* consensus.activate(run, ownerB, nowMs, nowMs)).toEqual({ _tag: "Lost" })
+          } else {
+            expect(yield* consensus.activate(run, ownerB, nowMs, nowMs)).toEqual({ _tag: "Activated" })
+            expect((yield* Effect.flip(consensus.guard(run, ownerA))).code).toBe("fence_lost")
+          }
+        }
+      })))
+
     it.effect("release clears the caller's claim or ownership and nobody else's", () =>
       withStack(Effect.gen(function*() {
         const consensus = yield* Consensus

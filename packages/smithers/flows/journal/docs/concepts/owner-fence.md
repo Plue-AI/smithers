@@ -77,6 +77,20 @@ transaction that made it. The facts live beside the run's own stream, so a
 consumer reading that stream by position never sees one. Heartbeats renew the
 lease and never enter the journal.
 
+## Reconfirm after a host stall
+
+`Consensus.reconfirm(runId, owner, nowMs)` returns `Renewed` only while the
+same owner holds the lease and no claim is pending. Its compare-and-swap
+renews the heartbeat monotonically. A missing lease, foreign owner, or
+pending claim returns `Lost` without modifying the lease.
+
+`SqlConsensus` performs that check in one update; `layerLocal` performs it
+atomically in memory. If reconfirm wins a race with `steal`, the refreshed
+heartbeat prevents the steal. If steal wins, its pending claim prevents
+reconfirm even before the new owner activates. Reconfirm preserves the
+owner token and generation. The engine records a `lease-reconfirmed`
+decision when supervision uses it to recover from an unconfirmed interval.
+
 ## A bad token is not a lost fence
 
 An owner that is missing, null, or not an `OwnerId` at all fails

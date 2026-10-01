@@ -28,8 +28,8 @@ steal the run the instant the persisted heartbeat is `heartbeatStaleAfter` old.
 The peer's clock may already read `heartbeatSkewAllowance` later than the
 owner's, so an owner that tolerated write failures for the full staleness
 window would still be running side effects when the steal was admitted.
-Subtracting the skew allowance and an extra pulse interval makes the owner
-interrupt itself first.
+Subtracting the skew allowance and an extra pulse interval reserves one
+interval to reconfirm ownership before interrupting.
 
 They live in a leaf module because `Ownership` imports `RunStore` and
 `RunStore` needs the staleness cutoff for its own predicates. Neither could own
@@ -66,8 +66,20 @@ distinguishes two failures on purpose:
   `heartbeatStaleAfter` old, so transient database errors are tolerated for
   `heartbeatWriteTolerance`.
 
-An independent deadline interrupts the pulse loop and its pending write when
-that budget expires, including when a write never returns. A successful pulse
+When that budget expires, an independent deadline calls `RunStore.reconfirm`,
+bounded by one `heartbeatInterval`. It delegates to the same `Consensus`
+strategy as ordinary heartbeats and mirrors the renewed stamp in the same
+transaction. Reconfirm succeeds only when the owner still matches and there
+is no pending claim. A peer that reserved the stale lease therefore wins
+even before it activates.
+
+Reconfirmation and `onReconfirm(unconfirmedMs)` share one heartbeat-interval
+deadline. Only when both finish does supervision reset the confirmed-pulse
+time and keep the work running. A blocked or failed receipt lapses the lease. The engine journals
+`run-decision` with decision `lease-reconfirmed` and detail `{ unconfirmedMs }`;
+`runs show` reports a warning. Owner identity and journal generation do not
+change. A lost lease, write error, or timeout calls `onLapse` and interrupts
+the pulse loop and its pending write, including when that write never returns. A successful pulse
 re-arms the deadline from the timestamp supplied to the store, not the time the
 write completes. The deadline reads the current clock after each wait; delayed
 successes and failures cannot extend the lease beyond that persisted timestamp's
@@ -88,7 +100,7 @@ A run row carries readings from two different sources, and the split is
 deliberate.
 
 **The caller's `nowMs`** is used by the operations that judge or record a
-lease: `claim`, `claimAndOwn`, `steal`, `heartbeat`, `requestCancel`, and
+lease: `claim`, `claimAndOwn`, `steal`, `heartbeat`, `reconfirm`, `requestCancel`, and
 `recoverClaim`. It is the cutoff their predicates compare against and the value
 they persist, and it is taken literally.
 
@@ -104,7 +116,7 @@ makes the whole store driveable under `TestClock`.
 ## The skew allowance is enforced
 
 Every `nowMs` is validated as a non-negative safe integer. The lease operations
-(`claim`, `claimAndOwn`, `steal`, `heartbeat`, and `recoverClaim`) then bound it
+(`claim`, `claimAndOwn`, `steal`, `heartbeat`, `reconfirm`, and `recoverClaim`) then bound it
 from above: a reading more than `heartbeatSkewAllowance` ahead of the store's
 own `Clock` fails with `invalid_run` before any predicate runs.
 

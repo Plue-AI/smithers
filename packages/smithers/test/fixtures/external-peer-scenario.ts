@@ -1,5 +1,8 @@
 import { Control } from "@smthrs/control"
-import { Effect, Stream } from "effect"
+import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
+import * as RunStore from "@smthrs/run-store/RunStore"
+import { Effect, Layer, Stream } from "effect"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -52,13 +55,30 @@ const rows = (root: string) => {
   }
 }
 
+const decisions = (root: string) => {
+  const db = new DatabaseSync(join(root, ".flows", "engine.db"), { readOnly: true })
+  try {
+    return (db.prepare(
+      "SELECT run_id, payload_json FROM flows_journal_events WHERE event_type = 'flows.engine.run-decision'"
+    )
+      .all() as Array<{ run_id: string; payload_json: string }>).map((row) => ({
+        runId: row.run_id,
+        ...JSON.parse(row.payload_json) as { decision: string; detail?: { unconfirmedMs: number } }
+      }))
+  } finally {
+    db.close()
+  }
+}
+
 const mode = process.argv[2]
 // A graceful owner exit must release, not fail, a root that is still running (#3073).
 const releasing = mode === "recover-released" || mode === "recover-running"
-if (mode === "recover-running") process.env.EXTERNAL_PEER_ROOT = "running"
+if (mode === "recover-running" || mode === "stall") process.env.EXTERNAL_PEER_ROOT = "running"
 if (mode === "detached-stall") process.env.EXTERNAL_PEER_ROOT = "detached"
 if (
-  ["observe", "stall", "cancel", "recover", "recover-released", "recover-running", "detached-stall"].includes(mode!)
+  ["observe", "stall", "stolen", "cancel", "recover", "recover-released", "recover-running", "detached-stall"].includes(
+    mode!
+  )
 ) {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
   await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
@@ -136,6 +156,7 @@ if (
     await poll(() => access(join(root, "run-id")).then(() => true, () => false), "accepted root receipt")
     const runId = await readFile(join(root, "run-id"), "utf8")
     const first = (await workers(root))[0]!
+    const workerId = rows(root).find((row) => row.run_id.endsWith("/worker"))!.run_id
     await new Promise((resolve) => setTimeout(resolve, 2_000))
     enter("observation host scope closure")
     await writeFile(join(root, "observer-close"), "close")
@@ -145,7 +166,7 @@ if (
     await new Promise((resolve) => setTimeout(resolve, 1_000))
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
-    if (mode === "recover-running") {
+    if (mode === "recover-running" || mode === "stall") {
       enter("control root still running")
       const running = rows(root).find((row) => row.run_id === runId)
       assert.equal(running?.status, "running", JSON.stringify(rows(root)))
@@ -206,12 +227,52 @@ if (
           assert.notEqual(status, "failed", stderr)
         }
         if (mode === "stall" || mode === "detached-stall") {
-          enter("original stopped for 20 seconds")
+          enter("original stopped for 25 seconds")
           original.kill("SIGSTOP")
           resumeTimer = setTimeout(() => {
             original.kill("SIGCONT")
             enter("original resumed; parked observation")
-          }, 20_000)
+          }, 25_000)
+        }
+        if (mode === "stolen") {
+          enter("original stopped until its persisted worker lease is stale")
+          original.kill("SIGSTOP")
+          yield* Effect.sleep("31 seconds")
+          // This is a different host identity with an unreachable-stale probe.
+          // Use the production CAS: RunStore atomically steals and activates
+          // Consensus ownership and mirrors it to the execution row.
+          const peerOwner = { hostId: "external-peer-other-host", pid: process.pid, nonce: "takeover" }
+          const peerStore = RunStore.layer.pipe(Layer.provide(
+            DurableWriter.layer().pipe(
+              Layer.provideMerge(NodeDatabase.layer({ filename: join(root, ".flows", "engine.db") }))
+            )
+          ))
+          yield* Effect.gen(function*() {
+            const store = yield* RunStore.RunStore
+            const row = yield* store.get(workerId)
+            assert.ok(row?.owner)
+            const nowMs = Date.now()
+            const result = yield* store.claimAndOwn(workerId, row!, peerOwner, nowMs, {
+              expectedOwner: row!.owner!,
+              checkedAtMs: nowMs,
+              kind: "cross-host-unreachable-stale"
+            })
+            assert.equal(result._tag, "Activated", JSON.stringify(result))
+          }).pipe(Effect.provide(peerStore), Effect.scoped)
+          enter("cross-host takeover committed; original resumed")
+          original.kill("SIGCONT")
+          yield* Effect.promise(() => poll(() => !alive(first.pid), "displaced owner stops external work"))
+          for (let tick = 0; tick < 5; tick++) {
+            yield* control.list({ _tag: "runs", filters: { runId } })
+            assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+            yield* Effect.sleep("1 second")
+          }
+          assert.equal(rows(root).find((row) => row.run_id === workerId)?.owner_pid, process.pid)
+          assert.equal(
+            decisions(root).some((entry) => entry.runId === workerId && entry.decision === "lease-reconfirmed"),
+            false
+          )
+          return
         }
         if (mode === "cancel") {
           enter("public cancellation")
@@ -241,59 +302,54 @@ if (
         for (let tick = 0; tick < 40; tick++) {
           yield* control.list({ _tag: "runs", filters: { runId } })
           assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
-          if (mode !== "stall" && mode !== "detached-stall") assert.equal(alive(first.pid), true)
+          assert.equal(
+            alive(first.pid),
+            true,
+            "A live owner must reconfirm its unchanged lease without killing external work"
+          )
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
           yield* Effect.sleep("1 second")
         }
-        if (mode === "stall") {
-          // The existing lease safety guard must still stop unconfirmed work.
-          // A parked parent must not silently restart that external action.
-          yield* Effect.promise(() => poll(() => !alive(first.pid), "expired lease worker stopped"))
-          assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
-          assert.equal(rows(root).some((row) => row.status === "suspended" && row.waiting_reason === "released"), true)
-          const parked = yield* control.list({ _tag: "runs", filters: { runId } })
-          assert.equal(parked._tag === "runs" && parked.items[0]?.status, "parked")
-          // The run reports why it is parked and what it needs (#3328): its
-          // worker's lease lapsed on a live host, so only a resume restarts it.
-          const summary = parked._tag === "runs" ? parked.items[0]! : undefined
-          assert.equal(summary?.waitingReason, "released", JSON.stringify(summary))
-          const journal = Array.from(yield* Stream.runCollect(control.watch({ runId, follow: false })))
-          const shown = RunActivity.show(summary!, journal)
-          process.stderr.write(`runs show after the stall: ${JSON.stringify(shown)}\n`)
-          assert.deepEqual(shown.health, { health: "awaiting-human", attention: "needs-resume", reason: "released" })
-          const worker = shown.released?.find((execution) => execution.executionId.endsWith("/worker"))
-          assert.equal(worker?.cause, "lease-lapsed", JSON.stringify(shown.released))
-          assert.ok((worker?.unconfirmedMs ?? 0) >= 19_000, JSON.stringify(worker))
-          enter("explicit public resume")
-          const resume = yield* control.resume({ runId, idempotencyKey: "explicit-retry-after-stall" })
-          assert.equal(resume._tag, "Accepted")
-          enter("resume accepted; waiting for external retry")
-          yield* Effect.promise(() =>
-            poll(async () => (await workers(root)).length === 2, "explicit public retry starts external worker")
+        if (mode === "stall" || mode === "detached-stall") {
+          enter("lease reconfirmation receipts")
+          const recorded = decisions(root)
+          assert.equal(
+            recorded.some((entry) => entry.decision === "interrupt-released"),
+            false,
+            JSON.stringify(recorded)
           )
-        }
-        if (mode === "detached-stall") {
-          // The live owner's lease guard stops its own worker. Its released row is
-          // re-admitted under the completed root, and control refuses a launch
-          // under an inactive run: the child settles instead of spawning again.
-          yield* Effect.promise(() => poll(() => !alive(first.pid), "expired lease worker stopped"))
-          yield* Effect.promise(() =>
-            poll(
-              () => rows(root).some((row) => row.run_id.endsWith("/worker") && row.status === "failed"),
-              "detached worker settles under the completed root"
+          const expected = mode === "stall"
+            ? rows(root).filter((row) => row.status === "running").map((row) => row.run_id)
+            : [workerId]
+          for (const id of expected) {
+            const reconfirmed = recorded.filter((entry) => entry.runId === id && entry.decision === "lease-reconfirmed")
+            assert.ok(reconfirmed.length > 0, `Missing lease-reconfirmed for ${id}: ${JSON.stringify(recorded)}`)
+            assert.ok(
+              reconfirmed.every((entry) => (entry.detail?.unconfirmedMs ?? 0) >= 19_000),
+              JSON.stringify(reconfirmed)
             )
-          )
-          enter("original owner death; no replacement")
-          original.kill("SIGKILL")
-          yield* Effect.promise(() => exited)
-          for (let tick = 0; tick < 10; tick++) {
-            yield* control.list({ _tag: "runs", filters: {} })
-            assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
-            yield* Effect.sleep("1 second")
+            assert.equal(rows(root).find((row) => row.run_id === id)?.owner_pid, original.pid)
           }
-          const page = yield* control.list({ _tag: "runs", filters: { runId } })
-          assert.equal(page._tag === "runs" && page.items[0]?.status, "completed")
-          return
+          if (mode === "stall") {
+            assert.equal(rows(root).find((row) => row.run_id === runId)?.status, "running")
+            const page = yield* control.list({ _tag: "runs", filters: { runId } })
+            assert.equal(page._tag === "runs" && page.items[0]?.status, "running")
+            assert.ok(page._tag === "runs" && page.items[0] !== undefined)
+            const events = yield* control.watch({ runId, follow: false }).pipe(Stream.runCollect)
+            const shown = RunActivity.show(page.items[0], events)
+            assert.equal(shown.status, "running")
+            assert.notEqual(shown.health.attention, "needs-resume")
+            for (const id of expected) {
+              assert.ok(
+                shown.warnings?.some((warning) =>
+                  warning.code === "lease-reconfirmed" && warning.executionId === id && warning.unconfirmedMs >= 19_000
+                ),
+                JSON.stringify(shown)
+              )
+            }
+          } else {
+            assert.equal(rows(root).find((row) => row.run_id === runId)?.status, "completed")
+          }
         }
         enter("release gate; parent settlement")
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
@@ -302,8 +358,10 @@ if (
         )
         const page = yield* control.list({ _tag: "runs", filters: { runId } })
         assert.equal(page._tag === "runs" && page.items[0]?.status, "completed")
-        if (mode === "stall") assert.equal((yield* Effect.promise(() => workers(root))).length, 2)
-        else assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+        assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+        if (mode === "stall" || mode === "detached-stall") {
+          assert.equal(decisions(root).some((entry) => entry.decision === "interrupt-released"), false)
+        }
       }).pipe(Effect.provide(host(root)), Effect.scoped)
     )
   } catch (error) {

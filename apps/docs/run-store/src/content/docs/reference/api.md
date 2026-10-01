@@ -239,6 +239,7 @@ because the store issued it.
 
 ```ts
 const heartbeat: (runId: string, owner: OwnerId, nowMs: number) => Effect<HeartbeatOutcome, RunStoreError>
+const reconfirm: (runId: string, owner: OwnerId, nowMs: number) => Effect<HeartbeatOutcome, RunStoreError>
 ```
 
 Renews the owner's lease. The write is `MAX(heartbeat_at_ms, nowMs)`, so a
@@ -770,9 +771,17 @@ the `Consensus` strategy's lease through `RunStore.heartbeat`, and interrupts
 itself when the fence is gone, so race it against the owned work with
 `Effect.raceFirst`. A heartbeat outcome other than `Updated` is durable evidence
 and interrupts immediately. An independent deadline bounds failing or stalled
-writes by `heartbeatWriteTolerance` and interrupts the pending write at expiry.
+writes by `heartbeatWriteTolerance`. At expiry it tries `RunStore.reconfirm`
+and its `onReconfirm` receipt for at most one `heartbeatInterval`: the same
+owner with no pending claim renews the lease and continues after the receipt
+finishes; loss, error, or timeout interrupts.
 Successful pulses re-arm that deadline from the timestamp supplied to the store,
 not their completion time.
+
+`RunStore.reconfirm` uses `Consensus.reconfirm` and mirrors the heartbeat
+transactionally, with the same input validation and outcome type as `heartbeat`.
+`options.onReconfirm(unconfirmedMs)` records each successful reconfirmation;
+it leaves the owner and generation unchanged.
 
 `options.onLapse(unconfirmedMs)` runs once when the lease lapses, before the
 self-interrupt, with how long the lease went unconfirmed. A lost fence does not

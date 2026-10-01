@@ -564,6 +564,16 @@ export interface Service {
     owner: OwnerId,
     nowMs: number
   ) => Effect.Effect<HeartbeatOutcome, RunStoreError>
+  /**
+   * Reconfirms an exclusively owned lease after a missed heartbeat budget.
+   * Uses the same validation and transactional mirror as `heartbeat`, but
+   * refuses a pending takeover claim even before the claimant activates.
+   */
+  readonly reconfirm: (
+    runId: string,
+    owner: OwnerId,
+    nowMs: number
+  ) => Effect.Effect<HeartbeatOutcome, RunStoreError>
   readonly transitionOwned: (
     runId: string,
     owner: OwnerId,
@@ -1732,45 +1742,46 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
       ))
     )
 
-    const heartbeat = Effect.fn("RunStore.heartbeat")((
-      runIdInput: string,
-      ownerInput: OwnerId,
-      nowMsInput: number
-    ): Effect.Effect<HeartbeatOutcome, RunStoreError> =>
-      Effect.gen(function*() {
-        const runId = yield* snapshotRunId("heartbeat", runIdInput)
-        const owner = yield* snapshotOwner("heartbeat", "owner", ownerInput)
-        const nowMs = yield* snapshotLeaseReading(
-          "heartbeat",
-          "nowMs",
-          nowMsInput,
-          { runId }
-        )
-        yield* Effect.annotateCurrentSpan({ runId, ownerHostId: owner.hostId })
-        return yield* write(
-          "heartbeat",
-          Effect.gen(function*() {
-            // The pulse drives the strategy's lease renewal; the row mirrors
-            // the stamp the strategy recorded. The lease timestamp is
-            // monotonic: a heartbeat that arrives late — delayed past a newer
-            // one from the same owner — never moves it backwards and never
-            // makes a live run look stale to `claimAndOwn`/`steal`'s cutoff. A
-            // late clock reading still reports `Updated`: the fence held, and
-            // the write proves liveness regardless of which caller clock
-            // reading it carried. Prior art: Temporal's shard `rangeID` only
-            // ever advances (`reference/temporal/service/history/shard/context_impl.go`,
-            // `renewRangeLocked`). Heartbeats never enter the journal.
-            const outcome = yield* consensus.heartbeat(runId, owner, nowMs)
-            if (outcome._tag === "Lost") {
-              const current = yield* selectRun(sql, runId)
-              return current.length === 0 ? notFound : fenceLost
-            }
-            // The mirror write is verified: a renewed lease over a row this
-            // owner no longer holds is a lease/row disagreement, and a success
-            // that wrote nothing would hide it. RETURNING keeps the old row
-            // answer — `FenceLost` when the row moved on, `NotFound` when it
-            // is gone.
-            const rows = yield* sql<{ readonly runId: string }>`
+    const renewLease = (method: "heartbeat" | "reconfirm") =>
+      Effect.fn(`RunStore.${method}`)((
+        runIdInput: string,
+        ownerInput: OwnerId,
+        nowMsInput: number
+      ): Effect.Effect<HeartbeatOutcome, RunStoreError> =>
+        Effect.gen(function*() {
+          const runId = yield* snapshotRunId(method, runIdInput)
+          const owner = yield* snapshotOwner(method, "owner", ownerInput)
+          const nowMs = yield* snapshotLeaseReading(
+            method,
+            "nowMs",
+            nowMsInput,
+            { runId }
+          )
+          yield* Effect.annotateCurrentSpan({ runId, ownerHostId: owner.hostId })
+          return yield* write(
+            method,
+            Effect.gen(function*() {
+              // The pulse drives the strategy's lease renewal; the row mirrors
+              // the stamp the strategy recorded. The lease timestamp is
+              // monotonic: a heartbeat that arrives late — delayed past a newer
+              // one from the same owner — never moves it backwards and never
+              // makes a live run look stale to `claimAndOwn`/`steal`'s cutoff. A
+              // late clock reading still reports `Updated`: the fence held, and
+              // the write proves liveness regardless of which caller clock
+              // reading it carried. Prior art: Temporal's shard `rangeID` only
+              // ever advances (`reference/temporal/service/history/shard/context_impl.go`,
+              // `renewRangeLocked`). Heartbeats never enter the journal.
+              const outcome = yield* consensus[method](runId, owner, nowMs)
+              if (outcome._tag === "Lost") {
+                const current = yield* selectRun(sql, runId)
+                return current.length === 0 ? notFound : fenceLost
+              }
+              // The mirror write is verified: a renewed lease over a row this
+              // owner no longer holds is a lease/row disagreement, and a success
+              // that wrote nothing would hide it. RETURNING keeps the old row
+              // answer — `FenceLost` when the row moved on, `NotFound` when it
+              // is gone.
+              const rows = yield* sql<{ readonly runId: string }>`
           UPDATE flows_runs
           SET heartbeat_at_ms = ${Dialect.greatest(sql)}(heartbeat_at_ms, ${outcome.heartbeatAtMs})
           WHERE run_id = ${runId}
@@ -1780,13 +1791,16 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
             AND owner_nonce = ${owner.nonce}
           RETURNING run_id AS "runId"
         `
-            if (rows.length > 0) return updated
-            const current = yield* selectRun(sql, runId)
-            return current.length === 0 ? notFound : fenceLost
-          })
-        )
-      }).pipe(observeOutcome((outcome) => RunStoreMetrics.heartbeat[outcome._tag], RunStoreMetrics.heartbeats))
-    )
+              if (rows.length > 0) return updated
+              const current = yield* selectRun(sql, runId)
+              return current.length === 0 ? notFound : fenceLost
+            })
+          )
+        }).pipe(observeOutcome((outcome) => RunStoreMetrics.heartbeat[outcome._tag], RunStoreMetrics.heartbeats))
+      )
+
+    const heartbeat = renewLease("heartbeat")
+    const reconfirm = renewLease("reconfirm")
 
     const transitionOwned = Effect.fn("RunStore.transitionOwned")((
       runIdInput: string,
@@ -1970,6 +1984,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
       abandonClaim,
       recoverClaim,
       heartbeat,
+      reconfirm,
       transitionOwned,
       steal
     })
@@ -2000,6 +2015,7 @@ export const makeNoop = (overrides: Partial<Service> = {}): Service => {
     abandonClaim: Effect.fn("RunStore.abandonClaim")(() => Effect.succeed(claimLost)),
     recoverClaim: Effect.fn("RunStore.recoverClaim")(() => Effect.succeed(notFound)),
     heartbeat: Effect.fn("RunStore.heartbeat")(() => Effect.succeed(notFound)),
+    reconfirm: Effect.fn("RunStore.reconfirm")(() => Effect.succeed(notFound)),
     transitionOwned: Effect.fn("RunStore.transitionOwned")(() => Effect.succeed(notFound)),
     steal: Effect.fn("RunStore.steal")(() => Effect.succeed(notFound)),
     ...overrides

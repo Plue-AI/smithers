@@ -12,7 +12,7 @@
 
 import { LivenessEvidence } from "@smthrs/journal/Consensus"
 import { OwnerId } from "@smthrs/journal/OwnerId"
-import { Clock, Duration, Effect } from "effect"
+import { Cause, Clock, Duration, Effect, Semaphore } from "effect"
 import { heartbeatInterval, heartbeatStaleAfter, heartbeatWriteTolerance } from "./Heartbeat.ts"
 import { RunStore } from "./RunStore.ts"
 
@@ -268,6 +268,8 @@ export {
  * @category models
  */
 export interface HeartbeatLoopOptions {
+  /** Called after the same unclaimed owner reconfirms an expired heartbeat budget. */
+  readonly onReconfirm?: ((unconfirmedMs: number) => Effect.Effect<void>) | undefined
   /** Called with the unconfirmed milliseconds when the lease lapses, before the loop interrupts itself. */
   readonly onLapse?: ((unconfirmedMs: number) => Effect.Effect<void>) | undefined
 }
@@ -290,20 +292,24 @@ export interface HeartbeatLoopOptions {
  * heartbeat is still there and no other process may steal the run until it is
  * `heartbeatStaleAfter` old, so transient write errors are tolerated for
  * `heartbeatWriteTolerance` — deliberately shorter than the steal cutoff by a
- * pulse plus `heartbeatSkewAllowance`, so an owner whose clock lags a peer's
- * by up to that allowance is still interrupted *before* the peer may steal the
- * run rather than while it is still running side effects. Past that allowance
+ * pulse plus `heartbeatSkewAllowance`. The reserved pulse bounds a final
+ * reconfirmation; a pending claim or changed owner fails that check. Past that allowance
  * the fence still protects durable writes but non-durable side effects may
  * overlap; see {@link heartbeatWriteTolerance}.
  *
- * An independent deadline races the pulse loop, bounding in-flight writes by
- * the remaining lease budget even when a write never returns. Each successful
+ * An independent deadline races the pulse loop. At expiry it reconfirms the
+ * same owner with no pending claim, bounded by one heartbeat interval. A
+ * renewed lease continues supervision; loss, error, or timeout interrupts
+ * even when an ordinary heartbeat write never returns. Each successful
  * pulse re-arms the deadline from the timestamp sent to the store, not from
  * its completion time. The deadline re-reads the clock after waking, so delayed
  * writes cannot hide expiry behind a stale clock reading.
  *
- * `options.onLapse` runs once, before the self-interrupt, when the lease
- * lapses: it receives how long the lease went unconfirmed, so the caller can
+ * `options.onReconfirm` records a successful reconfirmation after a gap and
+ * shares its heartbeat-interval deadline. A blocked or failed receipt lapses
+ * the lease instead of stranding supervision.
+ * `options.onLapse` runs once, before the self-interrupt, when reconfirmation
+ * fails: it receives how long the lease went unconfirmed, so the caller can
  * record why its work stopped. A lost fence does not call it.
  *
  * @since 0.1.0
@@ -320,18 +326,44 @@ export const heartbeatLoop = (
     const intervalMs = Duration.toMillis(heartbeatInterval)
     let lastConfirmedPulseMs = yield* Clock.currentTimeMillis
     let failing = false
+    // Both overdue timers may wake after a host stall. Serialize expiry and
+    // recheck the budget so they cannot reconfirm or journal the same gap twice.
+    const expiry = yield* Semaphore.make(1)
     const expire = (nowMs: number) =>
-      Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
-        Effect.annotateLogs({ runId, unconfirmedMs: nowMs - lastConfirmedPulseMs }),
-        Effect.andThen(options.onLapse?.(nowMs - lastConfirmedPulseMs) ?? Effect.void),
-        Effect.andThen(Effect.interrupt)
-      )
+      expiry.withPermit(Effect.gen(function*() {
+        if (nowMs - lastConfirmedPulseMs < toleranceMs) return
+        const unconfirmedMs = nowMs - lastConfirmedPulseMs
+        const renewed = yield* runStore.reconfirm(runId, owner, Math.floor(nowMs)).pipe(
+          Effect.flatMap((outcome) =>
+            outcome._tag === "Updated"
+              ? (options.onReconfirm?.(unconfirmedMs) ?? Effect.void).pipe(Effect.as(true))
+              : Effect.succeed(false)
+          ),
+          // The receipt shares the renewal budget: a blocked audit must not
+          // strand the independent deadline after the lease was refreshed.
+          Effect.timeout(heartbeatInterval),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause as Cause.Cause<never>) : Effect.succeed(false)
+          )
+        )
+        if (renewed) {
+          lastConfirmedPulseMs = Math.max(lastConfirmedPulseMs, nowMs)
+          failing = false
+          return
+        }
+        yield* Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
+          Effect.annotateLogs({ runId, unconfirmedMs }),
+          Effect.andThen(options.onLapse?.(unconfirmedMs) ?? Effect.void),
+          Effect.andThen(Effect.interrupt)
+        )
+      }))
     const deadline = Effect.gen(function*() {
       while (true) {
         const nowMs = yield* Clock.currentTimeMillis
         const remainingMs = lastConfirmedPulseMs + toleranceMs - nowMs
         if (remainingMs <= 0) {
-          return yield* expire(nowMs)
+          yield* expire(nowMs)
+          continue
         }
         // Check alongside pulse intervals, with a shorter final wait when needed.
         yield* Effect.sleep(Math.min(remainingMs, intervalMs))
@@ -344,7 +376,7 @@ export const heartbeatLoop = (
           Effect.flatMap((outcome) =>
             outcome._tag === "Updated"
               ? Effect.sync(() => {
-                lastConfirmedPulseMs = nowMs
+                lastConfirmedPulseMs = Math.max(lastConfirmedPulseMs, nowMs)
                 failing = false
               })
               : Effect.interrupt

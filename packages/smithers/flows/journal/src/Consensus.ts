@@ -70,7 +70,7 @@ export const heartbeatStaleAfter: Duration.Duration = Duration.seconds(30)
 export const heartbeatSkewAllowance: Duration.Duration = Duration.seconds(10)
 
 /**
- * How long the owner may keep working through *failing* heartbeat writes.
+ * How long heartbeat writes may go unconfirmed before ownership must be reconfirmed.
  *
  * A peer judges staleness by the persisted heartbeat and may steal the run the
  * instant it is {@link heartbeatStaleAfter} old, so an owner that tolerated
@@ -78,8 +78,8 @@ export const heartbeatSkewAllowance: Duration.Duration = Duration.seconds(10)
  * when the steal is admitted. The budget is therefore
  * {@link heartbeatStaleAfter} minus {@link heartbeatSkewAllowance} (the peer's
  * clock may already read that much later than the owner's) minus one
- * {@link heartbeatInterval} (the owner only re-evaluates the budget once per
- * pulse, so it may notice the expiry a full tick late).
+ * {@link heartbeatInterval} (reserved for one bounded compare-and-swap
+ * reconfirmation before the owner interrupts).
  *
  * This bounds, but does not eliminate, overlap. Beyond
  * {@link heartbeatSkewAllowance} of clock offset a peer can be admitted while
@@ -328,7 +328,7 @@ export const Renewed = Schema.TaggedStruct("Renewed", {
 export type Renewed = typeof Renewed.Type
 
 /**
- * Outcome of `heartbeat`.
+ * Outcome of `heartbeat` and `reconfirm`.
  *
  * @since 1.0.0
  * @category models
@@ -336,7 +336,7 @@ export type Renewed = typeof Renewed.Type
 export const HeartbeatOutcome = Schema.Union([Renewed, Lost])
 
 /**
- * Outcome of `heartbeat`.
+ * Outcome of `heartbeat` and `reconfirm`.
  *
  * @since 1.0.0
  * @category models
@@ -431,6 +431,12 @@ export interface Service {
     owner: OwnerId,
     nowMs: number
   ) => Effect.Effect<HeartbeatOutcome, ConsensusError>
+  /** Renews only while this owner holds the lease and no takeover claim is pending. */
+  readonly reconfirm: (
+    runId: string,
+    owner: OwnerId,
+    nowMs: number
+  ) => Effect.Effect<HeartbeatOutcome, ConsensusError>
   readonly release: (runId: string, owner: OwnerId) => Effect.Effect<void, ConsensusError>
   readonly steal: (
     runId: string,
@@ -495,6 +501,7 @@ export const makeNoop = (overrides: Partial<Service> = {}): Service =>
     claim: Effect.fn("Consensus.claim")(() => Effect.succeed(rejected("unavailable"))),
     activate: Effect.fn("Consensus.activate")(() => Effect.succeed(lost)),
     heartbeat: Effect.fn("Consensus.heartbeat")(() => Effect.succeed(lost)),
+    reconfirm: Effect.fn("Consensus.reconfirm")(() => Effect.succeed(lost)),
     release: Effect.fn("Consensus.release")(() => Effect.void),
     steal: Effect.fn("Consensus.steal")(() => Effect.succeed(rejected("unavailable"))),
     recover: Effect.fn("Consensus.recover")(() => Effect.succeed(rejected("unavailable"))),
@@ -574,6 +581,14 @@ export const makeLocal: Effect.Effect<Service> = Effect.sync(() => {
       Effect.sync(() => {
         const lease = leases.get(runId)
         if (lease?.owner === undefined || !sameOwner(lease.owner.id, owner)) return lost
+        lease.owner.heartbeatAtMs = Math.max(lease.owner.heartbeatAtMs, nowMs)
+        return ({ _tag: "Renewed", heartbeatAtMs: lease.owner.heartbeatAtMs } satisfies Renewed)
+      })
+    ),
+    reconfirm: Effect.fn("Consensus.reconfirm")((runId: string, owner: OwnerId, nowMs: number) =>
+      Effect.sync(() => {
+        const lease = leases.get(runId)
+        if (lease?.owner === undefined || lease.claim !== undefined || !sameOwner(lease.owner.id, owner)) return lost
         lease.owner.heartbeatAtMs = Math.max(lease.owner.heartbeatAtMs, nowMs)
         return ({ _tag: "Renewed", heartbeatAtMs: lease.owner.heartbeatAtMs } satisfies Renewed)
       })

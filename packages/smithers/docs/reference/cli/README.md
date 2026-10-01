@@ -226,6 +226,10 @@ step result on the child: it replays the edited value and runs every step after
 the frame again, while the parent keeps its own result.
 SQLite read-only statements wait at most one second for a peer lock before failing; observing opens do not migrate or acquire a writer lock.
 
+`runs show` reports confirmed lease lapses in `warnings`, with the execution,
+unconfirmed duration, and recorded time. A `lease-reconfirmed` warning keeps
+the run’s recorded status; only a released run requires resume.
+
 A run records the execution digest of the flow that started it and the engine
 version, both shown by `runs show`. A round or fork without its own record
 inherits its same-flow ancestor's. The check rescans the flow's files on disk,

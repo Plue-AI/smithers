@@ -251,7 +251,8 @@ const diagnosticDecisions: ReadonlySet<string> = new Set([
   "claim-lost",
   "activation-lost",
   "steal-refused-owner-alive",
-  "child-policy-applied"
+  "child-policy-applied",
+  "lease-reconfirmed"
 ])
 
 /**
@@ -308,6 +309,32 @@ export const released = (
 }
 
 /**
+ * A confirmed lease lapse that did not release the execution.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Warning {
+  readonly code: "lease-reconfirmed"
+  readonly executionId: string
+  readonly unconfirmedMs: number
+  readonly occurredAt: number
+}
+
+const warningsOf = (events: ReadonlyArray<ControlSchema.ControlEvent>): ReadonlyArray<Warning> =>
+  events.flatMap((event) => {
+    if (event.kind !== "control.engine.event") return []
+    const envelope = record(event.payload)
+    const executionId = text(envelope.executionId)
+    if (executionId === undefined || envelope.eventType !== "flows.engine.run-decision") return []
+    const payload = record(envelope.payload)
+    if (payload.decision !== "lease-reconfirmed") return []
+    const unconfirmedMs = number(record(payload.detail).unconfirmedMs)
+    if (unconfirmedMs === null || unconfirmedMs < 0) return []
+    return [{ code: "lease-reconfirmed", executionId, unconfirmedMs, occurredAt: event.occurredAt }]
+  })
+
+/**
  * A run as `runs show` prints it.
  *
  * @category models
@@ -325,6 +352,8 @@ export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
   }
   /** The released executions a run parked on `released` waits for a resume to restart. */
   readonly released?: ReadonlyArray<Released>
+  /** Lease reconfirmations recorded without releasing ownership. */
+  readonly warnings?: ReadonlyArray<Warning>
   readonly diagnosis: Forensics.Digest
 }
 
@@ -348,6 +377,7 @@ export const show = (
   const activity = fold(events, run)
   const diagnosis = Forensics.digest(events, run.runId)
   const rollup = statusRollup(run, events, now)
+  const warnings = warningsOf(events)
   const { codeDrift, runId, flowId, status, waitingReason, ...recorded } = run
   return {
     // What a reader needs first leads, so the bounded human summary shows it.
@@ -361,6 +391,7 @@ export const show = (
       ...(rollup.reason === undefined ? {} : { reason: rollup.reason })
     },
     ...(rollup.attention === "needs-resume" ? { released: released(events, run.flowId) } : {}),
+    ...(warnings.length === 0 ? {} : { warnings }),
     ...recorded,
     ...(run.executionView === undefined ? {} : { executionView: presentView(run.executionView, run.flowId) }),
     updatedAt: Math.max(run.updatedAt, activity.lastProgressAt ?? run.updatedAt),

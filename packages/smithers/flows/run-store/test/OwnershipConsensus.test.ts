@@ -99,6 +99,50 @@ const suite = (name: string, strategy: Strategy) => {
         expect(yield* store.heartbeat("run-lifecycle", ownerA, nowMs + 6)).toEqual({ _tag: "FenceLost" })
       })))
 
+    it.effect("reconfirms and mirrors only an exclusively owned lease", () =>
+      run(Effect.gen(function*() {
+        const store = yield* RunStore
+        const consensus = yield* Consensus.Consensus
+        yield* store.create("reconfirm-store", "{}")
+        yield* store.claimAndOwn("reconfirm-store", pending, ownerA, 0)
+        yield* TestClock.adjust(Duration.toMillis(heartbeatStaleAfter) + 1)
+        const nowMs = yield* Clock.currentTimeMillis
+        expect(yield* store.reconfirm("reconfirm-store", ownerA, nowMs)).toEqual({ _tag: "Updated" })
+        expect((yield* store.get("reconfirm-store")).heartbeatAtMs).toBe(nowMs)
+        expect(yield* consensus.heartbeat("reconfirm-store", ownerA, 0)).toEqual({
+          _tag: "Renewed",
+          heartbeatAtMs: nowMs
+        })
+        expect(yield* store.reconfirm("reconfirm-store", ownerA, 0)).toEqual({ _tag: "Updated" })
+        expect((yield* store.get("reconfirm-store")).heartbeatAtMs).toBe(nowMs)
+        expect(yield* store.reconfirm("reconfirm-store", ownerB, nowMs)).toEqual({ _tag: "FenceLost" })
+        expect(yield* store.reconfirm("reconfirm-store-missing", ownerA, nowMs)).toEqual({ _tag: "NotFound" })
+        yield* TestClock.adjust(Duration.toMillis(heartbeatStaleAfter) + 1)
+        const later = yield* Clock.currentTimeMillis
+        expect((yield* consensus.steal("reconfirm-store", ownerB, later, evidence(ownerA, ownerB, later)))._tag).toBe(
+          "Claimed"
+        )
+        expect(yield* store.reconfirm("reconfirm-store", ownerA, later)).toEqual({ _tag: "FenceLost" })
+        expect((yield* store.get("reconfirm-store")).heartbeatAtMs).toBe(nowMs)
+      })))
+
+    it.effect("rejects invalid reconfirm inputs before touching the lease", () =>
+      run(Effect.gen(function*() {
+        const store = yield* RunStore
+        yield* store.create("reconfirm-invalid", "{}")
+        yield* store.claimAndOwn("reconfirm-invalid", pending, ownerA, 0)
+        for (const timestamp of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER]) {
+          const error = yield* Effect.flip(store.reconfirm("reconfirm-invalid", ownerA, timestamp))
+          expect(error.code).toBe("invalid_run")
+          expect(error.method).toBe("reconfirm")
+        }
+        expect((yield* Effect.flip(store.reconfirm("", ownerA, 0))).code).toBe("invalid_run")
+        expect((yield* Effect.flip(store.reconfirm("reconfirm-invalid", { ...ownerA, pid: -1 }, 0))).code).toBe(
+          "invalid_run"
+        )
+        expect((yield* store.get("reconfirm-invalid")).heartbeatAtMs).toBe(0)
+      })))
+
     it.effect("re-owns one's own stale run through release, re-claim, and activation", () =>
       run(Effect.gen(function*() {
         const store = yield* RunStore
@@ -181,6 +225,26 @@ suite("SqlConsensus.layer", SqlConsensus.layer)
 
 describe("SqlConsensus leases share the ownership write's transaction", () => {
   const run = withStack(SqlConsensus.layer)
+
+  it.effect("rolls back reconfirm lease and run-row stamps together", () =>
+    run(Effect.gen(function*() {
+      const store = yield* RunStore
+      const journal = yield* Journal
+      const consensus = yield* Consensus.Consensus
+      yield* store.create("reconfirm-rollback", "{}")
+      yield* store.claimAndOwn("reconfirm-rollback", pending, ownerA, 0)
+      yield* TestClock.adjust(100)
+      yield* Effect.flip(journal.transact(Effect.gen(function*() {
+        expect(yield* store.reconfirm("reconfirm-rollback", ownerA, 100)).toEqual({ _tag: "Updated" })
+        expect((yield* store.get("reconfirm-rollback")).heartbeatAtMs).toBe(100)
+        return yield* Effect.fail("rollback")
+      })))
+      expect((yield* store.get("reconfirm-rollback")).heartbeatAtMs).toBe(0)
+      expect(yield* consensus.heartbeat("reconfirm-rollback", ownerA, 0)).toEqual({
+        _tag: "Renewed",
+        heartbeatAtMs: 0
+      })
+    })))
 
   it.effect("rolls an ownership transition back with the enclosing transaction", () =>
     run(Effect.gen(function*() {
@@ -325,6 +389,7 @@ describe("the strategy is authoritative when the materialization disagrees", () 
         WHERE run_id = 'run-mirror-lost'
       `
       expect(yield* store.heartbeat("run-mirror-lost", ownerA, 1)).toEqual({ _tag: "FenceLost" })
+      expect(yield* store.reconfirm("run-mirror-lost", ownerA, 1)).toEqual({ _tag: "FenceLost" })
     })))
 
   it.effect("heartbeat reports NotFound when the lease renews but the run row is gone", () =>
@@ -335,6 +400,7 @@ describe("the strategy is authoritative when the materialization disagrees", () 
       expect(yield* store.claimAndOwn("run-mirror-gone", pending, ownerA, 0)).toEqual({ _tag: "Activated" })
       yield* sql`DELETE FROM flows_runs WHERE run_id = 'run-mirror-gone'`
       expect(yield* store.heartbeat("run-mirror-gone", ownerA, 1)).toEqual({ _tag: "NotFound" })
+      expect(yield* store.reconfirm("run-mirror-gone", ownerA, 1)).toEqual({ _tag: "NotFound" })
     })))
 })
 
