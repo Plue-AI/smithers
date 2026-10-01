@@ -33,11 +33,35 @@ export interface RunOptions {
 }
 
 /**
+ * The workspace a failed `jj -R <workspace> ...` must bring up to date before
+ * it is tried again, or `undefined`. Many writers share one repository, so a
+ * workspace's last operation can end up beside the repository's head instead
+ * of under it; jj then refuses every command there until the workspace is
+ * updated. One such refusal used to stop a whole sweep round.
+ */
+export const staleWorkspace = (args: ReadonlyArray<string>, exited: Exited): string | undefined => {
+  if (exited.code === 0 || args[0] !== "-R" || args[1] === undefined) return undefined
+  return /seems to be a sibling of the working copy's operation|The working copy is stale/.test(exited.stderr)
+    ? args[1]
+    : undefined
+}
+
+/**
  * Runs `command` with `args` on the host and waits for it. Output streams are
  * read concurrently so a full pipe never deadlocks the child; closing the
- * scope (an interrupt, a timeout) kills the process.
+ * scope (an interrupt, a timeout) kills the process. A `jj -R` command refused
+ * because its workspace fell behind ({@link staleWorkspace}) runs once more
+ * after `jj workspace update-stale` there.
  */
 export const run = (command: string, args: ReadonlyArray<string>, options: RunOptions = {}) =>
+  Effect.flatMap(once(command, args, options), (exited) => {
+    const stale = command === "jj" ? staleWorkspace(args, exited) : undefined
+    return stale === undefined
+      ? Effect.succeed(exited)
+      : Effect.andThen(once("jj", ["-R", stale, "workspace", "update-stale"], options), once(command, args, options))
+  })
+
+const once = (command: string, args: ReadonlyArray<string>, options: RunOptions) =>
   Effect.scoped(Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
     const handle = yield* spawner.spawn(ChildProcess.make(command, args, {
