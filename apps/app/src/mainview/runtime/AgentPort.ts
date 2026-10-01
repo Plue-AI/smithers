@@ -1,6 +1,7 @@
 import { Data } from "effect"
 import type { AgentTurnFrame, StartAgentTurnRequest, StartAgentTurnResult } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnCursor, AgentTurnJournalDelivery, AgentTurnJournalReply, AgentTurnJournalRequest } from "@smthrs/rpc/AgentTurnJournal"
+import type { AgentConversationPage, AgentConversationReplay, AgentConversationReplayAccess } from "@smthrs/rpc/AgentTurnJournal"
 
 export interface AgentJournalAccess { readonly runId: string; readonly journal: AgentTurnJournalRequest; readonly after?: AgentTurnCursor | null }
 /** A readable response that cannot establish a trustworthy replay boundary. */
@@ -25,6 +26,11 @@ export interface AgentJournalPort {
 export interface AgentPort {
   readonly available: boolean
   readonly journal?: AgentJournalPort
+  /** Read-only account recovery. It never admits model or tool execution. */
+  readonly history?: {
+    readonly list: (after?: string) => Promise<AgentConversationPage>
+    readonly replay: (access: AgentConversationReplayAccess) => Promise<AgentConversationReplay>
+  }
   readonly startTurn: (request: StartAgentTurnRequest) => Promise<StartAgentTurnResult>
   readonly cancelTurn: (runId: string) => Promise<void>
   /**

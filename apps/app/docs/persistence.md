@@ -33,10 +33,11 @@ Missing positions, conflicting identities, unsupported versions or broken
 hashes refuse recovery; cached rows cannot replace damaged event authority.
 The two per-launch caches are cleared by a recorded boot projection.
 
-The event format remains version 1; `APP_PROJECTOR_VERSION` is 23 (the
-terminal and harness tabs and their `pty.*` transitions retired at 23,
-smithersai/smithers#2229: an older store's stale tab rows fail `TabSchema`,
-are quarantined, and the surviving rows seed the fresh stream). Bump the
+The event format remains version 1; `APP_PROJECTOR_VERSION` is 32. Account-scoped saved conversation replay adds
+`conversation.restored` at 32. The terminal and harness tabs and their `pty.*`
+transitions retired at 23 (smithersai/smithers#2229); an older store's stale tab
+rows fail `TabSchema`, are quarantined, and the surviving rows seed the fresh
+stream. Bump the
 projector version whenever an `APP_PROJECTION_SCHEMAS` row shape or the
 transition set changes. Checkpoint reasons are `created`, `legacy-baseline`,
 `compaction`, `privacy-reset`, and `projector-upgrade`. On an older-projector
@@ -856,3 +857,21 @@ deletion of old saved answers without restoring local cleanup records.
 The native target topic publishes only after the run journal has accepted and fsynced the corresponding frame. `TargetRunHistory.event` returns the exact retained frame, so live and replay readers receive the same redacted output and the same journal-cap marker; a capped frame or failed append returns no publishable frame. Once an append fails, later frames cannot hide the missing suffix, and `flush` rejects. Startup refuses to overwrite an existing journal, and append refuses to recreate a missing prefix. Cancel and shutdown await pending terminal receipts. Output logs remain bounded (including explicit truncation); lifecycle frames remain retained.
 
 New exit events include `at`, making terminal status/time a pure reduction of the initial run metadata and accepted events. The trailing RunRecord is a compatibility cache: deleting or changing it cannot override a timestamped exit. Legacy untimed exits still use their final record. This is a filesystem journal, with each accepted append fsynced; it is not a remote transactional execution guarantee. Execution that happened before a failed append is not fabricated into successful replay history.
+
+## Fresh-browser conversation restoration
+
+A signed-in Cloud browser with no local conversation reads the account's server
+conversation index and committed replay pages. Each page is account fenced and
+each batch is checked before the single `conversation.restored` transition folds
+through the existing transcript reducer. Existing branch/root-frame snapshots
+and frame URLs provide navigation; public run links use `runs.open` and its normal
+authorization. No HTTP execution row, device capability, private tool output or
+pending tool execution is reconstructed.
+
+The shared account epoch rejects late pages after account/provider replacement
+or disposal. New user intent in the existing transition tail, draft, queued input
+or an active/local conversation prevents replacement. A compacted tail that
+cannot prove the absence of newer intent also refuses replacement. Persisted
+restored branch snapshots reload through the same local event journal. Server
+retirement still refuses a new replay; previously read local copies follow the
+existing local privacy-retirement path.

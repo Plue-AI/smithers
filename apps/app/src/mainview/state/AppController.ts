@@ -1,3 +1,4 @@
+import { createConversationHistoryController } from "./controller/conversationHistory"
 import { createWikiAttachmentStore, type WikiAttachmentStore } from "../wiki/WikiAttachmentStore"
 import { identityProviderFor, ownerCredentials, signInByHandoff } from "./IdentityProvider"
 import type { IdentityProvider } from "./IdentityProvider"
@@ -1074,6 +1075,7 @@ export const createAppController = (
     setPalette
   } = actors.pair(ctx, (context, select) => createPresentationController(context, select(adminHealth)))
 
+  const conversationHistory = createConversationHistoryController(ctx)
   const {
     maximizeCard,
     minimizeCard,
@@ -2106,7 +2108,7 @@ export const createAppController = (
    * before that answer would only be superseded by it.
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
-    queueMicrotask(() => { if (!ctx.disposed) { triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
+    queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
@@ -2126,6 +2128,7 @@ export const createAppController = (
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   subscribeToAgent()
+  conversationHistory.resume()
   promptQueue.subscribe()
   observeBackgroundWork(ctx)
   // Material transitions regenerate the next-step pills through the `recommend` flow.

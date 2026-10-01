@@ -1,3 +1,6 @@
+import { flowArgs } from "../flows/FlowArgs"
+import { historyHasNewerUserIntent, verifyConversationHistory } from "./ConversationHistory"
+import type { HistoricalHttpLeg, HttpTurn } from "./HttpTurn"
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
 import type { ConfiguredModel, ModelBinding } from "@smthrs/rpc/ConfiguredModel"
@@ -191,6 +194,7 @@ export const APP_TRANSITION_TYPES = {
   "conversation.reset": true,
   "conversation.reset.asked": true,
   "conversation.cleared": true,
+  "conversation.restored": true,
   "card.maximized": true,
   "card.minimized": true,
   "frame.navigated": true,
@@ -451,6 +455,7 @@ const UNTRACED_TRANSITIONS: ReadonlySet<string> = new Set([
   // Once per model call; the chat meter already shows it.
   "chat.usage.recorded",
   "http.turn.batch.received",
+  "conversation.restored",
   "gateway.run.observed",
   "gateway.run.observer.changed",
   "gateway.approvals.observed",
@@ -1746,6 +1751,81 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.resetConfirmOpen = transition.open
           })
           break
+
+        case "conversation.restored": {
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner || current.phase !== "idle" || current.draft !== "" || (current.queuedPrompts?.length ?? 0) > 0 ||
+            transition.afterRevision > current.revision || historyHasNewerUserIntent(collections.transitions.values(), transition.afterRevision) ||
+            [...collections.messages.values()].some(message => message.role === "user") || collections.httpTurns.size > 0 ||
+            [...collections.branches.values()].some(branch => branch.snapshot?.messages.some(message => message.role === "user"))) return
+          verifyConversationHistory(transition.conversations)
+          if (transition.conversations.length === 0) return
+          const original = snapshot()
+          const empty = { ...original, messages: [], cards: [], draft: "" }
+          const navigation = transition.conversations.map(conversation => {
+            const title = conversation.legs.find(leg => leg.userText.trim() !== "")?.userText.trim().split("\n")[0]?.slice(0, 64) || conversation.id
+            const location = framePath({ workspaceId: activeWorkspaceId, branchId: conversation.id, frameId: rootFrameId(conversation.id) })
+            return `[${title.replace(/[\\[\]]/g, "\\$&")}](${location})`
+          }).join("\n")
+          for (const [conversationIndex, conversation] of transition.conversations.entries()) {
+            restoreSnapshot(empty)
+            collections.sessions.update(SESSION_ID, draft => {
+              draft.activeBranchId = conversation.id; draft.activeFrameId = rootFrameId(conversation.id)
+              draft.phase = "idle"; draft.turnId = null; draft.turnTabId = null; draft.maximizedCardId = null
+            })
+            const turns = new Map<string, HttpTurn>()
+            const counts = new Map<string, number>(), prompts = new Map<string, string>()
+            const references = new Set<string>()
+            for (const [legIndex, saved] of conversation.legs.entries()) {
+              const attemptId = `history-${saved.runId}`
+              const prior = turns.get(saved.runId)
+              if (!prior) reduce({ type: "message.submitted", actor: "user", turnId: saved.runId, text: saved.userText }, `history-${conversationIndex}-${legIndex}-user`)
+              collections.sessions.update(SESSION_ID, draft => { draft.phase = "responding"; draft.turnId = saved.runId })
+              if (prior && prompts.get(saved.runId) !== saved.userText) reduce({ type: "message.steered", actor: "user", turnId: saved.runId, text: saved.userText }, `history-${conversationIndex}-${legIndex}-steer`)
+              prompts.set(saved.runId, saved.userText)
+              let turn: HttpTurn = { ...(prior ?? { id: attemptId, turnId: saved.runId, receivedText: false, askClass: impossibleAskOf(saved.userText), claimBuffer: "", createdAt: saved.acceptedAt, revision }), legId: saved.legId, status: "active" }
+              let leg: HistoricalHttpLeg = { id: saved.legId, attemptId, turnId: saved.runId, ordinal: counts.get(saved.runId) ?? 0, cursor: saved.initial, status: "streaming", createdAt: saved.acceptedAt }
+              for (const batch of saved.batches) {
+                for (const [frameIndex, frame] of batch.frames.entries()) {
+                  const projected = projectHttpFrame(turn, leg, frame, {
+                    answer: collections.messages.get(`message-${saved.runId}-smithers`)?.text ?? "",
+                    card: id => collections.cards.get(id), protectedCard: id => approvalRequest(id) !== undefined,
+                    executedLegs: leg.ordinal
+                  })
+                  for (const [factIndex, fact] of projected.transitions.entries()) reduce(fact, `history-${conversationIndex}-${legIndex}-${batch.batch}-${frameIndex}-${factIndex}`)
+                  turn = projected.turn; leg = projected.leg
+                }
+              }
+              turns.set(saved.runId, turn)
+              counts.set(saved.runId, leg.ordinal + (leg.call ? 1 : 0))
+              for (const reference of saved.runLinks) {
+                const key = JSON.stringify([reference.repo, reference.runId])
+                if (references.has(key)) continue
+                references.add(key)
+                reduce({ type: "message.appended", actor: "system", text: "", action: { flow: "runs.open", label: reference.runId, args: flowArgs("runs.open", { runId: reference.runId, repo: reference.repo }) } }, `history-${conversationIndex}-run-${references.size}`)
+              }
+            }
+            for (const turn of turns.values()) if (turn.status === "active") {
+              collections.sessions.update(SESSION_ID, draft => { draft.phase = "responding"; draft.turnId = turn.turnId })
+              const claims = settleHttpClaims(turn, collections.messages.get(`message-${turn.turnId}-smithers`)?.text ?? "")
+              for (const [index, fact] of claims.transitions.entries()) reduce(fact, `history-${conversationIndex}-${turn.turnId}-claim-${index}`)
+              reduce({ type: "message.response.cancelled", actor: "system", turnId: turn.turnId, detail: "This saved turn has not completed." }, `history-${conversationIndex}-${turn.turnId}-pending`)
+            }
+            collections.sessions.update(SESSION_ID, draft => { draft.phase = "idle"; draft.turnId = null; draft.turnTabId = null })
+            if (transition.conversations.length > 1) reduce({ type: "message.appended", actor: "system", text: navigation }, `history-${conversationIndex}-index`)
+            const saved = snapshot(), first = conversation.legs[0]!
+            const branch = { id: conversation.id, workspaceId: activeWorkspaceId,
+              title: first.userText.trim().split("\n")[0]?.slice(0, 64) || conversation.id,
+              parentBranchId: null, forkedFromFrameId: null, forkedAtRevision: null,
+              snapshot: saved, createdAt: first.acceptedAt, revision }
+            if (collections.branches.has(branch.id)) collections.branches.update(branch.id, draft => { Object.assign(draft, branch) })
+            else collections.branches.insert(branch)
+            const frame = { id: rootFrameId(branch.id), workspaceId: activeWorkspaceId, branchId: branch.id, kind: "root" as const,
+              parentFrameId: null, cardId: null, presentation: "embedded" as const, stateRevision: revision, createdAt: first.acceptedAt, updatedAt: createdAt, revision }
+            if (collections.frames.has(frame.id)) collections.frames.update(frame.id, draft => { Object.assign(draft, frame) })
+            else collections.frames.insert(frame)
+          }
+          break
+        }
 
         case "conversation.cleared": {
           const branchId = transition.branchId

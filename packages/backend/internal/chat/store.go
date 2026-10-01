@@ -380,9 +380,17 @@ func (s *Store) Admit(ctx context.Context, input AdmitInput) (AdmitResult, error
 	if !validIdentity(input.RunID) || !validJournal(input.Journal) {
 		return AdmitResult{}, ErrInvalidRequest
 	}
-	_, canonical, err := parseCanonical(input.Request)
+	value, canonical, err := parseCanonical(input.Request)
 	if err != nil {
 		return AdmitResult{}, err
+	}
+	if request, ok := value.(map[string]any); ok {
+		if supplied, exists := request["conversationId"]; exists {
+			id, valid := supplied.(string)
+			if !valid || !validIdentity(id) {
+				return AdmitResult{}, ErrInvalidRequest
+			}
+		}
 	}
 	requestHash := digestCanonical("request", canonical)
 	ownerHash, accessHash, err := authHashes(input.Scope, input.Journal.Token)
@@ -972,6 +980,12 @@ func (s *Store) Replay(ctx context.Context, input ReplayInput) (ReplayResult, er
 	if err != nil {
 		return ReplayResult{}, err
 	}
+	return s.replay(ctx, input.Scope, input.RunID, input.Journal.LegID, input.After, input.Limit, ownerHash, &accessHash)
+}
+
+// Both account and device reads verify the same committed snapshot. Only
+// authenticated account recovery omits the additional device capability.
+func (s *Store) replay(ctx context.Context, scope Scope, runID, legID string, requested *Cursor, limit int, ownerHash string, accessHash *string) (ReplayResult, error) {
 	// One read-only snapshot keeps the head and its batches consistent without
 	// taking a row lock that would contend with the producer's commits.
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -979,14 +993,19 @@ func (s *Store) Replay(ctx context.Context, input ReplayInput) (ReplayResult, er
 		return ReplayResult{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
-	turn, err := scanTurn(tx.QueryRow(ctx, `SELECT /* smithers-chat-replay-head */ `+turnColumns+` FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND leg_id=$3`, input.Scope.UserID, input.RunID, input.Journal.LegID))
+	turn, err := scanTurn(tx.QueryRow(ctx, `SELECT /* smithers-chat-replay-head */ `+turnColumns+` FROM chat_turns WHERE user_id=$1 AND run_id=$2 AND leg_id=$3`, scope.UserID, runID, legID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReplayResult{}, ErrNotFound
 	}
 	if err != nil {
 		return ReplayResult{}, err
 	}
-	if err = authorize(turn, ownerHash, accessHash); err != nil {
+	if accessHash == nil {
+		err = authorizeAccount(turn, ownerHash)
+	} else {
+		err = authorize(turn, ownerHash, *accessHash)
+	}
+	if err != nil {
 		return ReplayResult{}, err
 	}
 	acceptance, _, err := checkHead(turn)
@@ -994,13 +1013,13 @@ func (s *Store) Replay(ctx context.Context, input ReplayInput) (ReplayResult, er
 		return ReplayResult{}, err
 	}
 	after := initialCursor(acceptance)
-	if input.After != nil {
-		after = *input.After
+	if requested != nil {
+		after = *requested
 	}
 	if s.afterReplayHead != nil {
 		s.afterReplayHead()
 	}
-	result, err := s.replayVerified(ctx, tx, turn, after, input.Limit)
+	result, err := s.replayVerified(ctx, tx, turn, after, limit)
 	if err != nil {
 		return ReplayResult{}, err
 	}

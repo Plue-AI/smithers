@@ -1,3 +1,4 @@
+import type { ConversationHistory } from "./ConversationHistory"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
 import { AgentRoleSchema } from "@smthrs/rpc/AgentRoles"
@@ -1260,6 +1261,7 @@ export type AppTransition =
     type: "session.turn.orphaned"
     actor: "system"
   }
+  | { type: "conversation.restored"; actor: "system"; owner: string; afterRevision: number; conversations: readonly ConversationHistory[] }
   | { type: "conversation.reset"; actor: "user" }
   | { type: "conversation.reset.asked"; actor: "user"; open: boolean }
   | {

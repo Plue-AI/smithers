@@ -66,6 +66,8 @@ export interface AgentToolSpec {
  */
 export interface StartAgentTurnRequest {
   readonly runId: string
+  /** Existing durable conversation branch; older hosts/turns remain per-run. */
+  readonly conversationId?: string
   /** Stable per-leg identity and private replay capability, written locally before the POST. */
   readonly journal?: import("./AgentTurnJournal.ts").AgentTurnJournalRequest
   readonly messages: ReadonlyArray<AgentChatMessage>

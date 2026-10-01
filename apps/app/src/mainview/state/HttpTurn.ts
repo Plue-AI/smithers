@@ -84,8 +84,12 @@ export const settleHttpClaims = (turn: HttpTurn, answer: string): { turn: HttpTu
   return { turn: next, transitions: [{ type: "message.claim.substituted", actor: "system", turnId: turn.turnId, text }] }
 }
 
+/** A read-only account replay has no originating-device capability. */
+export type HistoricalHttpLeg = Omit<HttpTurnLeg, "journal">
 /** Derive semantic transcript/card facts plus the next hidden leg state from one frame. */
-export const projectHttpFrame = (prior: HttpTurn, priorLeg: HttpTurnLeg, frame: AgentTurnFrame, view: HttpFrameView): HttpFrameProjection => {
+export function projectHttpFrame(prior: HttpTurn, priorLeg: HttpTurnLeg, frame: AgentTurnFrame, view: HttpFrameView): HttpFrameProjection
+export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, frame: AgentTurnFrame, view: HttpFrameView): { readonly turn: HttpTurn; readonly leg: HistoricalHttpLeg; readonly transitions: AppTransition[] }
+export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, frame: AgentTurnFrame, view: HttpFrameView) {
   let turn = { ...prior }, leg = { ...priorLeg }
   const transitions: AppTransition[] = []
   const act = (text: string): void => { transitions.push({ type: "message.tool.executed", actor: "smithers", turnId: turn.turnId, text }) }

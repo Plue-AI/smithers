@@ -95,7 +95,7 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
     if (cancellation !== undefined) await cancellation
     if (!active(attemptId)) return
     const items = httpToolItems(store.collections.httpTurnLegs.values(), turn.id)
-    const { request } = boundTurnRequest({ runId: turn.turnId, ...dependencies.composeTurn(), messages: [...dependencies.contextMessages(), ...items],
+    const { request } = boundTurnRequest({ runId: turn.turnId, conversationId: store.session().activeBranchId ?? "branch-main", ...dependencies.composeTurn(), messages: [...dependencies.contextMessages(), ...items],
       tools: ctx.commands.toolSpecs(), journal: leg.journal }, items.length + 1)
     schedule(attemptId)
     try {

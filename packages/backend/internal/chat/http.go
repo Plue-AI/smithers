@@ -22,6 +22,8 @@ const (
 	TurnPath            = "/api/agent/turn"
 	CancelPath          = "/api/agent/turn/cancel"
 	ReplayPath          = "/api/agent/turn/replay"
+	HistoryPath         = "/api/agent/conversations"
+	AccountReplayPath   = "/api/agent/conversations/replay"
 	RetirePath          = "/api/agent/turn/retire"
 	ErasePath           = "/api/agent/turn/erase"
 	CommitPath          = "/internal/chat/commit"
@@ -394,6 +396,46 @@ func (h *Handler) Replay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
+func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.publicScope(w, r)
+	if !ok {
+		return
+	}
+	limit := maxHistoryPage
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		var err error
+		limit, err = strconv.Atoi(raw)
+		if err != nil {
+			publicError(w, ErrInvalidRequest)
+			return
+		}
+	}
+	page, err := h.Store.History(r.Context(), scope, r.URL.Query().Get("after"), limit)
+	if err != nil {
+		publicError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func (h *Handler) ReplayAccount(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.publicScope(w, r)
+	if !ok {
+		return
+	}
+	var input AccountReplayInput
+	if !decodeBounded(w, r, &input) {
+		return
+	}
+	input.Scope = scope
+	page, err := h.Store.ReplayAccount(r.Context(), input)
+	if err != nil {
+		publicError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func (h *Handler) Retire(w http.ResponseWriter, r *http.Request) {
 	scope, ok := h.publicScope(w, r)
 	if !ok {
@@ -508,6 +550,8 @@ func (h *Handler) MountAuthenticated(router chi.Router) {
 	router.Post(CancelPath, h.Cancel)
 	router.Post(ReplayPath, h.Replay)
 	router.Post(RetirePath, h.Retire)
+	router.Get(HistoryPath, h.History)
+	router.Post(AccountReplayPath, h.ReplayAccount)
 }
 
 func (h *Handler) MountErasure(router chi.Router) { router.Post(ErasePath, h.Erase) }

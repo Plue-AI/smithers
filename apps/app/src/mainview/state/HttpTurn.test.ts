@@ -277,6 +277,7 @@ test("the production tool door waits for the whole batch receipt, deduplicates r
   controller.send("Make a note")
   await until(() => remote.starts.length === 1)
   const first = remote.starts[0]!, cursor = initialCursor(first.runId, first.journal!.legId)
+  expect(first.conversationId).toBe(store.session().activeBranchId)
   await remote.emit({ type: "accepted", cursor })
   const call = batchOf(cursor, [{ type: "tool_call", runId: first.runId, call_id: "same-call", name: "commands", arguments: '{"action":"execute","name":"wiki.new-note"}' },
     { type: "done", runId: first.runId, reason: "tool_call" }])
@@ -293,6 +294,7 @@ test("the production tool door waits for the whole batch receipt, deduplicates r
   await remote.emit({ type: "batch", batch: call, cursor: cursorOf(call) })
   expect(store.collections.worldDocuments.size).toBe(originalNotes + 1)
   const continuation = remote.starts[1]!, nextCursor = initialCursor(first.runId, continuation.journal!.legId)
+  expect(continuation.conversationId).toBe(first.conversationId)
   expect(continuation.messages.filter(item => "type" in item && item.type === "function_call_output")).toHaveLength(1)
   await remote.emit({ type: "accepted", cursor: nextCursor })
   const done = batchOf(nextCursor, [{ type: "delta", runId: first.runId, kind: "text", text: "Made a note." }, { type: "done", runId: first.runId, reason: "stop" }])

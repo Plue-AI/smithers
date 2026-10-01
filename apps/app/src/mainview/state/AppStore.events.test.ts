@@ -648,6 +648,25 @@ describe("the live store's authoritative event path", () => {
     expect(restored.collections.models.has("jev")).toBe(true)
   })
 
+  test("version 31 rotates once for account replay while preserving existing local conversation facts", async () => {
+    const storage = memoryStorage()
+    const old = await installProjectorFixture(storage, 31)
+    const restored = await open(storage)
+    const history = await restored.eventHistory()
+    expect(history.checkpoint.reason).toBe("projector-upgrade")
+    expect(history.head.projectorVersion).toBe(32)
+    expect(history.head.streamId).not.toBe(old.head.streamId)
+    expect([...restored.collections.messages.values()].some(message => message.text === "Keep my work")).toBe(true)
+    expect(restored.collections.cards.get("kept")?.payload).toMatchObject({ content: "retained" })
+    expect(restored.collections.worldDocuments.get("kept")?.body).toBe("Retain wiki")
+    expect(restored.collections.identitySessions.get("identity")?.login).toBe("alice")
+    expect((await restored.verifyState()).valid).toBe(true)
+    await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
+    const reopened = await open(storage)
+    expect((await reopened.eventHistory()).head.streamId).toBe(history.head.streamId)
+    expect((await reopened.verifyState()).valid).toBe(true)
+  })
+
   test("version 10 upgrade rotates a checkpoint written before models and seats existed", async () => {
     /*
      * Version 10 checkpointed 42 collections. This build names 44, and a
@@ -759,7 +778,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 31, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 32, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",

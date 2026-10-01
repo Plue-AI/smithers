@@ -965,6 +965,111 @@ type AdminCreditGrantReceipt struct {
 	Duplicate    bool    `json:"duplicate"`
 }
 
+// SavedConversationCursor is generated from docs/api/openapi.yaml.
+type SavedConversationCursor struct {
+	Version  int64  `json:"version"`
+	RunID    string `json:"runId"`
+	LegID    string `json:"legId"`
+	Batch    int64  `json:"batch"`
+	Position int64  `json:"position"`
+	Hash     string `json:"hash"`
+}
+
+// SavedConversationRunReference is generated from docs/api/openapi.yaml.
+type SavedConversationRunReference struct {
+	Repo        string  `json:"repo"`
+	RunID       string  `json:"runId"`
+	WorkspaceID *string `json:"workspaceId,omitempty"`
+}
+
+// SavedConversationTurn is generated from docs/api/openapi.yaml.
+type SavedConversationTurn struct {
+	RunID      string                          `json:"runId"`
+	LegID      string                          `json:"legId"`
+	AcceptedAt float64                         `json:"acceptedAt"`
+	Terminal   bool                            `json:"terminal"`
+	RunLinks   []SavedConversationRunReference `json:"runLinks"`
+}
+
+// SavedConversation is generated from docs/api/openapi.yaml.
+type SavedConversation struct {
+	ID    string                  `json:"id"`
+	Turns []SavedConversationTurn `json:"turns"`
+}
+
+// SavedConversationPage is generated from docs/api/openapi.yaml.
+type SavedConversationPage struct {
+	Status        string              `json:"status"`
+	Conversations []SavedConversation `json:"conversations"`
+	Next          *string             `json:"next"`
+}
+
+// SavedConversationReplayRequest is generated from docs/api/openapi.yaml.
+type SavedConversationReplayRequest struct {
+	RunID string          `json:"runId"`
+	LegID string          `json:"legId"`
+	After json.RawMessage `json:"after,omitempty"`
+}
+
+// SavedConversationFrame — Committed public frame envelope. Type-specific payloads are validated by the versioned AgentTurnFrame RPC union before projection; private tool outputs are absent.
+type SavedConversationFrame struct {
+	Type                 string                     `json:"type"`
+	RunID                string                     `json:"runId"`
+	AdditionalProperties map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the members SavedConversationFrame does not declare in AdditionalProperties.
+func (v *SavedConversationFrame) UnmarshalJSON(data []byte) error {
+	type plain SavedConversationFrame
+	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
+		return err
+	}
+	return splitAdditional(data, &v.AdditionalProperties, "type", "runId")
+}
+
+// MarshalJSON writes AdditionalProperties beside the declared members of SavedConversationFrame.
+func (v SavedConversationFrame) MarshalJSON() ([]byte, error) {
+	type plain SavedConversationFrame
+	return joinAdditional(plain(v), v.AdditionalProperties)
+}
+
+// SavedConversationBatch is generated from docs/api/openapi.yaml.
+type SavedConversationBatch struct {
+	Version      int64                    `json:"version"`
+	RunID        string                   `json:"runId"`
+	LegID        string                   `json:"legId"`
+	Batch        int64                    `json:"batch"`
+	From         int64                    `json:"from"`
+	PreviousHash string                   `json:"previousHash"`
+	Frames       []SavedConversationFrame `json:"frames"`
+	Hash         string                   `json:"hash"`
+}
+
+// SavedConversationReplayPage is generated from docs/api/openapi.yaml.
+type SavedConversationReplayPage struct {
+	Status   string                   `json:"status"`
+	After    SavedConversationCursor  `json:"after"`
+	Next     SavedConversationCursor  `json:"next"`
+	Head     SavedConversationCursor  `json:"head"`
+	Terminal bool                     `json:"terminal"`
+	More     bool                     `json:"more"`
+	Batches  []SavedConversationBatch `json:"batches"`
+}
+
+// SavedConversationReplay is generated from docs/api/openapi.yaml.
+type SavedConversationReplay struct {
+	Status         string                      `json:"status"`
+	ConversationID string                      `json:"conversationId"`
+	UserText       string                      `json:"userText"`
+	Page           SavedConversationReplayPage `json:"page"`
+}
+
+// SavedConversationProblem is generated from docs/api/openapi.yaml.
+type SavedConversationProblem struct {
+	Status string `json:"status"`
+	Code   string `json:"code"`
+}
+
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
 type PostAPIAdminUsersUsernameEraseBody struct {
 	RequestDate string `json:"request_date"`
@@ -979,6 +1084,12 @@ type PostAPIAdminUsersUsernameEraseResponse struct {
 	RowsChanged   *int64  `json:"rows_changed,omitempty"`
 	Repositories  *int64  `json:"repositories,omitempty"`
 	Workspaces    *int64  `json:"workspaces,omitempty"`
+}
+
+// GetAPIAgentConversationsParams is the query of GET /api/agent/conversations.
+type GetAPIAgentConversationsParams struct {
+	After *string
+	Limit *int64
 }
 
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
@@ -1565,6 +1676,27 @@ func (c *Client) PostAPIAgentTurnReplay(ctx context.Context, body any) (AnyJSON,
 func (c *Client) PostAPIAgentTurnRetire(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/agent/turn/retire", nil, body, &out)
+	return out, err
+}
+
+// GetAPIAgentConversations calls GET /api/agent/conversations.
+func (c *Client) GetAPIAgentConversations(ctx context.Context, params GetAPIAgentConversationsParams) (SavedConversationPage, error) {
+	query := url.Values{}
+	if params.After != nil {
+		query.Set("after", *params.After)
+	}
+	if params.Limit != nil {
+		query.Set("limit", strconv.FormatInt(*params.Limit, 10))
+	}
+	var out SavedConversationPage
+	err := c.do(ctx, "GET", "/api/agent/conversations", query, nil, &out)
+	return out, err
+}
+
+// PostAPIAgentConversationsReplay calls POST /api/agent/conversations/replay.
+func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body SavedConversationReplayRequest) (SavedConversationReplay, error) {
+	var out SavedConversationReplay
+	err := c.do(ctx, "POST", "/api/agent/conversations/replay", nil, body, &out)
 	return out, err
 }
 

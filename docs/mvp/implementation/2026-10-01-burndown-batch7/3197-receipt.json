@@ -1,0 +1,198 @@
+{
+  "issue": 3197,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T07:49:37.995369+00:00",
+  "sourceDiffReviewed": true,
+  "review": "Authenticated account reads use the same committed replay verifier and owner/account fences; only read authority omits the originating-device capability. Listing contains verified identifiers only, private purpose rows stay excluded, and retirement/erasure refuse replay. App verifies every page before following its cursor and every assembled byte before one persisted Flux restoration. Existing message/card/claim reducer, navigation and runs.open door are reused; no turn, capability, model or tool execution is restored. Later user intent, disposal and owner epochs fence stale hydration. Authored OpenAPI drives canonical generated Go and TS clients. Reviewed all production boundaries and meaningful independent unit/real HTTP+PG/controller tests.",
+  "files": [
+    {
+      "path": "apps/app/docs/persistence.md",
+      "sha256": "9b0cc71488e712a2ebc8eecef4c273a5aa988fdbca5fef75b19cb648fa42aad8"
+    },
+    {
+      "path": "apps/app/src/mainview/native/WebAgent.ts",
+      "sha256": "bb971c6c26f8df8e6f3e15e4e4e283135e8402020fb49a9e92e2bb10690a73fe"
+    },
+    {
+      "path": "apps/app/src/mainview/runtime/AgentPort.ts",
+      "sha256": "6414989df9d416e906d23f1deb97a0839658d2c09864ab175e8b9a9e7628b899"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppController.ts",
+      "sha256": "34089c13740d6898115372c4d993b9f154358347584059ab4e326f6834158e1d"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppEventStream.ts",
+      "sha256": "19df29c1845de2b412660ea039932a7137a40013fa83c52c1f6f64d8cd12afc5"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppProjection.ts",
+      "sha256": "bdb6dc57363f1aa0924a20b36299210606cb59ab3e0fe2b8c18d1ecde89f2343"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppState.ts",
+      "sha256": "fd22936dc2a0146c08333459fce3aa09dfef9ae6cea2007c8a956ef3794bdbb3"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppStore.events.test.ts",
+      "sha256": "6333145470225016221ccf0e8fc0a36ad0a9bedf3e914edc645fd14232233a8d"
+    },
+    {
+      "path": "apps/app/src/mainview/state/AppTransitionValidation.ts",
+      "sha256": "71ea0b9480a689c16668a33b12ba0ae4aab6b0e977742d83fc36edb0027bbbbc"
+    },
+    {
+      "path": "apps/app/src/mainview/state/HttpTurn.ts",
+      "sha256": "d9ede226587364abb1c8c897dfbbd915cc0eb36ed6ec551aeb62626ff39478a9"
+    },
+    {
+      "path": "apps/app/src/mainview/state/HttpTurn.test.ts",
+      "sha256": "551ddd5e2164fa2ed674d780a28453180902041160e2d88a649fcfebc0751aa1"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/httpTurns.ts",
+      "sha256": "e350db790398edba6446813669999a7e3b91f2d0501c7b702656fc789f38562a"
+    },
+    {
+      "path": "apps/app/src/mainview/state/ConversationHistory.ts",
+      "sha256": "bc71d9e55f1da86ff5768c2167457aa480574d6a212f786a048e09ba21ac175a"
+    },
+    {
+      "path": "apps/app/src/mainview/state/ConversationHistory.test.ts",
+      "sha256": "70690ac2079e434a818016b37d46fbefcd25dd1c57362eaaaa0a265bb9a492f7"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/conversationHistory.ts",
+      "sha256": "2b953f122e46691f4df8acfdd42afa2c35e61f3aeb80563dbd634657819b4661"
+    },
+    {
+      "path": "docs/api/openapi.yaml",
+      "sha256": "a420a0737085bacbe83beb0595d454186f4fdf757a16b47a9b99249320b949e6"
+    },
+    {
+      "path": "docs/api/openapi/agent.yaml",
+      "sha256": "faf8e8a0b2222d0bc0f789641e490d233dee444e0766d93ae986a27ee924d5b0"
+    },
+    {
+      "path": "packages/backend/apiclient/client.gen.go",
+      "sha256": "42674c888d9c1d6277da79c311055464ee3269ca24190ca5b9a1cea90dcf6e05"
+    },
+    {
+      "path": "packages/backend/docs/chat-streams.md",
+      "sha256": "8177772890007a9caf539369dd940cf4f429fc03af7e3bcd2a7faae40f519f33"
+    },
+    {
+      "path": "packages/backend/internal/chat/http.go",
+      "sha256": "babcd02e313eb76e73393a2bdacb37f2683096234dfca905bcb57791d8c320d0"
+    },
+    {
+      "path": "packages/backend/internal/chat/store.go",
+      "sha256": "56151560fb4ab8e46615279047bba8c833f05ca2b62f3a59e260526fd37e4421"
+    },
+    {
+      "path": "packages/backend/internal/chat/history.go",
+      "sha256": "9587f830a85b5c0dc90e72397efaf8408f231a3e06110de233e283849da921a1"
+    },
+    {
+      "path": "packages/backend/internal/chat/history_test.go",
+      "sha256": "578e360f796023e13519d4b42e28d1b1ad1eae9bff8f2c31813dd95538a3deba"
+    },
+    {
+      "path": "packages/backend/internal/chat/history_integration_test.go",
+      "sha256": "9215b99133258ecd43bb64ce6b0cb9ede8b0ee4a928841f55940e0df4b664959"
+    },
+    {
+      "path": "packages/backend/internal/compose/chat_composition_test.go",
+      "sha256": "0a42c356b86b80df4cf919c06ef720d54f8ed56bc9f8733df11376757300ac08"
+    },
+    {
+      "path": "packages/rpc/src/AgentApiRoutes.ts",
+      "sha256": "b1de08d9faea23f216ddae8e56b79e96058dda673a34338f627c6aebefbd5598"
+    },
+    {
+      "path": "packages/rpc/src/AgentTurnJournal.ts",
+      "sha256": "76368b2a0d4dc33d7841e015e2fc4de4e5968ae1a4fb92b5ffac246103ab0c0d"
+    },
+    {
+      "path": "packages/rpc/src/NativeAgent.ts",
+      "sha256": "1d5594e1fe728d39c543646d1b2cae01fcdc1768822386793ccc5e1cee41096b"
+    },
+    {
+      "path": "packages/smithers/src/internal/backend/ProductApi.ts",
+      "sha256": "855b82c6177699983da84ff0d337bb3fa236466c72fea02457acd13a519749a3"
+    }
+  ],
+  "validation": {
+    "appOwningAndIncomingBoundary": "234 pass, 1 environment-gated real-PG client-B skip, 0 fail across 9 files; actual client-B case separately executes inside Go HTTP+PG test. Includes current SessionNavigation, AppEntrypoints, SignupOwnership and SignupCards.",
+    "finalFocusedAfterRebase": "20 pass, 1 environment-gated skip, 0 fail; malformed empty advancing and tampered page make no follow-up read.",
+    "realPGChat": "Whole ./internal/chat -race PASS 11.077 seconds; 82.0% statements; actual HTTP/PG original-device admission then tokenless client-B list/replay/app hydration plus cross-account, retire, erase, purpose/privacy/tamper and public run-reference64/+1 controls.",
+    "composeConformance": "Actual composed unauthenticated GET/list and POST/replay refuse401; complete served-route and bootstrap OpenAPI conformance PASS.",
+    "generatedClient": "559 ProductApi transport/operation controls PASS; actual generated Go client exercises list/replay over real HTTP+PG. Canonical generator tests PASS.",
+    "types": "Complete current RPC test types PASS; configured app exact43 unchanged diagnostics (baseline read-only HEAD CompilerHost overlay vs current actual inputs), no disk drift, no owned/new diagnostics; not a blanket app type pass.",
+    "format": "Scoped dprint and gofmt PASS; RPC owning ESLint PASS; Go chat/apiclient vet PASS.",
+    "originalRed": "External Go compiler overlay restores exact original MountAuthenticated component and real HTTP/PG regression fails list404; remaining new implementation retained for test compilation, not a whole-old-source execution.",
+    "coverageFunctions": {
+      "accountHash": "100%",
+      "authorizeAccount": "100%",
+      "conversationMetadata": "100%",
+      "HTTP.History": "100%",
+      "HTTP.ReplayAccount": "100%",
+      "Store.publicRunReferences": "84.8%",
+      "Store.History": "86.2%",
+      "Store.ReplayAccount": "94.7%"
+    },
+    "goCoverageByFile": {
+      "github.com/smithersai/smithers/packages/backend/internal/chat/dispatcher.go": [
+        116,
+        148
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/history.go": [
+        125,
+        139
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/host_client.go": [
+        29,
+        30
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/http.go": [
+        257,
+        309
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/metrics.go": [
+        16,
+        16
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/port_host.go": [
+        2,
+        2
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/runtime.go": [
+        33,
+        39
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/signals.go": [
+        42,
+        44
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/store.go": [
+        566,
+        720
+      ],
+      "github.com/smithersai/smithers/packages/backend/internal/chat/types.go": [
+        1,
+        1
+      ]
+    }
+  },
+  "proofArchive": "3197-proof.tar.gz",
+  "proofArchiveSha256": "f4dcb1a0e1625e3f521db4dbcf03ab33302d8848a6af5857e7dfee37ef51ab2b",
+  "limits": [
+    "No live model/provider/OAuth execution: authentication identity and deterministic model are concrete test fixtures; real public HTTP admission, PostgreSQL commits/replay and app controller run. No graphical browser/electrobun claim.",
+    "App hydrated only on empty idle signed-in Cloud journals; all visible projection is assembled and verified before one durable Flux transition. Existing user actions/account epoch fence late work. Stored history does not resume model/tools.",
+    "Bun supplies line/function metrics, no branch metric; new verifier8/8functions94/94lines; controller9/11functions139/140lines (outer failure-report callback plus the archived-user predicate callback unexecuted); transport own36/36lines. Earlier broader same-production-input group covers projection74/74own lines; whole existing seams are not100%.",
+    "New Go fault branches unexecuted are retained exactly in3197-go-uncovered-boundaries.json: cancelled/unavailable SQL transaction/query/scan/rows/commit, corrupt-head/request type paths and secondary link ordering/long-prefix branches. All main account/auth/privacy/retire/erase/cursor behaviors are executed.",
+    "Retiring/erasing server rows refuses future reads; existing offline restored local copies remain under existing local privacy lifecycle.",
+    "No generic past-tense claim suppression guarantee; uses existing shared unsupported-offer reducer behavior only."
+  ],
+  "campaign": "#2290 retains exhaustive fault/coverage campaign; this acceptance proves account-restoration behavior, not 100% whole app/backend coverage."
+}

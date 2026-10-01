@@ -25,6 +25,17 @@ export const CANCEL_PATH = "/api/agent/turn/cancel"
  */
 export const TURN_REPLAY_PATH = "/api/agent/turn/replay"
 
+/** Account-authenticated conversation index; no device capability is needed.
+ * @since 1.0.0
+ * @category constants
+ */
+export const CONVERSATIONS_PATH = "/api/agent/conversations"
+/** Account-authenticated committed output, using the ordinary journal verifier.
+ * @since 1.0.0
+ * @category constants
+ */
+export const CONVERSATION_REPLAY_PATH = "/api/agent/conversations/replay"
+
 /** Retire one accepted leg and erase its retained output.
  * @since 1.0.0
  * @category constants

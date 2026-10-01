@@ -63,11 +63,14 @@ func TestChatStreamingRoutesRequireAuthentication(t *testing.T) {
 		})
 	})
 	mountChatPublic(router, &chat.Runtime{Handler: &chat.Handler{}}, nil, &config.Config{})
-	for _, path := range []string{chat.TurnPath, chat.CancelPath, chat.ReplayPath, chat.RetirePath} {
+	for _, path := range []string{chat.TurnPath, chat.CancelPath, chat.ReplayPath, chat.RetirePath, chat.AccountReplayPath} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 		require.Equal(t, http.StatusUnauthorized, response.Code, path)
 	}
+	history := httptest.NewRecorder()
+	router.ServeHTTP(history, httptest.NewRequest(http.MethodGet, chat.HistoryPath, nil))
+	require.Equal(t, http.StatusUnauthorized, history.Code, chat.HistoryPath)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, chat.CommitPath, nil))
 	require.Equal(t, http.StatusNotFound, response.Code)

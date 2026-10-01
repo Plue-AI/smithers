@@ -511,6 +511,86 @@ export type AdminCreditGrantReceipt = {
   duplicate: boolean
 }
 
+export type SavedConversationCursor = {
+  version: 1
+  runId: string
+  legId: string
+  batch: number
+  position: number
+  hash: string
+}
+
+export type SavedConversationRunReference = {
+  repo: string
+  runId: string
+  workspaceId?: string
+}
+
+export type SavedConversationTurn = {
+  runId: string
+  legId: string
+  acceptedAt: number
+  terminal: boolean
+  runLinks: Array<SavedConversationRunReference>
+}
+
+export type SavedConversation = {
+  id: string
+  turns: Array<SavedConversationTurn>
+}
+
+export type SavedConversationPage = {
+  status: "ok"
+  conversations: Array<SavedConversation>
+  next: string | null
+}
+
+export type SavedConversationReplayRequest = {
+  runId: string
+  legId: string
+  after?: SavedConversationCursor | null
+}
+
+/** Committed public frame envelope. Type-specific payloads are validated by the versioned AgentTurnFrame RPC union before projection; private tool outputs are absent. */
+export type SavedConversationFrame = {
+  type: "delta" | "done" | "card" | "card.update" | "tool_call" | "link.authored" | "call.started" | "call.settled" | "gate.rejected" | "link.ended" | "steering.drained" | "park"
+  runId: string
+  [key: string]: unknown
+}
+
+export type SavedConversationBatch = {
+  version: 1
+  runId: string
+  legId: string
+  batch: number
+  from: number
+  previousHash: string
+  frames: Array<SavedConversationFrame>
+  hash: string
+}
+
+export type SavedConversationReplayPage = {
+  status: "ok"
+  after: SavedConversationCursor
+  next: SavedConversationCursor
+  head: SavedConversationCursor
+  terminal: boolean
+  more: boolean
+  batches: Array<SavedConversationBatch>
+}
+
+export type SavedConversationReplay = {
+  status: "ok"
+  conversationId: string
+  userText: string
+  page: SavedConversationReplayPage
+}
+
+export type SavedConversationProblem = {
+  status: "error"
+  code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
+}
+
 export type PostApiAdminGrantBody = AdminCreditGrantRequest
 
 export type PostApiAdminGrantResponse = AdminCreditGrantReceipt
@@ -771,6 +851,28 @@ export interface PostApiAgentTurnRetireInput {
 /** POST /api/agent/turn/retire */
 export const postApiAgentTurnRetire = (transport: Transport, input?: PostApiAgentTurnRetireInput): Promise<PostApiAgentTurnRetireResponse> =>
   transport.request("POST", `/api/agent/turn/retire`, input?.body) as Promise<PostApiAgentTurnRetireResponse>
+
+export type GetApiAgentConversationsResponse = SavedConversationPage
+
+export interface GetApiAgentConversationsInput {
+  readonly query?: { readonly after?: string; readonly limit?: number }
+}
+
+/** GET /api/agent/conversations: List saved account conversations */
+export const getApiAgentConversations = (transport: Transport, input?: GetApiAgentConversationsInput): Promise<GetApiAgentConversationsResponse> =>
+  transport.request("GET", `/api/agent/conversations${search({ after: input?.query?.after, limit: input?.query?.limit })}`) as Promise<GetApiAgentConversationsResponse>
+
+export type PostApiAgentConversationsReplayBody = SavedConversationReplayRequest
+
+export type PostApiAgentConversationsReplayResponse = SavedConversationReplay
+
+export interface PostApiAgentConversationsReplayInput {
+  readonly body: PostApiAgentConversationsReplayBody
+}
+
+/** POST /api/agent/conversations/replay: Replay a saved account conversation without a device token */
+export const postApiAgentConversationsReplay = (transport: Transport, input: PostApiAgentConversationsReplayInput): Promise<PostApiAgentConversationsReplayResponse> =>
+  transport.request("POST", `/api/agent/conversations/replay`, input.body) as Promise<PostApiAgentConversationsReplayResponse>
 
 export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
 

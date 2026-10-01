@@ -246,6 +246,80 @@ export const AgentTurnErasureSchema = z.object({
   retirementProof: Hash
 }).strict()
 
+/** Content-free references from committed public run cards, never tool results.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ConversationRunReferenceSchema = z.object({
+  repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  runId: Identity,
+  workspaceId: Identity.optional()
+}).strict()
+
+/** Account index pages can repeat a conversation across turn pages.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AgentConversationPageSchema = z.object({
+  status: z.literal("ok"),
+  conversations: z.array(
+    z.object({
+      id: Identity,
+      turns: z.array(
+        z.object({
+          runId: Identity,
+          legId: Identity,
+          acceptedAt: z.number().finite(),
+          terminal: z.boolean(),
+          runLinks: z.array(ConversationRunReferenceSchema).max(64)
+        }).strict()
+      ).max(50)
+    }).strict()
+  ).max(50),
+  next: z.string().min(1).max(512).nullable()
+}).strict()
+/** One bounded account conversation index page.
+ * @since 1.0.0
+ * @category models
+ */
+export type AgentConversationPage = z.infer<typeof AgentConversationPageSchema>
+/** An identifier-only public run reference.
+ * @since 1.0.0
+ * @category models
+ */
+export type ConversationRunReference = z.infer<typeof ConversationRunReferenceSchema>
+
+/** An account-scoped read cursor with no originating-device secret.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AgentConversationReplayAccessSchema = z.object({
+  runId: Identity,
+  legId: Identity,
+  after: AgentTurnCursorSchema.nullable().optional()
+}).strict()
+/** The identity and optional cursor of a saved leg.
+ * @since 1.0.0
+ * @category models
+ */
+export type AgentConversationReplayAccess = z.infer<typeof AgentConversationReplayAccessSchema>
+
+/** A visible user message plus the same committed output contract. No context or capabilities.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const AgentConversationReplaySchema = z.object({
+  status: z.literal("ok"),
+  conversationId: Identity,
+  userText: z.string().max(2 << 20),
+  page: AgentTurnJournalReplySchema.refine((page) => page.status === "ok")
+}).strict()
+/** Verified committed output plus its visible conversation identity.
+ * @since 1.0.0
+ * @category models
+ */
+export type AgentConversationReplay = z.infer<typeof AgentConversationReplaySchema>
+
 /** Minimal private erasure outbox entry; no transcript or read capability.
  * @since 1.0.0
  * @category models

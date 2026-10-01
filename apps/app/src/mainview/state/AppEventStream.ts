@@ -44,7 +44,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 30: durable owner-scoped egress additions reconnect through the shared toast after reload (#3264).
 // 31: Jev command selection adds `message.commands.disclosed`; the front door's `answersTurn` and `front-door`
 // seat retire (#3313).
-export const APP_PROJECTOR_VERSION = 31
+// 32: account-scoped committed conversation replay adds conversation.restored (#3197).
+export const APP_PROJECTOR_VERSION = 32
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

@@ -1,3 +1,4 @@
+import { ConversationHistorySchema } from "./ConversationHistory"
 import { Data } from "effect"
 import { AgentTurnBatchSchema,AgentTurnCursorSchema,AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
 import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingPlans"
@@ -91,6 +92,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "message.retried": z.object({ "type": z.literal("message.retried"), "actor": z.literal("user"), "turnId": z.string() }).strict(),
   "message.response.cancelled": z.object({ "type": z.literal("message.response.cancelled"), "actor": z.enum(["user", "system"]), "turnId": z.string(), "detail": z.string().optional() }).strict(),
   "session.turn.orphaned": z.object({ "type": z.literal("session.turn.orphaned"), "actor": z.literal("system") }).strict(),
+  "conversation.restored": z.object({ type: z.literal("conversation.restored"), actor: z.literal("system"), owner: z.string().min(1), afterRevision: z.number().int().nonnegative(), conversations: z.array(ConversationHistorySchema) }).strict(),
   "conversation.reset": z.object({ "type": z.literal("conversation.reset"), "actor": z.literal("user") }).strict(),
   "conversation.reset.asked": z.object({ "type": z.literal("conversation.reset.asked"), "actor": z.literal("user"), "open": z.boolean() }).strict(),
   "conversation.cleared": z.object({ "type": z.literal("conversation.cleared"), "actor": z.literal("user"), "branchId": z.string(), "notes": z.array(z.object({ "title": z.string(), "body": z.string(), "confidence": z.number().finite() }).strict()), "interruptedTurnId": z.string().optional() }).strict(),

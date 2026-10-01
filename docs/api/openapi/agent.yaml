@@ -188,3 +188,489 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/agent/conversations:
+    get:
+      summary: List saved account conversations
+      operationId: get_api_agent_conversations
+      tags:
+        - Agent
+      parameters:
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 50
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Account-owned committed conversation facts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedConversationPage'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '403':
+          description: Account or scope refused
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '404':
+          description: Conversation turn not found
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '409':
+          description: Uncommitted cursor or bounded index limit
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '410':
+          description: Retired or erased turn
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '500':
+          description: Journal integrity failure
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '503':
+          description: Journal storage unavailable
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+  /api/agent/conversations/replay:
+    post:
+      summary: Replay a saved account conversation without a device token
+      operationId: post_api_agent_conversations_replay
+      tags:
+        - Agent
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedConversationReplayRequest'
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Account-owned committed conversation facts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedConversationReplay'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '403':
+          description: Account or scope refused
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '404':
+          description: Conversation turn not found
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '409':
+          description: Uncommitted cursor or bounded index limit
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '410':
+          description: Retired or erased turn
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '500':
+          description: Journal integrity failure
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+        '503':
+          description: Journal storage unavailable
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SavedConversationProblem'
+                  - $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    SavedConversationCursor:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - runId
+        - legId
+        - batch
+        - position
+        - hash
+      properties:
+        version:
+          type: integer
+          const: 1
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        legId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        batch:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        position:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        hash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    SavedConversationRunReference:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+        - runId
+      properties:
+        repo:
+          type: string
+          pattern: ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        workspaceId:
+          type: string
+          minLength: 1
+          maxLength: 160
+    SavedConversationTurn:
+      type: object
+      additionalProperties: false
+      required:
+        - runId
+        - legId
+        - acceptedAt
+        - terminal
+        - runLinks
+      properties:
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        legId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        acceptedAt:
+          type: number
+        terminal:
+          type: boolean
+        runLinks:
+          type: array
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/SavedConversationRunReference'
+    SavedConversation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - turns
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 160
+        turns:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/SavedConversationTurn'
+    SavedConversationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - conversations
+        - next
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        conversations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/SavedConversation'
+        next:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          maxLength: 512
+    SavedConversationReplayRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - runId
+        - legId
+      properties:
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        legId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        after:
+          anyOf:
+            - $ref: '#/components/schemas/SavedConversationCursor'
+            - type: 'null'
+    SavedConversationFrame:
+      type: object
+      description: Committed public frame envelope. Type-specific payloads are validated by the versioned AgentTurnFrame RPC union before projection; private tool outputs are absent.
+      additionalProperties: true
+      required:
+        - type
+        - runId
+      properties:
+        type:
+          type: string
+          enum:
+            - delta
+            - done
+            - card
+            - card.update
+            - tool_call
+            - link.authored
+            - call.started
+            - call.settled
+            - gate.rejected
+            - link.ended
+            - steering.drained
+            - park
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+    SavedConversationBatch:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - runId
+        - legId
+        - batch
+        - from
+        - previousHash
+        - frames
+        - hash
+      properties:
+        version:
+          type: integer
+          const: 1
+        runId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        legId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        batch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        from:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        previousHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        frames:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: '#/components/schemas/SavedConversationFrame'
+        hash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+    SavedConversationReplayPage:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - after
+        - next
+        - head
+        - terminal
+        - more
+        - batches
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        after:
+          $ref: '#/components/schemas/SavedConversationCursor'
+        next:
+          $ref: '#/components/schemas/SavedConversationCursor'
+        head:
+          $ref: '#/components/schemas/SavedConversationCursor'
+        terminal:
+          type: boolean
+        more:
+          type: boolean
+        batches:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/SavedConversationBatch'
+    SavedConversationReplay:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - conversationId
+        - userText
+        - page
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        conversationId:
+          type: string
+          minLength: 1
+          maxLength: 160
+        userText:
+          type: string
+          maxLength: 2097152
+        page:
+          $ref: '#/components/schemas/SavedConversationReplayPage'
+    SavedConversationProblem:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - code
+      properties:
+        status:
+          type: string
+          enum:
+            - error
+        code:
+          type: string
+          enum:
+            - request_invalid
+            - forbidden
+            - not-found
+            - retired
+            - cursor
+            - conflict
+            - terminal
+            - limit
+            - corrupt
+            - storage_failed
