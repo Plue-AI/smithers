@@ -267,6 +267,11 @@ describe("implementation composition", () => {
           const defect = Cause.squash(exit.cause)
           expect(defect).toBeInstanceOf(Action.DuplicateImplementation)
           expect((defect as Error).message).toContain("already has an implementation")
+          // A recorded defect is JSON-encoded; the message must survive the round trip.
+          const Defect = Schema.Defect()
+          const recorded = Schema.decodeUnknownSync(Defect)(Schema.encodeUnknownSync(Defect)(defect)) as Error
+          expect(recorded.message).toContain(`Action "${Read.name}" already has an implementation`)
+          expect(recorded.message).toContain("override: true")
         }
         expect(runs).toBe(0)
       })
