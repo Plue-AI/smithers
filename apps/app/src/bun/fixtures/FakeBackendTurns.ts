@@ -45,6 +45,7 @@ export const fakeBackend = (model: (request: Request) => Response | Promise<Resp
   const body = await request.clone().json() as { readonly runId: string; readonly journal: { readonly legId: string } }
   const answer = await model(request)
   if (!answer.ok || answer.body === null) return answer
+  if (body.journal === undefined) return answer
   return new Response(deliveries(body.runId, body.journal.legId, answer.body), {
     headers: { "content-type": "application/x-ndjson", "x-smithers-turn-journal": "1" }
   })

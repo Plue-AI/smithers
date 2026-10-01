@@ -30,10 +30,11 @@ const credentials = { token: "review-test-token", username: "test", email: null,
  */
 const SCOPE_REFUSAL = JSON.stringify({ code: "forbidden", fault: "user", message: "insufficient token scope" })
 
-test("a duplicate active chat request preserves the first response stream", async () => {
+test("a backend refusal preserves the first response stream", async () => {
   let stream: ReadableStreamDefaultController<Uint8Array> | undefined
   const encoder = new TextEncoder()
-  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fakeBackend(() => new Response(new ReadableStream<Uint8Array>({ start(controller) {
+  let calls = 0
+  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fakeBackend(() => ++calls > 1 ? new Response(null, { status: 409 }) : new Response(new ReadableStream<Uint8Array>({ start(controller) {
     stream = controller
     controller.enqueue(encoder.encode(`${JSON.stringify({ type: "delta", kind: "text", text: "first" })}\n`))
   } }))) })
@@ -68,9 +69,7 @@ test("a hybrid host's chat is a backend turn as the signed-in Cloud user, and re
   const text = await answer.text()
   expect(text).toContain('"text":"from the backend"'); expect(text).toContain('"type":"done"')
   expect(seen.filter((one) => one.path === "/api/agent/turn")).toEqual([{ path: "/api/agent/turn", authorization: "Bearer backend-test-token" }])
-  // The relayed leg is erased once it finished; the host's own journal is the record.
-  for (let attempt = 0; attempt < 100 && !seen.some((one) => one.path === "/api/agent/turn/erase"); attempt++) await Bun.sleep(10)
-  expect(seen.filter((one) => one.path.startsWith("/api/agent/turn/")).map((one) => one.path)).toEqual(["/api/agent/turn/erase"])
+  expect(seen.filter((one) => one.path.startsWith("/api/agent/turn/"))).toEqual([])
 
   const signedOut = await startLocalServer({ distDir: await directory(), cloudMode: "hybrid", cloudApi: `http://127.0.0.1:${upstream.port}`,
     cloudKeychain: { read: async () => null, write: async () => {}, remove: async () => {} }, identityUpstream: null, log: () => {} })

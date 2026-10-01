@@ -147,6 +147,7 @@ try {
     distDir: defaultDistDir(import.meta.dir),
     stateDir,
     agent: stubAgent,
+    fixtureJournal: (await import("../../e2e/support/ChatJournalFixture")).createChatJournalFixture(),
     cloudMode: "offline",
     // This process is the desktop shell, so its renderer origin says so (`native.shell`).
     nativeShell: true

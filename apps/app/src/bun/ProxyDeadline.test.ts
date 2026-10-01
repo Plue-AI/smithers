@@ -4,21 +4,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { refusalOf } from "@smthrs/rpc/Refusal"
-import { DEFAULT_UPSTREAM_TIMEOUT_MS, startLocalServer } from "./server"
+import { startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 
-/*
- * The two forwarding seams of the native host — `/api/cloud/*` to Smithers
- * Cloud and `/api/auth/*`, `/api/identity/*`, the product families to the
- * Worker — under the discipline the Worker's own proxies keep.
- *
- * Both called a bare `fetch` with no signal, so this host had no deadline and
- * no 504 leg at all: an upstream that accepted the connection and never
- * answered hung the request for as long as the process lived, and there was
- * nothing here corresponding to the Worker's `upstream_timeout`. Neither
- * restated a refusal either, so an upstream's body — a router's plain-text
- * 404, an HTML error page — was handed to the reader verbatim.
- */
+/* Real local HTTP proxies must bound time to headers and preserve safe refusals. */
 
 const DEADLINE_MS = 150
 
@@ -64,7 +53,7 @@ const identityHost = (upstreamOrigin: string): Promise<LocalServer> =>
   })
 
 describe("an upstream that never answers", () => {
-  test("the cloud proxy gives up at its deadline with the Worker's own upstream_timeout", async () => {
+  test("the cloud proxy gives up at its deadline with upstream_timeout", async () => {
     const upstream = hangingUpstream()
     const host = await cloudHost(`http://127.0.0.1:${upstream.port}`)
     try {
@@ -76,7 +65,7 @@ describe("an upstream that never answers", () => {
       expect(response.status).toBe(504)
       const body = (await response.json()) as { code?: string; message?: string; origin?: string }
       expect(body.code).toBe("upstream_timeout")
-      // The desktop build runs no Worker, so the answer says which host wrote it.
+      // The refusal identifies the local host that applied the deadline.
       expect(body.origin).toBe("local")
       expect(body.message).toContain(`did not answer within ${DEADLINE_MS}ms`)
       const refusal = refusalOf({ body, status: response.status, message: body.message ?? "" })
@@ -142,14 +131,7 @@ describe("an upstream that never answers", () => {
     }
   }, 20_000)
 
-  test("this host waits as long as the Worker does for the same upstreams", async () => {
-    // The Worker's DEFAULT_UPSTREAM_TIMEOUT_MS, read from its source rather
-    // than imported: the two hosts share no runtime, only this number.
-    const worker = await Bun.file(new URL("../../../server/src/Http.ts", import.meta.url)).text()
-    const declared = /export const DEFAULT_UPSTREAM_TIMEOUT_MS = ([0-9_]+)/.exec(worker)?.[1]
-    expect(declared).toBeDefined()
-    expect(Number(declared?.replaceAll("_", ""))).toBe(DEFAULT_UPSTREAM_TIMEOUT_MS)
-  })
+
 })
 
 describe("an upstream that refuses", () => {

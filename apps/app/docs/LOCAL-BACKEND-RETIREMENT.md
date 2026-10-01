@@ -50,9 +50,9 @@ graph controllers, the target, graph, CI, affected, run-history and
 run-timeline cards, the flows that were their only door, and the tests and
 Playwright specs of all of it.
 
-The daemon's one surviving job is single ownership of the chat turn journal's
-SQLite file. `TurnJournalLease.ts` keeps exactly that: a pid file beside the
-database, taken over when its owner is dead.
+The remaining SQLite chat journal and its process lease retired with the
+shared Go backend migration. PostgreSQL now owns accepted turns, replay,
+cancellation, and retirement; the app relays their original identities.
 
 ## One correction to the plan
 

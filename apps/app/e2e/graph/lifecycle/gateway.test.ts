@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { relayFetch } from "../RelayFetch"
 import { GRAPH_BOX } from "../workspace"
+import { readTriggerRegistrations } from "../../../src/mainview/state/seams/TriggersSeam"
 import * as SourceRevision from "../../../../../packages/smithers/src/internal/SourceRevision.ts"
 
 const APP_DIR = fileURLToPath(new URL("../../../", import.meta.url))
@@ -83,14 +84,12 @@ test("the gateway answers a malformed relay call and removes its SQLite director
     expect(boxes.status).toBe(200)
     expect((await boxes.json() as { workspaces: ReadonlyArray<{ workspace_id: string; state: string }> }).workspaces)
       .toEqual([expect.objectContaining({ workspace_id: GRAPH_BOX, state: "running" })])
-    const listed = await request(
-      `${address.relayUrl}/api/workflow/trigger-registrations?repo=${encodeURIComponent(address.repo)}`
-    )
-    expect(listed.status).toBe(200)
-    const registered = await listed.json() as { rows: ReadonlyArray<{ registrationId: string; flowId: string; schedule: string }> }
-    expect(registered.rows.map((row) => row.registrationId)).toEqual(["graph-fixture-nightly"])
-    expect(registered.rows[0]?.flowId).toBe("gateway/GraphFixture")
-    expect(registered.rows[0]?.schedule).toBe("0 3 * * *")
+    const registered = await readTriggerRegistrations({ http: request, baseUrl: address.relayUrl }, address.repo)
+    expect(registered.live).toBe(true)
+    expect(registered.triggers.map(row => row.id)).toEqual(["graph-fixture-nightly"])
+    expect(registered.triggers[0]?.flowId).toBe("gateway/GraphFixture")
+    expect(registered.triggers[0]?.cron).toBe("0 3 * * *")
+    expect(registered.triggers[0]?.nextFireAt).toBeGreaterThan(Date.now())
 
     // The contents route, answered from the checkout this stack runs out of.
     // The fixture flow is a real file, and a node record names the line its

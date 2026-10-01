@@ -1,9 +1,9 @@
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import { handleRequest } from "smithers-server/index"
-import { layersFromEnv, ExecutionContext, executionContextFrom } from "smithers-server/Environment"
-import type { WorkerEnv } from "smithers-server/Environment"
-import { transportLayer } from "smithers-server/Http"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
+import { createCloudAuth } from "../../../bun/CloudAuth"
+import { startLocalServer } from "../../../bun/server"
 import { createWorkspaceSeam, DEGRADED_WORKSPACE_REFUSAL } from "./WorkspaceSeam"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
@@ -184,65 +184,80 @@ describe("cloud session seam", () => {
   })
 })
 
-// Renderer -> actual Worker router -> injected identity/Cloud boundaries.
-// The route is never stubbed: a renderer/native-only path must fail this test.
+// Exercise the renderer through the native host and a real HTTP backend.
+// Only the OS keychain port is in memory, so tests never touch user credentials.
 for (const state of ["signed-in", "signed-out", "degraded"] as const) {
-  test(`web app session reaches the Cloud row and workspace gate: ${state}`, async () => {
+  test(`local app session reaches the Cloud row and workspace gate: ${state}`, async () => {
     const upstream: Request[] = []
-    const env = {
-      IDENTITY_UPSTREAM_URL: "https://identity.test",
-      IDENTITY_SERVICE_TOKEN: "fixture-service",
-      SMITHERS_CLOUD_API_BASE_URL: "https://cloud.test",
-      ASSETS: { fetch: async () => new Response("", { status: 404 }) }
-    } as unknown as WorkerEnv
-    const transport = transportLayer(async (input, init) => {
-      const request = new Request(input, init)
-      upstream.push(request)
-      const path = new URL(request.url).pathname
-      if (path === "/api/identity/validate") return state === "signed-out"
-        ? json(401, {}) : json(200, { login: "will", admin: false })
-      if (path === "/api/identity/cloud-token") return json(200, { found: true, token: TOKEN })
-      if (path === "/api/repos/will/smithers/workspaces" && request.method === "POST") return json(409, { message: "fixture desktop create reached Cloud" })
-      /*
-       * plue serializes its verdict first (pkg/errors/errors.go APIError), and
-       * the Worker only publishes a degraded session for that envelope
-       * (apps/server cloudSession.ts isCloudScopeRefusal): the scope gate's
-       * own `forbidden` + "insufficient token scope", never English alone.
-       */
-      if (path === "/api/user/workspaces") return state === "degraded"
-        ? json(403, { code: "forbidden", fault: "user", message: "insufficient token scope" }) : json(200, [])
-      return json(404, {})
-    })
-    const { store, seam, ctx, requests } = await harness((path, init) => Effect.runPromise(
-      handleRequest(new Request(`https://web.test${path}`, { ...init, headers: { ...init?.headers, cookie: "session=fixture" } })).pipe(
-        Effect.provide(Layer.merge(layersFromEnv(env), transport)),
-        Effect.provideService(ExecutionContext, executionContextFrom(undefined))
-      )
-    ))
-    await seam.loadSession()
-    expect(requests).toEqual([{ method: "GET", url: CLOUD_AUTH_SESSION_PATH }])
-    expect(sessionRow(store)).toMatchObject({
-      state: state === "signed-out" ? "signed-out" : "signed-in",
-      username: state === "signed-out" ? null : "will",
-      scopes: state === "degraded" ? "degraded" : null
-    })
-    expect(JSON.stringify(sessionRow(store))).not.toContain(TOKEN)
-    const workspace = createWorkspaceSeam(ctx)
-    try {
-      const result = await workspace.listWorkspaces()
-      if (state === "signed-in") {
-        expect(result).toEqual({ value: "No boxes." })
-        expect(await workspace.openDesktopBox("main", "will/smithers")).toContain("fixture desktop create reached Cloud")
-        expect(upstream.some(request => request.method === "POST" && new URL(request.url).pathname === "/api/repos/will/smithers/workspaces")).toBe(true)
-        expect(requests.some(request => request.url.startsWith("/api/user/workspaces"))).toBe(true)
-        expect(upstream.filter(request => new URL(request.url).hostname === "cloud.test").every(
-          request => request.headers.get("authorization") === `Bearer ${TOKEN}`
-        )).toBe(true)
-      } else {
-        expect(result).toBe(state === "degraded" ? DEGRADED_WORKSPACE_REFUSAL : "Sign in to Smithers Cloud to continue.")
-        expect(requests).toHaveLength(1)
+    const backend = Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      fetch: request => {
+        upstream.push(request.clone())
+        const path = new URL(request.url).pathname
+        if (path === "/api/repos/will/smithers/workspaces" && request.method === "POST") {
+          return json(409, { message: "fixture desktop create reached backend" })
+        }
+        if (path === "/api/user/workspaces") return state === "degraded"
+          ? json(403, { code: "forbidden", fault: "user", message: "insufficient token scope" }) : json(200, [])
+        return json(404, {})
       }
-    } finally { workspace.dispose() }
+    })
+    const directory = await mkdtemp(join(tmpdir(), "smithers-cloud-seam-"))
+    await writeFile(join(directory, "index.html"), "<!doctype html>")
+    const api = `http://127.0.0.1:${backend.port}`
+    const auth = await createCloudAuth({
+      api,
+      keychain: {
+        read: async () => state === "signed-out" ? null : JSON.stringify({ token: TOKEN, username: "will", email: null, expiresAt: null }),
+        write: async () => {}, remove: async () => {}
+      },
+      log: () => {}
+    })
+    const host = await startLocalServer({
+      port: 0, distDir: directory, stateDir: directory, home: directory,
+      cloudMode: "hybrid", cloudApi: api, identityUpstream: api, cloudAuth: auth,
+      log: () => {}
+    })
+    const probeCount = upstream.length
+    try {
+      const { store, seam, ctx, requests } = await harness((path, init) => {
+        const headers = new Headers(init?.headers)
+        headers.set(LOCAL_SESSION_HEADER, host.sessionToken)
+        return fetch(`${host.origin}${path}`, { ...init, headers })
+      })
+      await seam.loadSession()
+      expect(requests).toEqual([{ method: "GET", url: CLOUD_AUTH_SESSION_PATH }])
+      expect(sessionRow(store)).toMatchObject({
+        state: state === "signed-out" ? "signed-out" : "signed-in",
+        username: state === "signed-out" ? null : "will",
+        scopes: state === "degraded" ? "degraded" : null
+      })
+      expect(JSON.stringify(sessionRow(store))).not.toContain(TOKEN)
+      expect(probeCount).toBe(state === "signed-out" ? 0 : 1)
+      if (probeCount > 0) {
+        expect(new URL(upstream[0]!.url).pathname).toBe("/api/user/workspaces")
+        expect(upstream[0]!.headers.get("authorization")).toBe(`Bearer ${TOKEN}`)
+      }
+      const workspace = createWorkspaceSeam(ctx)
+      try {
+        const result = await workspace.listWorkspaces()
+        if (state === "signed-in") {
+          expect(result).toEqual({ value: "No boxes." })
+          expect(await workspace.openDesktopBox("main", "will/smithers")).toContain("fixture desktop create reached backend")
+          expect(upstream.some(request => request.method === "POST" && new URL(request.url).pathname === "/api/repos/will/smithers/workspaces")).toBe(true)
+          expect(requests.some(request => request.url.startsWith("/api/user/workspaces"))).toBe(true)
+          expect(upstream.every(request => !request.headers.has(LOCAL_SESSION_HEADER))).toBe(true)
+        } else {
+          expect(result).toBe(state === "degraded" ? DEGRADED_WORKSPACE_REFUSAL : "Sign in to Smithers Cloud to continue.")
+          expect(requests).toHaveLength(1)
+          expect(upstream).toHaveLength(probeCount)
+        }
+      } finally { workspace.dispose() }
+    } finally {
+      await host.stop()
+      backend.stop(true)
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 }
 

@@ -440,7 +440,7 @@ test.each([
 })
 
 // DurableTurn.accessDurableTurn emits non-error receipts only with HTTP200;
-// NativeTurnJournal also conditions completed retirement on response.ok.
+// Backend retirement completes only after a successful response.
 test.each([
   { status: 200, outcome: "completed" },
   { status: 401, outcome: "failed" },

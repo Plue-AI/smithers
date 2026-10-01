@@ -32,7 +32,7 @@
  *     file. With `ref` it is the file AT that revision, read out of jj or
  *     git rather than off disk, which is what the Code tab asks for: the
  *     working tree moves, and this suite itself edits it;
- *   - `GET /api/workflow/trigger-registrations?repo=` and
+ *   - `GET /api/repos/{owner}/{repo}/repository-jobs` and
  *     `GET /api/billing/balance`, the two routes a signed-in app reads on its
  *     own at boot. Left unanswered they were 404s, and the balance one put a
  *     red "Your balance couldn't be refreshed right now." toast over the page
@@ -58,7 +58,6 @@ import { readdir, readFile, stat } from "node:fs/promises"
 import { createServer } from "node:http"
 import { resolve } from "node:path"
 import { relayRpc, writeResponse } from "./workerRelay"
-import { TRIGGER_REGISTRATIONS_PATH } from "smithers-server/repositoryTriggers"
 import { execFileSync } from "node:child_process"
 import { repositoryRoot, stackWith } from "../../../packages/smithers/test/BridgedEngineRun.ts"
 import { GRAPH_BOX, GRAPH_FLOW, GRAPH_REPO, GRAPH_SCHEDULE } from "../e2e/graph/workspace.ts"
@@ -257,20 +256,17 @@ const startRelay = (gatewayUrl: string): Promise<{ url: string; close: () => Pro
               return json(response, 200, { status: "ready", repo: REPO })
             }
             if (url.pathname === BILLING_BALANCE_PATH) return json(response, 200, BALANCE)
-            // No `flow:<slug>` repository job exists on this stack: the routes
-            // that write one address Smithers Cloud, which nothing here talks
-            // to, so the listing is empty and says so the way the Worker's own
-            // listing says it (`apps/server/src/repositoryTriggers.ts`), with
-            // the one fixture schedule the graph draws beside its plan.
-            if (url.pathname === TRIGGER_REGISTRATIONS_PATH) {
-              const repo = url.searchParams.get("repo") ?? REPO
+            // The current backend schedule listing consumed by TriggersSeam.
+            const jobs = /^\/api\/repos\/([^/]+)\/([^/]+)\/repository-jobs$/.exec(url.pathname)
+            if (jobs !== null) {
+              const repo = `${decodeURIComponent(jobs[1]!)}/${decodeURIComponent(jobs[2]!)}`
               const next = new Date()
               next.setUTCHours(3, 0, 0, 0)
               if (next.getTime() <= Date.now()) next.setUTCDate(next.getUTCDate() + 1)
-              return json(response, 200, { status: "ok", repo, rows: repo !== REPO ? [] : [{
-                registrationId: GRAPH_SCHEDULE.id, slug: GRAPH_SCHEDULE.slug, flowId: GRAPH_FLOW,
-                schedule: GRAPH_SCHEDULE.cron, enabled: true, nextFireAt: next.toISOString()
-              }] })
+              return json(response, 200, repo !== REPO ? [] : [{
+                id: GRAPH_SCHEDULE.id, job: `flow:${GRAPH_SCHEDULE.slug}`, flow_id: GRAPH_FLOW,
+                schedule: GRAPH_SCHEDULE.cron, enabled: true, next_fire_at: next.toISOString()
+              }])
             }
             // The one box of the repository: every flow call names it.
             if (url.pathname === "/api/user/workspaces") {

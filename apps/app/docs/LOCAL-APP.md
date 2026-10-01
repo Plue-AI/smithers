@@ -101,9 +101,9 @@ The native RPC surface has exactly one privileged operation:
 
 It has no HTTP fallback in the packaged app.
 
-The chat turn journal's SQLite file is owned by one process at a time
-(`TurnJournalLease.ts`): a pid file beside the database, taken over when its
-owner is dead, so a crash never leaves the journal locked.
+Chat acceptance, replay, cancellation, and retirement belong to the shared
+Go backend and PostgreSQL journal. The renderer relay preserves the backend
+turn identity and sealed delivery bytes; disconnecting it never erases a turn.
 
 The identity proxy re-scopes the seam's session cookie to the local origin
 before the WebView sees it: `Domain` goes because the cookie belongs to this

@@ -56,9 +56,8 @@ import {
 } from "@smthrs/rpc/LocalSession"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
-import { createNativeTurnJournal } from "./NativeTurnJournal"
 import { handleBrowserFetch } from "./BrowserFetch"
-import { CLOUD_CHAT_SIGN_IN, createCloudAgent } from "./CloudAgent"
+import { CLOUD_CHAT_SIGN_IN } from "./CloudAgent"
 import type { CloudAgent } from "./CloudAgent"
 import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
@@ -134,6 +133,11 @@ export interface LocalServerOptions {
    * (e2e/support/ChatStub.ts). Offline with none is a host with no agent.
    */
   readonly agent?: (publish: (frame: AgentTurnFrame) => void) => CloudAgent
+  /** Test-only journal transport, injected by the deterministic host. */
+  readonly fixtureJournal?: {
+    start: (body: StartAgentTurnRequest, start: () => Response) => Promise<Response>
+    access: (request: Request) => Promise<Response>
+  }
   /** Offline has no network egress; hybrid explicitly enables Smithers Cloud. */
   readonly cloudMode?: "offline" | "hybrid"
   /**
@@ -168,7 +172,7 @@ export interface LocalServerOptions {
    */
   readonly nativeShell?: boolean
   /**
-   * Where the host remembers state across launches (the turn journal). The
+   * Test fixture state directory. The
    * native launcher passes the platform's application-support directory; a
    * test passes a temp dir or nothing.
    */
@@ -687,13 +691,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   const websocketProtocol = localSessionProtocol(sessionToken)
 
   const writers = new Map<string, TurnWriter>()
-  const turnJournal = createNativeTurnJournal(options.stateDir)
   const publishFrame = (frame: AgentTurnFrame): void => writers.get(frame.runId)?.write(frame)
-  const agent: CloudAgent | undefined = options.agent !== undefined
-    ? options.agent(publishFrame)
-    : cloudUpstream !== null && cloudAuth !== undefined
-    ? createCloudAgent(publishFrame, { api: cloudUpstream, token: cloudAuth.token })
-    : undefined
+  const agent = options.agent?.(publishFrame)
   const finish = (runId: string, writer: TurnWriter): void => {
     if (writers.get(runId) === writer) writers.delete(runId)
     writer.end()
@@ -715,7 +714,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       // The shared table the Worker and the parity matrix read; both cloud
       // doors (`cloud.terminal`, `cloud.pat`) ride the Smithers Cloud upstream.
       capabilities: localCapabilities({
-        agent: agent !== undefined,
+        agent: agent !== undefined || cloudUpstream !== null,
         identity: identityUpstream !== null,
         balance: identityUpstream !== null,
         overview: identityUpstream !== null,
@@ -862,6 +861,26 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }
     return respond()
   }
+  // The backend owns admission, delivery and retirement. Keep the renderer
+  // identity and sealed bytes intact; a disconnect ends delivery only.
+  const relayTurn = async (request: Request, path: string, body: unknown): Promise<Response> => {
+    if (cloudUpstream === null || cloudAuth === undefined) return jsonError("agent_unavailable", "No agent provider is configured in local-only mode.")
+    const bearer = cloudAuth.token()
+    if (bearer === undefined && path !== TURN_ERASE_PATH) return jsonError("cloud_sign_in_required", CLOUD_CHAT_SIGN_IN)
+    const answer = await fetchWithDeadline(new URL(path, new URL(cloudUpstream).origin), {
+      method: "POST", redirect: "manual",
+      headers: { "content-type": "application/json", ...(bearer === undefined ? {} : { authorization: `Bearer ${bearer}` }) },
+      body: JSON.stringify(body)
+    }, upstreamTimeoutMs, request.signal)
+    if ("failure" in answer) return upstreamRefusal(CLOUD_SEAM, answer, upstreamTimeoutMs, log)
+    if (answer.response.status >= 300 && answer.response.status < 400) {
+      await answer.response.body?.cancel()
+      return refuse("upstream_malformed", "Smithers Cloud chat refused a redirect.")
+    }
+    const headers = new Headers(answer.response.headers)
+    headers.delete("set-cookie")
+    return new Response(answer.response.body, { status: answer.response.status, headers })
+  }
   const handleChatTurn: RouteHandler = async ({ request }) => {
     // Bound actual bytes; a chunked request carries no Content-Length.
     const parsed = await readJson(request, MAX_BODY_BYTES)
@@ -871,23 +890,32 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }
     const body = parsed.body
     if ("model" in body) await modelCredentials.refresh()
-    // Refused by code before a recorded leg is admitted: the Cloud agent sends every turn as the signed-in user.
-    else if (options.agent === undefined && agent !== undefined && cloudAuth?.token() === undefined) {
-      return jsonError("cloud_sign_in_required", CLOUD_CHAT_SIGN_IN)
+    if (body.journal !== undefined && !AgentTurnJournalRequestSchema.safeParse(body.journal).success) {
+      return jsonError("invalid_request", "The recorded turn identity is invalid.")
     }
-    if (body.journal === undefined) return startChatTurn(body)
-    const journal = AgentTurnJournalRequestSchema.safeParse(body.journal)
-    if (!journal.success) return jsonError("invalid_request", "The recorded turn identity is invalid.")
-    return turnJournal.start(request, { ...body, journal: journal.data }, () => startChatTurn(body))
+    if (options.agent === undefined && !("model" in body)) return relayTurn(request, TURN_PATH, body)
+    if (body.journal !== undefined) {
+      if (options.fixtureJournal !== undefined) return options.fixtureJournal.start(body, () => startChatTurn(body))
+      return refuse("feature_unavailable_here", "Recorded chat requires the shared backend.")
+    }
+    return startChatTurn(body)
   }
   router.add("POST", TURN_PATH, handleChatTurn)
   router.add("POST", CHAT_TURN_PATH, handleChatTurn)
-  router.add("POST", TURN_REPLAY_PATH, ({ request }) => turnJournal.access(request, false))
-  router.add("POST", TURN_RETIRE_PATH, ({ request }) => turnJournal.access(request, true))
-  router.add("POST", TURN_ERASE_PATH, ({ request }) => turnJournal.access(request, true, true))
+  for (const path of [TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH]) {
+    router.add("POST", path, async ({ request }) => {
+      if (options.fixtureJournal !== undefined) return options.fixtureJournal.access(request)
+      const parsed = await readJson(request, MAX_BODY_BYTES)
+      return "error" in parsed ? parsed.error : relayTurn(request, path, parsed.body)
+    })
+  }
 
   const handleChatCancel: RouteHandler = async ({ request }) => {
-    // A configured-model turn is this host's own fiber and needs no agent; every other turn is the agent's.
+    if (options.agent === undefined && cloudUpstream !== null && sealedTurns.size === 0) {
+      const parsed = await readJson(request)
+      return "error" in parsed ? parsed.error : relayTurn(request, CANCEL_PATH, parsed.body)
+    }
+    // A configured-model fixture owns its fiber; other fixture turns use the injected agent.
     if (agent === undefined && sealedTurns.size === 0) {
       return jsonError("agent_unavailable", "No agent provider is configured in local-only mode.")
     }
@@ -1305,9 +1333,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         () => server.stop(true),
         () => cloudAuth?.stop()
       ].map(async (cleanup) => cleanup()))
-      // Producer cancellation runs before the journal closes. Await stream
-      // finalizers so their terminal observations survive this host restart.
-      results.push(...await Promise.allSettled([turnJournal.close()]))
       const errors = results.flatMap((result) => result.status === "rejected" ? [result.reason] : [])
       if (errors.length > 0) throw new AggregateError(errors, "Local server shutdown failed.")
     }
