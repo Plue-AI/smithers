@@ -141,12 +141,14 @@ func TestGuestEnvRoutesEveryToolchainThroughTheProxy(t *testing.T) {
 	assert.Equal(t, "http://host.microsandbox.internal:41000", env["HTTPS_PROXY"])
 	assert.Equal(t, env["HTTPS_PROXY"], env["https_proxy"])
 	assert.Equal(t, env["HTTP_PROXY"], env["http_proxy"])
+	assert.Equal(t, "1", env["NODE_USE_ENV_PROXY"])
 	for _, name := range []string{"SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"} {
 		assert.Equal(t, "/etc/smithers/egress-ca.pem", env[name], name)
 	}
 	assert.True(t, strings.Contains(env["NO_PROXY"], "host.microsandbox.internal"), "the sandbox host alias stays direct")
 	assert.Equal(t, env["NO_PROXY"], env["no_proxy"])
 	assert.Len(t, GuestEnvNames(), len(env))
+	assert.Contains(t, GuestEnvNames(), "NODE_USE_ENV_PROXY")
 }
 
 func TestGenerateCAProducesASigningCA(t *testing.T) {

@@ -14,7 +14,8 @@ var GuestNoProxy = []string{"localhost", "127.0.0.1", "::1", "host.microsandbox.
 // GuestEnv returns the environment that routes a guest's traffic through the
 // proxy at proxyURL and trusts the MITM CA at caPath. Both the upper- and
 // lower-case proxy spellings are set because tools disagree on which they
-// read (curl reads lower-case only; Go and Node read either).
+// read (curl reads lower-case only; Go and Node read either). Node's built-in
+// HTTP clients also require NODE_USE_ENV_PROXY to opt into these settings.
 //
 // The CA bundle variables are the portable trust path: they work on any
 // guest image, including NixOS, without a distribution trust store. A NixOS
@@ -34,6 +35,7 @@ func GuestEnv(proxyURL, caPath string) map[string]string {
 		"CURL_CA_BUNDLE":      caPath,
 		"REQUESTS_CA_BUNDLE":  caPath,
 		"NODE_EXTRA_CA_CERTS": caPath,
+		"NODE_USE_ENV_PROXY":  "1",
 		"GIT_SSL_CAINFO":      caPath,
 	}
 }
@@ -41,7 +43,7 @@ func GuestEnv(proxyURL, caPath string) map[string]string {
 // GuestEnvNames lists the keys GuestEnv sets, sorted, so callers can assert
 // the proxy wiring cannot be overridden by lower-precedence environment.
 func GuestEnvNames() []string {
-	names := make([]string, 0, 11)
+	names := make([]string, 0, 12)
 	for name := range GuestEnv("http://proxy", "/ca") {
 		names = append(names, name)
 	}
