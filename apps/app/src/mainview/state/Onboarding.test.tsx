@@ -126,19 +126,25 @@ describe("onboarding — the opening entry", () => {
     expect(text(host)).not.toContain("Select a repo to get started.")
   })
 
-  test("cloud host, signed in: with no local picker there is no repo step and no pill", async () => {
+  test("cloud host, signed in: no host diagnostic, no repo step and no pill", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       features: { suggestionPills: true },
+      bootstrap: { ...localBootstrap, host: "cloud", capabilities: ["identity"], authFlow: "redirect", sandbox: null },
       ...backend({
         "/api/user": json(200, { id: 1, username: "will", is_admin: false })
       })
     })
     await controller.loadSession()
     await settled()
+    // Past the signup, so only the cloud rule can hide the host read.
+    await controller.commands.run("signup.finish")
+    await settled()
+    expect(store.session().signup?.stage).toBe("done")
 
     const host = mount(controller)
-    expect(text(host.querySelector(SMITHERS_MESSAGES))).toContain("Smithers initialized successfully")
+    expect(host.querySelector('[data-testid="init-message"]')).toBeNull()
+    expect(text(host)).not.toContain(INIT_TITLE)
     const pills = [...host.querySelectorAll<HTMLElement>(".smithers-suggestion")]
     expect(pills.map((pill) => text(pill))).not.toContain("Select a repo")
     expect(host.querySelector(".message-cta")).toBeNull()
@@ -165,7 +171,7 @@ describe("onboarding — the opening entry", () => {
     expect(text(host)).toContain("Repository initialization failed. Retry opening the repository.")
   })
 
-  test("local host, signed out: sign-in is an option, so the init read still opens the session", async () => {
+  test("local host, signed out: the signup owns the transcript and the host read waits for it", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       bootstrap: { ...localBootstrap, authFlow: "both" },
@@ -179,11 +185,10 @@ describe("onboarding — the opening entry", () => {
     await settled()
 
     const host = mount(controller)
-    const messages = [...host.querySelectorAll(SMITHERS_MESSAGES)].map(text)
-    expect(messages).toHaveLength(1)
-    expect((messages[0] ?? "").startsWith("Smithers here.")).toBe(true)
-    expect(messages[0] ?? "").toContain("Smithers initialized successfully")
-    // Signed out changes what the entry reads, not what it asks: still nothing.
+    expect(host.querySelector('[data-testid="signup"]')).not.toBeNull()
+    expect([...host.querySelectorAll(SMITHERS_MESSAGES)]).toHaveLength(0)
+    expect(text(host)).not.toContain(INIT_TITLE)
+    // Signed out changes what the transcript shows, not what it asks: still nothing.
     expect(host.querySelector(".message-cta")).toBeNull()
     expect(host.querySelector("[data-flow=\"repo.open\"]")).toBeNull()
   })

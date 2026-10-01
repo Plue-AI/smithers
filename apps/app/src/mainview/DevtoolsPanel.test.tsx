@@ -144,3 +144,15 @@ describe("the dev-tools panel's per-dispatch render cost", () => {
     expect(rendered).toContain("/api/thing")
   })
 })
+
+describe("the dev-tools panel's reset door", () => {
+  test("the header's Reset conversation button binds admin.reset.ask, the confirm, never admin.reset", async () => {
+    const view = await mount()
+    const reset = view.host.querySelector<HTMLButtonElement>('button[aria-label="Reset conversation"]')
+    expect(reset?.dataset.flow).toBe("admin.reset.ask")
+    await view.act(() => view.store.dispatch({ type: "message.appended", actor: "system", text: "kept" }))
+    await view.act(() => reset!.click())
+    // Asking discards nothing: the transcript survives the click.
+    expect([...view.store.collections.messages.values()].some(message => message.text === "kept")).toBe(true)
+  })
+})

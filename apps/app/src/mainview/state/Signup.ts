@@ -123,3 +123,12 @@ export const signupAfterIdentity = (signup: Signup | undefined, state: "signed-i
   if (signup.stage !== "sign-in") return signup
   return { ...signup, stage: "account", door: signup.door ?? "github", account: signup.account ?? accountSlug(login), draft: { ...signup.draft, account: signup.draft.account ?? accountSlug(login) } }
 }
+
+/**
+ * The signup editor's owner: it keeps its nodes (and typed input) while the
+ * same person (provider and login) is signed in, and replaces them when
+ * that person changes or signs out. A visitor whose identity answers signed-out after the title
+ * painted has no owner either way, so the title never repaints.
+ */
+export const signupOwnerKey = (identity: { readonly state?: string; readonly provider?: string | null; readonly login?: string | null; readonly accountOwnerLogin?: string | null } | undefined): string =>
+  identity?.state === "signed-in" ? `owner:${identity.provider ?? ""}:${identity.accountOwnerLogin ?? identity.login ?? ""}` : "none"

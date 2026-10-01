@@ -1,8 +1,9 @@
 import { useLiveQuery } from "@tanstack/react-db"
-import { Sparkles } from "lucide-react"
+import { RotateCcw, Sparkles } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useController } from "./ControllerContext"
 import { SurfaceHeader } from "./SurfaceChrome"
+import { flowAction } from "./flows/FlowAction"
 
 /** What a dump reads off any collection: a live row count and its rows. */
 type DumpedCollection = { readonly size: number; readonly values: () => Iterable<unknown> }
@@ -59,7 +60,13 @@ export function DevtoolsPanel() {
         subtitle="The machinery, live"
         closeCommand="admin.devtools"
         onClose={() => controller.runCommand("admin.devtools")}
-      />
+      >
+        {/* The admin reset's one door; it asks before it discards anything. */}
+        <button type="button" className="chrome-action" aria-label="Reset conversation" title="Reset conversation"
+          {...flowAction(controller.runCommand, "admin.reset.ask")}>
+          <RotateCcw size={16} aria-hidden="true" />
+        </button>
+      </SurfaceHeader>
       <div className="devtools-sections">
 
         <section className="devtools-section" aria-label="Store collections">

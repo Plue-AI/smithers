@@ -21,7 +21,7 @@ export default showcase({
 
     await app.open("/")
     const signup = page.getByTestId("signup")
-    await expect(signup.locator("h1")).toHaveText(/Automate\s+your\s+codebase\s+today/)
+    await expect(signup.locator("h1")).toHaveText(/Automate\s+maintaining\s+your\s+codebase/)
     await expect(page.getByTestId("signup-github")).toBeVisible()
     await app.beat(1600)
     await app.click(page.getByTestId("signup-github"))
@@ -55,6 +55,6 @@ export default showcase({
     await app.beat(1200)
     await app.click(page.getByTestId("signup-finish"))
     await expect(signup).toHaveCount(0)
-    await expect(page.getByTestId("first-run-actions")).toBeVisible()
+    await expect(page.getByTestId("setup-checklist")).toBeVisible()
   }
 })

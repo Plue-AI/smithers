@@ -4,19 +4,40 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
+  background: var(--surface-glass-strong);
+  box-shadow: var(--shadow-1);
 }
-.setup-checklist > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.setup-checklist h2 { font-size: 1rem; margin: 0; }
+/* Every step complete: only the tiles remain, without the card's chrome. */
+.setup-checklist[data-complete] { border: 0; padding: 0; background: none; box-shadow: none; }
+.setup-checklist > header { display: flex; align-items: center; gap: 12px; }
+.setup-checklist h2 { font-size: 1rem; margin: 0; flex: 1; }
 .setup-checklist-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.setup-checklist progress { width: 100%; height: 6px; accent-color: var(--brand); }
+.setup-checklist > header > button { min-width: 32px; min-height: 32px; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; }
+.setup-checklist > header > button:hover { background: var(--hover-subtle); }
+.setup-checklist progress { appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 4px; border: 0; border-radius: 2px; background: var(--surface-2); color: var(--g-accent); overflow: hidden; }
+.setup-checklist progress::-webkit-progress-bar { background: var(--surface-2); border-radius: 2px; }
+.setup-checklist progress::-webkit-progress-value { background: var(--g-accent); border-radius: 2px; }
+.setup-checklist progress::-moz-progress-bar { background: var(--g-accent); border-radius: 2px; }
 .setup-checklist ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.setup-checklist li { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.setup-checklist li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; }
 .setup-checklist li[data-complete] { color: var(--text-muted); }
 .setup-checklist li > button { flex: 1; min-height: 44px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); padding: 12px; text-align: left; color: var(--text); font: inherit; overflow-wrap: anywhere; }
 .setup-checklist li > button:hover { background: var(--hover-subtle); }
 .setup-checklist button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.setup-checklist-jobs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 1; }
-.setup-checklist-jobs > button { min-height: 44px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); padding: 12px; text-align: left; color: var(--text); font: inherit; overflow-wrap: anywhere; }
-.setup-checklist-jobs > button:hover { background: var(--hover-subtle); }
-.setup-checklist-jobs > button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-@media (max-width: 480px) { .setup-checklist-jobs { grid-template-columns: 1fr; } }
+.setup-checklist-tiles { display: grid; gap: 8px; flex-basis: 100%; color: var(--text); }
+.setup-checklist-tiles > section { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 8px; }
+.setup-checklist-tiles > section > button { position: relative; display: grid; gap: 8px; align-content: start; min-height: 44px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); padding: 12px; text-align: left; color: var(--text); font: inherit; overflow-wrap: anywhere; font-weight: 600; transition: transform var(--dur) var(--ease-current), border-color var(--dur), background-color var(--dur), box-shadow var(--dur); }
+.setup-checklist-tiles > section > button:hover, .setup-checklist-tiles > section > button:focus-visible { transform: translateY(-2px); border-color: var(--g-accent); background: var(--hover-subtle); box-shadow: var(--shadow-2); }
+/* A set-up job checks off: the mark is drawn, never text, so the label stays the flow's own words. */
+.setup-checklist-tiles > section > button[data-done] { border-color: var(--success); }
+.setup-checklist-tiles > section > button[data-done]::after { content: "✓"; position: absolute; top: 18px; right: 18px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--success); color: var(--inverse-text); font-size: var(--fs-caption); line-height: 1; box-shadow: 0 0 0 2px var(--surface); }
+.setup-checklist-picture { display: block; width: 100%; aspect-ratio: 5 / 3; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-checklist-picture .frp-ink { stroke: var(--text-muted); }
+.setup-checklist-picture .frp-acc { stroke: var(--g-accent); }
+.setup-checklist-picture .frp-accf { fill: var(--g-accent); }
+.setup-checklist-picture .frp-ok { stroke: var(--success); }
+.setup-checklist-picture .frp-okf { fill: var(--success); }
+.setup-checklist-picture .frp-bad { stroke: var(--danger); }
+.setup-checklist-picture .frp-soft { fill: var(--surface); stroke: var(--border-strong); }
+.setup-checklist-picture .frp-fill { fill: var(--surface); }
+@media (max-width: 480px) { .setup-checklist-tiles > section { grid-template-columns: 1fr; } }

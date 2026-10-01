@@ -516,9 +516,8 @@
 }
 .smithers-card[data-maximized="true"] {
 	position: fixed;
-	/* Fixed cards share the space reserved for the persistent header and rail. */
+	/* Fixed cards share the space reserved for the persistent header. */
 	inset: calc(var(--session-strip, 0px) + 1.5rem) 1.5rem 8.5rem;
-	inset-inline-start: calc(var(--chrome-rail-space, 0px) + 1.5rem);
 	z-index: 70;
 	overflow: auto;
 	margin: 0;
@@ -550,10 +549,9 @@
 }
 
 /* Maximizing expands the frame without taking over the app. Keep the shared
- * navigation rail and Chat door above the presentation backdrop so they stay
+ * navigation and Chat door above the presentation backdrop so they stay
  * visible and keep their real pointer and keyboard targets. */
-.session-shell:has(.app-shell[data-frame-maximized="true"]) .session-navigation,
-.session-shell:has(.app-shell[data-frame-maximized="true"]) .chrome-dock {
+.session-shell:has(.app-shell[data-frame-maximized="true"]) .session-navigation {
 	z-index: 75;
 }
 

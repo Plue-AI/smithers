@@ -10,7 +10,7 @@ export default showcase({
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await app.open("/")
-    await expect(page.getByTestId("first-run-actions")).toBeVisible()
+    await expect(page.getByTestId("setup-checklist")).toBeVisible()
     await app.press("ControlOrMeta+k")
     const input = page.getByTestId("composer-input")
     await expect(input).toBeFocused()
@@ -30,7 +30,7 @@ export default showcase({
     await app.beat(900)
     const shade = () => page.evaluate(() => document.documentElement.dataset.theme ?? document.documentElement.className)
     const before = await shade()
-    await app.click(page.getByRole("button", { name: "Toggle light and dark mode" }))
+    await app.slash("/appearance.dark-mode")
     await expect.poll(shade).not.toBe(before)
     await app.beat(1200)
   }

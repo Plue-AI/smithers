@@ -43,7 +43,7 @@ export default showcase({
     })
 
     await app.open("/")
-    await expect(page.getByTestId("first-run-actions")).toBeVisible()
+    await expect(page.getByTestId("setup-checklist")).toBeVisible()
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
     await app.slash(`/flow.run review-pr ${REPO} {"args":"PR #70"}`)
     const card = page.locator('[data-kind="run-trace"]')

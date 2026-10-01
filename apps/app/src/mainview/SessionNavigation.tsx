@@ -1,6 +1,5 @@
 import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback,type CSSProperties } from "react"
-import { ChromeDock } from "./ChromeDock"
 import { useController } from "./ControllerContext"
 import { KeyboardNavigation } from "./KeyboardNavigation"
 import { LocalAuthPanel } from "./LocalAuthPanel"
@@ -59,7 +58,7 @@ export function SessionNavigation() {
     {sessions[0]?.inputMode === "vim" && <KeyboardNavigation />}
     <header className="session-navigation" aria-label="Smithers" data-keyboard-pane="Navigation" ref={mount}>
       <h1 className="guide-wordmark" aria-label="Smithers" style={{ margin: 0 }}><Mark /></h1>
-      {/* Signed in, the header carries no account chrome; Account lives in the dock and /account.show. */}
+      {/* Signed in, the header carries no account chrome; Account is /account.show. */}
       {identity?.state !== "signed-in" && controller.commands.find("auth.sign-in") !== undefined && <div className="session-identity">
         <button type="button" className="chrome-action" data-testid="chrome-sign-in" {...flowAction(controller.runCommand, "auth.sign-in")}>
           {controller.localAuth === undefined ? "Sign in with GitHub" : "Sign in"}
@@ -68,6 +67,5 @@ export function SessionNavigation() {
       {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
       <RegistrationStatus />
     </header>
-    <ChromeDock />
   </>
 }

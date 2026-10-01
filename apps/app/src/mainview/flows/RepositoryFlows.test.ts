@@ -23,7 +23,7 @@ import { visibleItems } from "./Commands"
 import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
 import { loadBox } from "../state/TestFixtures"
-import { firstRunGroups, FIRST_RUN_JOBS } from "../cards/FirstRunActions"
+import { firstRunGroups, FIRST_RUN_JOBS } from "../cards/SetupChecklist"
 
 setDefaultTimeout(30_000)
 

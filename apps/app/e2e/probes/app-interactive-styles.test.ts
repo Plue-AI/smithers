@@ -74,34 +74,3 @@ test("primary actions and Send remain legible in every palette, including hover 
   }
   expect(failures).toEqual([])
 }, 30_000)
-
-test("the dock cannot cover a card or its action as the transcript scrolls at supported widths", async () => {
-  await content(`<div id="root"><div class="session-shell"><header class="session-navigation"></header>
-    <nav class="chrome-dock" aria-label="Chrome">${["Flows", "Secrets", "Account", "Theme"].map(label => `<button class="chrome-icon-action" aria-label="${label}">${label[0]}</button>`).join("")}</nav>
-    <div class="app-shell"><div class="app-main"><div class="tab-body"><div class="chat-frame"><div class="chat-column">
-    <div class="sui-chat-transcript smithers-transcript"><div class="sui-msg-scroller"><div class="sui-msg-scroller-viewport"><div class="sui-msg-scroller-content sui-chat-messages">
-    ${Array.from({ length: 18 }, (_, index) => `<section class="smithers-card"><header class="smithers-card-header"><span class="smithers-card-title">Repository ${index}</span></header><div class="smithers-card-body"><button class="sui-button sui-button-default">Review PR</button></div></section>`).join("")}
-    </div></div></div></div></div></div></div><footer class="app-chat-controls"><button class="guide-button">Chat</button></footer></div></div></div></div>`)
-  for (const width of [320, 400, 640, 800, 1280]) {
-    await page.setViewportSize({ width, height: 800 })
-    for (const scrollTop of [0, 250, 550]) {
-      const measurement = await page.evaluate(scrollTop => {
-        const viewport = document.querySelector(".sui-msg-scroller-viewport")!
-        viewport.scrollTop = scrollTop
-        const dock = document.querySelector(".chrome-dock")!.getBoundingClientRect()
-        const crossing = [...document.querySelectorAll<HTMLElement>(".smithers-card")]
-          .filter(card => { const box = card.getBoundingClientRect(); return box.top < dock.bottom && box.bottom > dock.top })
-        return { crossing: crossing.length, viewport: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth,
-          overlaps: crossing.filter(card => card.getBoundingClientRect().left < dock.right).length,
-          blockedActions: crossing.flatMap(card => [...card.querySelectorAll("button")]).filter(button => {
-            const box = button.getBoundingClientRect()
-            return !button.contains(document.elementFromPoint(box.left + 3, box.top + box.height / 2))
-          }).length }
-      }, scrollTop)
-      expect(measurement.crossing).toBeGreaterThan(0)
-      expect(measurement.overlaps).toBe(0)
-      expect(measurement.blockedActions).toBe(0)
-      expect(measurement.scrollWidth).toBeLessThanOrEqual(measurement.viewport)
-    }
-  }
-}, 15_000)

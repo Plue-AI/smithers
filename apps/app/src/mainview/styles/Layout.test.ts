@@ -147,10 +147,11 @@ describe("a maximized card uses the space beside persistent chrome", () => {
     expect(cards).not.toContain("--chrome-bar-width")
   })
 
-  test("the card clears the header and rail while the backdrop fills the viewport", () => {
+  test("the card clears the header while the backdrop fills the viewport", () => {
     const card = /\.smithers-card\[data-maximized="true"\]\s*\{[^}]*\}/.exec(cards)?.[0] ?? ""
     expect(card).toContain("inset: calc(var(--session-strip, 0px) + 1.5rem) 1.5rem 8.5rem;")
-    expect(card).toContain("inset-inline-start: calc(var(--chrome-rail-space, 0px) + 1.5rem);")
+    expect(card).not.toContain("--chrome-rail-space")
+    expect(card).not.toContain("inset-inline-start")
     expect(card).not.toMatch(/left:/)
     const backdrop = /\.card-maximize-backdrop\s*\{[^}]*\}/.exec(cards)?.[0] ?? ""
     expect(backdrop).toContain("inset: 0;")
@@ -169,7 +170,7 @@ describe("the maximized card keeps Restore reachable (ask 8)", () => {
 describe("a maximized card keeps global chrome usable", () => {
   test("navigation and Chat stay above the backdrop", () => {
     expect(cards).toMatch(
-      /\.session-shell:has\(\.app-shell\[data-frame-maximized="true"\]\) \.session-navigation,[\s\S]*\.chrome-dock\s*\{[^}]*z-index: 75;[\s\S]*\.app-shell\[data-frame-maximized="true"\] \.app-chat-controls\s*\{[^}]*z-index: 75;/
+      /\.session-shell:has\(\.app-shell\[data-frame-maximized="true"\]\) \.session-navigation\s*\{[^}]*z-index: 75;[\s\S]*\.app-shell\[data-frame-maximized="true"\] \.app-chat-controls\s*\{[^}]*z-index: 75;/
     )
   })
 })

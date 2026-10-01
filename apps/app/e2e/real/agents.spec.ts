@@ -23,11 +23,11 @@ const expectBuiltinRoles = async (page: Page): Promise<void> => {
   }
 }
 
-test("the Agents dock button and /agent.list open one durable Agents card that survives a reload", scenario("agents.list-doors-reload", {
+test("/agent.list opens one durable Agents card that survives a reload", scenario("agents.list-doors-reload", {
   capabilities: [],
   coverage: [
-    "action:agent.list", "host:local", "path:success", "path:persistence", "path:keyboard",
-    "door:button", "door:slash", "dimension:keyboard", "dimension:reload", "evidence:persisted-card-after-reload"
+    "action:agent.list", "host:local", "path:success", "path:persistence",
+    "door:slash", "dimension:reload", "evidence:persisted-card-after-reload"
   ]
 }), async ({ page }) => {
   await boot(page)
@@ -37,13 +37,13 @@ test("the Agents dock button and /agent.list open one durable Agents card that s
   await closeComposer(page)
   await expectBuiltinRoles(page)
 
-  // A later card takes the tail; the dock button brings the same Agents card back to it instead of adding a second.
+  // A later card takes the tail; a second /agent.list brings the same Agents card back to it instead of adding a second.
   await listModels(page)
   await expect(cards(page).last()).toHaveAttribute("data-kind", "models")
   await expect(modelsCard(page)).toBeVisible()
-  const dock = page.getByTestId("chrome-agents")
-  await dock.focus()
-  await page.keyboard.press("Enter")
+  await command(page, "/agent.list")
+  await closeComposer(page)
+  await expect(page.getByTestId("chrome-actions")).toHaveCount(0)
   await expect(cards(page).last()).toHaveAttribute("data-kind", "agents")
   await expectBuiltinRoles(page)
   await expect(page.locator('.smithers-card[data-kind="agents"]')).toHaveCount(1)

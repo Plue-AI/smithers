@@ -1,4 +1,4 @@
-import { controlTabKey, expect,test,type Page } from "./browserTest"
+import { expect,test,type Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture"
 
 /*
@@ -195,7 +195,7 @@ for (const sample of [
   await page.goto("/")
   await openWorkspaceChat(page)
   if (sample.dark) {
-    await page.getByRole("button", { name: "Toggle light and dark mode" }).click()
+    await sendSlash(page, "/appearance.dark-mode")
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   }
   await sendSlash(page, "/appearance.theme")
@@ -207,13 +207,10 @@ for (const sample of [
   await expect(card).toHaveAttribute("data-maximized", "true")
 
   const chat = page.getByRole("button", { name: "Chat", exact: true })
-  const rail = page.getByRole("navigation", { name: "Chrome" })
-  const railButtons = rail.getByRole("button")
-  expect(await railButtons.count()).toBeGreaterThan(0)
+  // The default chrome has no icon rail (#3334).
+  await expect(page.getByTestId("chrome-actions")).toHaveCount(0)
   const cardBox = await card.boundingBox()
-  const railBox = await rail.boundingBox()
   const headerBox = await page.locator(".session-navigation").boundingBox()
-  expect(cardBox!.x).toBeGreaterThanOrEqual(railBox!.x + railBox!.width + 8)
   expect(cardBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height + 8)
   await expect.poll(() => card.evaluate(node => {
     const box = node.getBoundingClientRect()
@@ -222,7 +219,7 @@ for (const sample of [
       return hit !== null && node.contains(hit)
     })
   })).toBe(true)
-  for (const target of [chat, ...await railButtons.all()]) {
+  for (const target of [chat]) {
     const box = await target.boundingBox()
     expect(box).not.toBeNull()
     expect(await page.evaluate(({ x, y }) => {
@@ -237,18 +234,7 @@ for (const sample of [
   await expect(card).toHaveAttribute("data-maximized", "true")
   await expect(chat).toBeFocused()
 
-  let reachedRailButtons = 0
-  for (let presses = 0; presses < 100 && reachedRailButtons < await railButtons.count(); presses++) {
-    await page.keyboard.press(controlTabKey(page))
-    if (await railButtons.nth(reachedRailButtons).evaluate(node => node === document.activeElement)) reachedRailButtons++
-  }
-  expect(reachedRailButtons).toBe(await railButtons.count())
-  await page.keyboard.press(controlTabKey(page, true))
-  await expect(railButtons.nth((await railButtons.count()) - 2)).toBeFocused()
-  const theme = page.getByRole("button", { name: "Toggle light and dark mode" })
-  await page.keyboard.press(controlTabKey(page))
-  await expect(theme).toBeFocused()
-  await page.keyboard.press("Enter")
+  await sendSlash(page, "/appearance.dark-mode")
   await expect(page.locator("html")).toHaveAttribute("data-theme", sample.dark ? "light" : "dark")
   await expect(card).toHaveAttribute("data-maximized", "true")
 

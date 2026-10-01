@@ -156,7 +156,7 @@ describe("the desktop shell still does", () => {
     const { host, markup } = mount(controller)
     expect(host.querySelector(".smithers-chat-message .message-cta")).toBeNull()
     expect(markup()).not.toContain("Sign in to continue.")
-    expect(host.querySelector('[data-testid="first-run-actions"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
   })
 
   test("the identity names the native app", async () => {

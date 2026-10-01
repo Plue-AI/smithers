@@ -283,7 +283,7 @@ describe("launch-law parity: every affordance is a command", () => {
       // Toast dismissal is owned by ToastStack; includes dock Close and dictation controls.
       // Close, Back and Next all dispatch onboarding.act through IntroSlidesShell.
       // The optional capability reel after the last lesson: its launch pill and its Back.
-      // Delegates to the shared onboarding and existing app flows; the Command-K overlay is the summoned composer with no chrome of its own. The dock lists Wiki and History only — no Library entry.
+      // Delegates to the shared onboarding and existing app flows; the Command-K overlay is the summoned composer with no chrome of its own.
       /*
        * The chrome Sign in button (LOCAL-APP.md: sign-in is an option in the
        * chrome, never a gate on the chat) is SessionNavigation's one handler
@@ -313,8 +313,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../HelpBubble.tsx": 1,
       "../InputModeMenu.tsx": 2,
       "../SessionNavigation.tsx": 1, // -1: the wordmark is a static mark; the sidebar it toggled is gone.
-      "../cards/FirstRunActions.tsx": 2, // +2: the first-run card's dismiss and shared action button.
-      "../cards/SetupChecklist.tsx": 2, // The shared step button and the shared job button; each one's flow is data, not a handler.
+      "../cards/SetupChecklist.tsx": 3, // The shared step button, the shared job tile, and the dismiss; each one's flow is data, not a handler.
       "../cards/SignupCards.tsx": 10, // The signup onboarding: the GitHub door, the account submit, poll choice/back/skip/continue/send/repo/new-repo, finish.
       "../cards/CodingVibeCard.tsx": 1,
       "../cards/RepositoryUpdateCard.tsx": 3,
@@ -365,7 +364,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * repository chooser's row and the workflow list's Run.
        */
       "../cards/WorkflowCards.tsx": 16, // Includes a failed launch's Retry, a FailureNotice action (flow.run.retry).
-      "../DevtoolsPanel.tsx": 1,
+      "../DevtoolsPanel.tsx": 2, // + Reset conversation, admin.reset.ask's door since the rail left (#3334).
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
       "../ToastAction.tsx": 1,
@@ -509,17 +508,6 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/WikiCards.tsx": 5, // + the history card's Previous/Next page (wiki.history).
       /* The wiki navigation (#1922): the space switch (wiki.space), the tree rows (wiki.select / wiki.cloud.open), the tag filter. */
       "../wiki/WikiNavigation.tsx": 4,
-      /*
-       * The dock (ChromeDock.tsx): the chrome as a vertical icon rail on the
-       * left edge, always on screen — Download the app (cloud host, while a
-       * native release exists), Wiki, Dispatcher, Flows, Secrets, History,
-       * Account, the admin reset, and the theme toggle. Each is the button
-       * door of one registered flow and renders exactly where that flow
-       * registers. The `+` menu's local acts (Terminal, the role maps, the
-       * harness maps) went with the local backend
-       * (docs/LOCAL-BACKEND-RETIREMENT.md).
-       */
-      "../ChromeDock.tsx": 12, // + Inbox, Threads and Agents doors (smithers-ui-DESIGN.md §1).
     })
   })
 
@@ -732,18 +720,18 @@ describe("launch-law parity: every affordance is a command", () => {
   })
 
   /*
-   * The two look-and-feel axes, at their binding sites: the corner button IS
-   * the light/dark toggle (/dark-mode), and /theme is the palette command
-   * that takes its key as an argument. Both are model-invocable now — every
-   * listed flow is a tool call (flows/invocable.test.ts) — so this test
-   * guards the binding sites and the args hint, not the trigger axis.
+   * The two look-and-feel axes: the light/dark toggle (/dark-mode) and /theme,
+   * the palette command that takes its key as an argument. The default chrome
+   * has no icon rail (#3334), so the toggle's doors are slash and agent; the
+   * theme picker card binds the palette command only. Both are
+   * model-invocable — every listed flow is a tool call
+   * (flows/invocable.test.ts) — so this test guards the binding sites and
+   * the args hint, not the trigger axis.
    */
   test("the light/dark toggle and the color theme are separate commands the model can call", () => {
-    // The toggle lives in the dock's bottom-left chrome, so it is on screen in every tab.
-    const chrome = files["../ChromeDock.tsx"] ?? ""
-    expect(chrome).toContain("runCommand(\"appearance.dark-mode\")")
-    expect(chrome).not.toContain("runCommand(\"appearance.theme\")")
-    expect(files["../App.tsx"] ?? "").not.toContain("runCommand(\"appearance.dark-mode\")")
+    const picker = files["../cards/ThemePickerCard.tsx"] ?? ""
+    expect(picker).toContain("onRunCommand(\"appearance.theme\", swatch.key)")
+    expect(picker).not.toContain("appearance.dark-mode")
     const registrySource = registrySources()
     // A declaration is a const literal (`const THEME = { ... }`); the slice ends
     // at the literal's close.

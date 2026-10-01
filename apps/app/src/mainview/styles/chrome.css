@@ -45,41 +45,6 @@
 	color: var(--bubble-meta, var(--text));
 }
 
-/*
- * The dock: a vertical icon rail on the left edge, centered in the viewport
- * and visible on every surface — no sidebar, no drawer, no toggle. A
- * hairline and the recessed rail fill keep it quiet over whatever body is
- * beneath it.
- */
-.chrome-dock {
-	position: absolute;
-	top: 50%;
-	left: var(--sp-3);
-	z-index: 55;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--sp-1);
-	padding: 2px;
-	border: 1px solid var(--border);
-	border-radius: 10px;
-	background: var(--surface-2);
-	transform: translateY(-50%);
-	/* Row fills derive from the ink, not the palette's --hover: in most dark
-	   palettes --hover IS --surface-2 verbatim, so a var(--hover) row fill
-	   vanished on the rail. An 8% ink tint steps from the rail everywhere. */
-	--rail-fill: color-mix(in srgb, var(--text) 8%, transparent);
-	--rail-fill-strong: color-mix(in srgb, var(--text) 14%, transparent);
-}
-
-/* Reserve the dock's 36px width and its 12px gutters for every app surface. */
-.session-shell:has(> .chrome-dock) {
-	--chrome-rail-space: calc(36px + var(--sp-3) * 2);
-}
-.session-shell:has(> .chrome-dock) > .app-shell {
-	margin-inline-start: var(--chrome-rail-space);
-}
-
 /* One row recipe: 32px, 8px inline padding, 8px radius. */
 .chrome-action {
 	display: flex;
@@ -94,7 +59,7 @@
 
 .chrome-action:hover,
 .chrome-action:focus-visible {
-	background: var(--rail-fill, color-mix(in srgb, var(--text) 8%, transparent));
+	background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 /* Sign-in shares the card action's readable foreground. */
@@ -108,26 +73,6 @@
 .chrome-action[data-flow="auth.sign-in"]:focus-visible {
 	background: color-mix(in srgb, var(--brand) 16%, var(--surface));
 	color: var(--action-primary);
-}
-
-/* Dock utilities stay quiet: no glass chips on the recessed rail. */
-.chrome-icon-action {
-	display: inline-flex;
-	width: 30px;
-	height: 30px;
-	align-items: center;
-	justify-content: center;
-	border: 0;
-	border-radius: var(--r-sm);
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-muted);
-}
-
-.chrome-icon-action:hover,
-.chrome-icon-action:focus-visible {
-	background: var(--rail-fill-strong, color-mix(in srgb, var(--text) 14%, transparent));
-	color: var(--text);
 }
 
 .app-chat-controls { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); min-height: 52px; padding: var(--sp-2) var(--sp-5); }

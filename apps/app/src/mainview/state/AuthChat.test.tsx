@@ -197,7 +197,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
     const { host, markup } = mount(controller)
     expect(host.querySelector('[data-testid="transcript"]')?.hasAttribute("data-repository-missing")).toBe(false)
     expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("sign-in")
-    expect(host.querySelector(".signup h1")?.textContent).toBe("Automate your codebase today")
+    expect(host.querySelector(".signup h1")?.textContent).toBe("Automate maintaining your codebase")
     const door = host.querySelector<HTMLButtonElement>('.signup-door[data-flow="auth.sign-in"]')
     expect(door?.dataset.testid).toBe("signup-github")
     expect(door?.textContent).toBe("Continue with GitHub")
@@ -205,7 +205,6 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect([...host.querySelectorAll(".smithers-chat-message")]).toEqual([])
     expect(markup()).not.toContain(WEB_OPENING)
     expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
-    expect(host.querySelector('[data-testid="first-run-actions"]')).toBeNull()
     expect(markup()).not.toContain("Smithers initialized")
     expect([...host.querySelectorAll(".smithers-suggestion")]).toEqual([])
     // The chat is still the only page: transcript and composer, no takeover.

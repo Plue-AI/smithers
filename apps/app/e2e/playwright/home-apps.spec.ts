@@ -92,9 +92,8 @@ test("the home is the question, the composer and the apps; opening one gives one
   // Four across at full width, one row.
   expect(new Set(await tiles.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)))).size).toBe(1)
   await expect(page.getByPlaceholder("Ask Smithers…")).toBeVisible()
-  // The home replaces the setup checklist, the recommended jobs and the host diagnostic.
+  // The home replaces the setup checklist (with its job tiles) and the host diagnostic.
   await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
-  await expect(page.getByTestId("first-run-actions")).toHaveCount(0)
   await expect(page.getByText("Smithers initialized successfully")).toHaveCount(0)
   // The home alone carries no chat controls strip: no Chat button, no Filter, no Mode, and no tip over them. ⌘K still summons Chat.
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)

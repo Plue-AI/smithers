@@ -2,8 +2,9 @@
 
 > Superseded 2026-09-17: the sidebar drawer is removed. The wordmark is a
 > static mark; the footer chrome (Wiki, Dispatcher, Flows, Secrets, History,
-> Account, reset, theme) is the always-on icon dock at the bottom left
-> (`src/mainview/ChromeDock.tsx`). Tabs are card tabs (Cmd+W / Cmd+1..9;
+> Account, reset, theme) moved to an always-on icon dock, which was itself
+> removed 2026-10-01 (those flows keep their slash and agent doors; an
+> agent-pinnable rail is #3334). Tabs are card tabs (Cmd+W / Cmd+1..9;
 > the terminal and harness tabs, Cmd+T and the `+` menu retired, #2229);
 > repository selection lives in the
 > composer's repository menu. The tree seam (`repo.tree`) keeps its slash and

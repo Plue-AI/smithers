@@ -30,7 +30,7 @@ test("rapid Wiki retries after a 409 keep the writer healthy", async ({ page }) 
     return route.fulfill({ status: 409, json: { message: "history does not exist" } })
   })
   await page.goto("/")
-  await expect(page.getByTestId("first-run-actions")).toBeVisible()
+  await expect(page.getByTestId("setup-checklist")).toBeVisible()
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await fillComposer(page, `/wiki.create ${REPO}`)
     await page.getByTestId("composer-send").click()

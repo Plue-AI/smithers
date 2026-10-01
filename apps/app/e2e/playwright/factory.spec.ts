@@ -189,17 +189,15 @@ const boot = async (page: Page): Promise<void> => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" })
   await page.goto("/")
-  await expect(page.getByTestId("first-run-actions")).toBeVisible()
+  await expect(page.getByTestId("setup-checklist")).toBeVisible()
   await page.getByRole("button", { name: "Dismiss", exact: true }).focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByTestId("first-run-actions")).toBeHidden()
+  await expect(page.getByTestId("setup-checklist")).toBeHidden()
 }
 
-/** Flip the theme through the chrome's toggle, by keyboard, and wait for the root to say so. */
+/** Flip the theme through /appearance.dark-mode and wait for the root to say so. */
 const toggleTheme = async (page: Page, to: "light" | "dark"): Promise<void> => {
-  const toggle = page.getByRole("button", { name: "Toggle light and dark mode" })
-  await toggle.focus()
-  await page.keyboard.press("Enter")
+  await command(page, "/appearance.dark-mode")
   await expect(page.locator("html")).toHaveAttribute("data-theme", to)
 }
 

@@ -9,7 +9,7 @@ import { scopedControllers } from "../state/ControllerTestScope"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
 import { ControllerContext } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
-import { SignupCardBody, SignupCards } from "./SignupCards"
+import { SignupCardBody, SignupCards, welcome } from "./SignupCards"
 
 GlobalRegistrator.register()
 afterAll(async () => {
@@ -128,11 +128,19 @@ describe("the signup cards", () => {
     expect(flows().filter(row => row[1] === "signup.repo").map(row => row[2])).toEqual(["adapark/hello-server", "new"])
   })
 
-  test("ready shows the account URL, the giant Start Automating door, and the tutorial slot", () => {
-    const { host, flows } = render({ ...initialSignup(), stage: "ready", account: "adapark" })
+  test("ready greets the person, shows the account URL and the giant Start Automating door, and nothing it cannot play", () => {
+    const { host, flows } = render({ ...initialSignup(), stage: "ready", account: "adapark", name: "  Ada  Park " })
+    expect(host.querySelector("h2")?.textContent).toBe("Welcome, Ada")
     expect(host.querySelector(".signup-url-line")?.textContent).toBe("smithers.sh/adapark")
     expect(flows()).toEqual([["Start Automating", "signup.finish", undefined]])
-    expect(host.querySelector('[data-testid="signup-video"]')).not.toBeNull()
+    expect(host.querySelector("video, [data-testid=\"signup-video\"]")).toBeNull()
+  })
+
+  test("welcome uses the first word of the name, and stands alone without one", () => {
+    expect(welcome("Ada Park")).toBe("Welcome, Ada")
+    expect(welcome("Prince")).toBe("Welcome, Prince")
+    expect(welcome("   ")).toBe("Welcome")
+    expect(welcome(undefined)).toBe("Welcome")
   })
 })
 

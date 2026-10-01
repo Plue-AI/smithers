@@ -67,14 +67,14 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
   })
 }
 
-// The Wiki is core (D-09b): the chrome offers its door, and the web host seeds no World page.
-test("unknown repository has one sign-in card beside the Wiki door", async ({ page }) => {
+// The Wiki is core (D-09b) and the web host seeds no World page; the default chrome has no icon rail (#3334).
+test("unknown repository has one sign-in card and no icon rail", async ({ page }) => {
   await signedOutVisitor(page)
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [] } }))
   await page.goto("/nope/nope/")
   await expect(page.getByRole("article").filter({ has: page.locator('[data-flow="auth.sign-in"]') })).toContainText("nope/nope")
   await expect(page.getByRole("article").filter({ has: page.locator('[data-flow="auth.sign-in"]') })).toHaveCount(1)
-  await expect(page.getByTestId("chrome-wiki")).toHaveCount(1)
+  await expect(page.getByTestId("chrome-actions")).toHaveCount(0)
   await expect(page.locator(".world-document-title")).toHaveCount(0)
 })
 

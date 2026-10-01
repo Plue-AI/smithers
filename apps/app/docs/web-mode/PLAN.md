@@ -1,5 +1,7 @@
 # Web mode (funnel) beside native mode (default) — combined plan
 
+> Partly superseded 2026-10-01 (smithersai/smithers#3334): the chrome icon rail and its `chrome-download` button are removed; Download the app is the card action the `app.download.prompt` and refusal cards carry.
+>
 > Superseded 2026-09-30 (smithersai/smithers#3228): the chat Worker and its `SMITHERS_CHAT_URL`/`SMITHERS_CHAT_ORIGIN` settings are retired; every chat turn is the shared backend's `POST /api/agent/turn`.
 >
 > Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.

@@ -43,7 +43,8 @@ export default showcase({
     })
 
     await app.open("/")
-    await app.click(page.getByRole("button", { name: "Account", exact: true }))
+    await app.slash("/account.show")
+    await app.closeComposer()
     const account = page.locator('.smithers-card[data-kind="account"]').last()
     await expect(account).toContainText("@codeplanesmithers")
     await app.show(account)

@@ -121,8 +121,9 @@ export default showcase({
 
     await app.open("/")
     await app.click(page.getByRole("button", { name: "Dismiss", exact: true }))
-    // The Flows chrome button is the `flows` surface: the repository's flow list as a card.
-    await app.click(page.getByRole("button", { name: "Flows", exact: true }))
+    // /flows is the `flows` surface: the repository's flow list as a card.
+    await app.slash("/flows")
+    await app.closeComposer()
     const list = page.locator('[data-kind="workflow-list"]').last()
     await expect(list).toContainText(FLOW)
     await expect(list).toContainText("triage-issue")

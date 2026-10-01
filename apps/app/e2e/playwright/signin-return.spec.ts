@@ -53,7 +53,9 @@ test("the chrome sign-in door returns to the repository page signed in", async (
     expect(destination.pathname).toBe("/smithersai/smithers/")
     expect(starts).toEqual(["/smithersai/smithers/"])
 
-    await page.getByTestId("chrome-account").click()
+    await page.getByRole("button", { name: "Chat", exact: true }).click()
+    await page.getByTestId("composer-input").fill("/account.show")
+    await page.getByTestId("composer-send").click()
     await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
       .toContainText(`@${SCOPED_TEST_USER.login}`)
     // Read once the returned page renders the account: a booting page shows no door either.

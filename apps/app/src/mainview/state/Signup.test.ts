@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createAppStore, type AppStore } from "./AppStore"
-import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, validAccountName, type Signup } from "./Signup"
+import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, signupOwnerKey, validAccountName, type Signup } from "./Signup"
 import { memoryStorage } from "./TestFixtures"
 
 const closeStore = async (store: AppStore) => {
@@ -149,4 +149,23 @@ test("a sign-in row with an explicit GitHub door advances like a legacy row with
     })
     expect(signup).toEqual(before)
   }
+})
+
+describe("signupOwnerKey", () => {
+  test("no owner before and after the first signed-out answer: the title keeps its nodes", () => {
+    expect(signupOwnerKey(undefined)).toBe(signupOwnerKey({ state: "unknown" }))
+    expect(signupOwnerKey({ state: "unknown" })).toBe(signupOwnerKey({ state: "signed-out", login: null }))
+    expect(signupOwnerKey({ state: "unavailable" })).toBe("none")
+  })
+  test("the same signed-in owner keeps the editor; a different owner or a sign-out replaces it", () => {
+    const ada = signupOwnerKey({ state: "signed-in", login: "ada" })
+    expect(signupOwnerKey({ state: "signed-in", login: "ada" })).toBe(ada)
+    expect(signupOwnerKey({ state: "signed-in", login: "bob" })).not.toBe(ada)
+    expect(signupOwnerKey({ state: "signed-out", login: null })).not.toBe(ada)
+  })
+  test("the account owner outranks the login, and the provider separates same-named owners", () => {
+    expect(signupOwnerKey({ state: "signed-in", provider: "github", login: "ada", accountOwnerLogin: "acme" })).toBe("owner:github:acme")
+    expect(signupOwnerKey({ state: "signed-in", provider: "github", login: "ada", accountOwnerLogin: null })).toBe("owner:github:ada")
+    expect(signupOwnerKey({ state: "signed-in", provider: "local", login: "ada" })).not.toBe(signupOwnerKey({ state: "signed-in", provider: "github", login: "ada" }))
+  })
 })

@@ -73,6 +73,8 @@ export default defineConfig({
       proxy: process.env.SMITHERS_DEV_API_ORIGIN
         ? Object.fromEntries(["/api", "/v1", "/workflows"].map((path) => [path, {
           target: process.env.SMITHERS_DEV_API_ORIGIN,
+          // An https origin (a deployed backend) needs its own Host and TLS SNI.
+          changeOrigin: true,
           ws: true,
           timeout: 10_000,
           proxyTimeout: 10_000

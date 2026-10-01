@@ -19,7 +19,6 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef,useState } from "react"
 import { cardActions } from "./cards/CardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
-import { FirstRunActions } from "./cards/FirstRunActions"
 import { SetupChecklist } from "./cards/SetupChecklist"
 import { SignupCards } from "./cards/SignupCards"
 import { signupOpening } from "./state/Signup"
@@ -357,8 +356,10 @@ function AppContent() {
   // precedes that card's load, so the technical success read never flashes first.
   // The desktop shell's diagnostics and stored failures keep their existing presentation.
   const repositoryOpening = !nativeShellHost && session.activeRepoKey != null
-  // A new conversation opens empty; the host's opening read belongs to main alone.
-  const openingMessage: InitMessage | undefined = gatedByAuth || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
+  // A new conversation opens empty; the host's opening read belongs to main alone, after the signup.
+  // The host read is a diagnostic: local and desktop hosts show it; a cloud visitor never needs it.
+  const cloudWeb = controller.bootstrap?.host === "cloud" && !nativeShellHost
+  const openingMessage: InitMessage | undefined = gatedByAuth || signingUp || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
     connectors: connectorRows,
@@ -391,7 +392,7 @@ function AppContent() {
 
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
-  const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : !session.firstRunDismissed ? "first-run-actions" : undefined
+  const initialReadId = signingUp ? "signup" : repositoryNotice ? authMessage?.id : appsHome ? homeCard?.id : !session.firstRunDismissed ? "setup-checklist" : undefined
 
   // Chat stays mounted when closed.
   const composerWrap = (
@@ -540,6 +541,7 @@ function AppContent() {
 
           <div className="sui-chat-transcript smithers-transcript" data-slot="chat-transcript"
             data-repository-missing={repositoryNotice || undefined}
+            data-signup={signingUp || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
           <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
@@ -555,9 +557,9 @@ function AppContent() {
             {!signingUp && !repositoryNotice && homeCard && <MessageScrollerItem messageId={homeCard.id}>
               <RepositoryHomeCard card={homeCard} onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
-            {signingUp && <MessageScrollerItem messageId="signup"><SignupCards /></MessageScrollerItem>}
+            {/* Always rendered: the landing page's tagline transition snapshots this headline on its first frame. */}
+            {signingUp && <MessageScrollerItem messageId="signup" style={{ contentVisibility: "visible" }}><SignupCards /></MessageScrollerItem>}
             {!signingUp && !repositoryNotice && !appsHome && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
-            {!signingUp && !repositoryNotice && !appsHome && !session.firstRunDismissed && <MessageScrollerItem messageId="first-run-actions"><FirstRunActions commands={flows} /></MessageScrollerItem>}
             {session.firstRunDismissed && entries.length === 0 && !homeCard && <EmptyState className="transcript-empty" icon={<Sparkles size={20} />}
               title="Nothing here yet" description="Ask Smithers anything to get started." />}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
@@ -620,7 +622,8 @@ function AppContent() {
       <div className="composer-overlay" data-testid="composer-overlay" hidden={session.paletteOpen !== true}>
         {composerWrap}
       </div>
-      <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
+      {/* The signup owns the screen: Chat arrives once there is something to ask it. */}
+      {signingUp ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
         hidden={homeOnly && session.inputMode !== "vim"}>
         {homeOnly ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
@@ -630,7 +633,7 @@ function AppContent() {
         {homeOnly && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
         {homeOnly ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
         {homeOnly ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
-      </footer>
+      </footer>}
       </div>
 
       {

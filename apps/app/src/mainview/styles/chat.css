@@ -1159,6 +1159,8 @@
 
 /* The unknown-repository arrival is a single opening notice. */
 .app-shell .smithers-transcript[data-repository-missing] .sui-chat-messages > :first-child { margin-top: 0; }
+/* The signup headline sits at the top, where the landing page's tagline lands. */
+.app-shell .smithers-transcript[data-signup] .sui-chat-messages > :first-child { margin-top: 0; }
 /* Lesson lines are centered; conversation bubbles retain normal reading alignment. */
 .chat-run-timeline {
   flex: none;

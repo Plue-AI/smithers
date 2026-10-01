@@ -11,7 +11,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useController } from "../ControllerContext"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import type { Signup } from "../state/Signup"
-import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupOpening, validAccountName } from "../state/Signup"
+import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupOpening, signupOwnerKey, validAccountName } from "../state/Signup"
 import type { RunCommand } from "./CardFamily"
 import "./SignupCards.css"
 
@@ -80,14 +80,19 @@ export function SignupCardBody({ signup, repos, onRunCommand, doors = true }: { 
       </form>
     </section>}
     {signup.stage === "poll" && <PollCard signup={signup} repos={repos} onRunCommand={onRunCommand} />}
-    {signup.stage === "ready" && <section className="signup-card signup-ready" aria-label="Your workspace is ready">
+    {signup.stage === "ready" && <section className="signup-card signup-ready" aria-label="Welcome">
       <svg className="signup-mark" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="32" cy="32" r="29" /><path d="M20 33l8 8 16-17" /></svg>
-      <h2>Your workspace is ready!</h2>
+      <h2>{welcome(signup.name)}</h2>
       <div className="signup-url-line">smithers.sh/<b>{signup.account}</b></div>
       <button type="button" className="signup-giant" data-testid="signup-finish" {...flowAction(onRunCommand, "signup.finish")}>Start Automating</button>
-      <div className="signup-video" data-testid="signup-video" aria-label="Tutorial video"><span className="signup-play" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M7 4.5v15l13-7.5z" /></svg></span></div>
     </section>}
   </div>
+}
+
+/** The ready card greets the person by the first word of the name they gave; no name, no comma. */
+export const welcome = (name: string | undefined): string => {
+  const first = name?.trim().split(/\s+/)[0]
+  return first ? `Welcome, ${first}` : "Welcome"
 }
 
 const STAGE_ORDER: ReadonlyArray<Signup["stage"]> = ["sign-in", "account", "poll", "ready", "done"]
@@ -141,5 +146,5 @@ export function SignupCards() {
   if (opening === false) return null
   // Pending DOM input belongs to this owner too, even before its command saves.
   // Same-owner refreshes retain the editor; retirement replaces its nodes.
-  return <SignupCardBody key={identities[0]?.ownerRevision ?? 0} signup={signup ?? initialSignup()} doors={opening === "full"} repos={repositories.filter(row => row.catalog !== true).map(row => ({ id: row.id }))} onRunCommand={controller.runCommand} />
+  return <SignupCardBody key={signupOwnerKey(identities[0])} signup={signup ?? initialSignup()} doors={opening === "full"} repos={repositories.filter(row => row.catalog !== true).map(row => ({ id: row.id }))} onRunCommand={controller.runCommand} />
 }

@@ -10,6 +10,8 @@
 @keyframes signup-word { to { opacity: 1; transform: none; filter: blur(0); } }
 .signup-rule { display: block; width: 0; height: 3px; margin: 18px auto 0; border-radius: 2px; background: var(--g-accent); animation: signup-rule 600ms var(--ease-current) 650ms forwards; }
 @keyframes signup-rule { to { width: 64px; } }
+/* Arrived from the landing page's tagline (apps/site index.astro): the words are already in place. */
+.signup-hero h1[data-arrived] .signup-word { opacity: 1; transform: none; filter: none; animation: none; }
 /* The doors arrive once the title has settled. */
 .signup-doors-card { animation-delay: 800ms; }
 
@@ -82,8 +84,6 @@
 .signup .signup-giant { width: 100%; min-height: 64px; margin-top: 8px; border-radius: 12px; border: 0; background: var(--g-accent); color: var(--inverse-text); font-size: 1.25rem; font-weight: 600; box-shadow: 0 3px 0 color-mix(in srgb, var(--g-accent) 72%, black), var(--shadow-2); transition: transform var(--dur) var(--ease-current), box-shadow var(--dur) var(--ease-current), filter var(--dur) var(--ease-current); }
 .signup-giant:hover { transform: translateY(-1px); filter: brightness(0.95); }
 .signup-giant:active { transform: translateY(2px); box-shadow: none; }
-.signup-video { width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; border: 1px solid var(--border); background: linear-gradient(135deg, var(--surface-2), color-mix(in srgb, var(--g-accent) 18%, var(--surface-2))); display: grid; place-items: center; }
-.signup-play { width: 56px; height: 56px; border-radius: 50%; background: var(--inverse-bg); color: var(--inverse-text); display: grid; place-items: center; box-shadow: var(--shadow-2); }
 
 @media (max-width: 480px) { .signup-hero { padding-top: 24px; } }
 @media (prefers-reduced-motion: reduce) { .signup *, .signup *::before, .signup *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; } }

@@ -19,9 +19,8 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
   await page.goto("/")
   const signup = page.getByTestId("signup")
   await expect(signup).toBeVisible()
-  await expect(signup.locator("h1")).toHaveText(/Automate\s+your\s+codebase\s+today/)
+  await expect(signup.locator("h1")).toHaveText(/Automate\s+maintaining\s+your\s+codebase/)
   await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
-  await expect(page.getByTestId("first-run-actions")).toHaveCount(0)
   await expect(page.getByTestId("signup-github")).toHaveCount(0)
   answerIdentity()
   await expect(page.getByTestId("signup-github")).toBeVisible()
@@ -31,6 +30,10 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
   expect(words[1]!.left - words[0]!.right).toBeGreaterThan(4)
   await expect(signup.locator("button")).toHaveCount(1)
   await expect(signup.locator("input, form")).toHaveCount(0)
+  // The signup owns the screen: no Chat controls and no rail until it is done.
+  await expect(page.getByRole("contentinfo", { name: "Chat controls" })).toHaveCount(0)
+  await expect(page.getByTestId("chrome-actions")).toHaveCount(0)
+  await expect(page.getByText("Smithers initialized successfully")).toHaveCount(0)
   await expect(page.getByTestId("setup-checklist")).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/1-hero.png` })
 
@@ -76,9 +79,10 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
 
   await expect(page.getByTestId("signup-finish")).toBeVisible()
   await expect(page.getByTestId("signup")).toContainText("smithers.sh/adapark")
+  await expect(page.getByTestId("signup").locator("h2")).toHaveText("Welcome, Ada")
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/5-ready.png` })
   await page.getByTestId("signup-finish").click()
   await expect(page.getByTestId("signup")).toHaveCount(0)
-  await expect(page.getByTestId("first-run-actions")).toBeVisible()
+  await expect(page.getByTestId("setup-checklist")).toBeVisible()
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/6-home.png` })
 })

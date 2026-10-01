@@ -13,7 +13,7 @@ import { expect,test } from "./browserTest"
  * shipped broken: the dim composited two and three deep in visible bands, the
  * release affordance was scrolled out of reach while `toBeVisible()` still
  * passed (a bounding box is not a hit test), and its own styling lost every
- * declaration to `.sui-button-ghost` and `.first-run-actions button`.
+ * declaration to `.sui-button-ghost` and `.setup-checklist button`.
  *
  * The surface used to be a Wiki note's editor. The browser card is the
  * other card-shaped surface the module detects (state/controller/controlFocus.ts KINDS), so the geometry the tests

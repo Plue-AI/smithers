@@ -53,7 +53,7 @@ export default showcase({
       : route.fulfill({ status: 202, json: current }))
 
     await app.open("/")
-    await app.click(page.getByTestId("chrome-history"))
+    await app.slash("/history.show")
     const card = page.locator('[data-kind="stack"]')
     await expect(card.getByTestId("stack-lane-count")).toHaveText("0/2 lanes")
     // The counts row states the stack's changes; landed-of-decided is the issue metrics line.

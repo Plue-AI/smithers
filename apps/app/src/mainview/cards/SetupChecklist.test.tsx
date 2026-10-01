@@ -7,10 +7,11 @@ import type { RepositorySetup } from "@smthrs/rpc/RepositorySetup"
 import type { RepositoryJobObservation } from "../state/AppState"
 import { ControllerContext } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
+import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
+import type { RepositoryFlow } from "../state/AppState"
 import { memoryStorage } from "../state/TestFixtures"
-import { FIRST_RUN_JOBS } from "./FirstRunActions"
-import { resolveSteps, SETUP_STEPS, SetupChecklist, SetupChecklistCard, hasRegisteredSetup } from "./SetupChecklist"
+import { FIRST_RUN_JOBS, firstRunGroups, resolveSteps, SETUP_STEPS, SetupChecklist, SetupChecklistCard, hasRegisteredSetup } from "./SetupChecklist"
 
 GlobalRegistrator.register()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 0)); await GlobalRegistrator.unregister() })
@@ -112,7 +113,10 @@ test("incomplete steps are flow buttons; completed steps are not interactive", (
   } finally { flushSync(() => root.unmount()) }
 })
 
-test("setup needs a registration and keeps the five jobs reachable after pausing and reload", async () => {
+const tiles = (host: HTMLElement, group = "Repository jobs") => [...host.querySelectorAll<HTMLButtonElement>(`section[aria-label="${group}"] > button`)]
+const stepButtons = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("li > button")]
+
+test("the third step is the job tiles; registration completes it, pausing and reload keep them, and dismissal collapses the card to them", async () => {
   const data = new Map<string, string>()
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
   let store = await createAppStore({ kind: "localStorage", storage })
@@ -121,11 +125,14 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
   const host = document.createElement("div")
   document.body.append(host)
   let root = createRoot(host)
-  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, commands: { all: () => jobCommands }, runCommand: (...args: unknown[]) => { calls.push(args) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, dismissFirstRun: () => store.dispatch({ type: "first-run.dismissed", actor: "user" }), commands: { all: () => jobCommands }, runCommand: (...args: unknown[]) => { calls.push(args) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
   try {
     render()
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(host.querySelectorAll("li button").length).toBe(3)
+    // Steps 1 and 2 are buttons; step 3 is its label over the five tiles, never a single button.
+    expect(stepButtons(host).map(button => button.dataset.flow)).toEqual(["auth.sign-in", "repos.import"])
+    expect(host.querySelectorAll("li")[2]?.firstChild?.textContent).toBe("Set up a job")
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
     flushSync(() => host.querySelector<HTMLButtonElement>('[data-flow="auth.sign-in"]')!.click())
     expect(calls).toEqual([["auth.sign-in", undefined]])
     store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
@@ -137,35 +144,58 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
     store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })
     store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: initialSetup("will/demo", "issues", "will") } })
     await new Promise(resolve => setTimeout(resolve, 20))
+    // A draft card is not a registration.
     expect(host.querySelector("header")?.textContent).toContain("2 of 3")
+    expect(tiles(host).map(button => button.dataset.done)).toEqual([undefined, undefined, undefined, undefined, undefined])
     const setup = initialSetup("will/demo", "issues", "will")
-    store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: true } } } })
-    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: true } }) })
+    const active = (enabled: boolean) => ({ revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled })
+    store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: active(true) } } })
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: active(true) }) })
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
-    store.dispatch({ type: "first-run.dismissed", actor: "user" })
-    store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } } } })
-    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } }) })
+    // Every step complete: only the tiles remain.
+    expect(host.querySelector('[data-testid="setup-checklist"]')?.hasAttribute("data-complete")).toBe(true)
+    expect(host.querySelector("header")).toBeNull()
+    expect(host.querySelector("progress")).toBeNull()
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(tiles(host)[0]?.dataset.done).toBe("true")
+    store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: active(false) } } })
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: active(false) }) })
     await store.settled?.()
     await new Promise(resolve => setTimeout(resolve, 20))
-    const jobs = () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Repository jobs"] > button')]
-    expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
-    expect(jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
-    expect(jobs()[0]?.textContent).toBe("Handle issues · Paused")
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(tiles(host)[0]?.textContent).toBe("Handle issues · Paused")
     flushSync(() => root.unmount())
     await store.dispose?.()
     store = await createAppStore({ kind: "localStorage", storage })
     // Observations are disposable: a fresh host answer, not cached cards, restores labels.
-    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } }) })
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: active(false) }) })
     root = createRoot(host)
     render()
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
-    expect(jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
-    expect(jobs()[0]?.textContent).toBe("Handle issues · Paused")
+    expect(host.querySelector("header")).toBeNull()
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(tiles(host)[0]?.textContent).toBe("Handle issues · Paused")
     store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector("header")?.textContent).toContain("1 of 3")
+    flushSync(() => host.querySelector<HTMLButtonElement>('[data-flow="app.first-run.dismiss"]')!.click())
+    await store.settled?.()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    render()
+    // Dismissed: no header, no steps; every job is still one press away.
+    expect(host.querySelector("header")).toBeNull()
+    expect(host.querySelector("ol")).toBeNull()
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(calls).toEqual([["auth.sign-in", undefined]])
+    // The dismissal survives a reload.
+    flushSync(() => root.unmount())
+    await store.dispose?.()
+    store = await createAppStore({ kind: "localStorage", storage })
+    root = createRoot(host)
+    render()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(host.querySelector("header")).toBeNull()
+    expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
   } finally {
     flushSync(() => root.unmount())
     host.remove()
@@ -174,12 +204,11 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
 })
 
 /*
- * Canary walk run 3, step B3-1: on a profile whose recommended-actions card is
- * dismissed (`firstRunDismissed`) and whose first job exists, a fresh
+ * Canary walk run 3, step B3-1: on a profile whose first job exists, a fresh
  * conversation offered only "Set up a job" and none of the five jobs — the
  * other four were reachable only through slash doors.
  */
-const dismissedHome = async (calls: Array<[string, string | undefined]>, options: { readonly repositories?: boolean; readonly dismissed?: boolean } = {}) => {
+const registeredHome = async (calls: Array<[string, string | undefined]>, options: { readonly repositories?: boolean; readonly dismissed?: boolean } = {}) => {
   const data = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: {
     getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) },
@@ -196,25 +225,26 @@ const dismissedHome = async (calls: Array<[string, string | undefined]>, options
   store.dispatch({ type: "card.upsert", actor: "system", card: card("issues") })
   store.dispatch({ type: "card.upsert", actor: "system", card: card("review", false) })
   for (const item of [card("issues"), card("review", false)]) store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation(item.payload) })
-  if (options.dismissed !== false) store.dispatch({ type: "first-run.dismissed", actor: "user" })
+  if (options.dismissed === true) store.dispatch({ type: "first-run.dismissed", actor: "user" })
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
-  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, commands: { all: () => jobCommands }, runCommand: (name: string, args?: string) => { calls.push([name, args]) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, dismissFirstRun: () => store.dispatch({ type: "first-run.dismissed", actor: "user" }), commands: { all: () => jobCommands }, runCommand: (name: string, args?: string) => { calls.push([name, args]) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
   render()
   await new Promise(resolve => setTimeout(resolve, 20))
-  return { store, host, render, jobs: () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Repository jobs"] > button')],
+  return { store, host, render, jobs: () => tiles(host),
     settle: async () => { await store.settled?.(); await new Promise(resolve => setTimeout(resolve, 20)); render() },
     dispose: async () => { flushSync(() => root.unmount()); host.remove(); await store.dispose?.() } }
 }
 
-test("the five jobs are buttons on the home surface once the first job exists, with the recommended actions dismissed", async () => {
+test("with every step complete the five jobs are the only thing shown, each reading its card's state", async () => {
   const calls: Array<[string, string | undefined]> = []
-  const home = await dismissedHome(calls)
+  const home = await registeredHome(calls)
   try {
-    expect(home.host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
+    expect(home.host.querySelector("header")).toBeNull()
     expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
     expect(home.jobs().map(button => button.textContent)).toEqual(["Handle issues · Enabled", "Review PRs · Paused", "Set up CI", "Build a feature", "Automate a chore"])
+    expect(home.jobs().map(button => button.dataset.done)).toEqual(["true", "true", undefined, undefined, undefined])
     home.jobs()[1]!.click()
     await home.settle()
     expect(calls).toEqual([["review.setup", "will/demo"]])
@@ -222,19 +252,265 @@ test("the five jobs are buttons on the home surface once the first job exists, w
   } finally { await home.dispose() }
 })
 
-test("the third step is the job row once a job exists, and the checklist still names its remaining steps", async () => {
-  const home = await dismissedHome([], { repositories: false })
+test("the third step checks off and keeps its tiles while the checklist names its remaining steps", async () => {
+  const home = await registeredHome([], { repositories: false })
   try {
     expect(home.host.querySelector("header")?.textContent).toContain("2 of 3")
+    expect(home.host.querySelector("progress")?.getAttribute("value")).toBe("2")
     expect(home.host.querySelector('[data-flow="repos.import"]')).not.toBeNull()
+    const third = home.host.querySelectorAll("li")[2]!
+    expect(third.dataset.complete).toBe("true")
+    expect(third.firstChild?.textContent).toBe("✓")
+    expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(home.jobs().every(button => third.contains(button))).toBe(true)
+  } finally { await home.dispose() }
+})
+
+test("the dismissal closes the steps but keeps every job one press away", async () => {
+  const home = await registeredHome([], { dismissed: true, repositories: false })
+  try {
+    expect(home.host.querySelector("header")).toBeNull()
+    expect(home.host.querySelector("ol")).toBeNull()
     expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
   } finally { await home.dispose() }
 })
 
-test("the recommended actions still own the row until they are dismissed", async () => {
-  const home = await dismissedHome([], { dismissed: false })
+/* The tiles: which flows the third step offers, and how each one behaves. */
+const firstRunCommands = [...FIRST_RUN_JOBS.map((name, index) => ({ name, summary: jobTitles[index]! })),
+  { name: "wiki", summary: "Wiki" }, { name: "auth.sign-in", summary: "Sign in" },
+  { name: "issues.list", summary: "List issues" }, { name: "admin.health", summary: "Diagnostics" },
+  { name: "chat.stop", summary: "Stop" }]
+const commandState = { surface: "chat" as const, typing: false, signedOut: true, hasConnectors: false, admin: false }
+const featured = (id: string, isFeatured = true): RepositoryFlow => ({
+  id, description: `Run ${id}`, summary: `${id} summary`, featured: isFeatured, model: null, modelInvocable: true
+})
+const flowNames = (groups: ReturnType<typeof firstRunGroups>) => groups.flatMap(group => group.flows.map(flow => flow.name))
+const openSteps = resolveSteps(firstRunCommands, { signedIn: true, hasRepo: true, hasSetup: false })
+
+test("the tiles are the five repository jobs without diagnostic or empty-context actions", () => {
+  expect(flowNames(firstRunGroups(firstRunCommands, commandState))).toEqual([...FIRST_RUN_JOBS])
+  expect(flowNames(firstRunGroups(firstRunCommands, { ...commandState, admin: true, signedOut: false }))).toEqual([...FIRST_RUN_JOBS])
+})
+
+test("missing or unavailable jobs are not invented; registry requirements still apply", () => {
+  const flows = [{ name: "ci.setup", summary: "Set up CI", requires: ["signed-in"] },
+    { name: "issues.setup", summary: "Handle issues", hidden: true },
+    { name: "feature.setup", summary: "Build a feature", requires: ["repo-source"] }]
+  expect(firstRunGroups(flows, commandState)).toEqual([])
+  expect(flowNames(firstRunGroups(flows, { ...commandState, signedOut: false, publicRepo: true }))).toEqual(["ci.setup", "feature.setup"])
+})
+
+test("without an available job tile the third step falls back to its own flow button", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
   try {
-    expect(home.jobs()).toEqual([])
-    expect(home.host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
+    const flows = [{ name: "issues.setup", summary: "Handle issues", requires: ["signed-in"] }]
+    flushSync(() => root.render(<SetupChecklistCard steps={resolveSteps(flows, empty)} groups={firstRunGroups(flows, commandState)} onRunCommand={() => {}} />))
+    expect(tiles(host)).toEqual([])
+    expect(stepButtons(host).map(button => [button.dataset.flow, button.textContent])).toEqual([["issues.setup", "Set up a job"]])
+  } finally { flushSync(() => root.unmount()) }
+})
+
+test("the tiles offer only executable repository-declared featured flows", () => {
+  const rows = [featured("lint"), featured("review"), featured("create-flow/clarify"), featured("release-notes", false), featured("flow.list")]
+  const catalog = [
+    ...firstRunCommands,
+    { name: "lint", summary: "Lint this repository", workflow: "lint", requires: ["signed-in"] },
+    { name: "review", summary: "Review this repository", workflow: "review", requires: ["signed-in"] },
+    { name: "create-flow.clarify", summary: "Clarify a flow", workflow: "create-flow/clarify", requires: ["signed-in"] },
+    { name: "release-notes", summary: "Draft notes", workflow: "release-notes" },
+    { name: "flow.list", summary: "List the flows on your workspace", requires: ["signed-in"] },
+    { name: "hidden", summary: "Hidden", workflow: "hidden", hidden: true }
+  ]
+  expect(firstRunGroups(catalog, commandState, rows).map(group => group.namespace)).toEqual(["repository"])
+  const groups = firstRunGroups(catalog, { ...commandState, signedOut: false }, rows)
+  expect(groups.map(group => group.namespace)).toEqual(["repository", "featured"])
+  expect(flowNames(groups)).toEqual([...FIRST_RUN_JOBS, "lint", "review", "create-flow.clarify"])
+  expect(firstRunGroups(catalog, { ...commandState, signedOut: false }, []).map(group => group.namespace)).toEqual(["repository"])
+  expect(flowNames(firstRunGroups(catalog.filter(item => item.name !== "review"), { ...commandState, signedOut: false }, rows))).not.toContain("review")
+})
+
+test("featured tiles follow the jobs, keep the selected repository and keyboard semantics, and carry no setup state", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const calls: Array<[string, string | undefined]> = []
+  const catalog = [...firstRunCommands, { name: "review", summary: "Review the change", workflow: "review", requires: ["signed-in"] }]
+  try {
+    flushSync(() => root.render(<SetupChecklistCard steps={openSteps} groups={firstRunGroups(catalog, { ...commandState, signedOut: false }, [featured("review")])}
+      repo="will/demo" jobStates={{ review: "Paused" }} onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+    expect([...host.querySelectorAll("section[aria-label]")].map(section => section.getAttribute("aria-label"))).toEqual(["Set up Smithers", "Repository jobs", "Featured flows"])
+    const buttons = tiles(host, "Featured flows")
+    expect(buttons.map(button => [button.dataset.flow, button.textContent])).toEqual([["review", "Review the change"]])
+    expect(buttons[0]?.dataset.done).toBeUndefined()
+    expect(buttons.every(button => button.type === "button" && button.tabIndex === 0 && !button.disabled)).toBe(true)
+    for (const button of buttons) button.click()
+    expect(calls).toEqual([["review", "will/demo"]])
+  } finally { flushSync(() => root.unmount()) }
+})
+
+test("job tiles use short registry labels, a picture, and native keyboard semantics", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<SetupChecklistCard steps={openSteps} groups={firstRunGroups(firstRunCommands, commandState)} onRunCommand={() => {}} />))
+    const buttons = tiles(host)
+    expect(buttons.map(button => button.textContent)).toEqual(jobTitles)
+    expect(buttons.every(button => button.querySelector("svg.setup-checklist-picture[aria-hidden=\"true\"]") !== null)).toBe(true)
+    expect(buttons.every(button => button.type === "button" && !button.disabled && button.tabIndex === 0)).toBe(true)
+    expect(host.textContent).not.toContain("issues.setup")
+    expect(host.querySelector('[data-flow="admin.health"]')).toBeNull()
+  } finally { flushSync(() => root.unmount()) }
+})
+
+test("first arrival binds every tile to the explicit repository before catalog inspection finishes", () => {
+  const calls: Array<[string, string | undefined]> = []
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<SetupChecklistCard steps={openSteps} groups={firstRunGroups(firstRunCommands, commandState)} repo="requested/repo"
+      onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+    for (const button of tiles(host)) button.click()
+    expect(calls).toEqual(FIRST_RUN_JOBS.map(name => [name, "requested/repo"]))
+  } finally { flushSync(() => root.unmount()) }
+})
+
+test("the live card names the steps and adds no sentence about choosing one", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<ControllerContext value={{ store, dismissFirstRun: () => {}, commands: { all: () => firstRunCommands }, runCommand: () => {} } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(host.textContent).not.toContain("Choose an action to begin")
+    expect(host.textContent).not.toContain("Learn how to")
+    expect(host.querySelector('[data-testid="setup-checklist"]')?.getAttribute("aria-label")).toBe("Set up Smithers")
+    expect(tiles(host).map(button => button.textContent)).toEqual(jobTitles)
+  } finally {
+    flushSync(() => root.unmount())
+    host.remove()
+    await store.dispose?.()
+  }
+})
+
+test("the live card follows the selected repository's featured projection", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const catalog = [...firstRunCommands, { name: "review", summary: "Review the change", workflow: "review", requires: ["signed-in"] }]
+  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, commands: { all: () => catalog },
+    runCommand: () => {}, dismissFirstRun: () => {} } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+  const settle = async () => { await new Promise(resolve => setTimeout(resolve, 20)); render() }
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } }).isPersisted.promise
+    render()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+    await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "will/demo", flows: [featured("review")] }).isPersisted.promise
+    await settle()
+    expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
+    expect(host.querySelector('[data-flow="review"]')).not.toBeNull()
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
+      { id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null },
+      { id: "other/repo", org: "other", ownerKind: "user", name: "repo", head: null }
+    ] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "other/repo" }).isPersisted.promise
+    await settle()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "will/demo" }).isPersisted.promise
+    await settle()
+    expect(host.querySelector('[data-flow="review"]')).not.toBeNull()
+    await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "will/demo", flows: [] }).isPersisted.promise
+    await settle()
+    expect(host.querySelector('[data-flow="review"]')).toBeNull()
+  } finally {
+    flushSync(() => root.unmount())
+    await store.dispose?.()
+  }
+})
+
+test("the live catalog keeps unavailable runtime and admin plugin flows out of the tiles", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, {
+    available: false, startTurn: async () => ({ status: "error", message: "Unavailable" }),
+    cancelTurn: async () => {}, subscribe: () => () => {},
+  }, { bootstrap: {
+    apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
+    capabilities: ["identity"], authFlow: "redirect", sandbox: null,
+  } })
+  try {
+    const names = () => flowNames(firstRunGroups(controller.commands.all(), commandState))
+    expect(names()).toEqual([...FIRST_RUN_JOBS])
+    for (const name of ["repo.open", "files.list", "prs.list", "admin.health"]) expect(names()).not.toContain(name)
+    expect(names().some(name => name.startsWith("system."))).toBe(false)
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "admin", admin: true, scopesPlain: null })
+    expect(flowNames(firstRunGroups(controller.commands.all(), { ...commandState, signedOut: false, admin: true }))).not.toContain("admin.health")
+  } finally {
+    await controller.dispose()
+    await store.dispose?.()
+  }
+})
+
+/** A repository whose first inspection failed and whose second job is registered but paused. */
+const inspectedHome = async (calls: Array<[string, string | undefined]>) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
+  store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } })
+  store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })
+  const card = (job: "issues" | "review", enabled?: boolean) => {
+    const payload = initialSetup("will/demo", job, "will")
+    return { id: `setup:will:will%2Fdemo:${job}`, kind: "repository-setup" as const, title: job, status: "active" as const, createdAt: 1, ordinal: 1,
+      payload: enabled === undefined ? { ...payload, request: { id: "failed-inspection", operation: "inspect" as const, revision: payload.revision,
+        digest: setupCandidate(payload), state: "failed" as const, error: "invalid_receipt" } }
+        : { ...payload, active: { revision: payload.revision, digest: setupCandidate(payload), registrationId: "reg", sourceRevision: "f4d4814e", enabled } } }
+  }
+  store.dispatch({ type: "card.upsert", actor: "system", card: card("issues") })
+  store.dispatch({ type: "card.upsert", actor: "system", card: card("review", false) })
+  for (const job of ["issues", "review"] as const) {
+    const payload = card(job, job === "review" ? false : undefined).payload
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: {
+      id: job, owner: "will", repo: "will/demo", job, selectedWorkspaceId: null, state: "completed",
+      registration: { state: "known", ...(payload.active === undefined ? {} : { active: {
+        ...payload.active, owned: true, workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a", draft: payload.draft
+      } }) }
+    } })
+  }
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, dismissFirstRun: () => store.dispatch({ type: "first-run.dismissed", actor: "user" }), commands: { all: () => firstRunCommands }, runCommand: (name: string, args?: string) => { calls.push([name, args]) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+  render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  return { store, host, render, jobs: () => tiles(host),
+    settle: async () => { await store.settled?.(); await new Promise(resolve => setTimeout(resolve, 20)); render() },
+    dispose: async () => { flushSync(() => root.unmount()); host.remove(); await store.dispose?.() } }
+}
+
+test("every job stays one tile away after the first job exists, and after the dismissal", async () => {
+  const calls: Array<[string, string | undefined]> = []
+  const home = await inspectedHome(calls)
+  try {
+    home.jobs()[0]!.click()
+    await home.settle()
+    expect(calls).toEqual([["issues.setup", "will/demo"]])
+    expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    home.jobs()[1]!.click()
+    await home.settle()
+    expect(calls[1]).toEqual(["review.setup", "will/demo"])
+    expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    home.host.querySelector<HTMLButtonElement>('header > [aria-label="Dismiss"]')!.click()
+    await home.settle()
+    expect(home.host.querySelector("header")).toBeNull()
+    expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
+    expect(calls.length).toBe(2)
+  } finally { await home.dispose() }
+})
+
+test("failed inspection reads Off without claiming setup completion; a registered paused job checks off", async () => {
+  const home = await inspectedHome([])
+  try {
+    expect(home.jobs().map(button => button.textContent)).toEqual(["Handle issues · Off", "Review PRs · Paused", "Set up CI", "Build a feature", "Automate a chore"])
+    expect(home.jobs().map(button => button.dataset.done)).toEqual([undefined, "true", undefined, undefined, undefined])
   } finally { await home.dispose() }
 })
