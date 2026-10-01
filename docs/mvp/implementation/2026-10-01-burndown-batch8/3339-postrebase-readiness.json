@@ -1,0 +1,41 @@
+{
+  "issue": 3339,
+  "status": "FROZEN post-rebase qualified",
+  "head": "32bd690c1fd3385a30e1cbc41ec8db7f621e6094",
+  "files": [
+    {
+      "path": "apps/app/src/mainview/state/TestFixtures.ts",
+      "sha256": "273f7a23828777050c17cea5c55b5c46f9d217744ca32b2deb31443713be1992",
+      "baselineSha256": "3f239e0ef43cd4d2e781ac0dc2e3f1c2469c45f9a77605cbdfaf7032a42a6807"
+    },
+    {
+      "path": "apps/app/src/mainview/flows/agentToolsList.test.ts",
+      "sha256": "e861eda9d74f05e4c6ab0d7778fc3f9941375dc14db4de7ed97b305bb7316256",
+      "baselineSha256": "e9948b0c2904b037b0d9a907642ee7540a564ce2b0e3f730b8e315dbbb80f1db"
+    },
+    {
+      "path": "apps/app/src/mainview/cards/AccountCard.test.tsx",
+      "sha256": "8e68832b989c9a54f8ff948c364b6b478fbe408e21713b1e5e62c6be9e67738f",
+      "baselineSha256": "6a5e25ef140d11c6342bafa980992f1fcf3e2f14462c8298d327f5d70eb23ebd"
+    },
+    {
+      "path": "apps/app/src/mainview/state/SignupProfileFixture.test.ts",
+      "sha256": "7cf1281f0e72f8f5fc61aa725b7f3006323d1c7ea5031ae06547ce7bf3b9dd42",
+      "baselineSha256": null
+    }
+  ],
+  "owningHashDrift": [],
+  "configuredCompilerInputAudit": {
+    "reference": "3339-after-configured-types.json",
+    "referenceSha256": "ec0f5b418d46498a8919a24b23aa69bf8562cc6e5460f45baaa65f484bfb0e12",
+    "auditedInputs": 5977,
+    "changes": [],
+    "AgentActionInCompilerClosure": [],
+    "retainedDiagnostics": 43,
+    "limitation": "No new compiler capture because incoming AgentAction is not in actual captured compiler closure and every captured source/config/declaration/compiler input is byte-identical; retained configured gate remains43 known diagnostics. Owning Bun tests run on actual current runtime inputs."
+  },
+  "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp bun test src/mainview/state/SignupProfileFixture.test.ts src/mainview/flows/agentToolsList.test.ts src/mainview/cards/AccountCard.test.tsx",
+  "exitCode": 0,
+  "logSha256": "c5858382506a1c48729f7df3113332e4e175c022205ec866ca8322f5e4b35fe5",
+  "activeJobs": []
+}

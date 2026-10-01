@@ -17,12 +17,14 @@ import { boundToolResult, MAX_TOOL_RESULT_BYTES, utf8Bytes } from "../state/Agen
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
-import { memoryStorage } from "../state/TestFixtures"
+import { memoryStorage, settled, signupProfileFetch, waitFor } from "../state/TestFixtures"
+import { SIGNUP_PROFILE_PATH } from "../state/Signup"
 
 const createAppController = scopedControllers()
 const externalWork: Array<{
   controller: ReturnType<typeof createAppController>
   requests: string[]
+  profileReads: string[]
   starts: StartAgentTurnRequest[]
   cancellations: string[]
 }> = []
@@ -35,6 +37,7 @@ afterEach(async () => {
     for (const work of [fixture.requests, fixture.starts, fixture.cancellations]) {
       try { expect(work).toEqual([]) } catch (error) { failures.push(error) }
     }
+    try { expect(fixture.profileReads).toEqual([SIGNUP_PROFILE_PATH]) } catch (error) { failures.push(error) }
   }
   if (failures.length > 0) throw new AggregateError(failures, "Discovery fixture cleanup failed")
 })
@@ -89,21 +92,24 @@ const harness = async (bootstrap: AppBootstrap = bootstraps[0]!) => {
     throw new Error("Discovery fixture requires store settlement")
   }
   let controller: ReturnType<typeof createAppController>
+  const profile = signupProfileFetch(async input => {
+    requests.push(String(input))
+    throw new Error(`Unexpected HTTP request during discovery: ${String(input)}`)
+  })
   try {
     controller = createAppController(store, agent, {
       bootstrap,
-      fetchImpl: async input => {
-        requests.push(String(input))
-        throw new Error(`Unexpected HTTP request during discovery: ${String(input)}`)
-      }
+      fetchImpl: profile.fetchImpl
     })
   } catch (error) {
     await disposeStore()
     throw error
   }
-  externalWork.push({ controller, requests, starts, cancellations })
+  externalWork.push({ controller, requests, profileReads: profile.reads, starts, cancellations })
   // Once constructed, the scoped controller owns store disposal too.
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+  await waitFor(() => profile.reads.length === 1)
+  await settled()
   const read = async (call: AgentToolCall): Promise<string> => {
     await settleStore()
     const before = await store.eventHistory()
@@ -113,6 +119,7 @@ const harness = async (bootstrap: AppBootstrap = bootstraps[0]!) => {
     expect(starts).toEqual([])
     expect(cancellations).toEqual([])
     expect(requests).toEqual([])
+    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
     return result
   }
   const list = async (namespace?: unknown): Promise<ListResult> => {

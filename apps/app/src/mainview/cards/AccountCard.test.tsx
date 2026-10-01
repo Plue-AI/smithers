@@ -5,7 +5,8 @@ import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
-import { memoryStorage, unavailableAgent } from "../state/TestFixtures"
+import { memoryStorage, settled, signupProfileFetch, unavailableAgent, waitFor } from "../state/TestFixtures"
+import { SIGNUP_PROFILE_PATH } from "../state/Signup"
 import { AccountCardBody } from "./AccountCard"
 
 GlobalRegistrator.register()
@@ -17,6 +18,13 @@ for (const provider of ["local", "github"] as const) {
     const storage = memoryStorage()
     const store = await createAppStore({ kind: "localStorage", storage })
     const paths: string[] = []
+    const profile = signupProfileFetch(async input => {
+      const path = new URL(String(input), "https://owner.test").pathname
+      paths.push(path)
+      return path === "/api/auth/scopes"
+        ? Response.json({ scopes: [{ scope: "contents:read", plain: "Read repository files" }] })
+        : new Response(null, { status: 404 })
+    }, null, "https://owner.test")
     const controller = createController(store, unavailableAgent, {
       ...(provider === "local" ? {
         applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://owner.test"),
@@ -26,18 +34,15 @@ for (const provider of ["local", "github"] as const) {
           bootstrap: async ({ username }: { username: string }) => ({ user: { id: 1, username } })
         }
       } : { bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false }), authFlow: "redirect", sandbox: null } }),
-      fetchImpl: async input => {
-        const path = new URL(String(input), "https://owner.test").pathname
-        paths.push(path)
-        return path === "/api/auth/scopes"
-          ? Response.json({ scopes: [{ scope: "contents:read", plain: "Read repository files" }] })
-          : new Response(null, { status: 404 })
-      }
+      fetchImpl: profile.fetchImpl
     })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => profile.reads.length === 1)
+    await settled()
     const result = await controller.showAccount()
     await store.settled?.()
     expect(paths).toEqual([])
+    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
     expect(result).toEqual({ value: "account: @owner; 0 box(es) listed" })
     const restored = await createAppStore({ kind: "localStorage", storage })
     try {

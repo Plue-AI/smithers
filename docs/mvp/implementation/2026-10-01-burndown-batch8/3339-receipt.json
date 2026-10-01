@@ -1,0 +1,28 @@
+{
+  "issue": 3339,
+  "reviewer": "codex-burndown-20260930",
+  "at": "2026-10-01T08:15:21.171591+00:00",
+  "files": {
+    "apps/app/src/mainview/state/TestFixtures.ts": "273f7a23828777050c17cea5c55b5c46f9d217744ca32b2deb31443713be1992",
+    "apps/app/src/mainview/flows/agentToolsList.test.ts": "e861eda9d74f05e4c6ab0d7778fc3f9941375dc14db4de7ed97b305bb7316256",
+    "apps/app/src/mainview/cards/AccountCard.test.tsx": "8e68832b989c9a54f8ff948c364b6b478fbe408e21713b1e5e62c6be9e67738f",
+    "apps/app/src/mainview/state/SignupProfileFixture.test.ts": "7cf1281f0e72f8f5fc61aa725b7f3006323d1c7ea5031ae06547ce7bf3b9dd42"
+  },
+  "sourceDiffReviewed": true,
+  "review": "Root reviewed all4 paths and the held-background-read test. Only exact selected-origin signup GET is answered from validated cloned profile data; all other origins/paths/queries/fragments/methods reach the original strict transport unchanged. Original callers retain zero action-induced network/model/cancellation work and exactly one expected boot read. Deliberately unresolved read preserves discovery/draft editing, then profile durably restores/reloads. Required production restoration is unchanged; original red20+2 failures retained.",
+  "proofArchive": "3339-proof.tar.gz",
+  "proofArchiveSha256": "1da4ca2181f0d1e42832259f7e62c5c6c175b0cc9f368a06177f42261f00338c",
+  "checks": {
+    "red": "Actual independent Bun runs on original sources: agentToolsList0pass20fail; AccountCard2pass2fail, unexpected/api/user/settings/signup. Baseline configured-input receipt binds all original named source hashes.",
+    "green": "Independent agentToolsList20/20; AccountCard4/4; separate exact-route fixture3/3; owning signup6file91/91. No skipped controls.",
+    "behavior": "Fixture Request/URL/string inputs, copied/validated saved profile, null profile, refused bad profile, exact origin/path/query/fragment/method fallthrough, consumed-body independence; deliberately unresolved profile GET leaves discovery/Chat usable and makes zero model calls, then restores and durably reloads the saved profile. Named callers retain zero action-induced network/model/cancellation work and exactly one expected profile read.",
+    "coverage": "New wrapper18/18 instrumented lines; Bun provides no branch metric; no sharedTestFixtures/full-app100% claim.",
+    "types": "Actual complete configured before/after captures have exactly43 identical foreign diagnostics, zero own/new errors and zero disk drift. No compiler-host overlay, cast, suppression or configured threshold change.",
+    "format": "New independent fixture test passes actual dprint check; existing named files retain owning style."
+  },
+  "limits": [
+    "Unit/controller fixture repair only; no real HTTP/PG/live-provider/OAuth execution is claimed for this issue. Required server profile restoration remains covered by existing signup controller tests; prior backend persistence receipts are not rerun here.",
+    "Full configured app types remain red on43 unchanged foreign diagnostics; not a blanket app type pass.",
+    "No production/controller/API/package/dependency edits and no full/native/build/dist jobs."
+  ]
+}
