@@ -2180,17 +2180,23 @@ export const spanPath = (model: TraceModel, id: string): ReadonlyArray<TraceSpan
   return visit(model.root) ?? [model.root]
 }
 
-/** A duration in the trace's units: milliseconds under a second, seconds under a minute, minutes and seconds after.
+/** A duration in the trace's units: milliseconds under a second, seconds under a minute, minutes and seconds under an hour, hours and minutes after.
  *
  * @category utilities
  * @since 1.0.0
  */
 export const durationWords = (ms: number): string => {
   if (ms < 1000) return `${Math.round(ms)}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms - minutes * 60_000) / 1000)
-  return `${minutes}m${String(seconds).padStart(2, "0")}s`
+  // Round before splitting, so 59.96s reads 1m00s rather than 60.0s, and 51m59.6s reads 52m00s rather than 51m60s.
+  if (ms < 59_950) return `${(ms / 1000).toFixed(1)}s`
+  const total = Math.round(ms / 1000)
+  if (total < 3600) {
+    const minutes = Math.floor(total / 60)
+    return `${minutes}m${String(total - minutes * 60).padStart(2, "0")}s`
+  }
+  const minutes = Math.round(ms / 60_000)
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h${String(minutes - hours * 60).padStart(2, "0")}m`
 }
 
 /** One memory item a run's relevance readings weighed.

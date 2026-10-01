@@ -537,6 +537,15 @@ describe("the trace model", () => {
     expect(durationWords(120)).toBe("120ms")
     expect(durationWords(4400)).toBe("4.4s")
     expect(durationWords(201_000)).toBe("3m21s")
+    // Rounding carries into the next unit, never to 60.
+    expect(durationWords(3_119_600)).toBe("52m00s")
+    expect(durationWords(59_960)).toBe("1m00s")
+    expect(durationWords(59_940)).toBe("59.9s")
+    // Past an hour, hours and minutes: an agent that ran 155m48s reads 2h36m; the hour boundary rounds like the minute one.
+    expect(durationWords(9_348_000)).toBe("2h36m")
+    expect(durationWords(3_599_400)).toBe("59m59s")
+    expect(durationWords(3_599_600)).toBe("1h00m")
+    expect(durationWords(3_629_000)).toBe("1h00m")
   })
 })
 
