@@ -767,6 +767,30 @@ export const make = (
     const refusedMessage = (refusal?.cause instanceof PlatformError.PlatformError
       ? refusal.cause.reason.description ?? refusal.message
       : refusal?.message) ?? "No registered executable on this host"
+    const decodeInput = (loaded: Executable.Executable, input: unknown) =>
+      loaded.input === undefined ? Effect.succeed(input) : Effect.try({
+        try: () => loaded.input!.make(input),
+        catch: (cause) =>
+          new ControlError.InvalidInput({
+            issue: cause instanceof Error && SchemaIssue.isIssue(cause.cause)
+              ? SchemaIssue.makeFormatterDefault()(cause.cause).split("\n").slice(0, 4).join("\n").slice(0, 800)
+              : Failure.operatorSentence(cause)
+          })
+      })
+    const retryLoad = executable === undefined && refusal?.code === "load_timeout" && host.catalog?.load !== undefined
+      ? host.catalog.load(descriptor.name).pipe(
+        Effect.mapError((cause) =>
+          new ControlError.InvalidInput({
+            issue: `Cannot load flow ${descriptor.name.slice(0, 256)}: ${cause.message.slice(0, 800)}`
+          })
+        ),
+        Effect.flatMap((loaded) =>
+          Descriptor.executionDigest(loaded.descriptor) === Descriptor.executionDigest(descriptor)
+            ? Effect.succeed(loaded)
+            : Effect.fail(new ControlError.InvalidInput({ issue: `Flow ${descriptor.name} changed while loading` }))
+        )
+      )
+      : undefined
     return {
       flowId: descriptor.name,
       description: descriptor.description,
@@ -780,21 +804,14 @@ export const make = (
         flows: descriptor.flows,
         budget: Descriptor.budgetOf(descriptor)
       },
-      ...(executable?.input === undefined ? {} : {
-        // The module adapter constructs this same typed payload with .make
-        // at dispatch. Validate that contract before recording an approval.
-        decode: (input: unknown) =>
-          Effect.try({
-            try: () => executable.input!.make(input),
-            catch: (cause) =>
-              new ControlError.InvalidInput({
-                issue: cause instanceof Error && SchemaIssue.isIssue(cause.cause)
-                  ? SchemaIssue.makeFormatterDefault()(cause.cause).split("\n").slice(0, 4).join("\n").slice(0, 800)
-                  : Failure.operatorSentence(cause)
-              })
-          })
+      ...(retryLoad === undefined
+        ? executable?.input === undefined ? {} : { decode: (input: unknown) => decodeInput(executable, input) }
+        : { decode: (input: unknown) => Effect.flatMap(retryLoad, (loaded) => decodeInput(loaded, input)) }),
+      ...(retryLoad === undefined ? {} : {
+        plan: (input: unknown, planId: string) =>
+          Effect.flatMap(retryLoad, (loaded) => planExecutable(loaded, root, host)(input, planId))
       }),
-      ...(executable === undefined
+      ...(retryLoad !== undefined ? {} : executable === undefined
         ? descriptor.body._tag === "Module" && host.catalog !== undefined && refusal?.code !== "missing_delegate"
           ? {
             plan: () =>
@@ -1413,7 +1430,23 @@ export const make = (
         admission = (runId) =>
           routing.canExecute(workspaceRoot, runId).pipe(
             Effect.flatMap((allowed) => allowed ? controlAffinity(runId) : Effect.succeed(false)),
-            Effect.flatMap((allowed) => allowed ? moduleAdmission(runId) : Effect.succeed(false)),
+            Effect.flatMap((allowed) =>
+              !allowed ? Effect.succeed(false) : Effect.gen(function*() {
+                // A startup catalog deadline does not make an approved module
+                // unavailable. Load that one entry before persisted admission.
+                const run = yield* resumes!.getRun(runId).pipe(
+                  Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined))
+                )
+                if (run?.planId !== undefined && catalog?.load !== undefined) {
+                  const plan = yield* resumes!.getPlan(run.planId)
+                  if (
+                    plan.decision === "approved" && run.planDigest === plan.card.digest &&
+                    catalog.refused.some((entry) => entry.flow === plan.card.flowId && entry.code === "load_timeout")
+                  ) yield* catalog.load(plan.card.flowId)
+                }
+                return yield* moduleAdmission(runId)
+              })
+            ),
             Effect.catchCause((cause) =>
               Cause.hasInterruptsOnly(cause)
                 ? Effect.interrupt

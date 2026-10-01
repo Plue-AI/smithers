@@ -196,6 +196,19 @@ match the digest discovery recorded.
 **What to change.** The same as the registry code of that name: refresh the
 registry to adopt an edited body, or restore the file.
 
+### load_timeout
+
+**What happened.** The catalog deadline expired while loading an entry. This
+does not establish that its body is broken. The warning names the flow, path,
+and elapsed limit.
+
+**What to change.** Set `SMITHERS_FLOW_LOAD_TIMEOUT_MS` to a positive, finite
+catalog deadline in milliseconds, or pass `Options.loadTimeoutMs`. The default
+is 30000 ms. Invalid environment values use the default; explicit options win.
+The live catalog retries this refusal on first use through its direct load
+path, with progress every 30 seconds and no load deadline. A native detached
+start is still bounded by `SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS`.
+
 ### invalid_layer
 
 A module exports `layer`, but the value is not an Effect `Layer`, or it exports

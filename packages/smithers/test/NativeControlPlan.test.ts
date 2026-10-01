@@ -233,6 +233,56 @@ const planOn = async (
 }
 
 describe("planning a discovered flow on the native host", () => {
+  it.each([true, false])("retries a timed-out module before planning valid input: %s", async (valid) => {
+    const root = await project()
+    let loads = 0
+    try {
+      const modules = Executable.layer({
+        delegates: [Planned],
+        loadTimeoutMs: 1_000,
+        load: () =>
+          Effect.suspend(() => {
+            loads++
+            return loads === 1 ? Effect.never : Effect.succeed({
+              default: Flow.make("native", {
+                payload: { value: Schema.String },
+                success: Schema.String,
+                error: Schema.Unknown,
+                body: ({ value }) => Probe.call({ value })
+              })
+            })
+          })
+      }).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(Interpreter.layer(Planned), Probe.toLayer(({ value }) => Effect.succeed(value)))
+        ),
+        Layer.orDie
+      )
+      const outcome = await Effect.runPromise(
+        Effect.gen(function*() {
+          const control = yield* Control.Control
+          return yield* Effect.result(control.plan({ flowId: "native", input: { value: valid ? "planned" : 42 } }))
+        }).pipe(
+          Effect.provide(
+            NodeControl.layerControl(
+              { root, evaluator: ScriptedJudge.layer },
+              NodeControl.layerRegistry(root),
+              undefined,
+              modules
+            )
+          ),
+          Effect.scoped
+        )
+      )
+      expect(loads).toBe(2)
+      expect(outcome._tag).toBe(valid ? "Success" : "Failure")
+      if (outcome._tag === "Failure") expect(outcome.failure).toMatchObject({ _tag: "/control/InvalidInput" })
+      if (outcome._tag === "Success") expect(outcome.success.nodes.length).toBeGreaterThan(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("shows unrestricted action imports in the durable plan and approval card", async () => {
     // This metadata/SQL test has no inherited processes. Restricted hosts can
     // deny kernel uptime, which is unrelated to the approval being checked.

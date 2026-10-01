@@ -61,10 +61,13 @@ import * as Interpreter from "@smthrs/flow/Interpreter"
 import type * as FileSet from "@smthrs/plan/FileSet"
 import * as PlanNode from "@smthrs/plan/Node"
 import * as Cause from "effect/Cause"
+import * as Clock from "effect/Clock"
+import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -228,6 +231,7 @@ export interface Delegate {
 export const ExecutableErrorCode = Schema.Literals([
   "missing_delegate",
   "ambiguous_delegate",
+  "load_timeout",
   "body_unavailable",
   "invalid_module",
   "invalid_layer",
@@ -416,7 +420,8 @@ export interface Options {
   /** The delegate a model-backed descriptor runs on. Defaults to `agent`. */
   readonly agent?: string | undefined
   /**
-   * Per-entry catalog deadline in milliseconds. Defaults to 30,000.
+   * Per-entry catalog deadline in milliseconds. Defaults to
+   * SMITHERS_FLOW_LOAD_TIMEOUT_MS, or 30,000 when unset or invalid.
    * Must be positive and finite. Direct descriptor loads have no deadline.
    */
   readonly loadTimeoutMs?: number | undefined
@@ -1315,7 +1320,7 @@ export const fromDescriptor = (
 ): Effect.Effect<Executable, ExecutableError, FileSystem.FileSystem | Path.Path> =>
   Effect.suspend(() => {
     let moduleScope: Scope.Closeable | undefined
-    return Effect.gen(function*() {
+    const loadEffect = Effect.gen(function*() {
       // The delegate is resolved BEFORE the body is loaded, and the refusal for a
       // missing one is raised after. Both refusals are real, but only one of them
       // is about this host: a flow whose delegate nobody registered is not
@@ -1522,6 +1527,24 @@ export const fromDescriptor = (
     }).pipe(Effect.onExit((exit) =>
       Exit.isFailure(exit) && moduleScope !== undefined ? Scope.close(moduleScope, exit) : Effect.void
     ))
+    return Effect.acquireUseRelease(
+      Effect.forkChild(
+        Effect.gen(function*() {
+          const startedAt = yield* Clock.currentTimeMillis
+          for (;;) {
+            yield* Effect.sleep("30 seconds")
+            yield* Effect.logInfo("loading flow", {
+              flow: descriptor.name,
+              path: descriptor.body.path,
+              elapsedMs: (yield* Clock.currentTimeMillis) - startedAt
+            })
+          }
+        }).pipe(Effect.interruptible)
+      ),
+      () =>
+        loadEffect,
+      Fiber.interrupt
+    )
   })
 
 /**
@@ -1552,6 +1575,13 @@ export const fromRegistry = (
 export interface Catalog {
   readonly executables: ReadonlyArray<Executable>
   readonly refused: ReadonlyArray<ExecutableError>
+  /**
+   * First-use lookup supplied by a live host. Retries catalog load_timeout
+   * refusals through the direct path and registers the recovered executable.
+   */
+  readonly load?:
+    | ((name: string) => Effect.Effect<Executable, ExecutableError | RegistryError | DiscoveryError>)
+    | undefined
 }
 
 /**
@@ -1601,19 +1631,23 @@ export const catalog = (
     const descriptors = yield* registry.list()
     const executables: Array<Executable> = []
     const refused: Array<ExecutableError> = []
+    const configured = options.loadTimeoutMs ?? (yield* Config.String("SMITHERS_FLOW_LOAD_TIMEOUT_MS").pipe(
+      Effect.map(Number),
+      Effect.catch(() => Effect.succeed(30_000))
+    ))
+    const loadTimeoutMs = Number.isFinite(configured) && configured > 0 ? configured : 30_000
     for (const descriptor of descriptors) {
-      const loadTimeoutMs = options.loadTimeoutMs ?? 30_000
       const result = yield* Effect.result(
         fromDescriptor(descriptor, options).pipe(
           Effect.timeoutOrElse({
             duration: loadTimeoutMs,
             orElse: () =>
               Effect.fail(refuse({
-                code: "body_unavailable",
+                code: "load_timeout",
                 flow: descriptor.name,
                 path: descriptor.body.path,
                 message:
-                  `the body of flow "${descriptor.name}" timed out after ${loadTimeoutMs}ms while loading "${descriptor.body.path}"`
+                  `the body of flow "${descriptor.name}" timed out after ${loadTimeoutMs}ms while loading "${descriptor.body.path}" (load_timeout; SMITHERS_FLOW_LOAD_TIMEOUT_MS catalog limit)`
               }))
           })
         )
@@ -1787,21 +1821,23 @@ export const layerRefreshable = (
   never,
   Registry.Registry | FileSystem.FileSystem | Path.Path | Registration
 > =>
-  Layer.unwrap(Effect.sync(() => {
+  Layer.unwrap(Effect.gen(function*() {
     let snapshot: Catalog = built
+    const refresh = yield* makeRefresh(options, () => snapshot, (next) => {
+      snapshot = next
+    })
     const live: Catalog = {
       get executables() {
         return snapshot.executables
       },
       get refused() {
         return snapshot.refused
-      }
+      },
+      load: refresh.load
     }
     return Layer.merge(
       Layer.succeed(Catalog)(live),
-      Layer.effect(Refresh)(makeRefresh(options, () => snapshot, (next) => {
-        snapshot = next
-      }))
+      Layer.succeed(Refresh)(refresh)
     )
   }))
 
@@ -1811,7 +1847,7 @@ const makeRefresh = (
   read: () => Catalog,
   swap: (next: Catalog) => void
 ): Effect.Effect<
-  Refresh,
+  Refresh & { readonly load: NonNullable<Catalog["load"]> },
   never,
   Scope.Scope | Registry.Registry | FileSystem.FileSystem | Path.Path | Registration
 > =>
@@ -1844,6 +1880,44 @@ const makeRefresh = (
       const without = current.refused.filter((entry) => entry.flow !== name)
       swap({ executables, refused: failure === undefined ? without : [...without, failure] })
     }
+    const register = (descriptor: Descriptor.FlowDescriptor) => {
+      const name = descriptor.name
+      // Own the generation from its fork through publication. Slow user
+      // construction remains interruptible; every uncommitted exit closes
+      // resources and registrations even at a scheduler boundary after build.
+      return Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function*() {
+          const scope = yield* Scope.fork(host)
+          let committed = false
+          return yield* Effect.gen(function*() {
+            const result = yield* Effect.result(restore(
+              fromDescriptor(descriptor, options).pipe(Effect.provideService(Scope.Scope, scope))
+            ))
+            if (result._tag === "Failure") {
+              put(name, undefined, result.failure)
+              yield* release(name)
+              if (!isUnregisteredAgent(result.failure, options)) {
+                yield* Effect.logWarning("refreshed flow is not runnable on this host", {
+                  flow: result.failure.flow,
+                  path: result.failure.path,
+                  code: result.failure.code,
+                  delegate: result.failure.delegate,
+                  available: result.failure.available,
+                  reason: result.failure.message
+                })
+              }
+              return { _tag: "Refused", error: result.failure } as const
+            }
+            yield* restore(Layer.build(result.success.layer).pipe(Effect.provideService(Scope.Scope, scope)))
+            put(name, result.success, undefined)
+            yield* release(name)
+            held.set(name, scope)
+            committed = true
+            return { _tag: "Registered", executable: result.success } as const
+          }).pipe(Effect.onExit((exit) => committed ? Effect.void : Scope.close(scope, exit)))
+        })
+      )
+    }
     const flow = (name: string): Effect.Effect<Refreshed, RegistryError | DiscoveryError> =>
       gate.withPermits(1)(Effect.gen(function*() {
         const registry = yield* Registry.Registry
@@ -1852,7 +1926,6 @@ const makeRefresh = (
         if (Option.isNone(found)) {
           return yield* Effect.uninterruptible(Effect.gen(function*() {
             // Catalog publication and retirement share one ownership transfer.
-            // `release` mutates held before returning its scope-close effect.
             put(name, undefined, undefined)
             yield* release(name)
             return { _tag: "Removed" } as const
@@ -1861,41 +1934,29 @@ const makeRefresh = (
         if (options.refreshable !== undefined && !options.refreshable(found.value)) {
           return { _tag: "Fixed" } as const
         }
-        // Own the generation from its fork through publication. Slow user
-        // construction remains interruptible; every uncommitted exit closes
-        // resources and registrations even at a scheduler boundary after build.
-        return yield* Effect.uninterruptibleMask((restore) =>
-          Effect.gen(function*() {
-            const scope = yield* Scope.fork(host)
-            let committed = false
-            return yield* Effect.gen(function*() {
-              const result = yield* Effect.result(restore(
-                fromDescriptor(found.value, options).pipe(Effect.provideService(Scope.Scope, scope))
-              ))
-              if (result._tag === "Failure") {
-                put(name, undefined, result.failure)
-                yield* release(name)
-                if (!isUnregisteredAgent(result.failure, options)) {
-                  yield* Effect.logWarning("refreshed flow is not runnable on this host", {
-                    flow: result.failure.flow,
-                    path: result.failure.path,
-                    code: result.failure.code,
-                    delegate: result.failure.delegate,
-                    available: result.failure.available,
-                    reason: result.failure.message
-                  })
-                }
-                return { _tag: "Refused", error: result.failure } as const
-              }
-              yield* restore(Layer.build(result.success.layer).pipe(Effect.provideService(Scope.Scope, scope)))
-              put(name, result.success, undefined)
-              yield* release(name)
-              held.set(name, scope)
-              committed = true
-              return { _tag: "Registered", executable: result.success } as const
-            }).pipe(Effect.onExit((exit) => committed ? Effect.void : Scope.close(scope, exit)))
-          })
-        )
+        return yield* register(found.value)
       })).pipe(Effect.provideContext(services))
-    return Refresh.of({ flow })
+    const load: NonNullable<Catalog["load"]> = (name) =>
+      gate.withPermits(1)(Effect.gen(function*() {
+        const snapshot = read()
+        const executable = snapshot.executables.find((entry) => entry.descriptor.name === name)
+        if (executable !== undefined) return executable
+        const refusal = snapshot.refused.find((entry) => entry.flow === name)
+        if (refusal !== undefined && refusal.code !== "load_timeout") return yield* Effect.fail(refusal)
+        const registry = yield* Registry.Registry
+        // No refresh: first use retries the already measured descriptor, never
+        // adopts edited bytes or imports a newly authored entry implicitly.
+        const descriptor = yield* registry.get(name)
+        if (refusal === undefined) {
+          return yield* Effect.fail(refuse({
+            code: "body_unavailable",
+            flow: name,
+            path: descriptor.body.path,
+            message: `flow "${name}" was not loaded by this catalog`
+          }))
+        }
+        const result = yield* register(descriptor)
+        return result._tag === "Registered" ? result.executable : yield* Effect.fail(result.error)
+      })).pipe(Effect.provideContext(services))
+    return { flow, load }
   })

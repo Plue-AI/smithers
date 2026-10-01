@@ -1741,9 +1741,17 @@ describe("AgentSession", () => {
     expect(result).toBe("accepted")
   })
 
-  it.each(["test/Module", "test/OutsideEnvelope"])(
-    "checks a registered module's approved delegation to %s",
-    async (delegate) => {
+  it.each<{ delegate: string; timedOut: boolean; permanent?: boolean; changed?: boolean }>([
+    { delegate: "test/Module", timedOut: false },
+    { delegate: "test/OutsideEnvelope", timedOut: false },
+    { delegate: "test/Module", timedOut: true },
+    { delegate: "test/OutsideEnvelope", timedOut: true },
+    { delegate: "test/Module", timedOut: true, changed: true },
+    { delegate: "test/Module", timedOut: false, permanent: true }
+  ])(
+    "checks module delegation to $delegate after catalog timeout: $timedOut",
+    async ({ delegate, timedOut, permanent = false, changed = false }) => {
+      const runnable = delegate === "test/Module" && !changed && !permanent
       const seen: Array<unknown> = []
       const Read = Action.make("test/ModuleRead", {
         payload: { input: Schema.Json },
@@ -1756,26 +1764,52 @@ describe("AgentSession", () => {
         error: moduleResult,
         body: ({ input }) => Read.call({ input: input ?? null }).pipe(Node.map((value) => ({ value })))
       })
-      const catalog: Executable.Catalog = {
-        executables: [{
-          descriptor: moduleDescriptor,
-          input: undefined,
-          delegate,
-          lowered: { cache: undefined, placement: undefined, priority: undefined },
-          invocation: (input) => ({
+      const executable: Executable.Executable = {
+        descriptor: changed ?
+          new Descriptor.FlowDescriptor({
+            ...moduleDescriptor,
+            body: new Descriptor.BodyRefModule({ path: "/flows/agents/module/flow.ts", contentDigest: "c".repeat(64) })
+          }) :
+          moduleDescriptor,
+        input: undefined,
+        delegate,
+        lowered: { cache: undefined, placement: undefined, priority: undefined },
+        invocation: (input) => ({
+          flow: moduleDescriptor.name,
+          input,
+          prompt: "",
+          model: null,
+          placement: null,
+          placementOptions: null,
+          capabilities: [],
+          flows: ["test/Module"]
+        }),
+        flow,
+        layer: Interpreter.layer(flow)
+      }
+      let loads = 0
+      const entries = timedOut || permanent ? [] : [executable]
+      const refusals = timedOut || permanent ?
+        [
+          new Executable.ExecutableError({
+            code: permanent ? "body_unavailable" : "load_timeout",
             flow: moduleDescriptor.name,
-            input,
-            prompt: "",
-            model: null,
-            placement: null,
-            placementOptions: null,
-            capabilities: [],
-            flows: ["test/Module"]
-          }),
-          flow,
-          layer: Interpreter.layer(flow)
-        }],
-        refused: []
+            delegate: "",
+            available: [],
+            message: permanent ? "Broken module body" : "Catalog load timed out"
+          })
+        ] :
+        []
+      const catalog: Executable.Catalog = {
+        executables: entries,
+        refused: refusals,
+        load: () =>
+          Effect.sync(() => {
+            loads++
+            entries.push(executable)
+            refusals.splice(0)
+            return executable
+          })
       }
       const registration = Layer.merge(
         Interpreter.layer(flow),
@@ -1821,14 +1855,23 @@ describe("AgentSession", () => {
         }).pipe(
           Effect.scoped,
           Effect.catch((error) => {
-            if (delegate === "test/Module") return Effect.fail(error)
-            expect(error).toMatchObject({ message: expect.stringContaining("outside the approved flow envelope") })
+            if (runnable) return Effect.fail(error)
+            expect(error).toMatchObject({
+              message: expect.stringContaining(
+                permanent
+                  ? "Broken module body"
+                  : changed
+                  ? "matching its approved identity"
+                  : "outside the approved flow envelope"
+              )
+            })
             return Effect.succeed("refused")
           })
         )
       )
-      expect(result).toBe(delegate === "test/Module" ? "completed" : "refused")
-      expect(seen).toEqual(delegate === "test/Module" ? [{ plan: { changes: ["native"] } }] : [])
+      expect(result).toBe(runnable ? "completed" : "refused")
+      expect(seen).toEqual(runnable ? [{ plan: { changes: ["native"] } }] : [])
+      expect(loads).toBe(timedOut ? 1 : 0)
     },
     30_000
   )
@@ -1851,7 +1894,7 @@ describe("AgentSession", () => {
    * `waiting-approval` forever, which is a job that never resumes when the
    * person approves it.
    */
-  it("re-drives a run whose human wait `Control.signal` answered, exactly once", async () => {
+  it.each([false, true])("re-drives an answered module once after catalog timeout on resume: %s", async (timedOut) => {
     const answers: Array<unknown> = []
     const Answered = Action.make("test/SignalAnswered", {
       payload: { answer: Schema.Json },
@@ -1867,26 +1910,37 @@ describe("AgentSession", () => {
           Node.bindPlanned((answer) => Answered.call({ answer }))
         )
     })
+    const executable: Executable.Executable = {
+      descriptor: moduleDescriptor,
+      input: undefined,
+      delegate: "test/Module",
+      lowered: { cache: undefined, placement: undefined, priority: undefined },
+      invocation: (input) => ({
+        flow: moduleDescriptor.name,
+        input,
+        prompt: "",
+        model: null,
+        placement: null,
+        placementOptions: null,
+        capabilities: [],
+        flows: ["test/Module"]
+      }),
+      flow,
+      layer: Interpreter.layer(flow)
+    }
+    const entries = [executable]
+    const refusals: Array<Executable.ExecutableError> = []
+    let loads = 0
     const catalog: Executable.Catalog = {
-      executables: [{
-        descriptor: moduleDescriptor,
-        input: undefined,
-        delegate: "test/Module",
-        lowered: { cache: undefined, placement: undefined, priority: undefined },
-        invocation: (input) => ({
-          flow: moduleDescriptor.name,
-          input,
-          prompt: "",
-          model: null,
-          placement: null,
-          placementOptions: null,
-          capabilities: [],
-          flows: ["test/Module"]
-        }),
-        flow,
-        layer: Interpreter.layer(flow)
-      }],
-      refused: []
+      executables: entries,
+      refused: refusals,
+      load: () =>
+        Effect.sync(() => {
+          loads++
+          entries.push(executable)
+          refusals.splice(0)
+          return executable
+        })
     }
     const registration = Layer.mergeAll(
       Interpreter.layer(flow),
@@ -1923,6 +1977,19 @@ describe("AgentSession", () => {
           // in its own right. Both are parks the executor refuses to re-enter
           // unasked, which is the whole of the defect.
           yield* awaitStatus(runtime, runId, "parked")
+          if (timedOut) {
+            // Model a refreshed host catalog whose startup deadline expired
+            // while the durable run was waiting for its answer.
+            entries.splice(0)
+            refusals.push(
+              new Executable.ExecutableError({
+                code: "load_timeout",
+                flow: moduleDescriptor.name,
+                available: [],
+                message: "Catalog load timed out"
+              })
+            )
+          }
           // The park is published before the wait point is readable, so the
           // answer is retried on the refusal that says so — by yielding, never
           // by sleeping, so nothing here can be satisfied by a poll.
@@ -1954,6 +2021,7 @@ describe("AgentSession", () => {
     // requests none.
     expect(answers).toEqual([true])
     expect(observed.claims).toBe(1)
+    expect(loads).toBe(timedOut ? 1 : 0)
   }, 30_000)
 
   /**

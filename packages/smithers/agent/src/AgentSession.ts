@@ -3256,12 +3256,20 @@ export const make = (
       card: PlanCard,
       executionDigest: string
     ): Effect.Effect<Executable.Executable, LaunchFailed> =>
-      Effect.suspend(() => {
+      Effect.gen(function*() {
         const catalog = Option.getOrUndefined(executables)
-        const executable = catalog?.executables.find((entry) => entry.descriptor.name === card.flowId)
+        let executable = catalog?.executables.find((entry) => entry.descriptor.name === card.flowId)
+        if (
+          executable === undefined && catalog?.load !== undefined &&
+          catalog.refused.some((entry) => entry.flow === card.flowId && entry.code === "load_timeout")
+        ) {
+          executable = yield* catalog.load(card.flowId).pipe(
+            Effect.mapError((cause) => new LaunchFailed({ runId, message: cause.message, cause }))
+          )
+        }
         if (executable === undefined || Descriptor.executionDigest(executable.descriptor) !== executionDigest) {
           const refusal = catalog?.refused.find((entry) => entry.flow === card.flowId)
-          return Effect.fail(
+          return yield* Effect.fail(
             new LaunchFailed({
               runId,
               message: refusal?.message ??
@@ -3276,7 +3284,7 @@ export const make = (
         // unmeasured code for the envelope to have had to name. A delegate is
         // the opposite — host-registered code the descriptor never measured.
         if (executable.delegate !== undefined && !card.envelope.flows.includes(executable.delegate)) {
-          return Effect.fail(
+          return yield* Effect.fail(
             new LaunchFailed({
               runId,
               message: `Flow ${card.flowId} delegates to ${executable.delegate}, outside the approved flow envelope`,
@@ -3284,7 +3292,7 @@ export const make = (
             })
           )
         }
-        return Effect.succeed(executable)
+        return executable
       })
 
     /** One agent run, executed as the whole of one durable flow execution. */

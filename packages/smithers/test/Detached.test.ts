@@ -186,6 +186,39 @@ describe("launching", () => {
     expect(() => Detached.discard(rejected)).not.toThrow()
   }, 30_000)
 
+  it("names the catalog flow-load limit when the child exits with load_timeout", async () => {
+    const root = project()
+    const entry = child(`
+      console.error(JSON.stringify({ code: "load_timeout", flow: "slow", reason: "the body of flow slow timed out after 17ms" }))
+      process.exit(1)
+    `)
+    const result = await Detached.launch({ root, payload: "{}", entry, intervalMs: 10, admission: admitAll })
+    expect(Detached.isLaunched(result)).toBe(false)
+    const rejected = result as Detached.Rejected
+    expect(rejected.reason).toContain("SMITHERS_FLOW_LOAD_TIMEOUT_MS")
+    expect(rejected.reason).toContain("17ms")
+    expect(rejected.reason).not.toContain("SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
+  }, 30_000)
+
+  for (
+    const output of [
+      "{\"code\":\"load_timeout\",\"flow\":\"slow\"}",
+      "the body of flow \"slow\" timed out after 17.5ms while loading \"flow.ts\" (load_timeout; SMITHERS_FLOW_LOAD_TIMEOUT_MS catalog limit)"
+    ]
+  ) {
+    it(`names the catalog limit from child output ${output}`, async () => {
+      const root = project()
+      const entry = child(`console.error(${JSON.stringify(output)}); process.exit(1)`)
+      const result = await Detached.launch({ root, payload: "{}", entry, intervalMs: 10, admission: admitAll })
+      expect(Detached.isLaunched(result)).toBe(false)
+      const rejected = result as Detached.Rejected
+      expect(rejected.reason).toContain("SMITHERS_FLOW_LOAD_TIMEOUT_MS")
+      expect(rejected.reason).not.toContain("SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
+      if (output.includes("17.5ms")) expect(rejected.reason).toContain("17.5ms")
+      else expect(rejected.reason).not.toContain(", undefined")
+    }, 30_000)
+  }
+
   it("names an admission check that threw by its sentence, never its raw text", async () => {
     const root = project()
     const entry = child(

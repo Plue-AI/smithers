@@ -949,10 +949,12 @@ closure are refused. The host still verifies committed workspace routing and
 run approval before recovery; relocation grants no execution authority.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
-defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes
-`ExecutableError { code: "body_unavailable" }` naming the flow, source path,
+defaults to `SMITHERS_FLOW_LOAD_TIMEOUT_MS`, or 30000 milliseconds when unset
+or invalid. Supply a positive finite number. Expiry becomes
+`ExecutableError { code: "load_timeout" }` naming the flow, source path,
 and deadline. The catalog logs the refusal immediately and proceeds to the
-next entry. Direct `fromDescriptor` and `fromRegistry` calls have no deadline.
+next entry. Direct `fromDescriptor` and `fromRegistry` calls have no deadline
+and log progress every 30 seconds.
 Native imports cannot be cancelled: the deadline stops waiting and cleans up
 temporary files, but cannot stop initialization resources or synchronous code
 that blocks the event loop. Hosts needing termination must supply an isolated,
@@ -1094,6 +1096,9 @@ before the flow exists: a missing delegate, an undecidable one, an unreadable
 or changed body, a module that exports something else. A flow either function
 returns is one the engine can drive.
 
+Direct loads have no deadline and log progress every 30 seconds. A native
+start or resume remains bounded by its admission window.
+
 The delegate is resolved before the body is loaded. Both refusals are real, but
 only one of them is about this host, and an operator reading "could not load"
 would go looking in the wrong place.
@@ -1104,6 +1109,10 @@ would go looking in the wrong place.
 interface Catalog {
   readonly executables: ReadonlyArray<Executable>
   readonly refused: ReadonlyArray<ExecutableError>
+  readonly load?: (name: string) => Effect.Effect<
+    Executable,
+    ExecutableError | RegistryError | DiscoveryError
+  >
 }
 
 const Catalog: Context.Service<Catalog, Catalog>
@@ -1120,7 +1129,16 @@ flows directory is a mixed set: some entries delegate to a flow this host
 registered, others name a delegate only another host has, and one may simply be
 broken. None of those is a reason to withhold the rest, so every refusal is
 reported in `refused` carrying its code rather than raised. Each refusal is
-logged before loading the next entry. Each entry has the `loadTimeoutMs` deadline.
+logged before loading the next entry. Each entry has a catalog deadline:
+`Options.loadTimeoutMs`, then `SMITHERS_FLOW_LOAD_TIMEOUT_MS`, then 30000 ms.
+The environment setting must be positive and finite; invalid values use the
+default. A timeout is `load_timeout`, separate from `body_unavailable`.
+
+The live catalog provided by `layer` or `layerRefreshable` exposes `load(name)`.
+It returns an already loaded executable or retries a `load_timeout` through
+the direct path, registers the recovered body, and removes its refusal.
+Concurrent first uses share the recovered executable. Other refusals remain
+typed failures; retry does not adopt edited source bytes.
 
 The service tag is provided by `layer`, so a command that lists or diagnoses
 flows reads the same refusals the registration phase acted on instead of
@@ -1247,6 +1265,7 @@ class ExecutableError {
   readonly code:
     | "missing_delegate"
     | "ambiguous_delegate"
+    | "load_timeout"
     | "body_unavailable"
     | "invalid_module"
     | "invalid_layer"

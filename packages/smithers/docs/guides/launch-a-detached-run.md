@@ -58,6 +58,12 @@ smthrs: detached engine (pid 37916) is still booting after 30s; waiting up to 12
 A first launch in a fresh project often crosses that line, because the engine
 database still has to be created and migrated.
 
+The selected flow loads without a separate deadline and logs progress every
+30 seconds. The admission deadline remains the bound on a detached start.
+Catalog entries use `SMITHERS_FLOW_LOAD_TIMEOUT_MS` (30000 ms by default);
+a catalog `load_timeout` is retried on first use. Failure reports name the
+limit that fired, including its setting and duration.
+
 The receipt confirms that the run was persisted. It does not report settlement.
 An attached local launch or resume prints its receipt only after settlement.
 

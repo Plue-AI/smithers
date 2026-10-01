@@ -466,8 +466,16 @@ export const launch = async (options: Options): Promise<Launched | Rejected> => 
       const tail = logTail(pending)
       if (exited) {
         const status = child.signalCode === null ? `exit ${child.exitCode}` : `signal ${child.signalCode}`
+        const loadTimeout = /["']?code["']?\s*:\s*["']load_timeout["']/.test(tail) ||
+          tail.includes("(load_timeout; SMITHERS_FLOW_LOAD_TIMEOUT_MS catalog limit)")
+        const loadDuration = /timed out after ([\d.]+)ms/.exec(tail)?.[1]
+        const loadLimit = loadTimeout
+          ? ` The flow catalog load limit (SMITHERS_FLOW_LOAD_TIMEOUT_MS${
+            loadDuration === undefined ? "" : `, ${loadDuration}ms`
+          }) was reported before admission.`
+          : ""
         return {
-          reason: `Detached engine exited before admission (${status}).${refusal()}`,
+          reason: `Detached engine exited before admission (${status}).${loadLimit}${refusal()}`,
           tail,
           logFile: pending
         }
@@ -480,7 +488,7 @@ export const launch = async (options: Options): Promise<Launched | Rejected> => 
             child.pid ?? "unknown"
           }) was still alive and ${
             terminated ? "was terminated" : "could not be confirmed terminated"
-          }.${refusal()} Set SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS to raise the window.`,
+          }.${refusal()} Admission limit: SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS (${timeoutMs}ms, ${maxWaitMs}ms with live-child grace). Set SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS to raise the window.`,
           tail,
           logFile: pending
         }

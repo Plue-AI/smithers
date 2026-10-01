@@ -16,15 +16,19 @@ import * as Digest from "@smthrs/core/Digest"
 import { Action, Flow, FlowRuntime, Graph } from "@smthrs/flow"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Node } from "@smthrs/plan"
+import * as ConfigProvider from "effect/ConfigProvider"
 import * as Context from "effect/Context"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
+import * as TestClock from "effect/testing/TestClock"
 import { execFile } from "node:child_process"
 import { join, relative } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -611,6 +615,254 @@ export default Flow.make({
       }).pipe(Effect.scoped, Effect.provide(platform)))
   }
 
+  it.effect("logs a direct 45 second load at 30 seconds without applying the catalog deadline", () =>
+    Effect.gen(function*() {
+      const descriptor = yield* descriptorNamed("greet")
+      const logs: Array<string> = []
+      const capture = Logger.make((entry) => void logs.push(JSON.stringify(entry.message)))
+      const entered = yield* Deferred.make<void>()
+      const pending = yield* Effect.forkChild(
+        Executable.fromDescriptor(
+          descriptor,
+          options({
+            loadTimeoutMs: 10,
+            load: () =>
+              Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Effect.sleep("45 seconds")),
+                Effect.as({ default: greetModule })
+              )
+          })
+        ).pipe(Effect.provide(Logger.layer([capture])))
+      )
+      yield* Deferred.await(entered)
+      yield* TestClock.adjust("29 seconds")
+      expect(logs).toEqual([])
+      yield* TestClock.adjust("1 second")
+      expect(logs).toHaveLength(1)
+      expect(logs[0]).toContain("greet")
+      expect(logs[0]).toContain("flow.ts")
+      expect(logs[0]).toMatch(/30000|30/)
+      yield* TestClock.adjust("15 seconds")
+      const executable = yield* Fiber.join(pending)
+      expect(executable.descriptor.name).toBe("greet")
+      yield* TestClock.adjust("30 seconds")
+      expect(logs).toHaveLength(1)
+    }).pipe(Effect.provide(platform)))
+
+  for (
+    const [environment, override, expected] of [
+      ["17", undefined, 17],
+      ["17.5", undefined, 17.5],
+      ["17", 0, 30_000],
+      ["17", Infinity, 30_000],
+      ["17", 23, 23],
+      ["invalid", undefined, 30_000],
+      ["0", undefined, 30_000],
+      ["-1", undefined, 30_000],
+      ["Infinity", undefined, 30_000]
+    ] as const
+  ) {
+    it.effect(`catalog deadline honors environment ${environment} and override ${override}`, () =>
+      Effect.gen(function*() {
+        yield* Effect.gen(function*() {
+          const descriptor = yield* descriptorNamed("greet")
+          const registry = yield* Registry.Registry
+          const entered = yield* Deferred.make<void>()
+          const pending = yield* Effect.forkChild(
+            Executable.catalog(
+              options({
+                loadTimeoutMs: override,
+                load: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
+              })
+            ).pipe(
+              Effect.provideService(
+                ConfigProvider.ConfigProvider,
+                ConfigProvider.fromEnv({ env: { SMITHERS_FLOW_LOAD_TIMEOUT_MS: environment } })
+              ),
+              Effect.provideService(Registry.Registry, { ...registry, list: () => Effect.succeed([descriptor]) })
+            )
+          )
+          yield* Deferred.await(entered)
+          yield* TestClock.adjust(expected - 1)
+          expect(pending.pollUnsafe()).toBeUndefined()
+          yield* TestClock.adjust(1)
+          expect(pending.pollUnsafe()).toBeDefined()
+          const built = yield* Fiber.join(pending)
+          expect(built.executables).toEqual([])
+          expect(built.refused).toHaveLength(1)
+          expect(built.refused[0]).toMatchObject({ code: "load_timeout", flow: "greet" })
+          expect(built.refused[0]!.message).toContain(`${expected}ms`)
+          expect(built.refused[0]!.message).toContain("SMITHERS_FLOW_LOAD_TIMEOUT_MS")
+        })
+      }).pipe(Effect.provide(registryLayer), Effect.provide(platform)))
+  }
+
+  it.effect("retries a catalog load_timeout on first use and retains the registered executable", () =>
+    Effect.gen(function*() {
+      const descriptor = yield* descriptorNamed("greet")
+      const registry = yield* Registry.Registry
+      const registered: Array<string> = []
+      let attempts = 0
+      const entered = yield* Deferred.make<void>()
+      const retryEntered = yield* Deferred.make<void>()
+      const runtime = Layer.succeed(FlowRuntime.FlowRuntime, {
+        register: (flow: Flow.Any) => Effect.sync(() => void registered.push(flow._tag))
+      } as never)
+      const pending = yield* Effect.forkChild(
+        Effect.gen(function*() {
+          const catalog = yield* Executable.Catalog
+          expect(catalog.refused).toHaveLength(1)
+          expect(catalog.refused[0]).toMatchObject({ code: "load_timeout", flow: "greet" })
+          expect(catalog.load).toBeTypeOf("function")
+          const first = yield* Effect.forkChild(catalog.load!("greet"))
+          const second = yield* Effect.forkChild(catalog.load!("greet"))
+          yield* Deferred.await(retryEntered)
+          yield* TestClock.adjust("44 seconds")
+          expect(first.pollUnsafe()).toBeUndefined()
+          expect(second.pollUnsafe()).toBeUndefined()
+          expect(catalog.refused[0]!.code).toBe("load_timeout")
+          yield* TestClock.adjust("1 second")
+          const loaded = yield* Fiber.join(first)
+          expect(yield* Fiber.join(second)).toBe(loaded)
+          expect(loaded.descriptor.name).toBe("greet")
+          expect(catalog.refused).toEqual([])
+          expect(catalog.executables).toEqual([loaded])
+          expect(registered.filter((name) => name === "greet")).toHaveLength(1)
+          expect(yield* catalog.load!("greet")).toBe(loaded)
+          expect(attempts).toBe(2)
+        }).pipe(
+          Effect.provide(
+            Executable.layer(options({
+              loadTimeoutMs: 10,
+              load: () =>
+                ++attempts === 1
+                  ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
+                  : Deferred.succeed(retryEntered, undefined).pipe(
+                    Effect.andThen(Effect.sleep("45 seconds")),
+                    Effect.as({ default: greetModule })
+                  )
+            })).pipe(Layer.provideMerge(Layer.mergeAll(runtime, Action.layerImplementations, NodeCrypto.layer)))
+          ),
+          Effect.provideService(Registry.Registry, { ...registry, list: () => Effect.succeed([descriptor]) })
+        )
+      )
+      yield* Deferred.await(entered)
+      yield* TestClock.adjust(10)
+      yield* Fiber.join(pending)
+    }).pipe(Effect.scoped, Effect.provide(registryLayer), Effect.provide(platform)))
+
+  it.effect("repeats direct progress at 60 seconds and stops after cancellation", () =>
+    Effect.gen(function*() {
+      const descriptor = yield* descriptorNamed("greet")
+      const logs: Array<string> = []
+      const capture = Logger.make((entry) => void logs.push(JSON.stringify(entry.message)))
+      const entered = yield* Deferred.make<void>()
+      const pending = yield* Effect.forkChild(
+        Executable.fromDescriptor(
+          descriptor,
+          options({ load: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)) })
+        )
+          .pipe(Effect.provide(Logger.layer([capture])))
+      )
+      yield* Deferred.await(entered)
+      yield* TestClock.adjust("30 seconds")
+      expect(logs).toHaveLength(1)
+      yield* TestClock.adjust("30 seconds")
+      expect(logs).toHaveLength(2)
+      yield* Fiber.interrupt(pending)
+      yield* TestClock.adjust("90 seconds")
+      expect(logs).toHaveLength(2)
+    }).pipe(Effect.provide(platform)))
+
+  for (const scenario of ["permanent", "failed-retry", "interrupted"] as const) {
+    it.effect(`first-use catalog preserves ${scenario} refusal and resource ownership`, () =>
+      Effect.gen(function*() {
+        const descriptor = yield* descriptorNamed("greet")
+        const registry = yield* Registry.Registry
+        const acquired = yield* Deferred.make<void>()
+        const entered = yield* Deferred.make<void>()
+        const resources: Array<string> = []
+        let attempts = 0
+        const runtime = Layer.succeed(FlowRuntime.FlowRuntime, {
+          register: () =>
+            Effect.acquireRelease(
+              Effect.sync(() => resources.push("acquired")),
+              () => Effect.sync(() => resources.push("released"))
+            ).pipe(Effect.andThen(Deferred.succeed(acquired, undefined)), Effect.andThen(Effect.never))
+        } as never)
+        const pending = yield* Effect.forkChild(
+          Effect.gen(function*() {
+            const catalog = yield* Executable.Catalog
+            const original = catalog.refused[0]!
+            if (scenario === "interrupted") {
+              const loading = yield* Effect.forkChild(catalog.load!("greet"))
+              yield* Deferred.await(acquired)
+              expect(resources).toEqual(["acquired"])
+              yield* Fiber.interrupt(loading)
+              expect(resources).toEqual(["acquired", "released"])
+              expect(catalog.refused).toEqual([original])
+              expect(catalog.executables).toEqual([])
+            } else {
+              const failure = yield* Effect.flip(catalog.load!("greet"))
+              expect(failure.code).toBe(scenario === "permanent" ? "invalid_module" : "body_unavailable")
+              if (scenario === "permanent") expect(failure).toBe(original)
+              expect(catalog.refused).toEqual([failure])
+              expect(yield* Effect.flip(catalog.load!("greet"))).toBe(failure)
+              expect(attempts).toBe(scenario === "permanent" ? 1 : 2)
+            }
+            const unknown = yield* Effect.flip(catalog.load!("absent"))
+            expect(unknown._tag).toBe("flows/registry/RegistryError")
+          }).pipe(
+            Effect.provide(
+              Executable.layer(options({
+                loadTimeoutMs: 10,
+                load: () => {
+                  attempts++
+                  if (scenario === "permanent") return Deferred.succeed(entered, undefined).pipe(Effect.as({}))
+                  if (attempts === 1) return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never))
+                  return scenario === "failed-retry"
+                    ? Effect.fail(new Error("cannot load retry"))
+                    : Effect.succeed({ default: greetModule })
+                }
+              })).pipe(Layer.provideMerge(Layer.mergeAll(runtime, Action.layerImplementations, NodeCrypto.layer)))
+            ),
+            Effect.provideService(Registry.Registry, { ...registry, list: () => Effect.succeed([descriptor]) })
+          )
+        )
+        yield* Deferred.await(entered)
+        yield* TestClock.adjust(10)
+        yield* Fiber.join(pending)
+      }).pipe(Effect.scoped, Effect.provide(registryLayer), Effect.provide(platform)))
+  }
+
+  it.effect("does not import an existing registry entry omitted from the startup catalog", () =>
+    Effect.gen(function*() {
+      const registry = yield* Registry.Registry
+      let attempts = 0
+      const runtime = Layer.succeed(FlowRuntime.FlowRuntime, { register: () => Effect.void } as never)
+      yield* Effect.gen(function*() {
+        const catalog = yield* Executable.Catalog
+        expect(catalog.executables).toEqual([])
+        expect(catalog.refused).toEqual([])
+        const failure = yield* Effect.flip(catalog.load!("greet"))
+        expect(failure).toMatchObject({ code: "body_unavailable", flow: "greet" })
+        expect(failure.message).toContain("was not loaded by this catalog")
+        expect(attempts).toBe(0)
+        expect(catalog.executables).toEqual([])
+        expect(catalog.refused).toEqual([])
+      }).pipe(
+        Effect.provide(
+          Executable.layer(options({
+            load: () => {
+              attempts++
+              return Effect.succeed({ default: greetModule })
+            }
+          })).pipe(Layer.provideMerge(Layer.mergeAll(runtime, Action.layerImplementations, NodeCrypto.layer)))
+        ),
+        Effect.provideService(Registry.Registry, { ...registry, list: () => Effect.succeed([]) })
+      )
+    }).pipe(Effect.scoped, Effect.provide(registryLayer), Effect.provide(platform)))
+
   it.live("bounds a stuck top-level await, logs its refusal, and loads the next entry", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -635,7 +887,7 @@ export default Flow.make({
       expect(built.executables.map((entry) => entry.descriptor.name)).toEqual(["healthy"])
       expect(built.refused).toHaveLength(1)
       expect(built.refused[0]).toMatchObject({
-        code: "body_unavailable",
+        code: "load_timeout",
         flow: "aaa-hung",
         path: join(root, "flows", "aaa-hung", "flow.ts")
       })
