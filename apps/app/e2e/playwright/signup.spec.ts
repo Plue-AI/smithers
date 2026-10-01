@@ -4,8 +4,9 @@ import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 /*
  * The signup onboarding (state/Signup.ts) in a real browser: a signed-out
- * cloud visitor meets the hero and its GitHub door → account → the seven questions → ready → Start Automating,
- * and a reload resumes the stage the person stopped at.
+ * cloud visitor meets the hero and its GitHub door → account (Full name from GitHub) → the repository
+ * question → ready → Start Automating, each step alone on screen, and a reload resumes the stage the person
+ * stopped at.
  */
 const SHOTS = process.env.SIGNUP_SHOTS
 
@@ -47,39 +48,32 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
   await request
   await page.waitForURL(url => url.pathname === APPLICATION_SIGN_IN_PATH)
 
-  // Back from GitHub: the identity answer moves the signup to the account step with the login prefilled.
-  await page.route("**/api/user", identityRoute("adapark"))
+  // Back from GitHub: the identity answer moves the signup to the account step, Full name and login prefilled.
+  await page.route("**/api/user", identityRoute("adapark", "Ada Park"))
   await page.goto("/")
   await expect(page.getByTestId("signup-account")).toHaveValue("adapark")
+  await expect(page.getByTestId("signup-name")).toHaveValue("Ada Park")
+  // Each step shows only itself: no receipt of the sign-in before it.
+  await expect(signup).not.toContainText("Signed in with GitHub")
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/3-account.png` })
-  await page.getByTestId("signup-name").fill("Ada Park")
   await page.getByTestId("signup-account-continue").click()
 
+  // The poll is the repository question alone.
   const question = page.getByTestId("signup-question")
-  await expect(question).toHaveAttribute("data-question", "size")
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/4-poll.png` })
-  await page.keyboard.press("b")
-  await expect(question).toHaveAttribute("data-question", "role")
-  await question.getByRole("radio", { name: /Engineering/ }).click()
-  await expect(question).toHaveAttribute("data-question", "heard")
-  await page.getByTestId("signup-skip").click()
-  await expect(question).toHaveAttribute("data-question", "know")
-  await question.getByRole("radio", { name: /Yes/ }).click()
-  await expect(question).toHaveAttribute("data-question", "models")
-  await question.getByRole("checkbox", { name: /Claude/ }).click()
-  await page.getByTestId("signup-continue").click()
   await expect(question).toHaveAttribute("data-question", "repo")
+  await expect(signup).not.toContainText("smithers.sh/adapark")
+  await expect(question.getByRole("button", { name: "Back", exact: true })).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/4-poll.png` })
 
-  // A reload immediately after answering must resume the same question.
+  // A reload resumes the same question.
   await page.reload()
   await expect(page.getByTestId("signup-question")).toHaveAttribute("data-question", "repo")
   await page.getByTestId("signup-new-repo").click()
-  await expect(page.getByTestId("signup-question")).toHaveAttribute("data-question", "more")
-  await page.getByTestId("signup-skip").click()
 
   await expect(page.getByTestId("signup-finish")).toBeVisible()
   await expect(page.getByTestId("signup")).toContainText("smithers.sh/adapark")
   await expect(page.getByTestId("signup").locator("h2")).toHaveText("Welcome, Ada")
+  await expect(page.getByTestId("signup")).not.toContainText("Answered")
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/5-ready.png` })
   await page.getByTestId("signup-finish").click()
   await expect(page.getByTestId("signup")).toHaveCount(0)

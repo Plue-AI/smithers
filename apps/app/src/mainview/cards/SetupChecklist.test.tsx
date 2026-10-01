@@ -86,6 +86,40 @@ test("each step names the first flow this host registered, and completion follow
   expect(resolveSteps(commands.filter(command => command.name !== "auth.sign-in"), empty)[0]?.flow).toBeUndefined()
 })
 
+test("on the cloud web app the GitHub step belongs to the signup: two steps remain", () => {
+  expect(resolveSteps(commands, { ...empty, cloud: true }).map(step => [step.id, step.flow, step.complete])).toEqual([
+    ["add-repository", "repos.import", false],
+    ["set-up-job", "issues.setup", false],
+  ])
+  expect(resolveSteps(commands, { ...done, cloud: true }).map(step => step.complete)).toEqual([true, true])
+  // Every other host keeps the step, local credentials included.
+  expect(resolveSteps(commands, { ...empty, cloud: false }).map(step => step.id)).toEqual(["connect-github", "add-repository", "set-up-job"])
+  expect(resolveSteps(commands, { ...empty, localAuth: true }).map(step => step.label)).toEqual(["Sign in", "Add a repository", "Set up a job"])
+})
+
+for (const [host, capabilities, count] of [
+  ["cloud", [], "1 of 2"], ["cloud", ["native.shell"], "2 of 3"], ["local", [], "2 of 3"],
+] as const) test(`the live card on a ${host} host${capabilities.length ? " in the desktop shell" : ""} counts ${count}`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const host_ = document.createElement("div")
+  const root = createRoot(host_)
+  const bootstrap = { apiVersion: 1, host, version: "test", buildSha: "test", capabilities: [...capabilities], authFlow: "redirect", sandbox: null }
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
+    flushSync(() => root.render(<ControllerContext value={{ store, bootstrap, dismissFirstRun: () => {}, commands: { all: () => jobCommands }, runCommand: () => {} } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const cloud = host === "cloud" && capabilities.length === 0
+    expect(host_.querySelector(".setup-checklist-count")?.textContent).toBe(count)
+    expect(host_.querySelector("progress")?.getAttribute("max")).toBe(cloud ? "2" : "3")
+    expect([...host_.querySelectorAll("ol > li")].map(item => item.firstChild?.textContent)).toEqual(cloud ? ["✓", "Set up a job"] : ["✓", "✓", "Set up a job"])
+    expect(host_.textContent?.includes("Connect GitHub")).toBe(!cloud)
+  } finally {
+    flushSync(() => root.unmount())
+    await store.dispose?.()
+  }
+})
+
 test("the step count matches the list the pattern promises", () => {
   expect(SETUP_STEPS.map(step => step.id)).toEqual(["connect-github", "add-repository", "set-up-job"])
 })

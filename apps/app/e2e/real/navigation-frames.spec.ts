@@ -1,6 +1,6 @@
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
-import { awaitBoot, closeComposer, command, expect, openComposer, reloadApp, test } from "./support/test"
+import { appReady, awaitBoot, closeComposer, command, expect, openComposer, reloadApp, test } from "./support/test"
 import {
   decodedFramePath,
   enterCanonicalRepositoryApp,
@@ -504,7 +504,7 @@ test("an older physical OPFS schema stamp upgrades while preserving the current 
   const upgradedStartedAt = performance.now()
   await database.page.goto(database.appUrl)
   await awaitBoot(database.page, "navigate", upgradedStartedAt)
-  await expect(database.page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(database.page)
   await expect(database.page.getByTestId(FORM_VEHICLE_CARD_ID).getByTestId(FORM_VEHICLE_FIELD_TESTID)).toHaveValue(marker)
 
   const upgraded = await takeDatabaseControl(database.page, context)
@@ -592,7 +592,7 @@ matrixTest("a future-schema physical OPFS database fails closed, exports exact r
   await database.page.goto(database.appUrl)
   // The composer is hidden on a booted app, and on a boot skeleton too. Boot first.
   await awaitBoot(database.page, "navigate", recoveredStartedAt)
-  await expect(database.page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(database.page)
   await expect(database.page.getByTestId("composer-input")).toBeHidden()
   await expect(database.page.getByTestId(FORM_VEHICLE_CARD_ID).getByTestId(FORM_VEHICLE_FIELD_TESTID)).toHaveValue(marker)
   await openComposer(database.page)

@@ -55,6 +55,8 @@ export interface AuthBillingController {
 export interface ResolvedSession {
   readonly state: "signed-in" | "signed-out" | "unavailable"
   readonly login: string | null
+  /** The profile name `GET /api/user` returned; it only prefills the signup's Full name. */
+  readonly displayName?: string
   readonly admin: boolean
   readonly scopes?: "degraded" | null
 }
@@ -219,7 +221,7 @@ export const createAuthBillingController = (
   }
 
   const finishSignedInSession = async (
-    session: Pick<ResolvedSession, "login" | "admin" | "scopes">,
+    session: Pick<ResolvedSession, "login" | "displayName" | "admin" | "scopes">,
     previous: ReturnType<typeof store.collections.identitySessions.get>,
     mine: number
   ): Promise<void> => {
@@ -232,6 +234,7 @@ export const createAuthBillingController = (
       actor: "system",
       state: "signed-in",
       login: session.login,
+      ...(session.displayName ? { displayName: session.displayName } : {}),
       admin: session.admin,
       scopesPlain: null
     })
@@ -296,6 +299,7 @@ export const createAuthBillingController = (
       }
       await finishSignedInSession({
         login: identity.username,
+        displayName: identity.displayName,
         admin: identity.admin,
         scopes: identity.scopes
       }, previous, mine)

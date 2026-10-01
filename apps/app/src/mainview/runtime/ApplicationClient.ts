@@ -89,6 +89,8 @@ export interface LocalIdentityClient {
 
 export interface ApplicationIdentity {
   readonly username: string
+  /** The trimmed profile name, absent when the backend sends none. */
+  readonly displayName?: string
   readonly admin: boolean
   readonly scopes: "degraded" | null
 }
@@ -340,8 +342,10 @@ export const createApplicationClient = (
       const grantsAll = scopes?.some((scope) => scope === "all" || scope === "admin") === true
       const available = new Set(scopes)
       const degraded = scopes !== undefined && !grantsAll && APPLICATION_TOKEN_SCOPES.some((scope) => !available.has(scope))
+      const displayName = parsed.data.display_name?.trim()
       return {
         username: parsed.data.username,
+        ...(displayName ? { displayName } : {}),
         admin: parsed.data.is_admin === true,
         scopes: degraded ? "degraded" : null
       }

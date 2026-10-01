@@ -126,7 +126,7 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`th
     ...ownerSeams({ ...WORKER, authFlow }),
     applicationIdentity: { current: async () => {
       identityReads++
-      return { username: "github-owner", admin: false, scopes: null }
+      return { username: "github-owner", displayName: "Grace Owner", admin: false, scopes: null }
     } },
     fetchImpl: async (url) => { requests.push(String(url)); return new Response("{}", { status: 404 }) }
   })
@@ -140,6 +140,7 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`th
   const { host } = mount(controller)
   expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
   expect((host.querySelector('[data-testid="signup-account"]') as HTMLInputElement | null)?.value).toBe("github-owner")
+  expect((host.querySelector('[data-testid="signup-name"]') as HTMLInputElement | null)?.value).toBe("Grace Owner")
 })
 
 describe("the desktop shell still does", () => {

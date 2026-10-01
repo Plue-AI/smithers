@@ -164,6 +164,8 @@ export type SocketTicketResponse = z.infer<typeof SocketTicketResponseSchema>
  */
 export const ApplicationUserSchema = z.object({
   username: z.string().min(1),
+  /** The profile name; GitHub sign-in stores GitHub's name, or the login when GitHub has none. */
+  display_name: z.string().optional(),
   is_admin: z.boolean().optional(),
   token_scopes: z.array(z.string().min(1)).optional(),
   token_source: z.string().min(1).optional()

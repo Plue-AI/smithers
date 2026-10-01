@@ -55,13 +55,10 @@ test("the signup fits a 390 px phone at every stage", async ({ page }) => {
   await page.getByTestId("signup-name").fill("Ada Park")
   await page.getByTestId("signup-account-continue").click()
 
-  const question = page.getByTestId("signup-question")
-  for (const id of ["size", "role", "heard", "know", "models", "repo", "more"]) {
-    await expect(question).toHaveAttribute("data-question", id)
-    expect(await overflow(page), id).toEqual([])
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-3-${id}.png`, fullPage: true })
-    await page.getByTestId("signup-skip").click()
-  }
+  await expect(page.getByTestId("signup-question")).toHaveAttribute("data-question", "repo")
+  expect(await overflow(page)).toEqual([])
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-3-repo.png`, fullPage: true })
+  await page.getByTestId("signup-skip").click()
   await expect(page.getByTestId("signup-finish")).toBeVisible()
   expect(await overflow(page)).toEqual([])
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/signup-4-ready.png`, fullPage: true })

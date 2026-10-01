@@ -2738,7 +2738,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           // A definitive sign-in carries an unfinished signup past its doors (state/Signup.ts).
           if (transition.state === "signed-in") {
             const session = collections.sessions.get(SESSION_ID)
-            const advanced = signupAfterIdentity(session?.signup, "signed-in", transition.login, owner)
+            const advanced = signupAfterIdentity(session?.signup, "signed-in", transition.login, owner, transition.displayName)
             if (advanced !== undefined && advanced !== session?.signup) collections.sessions.update(SESSION_ID, draft => { draft.signup = advanced })
           }
           const commandEntry = collections.sessions.get(SESSION_ID)?.repositoryCommandEntry

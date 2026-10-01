@@ -15,10 +15,7 @@ export const signupFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   flow({ name: "signup.set", hidden: true, summary: "Type into a signup field", args: "<field> [value]",
     input: Schema.Struct({ field: Schema.String, value: Schema.String }), handler: ({ field, value }) => actions.signupSet(field, value) }),
   flow({ name: "signup.account", hidden: true, summary: "Finish creating the account", input: NoPayload, handler: () => actions.signupAccount() }),
-  flow({ name: "signup.answer", hidden: true, summary: "Answer the current signup question", args: "<value>",
-    input: Schema.Struct({ value: Schema.String }), handler: ({ value }) => actions.signupAnswer(value) }),
-  flow({ name: "signup.next", hidden: true, summary: "Continue past the current question", input: NoPayload, handler: () => actions.signupNext() }),
-  flow({ name: "signup.back", hidden: true, summary: "Return to the previous question", input: NoPayload, handler: () => actions.signupBack() }),
+  flow({ name: "signup.next", hidden: true, summary: "Skip the repository question", input: NoPayload, handler: () => actions.signupNext() }),
   flow({ name: "signup.repo", hidden: true, summary: "Choose the repository to connect", args: "<owner/repo|new>",
     input: Schema.Struct({ repo: Schema.String }), handler: ({ repo }) => actions.signupRepo(repo) }),
   flow({ name: "signup.finish", hidden: true, summary: "Start automating", input: NoPayload, handler: () => actions.signupFinish() })

@@ -1,5 +1,6 @@
 import type { Page, TestInfo } from "@playwright/test"
 import {
+  appReady,
   awaitBoot,
   closeComposer,
   command,
@@ -11,7 +12,7 @@ export const bootRepositoryWorkbench = async (page: Page): Promise<void> => {
   await page.goto("/smithersai/smithers", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(/\/smithersai\/smithers$/)
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 export const enableVerboseEvidence = async (page: Page): Promise<void> => {

@@ -56,14 +56,13 @@ describe("the signup cards", () => {
     const subscription = store.collections.sessions.subscribeChanges(project)
     try {
       const cases = [
-        { stage: "account", field: "name", testId: "signup-name", value: "Ada Park " },
-        { stage: "account", field: "account", testId: "signup-account", value: "ada park " },
-        { stage: "poll", field: "more", testId: "signup-more", value: "ship it " }
+        { field: "name", testId: "signup-name", value: "Ada Park " },
+        { field: "account", testId: "signup-account", value: "ada park " }
       ] as const
-      for (const { stage, field, testId, value } of cases) {
-        controller.signupChange({ stage, ...(stage === "poll" ? { question: 6 } : {}) })
+      controller.signupChange({ stage: "account" })
+      for (const { field, testId, value } of cases) {
         project()
-        const input = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-testid="${testId}"]`)!
+        const input = host.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)!
         input.focus()
         for (let index = 1; index <= value.length; index++) {
           input.value = value.slice(0, index)
@@ -139,33 +138,44 @@ describe("the signup cards", () => {
     })
   }
 
-  test("the account step prefills the GitHub login under smithers.sh/ and submits through signup.account", () => {
+  test("the account step shows only itself, with the GitHub name and login prefilled, and submits through signup.account", () => {
     const { host, calls } = render({ ...initialSignup(), stage: "account", door: "github", account: "adapark", draft: { account: "adapark", name: "Ada Park" } })
+    expect(host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')?.value).toBe("Ada Park")
     expect(host.querySelector<HTMLInputElement>('[data-testid="signup-account"]')?.value).toBe("adapark")
     expect(host.querySelector(".signup-prefix")?.textContent).toBe("smithers.sh/")
     expect(host.querySelector(".signup-url")?.getAttribute("data-valid")).toBe("true")
-    expect([...host.querySelectorAll(".signup-receipt")].map(r => r.textContent)).toEqual(["Signed in with GitHub"])
+    // No receipt of the sign-in before it: the signup holds this one card.
+    expect([...host.querySelector('[data-testid="signup"]')!.children].map(child => child.getAttribute("aria-label"))).toEqual(["Finish creating your account"])
+    expect(host.textContent).not.toContain("GitHub")
     host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
     expect(calls).toEqual([["signup.account", undefined]])
   })
 
-  test("a poll question renders its lettered choices as signup.answer buttons, a letter key answers, and every question offers Skip", () => {
-    const { host, flows, calls } = render({ ...initialSignup(), stage: "poll", question: 1 })
-    expect(host.querySelector("h2")?.textContent).toBe("What best describes your role?")
-    expect(flows().filter(row => row[1] === "signup.answer").map(row => row[2])).toEqual(["Executive/Owner", "Engineering", "Support", "Marketing", "Product & Design", "Sales", "IT", "Other"])
-    expect(host.querySelector('[data-testid="signup-skip"]')).not.toBeNull()
-    expect(flows().some(row => row[1] === "signup.back")).toBe(true)
-    host.querySelector<HTMLElement>(".signup-choice")!.dispatchEvent(new KeyboardEvent("keydown", { key: "b", bubbles: true }))
-    expect(calls).toEqual([["signup.answer", "Engineering"]])
+  test("the poll is the repository question alone: the GitHub repositories, a new repo and Skip, with no progress, Back or earlier steps", () => {
+    const { host, flows, calls } = render({ ...initialSignup(), stage: "poll", door: "github", name: "Ada Park", account: "adapark" }, [{ id: "adapark/hello-server" }])
+    expect([...host.querySelector('[data-testid="signup"]')!.children].map(child => child.getAttribute("data-question"))).toEqual(["repo"])
+    const card = host.querySelector('[data-testid="signup-question"]')!
+    expect([...card.children].map(child => child.tagName.toLowerCase())).toEqual(["h2", "div", "div"])
+    expect(card.querySelector("h2")?.textContent).toBe("Do you have a repo you would like to connect?")
+    expect(flows()).toEqual([
+      ["adapark/hello-server", "signup.repo", "adapark/hello-server"],
+      ["+ Try Smithers on a new repo", "signup.repo", "new"],
+      ["Skip", "signup.next", undefined]
+    ])
+    expect(host.textContent).not.toContain("smithers.sh/adapark")
+    host.querySelector<HTMLButtonElement>('[data-testid="signup-skip"]')!.click()
+    expect(calls).toEqual([["signup.next", undefined]])
   })
 
-  test("the repo question lists the GitHub repositories beside a new repo", () => {
-    const { flows } = render({ ...initialSignup(), stage: "poll", question: 5, door: "github" }, [{ id: "adapark/hello-server" }])
-    expect(flows().filter(row => row[1] === "signup.repo").map(row => row[2])).toEqual(["adapark/hello-server", "new"])
+  test.each([4, 6])("a row saved at seven-question index %i opens the repository question", question => {
+    const { host, flows } = render({ ...initialSignup(), stage: "poll", question, answers: { size: "2–10" } })
+    expect(host.querySelector('[data-testid="signup-question"]')?.getAttribute("data-question")).toBe("repo")
+    expect(flows().map(row => row[1])).toEqual(["signup.repo", "signup.next"])
   })
 
   test("ready greets the person, shows the account URL and the giant Start Automating door, and nothing it cannot play", () => {
-    const { host, flows } = render({ ...initialSignup(), stage: "ready", account: "adapark", name: "  Ada  Park " })
+    const { host, flows } = render({ ...initialSignup(), stage: "ready", door: "github", repo: "new", answers: { repo: "new" }, account: "adapark", name: "  Ada  Park " })
+    expect([...host.querySelector('[data-testid="signup"]')!.children].map(child => child.getAttribute("aria-label"))).toEqual(["Welcome"])
     expect(host.querySelector("h2")?.textContent).toBe("Welcome, Ada")
     expect(host.querySelector(".signup-url-line")?.textContent).toBe("smithers.sh/adapark")
     expect(flows()).toEqual([["Start Automating", "signup.finish", undefined]])

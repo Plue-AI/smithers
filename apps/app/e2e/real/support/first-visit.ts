@@ -6,13 +6,7 @@ export const finishFirstVisit = async (page: Page): Promise<void> => {
   if (!await name.isVisible().catch(() => false)) return
   await name.fill("Smithers Canary")
   await page.getByTestId("signup-account-continue").click()
-  await page.locator('[data-testid="signup-question"][data-question="size"]').getByRole("radio", { name: /Just me/ }).click()
-  await page.locator('[data-testid="signup-question"][data-question="role"]').getByRole("radio", { name: /Engineering/ }).click()
-  await page.locator('[data-testid="signup-question"][data-question="heard"]').getByTestId("signup-skip").click()
-  await page.locator('[data-testid="signup-question"][data-question="know"]').getByRole("radio", { name: /Yes/ }).click()
-  await page.locator('[data-testid="signup-question"][data-question="models"]').getByTestId("signup-skip").click()
   await page.locator('[data-testid="signup-question"][data-question="repo"]').getByTestId("signup-skip").click()
-  await page.getByTestId("signup-send").click()
   await page.getByTestId("signup-finish").click()
   await expect(page.getByTestId("signup-name")).toHaveCount(0)
 }

@@ -1084,6 +1084,39 @@ describe("the live store's authoritative event path", () => {
     expect(envelopeRows(storage)).toEqual(before)
   })
 
+  test.each<{ name: string; displayName: string | undefined; draft: Record<string, string> }>([
+    { name: "recorded before displayName joined it", displayName: undefined, draft: { account: "alice" } },
+    { name: "carrying displayName", displayName: "Alice Park", draft: { account: "alice", name: "Alice Park" } }
+  ])("an identity event $name replays on this projector, unchanged and unupgraded", async ({ displayName, draft }) => {
+    const storage = memoryStorage()
+    const before = await open(storage)
+    await before.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    // Every earlier build wrote no displayName key at all.
+    await before.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
+      ...(displayName === undefined ? {} : { displayName }), admin: false, scopesPlain: null }).isPersisted.promise
+    const written = await before.eventHistory()
+    const input = decodeEventValue(written.events.at(-1)!.input) as Record<string, unknown>
+    expect(input).toMatchObject({ type: "identity.session.loaded", login: "alice" })
+    expect("displayName" in input).toBe(displayName !== undefined)
+    await before.dispose?.()
+    opened.splice(opened.indexOf(before), 1)
+
+    const restored = await open(storage)
+    const replayed = await restored.eventHistory()
+    expect(replayed.checkpoint.reason).not.toBe("projector-upgrade")
+    expect(replayed.head).toEqual(written.head)
+    expect(replayAppEvents(replayed.checkpoint, replayed.events, replayed.head).snapshot.sessions[0]?.signup?.draft).toEqual(draft)
+    expect((await restored.verifyState()).valid).toBe(true)
+    expect(restored.session().signup).toEqual({ stage: "account", door: "github", question: 0, account: "alice", answers: {}, draft })
+  })
+
+  test("an identity event whose displayName is empty is refused before it is recorded", async () => {
+    const store = await open(memoryStorage())
+    const before = await store.eventHistory()
+    expect(() => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", displayName: "", admin: false, scopesPlain: null })).toThrow()
+    expect((await store.eventHistory()).head).toEqual(before.head)
+  })
+
   test("a dispatcher row persisted before slug joined it replays on this projector, unchanged and unupgraded", async () => {
     const storage = memoryStorage()
     const before = await open(storage)

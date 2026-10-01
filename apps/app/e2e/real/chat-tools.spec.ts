@@ -192,7 +192,13 @@ test("a multiline draft survives keyboard dismissal and a real reload before sub
   await expect(input).toHaveValue(expected)
   await closeComposer(page)
   await reloadApp(page)
-  await page.getByRole("button", { name: "Chat", exact: true }).focus()
+  // Chat's button is the door under test. The hosted web app holds it behind
+  // the first-run card until the first job; dismissing the card brings it.
+  const chat = page.getByRole("button", { name: "Chat", exact: true })
+  const dismiss = page.getByTestId("setup-checklist").getByRole("button", { name: "Dismiss", exact: true })
+  await expect(chat.or(dismiss).first()).toBeVisible()
+  if (!(await chat.isVisible())) await dismiss.press("Enter")
+  await chat.focus()
   await page.keyboard.press("Enter")
   await expect(page.getByTestId("composer-input")).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveValue(expected)

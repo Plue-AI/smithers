@@ -1,5 +1,5 @@
 import { scenario } from "./coverage/types"
-import { closeComposer, command, expect, realApi, reloadApp } from "./support/test"
+import { appReady, closeComposer, command, expect, realApi, reloadApp } from "./support/test"
 import { expectFlowOutcome } from "./repositories-github/local"
 import { attachProductionJson, bootProductionRepository, cloudRepoPath } from "./repositories-github/production"
 import { configuredGatewayTest, workflowTest } from "./flow-execution/fixture"
@@ -177,7 +177,7 @@ workflowTest(
     await expect.poll(async () => (await realApi(page, request, "GET", path)).status(), { timeout: 60_000 }).toBe(404)
     await expect(card).toHaveCount(0)
     await reloadApp(page)
-    await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+    await appReady(page)
     await expect(card).toHaveCount(0)
     await attachProductionJson(testInfo, "workspace-lifecycle", {
       repo: workflowRepo.repo, workspaceId, name, before, suspended, resumed,

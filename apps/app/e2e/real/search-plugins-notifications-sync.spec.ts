@@ -1,12 +1,12 @@
 import type { Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
-import { awaitBoot, closeComposer, command, expect, openApp, openComposer, test } from "./support/test"
+import { appReady, awaitBoot, closeComposer, command, expect, openApp, openComposer, test } from "./support/test"
 
 const boot = async (page: Page): Promise<void> => {
   const startedAt = performance.now()
   await openApp(page)
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 test("the real palette filters flow rows and keyboard selection runs the same search door", scenario("search.palette-keyboard-real", {

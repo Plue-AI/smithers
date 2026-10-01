@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
-import { awaitBoot,closeComposer,command,expect,openApp,reloadApp,test } from "./support"
+import { appReady,awaitBoot,closeComposer,command,expect,openApp,reloadApp,test } from "./support"
 import { fixtureInputText } from "./support/values"
 
 test.setTimeout(90_000)
@@ -9,7 +9,7 @@ const boot = async (page: Page): Promise<void> => {
   const startedAt = performance.now()
   await openApp(page)
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 const makeNote = async (page: Page, marker: string): Promise<{ readonly id: string; readonly title: string }> => {
@@ -60,7 +60,7 @@ test(
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click()
     await expect(dialog).toBeHidden()
     await reloadApp(page)
-    await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+    await appReady(page)
     await command(page, `/wiki.open ${note.title}`)
     await closeComposer(page)
     await expect(page.locator('.smithers-card[data-kind="world"]').last()).toContainText(note.title)

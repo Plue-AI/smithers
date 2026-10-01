@@ -6,9 +6,9 @@ import { PERSISTENCE_BACKEND_STORAGE_KEY } from "../chain/SchemaVersion"
 
 const open = async (storage: PrivacyStorage) => createAppStore({ backend: { kind: "localStorage", storage }, mode: "localStorage", degraded: false,
   privacy: { record: storage, eraseInactiveDatabase: async () => {} } })
-const identity = (store: AppStore, login: string, provider: "github" | "local" = "github") =>
+const identity = (store: AppStore, login: string, provider: "github" | "local" = "github", displayName?: string) =>
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider,
-    admin: false, scopesPlain: null }).isPersisted.promise
+    ...(displayName === undefined ? {} : { displayName }), admin: false, scopesPlain: null }).isPersisted.promise
 const fixture = async (stage: SignupStage | "automatic", provider: "github" | "local" = "github") => {
   const bytes = new Map<string, string>()
   const storage: PrivacyStorage = {
@@ -17,7 +17,9 @@ const fixture = async (stage: SignupStage | "automatic", provider: "github" | "l
   }
   storage.setItem(PERSISTENCE_BACKEND_STORAGE_KEY, "localStorage")
   const store = await open(storage)
-  await identity(store, "old-owner", provider)
+  // The prior person's GitHub name is account content too: it leaves with the account.
+  await identity(store, "old-owner", provider, "PRIVATE-SIGNUP-GITHUB-NAME")
+  if (stage === "automatic") expect(store.session().signup?.draft.name).toBe("PRIVATE-SIGNUP-GITHUB-NAME")
   if (stage !== "automatic") await store.dispatch({ type: "signup.changed", actor: "user", patch: {
     stage, name: "PRIVATE-SIGNUP-NAME", account: "private-signup-slug", question: 4,
     answers: { more: "PRIVATE-SIGNUP-ANSWER", repo: "private-signup/repo" }, repo: "private-signup/repo",
@@ -60,6 +62,21 @@ for (const stage of ["automatic", "account", "poll", "ready", "done"] as const) 
     })
   }
 }
+
+test("an account replacement prefills the new person's GitHub name and never carries the previous one's", async () => {
+  const f = await fixture("automatic")
+  let restored: AppStore | undefined
+  try {
+    await identity(f.store, "new-owner", "github", "New Owner")
+    const expected = { stage: "account", door: "github", account: "new-owner", question: 0, answers: {}, draft: { account: "new-owner", name: "New Owner" } } as const
+    expect(f.store.session().signup).toEqual(expected)
+    expect(JSON.stringify([...f.bytes])).not.toContain("PRIVATE-SIGNUP")
+    await f.store.dispose?.()
+    restored = await open(f.storage)
+    expect(restored.session().signup).toEqual(expected)
+    expect((await restored.verifyState()).valid).toBe(true)
+  } finally { await restored?.dispose?.(); await f.store.dispose?.() }
+})
 
 test("same-owner refresh and a transient outage preserve intentional signup edits and answers", async () => {
   const f = await fixture("poll")

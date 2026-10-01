@@ -202,3 +202,20 @@ describe("the shared card frame fits the phone column", () => {
     expect(actions).toContain("flex-wrap: wrap;")
   })
 })
+
+/* Will, 2026-10-01: the first app screen. */
+describe("the first app screen", () => {
+  test("the first-run card alone sits at the top of the transcript, as the signup does", () => {
+    expect(chat).toMatch(/\.app-shell \.smithers-transcript\[data-first-run\] \.sui-chat-messages > :first-child\s*\{\s*margin-top: 0;\s*\}/)
+    // Everything else stays bottom-anchored.
+    expect(chat).toMatch(/\.app-shell \.smithers-transcript \.sui-chat-messages > :first-child\s*\{\s*margin-top: auto;\s*\}/)
+  })
+
+  test("withheld Chat rises and fades in once, and reduced motion skips the motion", () => {
+    const arriving = /\.app-chat-controls\[data-arriving\]\s*\{[^}]*\}/.exec(chrome)?.[0] ?? ""
+    expect(arriving).toContain("animation: chat-controls-arrive 420ms ease-out;")
+    const keyframes = /@keyframes chat-controls-arrive\s*\{[\s\S]*?\n\}/.exec(chrome)?.[0] ?? ""
+    expect(keyframes).toMatch(/from\s*\{\s*opacity: 0;\s*transform: translateY\(\d+px\);\s*\}/)
+    expect(chrome).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.app-chat-controls\[data-arriving\]\s*\{\s*animation: none;\s*\}/)
+  })
+})

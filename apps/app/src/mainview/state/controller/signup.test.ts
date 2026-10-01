@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
-import { SIGNUP_QUESTIONS } from "../Signup"
+import { openSignupQuestion } from "../Signup"
 import { json, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
 import { createControllerContext } from "./context"
 import { createSignupController } from "./signup"
@@ -67,34 +67,37 @@ describe("the signup controller", () => {
     await store.dispose?.()
   })
 
-  test("an answer advances the poll only after the server saves it; a refused save leaves the question open", async () => {
+  test("a repository choice readies the workspace only after the server saves it; a refused save leaves the question open", async () => {
     const { store, server, controller } = await boot()
     controller.signupChange({ stage: "poll", name: "Ada Park", account: "adapark", question: 0 })
     server.down = true
-    expect(await controller.signupAnswer("2–10")).toStartWith("profile_unavailable — ")
+    expect(await controller.signupRepo("adapark/hello")).toStartWith("profile_unavailable — ")
     expect(store.session().signup).toMatchObject({ stage: "poll", question: 0, answers: {} })
+    expect(store.session().signup?.repo).toBeUndefined()
 
     server.down = false
-    const [first, second] = await Promise.all([controller.signupAnswer("2–10"), controller.signupAnswer("Engineering")])
-    expect([first, second]).toEqual([undefined, undefined])
+    // Acts run one at a time: Skip reads the row the choice left, where no question is open.
+    const [chosen, skipped] = await Promise.all([controller.signupRepo(" adapark/hello "), controller.signupNext()])
+    expect([chosen, skipped]).toEqual([undefined, "No question is open."])
     expect(server.writes).toEqual([
-      { name: "Ada Park", account: "adapark", stage: "poll", question: 1, answers: { size: "2–10" } },
-      { name: "Ada Park", account: "adapark", stage: "poll", question: 2, answers: { size: "2–10", role: "Engineering" } }
+      { name: "Ada Park", account: "adapark", stage: "ready", question: 0, answers: { repo: "adapark/hello" }, repo: "adapark/hello" }
     ])
-    expect(store.session().signup).toMatchObject({ question: 2, answers: { size: "2–10", role: "Engineering" } })
+    expect(store.session().signup).toMatchObject({ stage: "ready", repo: "adapark/hello", answers: { repo: "adapark/hello" } })
     await store.dispose?.()
   })
 
-  test("signing in from a fresh browser restores the claim and answers another browser saved", async () => {
+  test("signing in from a fresh browser restores a profile saved mid-way through the seven-question poll onto the repository question", async () => {
     const saved = { name: "Ada Park", account: "adapark", stage: "poll", question: 4, answers: { size: "2–10", role: "Engineering", know: "Yes" } }
-    const { store, controller } = await boot(saved)
+    const { store, server, controller } = await boot(saved)
     expect(store.session().signup).toBeUndefined()
     await signIn(store, "ada-gh")
     await waitFor(() => store.session().signup?.stage === "poll")
     expect(store.session().signup).toMatchObject(saved)
     expect(store.session().signup?.draft).toEqual({})
+    expect(openSignupQuestion(store.session().signup!).id).toBe("repo")
     expect(await controller.signupNext()).toBeUndefined()
-    expect(store.session().signup?.question).toBe(5)
+    expect(store.session().signup?.stage).toBe("ready")
+    expect(server.saved).toEqual({ ...saved, stage: "ready" })
     await store.dispose?.()
   })
 
@@ -124,32 +127,23 @@ describe("the signup controller", () => {
     await store.dispose?.()
   })
 
-  test("answers advance one question at a time, multi-select toggles, every question may be skipped, and the last answer readies the workspace", async () => {
+  test("Skip or a repository choice readies the workspace from the one question; neither acts before the poll", async () => {
     const { store, controller } = await boot()
-    controller.signupChange({ stage: "poll", question: 0 })
-    expect(SIGNUP_QUESTIONS.filter(question => question.required)).toEqual([])
+    controller.signupChange({ stage: "account", draft: { name: "Ada Park" } })
+    expect(await controller.signupNext()).toBe("No question is open.")
+    expect(await controller.signupRepo("new")).toBe("No question is open.")
+    expect(store.session().signup).toMatchObject({ stage: "account", answers: {} })
+    expect(store.session().signup?.repo).toBeUndefined()
+
+    controller.signupChange({ stage: "poll" })
     expect(await controller.signupNext()).toBeUndefined()
-    expect(store.session().signup?.question).toBe(1)
-    await controller.signupBack()
-    expect(await controller.signupAnswer("Huge")).toContain("Choose one of")
-    await controller.signupAnswer("2–10")
-    expect(store.session().signup?.question).toBe(1)
-    await controller.signupBack()
-    expect(store.session().signup?.question).toBe(0)
-    await controller.signupAnswer("2–10")
-    await controller.signupAnswer("Engineering")
-    await controller.signupNext() // heard: optional
-    await controller.signupAnswer("Yes")
-    expect(SIGNUP_QUESTIONS[store.session().signup!.question]?.id).toBe("models")
-    await controller.signupAnswer("Claude")
-    await controller.signupAnswer("Codex")
-    await controller.signupAnswer("Claude")
-    expect(store.session().signup?.answers.models).toEqual(["Codex"])
-    await controller.signupNext()
-    await controller.signupRepo("new")
-    controller.signupSet("more", "  ship it ")
-    await controller.signupNext()
-    expect(store.session().signup).toMatchObject({ stage: "ready", repo: "new", answers: { size: "2–10", role: "Engineering", know: "Yes", models: ["Codex"], repo: "new", more: "ship it" } })
+    expect(store.session().signup).toMatchObject({ stage: "ready", answers: {} })
+    expect(store.session().signup?.repo).toBeUndefined()
+
+    // A row left at a later index by the seven-question poll still answers.
+    controller.signupChange({ stage: "poll", question: 6 })
+    expect(await controller.signupRepo("  new ")).toBeUndefined()
+    expect(store.session().signup).toMatchObject({ stage: "ready", repo: "new", answers: { repo: "new" } })
     await controller.signupFinish()
     expect(store.session().signup?.stage).toBe("done")
     await store.dispose?.()

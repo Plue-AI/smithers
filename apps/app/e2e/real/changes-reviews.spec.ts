@@ -1,15 +1,8 @@
 import { scenario } from "./coverage/types"
 import { authenticatedTest, readAuthenticatedSession } from "./auth-permissions/profile"
-import { awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support/test"
+import { awaitBoot, closeComposer, command, expect, openComposer, realApi, reloadApp, test } from "./support/test"
 
 const PUBLIC_REPO = "smithersai/smithers"
-
-const openProductionChat = async (page: Parameters<typeof command>[0]): Promise<void> => {
-  const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await expect(input).toBeVisible()
-  await expect(input).toBeFocused()
-}
 
 type ChangeList = {
   readonly items?: ReadonlyArray<{
@@ -83,7 +76,7 @@ test("a signed-out production user can verify a public change and diff but chang
 
   // Every read above is an API read; the view is first needed here.
   await awaitBoot(page, "navigate", startedAt)
-  await openProductionChat(page)
+  await openComposer(page)
   await command(page, `/change.view ${change.change_id}`)
   await closeComposer(page)
   await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
@@ -121,7 +114,7 @@ test("review.request issues no mutation while a production user is signed out", 
   })
 
   await awaitBoot(page, "navigate", startedAt)
-  await openProductionChat(page)
+  await openComposer(page)
   await command(page, `/review.request ${change.change_id} codeplanesmithers`)
   await closeComposer(page)
   await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()
@@ -176,7 +169,7 @@ authenticatedTest("an authenticated production user reads a live change and trav
   expect(firstFile, "The live change must expose a named file in its real diff").toBeDefined()
 
   await awaitBoot(page, "navigate", startedAt)
-  await openProductionChat(page)
+  await openComposer(page)
   await command(page, `/change.view ${change.change_id}`)
   await closeComposer(page)
   const card = page.getByTestId(`card-change-${PUBLIC_REPO}-${change.change_id}`)
@@ -243,7 +236,7 @@ authenticatedTest("an authenticated production user opens the exact live diff th
   expect(hunkText, "The selected live patch must contain representative changed text").toBeDefined()
 
   await awaitBoot(page, "navigate", startedAt)
-  await openProductionChat(page)
+  await openComposer(page)
   await command(page, `/change.diff ${change.change_id} parent current ${path}`)
   await closeComposer(page)
   const direct = page.getByTestId(`card-diff-${PUBLIC_REPO}-${change.change_id}`)
@@ -252,7 +245,7 @@ authenticatedTest("an authenticated production user opens the exact live diff th
   await expect(direct).toContainText(`${String(file?.change_type)} · +${String(file?.additions)} −${String(file?.deletions)}`)
   await expect(direct).toContainText(String(hunkText))
 
-  await openProductionChat(page)
+  await openComposer(page)
   await command(page, `/change.view ${change.change_id}`)
   await closeComposer(page)
   const changeCard = page.getByTestId(`card-change-${PUBLIC_REPO}-${change.change_id}`)

@@ -86,6 +86,10 @@ export interface IdentityFacts extends Pick<InitFacts, "bootstrap" | "connectors
   readonly registered: (flow: string) => boolean
 }
 
+/** The hosted web app: a cloud host outside the desktop shell. */
+export const cloudWebHost = (bootstrap: AppBootstrap | undefined): boolean =>
+  bootstrap?.host === "cloud" && !nativeShell(bootstrap)
+
 /** Which app this is: the desktop shell's row decides, never the host name (a self-hosted origin is the web app). */
 const hostLabel = (bootstrap: AppBootstrap | undefined): string =>
   bootstrap === undefined ? "an unknown host" : nativeShell(bootstrap) ? "the native Smithers app" : "the Smithers web app"

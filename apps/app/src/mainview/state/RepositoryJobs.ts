@@ -99,6 +99,11 @@ export const registeredRepositoryJobs = (
       : []
   }))
 
+/** Whether the host has answered a registration read in scope: before it does, no registered job is not yet "none". */
+export const repositoryJobsKnown = (
+  observations: Iterable<RepositoryJobObservation>, repo: string, owner: string | null, selectedWorkspaceId: string | null = null
+): boolean => knownRegistrations(observations, repo, owner, selectedWorkspaceId, false).length > 0
+
 /** The job a `<job>.setup` flow configures. */
 export const repositoryJobOf = (flow: string): RepositoryJob | undefined => {
   const parsed = RepositoryJobSchema.safeParse(flow.replace(/\.setup$/, ""))

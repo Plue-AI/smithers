@@ -76,8 +76,17 @@
 }
 
 .app-chat-controls { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-4); min-height: 52px; padding: var(--sp-2) var(--sp-5); }
-/* The home alone carries no strip; a chosen Vim mode keeps only its indicator (App.tsx homeOnly). */
+/* The home alone, and the first-run card before the first job, carry no strip; a chosen Vim mode keeps only its indicator (App.tsx chatAway). */
 .app-chat-controls[hidden] { display: none; }
+/* Withheld Chat arrives once, rising and fading in (App.tsx chatArrives). */
+.app-chat-controls[data-arriving] { animation: chat-controls-arrive 420ms ease-out; }
+@keyframes chat-controls-arrive {
+	from { opacity: 0; transform: translateY(16px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.app-chat-controls[data-arriving] { animation: none; }
+}
 .app-chat-controls .chat-filter-control { order: -1; }
 /* The conversation's context and cache meter (ChatMeter.tsx): quiet until a level warns. */
 .app-chat-controls .chat-meter { font-size: var(--fs-small); color: var(--text-muted); white-space: nowrap; }

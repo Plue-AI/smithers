@@ -3,7 +3,7 @@ import { bootProductionRepository } from "./repositories-github/production"
 import { scenario } from "./coverage/types"
 import { fixtureCommentBody } from "./support/values"
 import { authenticatedTest as test, readAuthenticatedSession } from "./auth-permissions/profile"
-import { command, expect, realApi, test as anonymousTest } from "./support/test"
+import { command, expect, openComposer, realApi, test as anonymousTest } from "./support/test"
 import {
   attachPullRequestEvidence,
   createPullRequestThroughUI,
@@ -12,7 +12,6 @@ import {
   importOwnedPullRequestRepo,
   landingDetail,
   landingList,
-  openProductionChat,
   queueLandingThroughAPI,
   readBookmarks,
   readChange,
@@ -290,7 +289,7 @@ test(
       if (request.method() === "POST" && /\/repos\/[^/]+\/[^/]+\/landings$/.test(path)) mutations.push(path)
     })
 
-    await openProductionChat(page)
+    await openComposer(page)
     await command(page, "/prs.create")
     const form = page.locator('.flow-form[data-flow-name="prs.create"]').last()
     await expect(form).toBeVisible()
@@ -326,7 +325,7 @@ test(
       const path = new URL(request.url()).pathname
       if (request.method() !== "GET" && path.includes("/landings")) mutations.push(`${request.method()} ${path}`)
     })
-    await openProductionChat(page)
+    await openComposer(page)
     await enableProductionVerbose(page)
     const reading = page.waitForResponse((response) => response.request().method() === "GET"
       && new URL(response.url()).pathname.endsWith(`/landings/${number}`))
@@ -367,8 +366,7 @@ anonymousTest(
     })
     await page.goto("/codeplanesmithers/canary-sandbox", { waitUntil: "domcontentloaded" })
     expect(await readAuthenticatedSession(page)).toBeUndefined()
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
-    await expect(page.getByTestId("composer-input")).toBeVisible()
+    await openComposer(page)
     await command(page, "/prs.create")
     await closeComposer(page)
     await expect(page.locator('button[data-flow="auth.sign-in"]:visible').last()).toBeVisible()

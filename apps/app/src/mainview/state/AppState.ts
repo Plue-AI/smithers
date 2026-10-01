@@ -1584,6 +1584,8 @@ export type AppTransition =
     actor: "system"
     state: "signed-out" | "signed-in" | "unavailable"
     login: string | null
+    /** The signed-in person's profile name from `GET /api/user`; it only prefills the signup's Full name. */
+    displayName?: string
     admin: boolean
     scopesPlain: string | null
   }

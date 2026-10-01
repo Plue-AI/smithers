@@ -5,7 +5,7 @@ import { scenario } from "./coverage/types"
 import { attachJson, runSlash } from "./issues/local"
 import { pushMainFiles, withOwnedRepository } from "./portable/owned-repository"
 import { finishFirstVisit } from "./support/first-visit"
-import { awaitBoot, expect, productUrl, realApi, reloadApp } from "./support/test"
+import { awaitBoot, expect, openComposer, productUrl, realApi, reloadApp } from "./support/test"
 
 authenticatedTest.setTimeout(300_000)
 
@@ -51,9 +51,10 @@ authenticatedTest("repository inspection survives reload and keeps Chat usable u
     // Repeating the same act joins the durable request; it must not launch twice.
     const cardId = `setup:${encodeURIComponent(repo.fullName.split("/")[0]!)}:${encodeURIComponent(repo.fullName)}:issues`
     await runSlash(page, `/setup.run ${JSON.stringify({ cardId, operation: "inspect" })}`)
-    await page.getByRole("button", { name: "Chat", exact: true }).press("Enter")
+    // Chat stays usable while the job runs. Before the first job registers the
+    // hosted app holds Chat's button, so Command-K is the door.
+    await openComposer(page)
     const composer = page.getByTestId("composer-input")
-    await expect(composer).toBeFocused()
     await composer.fill(`Keep this draft while inspecting ${marker}`)
     await expect(composer).toHaveValue(`Keep this draft while inspecting ${marker}`)
     expect((await observe()).receipt?.phase).toBe("running")

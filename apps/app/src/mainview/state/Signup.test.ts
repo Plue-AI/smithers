@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createAppStore, type AppStore } from "./AppStore"
-import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, signupOwnerKey, validAccountName, type Signup } from "./Signup"
+import { accountSlug, initialSignup, openSignupQuestion, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, signupOwnerKey, validAccountName, type Signup } from "./Signup"
 import { memoryStorage } from "./TestFixtures"
 
 const closeStore = async (store: AppStore) => {
@@ -46,9 +46,45 @@ describe("Signup", () => {
     expect(signupAfterIdentity(undefined, "signed-in", "ada", "ada")).toBeUndefined()
   })
 
-  test("the poll asks the seven questions Will listed, in order, none required", () => {
-    expect(SIGNUP_QUESTIONS.map(q => q.id)).toEqual(["size", "role", "heard", "know", "models", "repo", "more"])
-    expect(SIGNUP_QUESTIONS.filter(q => q.required).map(q => q.id)).toEqual([])
+  test("the poll is the repository question alone", () => {
+    expect(SIGNUP_QUESTIONS).toEqual([{ id: "repo", text: "Do you have a repo you would like to connect?" }])
+    expect(openSignupQuestion(initialSignup())).toBe(SIGNUP_QUESTIONS[0]!)
+  })
+
+  test.each([1, 4, 5, 6, 64])("a row or profile saved at seven-question index %i reopens the repository question", question => {
+    expect(openSignupQuestion({ question })).toBe(SIGNUP_QUESTIONS[0]!)
+  })
+
+  test("the account step a sign-in opens prefills Full name with the GitHub profile name", () => {
+    expect(signupAfterIdentity(undefined, "signed-in", "ada-park", null, "Ada Park")).toEqual({
+      stage: "account", door: "github", question: 0, account: "ada-park", answers: {}, draft: { account: "ada-park", name: "Ada Park" }
+    })
+    expect(signupAfterIdentity(initialSignup(), "signed-in", "ada-park", null, "Ada Park")?.draft).toEqual({ account: "ada-park", name: "Ada Park" })
+    // An event recorded before the name joined it, and the backend's login fallback, prefill nothing.
+    for (const displayName of [undefined, "ada-park"]) {
+      expect(signupAfterIdentity(undefined, "signed-in", "ada-park", null, displayName)?.draft).toEqual({ account: "ada-park" })
+      expect(signupAfterIdentity(initialSignup(), "signed-in", "ada-park", null, displayName)?.draft).toEqual({ account: "ada-park" })
+    }
+    expect(signupAfterIdentity(initialSignup(), "signed-out", null, null, "Ada Park")).toEqual(initialSignup())
+    expect(signupAfterIdentity(undefined, "signed-in", "ada-park", "ada-park", "Ada Park")).toBeUndefined()
+  })
+
+  test("a typed or saved name outranks the GitHub profile name, and a later identity answer never refills a cleared one", () => {
+    const typed: Signup = { ...initialSignup(), draft: { name: "Ada L." } }
+    expect(signupAfterIdentity(typed, "signed-in", "ada-park", null, "Ada Park")?.draft).toEqual({ name: "Ada L.", account: "ada-park" })
+    const saved: Signup = { ...initialSignup(), name: "Ada Saved" }
+    expect(signupAfterIdentity(saved, "signed-in", "ada-park", null, "Ada Park")?.draft).toEqual({ account: "ada-park" })
+    // The person cleared the prefilled name at the account step; a same-owner refresh leaves it cleared.
+    const cleared: Signup = { ...initialSignup(), stage: "account", door: "github", account: "ada-park", draft: { account: "ada-park", name: "" } }
+    expect(signupAfterIdentity(cleared, "signed-in", "ada-park", "ada-park", "Ada Park")).toBe(cleared)
+    const poll: Signup = { ...initialSignup(), stage: "poll", name: "Ada Park", account: "ada-park" }
+    expect(signupAfterIdentity(poll, "signed-in", "ada-park", "ada-park", "Someone Else")).toBe(poll)
+  })
+
+  test("an untouched legacy account prefill follows the current identity, its GitHub name included", () => {
+    const old = { ...initialSignup(), stage: "account" as const, door: "github" as const, account: "old-owner", draft: { account: "old-owner", name: "" } }
+    expect(signupAfterIdentity(old, "signed-in", "new-owner", "new-owner", "New Owner"))
+      .toEqual({ ...old, account: "new-owner", draft: { account: "new-owner", name: "New Owner" } })
   })
 
   test("an untouched legacy account prefill follows the current identity", () => {
@@ -63,6 +99,15 @@ describe("Signup", () => {
       { ...old, draft: { ...old.draft, name: "Entered name" } },
       { ...old, stage: "poll" as const, name: "Entered name" }
     ]) expect(signupAfterIdentity(row, "signed-in", "new-owner", "new-owner")).toBe(row)
+  })
+
+  test("a sign-in carrying the GitHub profile name prefills Full name through the projection", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    try {
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "adapark", displayName: "Ada Park", admin: false, scopesPlain: null }).isPersisted.promise
+      expect(store.session().signup).toEqual({ stage: "account", door: "github", question: 0, account: "adapark", answers: {}, draft: { account: "adapark", name: "Ada Park" } })
+    } finally { await closeStore(store) }
   })
 
   test("signup.changed merges onto the row and a sign-in advances an unfinished signup through the projection", async () => {

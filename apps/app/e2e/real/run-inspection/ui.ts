@@ -1,5 +1,5 @@
 import type { Locator, Page, Response } from "@playwright/test"
-import { awaitBoot, expect, openApp } from "../support/test"
+import { appReady, awaitBoot, openApp } from "../support/test"
 
 export const productionRepository = "codeplanesmithers/canary-sandbox"
 
@@ -7,7 +7,7 @@ export const bootRunWorkbench = async (page: Page): Promise<void> => {
   const startedAt = performance.now()
   await openApp(page)
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 export const workflowRpcPosts = (page: Page): string[] => {

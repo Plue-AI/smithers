@@ -1,7 +1,7 @@
 import { fixtureInputText } from "./support/values"
 import type { Locator, Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
-import { awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support/test"
+import { appReady, awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support/test"
 import { attachProductionJson, bootProductionRepository, enableProductionVerbose } from "./repositories-github/production"
 import { configuredGatewayTest, workflowTest } from "./flow-execution/fixture"
 import {
@@ -23,7 +23,7 @@ const bootLocal = async (page: Page): Promise<void> => {
   const startedAt = performance.now()
   await page.goto("/smithersai/smithers")
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 const runSignedOutCommand = async (page: Page, text: string, refusal: string): Promise<void> => {

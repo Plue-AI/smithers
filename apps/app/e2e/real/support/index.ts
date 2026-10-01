@@ -205,8 +205,32 @@ export const reloadApp = async (page: Page, timeout = BOOT_TIMEOUT_MS): Promise<
   await awaitBoot(page, "reload", startedAt, timeout)
 }
 
+/**
+ * Wait for the app past its signup: Chat's button, or the first-run card
+ * holding it, is on screen.
+ *
+ * Chat's button alone was this signal until the hosted web app began to
+ * withhold it while the first-run card waits for the first registered job,
+ * the card's dismissal or a sent message (`firstJobPending`,
+ * `src/mainview/App.tsx`; apps/app/AGENTS.md First-run). The signup renders
+ * neither, so a scenario stranded there still reds here. Opening Chat needs
+ * neither: `openComposer` presses Command-K, which works throughout.
+ *
+ * Call it after a boot wait; the default budget is the assertion default, so
+ * chrome that went missing reds fast rather than spending the boot's.
+ */
+export const appReady = async (page: Page, timeout?: number): Promise<void> => {
+  const chat = page.getByRole("button", { name: "Chat", exact: true })
+  const firstRun = page.locator('[data-testid="setup-checklist"]:visible')
+  await expect(chat.or(firstRun).first(), "Chat or the first-run card holding it must be on screen")
+    .toBeVisible(timeout === undefined ? {} : { timeout })
+}
+
 /** Open the transient Command-K composer and wait for its real input focus. */
 export const openComposer = async (page: Page): Promise<void> => {
+  // The booted view binds Command-K; a press into the boot skeleton is lost.
+  await expect(page.locator(BOOTED_SELECTOR).first(), "the app must finish booting before Chat opens")
+    .toBeAttached({ timeout: BOOT_TIMEOUT_MS })
   const input = page.getByTestId("composer-input")
   const closed = !(await input.isVisible()) || await input.evaluate((element) => element.closest('[inert], [aria-hidden="true"]') !== null)
   if (closed) await page.keyboard.press("ControlOrMeta+k")

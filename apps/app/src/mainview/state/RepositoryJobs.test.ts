@@ -2,7 +2,7 @@ import { initialSetup, setupCandidate } from "@smthrs/rpc/RepositorySetup"
 import type { RepositoryJob, RepositorySetup } from "@smthrs/rpc/RepositorySetup"
 import { expect, test } from "bun:test"
 import type { Card, RepositoryJobObservation } from "./AppState"
-import { registeredRepositoryJobs, repositoryJobState, repositoryJobStates } from "./RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobsKnown, repositoryJobState, repositoryJobStates } from "./RepositoryJobs"
 
 const REPO = "codeplanesmithers/canary-sandbox"
 const OWNER = "codeplanesmithers"
@@ -54,6 +54,22 @@ test("unanswered observations do not imply Off; a retained verified registration
   // A re-read in flight or failed keeps reading the host's last verified answer.
   expect(repositoryJobStates([{ ...row, state: "requested" }], [], REPO, OWNER)).toEqual({ review: "Off" })
   expect(repositoryJobStates([{ ...row, state: "failed", error: "Unavailable" }], [], REPO, OWNER)).toEqual({ review: "Off" })
+})
+
+test("a repository's jobs are known once the host answers a read in scope, registered or not", () => {
+  const row = observed("review", initialSetup(REPO, "review", OWNER))
+  const { registration: _unread, ...unanswered } = row
+  expect(repositoryJobsKnown([], REPO, OWNER)).toBe(false)
+  expect(repositoryJobsKnown([{ ...unanswered, state: "requested" }], REPO, OWNER)).toBe(false)
+  expect(repositoryJobsKnown([{ ...unanswered, state: "failed", error: "Unavailable" }], REPO, OWNER)).toBe(false)
+  expect(repositoryJobsKnown([{ ...row, registration: { state: "unavailable", error: "Registry unavailable" } }], REPO, OWNER)).toBe(false)
+  // An answer with no registration is still an answer: no job is registered.
+  expect(repositoryJobsKnown([row], REPO, OWNER)).toBe(true)
+  expect(repositoryJobsKnown([{ ...row, state: "failed", error: "Unavailable" }], REPO, OWNER)).toBe(true)
+  expect(repositoryJobsKnown([row], "other/repo", OWNER)).toBe(false)
+  expect(repositoryJobsKnown([row], REPO, "someone-else")).toBe(false)
+  expect(repositoryJobsKnown([row], REPO, null)).toBe(false)
+  expect(repositoryJobsKnown([row], REPO, OWNER, "de29f26b-e593-4ec2-99fc-583d4711f20a")).toBe(false)
 })
 
 test("only verified registrations count as completed repository jobs", () => {

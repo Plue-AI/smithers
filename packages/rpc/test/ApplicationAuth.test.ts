@@ -228,6 +228,10 @@ describe("selected backend identity (unit)", () => {
       .toEqual({ username: "will", id: 1, email: "will@example.com", profile: { name: "Will" } })
   })
 
+  test.each(["Ada Park", ""])("preserves the profile display_name %j", (display_name) => {
+    expect(ApplicationUserSchema.parse({ username: "will", display_name })).toEqual({ username: "will", display_name })
+  })
+
   test.each([true, false])("preserves explicit administrator status %s and token authority", (is_admin) => {
     expect(ApplicationUserSchema.parse({
       username: "will",
@@ -262,7 +266,9 @@ describe("selected backend identity (unit)", () => {
       ["token_scopes", "write:user"],
       ["token_scopes", [""]],
       ["token_scopes", [1]],
-      ["token_scopes", ["read:user", ""]]
+      ["token_scopes", ["read:user", ""]],
+      ["display_name", null],
+      ["display_name", 1]
     ] as const
   )("rejects malformed known identity field %s: %j", (field, value) => {
     expect(ApplicationUserSchema.safeParse({ username: "will", [field]: value }).success).toBe(false)

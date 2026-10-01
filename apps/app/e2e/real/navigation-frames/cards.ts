@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import { appEntryPath, awaitBoot, closeComposer, command, expect, openApp } from "../support/test"
+import { appEntryPath, appReady, awaitBoot, closeComposer, command, expect, openApp } from "../support/test"
 import type { FlowName } from "../../../src/mainview/flows/FlowName"
 
 /*
@@ -50,7 +50,7 @@ export type ConversationEntry = (page: Page) => Promise<void>
 /** `startedAt` is a reading taken before the navigation, so the boot's cost includes it. */
 const expectAppReady = async (page: Page, startedAt = performance.now()): Promise<void> => {
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 /** Enter the configured real app surface; production's marketing root is never used. */

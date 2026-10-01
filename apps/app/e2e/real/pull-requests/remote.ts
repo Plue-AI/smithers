@@ -1,5 +1,5 @@
 import type { APIRequestContext, BrowserContext, Locator, Page, TestInfo } from "@playwright/test"
-import { command, expect, realApi } from "../support/test"
+import { command, expect, openComposer, realApi } from "../support/test"
 import { fixtureAttachmentName, fixtureRepositoryName } from "../support/values"
 import { scenarioOutcome, TEARDOWN_ANNOTATION, TeardownProblem } from "../support/teardown"
 import { expectFlowOutcome } from "../repositories-github/local"
@@ -70,12 +70,6 @@ export type Change = {
     readonly [key: string]: unknown
   } | null
   readonly [key: string]: unknown
-}
-
-export const openProductionChat = async (page: Page): Promise<void> => {
-  const input = page.getByTestId("composer-input")
-  if (!(await input.isVisible())) await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await expect(input).toBeVisible()
 }
 
 export const githubCommitAtBranch = async (github: Page, owned: OwnedGitHubRepository, branch: string): Promise<string> => {
@@ -150,7 +144,7 @@ const requireImportPreflight = async (
   testInfo: TestInfo
 ): Promise<void> => {
   const statusPath = cloudRepoPath(CANARY_REPOSITORY, "/github-app-status")
-  await openProductionChat(page)
+  await openComposer(page)
   await enableProductionVerbose(page)
   const checking = page.waitForResponse((response) =>
     response.request().method() === "GET" && new URL(response.url()).pathname === statusPath)

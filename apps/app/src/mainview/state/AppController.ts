@@ -177,9 +177,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly signupChange: SignupController["signupChange"]
   readonly signupSet: SignupController["signupSet"]
   readonly signupAccount: SignupController["signupAccount"]
-  readonly signupAnswer: SignupController["signupAnswer"]
   readonly signupNext: SignupController["signupNext"]
-  readonly signupBack: SignupController["signupBack"]
   readonly signupRepo: SignupController["signupRepo"]
   readonly signupFinish: SignupController["signupFinish"]
   readonly commands: CommandRegistry

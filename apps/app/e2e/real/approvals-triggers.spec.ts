@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { bootProductionRepository, cloudRepoPath, PRODUCTION_REPO } from "./repositories-github/production"
-import { awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support"
+import { appReady, awaitBoot, closeComposer, command, expect, realApi, reloadApp, test } from "./support"
 
 const transcript = (page: Page) => page.getByTestId("transcript")
 
@@ -10,7 +10,7 @@ const bootLocal = async (page: Page): Promise<void> => {
   const startedAt = performance.now()
   await page.goto("/smithersai/smithers")
   await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 
 const workflowPaths = (requests: Array<{ method: string; path: string }>) =>

@@ -49,7 +49,8 @@ test("delivery resolution saves before sending, keeps Chat usable, and restores 
     await page.goto(`/${repo}/`)
     await skipSignup(page)
     const input = page.getByTestId("composer-input")
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
+    // Before the first job the cloud web app keeps Chat's controls away; Control+K is Chat's door throughout.
+    if (!await input.isVisible()) await page.keyboard.press("Control+k")
     await input.fill(`/issues.view 8 ${repo}`)
     await input.press("Enter")
     const card = page.getByTestId(`card-issue-${repo}-8`)

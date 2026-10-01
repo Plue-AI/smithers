@@ -13,7 +13,7 @@
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { Signup, SignupProfile } from "../Signup"
-import { accountSlug, initialSignup, SIGNUP_PROFILE_PATH, SIGNUP_QUESTIONS, SignupProfileSchema, signupProfileOf, validAccountName } from "../Signup"
+import { accountSlug, initialSignup, SIGNUP_PROFILE_PATH, SignupProfileSchema, signupProfileOf, validAccountName } from "../Signup"
 import { refusalWords, unreachableSentence } from "../seams/SeamContext"
 import type { ControllerContext } from "./context"
 
@@ -21,9 +21,7 @@ export interface SignupController {
   readonly signupChange: (patch: Partial<Signup>) => void
   readonly signupSet: (field: string, value: string) => void
   readonly signupAccount: () => Promise<string | void>
-  readonly signupAnswer: (value: string) => Promise<string | void>
   readonly signupNext: () => Promise<string | void>
-  readonly signupBack: () => Promise<string | void>
   readonly signupRepo: (repo: string) => Promise<string | void>
   readonly signupFinish: () => Promise<string | void>
 }
@@ -114,47 +112,23 @@ export const createSignupController = (ctx: ControllerContext): SignupController
     return commit(saved === null ? { stage: "poll", name, account, question: 0 } : { ...kept, name, account })
   })
 
-  const advance = (signup: Signup): Partial<Signup> => signup.question + 1 < SIGNUP_QUESTIONS.length ? { question: signup.question + 1 } : { stage: "ready" }
-
-  const signupAnswer: SignupController["signupAnswer"] = (value) => serial(async () => {
-    const signup = current()
-    const question = SIGNUP_QUESTIONS[signup.question]
-    if (signup.stage !== "poll" || question === undefined) return "No question is open."
-    if (question.kind === "single") {
-      if (!question.options.includes(value)) return `Choose one of: ${question.options.join(", ")}.`
-      return commit({ answers: { ...signup.answers, [question.id]: value }, ...advance(signup) })
-    }
-    if (question.kind === "multi") {
-      if (!question.options.includes(value)) return `Choose any of: ${question.options.join(", ")}.`
-      const chosen = new Set([signup.answers[question.id] ?? []].flat())
-      chosen.has(value) ? chosen.delete(value) : chosen.add(value)
-      return commit({ answers: { ...signup.answers, [question.id]: [...chosen] } })
-    }
-    if (question.kind === "free") return commit({ answers: { ...signup.answers, [question.id]: value.trim() }, ...advance(signup) })
-    return "Choose a repository with signup.repo."
-  })
-
+  /*
+   * The poll is one question (state/Signup.ts), so answering or skipping it
+   * readies the workspace. A row that is not at the poll has no question open:
+   * a repository choice cannot skip the account claim.
+   */
   const signupNext: SignupController["signupNext"] = () => serial(async () => {
-    const signup = current()
-    const question = SIGNUP_QUESTIONS[signup.question]
-    if (signup.stage !== "poll" || question === undefined) return "No question is open."
-    const answered = signup.answers[question.id]
-    if (question.required && (answered === undefined || answered.length === 0)) return "This one needs an answer."
-    if (question.kind === "free" && (signup.draft.more ?? "").trim() !== "") return commit({ answers: { ...signup.answers, more: signup.draft.more!.trim() }, ...advance(signup) })
-    return commit(advance(signup))
-  })
-
-  const signupBack: SignupController["signupBack"] = () => serial(async () => {
-    const signup = current()
-    if (signup.stage === "poll" && signup.question > 0) return commit({ question: signup.question - 1 })
+    if (current().stage !== "poll") return "No question is open."
+    return commit({ stage: "ready" })
   })
 
   const signupRepo: SignupController["signupRepo"] = (repo) => serial(async () => {
     const signup = current()
-    return commit({ repo: repo.trim(), answers: { ...signup.answers, repo: repo.trim() }, ...advance(signup) })
+    if (signup.stage !== "poll") return "No question is open."
+    return commit({ repo: repo.trim(), answers: { ...signup.answers, repo: repo.trim() }, stage: "ready" })
   })
 
   const signupFinish: SignupController["signupFinish"] = () => serial(() => commit({ stage: "done" }))
 
-  return { signupChange: change, signupSet, signupAccount, signupAnswer, signupNext, signupBack, signupRepo, signupFinish }
+  return { signupChange: change, signupSet, signupAccount, signupNext, signupRepo, signupFinish }
 }

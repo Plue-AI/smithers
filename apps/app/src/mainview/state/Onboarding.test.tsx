@@ -4,13 +4,17 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { localCapabilities } from "@smthrs/rpc/HostCapabilities"
+import { initialSetup, setupCandidate } from "@smthrs/rpc/RepositorySetup"
 import App from "../App"
+import { FIRST_RUN_JOBS } from "../cards/SetupChecklist"
 import { ControllerTestProvider } from "../ControllerContext"
 import { identityMessage, INIT_GREETING, INIT_TITLE, initMessage, SMITHERS_HELPERS } from "../Onboarding"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppController as AppControllerType } from "./AppController"
+import type { RepositoryJobObservation } from "./AppState"
 import { createAppStore } from "./AppStore"
-import { backend, json, memoryStorage, settled, silentAgent } from "./TestFixtures"
+import { repositoryJobObservationId } from "./RepositoryJobs"
+import { backend, json, memoryStorage, settle, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -207,6 +211,189 @@ describe("onboarding — the opening entry", () => {
     const host = mount(controller)
     expect(host.querySelectorAll(SMITHERS_MESSAGES)).toHaveLength(0)
     expect(host.querySelectorAll(".smithers-suggestion")).toHaveLength(0)
+  })
+})
+
+/*
+ * The first app screen (Will, 2026-10-01): the first-run card alone sits at
+ * the top, and on the cloud web app Chat arrives with the first registered
+ * job, the card's dismissal or the person's first message.
+ */
+describe("onboarding — the first app screen", () => {
+  const cloudBootstrap: AppBootstrap = { ...localBootstrap, host: "cloud", capabilities: ["identity"], authFlow: "redirect", sandbox: null }
+  const REPO = "will/demo"
+
+  /** Signed in as will and past the signup, so only the first-run rules decide. */
+  const pastSignup = async (bootstrap: AppBootstrap = cloudBootstrap) => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, silentAgent, {
+      bootstrap, ...backend({ "/api/user": json(200, { id: 1, username: "will", is_admin: false }) })
+    })
+    await controller.loadSession()
+    await settled()
+    await controller.commands.run("signup.finish")
+    await settled()
+    expect(store.session().signup?.stage).toBe("done")
+    return { store, controller }
+  }
+  const view = async (host: HTMLElement) => { await settle(); flushSync(() => {}); return host }
+  const transcript = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-testid="transcript"]')!
+  const footer = (host: HTMLElement) => host.querySelector<HTMLElement>("footer.app-chat-controls")
+  const chatDoor = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('.app-chat-controls [data-flow="chat.open"]')
+  const chatShown = (host: HTMLElement) => footer(host)?.hidden === false && chatDoor(host) !== null
+  const keyDown = (host: HTMLElement, key: string, init: KeyboardEventInit = {}) =>
+    host.querySelector(".app-shell")?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }))
+  const selectRepository = async (store: Awaited<ReturnType<typeof pastSignup>>["store"]) => {
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: REPO, phase: "pending" } }).isPersisted.promise
+    await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: REPO, phase: "ready" } }).isPersisted.promise
+  }
+  /** The host's answer for the issues job: registered (paused or not), or known to have none. */
+  const observed = (registered: boolean): RepositoryJobObservation => {
+    const setup = initialSetup(REPO, "issues", "will")
+    return { id: repositoryJobObservationId("will", REPO, null, "issues"), owner: "will", repo: REPO, job: "issues", selectedWorkspaceId: null, state: "completed",
+      registration: { state: "known", ...(registered ? { active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg",
+        sourceRevision: "source", enabled: true, owned: true, workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a", draft: setup.draft } } : {}) } }
+  }
+
+  test("the first-run card alone sits at the top; the first conversation entry restores bottom anchoring", async () => {
+    const { store, controller } = await pastSignup()
+    const host = await view(mount(controller))
+    expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
+    expect(transcript(host).dataset.firstRun).toBe("true")
+    expect(transcript(host).hasAttribute("data-signup")).toBe(false)
+    await store.dispatch({ type: "message.appended", actor: "system", text: "Repository initialization failed." }).isPersisted.promise
+    await view(host)
+    expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
+    expect(transcript(host).hasAttribute("data-first-run")).toBe(false)
+  })
+
+  test("the signup and a host's opening read are not the first-run card alone", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const signingUp = createAppController(store, silentAgent, {
+      bootstrap: cloudBootstrap, ...backend({ "/api/user": json(200, { id: 1, username: "will", is_admin: false }) })
+    })
+    await signingUp.loadSession()
+    const signup = await view(mount(signingUp))
+    expect(signup.querySelector('[data-testid="signup"]')).not.toBeNull()
+    expect(transcript(signup).dataset.signup).toBe("true")
+    expect(transcript(signup).hasAttribute("data-first-run")).toBe(false)
+
+    const local = await pastSignup(localBootstrap)
+    const opening = await view(mount(local.controller))
+    expect(opening.querySelector('[data-testid="init-message"]')).not.toBeNull()
+    expect(transcript(opening).hasAttribute("data-first-run")).toBe(false)
+  })
+
+  test("on the cloud web app Chat waits for the first registered job, then rises in; ⌘K opens it meanwhile", async () => {
+    const { store, controller } = await pastSignup()
+    await selectRepository(store)
+    await store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(false) }).isPersisted.promise
+    const host = await view(mount(controller))
+    expect(host.querySelector('[data-testid="setup-checklist"] .setup-checklist-count')?.textContent).toBe("1 of 2")
+    expect(footer(host)?.hidden).toBe(true)
+    expect(chatDoor(host)).toBeNull()
+
+    // The keyboard door does not depend on the footer.
+    keyDown(host, "k", { metaKey: true })
+    await view(host)
+    expect(store.session().paletteOpen).toBe(true)
+    expect(host.querySelector<HTMLElement>('[data-testid="composer-overlay"]')?.hidden).toBe(false)
+    expect(host.querySelector('[data-testid="composer-input"]')).not.toBeNull()
+    expect(footer(host)?.hidden).toBe(true)
+    keyDown(host, "Escape")
+    await view(host)
+    expect(store.session().paletteOpen).toBe(false)
+    keyDown(host, "k", { ctrlKey: true })
+    await view(host)
+    expect(store.session().paletteOpen).toBe(true)
+    keyDown(host, "Escape")
+    await view(host)
+
+    await store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(true) }).isPersisted.promise
+    await view(host)
+    expect(chatShown(host)).toBe(true)
+    expect(footer(host)?.dataset.arriving).toBe("true")
+    // Opening Chat with ⌘K above already taught it: the first-sight bubble stays dismissed.
+    expect(store.session().hintsSeen).toContain("chat")
+  })
+
+  test("dismissing the card or sending a message brings Chat with the same arrival", async () => {
+    const dismissed = await pastSignup()
+    const first = await view(mount(dismissed.controller))
+    expect(chatDoor(first)).toBeNull()
+    await dismissed.store.dispatch({ type: "first-run.dismissed", actor: "user" }).isPersisted.promise
+    await view(first)
+    expect(chatShown(first)).toBe(true)
+    expect(footer(first)?.dataset.arriving).toBe("true")
+    // Chat never opened: its first-sight ⌘K bubble follows the arrival.
+    await view(first)
+    expect(first.querySelector('[data-first-sight-hint="chat"] .help-bubble')).not.toBeNull()
+
+    const spoke = await pastSignup()
+    const second = await view(mount(spoke.controller))
+    expect(chatDoor(second)).toBeNull()
+    await spoke.store.dispatch({ type: "message.submitted", actor: "user", turnId: "first-turn", text: "What can you do?" }).isPersisted.promise
+    await view(second)
+    expect(chatShown(second)).toBe(true)
+    expect(footer(second)?.dataset.arriving).toBe("true")
+  })
+
+  test("Chat present from load, or revealed by the host's late answer, does not animate", async () => {
+    const registered = await pastSignup()
+    await selectRepository(registered.store)
+    await registered.store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(true) }).isPersisted.promise
+    const loaded = await view(mount(registered.controller))
+    expect(chatShown(loaded)).toBe(true)
+    expect(footer(loaded)?.hasAttribute("data-arriving")).toBe(false)
+
+    // A reload: the registration is unknown until the host answers, so Chat waits without a withheld arrival.
+    const reloaded = await pastSignup()
+    await selectRepository(reloaded.store)
+    const late = await view(mount(reloaded.controller))
+    expect(chatDoor(late)).toBeNull()
+    await reloaded.store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(true) }).isPersisted.promise
+    await view(late)
+    expect(chatShown(late)).toBe(true)
+    expect(footer(late)?.hasAttribute("data-arriving")).toBe(false)
+  })
+
+  test("local, desktop and cloud desktop-shell hosts never withhold Chat", async () => {
+    for (const bootstrap of [
+      localBootstrap,
+      { ...cloudBootstrap, host: "local" as const },
+      { ...cloudBootstrap, capabilities: ["identity" as const, "native.shell" as const] },
+    ]) {
+      const { controller } = await pastSignup(bootstrap)
+      const host = await view(mount(controller))
+      expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
+      expect(chatShown(host)).toBe(true)
+      expect(footer(host)?.hasAttribute("data-arriving")).toBe(false)
+    }
+  })
+
+  test("a signed-out visitor on a repository page is not past the signup: Chat stays", async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const controller = createAppController(store, silentAgent, {
+      bootstrap: cloudBootstrap, repositoryApp: REPO,
+      ...backend({ "/api/user": json(401, { status: "error" }), "/api/auth/scopes": json(200, { scopes: [] }) })
+    })
+    await controller.loadSession()
+    await settled()
+    expect(store.collections.identitySessions.get("identity")?.state).toBe("signed-out")
+    const host = await view(mount(controller))
+    expect(host.querySelector('[data-testid="signup"]')).toBeNull()
+    expect(host.querySelector('section[aria-label="Repository jobs"]')).not.toBeNull()
+    expect(chatShown(host)).toBe(true)
+  })
+
+  test("with no job tile on offer the cloud web app never withholds Chat", async () => {
+    const { controller } = await pastSignup()
+    const jobless: AppControllerType = { ...controller, commands: { ...controller.commands,
+      all: () => controller.commands.all().filter(command => !(FIRST_RUN_JOBS as readonly string[]).includes(command.name)) } }
+    const host = await view(mount(jobless))
+    expect(host.querySelector('section[aria-label="Repository jobs"]')).toBeNull()
+    expect(chatShown(host)).toBe(true)
   })
 })
 

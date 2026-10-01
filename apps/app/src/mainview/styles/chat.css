@@ -1161,6 +1161,8 @@
 .app-shell .smithers-transcript[data-repository-missing] .sui-chat-messages > :first-child { margin-top: 0; }
 /* The signup headline sits at the top, where the landing page's tagline lands. */
 .app-shell .smithers-transcript[data-signup] .sui-chat-messages > :first-child { margin-top: 0; }
+/* The first-run card alone sits at the top too; the first conversation entry restores bottom anchoring (App.tsx firstRunOnly). */
+.app-shell .smithers-transcript[data-first-run] .sui-chat-messages > :first-child { margin-top: 0; }
 /* Lesson lines are centered; conversation bubbles retain normal reading alignment. */
 .chat-run-timeline {
   flex: none;

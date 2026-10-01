@@ -1,5 +1,5 @@
 import type { APIRequestContext, BrowserContext, Locator, Page, TestInfo } from "@playwright/test"
-import { command, expect, realApi } from "../support/test"
+import { appReady, command, expect, realApi } from "../support/test"
 import { deletionOutcome, githubCreationBar, TeardownRefusal } from "../support/teardown"
 import { readAuthenticatedSession } from "../auth-permissions/profile"
 import { finishFirstVisit } from "../support/first-visit"
@@ -26,7 +26,7 @@ export const bootProductionRepository = async (page: Page, repo = PRODUCTION_REP
   await finishFirstVisit(page)
   await expect(page).toHaveURL(new RegExp(`/${repo.replace("/", "\\/")}$`))
   await expect(page.getByTestId("transcript")).toBeVisible({ timeout: 60_000 })
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
   const session = await readAuthenticatedSession(page)
   if (process.env.SMITHERS_REAL_AUTH_KIND === "application-token") {
     expect(session?.login).toEqual(expect.any(String))

@@ -693,9 +693,21 @@ describe("application identity and owner contract units", () => {
   })
 
   test.each([
+    { name: "a GitHub name, trimmed", display: "  Ada Park ", expected: { displayName: "Ada Park" } },
+    { name: "a blank name as none", display: "   ", expected: {} },
+    { name: "an empty name as none", display: "", expected: {} },
+    { name: "an absent name as none", display: undefined, expected: {} }
+  ])("identity reads $name from display_name", async ({ display, expected }) => {
+    const client = createApplicationClient(target("web-selfhost"), { pageOrigin,
+      fetchImpl: async () => Response.json({ username: "owner", ...(display === undefined ? {} : { display_name: display }) }) })
+    await expect(client.identity.current()).resolves.toEqual({ username: "owner", ...expected, admin: false, scopes: null })
+  })
+
+  test.each([
     { name: "null", body: null }, { name: "empty username", body: { username: "" } },
     { name: "invalid admin", body: { username: "owner", is_admin: "yes" } },
-    { name: "empty scope", body: { username: "owner", token_scopes: [""] } }
+    { name: "empty scope", body: { username: "owner", token_scopes: [""] } },
+    { name: "invalid display name", body: { username: "owner", display_name: 7 } }
   ])("identity rejects $name rather than claiming signed out", async ({ body }) => {
     const client = createApplicationClient(target("web-selfhost"), { pageOrigin, fetchImpl: async () => Response.json(body) })
     const error = await clientError(client.identity.current())

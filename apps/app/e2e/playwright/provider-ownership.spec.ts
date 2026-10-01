@@ -27,9 +27,10 @@ test("an old unavailable response cannot clear the next account's coding connect
       return body
     }
   })
+  // Before the first job the cloud web app keeps Chat's controls away; Control+K is Chat's door throughout.
   const command = async () => {
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
     const input = page.getByTestId("composer-input")
+    if (!await input.isVisible()) await page.keyboard.press("Control+k")
     await input.fill("/secrets.connections")
     await input.press("Enter")
   }
@@ -83,8 +84,8 @@ test("an old background refresh cannot reopen unavailable coding connections", a
     }
   })
   const command = async (line: string) => {
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
     const input = page.getByTestId("composer-input")
+    if (!await input.isVisible()) await page.keyboard.press("Control+k")
     await input.fill(line)
     await input.press("Enter")
   }

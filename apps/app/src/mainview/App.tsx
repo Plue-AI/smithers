@@ -19,7 +19,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef,useState } from "react"
 import { cardActions } from "./cards/CardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
-import { SetupChecklist } from "./cards/SetupChecklist"
+import { SetupChecklist, useFirstRun } from "./cards/SetupChecklist"
 import { SignupCards } from "./cards/SignupCards"
 import { signupOpening } from "./state/Signup"
 import { CardView } from "./ChatCards"
@@ -35,7 +35,7 @@ import { repositoryFlowName } from "./flows/entries/flow"
 import { FlowsSurface } from "./FlowsSurface"
 import { InputModeMenu } from "./InputModeMenu"
 import type { InitMessage } from "./Onboarding"
-import { initMessage } from "./Onboarding"
+import { cloudWebHost, initMessage } from "./Onboarding"
 import { GUIDE_KEYS,GuideButton } from "./onboarding/GuideButton"
 import { PluginsSurface } from "./plugins/PluginsSurface"
 import { pathRepo } from "./RepoLink"
@@ -160,6 +160,8 @@ function AppContent() {
    */
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
+  // The first-run card's projection, read here to hold Chat until the first job (SetupChecklist.tsx).
+  const firstRun = useFirstRun(flows)
   const typing = session.phase === "responding"
   const activeTabId = session.activeTabId ?? MAIN_TAB_ID
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
@@ -358,7 +360,7 @@ function AppContent() {
   const repositoryOpening = !nativeShellHost && session.activeRepoKey != null
   // A new conversation opens empty; the host's opening read belongs to main alone, after the signup.
   // The host read is a diagnostic: local and desktop hosts show it; a cloud visitor never needs it.
-  const cloudWeb = controller.bootstrap?.host === "cloud" && !nativeShellHost
+  const cloudWeb = cloudWebHost(controller.bootstrap)
   const openingMessage: InitMessage | undefined = gatedByAuth || signingUp || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,
     flowCount: flows.length,
@@ -384,6 +386,26 @@ function AppContent() {
     if (entryOrdinal(left) !== entryOrdinal(right)) return entryOrdinal(left) - entryOrdinal(right)
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
+  /*
+   * The first app screen (Will, 2026-10-01): while the first-run card is all
+   * the transcript holds, it sits at the top as the signup did; the first
+   * conversation entry restores bottom anchoring.
+   */
+  const firstRunShown = !signingUp && !repositoryNotice && !appsHome
+  const firstRunOnly = firstRunShown && homeCard === undefined && mainEntries.length === 0 && !typing
+  /*
+   * Chat arrives with the first job: on the hosted web app, past the signup,
+   * the footer stays away while the card is open, no job is registered and
+   * the person has written nothing here. ⌘K still opens Chat. With no job
+   * tile on offer there is nothing to wait for.
+   */
+  const firstJobPending = cloudWeb && firstRunShown && identity?.state === "signed-in" && !firstRun.dismissed &&
+    firstRun.jobTiles && firstRun.completedJobs.size === 0 && !messages.some(message => message.role === "user")
+  // Transient chrome: Chat that was withheld against a known answer arrives with motion; Chat present from load does not.
+  const [chatWithheld, setChatWithheld] = useState(false)
+  if (firstJobPending && firstRun.jobsKnown && !chatWithheld) setChatWithheld(true)
+  const chatArrives = chatWithheld && !firstJobPending
+  const chatAway = homeOnly || firstJobPending
   const subagents = subagentsFromCards(conversationCards)
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
   const [earlierOpenFor, setEarlierOpenFor] = useState<string | undefined>(undefined)
@@ -542,6 +564,7 @@ function AppContent() {
           <div className="sui-chat-transcript smithers-transcript" data-slot="chat-transcript"
             data-repository-missing={repositoryNotice || undefined}
             data-signup={signingUp || undefined}
+            data-first-run={firstRunOnly || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
           <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
@@ -559,7 +582,7 @@ function AppContent() {
             </MessageScrollerItem>}
             {/* Always rendered: the landing page's tagline transition snapshots this headline on its first frame. */}
             {signingUp && <MessageScrollerItem messageId="signup" style={{ contentVisibility: "visible" }}><SignupCards /></MessageScrollerItem>}
-            {!signingUp && !repositoryNotice && !appsHome && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
+            {firstRunShown && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
             {session.firstRunDismissed && entries.length === 0 && !homeCard && <EmptyState className="transcript-empty" icon={<Sparkles size={20} />}
               title="Nothing here yet" description="Ask Smithers anything to get started." />}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
@@ -624,15 +647,15 @@ function AppContent() {
       </div>
       {/* The signup owns the screen: Chat arrives once there is something to ask it. */}
       {signingUp ? null : <footer data-keyboard-pane="Chat controls" className="app-chat-controls" aria-label="Chat controls" data-home={homeOnly || undefined}
-        hidden={homeOnly && session.inputMode !== "vim"}>
-        {homeOnly ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
+        data-arriving={chatArrives || undefined} hidden={chatAway && session.inputMode !== "vim"}>
+        {chatAway ? null : <FirstSightHint id="chat" placement="above" content={<ChatHint />}><GuideButton ref={chatTriggerRef} shortcut={GUIDE_KEYS.chat} {...flowProps("chat.open")} onClick={() => {
           controller.runCommand("chat.open")
           // Focus an already-open input now; Composer owns focus on opening.
           composerWrapRef.current?.querySelector("textarea")?.focus()
         }}>Chat</GuideButton></FirstSightHint>}
-        {homeOnly && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
-        {homeOnly ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
-        {homeOnly ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
+        {chatAway && session.inputMode !== "vim" ? null : <InputModeMenu mode={session.inputMode ?? "normal"} onChange={mode => controller.runCommand("input.mode", mode)} />}
+        {chatAway ? null : <ChatFilterMenu open={session.chatFilterMenuOpen === true} filter={session.chatFilter ?? allChat} subagents={subagents} onRunCommand={controller.runCommand} />}
+        {chatAway ? null : <ChatMeter usage={session.chatUsage} branchId={session.activeBranchId ?? DEFAULT_BRANCH_ID} />}
       </footer>}
       </div>
 

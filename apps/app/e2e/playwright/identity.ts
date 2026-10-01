@@ -28,12 +28,13 @@ export const SCOPED_TEST_USER = {
  * The app reads identity from the selected backend's user API (`GET /api/user`,
  * ApplicationClient `identity.current`) on every host since 4fa92ed8bf; a 401
  * is signed out, with the Go backend's `RequireAuth` body
- * (packages/backend/internal/middleware/auth.go). `login` null answers signed out.
+ * (packages/backend/internal/middleware/auth.go). `login` null answers signed out;
+ * `displayName` is the profile name GitHub sign-in stored (`display_name`).
  */
-export const identityRoute = (login: string | null = SCOPED_TEST_USER.login) =>
+export const identityRoute = (login: string | null = SCOPED_TEST_USER.login, displayName?: string) =>
   (route: import("@playwright/test").Route) => login === null
     ? route.fulfill({ status: 401, json: { code: "unauthorized", fault: "user", message: "authentication required" } })
-    : route.fulfill({ json: { id: 1, username: login, is_admin: false } })
+    : route.fulfill({ json: { id: 1, username: login, is_admin: false, ...(displayName === undefined ? {} : { display_name: displayName }) } })
 
 /** The Smithers Cloud half of the same account (`GET /api/cloud-auth/session`). */
 export const SCOPED_TEST_USER_CLOUD_SESSION = {

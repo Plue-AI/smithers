@@ -1,14 +1,14 @@
 import type { Locator, Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
-import { awaitBoot, command, closeComposer, expect, openApp, reloadApp, test } from "./support"
+import { appReady, awaitBoot, command, closeComposer, expect, openApp, reloadApp, test } from "./support"
 
 const matrixTest = process.env.SMITHERS_REAL_E2E_MODE === undefined ? test : authenticatedTest
 
 const boot = async (page: Page) => {
   const startedAt = performance.now()
   await openApp(page); await awaitBoot(page, "navigate", startedAt)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  await appReady(page)
 }
 const createNote = async (page: Page) => {
   const before = await page.locator('.smithers-card[data-kind="world"]').count()

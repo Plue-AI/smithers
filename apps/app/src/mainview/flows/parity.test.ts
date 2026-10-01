@@ -317,7 +317,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../InputModeMenu.tsx": 2,
       "../SessionNavigation.tsx": 1, // -1: the wordmark is a static mark; the sidebar it toggled is gone.
       "../cards/SetupChecklist.tsx": 3, // The shared step button, the shared job tile, and the dismiss; each one's flow is data, not a handler.
-      "../cards/SignupCards.tsx": 10, // The signup onboarding: the GitHub door, the account submit, poll choice/back/skip/continue/send/repo/new-repo, finish.
+      "../cards/SignupCards.tsx": 6, // The signup onboarding: the GitHub door, the account submit, the repository question's repo/new-repo/skip, finish.
       "../cards/CodingVibeCard.tsx": 1,
       "../cards/RepositoryUpdateCard.tsx": 3,
       /*

@@ -46,8 +46,8 @@ import { workspace } from "./deferrals/workspace"
 /** Journeys the release depends on. Only a real scenario can account for them. */
 export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
   "approval.approve", "approval.deny", "change.land", "repository.register", "secrets.connect", "secrets.connections",
-  "secrets.list", "secrets.revoke", "setup.configure", "setup.run", "signup.account", "signup.answer",
-  "signup.back", "signup.finish", "signup.next", "signup.repo", "signup.set"
+  "secrets.list", "secrets.revoke", "setup.configure", "setup.run", "signup.account", "signup.finish",
+  "signup.next", "signup.repo", "signup.set"
 ]
 
 export type Deferral = "browser" | "diagnostics" | "owed"

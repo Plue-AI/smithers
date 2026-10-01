@@ -293,8 +293,6 @@ export const FLOW_NAMES = [
   "setup.view",
   "setup.work",
   "signup.account",
-  "signup.answer",
-  "signup.back",
   "signup.finish",
   "signup.next",
   "signup.repo",

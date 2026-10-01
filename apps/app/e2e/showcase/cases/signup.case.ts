@@ -6,12 +6,12 @@ export default showcase({
   id: "signup",
   order: 10,
   title: "Sign up",
-  summary: "GitHub sign-in, account, a short poll, then the workspace.",
-  flows: ["auth.sign-in", "signup.account", "signup.answer", "signup.next", "signup.repo", "signup.finish"],
+  summary: "GitHub sign-in, account, a repository, then the workspace.",
+  flows: ["auth.sign-in", "signup.account", "signup.repo", "signup.finish"],
   run: async ({ page, app, backend }) => {
     let signedIn = false
     await backend.signedOut()
-    await backend.route(url => url.pathname === "/api/user", route => identityRoute(signedIn ? "adapark" : null)(route))
+    await backend.route(url => url.pathname === "/api/user", route => identityRoute(signedIn ? "adapark" : null, "Ada Park")(route))
     await backend.json("/api/billing/balance", { state: "ok", allowedToStartWork: true, balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 } })
     // The GitHub round trip: the redirect comes straight back signed in.
     await backend.route(url => url.pathname.startsWith("/api/auth/github"), route => {
@@ -27,28 +27,14 @@ export default showcase({
     await app.click(page.getByTestId("signup-github"))
 
     await expect(page.getByTestId("signup-account")).toHaveValue("adapark")
+    await expect(page.getByTestId("signup-name")).toHaveValue("Ada Park")
     await app.beat(600)
-    await app.type(page.getByTestId("signup-name"), "Ada Park")
     await app.click(page.getByTestId("signup-account-continue"))
 
     const question = page.getByTestId("signup-question")
-    await expect(question).toHaveAttribute("data-question", "size")
-    await app.beat(900)
-    await app.click(question.getByRole("radio", { name: /11/ }))
-    await expect(question).toHaveAttribute("data-question", "role")
-    await app.click(question.getByRole("radio", { name: /Engineering/ }))
-    await expect(question).toHaveAttribute("data-question", "heard")
-    await app.click(page.getByTestId("signup-skip"))
-    await expect(question).toHaveAttribute("data-question", "know")
-    await app.click(question.getByRole("radio", { name: /Yes/ }))
-    await expect(question).toHaveAttribute("data-question", "models")
-    await app.click(question.getByRole("checkbox", { name: /Claude/ }))
-    await app.click(page.getByTestId("signup-continue"))
     await expect(question).toHaveAttribute("data-question", "repo")
-    await app.beat(600)
+    await app.beat(900)
     await app.click(page.getByTestId("signup-new-repo"))
-    await expect(question).toHaveAttribute("data-question", "more")
-    await app.click(page.getByTestId("signup-skip"))
 
     await expect(page.getByTestId("signup-finish")).toBeVisible()
     await expect(signup).toContainText("smithers.sh/adapark")

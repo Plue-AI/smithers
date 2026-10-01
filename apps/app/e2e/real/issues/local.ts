@@ -1,5 +1,5 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { awaitBoot, closeComposer, expect, openApp } from "../support/test"
+import { awaitBoot, closeComposer, command, expect, openApp } from "../support/test"
 
 export const PRACTICE_REPO = "practice:smithersai/hello-server"
 
@@ -43,21 +43,6 @@ export const practiceIssueCommentCount = async (card: Locator, number = 3): Prom
 }
 
 export const runSlash = async (page: Page, text: string): Promise<void> => {
-  const input = page.getByTestId("composer-input")
-  const chat = page.getByRole("button", { name: "Chat", exact: true })
-  // `isVisible` answers from the document as it stands, so a composer the app
-  // has not rendered yet reads as closed. Require the chrome first: every
-  // caller runs on an app that has already booted, so this resolves at once,
-  // and chrome that really went missing still fails inside its own budget
-  // rather than spending the boot's.
-  await expect(chat).toBeVisible()
-  if (!(await input.isVisible())) {
-    await chat.click()
-    await expect(input).toBeVisible()
-  }
-  await input.click()
-  await expect(input).toBeFocused()
-  await input.fill(text)
-  await input.press("Enter")
+  await command(page, text)
   await closeComposer(page)
 }

@@ -1,6 +1,6 @@
 import { scenario } from "./coverage/types"
 import type { BrowserContext, Page } from "@playwright/test"
-import { appEntryPath, awaitBoot, command, expect, openApp, realApi, reloadApp, test } from "./support/test"
+import { appEntryPath, appReady, awaitBoot, command, expect, openApp, openComposer, realApi, reloadApp, test } from "./support/test"
 import {
   authenticatedTest,
   clearProductSession,
@@ -12,12 +12,6 @@ import {
 } from "./auth-permissions/profile"
 
 const APP_PATH = "/codeplanesmithers/canary-sandbox"
-
-const openChat = async (page: Page): Promise<void> => {
-  if (await page.getByTestId("composer-input").isVisible()) return
-  await page.getByRole("button", { name: /^Chat/ }).click()
-  await expect(page.getByTestId("composer-input")).toBeVisible()
-}
 
 const browserSession = async (page: Page): Promise<unknown> => page.evaluate(async () => {
   const response = await fetch("/api/user", { credentials: "include" })
@@ -57,7 +51,7 @@ authenticatedTest("the selected mode retains its authenticated session through d
   expect(await readAuthenticatedSession(page)).toEqual(expected)
   expect((await context.cookies(origin)).map(({ name }) => name).sort()).toEqual(beforeCookies)
 
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/account.show")
   await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
     .toContainText(`@${expected!.login}`)
@@ -84,7 +78,7 @@ test("a signed-out required action parks behind its durable sign-in step", scena
   const before = await realApi(page, request, "GET", "/api/user")
   expect(before.status()).toBe(401)
 
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/billing.balance")
   const refusal = page.locator(".smithers-chat-message").filter({
     has: page.getByText(/^Sign in(?: with GitHub)? to show your balance\.$/)
@@ -111,7 +105,7 @@ test("a signed-out browser gets the same concealed response as an unknown admin 
 }), async ({ page, request }) => {
   await openApp(page)
   expect(await readAuthenticatedSession(page)).toBeUndefined()
-  await openChat(page)
+  await openComposer(page)
   const input = page.getByTestId("composer-input")
   await input.fill("/admin.health")
   await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
@@ -184,8 +178,8 @@ authenticatedTest("GitHub OAuth stays on the original repository and resumes the
   await expect.poll(() => readAuthenticatedSession(page)).toBeUndefined()
   await expect(page.getByTestId("chrome-sign-in")).toBeVisible({ timeout: 60_000 })
 
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 60_000 })
-  await openChat(page)
+  await appReady(page, 60_000)
+  await openComposer(page)
   await command(page, "/billing.balance")
   const signIn = page.locator('button[data-flow="auth.sign-in"]:visible').last()
   await expect(signIn).toBeVisible()
@@ -234,12 +228,12 @@ authenticatedTest("the saved admin identity can read admin health and survives a
   await awaitBoot(page, "navigate", startedAt)
   await expect(page.locator('[data-testid="chrome-sign-in"], [data-flow="auth.sign-in"]:visible')).toHaveCount(0)
 
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/admin.health")
   await expect(page.locator('.smithers-card[data-kind="admin-health"]')).toBeVisible({ timeout: 30_000 })
   await reloadApp(page)
   await expect.poll(() => readAuthenticatedSession(page)).toEqual(expectedSession)
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/admin.devtools")
   await expect(page.locator(".devtools-panel")).toBeVisible()
   await expect(page.locator(".devtools-panel")).toContainText("admin.health")
@@ -260,7 +254,7 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
   const beforeCookies = await authCookieNames(context, baseURL)
   expect(beforeCookies).toContain("smithers.sh:smithers_identity")
   expect(beforeCookies.some((name) => name.endsWith(":user_session"))).toBe(true)
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/account.show")
   await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
     .toContainText("@codeplanesmithers")
@@ -283,7 +277,7 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
 
   await reloadApp(page)
   expect(await browserSession(page)).toEqual(expectedWireSession)
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/account.show")
   await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
     .toContainText("@codeplanesmithers")
@@ -301,7 +295,7 @@ authenticatedTest("sign-out clears the real session and a real OAuth round trip 
   const baseURL = String(testInfo.project.use.baseURL)
   await openApp(page)
   await expect.poll(() => readAuthenticatedSession(page)).toEqual({ login: "codeplanesmithers", admin: true })
-  await openChat(page)
+  await openComposer(page)
   await command(page, "/account.show")
   const account = page.locator('.smithers-card[data-kind="account"]')
   await expect(account).toBeVisible()
@@ -337,7 +331,7 @@ ordinaryTest("an ordinary account is denied by both the admin UI and server rout
   expect(session, "ordinary identity preflight must produce a real session").toBeDefined()
   expect(session?.admin, "ordinary identity must not carry the admin claim").toBe(false)
 
-  await openChat(page)
+  await openComposer(page)
   const input = page.getByTestId("composer-input")
   await input.fill("/admin.health")
   await expect(page.locator('.slash-menu-item[data-flow="admin.health"]')).toHaveCount(0)
@@ -367,7 +361,7 @@ ordinaryTest("signing out one real user does not alter another user's live sessi
     expect(admin.session).toEqual({ login: "codeplanesmithers", admin: true })
     expect(admin.session.login).not.toBe(ordinary?.login)
     await openApp(page)
-    await openChat(page)
+    await openComposer(page)
     await command(page, "/account.show")
     await page.locator('.smithers-card[data-kind="account"] [data-flow="auth.sign-out"]').click()
     await expect.poll(() => readAuthenticatedSession(page)).toBeUndefined()

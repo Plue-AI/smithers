@@ -604,4 +604,22 @@ test("the signup's sign-in door closes when its identity requirement is met", as
   expect(host.querySelector<HTMLInputElement>('[data-testid="signup-account"]')?.value).toBe("codeplanesmithers")
   // This opening is a live projection, never an appended transcript row.
   expect(store.collections.messages.get("auth-state")).toBeUndefined()
+  // No GitHub name in the answer: Full name stays empty for the person to type.
+  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')?.value).toBe("")
+})
+
+test("the signup's account step prefills Full name with the signed-in person's GitHub name", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, { bootstrap: WEB,
+    fetchImpl: async () => Response.json({}, { status: 404 }) })
+  await controller.adoptSession({ state: "signed-out", login: null, admin: false })
+  const { host } = mount(controller)
+  await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", displayName: "Ada Park", admin: false })
+  await settled()
+  flushSync(() => {})
+  expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
+  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-name"]')?.value).toBe("Ada Park")
+  expect(host.querySelector<HTMLInputElement>('[data-testid="signup-account"]')?.value).toBe("codeplanesmithers")
+  // The name rides the identity answer into the signup draft, not the identity row.
+  expect(JSON.stringify(store.collections.identitySessions.get("identity"))).not.toContain("Ada Park")
 })

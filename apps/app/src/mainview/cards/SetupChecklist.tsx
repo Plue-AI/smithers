@@ -5,7 +5,8 @@ import { dynamicFlowAction, flowAction } from "../flows/FlowAction"
 import { repositoryFlowName } from "../flows/entries/flow"
 import { unmetRequirements, visible, type CatalogItem, type CommandState } from "../flows/registry"
 import { activeCatalogRepositoryId, activeRepositoryId, selectedBoxBinding } from "../state/RepoContext"
-import { registeredRepositoryJobs, repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
+import { registeredRepositoryJobs, repositoryJobOf, repositoryJobsKnown, repositoryJobStates } from "../state/RepositoryJobs"
+import { cloudWebHost } from "../Onboarding"
 import type { RepositoryFlow, RepositoryJobObservation } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import "./SetupChecklist.css"
@@ -20,6 +21,8 @@ import "./SetupChecklist.css"
 export interface SetupProgress {
   readonly signedIn: boolean
   readonly localAuth?: boolean
+  /** The hosted web app: the signup is the GitHub sign-in, so its step is never listed. */
+  readonly cloud?: boolean
   readonly hasRepo: boolean
   readonly hasSetup: boolean
 }
@@ -49,7 +52,7 @@ export interface ResolvedStep {
 
 export function resolveSteps(commands: readonly CatalogItem[], state: SetupProgress, repo?: string): ReadonlyArray<ResolvedStep> {
   const catalog = visible(commands)
-  return SETUP_STEPS.map(step => {
+  return SETUP_STEPS.filter(step => !(state.cloud && step.id === "connect-github")).map(step => {
     const flow = step.flows.find(name => catalog.some(item => item.name === name))
     return { id: step.id, label: step.id === "connect-github" && state.localAuth ? "Sign in" : step.label, complete: step.done(state), flow, args: flow === "issues.setup" ? repo : undefined }
   })
@@ -160,8 +163,11 @@ export function SetupChecklistCard({ steps, groups = [], repo, jobStates, comple
   </section>
 }
 
-/** Live session projection; no card row or model request. */
-export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[] }) {
+/**
+ * The first-run card's live projection; no card row or model request. App.tsx
+ * reads the same projection to hold Chat until the first job is registered.
+ */
+export function useFirstRun(commands?: readonly CatalogItem[]) {
   const controller = useController()
   const { collections } = controller.store
   const { data: sessions } = useLiveQuery(q => q.from({ session: collections.sessions }).select(({ session }) => ({
@@ -189,6 +195,7 @@ export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[]
   const steps = resolveSteps(catalog, {
     signedIn: identity?.state === "signed-in",
     localAuth: controller.localAuth !== undefined,
+    cloud: cloudWebHost(controller.bootstrap),
     hasRepo: repositories.some(row => row.catalog !== true),
     hasSetup: completedJobs.size > 0,
   }, repo)
@@ -199,7 +206,19 @@ export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[]
     hasConnectors: identity?.state === "signed-in" || connectors.length > 0,
     publicRepo: activeCatalogRepositoryId(controller.store) !== null,
   }, featuredFlows)
-  return <SetupChecklistCard steps={steps} groups={groups} repo={repo} dismissed={dismissed}
-    jobStates={repo === undefined || !readable ? undefined : repositoryJobStates(observations, cards, repo, owner, selectedWorkspaceId)}
+  return {
+    steps, groups, repo, dismissed, completedJobs,
+    /** The third step offers at least one repository job tile. */
+    jobTiles: groups.some(group => group.namespace === "repository"),
+    /** No repository has no job to wait for; a repository's registrations are known once the host answers. */
+    jobsKnown: repo === undefined || readable && repositoryJobsKnown(observations, repo, owner, selectedWorkspaceId),
+    jobStates: repo === undefined || !readable ? undefined : repositoryJobStates(observations, cards, repo, owner, selectedWorkspaceId),
+  }
+}
+
+export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[] }) {
+  const controller = useController()
+  const { steps, groups, repo, dismissed, jobStates, completedJobs } = useFirstRun(commands)
+  return <SetupChecklistCard steps={steps} groups={groups} repo={repo} dismissed={dismissed} jobStates={jobStates}
     completedJobs={completedJobs} onRunCommand={controller.runCommand} onDismiss={() => { controller.dismissFirstRun() }} />
 }

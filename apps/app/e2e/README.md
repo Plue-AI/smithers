@@ -127,6 +127,14 @@ still false for exactly as long as the app is still booting, and it is one
 locator on one budget rather than a fallback tried after the first has spent
 its own.
 
+"Booted" is not "the Chat button is visible". On the cloud web app the Chat
+controls stay hidden until the person's first repository job is registered, the
+first-run card is dismissed, or they have sent a message (`src/mainview/App.tsx`,
+Will 2026-10-01), so a fresh profile shows the first-run card and no Chat
+button. Use `appReady(page)` to wait for either one, and `openComposer(page)`,
+which presses Command/Control-K (it works while the button is hidden), to open
+Chat. Click the Chat button only in a spec whose subject is that button.
+
 Measured 2026-09-20 against the canary from the persistent production profile
 `~/.multi-e2e-profile`, build 9eefdba7:
 
