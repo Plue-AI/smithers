@@ -38,6 +38,7 @@
     "./internal/*": null,
     "./*/index": null,
     "./Bounded": "./src/Bounded.ts",
+    "./Burndown": "./src/Burndown.ts",
     "./CheckSuite": "./src/CheckSuite.ts",
     "./Debate": "./src/Debate.ts",
     "./DelegationChain": "./src/DelegationChain.ts",
@@ -104,6 +105,16 @@
         "require": {
           "types": "./dist/cjs/Bounded.d.ts",
           "default": "./dist/cjs/Bounded.js"
+        }
+      },
+      "./Burndown": {
+        "import": {
+          "types": "./dist/esm/Burndown.d.ts",
+          "default": "./dist/esm/Burndown.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Burndown.d.ts",
+          "default": "./dist/cjs/Burndown.js"
         }
       },
       "./CheckSuite": {

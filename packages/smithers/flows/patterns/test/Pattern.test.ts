@@ -362,13 +362,13 @@ describe("Pattern", () => {
   })
 
   it("reports clipping and refuses to launder a wider effect envelope", () => {
-    const template = declaringAs("", {
+    const template = declaringAs("template", {
       input: Schema.String,
       output: Schema.String,
       capabilities: ["fs:read"],
       effects: effect(["workspace/**"])
     })
-    const supplied = declaringAs("", {
+    const supplied = declaringAs("supplied", {
       input: Schema.String,
       output: Schema.String,
       capabilities: ["fs:read", "net:admin"],
@@ -389,12 +389,11 @@ describe("Pattern", () => {
       mode: true,
       tier: true
     })
-    // An untagged declaration reads as `anonymous`, which is what keeps a
-    // composed name from becoming `decorate()`.
+    // A decorator result named differently from the wrapped flow keeps its own name.
     expect(() => Pattern.decorate(template, () => supplied)).toThrow(
       expect.objectContaining({
         code: "envelope_conflict",
-        message: "Decorator \"decorate(anonymous)\" widens the wrapped flow's declared effect envelope"
+        message: "Decorator \"supplied\" widens the wrapped flow's declared effect envelope"
       })
     )
   })
@@ -478,6 +477,14 @@ describe("Pattern", () => {
 
     expect(Decorate.capabilitiesOf(decorated)).toEqual([])
     expect(Decorate.envelopeOf(decorated)).toBeUndefined()
+  })
+
+  it("derives the composed name when the decorator result keeps the wrapped flow's name", () => {
+    const template = declaringAs("template", { input: Schema.String, output: Schema.String })
+    const decorator: Pattern.Decorator = (inner) =>
+      declaringAs(inner._tag, { input: inner.payloadSchema, output: inner.successSchema })
+
+    expect(Pattern.decorate(template, decorator)._tag).toBe("decorator(template)")
   })
 
   it("refuses decorators that return a non-flow or change either schema", () => {

@@ -77,7 +77,7 @@ export const envelopeOf = (flow: Flow.Any): Effects.Declaration | undefined =>
  * @since 1.0.0
  * @private
  */
-export const displayName = (flow: Flow.Any): string => flow._tag.length === 0 ? "anonymous" : flow._tag
+export const displayName = (flow: Flow.Any): string => flow._tag
 
 /**
  * Whether a supplied declaration may stand in for a declared input and output

@@ -178,10 +178,7 @@ export const decorate: {
   const innerName = Decorate.displayName(self)
   const suppliedName = supplied._tag
   const decoratorName = decorator.name.length === 0 ? "decorate" : decorator.name
-  // A decorator result that named itself nothing carries the empty tag, which
-  // must not be adopted as the composed name: a flow called "" is worse than
-  // the derived `decorate(anonymous)`.
-  const name = suppliedName.length > 0 && suppliedName !== innerName
+  const name = suppliedName !== innerName
     ? suppliedName
     : `${decoratorName}(${innerName})`
   return Decorate.redeclare(self, supplied, name)

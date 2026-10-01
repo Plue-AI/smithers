@@ -126,10 +126,11 @@ each step a stable identity.
 | Fan out, bound the concurrency, and decide what a failure interrupts    | `Bounded`, `Quarantine`, `MapReduce`, `Recursion`                          | [API reference](./api.md)     |
 | Recover, clean up, and undo                                             | `TryCatchFinally`, `Saga`                                                  | [API reference](./api.md)     |
 | Coordinate several agents as a team, with approvals and a landing order | `Supervisor`, `Intervene`, `CheckSuite`, `Kanban`, `Runbook`, `MergeQueue` | [Teams](./teams.md)           |
+| Claim and work every backlog item that is ours, round after round       | `Burndown`                                                                 | [Burndown](./burndown.md)     |
 | Run a plan a model wrote, inside bounds it cannot widen                 | `Trellis`, `DelegationChain`                                               | [Delegation](./delegation.md) |
 | Wrap one flow with retries, a cache policy, or an approval              | `WithRetry`, `WithCache`, `WithApproval`, `Pattern`                        | [API reference](./api.md)     |
 
-The [module index](./modules.md) lists all 28 modules with their import
+The [module index](./modules.md) lists all 29 modules with their import
 specifiers.
 
 ## How this fits with @smthrs/flows
@@ -163,11 +164,13 @@ start there.
 - [API reference](./api.md): the two halves of a pattern, string identity and
   ownership, the three error types, and every module the pages below do not
   cover.
-- [Module index](./modules.md): all 28 modules, their import specifiers, and
+- [Module index](./modules.md): all 29 modules, their import specifiers, and
   where each one is documented.
 - [Loops](./loops.md): `Loop`, `Optimizer`, `ScanFixVerify`, `DriftDetector`,
   and `Sidecar`, plus why a declaration cannot branch on a value.
 - [Teams](./teams.md): the six patterns that coordinate several agents, their
   approval gates, and their landing order.
+- [Burn down a backlog](./burndown.md): `Burndown` applied to GitHub issues,
+  with claims, a capacity gate, and durable children.
 - [Delegation](./delegation.md): `Trellis` and `DelegationChain`, the two
   patterns that admit and execute a plan a model wrote.

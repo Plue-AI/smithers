@@ -262,10 +262,8 @@ describe("WithRetry", () => {
     expect(keyMaterial(guarded)).not.toEqual(keyMaterial(plain))
   })
 
-  it("names an unnamed inner flow anonymous", () => {
-    const retried = WithRetry.withRetry(flowOf(""), { attempts: 2 })
-
-    expect(retried._tag).toBe("withRetry(anonymous, attempts=2)")
+  it("cannot wrap an unnamed flow, because Flow.make refuses an empty tag", () => {
+    expect(() => flowOf("")).toThrow("Flow.make: tag must be a non-empty string")
   })
 
   it("carries the wrapped flow's description, and states none when it has none", () => {

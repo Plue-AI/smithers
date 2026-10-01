@@ -146,6 +146,12 @@ export * as MergeQueue from "./MergeQueue.ts"
 
 /**
  * @category patterns
+ * @since 1.0.0
+ */
+export * as Burndown from "./Burndown.ts"
+
+/**
+ * @category patterns
  * @since 0.1.0
  */
 export * as Optimizer from "./Optimizer.ts"

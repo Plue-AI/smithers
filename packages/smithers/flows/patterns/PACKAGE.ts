@@ -77,7 +77,8 @@ const securityReview = Smithers.SecurityReview({
         "Supervisor.run dispatching every task the boss plan returns with no cap on the task count, so one plan multiplies worker calls by maxRounds.",
         "Trellis running a model-authored parallel node with concurrency \"unbounded\" where fuel does not bound the leaves started at once.",
         "Loop, Optimizer, ReviewLoop, or Stalling where run can exceed the round count make declares, or a bound accepting non-safe-integer or Infinity values.",
-        "Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths."
+        "Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths.",
+        "Burndown launching more items than concurrency or capacity slots allow, or a lineage that continues past maxRounds."
       ],
       paths: [
         "src/Supervisor.ts",
@@ -90,7 +91,8 @@ const securityReview = Smithers.SecurityReview({
         "src/ReviewLoop.ts",
         "src/internal/Stalling.ts",
         "src/Bounded.ts",
-        "src/MergeQueue.ts"
+        "src/MergeQueue.ts",
+        "src/Burndown.ts"
       ]
     },
     {
@@ -109,7 +111,8 @@ const securityReview = Smithers.SecurityReview({
         "src/Bounded.ts",
         "src/Quarantine.ts",
         "src/Sidecar.ts",
-        "src/CheckSuite.ts"
+        "src/CheckSuite.ts",
+        "src/Burndown.ts"
       ]
     },
     {

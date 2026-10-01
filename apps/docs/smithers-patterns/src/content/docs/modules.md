@@ -1,6 +1,6 @@
 ---
 title: "Module index"
-description: "All 28 modules of @smthrs/patterns, what each one is for, its import specifier, and the page that documents it."
+description: "All 29 modules of @smthrs/patterns, what each one is for, its import specifier, and the page that documents it."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/patterns/docs/modules.md"
 ---
 
@@ -59,7 +59,8 @@ How many calls run at once, and what a failure does to the calls beside it.
 
 ## Teams and queues
 
-Several agents coordinated by one owner. [Teams](/teams/) covers all six.
+Several agents coordinated by one owner. [Teams](/teams/) covers the first
+six, and [Burn down a backlog](/burndown/) covers `Burndown`.
 
 | Module                                | Import specifier              | What it does                                                                             |
 | ------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
@@ -69,6 +70,7 @@ Several agents coordinated by one owner. [Teams](/teams/) covers all six.
 | [`Kanban`](/teams/#kanban)         | `@smthrs/patterns/Kanban`     | Move every item through an ordered list of columns, bounded inside each column           |
 | [`Runbook`](/teams/#runbook)       | `@smthrs/patterns/Runbook`    | Run ordered steps whose risk decides which of them an approval gates                     |
 | [`MergeQueue`](/teams/#mergequeue) | `@smthrs/patterns/MergeQueue` | Land a set of members in one prioritized order, at a concurrency the queue owns          |
+| [`Burndown`](/burndown/)           | `@smthrs/patterns/Burndown`   | Claim, work, land, and release every backlog item that is ours, round after round        |
 
 ## Delegation
 
