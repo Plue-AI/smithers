@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { rollout, type RolloutHost, type RolloutReceipt } from "../rollout/runtime.ts"
+import { PublicationRefusal, rollout, type RolloutHost, type RolloutReceipt } from "../rollout/runtime.ts"
 
 const previous = { version: "good-version", revision: "old-sha" }
 const candidate = { version: "bad-version", revision: "new-sha" }
@@ -329,4 +329,18 @@ test("an interrupted receipt without a baseline cannot restore and refuses the r
   assert.equal(result.status, "rollback-failed")
   assert.equal(result.rollback, "failed")
   assert.deepEqual(f.events, [])
+})
+
+test("publication refusal preserves its named check and prevents publishing", async () => {
+  const f = fixture()
+  const refusal = new PublicationRefusal("provenance")
+  assert.ok(refusal instanceof Error)
+  assert.equal(refusal.message, "provenance")
+  assert.equal(refusal.check, "provenance")
+  f.host.beforePublish = async () => { throw refusal }
+  const result = await rollout(f.host)
+  assert.equal(result.status, "refused")
+  assert.deepEqual(result.failedChecks, ["provenance"])
+  assert.equal(f.events.includes("publish"), false)
+  assert.equal(f.events.some((event) => event.startsWith("restore:")), false)
 })

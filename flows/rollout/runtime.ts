@@ -201,5 +201,10 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
  * @category errors
  */
 export class PublicationRefusal extends Error {
-  constructor(readonly check: string) { super(check) }
+  readonly check: string
+
+  constructor(check: string) {
+    super(check)
+    this.check = check
+  }
 }
