@@ -637,3 +637,40 @@ describe("GitHub redirects", () => {
     expect(fixture.requests.map((request) => request.url)).toEqual(["/x"])
   })
 })
+
+describe("GitHub proxy refusals", () => {
+  it("fails rate-limited once, with the proxy's retry instant, and does not repeat the request", async () => {
+    const retryAt = new Date(Date.now() + 120_000).toISOString()
+    fixture = await startFixture((_request, response) =>
+      json(response, 429, { message: "API rate limit: deferred" }, {
+        "retry-after": "120",
+        "x-smithers-retry-at": retryAt,
+        "x-smithers-rate-limit-reason": "paused"
+      })
+    )
+    const failure = await Effect.runPromise(Effect.flip(client().request("POST", "/repos/o/r/issues")))
+    expect(failure.reason).toBe("rate-limited")
+    expect(failure.details).toMatchObject({
+      status: 429,
+      retryAt,
+      reason: "paused",
+      retryable: false,
+      rateLimited: true,
+      outcomeUnknown: false,
+      path: "/repos/o/r/issues"
+    })
+    expect(fixture.requests).toHaveLength(1)
+    expect(fromIntegrationError(failure).reason).toBe("rate-limited")
+  })
+
+  it("treats a 429 without the proxy's header as GitHub's own limit and retries it", async () => {
+    let calls = 0
+    fixture = await startFixture((_request, response) => {
+      calls += 1
+      if (calls === 1) return json(response, 429, { message: "rate limited" }, { "x-smithers-retry-at": "never" })
+      json(response, 200, { ok: true })
+    })
+    expect(await Effect.runPromise(client().request("GET", "/x"))).toEqual({ ok: true })
+    expect(calls).toBe(2)
+  })
+})

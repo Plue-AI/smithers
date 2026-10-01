@@ -4,6 +4,14 @@
 
 ### Added
 
+- `GitHub.Proxy` and `GitHub.RateLimit`: one reverse proxy per machine that
+  every GitHub client calls instead of `api.github.com`. It holds the
+  credential and one limiter per principal enforcing GitHub's documented
+  limits: the primary budget from `x-ratelimit-*`, 50 concurrent requests,
+  writes 1 s apart and at most 80 a minute and 500 an hour, and a pause of
+  every caller on a `403` or `429` limit response. A request it will not wait
+  for is a `429` with `x-smithers-retry-at`, which `GitHubClient` reports as
+  the new `rate-limited` reason with `details.retryAt`.
 - `Slack`: a Web API client, the Events API door, a Socket Mode source that
   acknowledges an envelope only after its handler succeeds, durable
   `PostMessage`/`UpdateMessage`/`Reconcile` actions, Block Kit approvals, and

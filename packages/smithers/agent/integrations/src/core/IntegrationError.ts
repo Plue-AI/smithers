@@ -34,7 +34,8 @@ export const reasons = [
   "delivery-failed",
   "credentials-missing",
   "permission-denied",
-  "listener-conflict"
+  "listener-conflict",
+  "rate-limited"
 ] as const
 
 /**

@@ -35,6 +35,18 @@ export * as GitHubClient from "./github/GitHubClient.ts"
 export * as Payload from "./github/Payload.ts"
 
 /**
+ * @category services
+ * @since 1.0.0
+ */
+export * as Proxy from "./github/Proxy.ts"
+
+/**
+ * @category services
+ * @since 1.0.0
+ */
+export * as RateLimit from "./github/RateLimit.ts"
+
+/**
  * @category constructors
  * @since 1.0.0
  */

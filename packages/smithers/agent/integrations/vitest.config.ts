@@ -35,8 +35,8 @@ export default defineConfig({
       //   placeholder that the returned channel's provider decoder bypasses.
       // - `core/Signature.ts:83` is the catch around Node's permissive
       //   `Buffer.from(value, "base64")`, which does not throw for a string.
-      // - `github/GitHubClient.ts:245` is the null fallback for capture group 1
-      //   after a regex that requires that group. At `:507`, `Schedule.while`
+      // - `github/GitHubClient.ts:264` is the null fallback for capture group 1
+      //   after a regex that requires that group. At `:565`, `Schedule.while`
       //   removes non-retryable failures before `Schedule.addDelay` can see one.
       // - `linear/LinearClient.ts:434` needs Effect to enter `tryPromise` with
       //   an already-aborted signal. Effect stops an already-aborted run before
@@ -50,10 +50,10 @@ export default defineConfig({
       //
       // Slack, Google Calendar, Gmail, and X reach every line and branch.
       thresholds: {
-        branches: 99.8,
-        functions: 99.71,
-        lines: 99.82,
-        statements: 99.77
+        branches: 99.81,
+        functions: 99.74,
+        lines: 99.88,
+        statements: 99.83
       }
     }
   }

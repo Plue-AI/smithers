@@ -44,6 +44,23 @@ import { type GitHubConfig, resolve } from "./Config.ts"
 const MAX_RETRY_AFTER_MS = 60_000
 
 /**
+ * The response header in which the GitHub proxy names the instant a refused
+ * request may be retried. A 429 that carries it was never sent to GitHub.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const PROXY_RETRY_AT = "x-smithers-retry-at"
+
+/**
+ * The response header in which the GitHub proxy names why it refused.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const PROXY_REASON = "x-smithers-rate-limit-reason"
+
+/**
  * The largest `per_page` GitHub accepts.
  *
  * @category constants
@@ -397,6 +414,13 @@ export const make = (
         )
     })
 
+  interface Answer {
+    readonly status: number
+    readonly statusText: string
+    readonly headers: Headers
+    readonly json: unknown
+  }
+
   const attemptOnce = (
     method: RequestMethod,
     url: string,
@@ -407,7 +431,7 @@ export const make = (
     // it is safe for every verb. A 5xx or a dropped connection on a write is
     // not, because GitHub may have applied it and lost the answer.
     const mayRepeatAmbiguously = retryUnsafeWrites || !UNSAFE_METHODS.includes(method)
-    return Effect.tryPromise({
+    const exchange: Effect.Effect<Answer, IntegrationError> = Effect.tryPromise({
       try: async (signal) => {
         assertApiOrigin(url)
         const headers: Record<string, string> = {
@@ -435,30 +459,7 @@ export const make = (
             json = text
           }
         }
-        if (response.ok) return { json, headers: response.headers }
-        const rateLimited = isRateLimitResponse(response.status, response.headers, json)
-        const serverError = response.status >= 500
-        const outcomeUnknown = serverError && !mayRepeatAmbiguously
-        const retryable = rateLimited || (serverError && mayRepeatAmbiguously)
-        const message = typeof json === "object" && json !== null && "message" in json
-          ? String(json.message)
-          : response.statusText
-        throw integrationError(
-          "delivery-failed",
-          `GitHub request failed: ${method} ${new URL(url).pathname} -> ${response.status} ${message}${
-            outcomeUnknown ? " (outcome unknown: the write was not repeated)" : ""
-          }`,
-          {
-            status: response.status,
-            method,
-            path: new URL(url).pathname,
-            retryable,
-            rateLimited,
-            outcomeUnknown,
-            retryAfterMs: retryable ? retryAfterMs(response.headers) : null,
-            ratelimitRemaining: response.headers.get("x-ratelimit-remaining")
-          }
-        )
+        return { status: response.status, statusText: response.statusText, headers: response.headers, json }
       },
       catch: (cause) =>
         cause instanceof IntegrationError
@@ -494,6 +495,58 @@ export const make = (
               requestTimeoutMs
             }
           ))
+      })
+    )
+    return exchange.pipe(
+      Effect.flatMap((answer) => {
+        if (answer.status >= 200 && answer.status < 300) {
+          return Effect.succeed({ json: answer.json, headers: answer.headers })
+        }
+        const { status, headers, json } = answer
+        // The GitHub proxy refused to wait that long: nothing was sent to
+        // GitHub, and a retry before the instant it names only waits again.
+        const proxyRetryAt = status === 429 ? Date.parse(headers.get(PROXY_RETRY_AT) ?? "") : Number.NaN
+        if (Number.isFinite(proxyRetryAt)) {
+          return Effect.fail(integrationError(
+            "rate-limited",
+            `GitHub request deferred by the rate limit: ${method} ${new URL(url).pathname} until ${
+              new Date(proxyRetryAt).toISOString()
+            }`,
+            {
+              status,
+              method,
+              path: new URL(url).pathname,
+              reason: headers.get(PROXY_REASON),
+              retryAt: new Date(proxyRetryAt).toISOString(),
+              retryable: false,
+              rateLimited: true,
+              outcomeUnknown: false
+            }
+          ))
+        }
+        const rateLimited = isRateLimitResponse(status, headers, json)
+        const serverError = status >= 500
+        const outcomeUnknown = serverError && !mayRepeatAmbiguously
+        const retryable = rateLimited || (serverError && mayRepeatAmbiguously)
+        const message = typeof json === "object" && json !== null && "message" in json
+          ? String(json.message)
+          : answer.statusText
+        return Effect.fail(integrationError(
+          "delivery-failed",
+          `GitHub request failed: ${method} ${new URL(url).pathname} -> ${status} ${message}${
+            outcomeUnknown ? " (outcome unknown: the write was not repeated)" : ""
+          }`,
+          {
+            status,
+            method,
+            path: new URL(url).pathname,
+            retryable,
+            rateLimited,
+            outcomeUnknown,
+            retryAfterMs: retryable ? retryAfterMs(headers) : null,
+            ratelimitRemaining: headers.get("x-ratelimit-remaining")
+          }
+        ))
       })
     )
   }

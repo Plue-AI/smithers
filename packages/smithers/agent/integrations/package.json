@@ -73,6 +73,8 @@
     "./github/Config": "./src/github/Config.ts",
     "./github/GitHubClient": "./src/github/GitHubClient.ts",
     "./github/Payload": "./src/github/Payload.ts",
+    "./github/Proxy": "./src/github/Proxy.ts",
+    "./github/RateLimit": "./src/github/RateLimit.ts",
     "./github/Repository": "./src/github/Repository.ts",
     "./github/Sync": "./src/github/Sync.ts",
     "./gmail": "./src/gmail.ts",
@@ -387,6 +389,26 @@
         "require": {
           "types": "./dist/cjs/github/Payload.d.ts",
           "default": "./dist/cjs/github/Payload.js"
+        }
+      },
+      "./github/Proxy": {
+        "import": {
+          "types": "./dist/esm/github/Proxy.d.ts",
+          "default": "./dist/esm/github/Proxy.js"
+        },
+        "require": {
+          "types": "./dist/cjs/github/Proxy.d.ts",
+          "default": "./dist/cjs/github/Proxy.js"
+        }
+      },
+      "./github/RateLimit": {
+        "import": {
+          "types": "./dist/esm/github/RateLimit.d.ts",
+          "default": "./dist/esm/github/RateLimit.js"
+        },
+        "require": {
+          "types": "./dist/cjs/github/RateLimit.d.ts",
+          "default": "./dist/cjs/github/RateLimit.js"
         }
       },
       "./github/Repository": {
