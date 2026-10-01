@@ -18,7 +18,10 @@ it("runs the child's code in a scratch machine and journals it as one action", a
   // The child ran where the provider put it: its working directory is the
   // session workspace under `root`, named after the derived session key.
   expect(first.result.output.workdir).toContain("greet-sandboxed-greeting")
-  expect(first.result.diff).toEqual([{ path: "greeting.txt", bytes: new TextEncoder().encode("hello, Ada") }])
+  const work = first.result.work
+  expect(work?._tag).toBe("Changed")
+  expect(work?._tag === "Changed" && work.patch).toContain("diff --git a/greeting.txt b/greeting.txt")
+  expect(work?._tag === "Changed" && work.patch).toContain("+hello, Ada")
   expect(first.acquisitions).toBe(1)
   expect(existsSync(filename)).toBe(true)
   expect(readdirSync(root)).toEqual([])

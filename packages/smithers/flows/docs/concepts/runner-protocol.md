@@ -147,7 +147,7 @@ it is unique per execution and stable across a resume.
 ## One action for the parent
 
 `SandboxedFlow.action(flow)` declares an ordinary durable action over the
-child's payload schema, whose success is `{ output, diff }` and whose error is
+child's payload schema, whose success is `{ output, work, capabilityCeiling }` and whose error is
 `SandboxedFlowError`. From the parent's point of view the whole sandboxed
 execution is one step: the engine journals one attempt, applies one retry
 policy, and replays one recorded result. A second run of the parent over the

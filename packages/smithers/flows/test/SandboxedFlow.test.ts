@@ -20,7 +20,7 @@ import * as Redaction from "@smthrs/journal/Redaction"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as Node from "@smthrs/plan/Node"
 import * as NodeHost from "@smthrs/platform-node/NodeHost"
-import { DirectorySandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
+import { DirectorySandbox, RemoteChildProcessSpawner, Sandbox } from "@smthrs/sandbox"
 import * as ByteSize from "effect/ByteSize"
 import * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
@@ -52,6 +52,7 @@ import { vi } from "vitest"
 import { Action, Engine, Flow, FlowRuntime, Interpreter, RetryPolicy } from "../src/index.ts"
 import * as Guest from "../src/internal/SandboxedFlowGuest.ts"
 import * as SandboxedFlow from "../src/SandboxedFlow.ts"
+import { changed, patchedPaths, repository } from "./fixtures/repository.ts"
 import * as childEntry from "./fixtures/sandboxed-child.ts"
 import * as pureEntry from "./fixtures/sandboxed-pure.ts"
 
@@ -199,25 +200,74 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
         session: "sum",
         entry
       })
-      expect(result).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
+      expect(result).toEqual({ output: 42, work: null, capabilityCeiling: [] })
       // A normal completion releases the session, which removes the workspace.
       expect(readdirSync(root)).toEqual([])
     }), 60_000)
 
-  it.live("takes a path entry and returns the files the guest wrote as data", () =>
+  it.live("takes a path entry and captures the files the guest wrote as a patch", () =>
     Effect.gen(function*() {
-      const directory = yield* provider
+      const directory = repository(yield* provider)
       const result = yield* SandboxedFlow.execute(Writer, { count: 3, bytes: 16, directory: "out" }, {
         provider: directory,
         session: "writer",
         entry: realpathSync(new URL(entry)),
-        collectDiff: true
+        captureWork: true
       })
       expect(result.output).toBe(3)
-      expect(result.diff.map((file) => file.path)).toEqual(["out/file-0.bin", "out/file-1.bin", "out/file-2.bin"])
-      expect(result.diff[1]!.bytes).toEqual(new Uint8Array(16).fill(1))
+      const work = changed(result.work)
+      expect(work.session).toBe("writer")
+      expect(work.base).toMatch(/^[0-9a-f]{40}$/)
+      expect(patchedPaths(work.patch)).toEqual(["out/file-0.bin", "out/file-1.bin", "out/file-2.bin"])
+      // Bytes 0x01 are not text, so git carries them as a binary patch.
+      expect(work.patch).toContain("GIT binary patch")
       // The protocol's own files never count as the guest's changes.
-      expect(result.diff.some((file) => file.path.startsWith(".smithers-sandbox"))).toBe(false)
+      expect(work.patch).not.toContain(".smithers-sandbox")
+    }), 60_000)
+
+  it.live("captures Unchanged at the base when the guest changes nothing", () =>
+    Effect.gen(function*() {
+      const result = yield* SandboxedFlow.execute(Sum, { n: 31 }, {
+        provider: repository(yield* provider, { "kept.txt": "as it was" }),
+        session: "unchanged",
+        entry,
+        captureWork: true
+      })
+      expect(result.output).toBe(42)
+      expect(result.work?._tag).toBe("Unchanged")
+      expect(result.work?.base).toMatch(/^[0-9a-f]{40}$/)
+    }), 60_000)
+
+  it.live("refuses to capture a workdir that is not a repository before the guest runs", () =>
+    Effect.gen(function*() {
+      const marker = join(runtimeDirectory, "not-a-repository-ran")
+      const failure = yield* failureOf(SandboxedFlow.execute(Sum, { n: 31 }, {
+        provider: yield* provider,
+        session: "not-a-repository",
+        entry,
+        runtime: guestRuntime(
+          "marks-run",
+          `touch ${JSON.stringify(marker)}; exec ${JSON.stringify(process.execPath)} "$@"`
+        ),
+        captureWork: true
+      }))
+      expect(failure.code).toBe("capture_failed")
+      expect(failure.message).toMatch(/^not_a_repository: the base of the workspace could not be resolved: /)
+      expect(existsSync(marker)).toBe(false)
+      expect(readdirSync(root)).toEqual([])
+    }), 60_000)
+
+  it.live("reports a checkout the guest destroyed as a failed capture", () =>
+    Effect.gen(function*() {
+      const failure = yield* failureOf(SandboxedFlow.execute(Sum, { n: 31 }, {
+        provider: repository(yield* provider),
+        session: "destroyed-repository",
+        entry,
+        runtime: guestRuntime("removes-git", `rm -rf .git && exec ${JSON.stringify(process.execPath)} "$@"`),
+        captureWork: true
+      }))
+      expect(failure.code).toBe("capture_failed")
+      expect(failure.message).toMatch(/^not_a_repository: the work could not be captured: /)
     }), 60_000)
 
   it.live("runs an entry that exports no layer", () =>
@@ -247,8 +297,6 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
             provider: directory,
             session: "seeded",
             entry,
-            collectDiff: true,
-            limits: { files: 10 },
             timeout: Duration.seconds(30)
           })
           expect(result.output.cwd).toBe(workdir)
@@ -257,29 +305,28 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
       )
       expect(result.output.seed).toBe("from the host")
       expect(result.output.runtime).toMatch(/^node v/)
-      // The seed kept its size, so only the guest's own file is a change.
-      expect(result.diff).toEqual([{ path: "marker.txt", bytes: new TextEncoder().encode("left by the guest") }])
     }), 60_000)
 
-  it.live("reports a same-size rewrite and a deletion on a reattached workspace", () =>
+  it.live("captures a same-size rewrite and a deletion on a reattached workspace", () =>
     Effect.gen(function*() {
-      const directory = yield* provider
+      const directory = repository(yield* provider, { "version.txt": "1.2.3\n", "gone.txt": "delete me\n" })
       const result = yield* Effect.scoped(
         Effect.gen(function*() {
-          const earlier = yield* directory.acquire("edited")
-          yield* earlier.writeFile(`${earlier.workdir}/version.txt`, new TextEncoder().encode("1.2.3"))
-          yield* earlier.writeFile(`${earlier.workdir}/gone.txt`, new TextEncoder().encode("delete me"))
-          return yield* SandboxedFlow.execute(Editor, { path: "version.txt", text: "1.2.4", remove: "gone.txt" }, {
+          // The earlier holder seeded and committed the repository.
+          yield* directory.acquire("edited")
+          return yield* SandboxedFlow.execute(Editor, { path: "version.txt", text: "1.2.4\n", remove: "gone.txt" }, {
             provider: directory,
             session: "edited",
             entry,
-            collectDiff: true,
+            captureWork: true,
             timeout: Duration.seconds(30)
           })
         })
       )
-      expect(result.diff).toEqual([{ path: "version.txt", bytes: new TextEncoder().encode("1.2.4") }])
-      expect(result.deleted).toEqual(["gone.txt"])
+      const work = changed(result.work)
+      expect(patchedPaths(work.patch)).toEqual(["gone.txt", "version.txt"])
+      expect(work.patch).toContain("deleted file mode 100644")
+      expect(work.patch).toContain("-1.2.3\n+1.2.4\n")
     }), 60_000)
 
   it.live("refuses a stale result when a reattached guest exits zero without writing", () =>
@@ -335,10 +382,10 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
     }), 60_000)
 
   it.live(
-    "leaves a link the guest planted out of the diff instead of reading its target",
+    "captures a link the guest planted as a link instead of reading its target",
     () =>
       Effect.gen(function*() {
-        const directory = yield* provider
+        const directory = repository(yield* provider)
         const outside = mkdtempSync(join(tmpdir(), "flows-outside-"))
         try {
           const secret = join(outside, "secret.txt")
@@ -353,47 +400,18 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
             session: "planted-link",
             entry,
             runtime,
-            collectDiff: true
+            captureWork: true
           })
-          expect(result.diff.map(({ path, bytes }) => ({ path, text: new TextDecoder().decode(bytes) }))).toEqual([
-            { path: "kept.txt", text: "kept" }
-          ])
+          const work = changed(result.work)
+          expect(patchedPaths(work.patch)).toEqual(["kept.txt", "leak.txt", "sub/dir"])
+          expect(work.patch).toContain("new file mode 120000")
+          expect(work.patch).not.toContain("host secret")
         } finally {
           rmSync(outside, { recursive: true, force: true })
         }
       }),
     60_000
   )
-
-  it.live("refuses a diff path a Windows applier would read as a traversal", () =>
-    Effect.gen(function*() {
-      const directory = yield* provider
-      const runtime = guestRuntime(
-        "backslash-name",
-        `printf x > '..\\..\\x' && exec ${JSON.stringify(process.execPath)} "$@"`
-      )
-      const failure = yield* failureOf(SandboxedFlow.execute(Sum, { n: 31 }, {
-        provider: directory,
-        session: "backslash-name",
-        entry,
-        runtime,
-        collectDiff: true
-      }))
-      expect(failure.code).toBe("diff_unsafe")
-      expect(failure.message).toContain("..\\\\..\\\\x")
-    }), 60_000)
-
-  it.live("lists a directory the guest created without reading it as a file", () =>
-    Effect.gen(function*() {
-      const directory = yield* provider
-      const result = yield* SandboxedFlow.execute(Writer, { count: 1, bytes: 1, directory: "nested/deep" }, {
-        provider: directory,
-        session: "nested",
-        entry,
-        collectDiff: true
-      })
-      expect(result.diff.map((file) => file.path)).toEqual(["nested/deep/file-0.bin"])
-    }), 60_000)
 })
 
 describe.skipIf(!bunInstalled)("SandboxedFlow.execute under bun", () => {
@@ -413,15 +431,12 @@ describe.skipIf(!bunInstalled)("SandboxedFlow.execute under bun", () => {
 /** A real filesystem with a controlled guest and observable readback transport. */
 const limitedGuest = (options: {
   readonly output?: string
-  readonly files?: ReadonlyArray<string>
-  readonly staleSize?: number
   readonly noise?: Stream.Stream<Uint8Array, RemoteChildProcessSpawner.ProviderError>
   readonly resultSize?: number
   readonly failure?: string
   readonly native?: boolean
   readonly resultStatFailure?: boolean
   readonly readbackFailure?: boolean
-  readonly omitMtime?: boolean
 } = {}) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem.pipe(Effect.provide(NodeFileSystem.layer))
@@ -455,8 +470,6 @@ const limitedGuest = (options: {
     }
     const reads: Array<string> = []
     const streamed: Array<{ path: string; bytesToRead: unknown }> = []
-    /** Every path a workspace walk statted, and how many stats overlapped. */
-    const walk = { paths: [] as Array<string>, live: 0, peak: 0 }
     let attempt = ""
     let capabilityCeiling: unknown = []
     const nativeStream: FileSystem.FileSystem["stream"] = (path, settings) => {
@@ -481,13 +494,6 @@ const limitedGuest = (options: {
             ...session.files,
             stat: (path) =>
               Effect.gen(function*() {
-                walk.paths.push(path)
-                walk.live++
-                walk.peak = Math.max(walk.peak, walk.live)
-                // A scheduling point: without one, a stat that resolves in the
-                // same tick makes a concurrent walk indistinguishable from a
-                // serial one, which is the regression this observes.
-                yield* Effect.sleep("2 millis")
                 if (options.resultStatFailure === true && path.endsWith("result.json")) {
                   return yield* Effect.fail(PlatformError.systemError({
                     _tag: "Unknown",
@@ -498,16 +504,10 @@ const limitedGuest = (options: {
                 }
                 return yield* fs.stat(path)
               }).pipe(
-                Effect.ensuring(Effect.sync(() => {
-                  walk.live--
-                })),
                 Effect.map((info) => ({
                   ...info,
-                  mtime: options.omitMtime === true ? Option.none() : info.mtime,
                   size: ByteSize.bytes(
-                    path.endsWith("result.json")
-                      ? options.resultSize ?? Number(info.size)
-                      : options.staleSize ?? Number(info.size)
+                    path.endsWith("result.json") ? options.resultSize ?? Number(info.size) : Number(info.size)
                   )
                 }))
               ),
@@ -535,9 +535,6 @@ const limitedGuest = (options: {
                   )
                 )
               )
-              for (const [i, content] of (options.files ?? []).entries()) {
-                yield* session.writeFile(`${session.workdir}/file-${i}`, new TextEncoder().encode(content))
-              }
               return {
                 stdout: options.noise ?? Stream.empty,
                 stderr: options.noise ?? Stream.empty,
@@ -546,76 +543,8 @@ const limitedGuest = (options: {
             })
         }))
     }
-    return { provider: wrapped, reads, streamed, walk }
+    return { provider: wrapped, reads, streamed }
   })
-
-describe("native Windows sandbox diff paths", () => {
-  for (const workdir of ["C:/workspace", "\\\\server\\share\\workspace"]) {
-    it.live(`excludes protocol files and returns portable diffs for ${workdir}`, () =>
-      Effect.gen(function*() {
-        const guest = yield* limitedGuest({ files: ["ok"] })
-        const windows: Sandbox.Provider = {
-          acquire: (key) =>
-            Effect.map(guest.provider.acquire(key), (session): Sandbox.Session => {
-              const prefix = workdir.replace(/\\/g, "/")
-              const local = (path: string): string => {
-                const normalized = path.replace(/\\/g, "/")
-                return normalized.startsWith(prefix) ? `${session.workdir}${normalized.slice(prefix.length)}` : path
-              }
-              return {
-                ...session,
-                workdir,
-                writeFile: (path, bytes) => session.writeFile(local(path), bytes),
-                readFile: (path) => session.readFile(local(path)),
-                files: {
-                  ...session.files,
-                  stat: (path) => session.files!.stat!(local(path)),
-                  realPath: (path) =>
-                    Effect.sync(() => {
-                      const real = realpathSync(local(path))
-                      const localRoot = realpathSync(session.workdir)
-                      return real.startsWith(localRoot) ? `${prefix}${real.slice(localRoot.length)}` : real
-                    }),
-                  remove: (path, options) => session.files!.remove!(local(path), options),
-                  stream: (path, options) => session.files!.stream!(local(path), options),
-                  readDirectory: (path, options) =>
-                    session.files!.readDirectory!(local(path), options).pipe(
-                      Effect.map((entries) => entries.map((entry) => entry.replace(/[\\/]/g, "\\")))
-                    )
-                },
-                spawn: (command, options) =>
-                  session.spawn(command, {
-                    ...options,
-                    ...(options.env === undefined ? {} : {
-                      env: {
-                        ...options.env,
-                        SMITHERS_SANDBOX_RESULT_PATH: local(options.env.SMITHERS_SANDBOX_RESULT_PATH!)
-                      }
-                    })
-                  }).pipe(Effect.tap(() =>
-                    session.writeFile(
-                      `${session.workdir}/nested/result.txt`,
-                      new TextEncoder().encode("hi")
-                    )
-                  ))
-              }
-            })
-        }
-        const result = yield* SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-          provider: windows,
-          session: "windows-diff",
-          entry: pure,
-          collectDiff: true,
-          limits: { files: 2, diffBytes: 4 }
-        })
-        expect(result.diff.map(({ path, bytes }) => ({ path, text: new TextDecoder().decode(bytes) }))).toEqual([
-          { path: "file-0", text: "ok" },
-          { path: "nested/result.txt", text: "hi" }
-        ])
-        expect(result.deleted).toEqual([])
-      }), 60_000)
-  }
-})
 
 describe("sandbox limit boundaries", () => {
   const resultSize = (output: string) =>
@@ -650,89 +579,6 @@ describe("sandbox limit boundaries", () => {
     }
   }
 
-  for (const bound of ["diffBytes", "files"] as const) {
-    for (const limit of [0, 2]) {
-      for (const extra of [0, 1]) {
-        it.live(`${bound} accepts N and rejects N+1: N=${limit}, extra ${extra}`, () =>
-          Effect.gen(function*() {
-            const contents = bound === "files" ?
-              Array<string>(limit + extra).fill("")
-              : limit === 0
-              ? ["x".repeat(extra)]
-              : ["é", "x".repeat(extra)]
-            const guest = yield* limitedGuest({ files: contents })
-            const exit = yield* SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-              provider: guest.provider,
-              session: "diff-boundary",
-              entry: pure,
-              collectDiff: true,
-              limits: { [bound]: limit }
-            }).pipe(Effect.exit)
-            if (extra === 0) {
-              expect(Exit.isSuccess(exit)).toBe(true)
-              if (Exit.isSuccess(exit)) {
-                expect(
-                  bound === "files" ?
-                    exit.value.diff.length
-                    : exit.value.diff.reduce((sum, file) => sum + file.bytes.length, 0)
-                ).toBe(limit)
-              }
-            } else {expect(Exit.isFailure(exit) && exit.cause.reasons[0]).toMatchObject({
-                error: { code: "diff_overflow" }
-              })}
-          }), 60_000)
-      }
-    }
-  }
-
-  it.live("collects changed file bytes from a provider without timestamps", () =>
-    Effect.gen(function*() {
-      const guest = yield* limitedGuest({ files: ["changed"], omitMtime: true })
-      const result = yield* SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-        provider: guest.provider,
-        session: "snapshot-without-mtime",
-        entry: pure,
-        collectDiff: true
-      })
-      expect(result.diff.map((file) => ({ path: file.path, text: new TextDecoder().decode(file.bytes) }))).toEqual([
-        { path: "file-0", text: "changed" }
-      ])
-    }), 60_000)
-
-  it.live("walks the workspace with bounded stat concurrency, not one file at a time", () =>
-    Effect.gen(function*() {
-      const guest = yield* limitedGuest({ files: Array<string>(40).fill("x") })
-      const result = yield* SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-        provider: guest.provider,
-        session: "snapshot-concurrency",
-        entry: pure,
-        collectDiff: true
-      })
-      expect(result.diff.length).toBe(40)
-      // Overlapping, and overlapping by a bounded amount: a serial walk peaks
-      // at one and an unbounded one peaks at the workspace's file count.
-      expect(guest.walk.peak).toBeGreaterThan(1)
-      expect(guest.walk.peak).toBeLessThanOrEqual(16)
-    }), 60_000)
-
-  it.live("stops the after walk once the changed-file limit is exceeded", () =>
-    Effect.gen(function*() {
-      const guest = yield* limitedGuest({ files: Array<string>(64).fill("x") })
-      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-        provider: guest.provider,
-        session: "changed-limit-short-circuit",
-        entry: pure,
-        collectDiff: true,
-        limits: { files: 2 }
-      }))
-      expect(failure.code).toBe("diff_overflow")
-      expect(failure.message).toContain("more than 2 files")
-      const walked = guest.walk.paths.filter((path) => /\/file-\d+$/.test(path))
-      expect(walked.length).toBeGreaterThan(2)
-      expect(walked.length).toBeLessThan(64)
-      expect(guest.reads).toEqual([])
-    }), 60_000)
-
   it.live("rejects a zero-byte result budget before downloading", () =>
     Effect.gen(function*() {
       const guest = yield* limitedGuest()
@@ -760,40 +606,6 @@ describe("sandbox limit boundaries", () => {
       expect(guest.reads).toEqual([])
       expect(guest.streamed.map((read) => Number(read.bytesToRead))).toEqual([101])
     }), 60_000)
-
-  it.live("rejects actual aggregate diff bytes when files grow after stat", () =>
-    Effect.gen(function*() {
-      const guest = yield* limitedGuest({ files: ["é", "abcd"], staleSize: 1 })
-      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-        provider: guest.provider,
-        session: "growing-diff",
-        entry: pure,
-        collectDiff: true,
-        limits: { diffBytes: 5 }
-      }))
-      expect(failure.code).toBe("diff_overflow")
-      expect(guest.reads).toEqual([])
-      expect(
-        guest.streamed.filter((read) => !read.path.endsWith("result.json"))
-          .map((read) => Number(read.bytesToRead))
-      ).toEqual([6, 4])
-    }), 60_000)
-
-  for (const native of [true, false]) {
-    it.live(`bounds a growing diff using ${native ? "native streams" : "guest head"}`, () =>
-      Effect.gen(function*() {
-        const guest = yield* limitedGuest({ files: ["x".repeat(100_000)], staleSize: 1, native })
-        const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-          provider: guest.provider,
-          session: "bounded-transport",
-          entry: pure,
-          collectDiff: true,
-          limits: { diffBytes: 2 }
-        }))
-        expect(failure.code).toBe("diff_overflow")
-        expect(guest.reads).toEqual([])
-      }), 60_000)
-  }
 
   for (const timeout of [Duration.zero, Duration.millis(5)]) {
     it.live(`expires a ${Duration.toMillis(timeout)} millisecond budget`, () =>
@@ -1293,26 +1105,6 @@ describe("SandboxedFlow.execute failures", () => {
       expect(failure.message).toContain("the limit is 1024")
     }), 60_000)
 
-  it.live("refuses a diff with more files than the limit", () =>
-    Effect.gen(function*() {
-      const failure = yield* run(Writer, { count: 5, bytes: 1, directory: "many" }, {
-        collectDiff: true,
-        limits: { files: 2 }
-      })
-      expect(failure.code).toBe("diff_overflow")
-      expect(failure.message).toContain("changed more than 2 files; the limit is 2")
-    }), 60_000)
-
-  it.live("refuses a diff with more bytes than the limit", () =>
-    Effect.gen(function*() {
-      const failure = yield* run(Writer, { count: 2, bytes: 4096, directory: "large" }, {
-        collectDiff: true,
-        limits: { diffBytes: 4096 }
-      })
-      expect(failure.code).toBe("diff_overflow")
-      expect(failure.message).toContain("hold 8192 bytes; the limit is 4096")
-    }), 60_000)
-
   it.live(
     "convicts a guest that outlives the wall-clock deadline and releases the machine",
     () =>
@@ -1392,65 +1184,65 @@ describe("SandboxedFlow.execute failures", () => {
       expect(failure.message).toContain("the result could not be read back")
     }), 60_000)
 
-  it.live("reports a changed file the session cannot read back", () =>
-    Effect.gen(function*() {
-      const directory = yield* provider
-      const failure = yield* failureOf(
-        SandboxedFlow.execute(Writer, { count: 1, bytes: 1, directory: "unreadable" }, {
-          provider: faulty(directory, { readFile: (path) => path.endsWith("file-0.bin") }),
-          session: "refuses-diff",
-          entry,
-          collectDiff: true
+  for (const step of ["base", "capture"] as const) {
+    it.live(`reports a session that cannot run the ${step} script`, () =>
+      Effect.gen(function*() {
+        const directory = repository(yield* provider)
+        const failure = yield* run(Sum, { n: 1 }, {
+          captureWork: true,
+          provider: {
+            acquire: (key) =>
+              Effect.map(directory.acquire(key), (session) => ({
+                ...session,
+                spawn: (command, options) =>
+                  options.env?.[step === "base" ? "SMITHERS_REVISION" : "SMITHERS_BASE"] === undefined
+                    ? session.spawn(command, options)
+                    : Effect.fail(new ProviderError({ code: "spawn_error", message: `${step} refused` }))
+              }))
+          }
         })
-      )
-      expect(failure.code).toBe("session_failed")
-      expect(failure.message).toContain("the changed file unreadable/file-0.bin could not be read back")
-    }), 60_000)
+        expect(failure.code).toBe("session_failed")
+        expect(failure.message).toContain(
+          step === "base" ? "the base of the workspace could not be resolved" : "the work could not be captured"
+        )
+        expect(failure.message).toContain(`${step} refused`)
+      }), 60_000)
+  }
 
-  it.live("reports a changed path that cannot be resolved", () =>
-    Effect.gen(function*() {
-      const guest = yield* limitedGuest({ files: ["changed"] })
-      const unresolvable: Sandbox.Provider = {
-        acquire: (key) =>
-          Effect.map(guest.provider.acquire(key), (session) => ({
-            ...session,
-            files: {
-              ...session.files,
-              realPath: () =>
-                Effect.fail(PlatformError.systemError({
-                  _tag: "Unknown",
-                  module: "FileSystem",
-                  method: "realPath",
-                  description: "resolution refused"
-                }))
-            }
-          }))
-      }
-      const failure = yield* failureOf(SandboxedFlow.execute(pureEntry.Constant, { value: "ok" }, {
-        provider: unresolvable,
-        session: "refuses-resolution",
-        entry: pure,
-        collectDiff: true
-      }))
-      expect(failure.code).toBe("session_failed")
-      expect(failure.message).toContain("could not be resolved")
-      expect(failure.message).toContain("resolution refused")
-    }), 60_000)
-
-  it.live("reports a workspace that cannot be listed", () =>
+  it.live("reports a control directory that cannot be excluded from the work", () =>
     Effect.gen(function*() {
       const directory = yield* provider
       const failure = yield* failureOf(
         SandboxedFlow.execute(Sum, { n: 1 }, {
-          provider: faulty(directory, { readDirectory: true }),
-          session: "refuses-listing",
-          entry,
-          collectDiff: true
+          provider: faulty(directory, { writeFile: (path) => path.endsWith("/.gitignore") }),
+          session: "refuses-ignore",
+          entry
         })
       )
       expect(failure.code).toBe("session_failed")
-      expect(failure.message).toContain("the workspace could not be listed")
-      expect(failure.message).toContain("listing refused")
+      expect(failure.message).toContain("the control directory could not be excluded from the work")
+    }), 60_000)
+})
+
+describe("the patch bound", () => {
+  const capture = (directory: Sandbox.Provider, session: string, diffBytes?: number) =>
+    SandboxedFlow.execute(Writer, { count: 2, bytes: 64, directory: "bounded" }, {
+      provider: directory,
+      session,
+      entry,
+      captureWork: true,
+      limits: { diffBytes }
+    })
+
+  it.live("accepts a patch of exactly the limit and refuses one byte less", () =>
+    Effect.gen(function*() {
+      const directory = repository(yield* provider)
+      const unbounded = changed((yield* capture(directory, "patch-unbounded")).work)
+      const bytes = new TextEncoder().encode(unbounded.patch).length
+      expect(changed((yield* capture(directory, "patch-at-limit", bytes)).work).patch).toBe(unbounded.patch)
+      const failure = yield* failureOf(capture(directory, "patch-over-limit", bytes - 1))
+      expect(failure.code).toBe("diff_overflow")
+      expect(failure.message).toBe(`the patch holds ${bytes} bytes; the limit is ${bytes - 1}`)
     }), 60_000)
 })
 
@@ -1485,8 +1277,8 @@ describe("SandboxedFlow.action on an engine", () => {
       error: SandboxedFlow.ExecuteError,
       body: (payload) => Node.all({ first: RunSum.call(payload), second: Other.call(payload) })
     })
-    const first = RunSum.toLayer(() => Effect.succeed({ output: 1, diff: [], deleted: [], capabilityCeiling: [] }))
-    const second = Other.toLayer(() => Effect.succeed({ output: 2, diff: [], deleted: [], capabilityCeiling: [] }))
+    const first = RunSum.toLayer(() => Effect.succeed({ output: 1, work: null, capabilityCeiling: [] }))
+    const second = Other.toLayer(() => Effect.succeed({ output: 2, work: null, capabilityCeiling: [] }))
     const partial = Layer.mergeAll(first, Interpreter.layer(Both)).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Engine.FlowEngine.layerMemory),
@@ -1567,8 +1359,8 @@ describe("SandboxedFlow.action on an engine", () => {
         expect(peakPerKey).toBe(1)
         expect([...active.values()]).toEqual([0, 0])
         expect(Exit.isSuccess(exit) && exit.value).toEqual({
-          first: { output: 16, diff: [], deleted: [], capabilityCeiling: [] },
-          second: { output: 16, diff: [], deleted: [], capabilityCeiling: [] }
+          first: { output: 16, work: null, capabilityCeiling: [] },
+          second: { output: 16, work: null, capabilityCeiling: [] }
         })
       }),
     60_000
@@ -1629,7 +1421,7 @@ describe("SandboxedFlow.action on an engine", () => {
           }
           return yield* Recovering.execute({ n: 5 }, { executionId })
         }).pipe(Effect.provide(layers))
-        expect(result).toEqual({ output: 16, diff: [], deleted: [], capabilityCeiling: [] })
+        expect(result).toEqual({ output: 16, work: null, capabilityCeiling: [] })
         expect(callIds).toHaveLength(2)
         expect(callIds[0]).toEqual(expect.any(String))
         expect(callIds[0]!.length).toBeGreaterThan(0)
@@ -1675,7 +1467,7 @@ describe("SandboxedFlow.action on an engine", () => {
           engine(SandboxedFlow.toLayer(RunSum, Sum, { provider: directory, session: "action-static", entry }))
         )
       )
-      expect(result).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
+      expect(result).toEqual({ output: 42, work: null, capabilityCeiling: [] })
     }), 60_000)
 
   it.live("derives the placement from the call and the parent execution", () =>
@@ -1717,35 +1509,34 @@ describe("SandboxedFlow.action on an engine", () => {
 })
 
 describe("the result schema", () => {
-  it("encodes a result with its bytes as base64 for the journal", () => {
-    const encoded = Schema.encodeSync(Schema.toCodecJson(SandboxedFlow.resultSchema(Schema.Number)))({
+  it("encodes a result with its work as the tagged JSON the journal records", () => {
+    const codec = Schema.toCodecJson(SandboxedFlow.resultSchema(Schema.Number))
+    const result = {
       output: 42,
-      diff: [{ path: "a.bin", bytes: new Uint8Array([1, 2, 3]) }],
-      deleted: ["gone.txt"],
+      work: new Sandbox.Changed({ session: "s", base: "a".repeat(40), patch: "diff --git a/x b/x\n" }),
       capabilityCeiling: [[new CapabilityPattern({ action: "fs:read", resource: "**" })]]
-    })
+    }
+    const encoded = Schema.encodeSync(codec)(result)
     expect(encoded).toEqual({
       output: 42,
-      diff: [{ path: "a.bin", bytes: "AQID" }],
-      deleted: ["gone.txt"],
+      work: { _tag: "Changed", session: "s", base: "a".repeat(40), patch: "diff --git a/x b/x\n" },
       capabilityCeiling: [[{ action: "fs:read", resource: "**" }]]
     })
+    expect(Schema.decodeUnknownSync(codec)(encoded)).toEqual(result)
   })
 
-  it("decodes a result journaled before deleted and the ceiling receipt existed with neither", () => {
+  it("decodes a result journaled without work or the ceiling receipt with neither", () => {
     const decoded = Schema.decodeUnknownSync(Schema.toCodecJson(SandboxedFlow.resultSchema(Schema.Number)))({
-      output: 42,
-      diff: []
+      output: 42
     })
     // No receipt is not evidence of unrestricted authority.
-    expect(decoded).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: null })
+    expect(decoded).toEqual({ output: 42, work: null, capabilityCeiling: null })
   })
 
   it("carries the 0.x bundle limits as its defaults", () => {
     expect(SandboxedFlow.defaultLimits).toEqual({
       resultBytes: 5 * 1024 * 1024,
-      diffBytes: 100 * 1024 * 1024,
-      files: 1000
+      diffBytes: 100 * 1024 * 1024
     })
   })
 })

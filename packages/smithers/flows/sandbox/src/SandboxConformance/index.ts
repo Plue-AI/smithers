@@ -12,3 +12,4 @@
 
 export * from "./check.ts"
 export * from "./posixCommands.ts"
+export * from "./workSeed.ts"

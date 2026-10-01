@@ -21,7 +21,9 @@ import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import { commandProvider } from "../Sandbox/commandProvider.ts"
 import type { Provider } from "../Sandbox/Provider.ts"
 import type { Session } from "../Sandbox/Session.ts"
+import { capture, resolveBase } from "../Sandbox/Work.ts"
 import { uniquePosixCommands } from "./posixCommands.ts"
+import type { WorkSeed } from "./workSeed.ts"
 
 /**
  * Runs one check against a fresh session, so a check that leaves a session
@@ -117,6 +119,152 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   left.length === right.length && left.every((byte, index) => byte === right[index])
 
 /**
+ * The work fixture. The checkout is a subdirectory, so the checks also prove
+ * a checkout need not be the workdir. Every path is relative to the workdir
+ * except where a guest script has changed into the checkout.
+ */
+const workFixture = {
+  bundle: "conformance-work.bundle",
+  checkout: "conformance-work",
+  patch: "conformance-work.patch",
+  /** Guest git reads its identity from here, never from guest configuration. */
+  env: {
+    GIT_AUTHOR_NAME: "Sandbox Conformance",
+    GIT_AUTHOR_EMAIL: "conformance@sandbox.invalid",
+    GIT_COMMITTER_NAME: "Sandbox Conformance",
+    GIT_COMMITTER_EMAIL: "conformance@sandbox.invalid"
+  },
+  /** A fresh checkout of the seed's base, detached so no branch names it. */
+  seed: `set -e
+rm -rf conformance-work
+git clone -q --no-checkout conformance-work.bundle conformance-work
+cd conformance-work
+git checkout -q --detach "$SMITHERS_CONFORMANCE_BASE"`,
+  /**
+   * One edit of every kind capture must carry: a commit made in the guest, an
+   * uncommitted change, an untracked file, binary contents, a rename, a
+   * deletion, and a mode change.
+   */
+  edits: `set -e
+cd conformance-work
+printf 'committed\\n' > committed.txt
+git add committed.txt
+git -c commit.gpgsign=false commit -q -m 'conformance: committed in the guest'
+printf 'uncommitted\\n' >> tracked.txt
+printf 'untracked\\n' > untracked.txt
+printf '\\000\\377\\001rewritten\\000' > binary.bin
+printf '\\000\\002\\003' > added.bin
+mv rename-me.txt renamed.txt
+rm delete-me.txt
+chmod 755 chmod-me.sh`,
+  /**
+   * Applies the captured patch to the base in a private index and prints that
+   * tree beside the checkout's own, so the guest's git is the judge.
+   */
+  verify: `set -e
+cd conformance-work
+git add -A .
+expected=$(git write-tree)
+index="$(git rev-parse --absolute-git-dir)/conformance-verify.index"
+rm -f "$index"
+GIT_INDEX_FILE="$index" git read-tree "$SMITHERS_CONFORMANCE_BASE"
+GIT_INDEX_FILE="$index" git apply --cached ../conformance-work.patch
+actual=$(GIT_INDEX_FILE="$index" git write-tree)
+rm -f "$index"
+printf '%s %s' "$expected" "$actual"`
+} as const
+
+/** Runs a fixture script, failing with its stderr unless it exits 0. */
+const script = (
+  live: Session,
+  command: string,
+  env: Record<string, string>
+): Effect.Effect<string, ProviderError | string> =>
+  Effect.scoped(Effect.flatMap(
+    live.spawn(command, { env: { ...workFixture.env, ...env } }),
+    (process) =>
+      Effect.flatMap(
+        Effect.all(
+          [
+            Stream.mkString(Stream.decodeText(process.stdout)),
+            Stream.mkString(Stream.decodeText(process.stderr)),
+            process.exitCode
+          ],
+          { concurrency: "unbounded" }
+        ),
+        ([stdout, stderr, code]) => code === 0 ? Effect.succeed(stdout) : Effect.fail(`exit ${code}: ${stderr.trim()}`)
+      )
+  ))
+
+/** Writes the seed's bundle into the session and checks its base out. */
+const seedCheckout = (live: Session, seed: WorkSeed) =>
+  Effect.gen(function*() {
+    yield* live.writeFile(`${live.workdir}/${workFixture.bundle}`, seed.bundle)
+    yield* script(live, workFixture.seed, { SMITHERS_CONFORMANCE_BASE: seed.base })
+    return `${live.workdir}/${workFixture.checkout}`
+  })
+
+/**
+ * The work checks: one session makes every kind of edit and the guest's own
+ * git proves the captured patch reproduces its tree from the base; a second
+ * session edits nothing and must capture `Unchanged` at the same base.
+ */
+const checkWork = (
+  provider: Provider,
+  session: string,
+  deadline: Duration.Input,
+  seed: WorkSeed
+): Effect.Effect<ReadonlyArray<Violation>> =>
+  Effect.gen(function*() {
+    const worked = yield* inSession(provider, session, deadline, (live) =>
+      Effect.gen(function*() {
+        const checkout = yield* seedCheckout(live, seed)
+        const base = yield* resolveBase(live, { checkout })
+        yield* script(live, workFixture.edits, {})
+        const work = yield* capture(live, { checkout, base })
+        if (work._tag === "Unchanged") return { base, work: work._tag }
+        yield* live.writeFile(`${live.workdir}/${workFixture.patch}`, new TextEncoder().encode(work.patch))
+        const trees = yield* script(live, workFixture.verify, { SMITHERS_CONFORMANCE_BASE: work.base })
+        const [expected, actual] = trees.split(" ")
+        return {
+          base,
+          work: work._tag,
+          workBase: work.base,
+          renamed: work.patch.includes("\nrename from rename-me.txt\nrename to renamed.txt\n"),
+          reproduced: expected === actual,
+          trees
+        }
+      }))
+    const idle = yield* inSession(provider, session, deadline, (live) =>
+      Effect.gen(function*() {
+        const checkout = yield* seedCheckout(live, seed)
+        const base = yield* resolveBase(live, { checkout })
+        const work = yield* capture(live, { checkout, base })
+        return { base, work: work._tag, workBase: work.base }
+      }))
+    const found: Array<Violation | undefined> = [
+      Exit.isSuccess(worked) && worked.value.base === seed.base && worked.value.work === "Changed" &&
+        worked.value.workBase === seed.base && worked.value.renamed === true && worked.value.reproduced === true
+        ? undefined
+        : {
+          check: "captures-its-work",
+          expected: "Changed work from the seed's base whose patch, applied to the base, reproduces the final " +
+            "tree, with the rename as a rename",
+          actual: describeExit(worked)
+        },
+      Exit.isSuccess(idle) && idle.value.base === seed.base && idle.value.work === "Unchanged" &&
+        idle.value.workBase === seed.base
+        ? undefined
+        : {
+          check: "captures-no-work",
+          expected: "Unchanged work at the seed's base from a session that edited nothing",
+          actual: describeExit(idle)
+        }
+    ]
+    return found.filter((violation): violation is Violation => violation !== undefined)
+  })
+
+/**
  * Names the suite's session key and declared capabilities.
  *
  * @category models
@@ -167,6 +315,12 @@ export interface CheckOptions {
      */
     readonly egressProbe?: string | undefined
   } | undefined
+  /**
+   * A repository to check the work contract against. Checked by
+   * `captures-its-work` and `captures-no-work` when given; the guest needs
+   * `git`. See {@link WorkSeed} and {@link workSeedFiles}.
+   */
+  readonly work?: WorkSeed | undefined
 }
 
 /**
@@ -200,6 +354,13 @@ export interface CheckOptions {
  * and `isolation.egressProbe` runs `refuses-egress`; see
  * {@link CheckOptions.isolation}. None of them is proof of a boundary on its
  * own: each is one observation, and a provider documents what it isolates.
+ *
+ * `work` runs the work contract against a seeded repository: `captures-its-work`
+ * checks out the seed's base in a subdirectory of the workdir, commits,
+ * edits, adds, rewrites a binary, renames, deletes and changes a mode, then
+ * has the guest's own `git` prove that the captured patch applied to the base
+ * reproduces the checkout's final tree; `captures-no-work` checks that a
+ * session which edits nothing captures `Unchanged` at the same base.
  *
  * @category constructors
  * @since 0.1.0
@@ -345,6 +506,7 @@ export const check = (
         deadline
       )
       : undefined
+    const workChecks = options.work === undefined ? [] : yield* checkWork(provider, session, deadline, options.work)
     // The delegated suite gets the same deadline. It used to be called outside
     // every race this generator sets up, so a provider that hung on spawn hung
     // both public entry points despite `checkTimeout` promising otherwise.
@@ -481,6 +643,7 @@ export const check = (
       ...found.filter((violation): violation is Violation =>
         violation !== undefined
       ),
+      ...workChecks,
       ...spawnChecks
     ]
   })

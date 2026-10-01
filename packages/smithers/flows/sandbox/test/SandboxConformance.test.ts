@@ -18,6 +18,7 @@ import { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts
 import * as Sandbox from "../src/Sandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import { platform } from "./helpers/containedPlatform.ts"
+import { makeWorkSeed } from "./helpers/workSeed.ts"
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "smthrs-conformance-trials-")))
 const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "smthrs-conformance-elsewhere-")))
@@ -436,5 +437,98 @@ describe("SandboxConformance", () => {
       host.process = node
       vi.resetModules()
     }
+  })
+
+  describe("work", () => {
+    const work = makeWorkSeed()
+    // A work check spawns git about a dozen times; a loaded host must not
+    // turn a slow truthful session into a deadline violation.
+    const workOptions = (session: string): SandboxConformance.CheckOptions => ({
+      session,
+      work,
+      checkTimeout: "60 seconds",
+      commands: SandboxConformance.posixCommands
+    })
+    const workNames = (violations: ReadonlyArray<{ readonly check: string }>) =>
+      checkNames(violations).filter((name) => name.startsWith("captures-"))
+
+    it.live("holds a real directory session to the work contract", () =>
+      Effect.gen(function*() {
+        expect(workNames(yield* SandboxConformance.check(truthful, workOptions("trial-work")))).toEqual([])
+      }), 120_000)
+
+    it.live("skips the work checks without a seed", () =>
+      Effect.gen(function*() {
+        const violations = yield* SandboxConformance.check(truthful, {
+          session: "trial-work-unseeded",
+          commands: SandboxConformance.posixCommands
+        })
+        expect(workNames(violations)).toEqual([])
+      }), 120_000)
+
+    it.live("names a capture that drops untracked files", () =>
+      Effect.gen(function*() {
+        // The lie: the private index never learns untracked files, the classic
+        // `git diff HEAD` capture. Only applying the patch shows the loss.
+        const dropping = warped((session) => ({
+          ...session,
+          spawn: (command, options) =>
+            session.spawn(
+              command.includes("diff --cached") ? command.replace("git add -A .", "git add -u .") : command,
+              options
+            )
+        }))
+        const violations = yield* SandboxConformance.check(dropping, workOptions("trial-work-untracked"))
+        expect(workNames(violations)).toEqual(["captures-its-work"])
+        expect(violations.find(({ check }) => check === "captures-its-work")?.actual).toContain(
+          "\"reproduced\":false"
+        )
+      }), 120_000)
+
+    it.live("names a capture that loses renames", () =>
+      Effect.gen(function*() {
+        const renameless = warped((session) => ({
+          ...session,
+          spawn: (command, options) => session.spawn(command.replace("--find-renames", "--no-renames"), options)
+        }))
+        const violations = yield* SandboxConformance.check(renameless, workOptions("trial-work-renames"))
+        expect(workNames(violations)).toEqual(["captures-its-work"])
+        expect(violations.find(({ check }) => check === "captures-its-work")?.actual).toContain(
+          "\"renamed\":false"
+        )
+      }), 120_000)
+
+    it.live("names a capture that sees no work, and one that invents it", () =>
+      Effect.gen(function*() {
+        // Every capture answers with the opposite of the truth.
+        const inverted = (empty: boolean) =>
+          warped((session) => ({
+            ...session,
+            spawn: (command, options) =>
+              command.includes("diff --cached")
+                ? Effect.map(session.spawn(command, options), (process) => ({
+                  ...process,
+                  stdout: empty ? Stream.empty : Stream.make(new TextEncoder().encode("invented\n"))
+                }))
+                : session.spawn(command, options)
+          }))
+        const blind = yield* SandboxConformance.check(inverted(true), workOptions("trial-work-blind"))
+        expect(workNames(blind)).toEqual(["captures-its-work"])
+        expect(blind.find(({ check }) => check === "captures-its-work")?.actual).toContain("\"Unchanged\"")
+        const inventing = yield* SandboxConformance.check(inverted(false), workOptions("trial-work-invent"))
+        expect(workNames(inventing)).toEqual(["captures-its-work", "captures-no-work"])
+      }), 120_000)
+
+    it.live("names a session whose guest has no git", () =>
+      Effect.gen(function*() {
+        const gitless = warped((session) => ({
+          ...session,
+          // A shell function shadows git the way a missing binary would.
+          spawn: (command, options) => session.spawn(`git() { return 127; }\n${command}`, options)
+        }))
+        const violations = yield* SandboxConformance.check(gitless, workOptions("trial-work-gitless"))
+        expect(workNames(violations)).toEqual(["captures-its-work", "captures-no-work"])
+        expect(violations.find(({ check }) => check === "captures-no-work")?.actual).toContain("exit 127")
+      }), 120_000)
   })
 })

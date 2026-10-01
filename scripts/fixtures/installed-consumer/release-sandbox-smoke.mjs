@@ -35,7 +35,7 @@ try {
         entry: new URL("./release-sandbox-entry.mjs", import.meta.url)
       })
       assert.equal(result.output, `release-${format}`)
-      assert.deepEqual(result.diff, [])
+      assert.equal(result.work, null)
       console.log(`sandbox smoke ok: ${format} bundles and executes its packaged guest runner`)
     }
   }).pipe(Effect.provide(platform), Effect.scoped))

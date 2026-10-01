@@ -12,7 +12,7 @@ Run a child flow's code inside a provisioned environment as one parent action.
 
 `SandboxedFlow` bundles the child module and guest runner, starts Node inside the session, and validates the guest's result against the child schema. The parent records this as one durable action.
 
-A second drive over the same SQLite state reuses the recorded result without acquiring another session. `collectDiff` returns the guest-written file as data; applying that change elsewhere remains the caller's decision.
+A second drive over the same SQLite state reuses the recorded result without acquiring another session. `captureWork` returns the guest-written file as a `Sandbox.Work` patch against the commit the workdir started at, so the workdir must be a git repository; this example's provider makes each scratch workdir one. Applying the work with `SandboxMerge.apply` remains the caller's decision.
 
 ## Run the test
 
@@ -42,6 +42,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { durableEngine } from "./durable-layer.ts"
 import { Greet, Greeting } from "./sandboxed-child.ts"
@@ -53,7 +54,7 @@ export const RunGreet = SandboxedFlow.action(Greet)
 export const SandboxedGreeting = Flow.make("examples/SandboxedGreeting", {
   payload: { name: Schema.String },
   success: SandboxedFlow.resultSchema(Greeting),
-  error: SandboxedFlow.SandboxedFlowError,
+  error: SandboxedFlow.ExecuteError,
   body: (payload) => RunGreet.call(payload)
 })
 
@@ -65,11 +66,27 @@ export interface MainOptions {
 }
 
 export interface MainResult {
-  /** The child's validated output and the files it wrote. */
+  /** The child's validated output and the work it left in the checkout. */
   readonly result: typeof SandboxedGreeting.successSchema.Type
   /** How many machines the provider was asked for during this `main`. */
   readonly acquisitions: number
 }
+
+/** Makes a fresh scratch workdir a git repository with one empty commit, the base its work is measured from. */
+const initialize = (session: Sandbox.Session) =>
+  Effect.scoped(Effect.gen(function*() {
+    const process = yield* session.spawn(
+      "git init -q && git -c user.name=Example -c user.email=example@example.test -c commit.gpgsign=false " +
+        "commit -q --allow-empty -m base",
+      {}
+    )
+    const [, , code] = yield* Effect.all(
+      [Stream.runDrain(process.stdout), Stream.runDrain(process.stderr), process.exitCode],
+      { concurrency: "unbounded" }
+    )
+    if (code !== 0) return yield* Effect.die(`git could not initialize ${session.workdir}`)
+    return session
+  }))
 
 /** Runs the parent once over `filename` and closes every acquired layer before resolving. */
 export const main = (options: MainOptions): Promise<MainResult> =>
@@ -82,7 +99,7 @@ export const main = (options: MainOptions): Promise<MainResult> =>
       const provider: Sandbox.Provider = {
         acquire: (session) => {
           acquisitions++
-          return directory.acquire(session)
+          return Effect.flatMap(directory.acquire(session), initialize)
         }
       }
       const stack = Layer.mergeAll(
@@ -90,7 +107,7 @@ export const main = (options: MainOptions): Promise<MainResult> =>
           provider,
           session: `greet:${executionId}`,
           entry: new URL("./sandboxed-child.ts", import.meta.url),
-          collectDiff: true
+          captureWork: true
         })),
         Interpreter.layer(SandboxedGreeting)
       ).pipe(

@@ -2,7 +2,7 @@
 title: "Test against a scripted machine"
 description: "Use Sandbox.TestSession and RemoteChildProcessSpawner.TestRemote to run a body against a deterministic in-memory machine, and know what a scripted double cannot prove."
 sidebar:
-  order: 7
+  order: 8
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/guides/testing.md"
 ---
 

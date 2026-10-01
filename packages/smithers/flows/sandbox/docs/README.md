@@ -145,6 +145,8 @@ next.
   including what the health verdict does and does not mean.
 - [The two provider seams](./concepts/seams.md): the contract a backend
   implements, and why there are two of them.
+- [Return work from a sandbox](./guides/return-work-from-a-sandbox.md): capture
+  what a session changed and land it on the host as one jj change.
 - [Choose a provider](./guides/choose-a-provider.md): the ten side by side, by
   boundary, byte exactness, and cost to run.
 - [Write a provider](./guides/write-a-provider.md) and

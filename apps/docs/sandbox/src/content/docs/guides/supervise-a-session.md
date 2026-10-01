@@ -2,7 +2,7 @@
 title: "Supervise a session"
 description: "Probe a sandbox for liveness with SandboxHealth, and use SandboxSupervision so a session that dies fails its commands instead of leaving them waiting forever."
 sidebar:
-  order: 4
+  order: 5
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/guides/supervise-a-session.md"
 ---
 

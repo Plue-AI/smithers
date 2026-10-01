@@ -2,7 +2,7 @@
 title: "Test against a scripted machine"
 description: "Use Sandbox.TestSession and RemoteChildProcessSpawner.TestRemote to run a body against a deterministic in-memory machine, and know what a scripted double cannot prove."
 sidebar:
-  order: 7
+  order: 8
 ---
 
 Two doubles ship with the package, one per seam. Both are deterministic, hold

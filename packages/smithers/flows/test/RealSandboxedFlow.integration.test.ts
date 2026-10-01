@@ -1,8 +1,9 @@
 /**
  * `SandboxedFlow` against real machines: a Docker container and a Microsandbox
  * microVM. The same child flow the unit suite runs in a scratch directory runs
- * here inside a guest whose `/etc/os-release` is the image's, and it writes a
- * file the host can only read back through the session.
+ * here inside a guest whose `/etc/os-release` is the image's, and its output
+ * comes back only through the session. Neither image carries `git`, so work
+ * capture is the unit suite's to prove.
  *
  * Both suites skip, visibly, where the backend is absent: a machine without a
  * container engine, or one that cannot boot a microVM, names the skip rather
@@ -60,7 +61,7 @@ const containerBudget = 240_000
 
 describe.skipIf(!engineAvailable)("SandboxedFlow inside a real container", () => {
   it.live(
-    "runs the child flow's code in the guest image and reads back what only the guest wrote",
+    "runs the child flow's code in the guest image and reads back its result",
     () =>
       Effect.gen(function*() {
         const provider = ContainerSandbox.make({ spawner: yield* spawner, image: "node:22-alpine" })
@@ -69,7 +70,6 @@ describe.skipIf(!engineAvailable)("SandboxedFlow inside a real container", () =>
           provider,
           session: containerKeys.node,
           entry,
-          collectDiff: true,
           timeout: containerBudget
         })
         // Whatever this host runs, the guest's os-release is Alpine's and its
@@ -78,9 +78,7 @@ describe.skipIf(!engineAvailable)("SandboxedFlow inside a real container", () =>
         expect(result.output.runtime).toMatch(/^node v22\./)
         expect(result.output.cwd).toBe("/workspace")
         expect(result.output.seed).toBe("(absent)")
-        expect(result.diff).toEqual([
-          { path: "marker.txt", bytes: new TextEncoder().encode("written in the container") }
-        ])
+        expect(result.work).toBeNull()
         expect(Date.now() - started).toBeLessThan(containerBudget)
       }),
     containerBudget
@@ -181,7 +179,7 @@ describe.skipIf(microvmAvailable)("SandboxedFlow inside a real microVM", () => {
 
 describe.skipIf(!microvmAvailable)("SandboxedFlow inside a real microVM", () => {
   it.live(
-    "runs the child flow's code under bun in the guest and reads back what only the guest wrote",
+    "runs the child flow's code under bun in the guest and reads back its result",
     () =>
       Effect.gen(function*() {
         const provider = MicrosandboxSandbox.make({
@@ -196,15 +194,11 @@ describe.skipIf(!microvmAvailable)("SandboxedFlow inside a real microVM", () => 
           session: microvmSession,
           entry,
           runtime: "bun",
-          collectDiff: true,
           timeout: microvmBudget
         })
         expect(result.output.runtime).toBe("bun")
         expect(result.output.osRelease).toContain("ID=")
         expect(result.output.seed).toBe("(absent)")
-        expect(result.diff).toEqual([
-          { path: "marker.txt", bytes: new TextEncoder().encode("written in the microVM") }
-        ])
       }),
     microvmBudget
   )

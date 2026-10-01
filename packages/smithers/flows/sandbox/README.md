@@ -32,6 +32,7 @@ Every namespace below is also its own import subpath.
 | `ProviderConformance`       | `@smthrs/sandbox/ProviderConformance`       | The conformance suite a provider implementation must pass.                    |
 | `Sandbox`                   | `@smthrs/sandbox/Sandbox`                   | The provisioned-machine contract and its projections.                         |
 | `SandboxConformance`        | `@smthrs/sandbox/SandboxConformance`        | The conformance suite a sandbox session provider must pass.                   |
+| `SandboxMerge`              | `@smthrs/sandbox/SandboxMerge`              | Lands a session's captured work in a host jj repository as one change.        |
 | `DirectorySandbox`          | `@smthrs/sandbox/DirectorySandbox`          | The scratch-directory sandbox provider.                                       |
 | `CommandSandbox`            | `@smthrs/sandbox/CommandSandbox`            | The argv-prefix sandbox provider, over `ssh`, `docker exec`, or this machine. |
 | `ContainerSandbox`          | `@smthrs/sandbox/ContainerSandbox`          | The container-lifecycle sandbox provider, over a Docker-compatible CLI.       |
@@ -105,6 +106,12 @@ file and an atomic hard link. Existing files, symlinks, directories, and FIFOs
 are never overwritten by an exclusive write. Ordinary writes support `w`
 without an explicit mode; other flags are refused. Standard write and edit
 tools use these operations to replace files while preserving their metadata.
+
+`Sandbox.run` holds one machine for one unit of work and returns the body's
+result with the `Work` its checkout gained, a git diff from a base the host can
+fetch. `SandboxMerge.apply` lands that work in a host jj repository as one
+change, recording conflicts the way `jj rebase` does. See
+[Return work from a sandbox](https://sandbox.smithers.sh/guides/return-work-from-a-sandbox/).
 
 A provider that can be pinged can also be supervised. `SandboxSupervision`
 probes the open session on a cadence and retires it when the probe says it is

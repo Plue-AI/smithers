@@ -2,7 +2,7 @@
 title: "Supervise a session"
 description: "Probe a sandbox for liveness with SandboxHealth, and use SandboxSupervision so a session that dies fails its commands instead of leaving them waiting forever."
 sidebar:
-  order: 4
+  order: 5
 ---
 
 A dead sandbox is silent. Its streams stop producing and its exit codes never

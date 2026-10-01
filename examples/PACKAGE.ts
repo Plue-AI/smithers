@@ -147,7 +147,7 @@ const securityReview = Smithers.SecurityReview({
         "A Capability.Permission.Rule allowing proc:spawn with resource '*' in an engine that registers flows other than the fixed sleep/containment demos of examples 19 and 37.",
         "An MCP tool re-declared under a host grant wider than proc:spawn:mcp/<serverName>, or an MCP server command built from payload text.",
         "A child spawned with a shell string built from payload or argv values.",
-        "A sandbox session root or collectDiff result applied to the host workspace without the caller deciding.",
+        "A sandbox session root or captureWork result applied to the host workspace without the caller deciding.",
         "A spawned child with no acquireRelease finalizer or ProcessLedger record."
       ],
       paths: [

@@ -14,6 +14,7 @@ import { fileSystem } from "../src/Sandbox/fileSystem.ts"
 import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import { discover } from "./helpers/discover.ts"
+import { makeWorkSeed } from "./helpers/workSeed.ts"
 
 const session = `real-microsandbox-${process.pid}-${Date.now()}`
 const budget = 900_000
@@ -151,6 +152,22 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
           // Real VM provisioning keeps its previous allowance; ordinary checks default to 10 seconds.
           checkTimeout: "240 seconds",
           provides: { ping: true, kill: true, interrupt: true, ephemeral: true }
+        })
+        expect(violations).toEqual([])
+      }),
+    budget
+  )
+
+  it.effect(
+    "captures a checkout's work in the guest and proves the patch reproduces it",
+    () =>
+      Effect.gen(function*() {
+        // The work checks run the guest's own git; oven/bun ships none, and the
+        // full Debian node image does, so no network install is needed.
+        const violations = yield* SandboxConformance.check(machine({ image: "node:26-bookworm" }), {
+          session: `${session}-work`,
+          checkTimeout: "240 seconds",
+          work: makeWorkSeed()
         })
         expect(violations).toEqual([])
       }),

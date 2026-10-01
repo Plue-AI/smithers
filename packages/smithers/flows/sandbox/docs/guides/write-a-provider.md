@@ -2,7 +2,7 @@
 title: "Write a provider"
 description: "Implement Sandbox.Provider or RemoteChildProcessSpawner.Provider for a new backend: the obligations, the structural SDK slice, native filesystem overrides, and capability declaration."
 sidebar:
-  order: 5
+  order: 6
 ---
 
 A new backend joins this package by implementing one of the

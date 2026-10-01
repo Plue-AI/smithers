@@ -5,7 +5,7 @@
  * parent asks for and, as `layer`, the implementation of the one action the
  * flow's body names. Everything the implementation touches is the guest's:
  * `process.cwd()` is the session workdir, and `greeting.txt` lands in the
- * workspace the host reads back as the diff.
+ * checkout the host captures as the session's work.
  */
 import { Action, Flow } from "@smthrs/flow"
 import * as Effect from "effect/Effect"

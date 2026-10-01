@@ -62,6 +62,11 @@ Read the middle column as crash recovery, not as storage. Only
 `MicrosandboxSandbox` with `persistence: "sticky"` and `VercelSandbox` are
 designed to be there after a clean release, and only the first is running.
 
+To keep what a body changed in a checkout, capture it before release:
+`Sandbox.run` returns it as `Work`, which an action journals and
+`SandboxMerge.apply` lands on the host. See
+[Return work from a sandbox](../guides/return-work-from-a-sandbox.md).
+
 ## The scope is the lifetime
 
 Acquisition registers teardown as a finalizer of the acquiring scope. Closing
@@ -130,5 +135,6 @@ property is not:
 ## Read next
 
 - [What a sandbox does and does not prevent](./isolation.md).
+- [Return work from a sandbox](../guides/return-work-from-a-sandbox.md).
 - [Supervise a session](../guides/supervise-a-session.md): probing a session
   and retiring a dead one.

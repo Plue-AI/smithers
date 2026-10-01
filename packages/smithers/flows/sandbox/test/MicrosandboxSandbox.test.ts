@@ -27,6 +27,7 @@ import type { Session } from "../src/Sandbox/Session.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import * as SandboxHealth from "../src/SandboxHealth/index.ts"
 import { untouchable } from "./helpers/untouchable.ts"
+import { makeWorkSeed } from "./helpers/workSeed.ts"
 
 const encoder = new TextEncoder()
 
@@ -817,7 +818,7 @@ describe("MicrosandboxSandbox", () => {
   }
 
   it.live(
-    "passes SandboxConformance, kill and interrupt included, running real processes against real files",
+    "passes SandboxConformance, kill, interrupt and work included, running real processes against real files",
     () =>
       Effect.gen(function*() {
         const fake = fakeSdk()
@@ -825,7 +826,8 @@ describe("MicrosandboxSandbox", () => {
         const provider = MicrosandboxSandbox.make({ sdk: fake.sdk, workdir })
 
         const violations = yield* SandboxConformance.check(provider, {
-          provides: { ping: true, kill: true, interrupt: true, ephemeral: true }
+          provides: { ping: true, kill: true, interrupt: true, ephemeral: true },
+          work: makeWorkSeed()
         })
 
         expect(violations).toEqual([])
@@ -1964,22 +1966,26 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.destroys).toEqual([])
     }), 30_000)
 
-  it.live("never brings back a machine that was replaced under its name with another network", () =>
-    Effect.gen(function*() {
-      const fake = fakeSdk()
-      const provider = MicrosandboxSandbox.make({ sdk: fake.sdk, persistence: "sticky" })
-      const refused = yield* inSession(provider, "swapped", (session) =>
-        Effect.gen(function*() {
-          const machine = fake.machines.get(session.remoteId)!
-          machine.labels = { ...machine.labels, "smithers.network": "open" }
-          fake.wedge(session.remoteId)
-          return yield* Effect.flip(Effect.flatMap(session.spawn("printf reached", {}), output))
-        }).pipe(Effect.scoped))
-      expect(refused.message).toContain("could not be")
-      expect(String(refused.cause)).toContain("replaced by a machine with another network")
-      expect(fake.recorded.stops).toEqual([])
-      expect(fake.recorded.starts).toEqual([])
-    }), 30_000)
+  it.live(
+    "never brings back a machine that was replaced under its name with another network",
+    () =>
+      Effect.gen(function*() {
+        const fake = fakeSdk()
+        const provider = MicrosandboxSandbox.make({ sdk: fake.sdk, persistence: "sticky" })
+        const refused = yield* inSession(provider, "swapped", (session) =>
+          Effect.gen(function*() {
+            const machine = fake.machines.get(session.remoteId)!
+            machine.labels = { ...machine.labels, "smithers.network": "open" }
+            fake.wedge(session.remoteId)
+            return yield* Effect.flip(Effect.flatMap(session.spawn("printf reached", {}), output))
+          }).pipe(Effect.scoped))
+        expect(refused.message).toContain("could not be")
+        expect(String(refused.cause)).toContain("replaced by a machine with another network")
+        expect(fake.recorded.stops).toEqual([])
+        expect(fake.recorded.starts).toEqual([])
+      }),
+    30_000
+  )
 
   it.live("reconnects without a restart when the guest answers a fresh connection", () =>
     Effect.gen(function*() {
@@ -2712,7 +2718,13 @@ describe("MicrosandboxSandbox snapshots", () => {
       const fake = fakeSdk()
       fake.plant("legacy", ownership("installation-a", "host"), "stopped")
       const refused = yield* Effect.flip(
-        MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "legacy", family: "base", member: "1", secrets: [] })
+        MicrosandboxSandbox.captureSnapshot({
+          sdk: fake.sdk,
+          machine: "legacy",
+          family: "base",
+          member: "1",
+          secrets: []
+        })
       )
       expect(refused.message).toContain("records no network, so starting it would open one")
       expect(fake.recorded.starts).toEqual([])

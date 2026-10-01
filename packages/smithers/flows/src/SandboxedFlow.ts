@@ -40,18 +40,30 @@
  *    file, a result for another attempt, a ceiling echo that differs from the
  *    one it sent, or a result the limits reject, fails with the guest's
  *    `PermissionDenied` when a capability refusal failed the child, decodes `output` through the same
- *    codec, and, when {@link ExecuteOptions.collectDiff} is set, reads the
- *    files the guest created or changed in the workspace and returns them,
- *    with the paths it deleted, as data beside the output.
+ *    codec, and, when {@link ExecuteOptions.captureWork} is set, captures
+ *    the workspace's work as a `Sandbox.Work` beside the output.
  *
  * What the guest image must contain is a statement, not code: the runtime the
  * bundle is started with, `node` (22 or later) or `bun`, has to be on the
  * guest's `PATH`. Nothing here installs one. A missing runtime is reported as
  * a `guest_failed` failure that names it.
  *
- * The workspace diff is DATA, not an applied change. Applying it on the host,
- * or gating it behind review the way the 0.x component's `reviewDiffs` did, is
- * the caller's, and the review gate is the recorded follow-up of this pass.
+ * The captured work is DATA, not an applied change. It is the same
+ * `Sandbox.Work` that `Sandbox.run` returns, so `SandboxMerge.apply` lands it
+ * on the host; gating it behind review the way the 0.x component's
+ * `reviewDiffs` did is the caller's.
+ *
+ * Capturing work requires the session's workdir to be the top of a git work
+ * tree and `git` on the guest's `PATH`. This is a deliberate change from the
+ * stat-fingerprint snapshot this module used to take, which listed changed
+ * files in any directory: the patch git produces covers renames, modes,
+ * symlinks and binary contents exactly and applies with `SandboxMerge`, and
+ * one capture contract serves every sandbox caller. A workdir that is not a
+ * repository fails with `capture_failed` before the guest runs. The base is
+ * the workdir's `HEAD` when the session opens, so a provider that refreshes
+ * its checkout during acquisition is measured from the commit it refreshed
+ * to. The protocol's own `.smithers-sandbox` directory carries a `.gitignore`
+ * that excludes it, so its files are never part of the work.
  *
  * @since 1.0.0
  */
@@ -67,10 +79,7 @@ import { Sandbox } from "@smthrs/sandbox"
 import type { ProviderError } from "@smthrs/sandbox/RemoteChildProcessSpawner"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import type * as FileSystem from "effect/FileSystem"
 import type * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
-import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { randomUUID } from "node:crypto"
@@ -93,11 +102,11 @@ import * as Guest from "./internal/SandboxedFlowGuest.ts"
  * - `result_invalid`: the result's `output` does not decode through the flow's
  *   success schema.
  * - `result_overflow`: the result file exceeds {@link Limits.resultBytes}.
- * - `diff_overflow`: the workspace diff exceeds {@link Limits.files} or
- *   {@link Limits.diffBytes}.
- * - `diff_unsafe`: a created, changed, or deleted path is not a plain
- *   workspace-relative path: it holds a backslash, a `.` or `..` segment, an
- *   empty segment, a leading `/`, or a drive prefix.
+ * - `diff_overflow`: the captured patch exceeds {@link Limits.diffBytes}.
+ * - `capture_failed`: the work could not be captured: the workdir is not the
+ *   top of a git work tree or the guest has no `git` (`not_a_repository`),
+ *   its `HEAD` names no commit (`base_unresolved`), or `git` failed while
+ *   diffing (`capture_failed`). The message starts with that reason.
  * - `deadline_exceeded`: the whole session outlived {@link ExecuteOptions.timeout}.
  *
  * @category errors
@@ -115,7 +124,7 @@ export class SandboxedFlowError extends Schema.TaggedError<SandboxedFlowError>()
       "result_invalid",
       "result_overflow",
       "diff_overflow",
-      "diff_unsafe",
+      "capture_failed",
       "deadline_exceeded"
     ]),
     message: Schema.String,
@@ -146,8 +155,7 @@ export type ExecuteError = typeof ExecuteError.Type
  * Bounds on what comes back from the guest.
  *
  * The defaults mirror the 0.x bundle limits: 5 MB for the structured result
- * (the old manifest limit), 100 MB for the collected files (the old bundle
- * total), and 1,000 files (the old patch-file count).
+ * (the old manifest limit) and 100 MB for the patch (the old bundle total).
  *
  * @category models
  * @since 1.0.0
@@ -155,10 +163,12 @@ export type ExecuteError = typeof ExecuteError.Type
 export interface Limits {
   /** The largest result JSON accepted, in bytes. Default 5 MiB. */
   readonly resultBytes?: number | undefined
-  /** The most workspace-diff bytes collected. Default 100 MiB. */
+  /**
+   * The largest captured patch accepted, in UTF-8 bytes. Default 100 MiB. It
+   * bounds what the result carries into the journal; the capture itself is
+   * read whole before the bound is checked.
+   */
   readonly diffBytes?: number | undefined
-  /** The most created or changed files collected. Default 1,000. */
-  readonly files?: number | undefined
 }
 
 /**
@@ -170,7 +180,6 @@ export interface Limits {
 export interface ResolvedLimits {
   readonly resultBytes: number
   readonly diffBytes: number
-  readonly files: number
 }
 
 /**
@@ -181,15 +190,13 @@ export interface ResolvedLimits {
  */
 export const defaultLimits: ResolvedLimits = Object.freeze({
   resultBytes: 5 * 1024 * 1024,
-  diffBytes: 100 * 1024 * 1024,
-  files: 1000
+  diffBytes: 100 * 1024 * 1024
 })
 
 /** The caller's bounds over the defaults, an omitted or undefined bound keeping the default. */
 const resolveLimits = (limits: Limits | undefined): ResolvedLimits => ({
   resultBytes: limits?.resultBytes ?? defaultLimits.resultBytes,
-  diffBytes: limits?.diffBytes ?? defaultLimits.diffBytes,
-  files: limits?.files ?? defaultLimits.files
+  diffBytes: limits?.diffBytes ?? defaultLimits.diffBytes
 })
 
 /**
@@ -222,9 +229,13 @@ export interface ExecuteOptions {
    * as one shell word; use a wrapper script for runtime flags.
    */
   readonly runtime?: string | undefined
-  /** Whether to collect the files the guest created, changed, or deleted. Default `false`. */
-  readonly collectDiff?: boolean | undefined
-  /** Bounds on the result and the diff; see {@link defaultLimits}. */
+  /**
+   * Whether to capture the workspace's work as a `Sandbox.Work`. Default
+   * `false`. The workdir must be the top of a git work tree; see the module
+   * documentation.
+   */
+  readonly captureWork?: boolean | undefined
+  /** Bounds on the result and the patch; see {@link defaultLimits}. */
   readonly limits?: Limits | undefined
   /**
    * The wall-clock budget for the whole session, acquisition through result
@@ -236,29 +247,16 @@ export interface ExecuteOptions {
 }
 
 /**
- * One file the guest created or changed, as it stood when the guest exited.
- *
- * @category models
- * @since 1.0.0
- */
-export interface DiffEntry {
-  /** The path relative to the session workdir. */
-  readonly path: string
-  readonly bytes: Uint8Array
-}
-
-/**
  * What a sandboxed execution returns: the child's success value, decoded
- * through its own schema, and the workspace diff when it was asked for.
+ * through its own schema, and the workspace's work when it was asked for.
  *
  * @category models
  * @since 1.0.0
  */
 export interface Result<A> {
   readonly output: A
-  readonly diff: ReadonlyArray<DiffEntry>
-  /** Workspace-relative paths that existed before the guest ran and were gone after. */
-  readonly deleted: ReadonlyArray<string>
+  /** The workspace's work, or `null` when {@link ExecuteOptions.captureWork} was off. */
+  readonly work: Sandbox.Work | null
   /**
    * The ceiling the guest enforced, as normalized any-of groups: the receipt
    * the parent journals. No groups is unrestricted authority. `null` only on
@@ -269,30 +267,13 @@ export interface Result<A> {
 }
 
 /**
- * The schema of a {@link DiffEntry}, JSON-encodable for the journal: the
- * bytes serialize as base64.
+ * The schema of a {@link Result}'s `work`. A result recorded without one
+ * decodes as `null`, no work captured.
  *
  * @category schemas
  * @since 1.0.0
  */
-export const DiffEntry = Schema.Struct({ path: Schema.String, bytes: Schema.Uint8Array })
-
-/**
- * The schema of a {@link Result}'s `diff`.
- *
- * @category schemas
- * @since 1.0.0
- */
-export const Diff = Schema.Array(DiffEntry)
-
-/**
- * The schema of a {@link Result}'s `deleted` paths. A result recorded before
- * the field existed decodes with none.
- *
- * @category schemas
- * @since 1.0.0
- */
-export const Deleted = Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
+export const CapturedWork = Schema.NullOr(Sandbox.Work).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)))
 
 /**
  * The schema of a {@link Result}'s `capabilityCeiling`. A result recorded
@@ -312,8 +293,7 @@ export const EnforcedCeiling = Schema.NullOr(Guest.Ceiling).pipe(Schema.withDeco
  */
 export type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
-  readonly diff: typeof Diff
-  readonly deleted: typeof Deleted
+  readonly work: typeof CapturedWork
   readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
@@ -324,7 +304,7 @@ export type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
  * @since 1.0.0
  */
 export const resultSchema = <Success extends Schema.Top>(success: Success): ResultSchema<Success> =>
-  Schema.Struct({ output: success, diff: Diff, deleted: Deleted, capabilityCeiling: EnforcedCeiling })
+  Schema.Struct({ output: success, work: CapturedWork, capabilityCeiling: EnforcedCeiling })
 
 /** The workspace-relative directory the runner protocol's files live in. */
 const controlDirectory = ".smithers-sandbox"
@@ -401,6 +381,12 @@ const failure = (
 
 const sessionFailure = (context: string) => (cause: ProviderError): SandboxedFlowError =>
   failure("session_failed", `${context}: ${cause.message}`, cause)
+
+/** A transport failure stays `session_failed`; git's own verdict is `capture_failed`, led by its reason. */
+const captureFailure = (context: string) => (cause: ProviderError | Sandbox.CaptureError): SandboxedFlowError =>
+  cause instanceof Sandbox.CaptureError
+    ? failure("capture_failed", `${cause.reason}: ${context}: ${cause.message}`, cause)
+    : sessionFailure(context)(cause)
 
 /**
  * The bundler's surface this module uses.
@@ -515,114 +501,11 @@ const expired = (deadline: Duration.Input): Effect.Effect<never, SandboxedFlowEr
       )
   )
 
-/**
- * How many workspace stats a snapshot keeps in flight.
- *
- * `Sandbox.fileSystem` answers `stat` with one session command per path when
- * the provider exposes no native filesystem, so a serial walk pays one remote
- * round trip per workspace file, twice per diff-enabled execution. The bound
- * exists because the other direction is no better: an unbounded walk of a
- * large workspace opens one guest process per file at once, which is how a
- * provider's command limit is reached and how a machine runs out of process
- * slots. Sixteen overlaps enough round trips to hide their latency while the
- * count of live commands stays a constant the provider can absorb.
- */
-const statConcurrency = 16
-
-/**
- * What a snapshot records per file: its size and, where the provider's `stat`
- * reports one, its modification time. A file counts as changed when either
- * differs, so a same-size rewrite is caught wherever the provider knows the
- * time; the portable probe dialect reports none and falls back to size alone.
- */
-interface Fingerprint {
-  readonly size: number
-  readonly mtimeMs: number | undefined
-}
-
-const differs = (before: Fingerprint | undefined, after: Fingerprint): boolean =>
-  before === undefined || before.size !== after.size || before.mtimeMs !== after.mtimeMs
-
-/** The changed-file count limit an after-walk enforces while it walks. */
-interface ChangeBudget {
-  readonly before: ReadonlyMap<string, Fingerprint>
-  readonly limit: number
-}
-
-/** Whether a workdir is a native Windows path, whose listings use backslashes. */
-const windows = (workdir: string): boolean => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(workdir)
-
-/**
- * Whether a diff path could name something other than one file under the
- * workspace when a caller writes it back. After the Windows listing is
- * normalized, a backslash is a literal POSIX filename byte that a Windows
- * applier would read as a separator, so it is refused along with `..`, `.`,
- * empty segments, a leading `/`, and a drive prefix.
- */
-const unsafeDiffPath = (path: string): boolean =>
-  path.includes("\\") || /^[A-Za-z]:/.test(path) ||
-  path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
-
-const unlistable = (cause: PlatformError.PlatformError): SandboxedFlowError =>
-  failure("session_failed", `the workspace could not be listed: ${cause.message}`, cause)
-
-/**
- * Fingerprints by workspace-relative path of every regular file outside the
- * control directory.
- *
- * One listing, then the stats with bounded concurrency. The results keep the
- * listing's order, so the diff a caller receives does not depend on which
- * stat answered first.
- *
- * `changed` makes this the AFTER walk of a diff: an entry whose fingerprint
- * differs from `changed.before` counts, and the walk fails as soon as more than
- * `changed.limit` of them have been seen rather than statting the rest of a
- * workspace whose diff is already refused.
- */
-const snapshot = (
-  files: FileSystem.FileSystem,
-  workdir: string,
-  changed?: ChangeBudget
-): Effect.Effect<ReadonlyMap<string, Fingerprint>, SandboxedFlowError> =>
-  Effect.gen(function*() {
-    const listed = yield* files.readDirectory(workdir, { recursive: true }).pipe(Effect.mapError(unlistable))
-    // Native Windows listings use backslashes. Normalize that guest dialect
-    // before excluding protocol files or exposing workspace-relative diffs.
-    // Backslashes in a POSIX guest remain literal filename characters.
-    const relative = windows(workdir) ? listed.map((entry) => entry.replace(/\\/g, "/")) : listed
-    const entries = relative.filter((entry) => entry !== controlDirectory && !entry.startsWith(`${controlDirectory}/`))
-    let over = 0
-    const measure = (entry: string): Effect.Effect<Fingerprint | undefined, SandboxedFlowError> =>
-      Effect.flatMap(files.stat(entry).pipe(Effect.mapError(unlistable)), (info) => {
-        if (info.type !== "File") return Effect.succeed(undefined)
-        const fingerprint: Fingerprint = {
-          size: Number(info.size),
-          mtimeMs: Option.match(info.mtime, { onNone: () => undefined, onSome: (mtime) => mtime.getTime() })
-        }
-        if (changed !== undefined && differs(changed.before.get(entry), fingerprint) && ++over > changed.limit) {
-          return Effect.fail(
-            failure(
-              "diff_overflow",
-              `the guest changed more than ${changed.limit} files; the limit is ${changed.limit}`
-            )
-          )
-        }
-        return Effect.succeed(fingerprint)
-      })
-    const measured = yield* Effect.forEach(entries, measure, { concurrency: statConcurrency })
-    const fingerprints = new Map<string, Fingerprint>()
-    for (const [index, fingerprint] of measured.entries()) {
-      if (fingerprint !== undefined) fingerprints.set(entries[index]!, fingerprint)
-    }
-    return fingerprints
-  })
-
 /** Read at most the budget plus one byte, without the unbounded readFile transport. */
 const readBounded = (
   session: Sandbox.Session,
   path: string,
   limit: number,
-  code: "result_overflow" | "diff_overflow",
   context: string
 ): Effect.Effect<Uint8Array, SandboxedFlowError> =>
   Effect.scoped(Effect.gen(function*() {
@@ -632,7 +515,9 @@ const readBounded = (
       Stream.runForEach(stream, (bytes) => {
         total += bytes.length
         if (total > limit) {
-          return Effect.fail(failure(code, `the read exceeds its remaining byte budget; the limit is ${limit}`))
+          return Effect.fail(
+            failure("result_overflow", `the read exceeds its remaining byte budget; the limit is ${limit}`)
+          )
         }
         chunks.push(new Uint8Array(bytes))
         return Effect.void
@@ -667,79 +552,6 @@ const readBounded = (
     return result
   }))
 
-/**
- * Reads every file the guest created or changed, within the limits, and lists
- * the files it deleted.
- *
- * The reads stay sequential on purpose, unlike the stats the walk overlaps.
- * Each one is bounded by the budget the reads before it did NOT spend, which
- * is what keeps a file that grew after the walk from carrying the aggregate
- * past `diffBytes`. Concurrent reads would each have to start from the whole
- * remaining budget, so the bytes a host can hold at once would become the
- * budget times the concurrency rather than the budget.
- */
-const collect = (
-  session: Sandbox.Session,
-  files: FileSystem.FileSystem,
-  workdir: string,
-  before: ReadonlyMap<string, Fingerprint>,
-  after: ReadonlyMap<string, Fingerprint>,
-  limits: ResolvedLimits
-): Effect.Effect<
-  { readonly diff: ReadonlyArray<DiffEntry>; readonly deleted: ReadonlyArray<string> },
-  SandboxedFlowError
-> =>
-  Effect.gen(function*() {
-    // The count limit is spent during the after walk, which refuses an
-    // oversized diff without statting the workspace to its end.
-    const touched = [...after].filter(([path, fingerprint]) => differs(before.get(path), fingerprint))
-    const deleted = [...before.keys()].filter((path) => !after.has(path))
-    const unsafe = [...touched.map(([path]) => path), ...deleted].find(unsafeDiffPath)
-    if (unsafe !== undefined) {
-      return yield* Effect.fail(
-        failure("diff_unsafe", `the guest left ${JSON.stringify(unsafe)}, which is not a plain workspace-relative path`)
-      )
-    }
-    // `stat` follows links, so the walk counts a link to a file as that file.
-    // Only a path that resolves to itself under the workspace is a regular
-    // file the guest wrote; anything else would read the link's target, which
-    // on a provider whose files are the host's can sit outside the workspace.
-    const resolved = (path: string) =>
-      files.realPath(path).pipe(
-        Effect.map((real) => windows(workdir) ? real.replace(/\\/g, "/") : real),
-        Effect.mapError((cause) =>
-          failure("session_failed", `the path ${path} could not be resolved: ${cause.message}`, cause)
-        )
-      )
-    const root = touched.length === 0 ? workdir : yield* resolved(workdir)
-    const changed: Array<readonly [string, Fingerprint]> = []
-    for (const entry of touched) {
-      if ((yield* resolved(`${workdir}/${entry[0]}`)) === `${root}/${entry[0]}`) changed.push(entry)
-    }
-    const total = changed.reduce((sum, [, fingerprint]) => sum + fingerprint.size, 0)
-    if (total > limits.diffBytes) {
-      return yield* Effect.fail(
-        failure("diff_overflow", `the changed files hold ${total} bytes; the limit is ${limits.diffBytes}`)
-      )
-    }
-    const diff: Array<DiffEntry> = []
-    let collected = 0
-    for (const [path] of changed) {
-      const bytes = yield* readBounded(
-        session,
-        `${workdir}/${path}`,
-        limits.diffBytes - collected,
-        "diff_overflow",
-        `the changed file ${path} could not be read back`
-      )
-      collected += bytes.length
-      // readBounded owns these plain bytes; the diff is data the caller keeps.
-      diff.push({ path, bytes })
-    }
-    return { diff, deleted }
-  })
-
-/** The result file, checked against the size limit and the protocol's shape. */
 /** Whether two normalized ceilings name the same groups of the same patterns. */
 const sameCeiling = (
   left: ReadonlyArray<ReadonlyArray<CapabilityPattern>>,
@@ -752,6 +564,7 @@ const sameCeiling = (
       group.every((pattern, at) => pattern.action === other[at]!.action && pattern.resource === other[at]!.resource)
   })
 
+/** The result file, checked against the size limit and the protocol's shape. */
 const readResult = (
   session: Sandbox.Session,
   resultPath: string,
@@ -778,7 +591,6 @@ const readResult = (
       session,
       resultPath,
       limits.resultBytes,
-      "result_overflow",
       "the result could not be read back"
     )
     const result = yield* Effect.try({
@@ -817,15 +629,11 @@ const readResult = (
  * payload schema for the wire. A value the schema's own JSON codec refuses
  * is a programmer error and dies, the same posture `Flow.executionId` takes.
  *
- * Change detection for the diff compares each file's size and modification
- * time by path against a snapshot taken before the guest ran: a created file
- * and a changed file are collected, and a file present before and absent
- * after is listed in `deleted`. A provider whose `stat` reports no
- * modification time, such as the portable probe dialect, falls back to size
- * alone, so on it a same-size rewrite of a file that existed before the guest
- * ran, which only a REATTACHED workspace holds, is missed. A fresh workspace
- * holds nothing but the protocol's own files, so every file the child writes
- * there is a creation.
+ * With {@link ExecuteOptions.captureWork}, the base is resolved with
+ * `Sandbox.resolveBase` as soon as the session is acquired, before anything
+ * is written into the workspace, and the work is captured with
+ * `Sandbox.capture` after the output decodes and before the session is
+ * released. A failed child captures nothing.
  *
  * @category constructors
  * @since 1.0.0
@@ -869,11 +677,15 @@ export const execute = <
             Effect.mapError(sessionFailure(`the session ${options.session} could not be acquired`))
           )
           const workdir = session.workdir.replace(/\/+$/, "")
+          const base = options.captureWork === true
+            ? yield* Sandbox.resolveBase(session).pipe(
+              Effect.mapError(captureFailure("the base of the workspace could not be resolved"))
+            )
+            : undefined
           const control = `${workdir}/${controlDirectory}`
           const bundlePath = `${control}/bundle.mjs`
           const requestPath = `${control}/request.json`
           const resultPath = `${control}/result.json`
-          const files = Sandbox.fileSystem(session)
           const request: typeof Guest.Request.Type = {
             attempt,
             flow: flow._tag,
@@ -884,20 +696,21 @@ export const execute = <
           yield* session.writeFile(bundlePath, built).pipe(
             Effect.mapError(sessionFailure("the bundle could not be written into the workspace"))
           )
+          // `*` matches the ignore file too, so git sees nothing of the directory.
+          yield* session.writeFile(`${control}/.gitignore`, new TextEncoder().encode("*\n")).pipe(
+            Effect.mapError(sessionFailure("the control directory could not be excluded from the work"))
+          )
           yield* session.writeFile(
             requestPath,
             new TextEncoder().encode(JSON.stringify(Schema.encodeSync(Guest.Request)(request)))
           ).pipe(
             Effect.mapError(sessionFailure("the request could not be written into the workspace"))
           )
-          yield* files.remove(resultPath, { force: true }).pipe(
+          yield* Sandbox.fileSystem(session).remove(resultPath, { force: true }).pipe(
             Effect.mapError((cause) =>
               failure("session_failed", `the previous result could not be removed: ${cause.message}`, cause)
             )
           )
-          const before = options.collectDiff === true
-            ? yield* snapshot(files, workdir)
-            : new Map<string, Fingerprint>()
           const command = `${CommandLine.quote(runtime)} ${CommandLine.quote(bundlePath)}`
           const run = yield* Effect.scoped(
             Effect.gen(function*() {
@@ -951,22 +764,18 @@ export const execute = <
               )
             )
           )
-          const changes = options.collectDiff === true
-            ? yield* collect(
-              session,
-              files,
-              workdir,
-              before,
-              yield* snapshot(files, workdir, { before, limit: limits.files }),
-              limits
-            )
-            : { diff: [], deleted: [] }
-          return {
-            output,
-            diff: changes.diff,
-            deleted: changes.deleted,
-            capabilityCeiling
+          const work = base === undefined ? null : yield* Sandbox.capture(session, { base }).pipe(
+            Effect.mapError(captureFailure("the work could not be captured"))
+          )
+          if (work?._tag === "Changed") {
+            const bytes = new TextEncoder().encode(work.patch).length
+            if (bytes > limits.diffBytes) {
+              return yield* Effect.fail(
+                failure("diff_overflow", `the patch holds ${bytes} bytes; the limit is ${limits.diffBytes}`)
+              )
+            }
           }
+          return { output, work, capabilityCeiling }
         })
       ),
       expired(options.timeout ?? Duration.minutes(10))

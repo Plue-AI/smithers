@@ -26,6 +26,9 @@ export * as ProviderConformance from "./ProviderConformance/index.ts"
 /** The provisioned-machine contract and its projections. */
 export * as Sandbox from "./Sandbox/index.ts"
 
+/** Lands a session's captured work in a host jj repository. */
+export * as SandboxMerge from "./SandboxMerge/index.ts"
+
 /** The conformance suite a sandbox session provider must pass. */
 export * as SandboxConformance from "./SandboxConformance/index.ts"
 

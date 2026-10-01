@@ -18,6 +18,10 @@
  * - {@link layerHost} holds one machine for a layer's lifetime and provides
  *   `ChildProcessSpawner | FileSystem | Path` from it — the host surface a
  *   flow body or an agent's standard tools consume, placed on the machine.
+ * - {@link run} holds one machine for one unit of work and returns the
+ *   body's result with the {@link Work} its checkout gained, captured as a
+ *   diff from a host-resolvable base before the machine is released;
+ *   `SandboxMerge.apply` lands that work on the host.
  *
  * `SandboxConformance` states the session contract as behavior;
  * `DirectorySandbox` and `ContainerSandbox` are the two in-repository
@@ -34,7 +38,9 @@ export * from "./layerHost.ts"
 export type { NetworkPolicy } from "./NetworkPolicy.ts"
 export * from "./Provider.ts"
 export type { ResourceLimits } from "./ResourceLimits.ts"
+export * from "./run.ts"
 export * from "./Session.ts"
 export * from "./TestSession.ts"
 export * from "./TestSessionProvider.ts"
 export * from "./TestSessionState.ts"
+export * from "./Work.ts"

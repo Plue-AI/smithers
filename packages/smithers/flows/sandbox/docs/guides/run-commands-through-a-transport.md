@@ -2,7 +2,7 @@
 title: "Run commands through a transport"
 description: "Adapt a spawn-only provider onto Effect's ChildProcessSpawner with RemoteChildProcessSpawner.layer, and know which constructor to reach for when an open failure must be visible."
 sidebar:
-  order: 2
+  order: 3
 ---
 
 Use this seam when something else already provisioned the machine and all you

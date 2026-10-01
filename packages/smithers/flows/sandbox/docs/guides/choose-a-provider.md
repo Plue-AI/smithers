@@ -2,7 +2,7 @@
 title: "Choose a provider"
 description: "Pick one of the ten bundled machine providers by what you need from it, construct it, and look one up by name at the host's composition root."
 sidebar:
-  order: 3
+  order: 4
 ---
 
 All ten providers implement `Sandbox.Provider`, so the composition around them

@@ -49,6 +49,8 @@
     "./Sandbox/*": null,
     "./SandboxConformance": "./src/SandboxConformance/index.ts",
     "./SandboxConformance/*": null,
+    "./SandboxMerge": "./src/SandboxMerge/index.ts",
+    "./SandboxMerge/*": null,
     "./SandboxHealth": "./src/SandboxHealth/index.ts",
     "./SandboxHealth/*": null,
     "./SandboxSupervision": "./src/SandboxSupervision/index.ts",
@@ -175,6 +177,17 @@
         }
       },
       "./SandboxConformance/*": null,
+      "./SandboxMerge": {
+        "import": {
+          "types": "./dist/esm/SandboxMerge/index.d.ts",
+          "default": "./dist/esm/SandboxMerge/index.js"
+        },
+        "require": {
+          "types": "./dist/cjs/SandboxMerge/index.d.ts",
+          "default": "./dist/cjs/SandboxMerge/index.js"
+        }
+      },
+      "./SandboxMerge/*": null,
       "./SandboxHealth": {
         "import": {
           "types": "./dist/esm/SandboxHealth/index.d.ts",

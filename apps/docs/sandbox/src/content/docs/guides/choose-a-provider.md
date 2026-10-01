@@ -2,7 +2,7 @@
 title: "Choose a provider"
 description: "Pick one of the ten bundled machine providers by what you need from it, construct it, and look one up by name at the host's composition root."
 sidebar:
-  order: 3
+  order: 4
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/guides/choose-a-provider.md"
 ---
 

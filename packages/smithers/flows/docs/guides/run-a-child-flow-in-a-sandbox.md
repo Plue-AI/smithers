@@ -78,12 +78,12 @@ lookup by name, and no environment variable default.
 
 The remaining options are all optional:
 
-| Option        | Default                       | What it does                                                                                                                                                       |
-| ------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `runtime`     | `"node"`                      | The guest executable: `"node"`, `"bun"`, or an executable path. Each path is quoted as one shell word. Use a wrapper script for flags.                             |
-| `collectDiff` | `false`                       | Read back the files the guest created, changed, or deleted. See [Collect the files a sandboxed child wrote](./collect-a-workspace-diff.md).                        |
-| `limits`      | `SandboxedFlow.defaultLimits` | Bounds on the result and the diff.                                                                                                                                 |
-| `timeout`     | 10 minutes                    | The wall-clock budget for the whole session, acquisition through result readback. It is measured on the platform timer, so it fires under a frozen test clock too. |
+| Option        | Default                       | What it does                                                                                                                                                                    |
+| ------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime`     | `"node"`                      | The guest executable: `"node"`, `"bun"`, or an executable path. Each path is quoted as one shell word. Use a wrapper script for flags.                                          |
+| `captureWork` | `false`                       | Capture the workdir's changes as a `Sandbox.Work` git patch. The workdir must be a git repository. See [Capture the work a sandboxed child did](./collect-a-workspace-diff.md). |
+| `limits`      | `SandboxedFlow.defaultLimits` | Bounds on the result and the patch.                                                                                                                                             |
+| `timeout`     | 10 minutes                    | The wall-clock budget for the whole session, acquisition through result readback. It is measured on the platform timer, so it fires under a frozen test clock too.              |
 
 ## Make it one durable action of a parent
 
@@ -103,7 +103,7 @@ const RunGreet = SandboxedFlow.action(Greet)
 const SandboxedGreeting = Flow.make("app/SandboxedGreeting", {
   payload: { name: Schema.String },
   success: SandboxedFlow.resultSchema(Greeting),
-  error: SandboxedFlow.SandboxedFlowError,
+  error: SandboxedFlow.ExecuteError,
   body: (payload) => RunGreet.call(payload)
 })
 
@@ -120,8 +120,9 @@ const stack = Layer.mergeAll(
 The action's tag is `app/Greet/sandboxed` unless you pass
 `{ name: "..." }` as `action`'s second argument. Both forms preserve the literal
 name in the type, so each declaration requires its own implementation. Its success schema is
-`resultSchema(Greeting)`, which is `{ output, diff }`, and its error schema is
-`SandboxedFlowError`.
+`resultSchema(Greeting)`, which is `{ output, work, capabilityCeiling }`, and
+its error schema is `ExecuteError`: `SandboxedFlowError` or the kernel's
+`PermissionDenied`.
 
 Compose the returned layer beside `Interpreter.layer(parent)` over one
 `Action.layerImplementations`, exactly as you would any other action

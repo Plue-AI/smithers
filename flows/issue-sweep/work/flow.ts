@@ -7,7 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Sandbox } from "@smthrs/sandbox"
+import { Sandbox, SandboxMerge } from "@smthrs/sandbox"
 import { Duration, Effect, FileSystem, Layer, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
@@ -29,8 +29,9 @@ const Payload = Schema.Struct({
 
 /**
  * What one agent produced. `change` is the jj change id of the single
- * described change holding the agent's edits, on top of `base`; the parent
- * lands it. A Cloud run has no local change and reports only its `patch`.
+ * described change holding the agent's edits, on top of `base`, and
+ * `workspace` is the host jj workspace whose working copy sits on it; the
+ * parent lands it. A remote run reaches this shape through {@link Adopt}.
  */
 export const Report = Schema.Struct({
   agent: Schema.Literals(["codex", "claude"]),
@@ -66,6 +67,16 @@ const IssueText = Schema.Struct({
 
 const Workspace = Schema.Struct({ directory: Schema.String, base: Schema.String })
 
+/** What a remote agent answered. Its edits travel beside it as the session's `work`. */
+export const Remote = Schema.Struct({
+  agent: Schema.Literal("codex"),
+  account: Schema.String,
+  report: Schema.String
+})
+
+/** A remote run as RemoteFix journals it: the agent's answer and the work its machine captured. */
+export const Remoted = Sandbox.Sandboxed(Remote)
+
 export const FetchIssue = Action.make("issue-sweep/fetch-issue", {
   payload: Payload,
   success: IssueText,
@@ -88,17 +99,17 @@ export const RemoteFix = Action.make("issue-sweep/remote-fix", {
     text: IssueText,
     placement: Schema.Literals(["vm", "cloud"])
   }),
-  success: Report,
+  success: Remoted,
   error: AgentFailed,
   nondeterministic: true
 })
 
-/** Records a remote run's patch as a local change on the base it was made against, so it lands like a local one. */
+/** Lands a remote run's work as one change on `main` in a workspace of its own, so it lands like a local one. */
 export const Adopt = Action.make("issue-sweep/adopt", {
-  payload: Schema.Struct({ repo: Schema.String, issue: Schema.Number, title: Schema.String, remote: Report }),
+  payload: Schema.Struct({ repo: Schema.String, issue: Schema.Number, title: Schema.String, remote: Remoted }),
   success: Report,
   error: Schema.Union([AgentFailed, WorkspaceFailed]),
-  idempotencyKey: { adopt: "issue-sweep/v1" }
+  idempotencyKey: { adopt: "issue-sweep/v2" }
 })
 
 export const Fix = Action.make("issue-sweep/fix", {
@@ -113,8 +124,9 @@ export default Flow.make("issue-sweep/work", {
   capabilities: [
     "proc:spawn:gh issue view *",
     "proc:spawn:jj -R *",
+    // SandboxMerge.apply builds a remote run's change in the repository's git store.
+    "proc:spawn:git --git-dir *",
     "proc:spawn:pnpm *",
-    "proc:spawn:codex *",
     "proc:spawn:codex-rr *",
     "proc:spawn:claude-rr *"
   ],
@@ -233,37 +245,65 @@ const jj = (directory: string, args: ReadonlyArray<string>) =>
     agentFailed
   )
 
+/** Where one issue's jj workspace lives: its directory, its name, and the repository it belongs to. */
+export interface Place {
+  readonly repository: string
+  readonly directory: string
+  readonly name: string
+}
+
+/** The issue's workspace beside the sweep's checkout. */
+const placeOf = (issue: number): Place => ({
+  repository,
+  directory: workspaceOf(issue),
+  name: workspaceName(issue)
+})
+
 /**
- * Adds the issue's jj workspace at `main` beside the checkout and installs its
- * locked dependencies. A workspace left by an earlier attempt is forgotten and
- * removed first; its change, if it described one, stays in the repository.
+ * Forgets and removes the workspace at `place`. Its change, if it described
+ * one, stays in the repository.
  */
-export const removeWorkspace = (issue: number) =>
+const forget = (place: Place) =>
   Effect.gen(function*() {
-    const directory = workspaceOf(issue)
-    if (existsSync(directory)) {
+    if (existsSync(place.directory)) {
       // Snapshot first, so edits that never became a change survive in the store.
-      yield* Effect.ignore(onHost("jj", ["-R", directory, "status"]))
+      yield* Effect.ignore(onHost("jj", ["-R", place.directory, "status"]))
     }
-    yield* Effect.ignore(onHost("jj", ["-R", repository, "workspace", "forget", workspaceName(issue)]))
-    yield* Effect.promise(() => rm(directory, { recursive: true, force: true }))
+    yield* Effect.ignore(onHost("jj", ["-R", place.repository, "workspace", "forget", place.name]))
+    yield* Effect.promise(() => rm(place.directory, { recursive: true, force: true }))
   })
 
-/** Adds the issue's workspace at `revision`; an agent working in it also needs its dependencies. */
-const addWorkspace = (issue: number, revision: string, withDependencies: boolean) =>
+/** Forgets and removes the issue's workspace. */
+export const removeWorkspace = (issue: number) => forget(placeOf(issue))
+
+/**
+ * Adds the workspace at `place` with its working copy on top of `revision`.
+ * A workspace left by an earlier attempt is removed first.
+ */
+const addWorkspace = (place: Place, revision: string) =>
   Effect.gen(function*() {
-    const directory = workspaceOf(issue)
-    yield* removeWorkspace(issue)
-    yield* jj(repository, ["workspace", "add", directory, "--name", workspaceName(issue), "-r", revision])
-    const base = (yield* jj(directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
-    if (withDependencies) yield* install(directory)
-    return { directory, base }
+    yield* forget(place)
+    yield* jj(place.repository, ["workspace", "add", place.directory, "--name", place.name, "-r", revision])
   }).pipe(
-    Effect.tapError(() => removeWorkspace(issue)),
+    Effect.tapError(() => forget(place)),
     Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message }))
   )
 
-const prepareWorkspace = PrepareWorkspace.toLayer((input) => addWorkspace(input.issue, "main", true))
+/** The issue's workspace at `main`, with its locked dependencies installed for the agent. */
+const prepareWorkspace = PrepareWorkspace.toLayer((input) => {
+  const place = placeOf(input.issue)
+  return Effect.gen(function*() {
+    yield* addWorkspace(place, "main")
+    const base = (yield* jj(place.directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
+    yield* install(place.directory)
+    return { directory: place.directory, base }
+  }).pipe(
+    Effect.tapError(() => forget(place)),
+    Effect.mapError((cause) =>
+      cause instanceof WorkspaceFailed ? cause : new WorkspaceFailed({ message: cause.message })
+    )
+  )
+})
 
 // The longest one agent may work on one issue before the flow stops it.
 const agentBudget = Duration.hours(2)
@@ -365,10 +405,10 @@ const fix = Fix.toLayer((input) =>
 )
 
 // ---------------------------------------------------------------------------
-// Smithers Cloud
+// Remote placements: a local microVM or Smithers Cloud
 // ---------------------------------------------------------------------------
 
-/** Runs `command` on whatever spawner is ambient: inside the Cloud workspace below. */
+/** Runs `command` on whatever spawner is ambient: inside the machine below. */
 const run = (command: string, args: ReadonlyArray<string>) =>
   Effect.scoped(Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
@@ -383,7 +423,7 @@ const run = (command: string, args: ReadonlyArray<string>) =>
     )
   })).pipe(Effect.catchTag("PlatformError", (cause) => new AgentFailed({ message: `${command}: ${cause.message}` })))
 
-// The guest checkout CloudSandbox creates, and where the borrowed login goes.
+// The guest checkout both providers create, and where the borrowed login goes.
 const guestCheckout = "/home/developer/workspace"
 const guestCodexHome = "/home/developer/.codex-sweep"
 
@@ -405,15 +445,89 @@ const codexAccountFor = (issue: number) =>
     return account
   })
 
-/** The isolated machine a remote fix runs in. */
-const machine = (placement: "vm" | "cloud", repo: string, issue: number) =>
-  Effect.gen(function*() {
-    const session = { session: `issue-sweep:${repo}#${issue}` }
-    if (placement === "vm") return Sandbox.layerHost(LocalVm.provider(), session)
+/** The machines a remote fix runs in. */
+const providerFor = (placement: "vm" | "cloud", repo: string) =>
+  placement === "vm"
+    ? Effect.succeed<Sandbox.Provider>(LocalVm.provider())
     // ssh must read the host-key pin CloudSandbox writes under ~/.local/state.
-    const spawner = yield* Effect.provide(ChildProcessSpawner, NodeServices.layer)
-    return Sandbox.layerHost(CloudSandbox.make({ spawner, repository: repo, namePrefix: "issue-sweep-" }), session)
-  })
+    : Effect.map(
+      Effect.provide(ChildProcessSpawner, NodeServices.layer),
+      (spawner): Sandbox.Provider => CloudSandbox.make({ spawner, repository: repo, namePrefix: "issue-sweep-" })
+    )
+
+/** The session key of one issue's machine. */
+const sessionOf = (repo: string, issue: number) => `issue-sweep:${repo}#${issue}`
+
+/**
+ * Runs `body` on one machine from `provider` and answers its answer with the
+ * work the machine's checkout gained, captured before the machine goes.
+ * The work is measured from the commit the machine's checkout sat on once
+ * acquired, which is never a commit the machine made, so the host resolves
+ * it. A machine whose checkout ends where it started made no change, and
+ * that is a failure.
+ */
+export const fixRemotely = <R>(
+  provider: Sandbox.Provider,
+  session: string,
+  body: Effect.Effect<typeof Remote.Type, AgentFailed, R>
+) =>
+  Sandbox.run(provider, { session }, body).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof AgentFailed ? cause : new AgentFailed({ message: `${session}: ${cause.message}` })
+    ),
+    Effect.flatMap((ran) =>
+      ran.work._tag === "Unchanged"
+        ? Effect.fail(
+          new AgentFailed({ message: `${ran.result.account} on ${session}: no change: ${tail(ran.result.report, 5)}` })
+        )
+        : Effect.succeed(ran)
+    )
+  )
+
+/**
+ * Codex fixes the issue in the machine's checkout with a borrowed login.
+ * Everything here runs inside the machine: run() spawns there, FileSystem
+ * writes there.
+ */
+const codexInGuest = (account: string, login: string, where: string, prompt: string) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(guestCodexHome, { recursive: true })
+    yield* fs.writeFileString(`${guestCodexHome}/auth.json`, login)
+    const [stdout, stderr, code] = yield* run("sh", [
+      "-c",
+      // The Cloud image has node but no codex, and /usr/local is root's: install per user.
+      // codex exec reads a piped stdin as more prompt, and the guest's stays open: close it.
+      `PATH="$HOME/.local/bin:$PATH"; command -v codex >/dev/null || ` +
+      `{ npm install -g --prefix "$HOME/.local" @openai/codex >&2 && rm -rf "$NPM_CONFIG_CACHE"; } || exit 127; ` +
+      `cd ${guestCheckout} && CODEX_HOME=${guestCodexHome} codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
+      `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1" </dev/null`,
+      "sh",
+      prompt
+    ]).pipe(
+      Effect.timeoutOrElse({
+        duration: agentBudget,
+        orElse: () =>
+          Effect.fail(
+            new AgentFailed({ message: `codex on ${where}: no answer within ${Duration.format(agentBudget)}` })
+          )
+      })
+    )
+    // Codex may refresh the login during the run; a refresh rotates the
+    // refresh token, so the host copy must follow or that account is lost.
+    const refreshed = yield* fs.readFileString(`${guestCodexHome}/auth.json`)
+    if (refreshed !== login) {
+      yield* Effect.tryPromise({
+        try: () => writeFile(loginFile(account), refreshed, { mode: 0o600 }),
+        catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
+      })
+    }
+    yield* fs.remove(guestCodexHome, { recursive: true })
+    if (code !== 0) {
+      return yield* new AgentFailed({ message: `${account} on ${where}: exit ${code}: ${tail(stderr)}` })
+    }
+    return { agent: "codex" as const, account, report: stdout.trim() }
+  }).pipe(Effect.mapError(agentFailed))
 
 const remoteFix = RemoteFix.toLayer((input) =>
   Effect.gen(function*() {
@@ -422,100 +536,64 @@ const remoteFix = RemoteFix.toLayer((input) =>
       try: () => readFile(loginFile(account), "utf8"),
       catch: () => new AgentFailed({ message: `${account}: no auth.json` })
     })
-    const where = input.placement
-    const isolated = yield* machine(where, input.repo, input.issue)
-    // Everything below runs inside the machine: run() spawns there, FileSystem writes there.
-    return yield* Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      yield* fs.makeDirectory(guestCodexHome, { recursive: true })
-      yield* fs.writeFileString(`${guestCodexHome}/auth.json`, login)
-      // The agent's change is whatever lies between main and the checkout's end.
-      // The machine's refresh leaves an empty @ on main@origin; that @ exists
-      // only in the machine, so the base is its parent, which the host can fetch.
-      const [start] = yield* run("jj", ["-R", guestCheckout, "log", "-r", "@-", "--no-graph", "-T", "commit_id"])
-      const [stdout, stderr, code] = yield* run("sh", [
-        "-c",
-        // The Cloud image has node but no codex, and /usr/local is root's: install per user.
-        // codex exec reads a piped stdin as more prompt, and the guest's stays open: close it.
-        `PATH="$HOME/.local/bin:$PATH"; command -v codex >/dev/null || ` +
-        `{ npm install -g --prefix "$HOME/.local" @openai/codex >&2 && rm -rf "$NPM_CONFIG_CACHE"; } || exit 127; ` +
-        `cd ${guestCheckout} && CODEX_HOME=${guestCodexHome} codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
-        `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1" </dev/null`,
-        "sh",
-        brief(input.repo, input.issue, input.text)
-      ]).pipe(
-        Effect.timeoutOrElse({
-          duration: agentBudget,
-          orElse: () =>
-            Effect.fail(
-              new AgentFailed({ message: `codex on ${where}: no answer within ${Duration.format(agentBudget)}` })
-            )
-        })
-      )
-      // Codex may refresh the login during the run; a refresh rotates the
-      // refresh token, so the host copy must follow or that account is lost.
-      const refreshed = yield* fs.readFileString(`${guestCodexHome}/auth.json`)
-      if (refreshed !== login) {
-        yield* Effect.tryPromise({
-          try: () => writeFile(loginFile(account), refreshed, { mode: 0o600 }),
-          catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
-        })
-      }
-      yield* fs.remove(guestCodexHome, { recursive: true })
-      if (code !== 0) {
-        return yield* new AgentFailed({ message: `${account} on ${where}: exit ${code}: ${tail(stderr)}` })
-      }
-      const range = ["--from", start.trim(), "--to", "@"]
-      const [changed] = yield* run("jj", ["-R", guestCheckout, "diff", "--stat", ...range])
-      const [patch] = yield* run("jj", ["-R", guestCheckout, "diff", "--git", ...range])
-      if (patch.trim() === "") {
-        return yield* new AgentFailed({ message: `${account} on ${where}: no change: ${tail(stdout, 5)}` })
-      }
-      return {
-        agent: "codex" as const,
-        account,
-        workspace: `${where}:${input.repo}#${input.issue}`,
-        base: start.trim(),
-        change: "",
-        report: stdout.trim(),
-        changed: changed.trim(),
-        patch
-      }
-    }).pipe(
-      Effect.provide(isolated),
-      Effect.mapError((cause) =>
-        cause instanceof AgentFailed ? cause : new AgentFailed({ message: `${where}: ${String(cause)}` })
-      )
+    const provider = yield* providerFor(input.placement, input.repo)
+    return yield* fixRemotely(
+      provider,
+      sessionOf(input.repo, input.issue),
+      codexInGuest(account, login, input.placement, brief(input.repo, input.issue, input.text))
     )
   })
 )
 
 /**
- * Applies a remote run's patch in a local workspace at the base it was made
- * against, and records it as one change, as a local agent's edits are.
+ * Lands a remote run's work as one described change on `main` in
+ * `place.repository`, adds the workspace at `place` on top of it, and
+ * reports it as a local agent's work is reported, so the parent lands both
+ * the same way.
+ *
+ * The change's id derives from the session, the base and the patch: a
+ * replayed adoption of the same journaled work answers the change it already
+ * made, and a later run whose agent produced different edits on the same
+ * `main` gets a change of its own. Work that conflicts with `main` fails
+ * naming the paths, and no change is left behind.
  */
-const adopt = Adopt.toLayer((input) =>
+export const adoptWork = (remote: typeof Remoted.Type, place: Place, message: string) =>
   Effect.gen(function*() {
-    // The machine fetched main itself; this repository may not have that commit yet.
-    yield* Effect.mapError(output("jj", ["-R", repository, "git", "fetch", "--branch", "main"]), agentFailed)
-    // Only the landing checks need dependencies, and landing installs them.
-    const { directory, base } = yield* addWorkspace(input.issue, input.remote.base, false)
-    const patchFile = `${directory}/.issue-sweep.patch`
-    yield* Effect.promise(() => writeFile(patchFile, input.remote.patch))
-    const applied = yield* Effect.mapError(
-      onHost("git", ["apply", "--whitespace=nowarn", patchFile], { cwd: directory }),
-      agentFailed
-    )
-    yield* Effect.promise(() => rm(patchFile, { force: true }))
-    if (applied.code !== 0) {
-      return yield* new AgentFailed({
-        message: `the ${input.remote.workspace} patch does not apply: ${tail(applied.stderr)}`
-      })
+    const { result, work } = remote
+    if (work._tag === "Unchanged") {
+      return yield* new AgentFailed({ message: `${result.account} on ${work.session}: no change` })
     }
-    const change = yield* recordChange(directory, base, commitMessage(input.remote.report, input.issue, input.title))
-    if (change === undefined) return yield* new AgentFailed({ message: `the ${input.remote.workspace} patch is empty` })
-    return { ...input.remote, workspace: directory, base, change }
+    const outcome = yield* SandboxMerge.apply(work, {
+      repository: place.repository,
+      onto: "main",
+      message,
+      key: `issue-sweep\0${work.session}\0${work.base}\0${work.patch}`,
+      // The machine fetched main itself; this repository may not have that commit yet.
+      fetch: ["--branch", "main"],
+      strategy: SandboxMerge.failOnConflict
+    }).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.mapError((cause) => new AgentFailed({ message: `the ${work.session} work: ${cause.message}` }))
+    )
+    if (outcome._tag !== "Merged") {
+      return yield* new AgentFailed({ message: `the ${work.session} work did not merge cleanly onto main` })
+    }
+    // Only the landing checks need dependencies, and landing installs them.
+    yield* addWorkspace(place, outcome.change)
+    const changed = (yield* jj(place.directory, ["diff", "--stat", "-r", outcome.change])).trim()
+    const patch = yield* jj(place.directory, ["diff", "--git", "-r", outcome.change])
+    return {
+      ...result,
+      workspace: place.directory,
+      base: outcome.onto,
+      change: outcome.change,
+      changed,
+      patch
+    }
   })
+
+const adopt = Adopt.toLayer((input) =>
+  adoptWork(input.remote, placeOf(input.issue), commitMessage(input.remote.result.report, input.issue, input.title))
 )
 
 export const layer = Layer.mergeAll(fetchIssue, prepareWorkspace, fix, remoteFix, adopt)

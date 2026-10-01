@@ -36,6 +36,7 @@ Every namespace is also its own subpath, and `./internal/*` is null mapped.
 | `@smthrs/sandbox/ProviderConformance`       | [src/ProviderConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ProviderConformance)             |
 | `@smthrs/sandbox/Sandbox`                   | [src/Sandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/Sandbox)                                     |
 | `@smthrs/sandbox/SandboxConformance`        | [src/SandboxConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxConformance)               |
+| `@smthrs/sandbox/SandboxMerge`              | [src/SandboxMerge/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxMerge)                           |
 | `@smthrs/sandbox/DirectorySandbox`          | [src/DirectorySandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/DirectorySandbox)                   |
 | `@smthrs/sandbox/CommandSandbox`            | [src/CommandSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/CommandSandbox)                       |
 | `@smthrs/sandbox/ContainerSandbox`          | [src/ContainerSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ContainerSandbox)                   |
@@ -203,6 +204,85 @@ const children = Sandbox.fanOut(session, { count: 16 }) // Effect<ReadonlyArray<
 
 `fanOut(session, { count, concurrency? })` forks `count` children, 1 to `maxFanOut` (128), from a session that declares `fork`. Each run is a new batch: it forks one base from the session, then every child from that base, so the children share one starting tree while the session keeps changing. Children are keyed `<session id>/<batch>/child-<n>`, start without the session's credentials, and are released with the base when the acquiring scope closes, so a fan-out inside the parent's scope never outlives the parent. A count outside the bound throws a `RangeError`; a machine without `fork` fails with `unavailable`; one failed fork fails the fan-out, and machines already forked are released with the scope. `DirectorySandbox` forks by copying the session directory without vendor sign-ins (`.claude/.credentials.json`, `.claude.json`, `.codex/auth.json`, `.config/anthropic`); `TestSession` forks its in-memory tree and leaves behind the paths named in `credentials`.
 
+### Return work from a session
+
+```ts
+const { result, work } = yield * Sandbox.run(provider, { session: "issue:42" }, agent)
+```
+
+`run(provider, options, body)` acquires one session, runs `body` with the session's `Host` services (`ChildProcessSpawner`, `FileSystem`, `Path`, `SandboxHealth`), captures the checkout, and releases the session. It answers `{ result, work }` and fails with the body's error, `ProviderError`, or `CaptureError`. A body that fails captures no work.
+
+| Option     | Default           | Meaning                                                                      |
+| ---------- | ----------------- | ---------------------------------------------------------------------------- |
+| `session`  | required          | the session key                                                              |
+| `base`     | `HEAD`            | the git revision the work is measured from, resolved right after acquisition |
+| `checkout` | `Session.workdir` | the guest path of the git work tree; it must be the work tree's top          |
+| `health`   | 5-second deadline | the `SandboxHealth` probe options, as for `layerHost`                        |
+
+The base is resolved after the provider hands over the session, so a provider that refreshes its checkout during acquisition is measured from the commit it refreshed to. In a jj-colocated checkout `HEAD` is the parent of the working-copy change, never a change made in the guest. The capture runs inside the scope that holds the machine, before teardown.
+
+`Work` is `Changed { session, base, patch }` or `Unchanged { session, base }`, both `Schema.TaggedClass`. `base` is a full commit id. `patch` is `git diff --cached --binary --full-index --find-renames` from `base` to the checkout's final tree, computed through a private copy of the index: committed and uncommitted edits, untracked files, deletions, renames, mode changes, and binary contents are all included, and `.gitignore`d files are not. The checkout's index and history are not changed. The guest needs `git`.
+
+`Sandboxed(resultSchema)` is `Schema.Struct({ result: resultSchema, work: Work })`. Use it as an action's success so the journal records the work with the result.
+
+`resolveBase(session, { checkout?, revision? })` and `capture(session, { checkout?, base })` are the two halves `run` composes, for a caller that holds its own session. Call `capture` while the session is still held.
+
+| `CaptureError.reason` | Cause                                                                     |
+| --------------------- | ------------------------------------------------------------------------- |
+| `not_a_repository`    | the checkout is not the top of a git work tree, or the guest has no `git` |
+| `base_unresolved`     | the base revision names no commit in the checkout                         |
+| `capture_failed`      | `git` failed while diffing                                                |
+
+`hostContext(session, { health? })` builds the `Host` context `layerHost` provides from a session the caller already holds; it requires a `Scope`. `layerHost` and `run` both use it.
+
+## SandboxMerge
+
+```ts
+import { SandboxMerge } from "@smthrs/sandbox"
+
+const outcome = yield* SandboxMerge.apply(work, {
+  repository: "/srv/repo",
+  onto: "main",
+  message: "Fix #42"
+})
+```
+
+`apply(work, options)` lands a session's `Work` in a host jj repository as one jj change on `onto`. The patch is applied to its own base, then the change is rebased onto `onto`, so jj merges whatever `onto` gained since the base. It requires `ChildProcessSpawner` and `FileSystem`, and `jj` and `git` on the host's `PATH`.
+
+| `ApplyOptions` | Default                  | Meaning                                                                     |
+| -------------- | ------------------------ | --------------------------------------------------------------------------- |
+| `repository`   | required                 | the host jj repository's root directory                                     |
+| `onto`         | required                 | a jj revision naming one commit, the change's parent                        |
+| `message`      | required                 | the change's description                                                    |
+| `key`          | session, base, and patch | what makes two applications the same; the change id derives from it         |
+| `fetch`        | `[]`                     | arguments to `jj git fetch` when the base is missing; `false` never fetches |
+| `strategy`     | `recordConflicts`        | what a conflict means                                                       |
+
+`Outcome` is `Merged { change, commit, onto }`, `Conflicted { change, commit, onto, paths }`, or the work's own `Unchanged`, which applies as nothing. `change` is the jj change id; `commit` and `onto` are commit ids. A `Conflicted` change exists and records jj conflicts in `paths`, as `jj rebase` would.
+
+`apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
+
+| `MergeError.reason`   | Cause                                                                     |
+| --------------------- | ------------------------------------------------------------------------- |
+| `base_not_found`      | the work's base is not in the repository, even after the configured fetch |
+| `onto_unresolved`     | `onto` does not name exactly one commit                                   |
+| `patch_rejected`      | the patch does not apply to its own base                                  |
+| `conflict`            | `failOnConflict` met a conflict; `paths` names it                         |
+| `resolution_rejected` | a resolver's answer still has conflicts or does not descend from `onto`   |
+| `vcs_failed`          | `jj` or `git` failed on the host                                          |
+
+A `Strategy<E, R>` has one method, `onConflict(conflicted, repository)`, answering `Merged`, `Conflicted`, or a failure. `apply` lands the change before calling it.
+
+| Strategy                | On conflict                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `recordConflicts`       | answers `Conflicted`; the default                                                                                                          |
+| `failOnConflict`        | abandons the change and fails with `conflict`; the work stays in the journal                                                               |
+| `resolveWith(resolver)` | the resolver answers `{ change }`; it must name one commit descending from `onto` with no conflicts on the way, else `resolution_rejected` |
+
+`Repository` is what a strategy receives: `path`, the repository root, and `jj(args)`, which runs `jj -R <path> --ignore-working-copy` and answers standard output or fails with `vcs_failed`.
+
+See [Return work from a sandbox](./guides/return-work-from-a-sandbox.md) for the two steps as flow actions.
+
 ## SandboxConformance
 
 ```ts
@@ -214,6 +294,8 @@ const violations = yield* SandboxConformance.check(provider, {
 ```
 
 Each check acquires a fresh session. The file checks verify binary, empty, and 64 KiB byte round-trips, `not_found`, parent creation, the default workdir and a relative `cwd`, environment delivery, standard input delivery (verified through `readFile`, so a pseudo-terminal transport is not penalized for its output), standard error arriving on one of the two streams, and a working release-then-reacquire cycle. Two checks deliberately cross surfaces: `files-reach-processes` writes through `writeFile` and measures the file with `wc -c` in a process, and `processes-reach-files` has a process produce a file that `readFile` must return, so a session serving files from anywhere but the machine its processes run on cannot pass. The suite then projects the provider through `Sandbox.commandProvider` and delegates spawn, exit, stdin, ping, and process-stop checks to `ProviderConformance`, whose kill check also runs the fixture's `survivor` probe: after a kill, a command that can still be found running on the machine is a violation even though its wrapper exited. Assert that the returned array is empty.
+
+`CheckOptions.work` adds `captures-its-work` and `captures-no-work`, which run `resolveBase` and `capture` in the guest against a `WorkSeed`: a `git bundle` and the commit id `base` whose tree holds `workSeedFiles`. The guest needs `git`; the suite runs no host `git`.
 
 `CheckOptions.checkTimeout` bounds every check, its own and the delegated suite's alike, on the platform timer. The default fixture is `uniquePosixCommands`, whose sleep duration is this process's own, so two suites running side by side on one host cannot mistake each other's fixture for a survivor. That uniqueness is drawn from Web Crypto and never from a process id, because this module is part of a browser-bundleable package and a free `process` identifier survives a bundle to throw in a browser.
 
@@ -498,6 +580,7 @@ and names the providers whose command output is not byte exact.
 
 Task-shaped walkthroughs of everything above:
 [place a flow body on a machine](./guides/place-a-flow-body-on-a-machine.md),
+[return work from a sandbox](./guides/return-work-from-a-sandbox.md),
 [run commands through a transport](./guides/run-commands-through-a-transport.md),
 [choose a provider](./guides/choose-a-provider.md),
 [supervise a session](./guides/supervise-a-session.md),

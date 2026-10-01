@@ -129,31 +129,30 @@ Every sandboxed refusal is one error class with a `code` that names it, and a
 message that quotes the guest's stdout and stderr where they help. The tail of
 each stream is quoted, cut at 4 KiB and marked when it was cut.
 
-| `code`              | What happened                                                                                                         | What to change                                                                                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bundle_failed`     | esbuild could not bundle the `entry` module.                                                                          | Check that `entry` is a `file:` URL or an absolute path to a real module, and that its imports resolve. A remote URL is not a valid entry.                                                             |
-| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                              | Read the message: it names which operation, whether it was writing the bundle, writing the request, spawning the runtime, reading the result back, listing the workspace, or reading one changed file. |
-| `guest_failed`      | The guest runtime exited non-zero. Exit 126 or 127 means the image has no runnable runtime, and the message names it. | Put `node` 22 or later, or `bun`, on the guest's `PATH`. Nothing is installed for you. For any other non-zero exit, read the quoted stderr.                                                            |
-| `flow_failed`       | The child flow ran and reported a failure, or the entry exports no flow with the requested tag.                       | The message carries the child's error as its tag and fields, not a stack trace. An "exports no flow tagged" message means the entry module does not export the flow you passed.                        |
-| `result_unreadable` | The guest exited 0 but wrote no result, or wrote something that is not the protocol's JSON.                           | Usually the runtime ran something other than the bundle. Check the `runtime` command line and the quoted stdout.                                                                                       |
-| `result_invalid`    | The guest's `output` does not decode through the flow's success schema.                                               | The host's declaration has drifted from the one the guest bundled: same tag, different success schema. Rebuild against one declaration.                                                                |
-| `result_overflow`   | The result JSON is larger than `limits.resultBytes` (5 MiB by default).                                               | Return less, or raise the bound. The message quotes both numbers.                                                                                                                                      |
-| `diff_overflow`     | The diff exceeds `limits.files` or `limits.diffBytes`.                                                                | Narrow what the child writes, or raise the bound. The message quotes the limit; a byte refusal also quotes the measured total.                                                                         |
-| `diff_unsafe`       | A changed or deleted path is not a plain workspace-relative path.                                                     | The guest named a file with a backslash, a `.` or `..` segment, or a drive prefix. Rename it in the child.                                                                                             |
-| `deadline_exceeded` | The whole session outlived `options.timeout`, ten minutes by default.                                                 | Raise the timeout or shorten the child. The machine is released either way.                                                                                                                            |
+| `code`              | What happened                                                                                                         | What to change                                                                                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundle_failed`     | esbuild could not bundle the `entry` module.                                                                          | Check that `entry` is a `file:` URL or an absolute path to a real module, and that its imports resolve. A remote URL is not a valid entry.                                                    |
+| `session_failed`    | The provider could not acquire the machine, or a file or process operation on it failed.                              | Read the message: it names which operation, whether it was writing the bundle, writing the request, spawning the runtime, reading the result back, resolving the base, or capturing the work. |
+| `guest_failed`      | The guest runtime exited non-zero. Exit 126 or 127 means the image has no runnable runtime, and the message names it. | Put `node` 22 or later, or `bun`, on the guest's `PATH`. Nothing is installed for you. For any other non-zero exit, read the quoted stderr.                                                   |
+| `flow_failed`       | The child flow ran and reported a failure, or the entry exports no flow with the requested tag.                       | The message carries the child's error as its tag and fields, not a stack trace. An "exports no flow tagged" message means the entry module does not export the flow you passed.               |
+| `result_unreadable` | The guest exited 0 but wrote no result, or wrote something that is not the protocol's JSON.                           | Usually the runtime ran something other than the bundle. Check the `runtime` command line and the quoted stdout.                                                                              |
+| `result_invalid`    | The guest's `output` does not decode through the flow's success schema.                                               | The host's declaration has drifted from the one the guest bundled: same tag, different success schema. Rebuild against one declaration.                                                       |
+| `result_overflow`   | The result JSON is larger than `limits.resultBytes` (5 MiB by default).                                               | Return less, or raise the bound. The message quotes both numbers.                                                                                                                             |
+| `diff_overflow`     | The captured patch exceeds `limits.diffBytes`.                                                                        | Narrow what the child writes, or raise the bound. The message quotes the patch size and the limit.                                                                                            |
+| `capture_failed`    | `captureWork` was on and git refused the capture; the message starts with the reason.                                 | `not_a_repository`: make the workdir the top of a git work tree and put `git` on the guest's `PATH`. `base_unresolved`: give the repository a commit. Otherwise read git's quoted stderr.     |
+| `deadline_exceeded` | The whole session outlived `options.timeout`, ten minutes by default.                                                 | Raise the timeout or shorten the child. The machine is released either way.                                                                                                                   |
 
-## A file the child edited is missing from the diff
+## A file the child wrote is missing from the work
 
-**Symptom.** `collectDiff` was on, the child rewrote a file, and it is not in
-`result.diff`.
+**Symptom.** `captureWork` was on, the child wrote a file, and the patch in
+`result.work` does not touch it.
 
-**Cause.** Change detection compares sizes by path against a snapshot taken
-before the guest ran. A file rewritten in place at exactly its previous size is
-the one edit it misses, and that can only happen on a reattached workspace.
+**Cause.** The workdir's `.gitignore` excludes the path. Ignored files are not
+work.
 
-**Fix.** Have the child write to new paths, or compute the change inside the
-child and return it in `output`. See
-[Collect the files a sandboxed child wrote](/guides/collect-a-workspace-diff/).
+**Fix.** Write the file to a path the repository tracks, or return its content
+in `output`. See
+[Capture the work a sandboxed child did](/guides/collect-a-workspace-diff/).
 
 ## Two executions fought over one machine
 

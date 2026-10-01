@@ -26,6 +26,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Action, Engine, Flow, Interpreter } from "../src/index.ts"
 import * as SandboxedFlow from "../src/SandboxedFlow.ts"
+import { changed, patchedPaths, repository } from "./fixtures/repository.ts"
 import { Guarded, ReadOnly, touch } from "./fixtures/sandboxed-guarded.ts"
 import * as guarded from "./fixtures/sandboxed-guarded.ts"
 
@@ -123,11 +124,11 @@ describe("SandboxedFlow carries the caller's capability ceiling to the guest", (
       Effect.gen(function*() {
         const seen = { keys: [] as Array<string>, requests: [] as Array<unknown> }
         const result = yield* run(Guarded, "allowed.txt", {
-          provider: recording(yield* provider, seen),
-          collectDiff: true
+          provider: recording(repository(yield* provider), seen),
+          captureWork: true
         }).pipe(CapabilitySet.attenuate([writeAnywhere]))
         expect(result.output).toBe("allowed.txt")
-        expect(result.diff.map((file) => file.path)).toEqual(["allowed.txt"])
+        expect(patchedPaths(changed(result.work).patch)).toEqual(["allowed.txt"])
         expect(wire(result.capabilityCeiling)).toEqual([[{ action: "fs:write", resource: "**" }]])
         expect(seen.requests).toEqual([
           expect.objectContaining({ capabilityCeiling: [[{ action: "fs:write", resource: "**" }]] })
@@ -138,9 +139,9 @@ describe("SandboxedFlow carries the caller's capability ceiling to the guest", (
 
   it.live("sends no groups for an unrestricted caller and a flow that declares none", () =>
     Effect.gen(function*() {
-      const result = yield* run(Guarded, "open.txt", { collectDiff: true })
+      const result = yield* run(Guarded, "open.txt", { provider: repository(yield* provider), captureWork: true })
       expect(result.output).toBe("open.txt")
-      expect(result.diff.map((file) => file.path)).toEqual(["open.txt"])
+      expect(patchedPaths(changed(result.work).patch)).toEqual(["open.txt"])
       expect(result.capabilityCeiling).toEqual([])
     }), 60_000)
 
@@ -149,7 +150,9 @@ describe("SandboxedFlow carries the caller's capability ceiling to the guest", (
     () =>
       Effect.gen(function*() {
         const remote = yield* Effect.flip(
-          run(Guarded, "denied.txt", { collectDiff: true }).pipe(CapabilitySet.attenuate([readAnywhere]))
+          run(Guarded, "denied.txt", { provider: repository(yield* provider), captureWork: true }).pipe(
+            CapabilitySet.attenuate([readAnywhere])
+          )
         )
         const local = yield* Effect.flip(runLocally("denied.txt", [readAnywhere]))
         expect(remote).toBeInstanceOf(PermissionDenied)

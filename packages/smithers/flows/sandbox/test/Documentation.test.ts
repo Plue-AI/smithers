@@ -38,6 +38,22 @@ it("typechecks the guide's host-side lookup of a provider by name", () => {
   ].join("\n"))
 }, 60_000)
 
+it("typechecks the return-work guide's actions and resolver strategy", () => {
+  const blocks = fences(read("docs/guides/return-work-from-a-sandbox.md"))
+  const actions = blocks.find((block) => block.includes("SandboxMerge.apply"))
+  const strategy = blocks.find((block) => block.includes("SandboxMerge.resolveWith"))
+  expect(actions).toBeDefined()
+  expect(strategy).toBeDefined()
+  checkFences([
+    actions!,
+    "declare const provider: Sandbox.Provider",
+    "declare const agent: (issue: number) => import(\"effect/Effect\").Effect<string, never, Sandbox.Host>",
+    "declare const resolveInWorkspace: (change: string, path: string) =>",
+    "  import(\"effect/Effect\").Effect<{ readonly change: string }>",
+    strategy!
+  ].join("\n"))
+}, 60_000)
+
 it("links README limits to the authored limits page without copying its table", () => {
   const limits = read("README.md").split("## Limits\n")[1]!
   expect(limits).toMatch(/\[Limits\]\(https:\/\/sandbox\.smithers\.sh\/limits\/\)/)

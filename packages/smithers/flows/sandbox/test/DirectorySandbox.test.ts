@@ -18,6 +18,7 @@ import * as Sandbox from "../src/Sandbox/index.ts"
 import * as SandboxConformance from "../src/SandboxConformance/index.ts"
 import { contain, platform, rawPlatform } from "./helpers/containedPlatform.ts"
 import { untouchable } from "./helpers/untouchable.ts"
+import { makeWorkSeed } from "./helpers/workSeed.ts"
 
 const isErrno = (cause: unknown, code: string): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && cause.code === code
@@ -224,11 +225,13 @@ describe("DirectorySandbox", () => {
       Effect.gen(function*() {
         const directory = yield* provider
         const violations = yield* SandboxConformance.check(directory, {
-          provides: { kill: true, ping: true }
+          provides: { kill: true, ping: true },
+          work: makeWorkSeed()
         })
         expect(violations).toEqual([])
       }),
-    budget
+    // The work checks add two sessions of git round trips to the suite.
+    120_000
   )
 
   it.effect(

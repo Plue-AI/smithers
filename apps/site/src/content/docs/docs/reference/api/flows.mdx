@@ -396,10 +396,10 @@ const run = Effect.gen(function*() {
     session: "child-1",
     entry: new URL("./child.ts", import.meta.url),
     runtime: "node",
-    collectDiff: true
+    captureWork: true
   })
   // result.output is Child's success value, decoded through Child's own schema.
-  // result.diff is the files the guest created, as { path, bytes } data.
+  // result.work is the Sandbox.Work git patch the guest left in its checkout.
   return result
 })
 ```
@@ -426,7 +426,7 @@ class SandboxedFlowError extends Schema.TaggedError("@smthrs/flows/SandboxedFlow
     | "result_invalid"
     | "result_overflow"
     | "diff_overflow"
-    | "diff_unsafe"
+    | "capture_failed"
     | "deadline_exceeded"
   message: string
   cause?: unknown
@@ -444,8 +444,8 @@ The failure type every protocol refusal in this module raises.
 | `result_unreadable` | The guest exited 0 but wrote no result, or one that is not the protocol's JSON, belongs to another attempt, or echoes a different capability ceiling. |
 | `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                                                              |
 | `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                                                                         |
-| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                                                                      |
-| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.                                                        |
+| `diff_overflow`     | The captured patch exceeds `Limits.diffBytes`.                                                                                                        |
+| `capture_failed`    | Git refused the capture. The message starts with `not_a_repository`, `base_unresolved`, or `capture_failed`, the `Sandbox.CaptureError` reason.       |
 | `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                                                                  |
 
 Messages quote the tail of the guest's stdout and stderr where they help, cut at
@@ -470,13 +470,11 @@ local run of the child fails with.
 interface Limits {
   readonly resultBytes?: number | undefined
   readonly diffBytes?: number | undefined
-  readonly files?: number | undefined
 }
 
 interface ResolvedLimits {
   readonly resultBytes: number
   readonly diffBytes: number
-  readonly files: number
 }
 ```
 
@@ -489,19 +487,17 @@ its default.
 const defaultLimits: ResolvedLimits
 ```
 
-| Bound         | Default | What it caps                                      |
-| ------------- | ------- | ------------------------------------------------- |
-| `resultBytes` | 5 MiB   | The result JSON the guest wrote.                  |
-| `diffBytes`   | 100 MiB | The total bytes collected across the diff.        |
-| `files`       | 1,000   | The number of created or changed files collected. |
+| Bound         | Default | What it caps                     |
+| ------------- | ------- | -------------------------------- |
+| `resultBytes` | 5 MiB   | The result JSON the guest wrote. |
+| `diffBytes`   | 100 MiB | The captured patch.              |
 
-Limits are inclusive and count bytes, not characters. `resultBytes` includes
-the complete UTF-8 JSON envelope. Metadata can reject oversized files before
-transfer; reads stop at the byte budget plus one. Actual bytes, including any
-growth after stat, count toward `diffBytes` before each entry is appended.
-Native filesystem streams receive `bytesToRead`; other providers use guest
-`head -c`, which the image must supply. Zero permits no result bytes, no diff
-bytes (empty files are allowed), or no changed files, respectively.
+Limits are inclusive and count UTF-8 bytes, not characters. `resultBytes`
+includes the complete JSON envelope. Result metadata can reject an oversized
+file before transfer, and the read stops at the byte budget plus one. Native
+filesystem streams receive `bytesToRead`; other providers use guest `head -c`,
+which the image must supply. `diffBytes` bounds what the result carries into
+the journal; the capture reads the whole patch before the bound is checked.
 
 Guest stdout and stderr are drained concurrently with fixed-size diagnostic
 tails retaining at most 4 KiB each, plus a truncation marker. Redaction runs during collection; when a credential
@@ -516,39 +512,29 @@ overlong unfinished quoted credential suppresses the rest of that stream.
 | `session`     | `string`           | required        | The session key the machine is acquired under. An exclusive claim: two live executions with one key share a machine, and the first to finish tears it down under the other. Reusing a key is what resume looks like.           |
 | `entry`       | `URL \| string`    | required        | The module to bundle: a `file:` URL or an absolute path. It must export the flow being executed, under any name, and may export `layer`, an Effect `Layer` providing the implementations of the actions the flow's body names. |
 | `runtime`     | `string`           | `"node"`        | The guest executable that runs the bundle: `"node"`, `"bun"`, or an executable path. Each path is quoted as one shell word. Use a wrapper script for flags.                                                                    |
-| `collectDiff` | `boolean`          | `false`         | Whether to collect the files the guest created, changed, or deleted.                                                                                                                                                           |
-| `limits`      | `Limits`           | `defaultLimits` | Bounds on the result and the diff.                                                                                                                                                                                             |
+| `captureWork` | `boolean`          | `false`         | Whether to capture the workdir's changes as a `Sandbox.Work`. The workdir must be the top of a git work tree with `git` on the guest's `PATH`.                                                                                 |
+| `limits`      | `Limits`           | `defaultLimits` | Bounds on the result and the patch.                                                                                                                                                                                            |
 | `timeout`     | `Duration.Input`   | 10 minutes      | The wall-clock budget for the whole session, acquisition through result readback. Uses platform timers, including chunked timers for long finite budgets. `Duration.infinity` disables the deadline.                           |
 
-### `DiffEntry`, `Diff`, and `Result`
+### `Result`
 
 ```ts
-interface DiffEntry {
-  /** The path relative to the session workdir. */
-  readonly path: string
-  readonly bytes: Uint8Array
-}
-
 interface Result<A> {
   readonly output: A
-  readonly diff: ReadonlyArray<DiffEntry>
-  /** Workspace-relative paths that existed before the guest ran and were gone after. */
-  readonly deleted: ReadonlyArray<string>
+  /** The workspace's work, or null when captureWork was off. */
+  readonly work: Sandbox.Work | null
   /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted; null is no receipt. */
   readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null
 }
 
-const DiffEntry: Schema.Struct<{ path: Schema.String; bytes: Schema.Uint8Array }>
-const Diff: Schema.Array<typeof DiffEntry>
-const Deleted: Schema.Array<Schema.String> // decodes a missing key as []
+const CapturedWork: Schema.NullOr<typeof Sandbox.Work> // decodes a missing key as null
 const EnforcedCeiling: Schema.NullOr<Schema.Array<Schema.Array<typeof CapabilityPattern>>> // decodes a missing key as null
 ```
 
-One `DiffEntry` per file the guest created or changed, as it stood when the
-guest exited, and one `deleted` path per file it removed. A file counts as
-changed when its size or its modification time differs; a provider whose `stat`
-reports no modification time compares sizes alone. The schemas are
-JSON-encodable for the journal: the bytes serialize as base64.
+`work` is `Sandbox.Work` from [`@smthrs/sandbox`](/docs/reference/api/sandbox/): `Changed`
+with a `git diff --binary` patch from `base`, or `Unchanged`. It is plain
+tagged JSON, so the journal records it, and `SandboxMerge.apply` lands it on
+the host.
 `capabilityCeiling` is the receipt of the authority the child ran under. A
 result journaled before ceilings crossed the machine boundary has no receipt
 and decodes as `null`, which is not a claim of unrestricted authority.
@@ -558,8 +544,7 @@ and decodes as `null`, which is not a claim of unrestricted authority.
 ```ts
 type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
-  readonly diff: typeof Diff
-  readonly deleted: typeof Deleted
+  readonly work: typeof CapturedWork
   readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
@@ -592,11 +577,12 @@ The guest runs the child under the caller's current capability authority
 intersected with the child's own declaration, and can only narrow it. See
 [capability ceilings](https://flows.smithers.sh/concepts/runner-protocol/#capability-ceilings).
 
-Diff change detection compares sizes by path against a snapshot taken before the
-guest ran. A created file and a file whose size changed are collected; a file
-rewritten in place at its previous size on a reattached workspace is the one edit
-it misses. A fresh workspace holds nothing but the protocol's own files, so every
-file the child writes there is a creation.
+With `captureWork`, the base is the workdir's `HEAD`, resolved with
+`Sandbox.resolveBase` as soon as the session is acquired, and the work is
+captured with `Sandbox.capture` before the session is released. A workdir that
+is not a git repository fails with `capture_failed` before the guest runs; this
+replaces the stat snapshot that once listed changed files in any directory. See
+[Capture the work a sandboxed child did](https://flows.smithers.sh/guides/collect-a-workspace-diff/).
 
 ### `SandboxedAction` and `action`
 

@@ -9,12 +9,13 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
+import type * as Scope from "effect/Scope"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { rootedAt } from "../internal/rootedPath.ts"
 import { make } from "../RemoteChildProcessSpawner/layer.ts"
 import type { Provider as RemoteProvider } from "../RemoteChildProcessSpawner/Provider.ts"
 import type { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import * as SandboxHealth from "../SandboxHealth/index.ts"
-import { rootedAt } from "../internal/rootedPath.ts"
 import { fileSystem } from "./fileSystem.ts"
 import type { Provider } from "./Provider.ts"
 import type { Session } from "./Session.ts"
@@ -104,27 +105,42 @@ export interface LayerHostOptions {
 export const layerHost = (
   provider: Provider,
   options: LayerHostOptions
-): Layer.Layer<
-  ChildProcessSpawner | FileSystem.FileSystem | Path.Path | SandboxHealth.Service,
-  ProviderError
-> =>
-  Layer.effectContext(
-    Effect.gen(function*() {
-      const session = yield* provider.acquire(options.session)
-      const view = spawnerView(session)
-      const spawner = yield* make(view)
-      const path = yield* Path.Path
-      return Context.make(ChildProcessSpawner, spawner).pipe(
-        Context.add(FileSystem.FileSystem, fileSystem(session)),
-        Context.add(Path.Path, guestPath(path, session.workdir)),
-        // A session with no `ping` yields the noop probe, which always answers
-        // healthy. That is not a claim the machine is alive; it says nothing is
-        // watching it, and `SandboxHealth.make` documents the distinction.
-        Context.add(
-          SandboxHealth.SandboxHealth,
-          SandboxHealth.make(view, options.health)
-        )
+): Layer.Layer<Host, ProviderError> =>
+  Layer.effectContext(Effect.flatMap(provider.acquire(options.session), (session) => hostContext(session, options)))
+
+/**
+ * The services {@link layerHost} serves from one session.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Host = ChildProcessSpawner | FileSystem.FileSystem | Path.Path | SandboxHealth.Service
+
+/**
+ * The host surface of a session something else holds: the context
+ * {@link layerHost} provides, built from an already acquired session.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const hostContext = (
+  session: Session,
+  options: { readonly health?: SandboxHealth.ProbeOptions | undefined } = {}
+): Effect.Effect<Context.Context<Host>, never, Scope.Scope> =>
+  Effect.gen(function*() {
+    const view = spawnerView(session)
+    const spawner = yield* make(view)
+    const path = yield* Path.Path
+    return Context.make(ChildProcessSpawner, spawner).pipe(
+      Context.add(FileSystem.FileSystem, fileSystem(session)),
+      Context.add(Path.Path, guestPath(path, session.workdir)),
+      // A session with no `ping` yields the noop probe, which always answers
+      // healthy. That is not a claim the machine is alive; it says nothing is
+      // watching it, and `SandboxHealth.make` documents the distinction.
+      Context.add(
+        SandboxHealth.SandboxHealth,
+        SandboxHealth.make(view, options.health)
       )
-    })
+    )
     // Guest paths, not host paths: sessions speak POSIX and `rootedAt` normalizes to "/".
-  ).pipe(Layer.provide(Path.layer))
+  }).pipe(Effect.provide(Path.layer))

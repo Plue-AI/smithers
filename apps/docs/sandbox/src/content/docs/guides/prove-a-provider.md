@@ -2,7 +2,7 @@
 title: "Prove a provider"
 description: "Run SandboxConformance or ProviderConformance against your adapter, supply the command fixture each suite needs, and read a violation."
 sidebar:
-  order: 6
+  order: 7
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/sandbox/docs/guides/prove-a-provider.md"
 ---
 
@@ -44,9 +44,34 @@ cannot decide the next. The checks are:
 | `processes-reach-files`                | let `readFile` return a file a process produced        |
 | `reacquires-its-session`               | serve a working session after release and reacquire    |
 
-The last two cross surfaces on purpose. A session serving files from anywhere
-but the machine its processes run on would pass every file check and every
-process check separately.
+`files-reach-processes` and `processes-reach-files` cross surfaces on
+purpose. A session serving files from anywhere but the machine its processes
+run on would pass every file check and every process check separately.
+
+## Prove the work contract
+
+Pass `work` to also check that `Sandbox.run`'s capture works on your machine.
+The guest needs `git`. The suite runs no host `git`, so you supply the
+repository: commit `SandboxConformance.workSeedFiles` with your own `git`,
+bundle the commit, and pass the bundle's bytes and the commit id:
+
+```ts
+const violations = yield * SandboxConformance.check(provider, {
+  work: { bundle, base }
+})
+```
+
+| Check               | What the session must do                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| `captures-its-work` | capture `Changed` work from `base` whose patch reproduces the final tree, with a rename kept as a rename |
+| `captures-no-work`  | capture `Unchanged` work at `base` when nothing was edited                                               |
+
+`captures-its-work` makes one edit of every kind in a checkout below the
+workdir: a commit in the guest, an uncommitted change, an untracked file,
+binary contents, a rename, a deletion, and a mode change. The guest's own `git`
+then applies the patch to `base` and compares the trees.
+
+## Delegated spawn checks
 
 The suite then projects the provider through `Sandbox.commandProvider` and
 delegates the spawn, exit, stdin, ping, and process-stop checks to
