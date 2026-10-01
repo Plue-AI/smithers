@@ -1,0 +1,115 @@
+{
+  "issue": 3199,
+  "status": "Qualified existing bounded production path plus independent valid-JSON HTTP boundary regression",
+  "ownedChanges": [
+    {
+      "path": "packages/backend/runtimebridge/client_test.go",
+      "sha256": "663870fed6e6c8e82bc40be2566bc7253460e0b2f4e58972f45eedffb2748291"
+    }
+  ],
+  "reviewedSource": [
+    {
+      "path": "packages/backend/runtimebridge/client.go",
+      "sha256": "e29d40018f146d936a2c639943b5bc2d97a074a6ec3b5c9f75e444a2851c4f91"
+    },
+    {
+      "path": "go.mod",
+      "sha256": "3178063bf94f255023af576ea40b446e54c3859ec6cd4a9c39c03f12ee250fda"
+    },
+    {
+      "path": "go.sum",
+      "sha256": "92fac2f61c9749823c21cfb7fa82316dd237f4e1516e561b7387422459025ce9"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_flow.go",
+      "sha256": "9cdc321631f0ae37534d9b08920767997852d12695e781ff71e83a358e07c1d2"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_redaction_test.go",
+      "sha256": "ac37d71f88d732c477d2a670393ae243c865e1be9d1904d400fd43c2f7792de5"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_test.go",
+      "sha256": "38bffef25ab09084933bb16cdfac93c6068c4e7bb2ac67255be21ef1f00cd689"
+    },
+    {
+      "path": "packages/backend/internal/services/secret_injection.go",
+      "sha256": "77905cc5c5c7ea44801775dd6c5d2b96433c126be59cdf089721215563167e45"
+    },
+    {
+      "path": "packages/backend/db/product/migrations/0099_invoked_flow_launch_redaction.sql",
+      "sha256": "eee279031ad9ffa474a82976e48810745e57b69f720cb674f801271e5f50c08c"
+    },
+    {
+      "path": "packages/backend/flowruntime/contracts.go",
+      "sha256": "36989c1dc7684f0adf6c5cf0fe459b38aee106db2417b01fc5eb2e1370fcb779"
+    }
+  ],
+  "acceptance": [
+    "Canonical supported runtimebridge caps the complete HTTP envelope at 4MiB before JSON decoding, including event metadata and failure text; oversize Observe returns typed non-retryable invalid_response without a partial observation or response/credential echo.",
+    "Actual HTTP valid JSON boundaries 4MiB-1, 4MiB, 4MiB+1 tested with padding in event kind rather than payload. Below/exact preserve complete event/cursor/payload; over refuses.",
+    "External Go overlay disables only existing post response-size refusal; valid over-limit JSON is then admitted and owning new test fails exactly there (below/exact still pass). No repository production bytes were changed.",
+    "Existing safe projection masks complete payload before16KiB truncation, bounds each payload4MiB/page16MiB, and omits oversize inputs without exposing an unmasked prefix.",
+    "RealPostgreSQL projection/cost gate retains multiline/encoded/overlap/malformed/nested64/truncation cases; 1MiB100secret sample measured306.312458ms redaction and0ms longest observed relevant projection transaction; source prepares redaction before opening transaction and retains sealed-set/cursor identity retry fences."
+  ],
+  "qualification": {
+    "runtimebridge": {
+      "command": "TMPDIR=/private/tmp go test -race -count=1 -timeout=90s -json ./packages/backend/runtimebridge",
+      "exit": 0,
+      "testPassRecords": 28,
+      "testFailRecords": 0,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/runtimebridge",
+          "action": "pass",
+          "seconds": 2.491
+        }
+      ]
+    },
+    "redaction": {
+      "command": "SMITHERS_TEST_DATABASE_URL=<localPG55491> SMITHERS_REQUIRE_DATABASE_TESTS=1 TMPDIR=/private/tmp go test -race -count=1 -timeout=180s -json ./packages/backend/internal/services -run TestInvokedFlow(Log|ProjectionRedact|LaunchRedaction|Redaction)",
+      "exit": 0,
+      "testPassRecords": 24,
+      "testFailRecords": 0,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/internal/services",
+          "action": "pass",
+          "seconds": 8.319
+        }
+      ]
+    },
+    "negativeControl": {
+      "command": "go test -overlay=<external single-file overlay> -count=1 -timeout=60s -json ./packages/backend/runtimebridge -run ^TestClientObserveBoundsValidResponseEnvelope$",
+      "exit": 1,
+      "expectedFailure": "over size response returned nil error when existing length refusal disabled",
+      "testPassRecords": 2,
+      "testFailRecords": 2,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/runtimebridge",
+          "action": "fail",
+          "seconds": 0.425
+        }
+      ]
+    },
+    "format": "gofmt -l owned file empty",
+    "productionInputsUnchanged": true
+  },
+  "limits": [
+    "Production behavior already landed upstream; no invented field-specific envelope policy or duplicate product implementation.",
+    "HTTP integration uses actual TCP httptest server and actual client; PostgreSQL projection uses real local database with controlled event/catalog/workspace providers, justified because no outbound/live Cloud provision is needed for redaction qualification.",
+    "Transaction-age0ms is a sampled observation, not a universal measured upper bound; deterministic source ordering also reviewed.",
+    "Focused behavioral/race qualification and complete runtimebridge suite only; no whole-services/backend 100%coverage or live VM/provider claim. No configured threshold weakened.",
+    "All secrets/markers are synthetic test data. No actual outbound message/provider actions."
+  ],
+  "archive": {
+    "file": "3199-qualification-proof.tar.gz",
+    "sha256": "fd2db6c7321a735c34624ec3ef96fdfcdd917a510f3602f5b67e3d7344cb6e95"
+  },
+  "readinessSha256": "967decf81dc01ecd58cc4c243b3ddaa68752d0839dba386e67f82f84aa525a6a",
+  "rootReview": "Actual supported transport bounds complete envelope before JSON decoding, so Kind/failure text cannot bypass ingress cap. New valid JSON below/exact/over probes independent of parser rejection; actual single-file overlay negative control proves size refusal causal. Existing real database projection masks before truncation and prepares bounded redaction before transaction."
+}

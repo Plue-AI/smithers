@@ -1,0 +1,128 @@
+{
+  "issue": 3199,
+  "status": "READY/FROZEN existing production fix + independent boundary regression",
+  "session": "codex-burndown-20260930",
+  "head": "a9484f39a0213f02daac6f6048dd8e8f3758238c",
+  "ownedChanges": [
+    {
+      "path": "packages/backend/runtimebridge/client_test.go",
+      "sha256": "663870fed6e6c8e82bc40be2566bc7253460e0b2f4e58972f45eedffb2748291"
+    }
+  ],
+  "reviewedSource": [
+    {
+      "path": "packages/backend/runtimebridge/client.go",
+      "sha256": "e29d40018f146d936a2c639943b5bc2d97a074a6ec3b5c9f75e444a2851c4f91"
+    },
+    {
+      "path": "go.mod",
+      "sha256": "3178063bf94f255023af576ea40b446e54c3859ec6cd4a9c39c03f12ee250fda"
+    },
+    {
+      "path": "go.sum",
+      "sha256": "92fac2f61c9749823c21cfb7fa82316dd237f4e1516e561b7387422459025ce9"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_flow.go",
+      "sha256": "9cdc321631f0ae37534d9b08920767997852d12695e781ff71e83a358e07c1d2"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_redaction_test.go",
+      "sha256": "ac37d71f88d732c477d2a670393ae243c865e1be9d1904d400fd43c2f7792de5"
+    },
+    {
+      "path": "packages/backend/internal/services/workflow_invoke_test.go",
+      "sha256": "38bffef25ab09084933bb16cdfac93c6068c4e7bb2ac67255be21ef1f00cd689"
+    },
+    {
+      "path": "packages/backend/internal/services/secret_injection.go",
+      "sha256": "77905cc5c5c7ea44801775dd6c5d2b96433c126be59cdf089721215563167e45"
+    },
+    {
+      "path": "packages/backend/db/product/migrations/0099_invoked_flow_launch_redaction.sql",
+      "sha256": "eee279031ad9ffa474a82976e48810745e57b69f720cb674f801271e5f50c08c"
+    },
+    {
+      "path": "packages/backend/flowruntime/contracts.go",
+      "sha256": "36989c1dc7684f0adf6c5cf0fe459b38aee106db2417b01fc5eb2e1370fcb779"
+    }
+  ],
+  "acceptance": [
+    "Canonical supported runtimebridge caps the complete HTTP envelope at 4MiB before JSON decoding, including event metadata and failure text; oversize Observe returns typed non-retryable invalid_response without a partial observation or response/credential echo.",
+    "Actual HTTP valid JSON boundaries 4MiB-1, 4MiB, 4MiB+1 tested with padding in event kind rather than payload. Below/exact preserve complete event/cursor/payload; over refuses.",
+    "External Go overlay disables only existing post response-size refusal; valid over-limit JSON is then admitted and owning new test fails exactly there (below/exact still pass). No repository production bytes were changed.",
+    "Existing safe projection masks complete payload before16KiB truncation, bounds each payload4MiB/page16MiB, and omits oversize inputs without exposing an unmasked prefix.",
+    "RealPostgreSQL projection/cost gate retains multiline/encoded/overlap/malformed/nested64/truncation cases; 1MiB100secret sample measured306.312458ms redaction and0ms longest observed relevant projection transaction; source prepares redaction before opening transaction and retains sealed-set/cursor identity retry fences."
+  ],
+  "qualification": {
+    "runtimebridge": {
+      "command": "TMPDIR=/private/tmp go test -race -count=1 -timeout=90s -json ./packages/backend/runtimebridge",
+      "exit": 0,
+      "testPassRecords": 28,
+      "testFailRecords": 0,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/runtimebridge",
+          "action": "pass",
+          "seconds": 2.491
+        }
+      ]
+    },
+    "redaction": {
+      "command": "SMITHERS_TEST_DATABASE_URL=<localPG55491> SMITHERS_REQUIRE_DATABASE_TESTS=1 TMPDIR=/private/tmp go test -race -count=1 -timeout=180s -json ./packages/backend/internal/services -run TestInvokedFlow(Log|ProjectionRedact|LaunchRedaction|Redaction)",
+      "exit": 0,
+      "testPassRecords": 24,
+      "testFailRecords": 0,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/internal/services",
+          "action": "pass",
+          "seconds": 8.319
+        }
+      ]
+    },
+    "negativeControl": {
+      "command": "go test -overlay=<external single-file overlay> -count=1 -timeout=60s -json ./packages/backend/runtimebridge -run ^TestClientObserveBoundsValidResponseEnvelope$",
+      "exit": 1,
+      "expectedFailure": "over size response returned nil error when existing length refusal disabled",
+      "testPassRecords": 2,
+      "testFailRecords": 2,
+      "skipped": 0,
+      "packages": [
+        {
+          "package": "github.com/smithersai/smithers/packages/backend/runtimebridge",
+          "action": "fail",
+          "seconds": 0.425
+        }
+      ]
+    },
+    "format": "gofmt -l owned file empty",
+    "productionInputsUnchanged": true
+  },
+  "limits": [
+    "Production behavior already landed upstream; no invented field-specific envelope policy or duplicate product implementation.",
+    "HTTP integration uses actual TCP httptest server and actual client; PostgreSQL projection uses real local database with controlled event/catalog/workspace providers, justified because no outbound/live Cloud provision is needed for redaction qualification.",
+    "Transaction-age0ms is a sampled observation, not a universal measured upper bound; deterministic source ordering also reviewed.",
+    "Focused behavioral/race qualification and complete runtimebridge suite only; no whole-services/backend 100%coverage or live VM/provider claim. No configured threshold weakened.",
+    "All secrets/markers are synthetic test data. No actual outbound message/provider actions."
+  ],
+  "receipts": {
+    "3199-live-issue.json": "b24a531b77f647e6be7519c8bb599b7771a6897c4146a986b21033ba15227de5",
+    "3198-3199-readonly-plan.json": "c55b3b1eee4cda6126b6ef5ed7eddef15cef773897e45bb267e3454e38b9e999",
+    "3198-3199-qualification-inputs-before.json": "aac4139ac6230f78988a67236dc9ce9668ef37acc69b947fa52b3e0069cf6ca7",
+    "3198-3199-unchanged-real-pg-race.jsonl": "d17883df1b63b437e4f233baea55e7def44bba46869a3610f2c363265dfafc4b",
+    "3198-3199-unchanged-real-pg-race.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3199-final-runtimebridge-real-http-race.jsonl": "3d47bde2f6f8f8036c6f727e86a529407b297a18b7cbf3ced312af07b9ffea46",
+    "3199-final-runtimebridge-real-http-race.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3199-response-size-negative-control.jsonl": "2cbf308d1e1cb356ca1d5e104e8c73c9d590636d1d82d9ce2acd4ada76d1a3cf",
+    "3199-response-size-negative-control.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3199-response-size-negative-control.go": "34d627fbb39c87ab44fd8e08a4b95a707a5d601dc6ff45cd9fbd4babcb6ee3f1",
+    "3199-response-size-negative-overlay.json": "3205beac0bd409b854eda47c54cde6c1b477ee68760f5bc59f8357ef130eeefa",
+    "3199-response-size-negative-provenance.json": "cb805c388d159f1dec2de1464582c58e70ef3b173385dc334a1e9d3893a3ae4b",
+    "3199-final-input-audit.json": "7eef634888c3b5ab17e845ca447c1f40523e9e1ee6cf933e7b6cd1986e2b3ac1",
+    "3199-owned-change.diff": "3c412b1ca35cd8da8de3f099c18f7c93d70c524c23f66779986cc22619be6517",
+    "3199-final-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -256,6 +256,73 @@ func TestClientClassifiesRefusalsAndProtocolMismatch(t *testing.T) {
 	}
 }
 
+func TestClientObserveBoundsValidResponseEnvelope(t *testing.T) {
+	const marker = "synthetic-response-marker"
+	for _, test := range []struct {
+		name string
+		size int
+	}{
+		{"below", maxResponseBytes - 1},
+		{"exact", maxResponseBytes},
+		{"over", maxResponseBytes + 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			event := map[string]any{"sequence": 42, "kind": "", "occurredAt": 1, "payload": map[string]any{"text": marker}}
+			envelope := map[string]any{
+				"protocol": flowruntime.FlowRuntimeProtocol, "ok": true,
+				"value": map[string]any{
+					"run":    map[string]any{"runId": "run-1", "flowId": "fixture/small", "status": "running"},
+					"events": []any{event}, "nextCursor": "42", "hasMore": false, "terminal": false,
+				},
+			}
+			base, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Put the padding outside payload: the complete HTTP envelope, including
+			// event metadata, must be bounded before decoding or projection.
+			kindSize := test.size - len(base)
+			event["kind"] = strings.Repeat("x", kindSize)
+			body, err := json.Marshal(envelope)
+			if err != nil || len(body) != test.size || !json.Valid(body) {
+				t.Fatalf("invalid boundary fixture: bytes=%d, want=%d, error=%v", len(body), test.size, err)
+			}
+			client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodPost || request.URL.Path != "/runtime/v1/observe" || request.Header.Get("Authorization") != "Bearer secret" {
+					t.Error("unexpected observe request")
+				}
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write(body)
+			}))
+			result, err := client.Observe(context.Background(), "run-1", "", 1)
+			if test.size > maxResponseBytes {
+				if ErrorCode(err) != "invalid_response" || IsRetryable(err) {
+					t.Fatalf("oversize response error = %v", err)
+				}
+				if result.Run.RunID != "" || len(result.Events) != 0 || result.NextCursor != "" {
+					t.Fatal("oversize response exposed a partial observation")
+				}
+				if strings.Contains(err.Error(), marker) || strings.Contains(err.Error(), "secret") {
+					t.Fatal("oversize response error exposed response or credential data")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Run.RunID != "run-1" || result.NextCursor != "42" || len(result.Events) != 1 || len(result.Events[0].Kind) != kindSize {
+				t.Fatal("bounded response did not preserve the complete observation")
+			}
+			var payload struct {
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(result.Events[0].Payload, &payload); err != nil || payload.Text != marker {
+				t.Fatal("bounded response did not preserve its payload")
+			}
+		})
+	}
+}
+
 func TestClientBoundsResponsesAndHonorsCancellation(t *testing.T) {
 	t.Run("bounded", func(t *testing.T) {
 		client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
