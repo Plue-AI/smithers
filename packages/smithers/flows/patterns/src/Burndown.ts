@@ -57,12 +57,14 @@ export interface Item {
  *
  * `landed`: the work succeeded and landed. `held`: the claim reported another
  * owner. `failed`: a claim, work, or landing failure. `skipped`: selection said
- * the item is not ours this round.
+ * the item is not ours this round. `requeued`: the work was interrupted without
+ * a recorded cancel, such as a host whose lease lapsed, so its claim was
+ * released and a later round or a resumed run works the item again.
  *
  * @category models
  * @since 1.0.0
  */
-export const Status = Schema.Literals(["landed", "held", "failed", "skipped"])
+export const Status = Schema.Literals(["landed", "held", "failed", "skipped", "requeued"])
 
 /**
  * What happened to one item.
@@ -103,8 +105,8 @@ export const Stopped = Schema.Literals(["drained", "max_rounds"])
  * What the declared burndown settles to.
  *
  * `rows` holds one row per item the lineage touched, in first-seen order. A
- * settled row (`landed`, `held`, `failed`) is final; a `skipped` row is the
- * latest round's selection. `rounds` counts the rounds the lineage opened,
+ * settled row (`landed`, `held`, `failed`) is final; a `skipped` or
+ * `requeued` row is the latest round's outcome and is reconsidered next round. `rounds` counts the rounds the lineage opened,
  * parks included.
  *
  * @category models
@@ -358,6 +360,9 @@ export interface MakeOptions {
 
 const bound = (value: number): boolean => Number.isSafeInteger(value) && value >= 1
 
+/** Whether a row is final for the lineage: every status but `skipped` and `requeued`. */
+const isSettled = (status: Status): boolean => status !== "skipped" && status !== "requeued"
+
 const decodeCapacity = Schema.decodeUnknownSync(Capacity)
 const decodeRound = Schema.decodeUnknownSync(RoundResult)
 const isCapacity = Schema.is(Capacity)
@@ -370,13 +375,13 @@ interface Folded {
 
 /**
  * Merges one round's rows into the rows the lineage carried. A settled row is
- * final; a skipped row is replaced by the item's latest row.
+ * final; a skipped or requeued row is replaced by the item's latest row.
  */
 const merge = (carried: ReadonlyArray<Row>, fresh: ReadonlyArray<Row>): ReadonlyArray<Row> => {
   const rows = new Map<string, Row>(carried.map((row) => [row.id, row]))
   for (const row of fresh) {
     const previous = rows.get(row.id)
-    if (previous === undefined || previous.status === "skipped") rows.set(row.id, row)
+    if (previous === undefined || !isSettled(previous.status)) rows.set(row.id, row)
   }
   return [...rows.values()]
 }
@@ -451,7 +456,7 @@ export const make = (options: MakeOptions): BurndownFlow => {
     }
     const next = (carried: ReadonlyArray<Row> | Planned.Planned<ReadonlyArray<Row>>) =>
       self.to({ input, round: round + 1, rows: carried as ReadonlyArray<Row> })
-    const settled = rows.filter((row) => row.status !== "skipped").map((row) => row.id)
+    const settled = rows.filter((row) => isSettled(row.status)).map((row) => row.id)
     const fold = (value: unknown): Folded => {
       const result = decodeRound(value)
       const merged = merge(rows, result.rows)
@@ -572,6 +577,13 @@ export interface ItemArgs<I, It extends Item> {
  * left over are `deferred` to the next round, where the lineage's capacity
  * gate can park. Without it a round launches at most `slots` items.
  *
+ * `cancelled`, when present, is asked once for each claimed item whose work was
+ * interrupted, and answers whether an operator cancel was recorded for it,
+ * typically by reading the durable cancel request of the item's execution.
+ * Only `true` settles the item `failed`; `false`, a failure, or no member at
+ * all requeues it, the same rule the engine applies when it releases an
+ * interrupted run for reclaim instead of closing it.
+ *
  * @category models
  * @since 1.0.0
  */
@@ -586,6 +598,9 @@ export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
     args: ItemArgs<I, It> & { readonly status: Status; readonly detail: string }
   ) => Effect.Effect<unknown, E, R>
   readonly detail?: ((output: W, landing: L | undefined) => string) | undefined
+  readonly cancelled?:
+    | ((args: ItemArgs<I, It> & { readonly executionId: string }) => Effect.Effect<boolean, E, R>)
+    | undefined
   readonly capacity?:
     | ((args: { readonly input: I; readonly round: number }) => Effect.Effect<Capacity, E, R>)
     | undefined
@@ -679,11 +694,18 @@ type Attempt<W> =
  * to the row's detail and does not change its status. Rows keep discovery
  * order.
  *
- * Members report failures on the typed channel. Work interrupted from inside,
- * such as a child execution an operator cancelled, settles its item `failed`
- * with the detail `work: interrupted`. A member that throws raises a defect,
- * which fails the round; a release already running finishes, and every claim
- * not yet released is released with status `failed`.
+ * Members report failures on the typed channel. Work interrupted from inside
+ * settles its item `failed` with the detail `work: interrupted` only when
+ * {@link RoundOptions.cancelled} reports a recorded operator cancel. Any other
+ * interruption, such as a child execution released because its host's lease
+ * lapsed, gets a `requeued` row, which settles nothing: its claim is released
+ * with status `requeued` and a later round works the item again. A member that
+ * throws raises a defect, which fails the round; a release already running
+ * finishes, and every claim not yet released is released with status `failed`
+ * and the detail `round died`. When the round itself is interrupted, each open
+ * claim is released the same way if `cancelled` reports a recorded cancel for
+ * it, and otherwise with status `requeued` and the detail `round interrupted`,
+ * so a resumed run claims it again.
  *
  * `round` fails with a `PatternError` before any member runs when `key` is
  * blank, `concurrency` or `slots` is not a positive safe integer, `round` is
@@ -707,6 +729,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   const release = options.release
   const detail = options.detail
   const capacity = options.capacity
+  const cancelled = options.cancelled
   const invalid = roundRefusal(input, key, concurrency)
   if (invalid !== undefined) return Effect.fail(invalid)
   const value = input.input
@@ -740,6 +763,15 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
     let next = first.length
     let working = 0
     const claimed = new Set<Card<It>>()
+    const executionId = (card: Card<It>) => `${key}/${card.id}`
+    // Only a recorded operator cancel makes an interruption final; an
+    // unanswerable question counts as no cancel, so the item is worked again.
+    const wasCancelled = (card: Card<It>): Effect.Effect<boolean, never, R> =>
+      cancelled === undefined
+        ? Effect.succeed(false)
+        : Effect.suspend(() => cancelled({ ...args(card), executionId: executionId(card) })).pipe(
+          Effect.match({ onFailure: () => false, onSuccess: (answer) => answer === true })
+        )
     const attempt = (card: Card<It>): Effect.Effect<Attempt<W>, never, R> =>
       claim(args(card)).pipe(
         Effect.matchEffect({
@@ -751,7 +783,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
             ),
           onSuccess: () => {
             claimed.add(card)
-            return work({ ...args(card), executionId: `${key}/${card.id}` }).pipe(
+            return work({ ...args(card), executionId: executionId(card) }).pipe(
               Effect.match({
                 onSuccess: (output): Attempt<W> => ({ _tag: "Worked", output }),
                 onFailure: (error: E): Attempt<W> => ({
@@ -760,12 +792,16 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
                   detail: `work: ${detailOf(error)}`
                 })
               }),
-              // Work that was interrupted from inside, such as a child execution
-              // someone cancelled, fails its own item. The round's own
-              // interruption never reaches this handler.
+              // Work interrupted from inside fails its own item only when an
+              // operator cancel was recorded; a released execution is requeued.
+              // The round's own interruption never reaches this handler.
               Effect.catchCause((cause) =>
                 Cause.hasInterruptsOnly(cause)
-                  ? Effect.succeed<Attempt<W>>({ _tag: "Settled", status: "failed", detail: "work: interrupted" })
+                  ? Effect.map(wasCancelled(card), (cancel): Attempt<W> => ({
+                    _tag: "Settled",
+                    status: cancel ? "failed" : "requeued",
+                    detail: "work: interrupted"
+                  }))
                   : Effect.failCause(cause)
               )
             )
@@ -846,10 +882,21 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
       (exit) =>
         Exit.isSuccess(exit)
           ? Effect.void
-          : Effect.forEach([...claimed], (card) => releaseOne(card, { status: "failed", detail: "round died" }), {
-            concurrency,
-            discard: true
-          })
+          : Effect.forEach(
+            [...claimed],
+            (card) =>
+              Effect.flatMap(
+                Cause.hasInterruptsOnly(exit.cause) ? wasCancelled(card) : Effect.succeed(true),
+                (died) =>
+                  releaseOne(
+                    card,
+                    died
+                      ? { status: "failed", detail: "round died" }
+                      : { status: "requeued", detail: "round interrupted" }
+                  )
+              ),
+            { concurrency, discard: true }
+          )
     )
     return {
       rows: cards.flatMap((card) => {

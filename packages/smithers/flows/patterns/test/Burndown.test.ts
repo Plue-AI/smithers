@@ -173,11 +173,32 @@ describe("Burndown.round", () => {
     ])
   })
 
-  it("fails only the item whose work was interrupted from inside", async () => {
+  it("requeues an item whose work was interrupted without a recorded cancel, and settles nothing", async () => {
     const { note, tape } = recorder()
     const result = await runRound({ items: items("a", "b") }, {
       ...baseOptions(note),
       work: ({ item }) => item.id === "a" ? Effect.interrupt : Effect.succeed(`fixed ${item.id}`),
+      release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`),
+      detail: (output: string) => output
+    })
+
+    expect(result.rows).toEqual([
+      { id: "a", status: "requeued", detail: "work: interrupted" },
+      { id: "b", status: "landed", detail: "fixed b" }
+    ])
+    expect(result.launched).toBe(2)
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toEqual([
+      "release:a:requeued:work: interrupted",
+      "release:b:landed:fixed b"
+    ])
+  })
+
+  it("asks cancelled about an interrupted item only, and settles it failed when a cancel was recorded", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("a", "b") }, {
+      ...baseOptions(note),
+      work: ({ item }) => item.id === "a" ? Effect.interrupt : Effect.succeed(`fixed ${item.id}`),
+      cancelled: ({ executionId, item }) => Effect.as(note(`cancelled:${item.id}@${executionId}`), true),
       detail: (output: string) => output
     })
 
@@ -185,17 +206,37 @@ describe("Burndown.round", () => {
       { id: "a", status: "failed", detail: "work: interrupted" },
       { id: "b", status: "landed", detail: "fixed b" }
     ])
-    expect(tape.filter((entry) => entry.startsWith("release:"))).toEqual(["release:a:failed", "release:b:landed"])
+    expect(tape.filter((entry) => !entry.startsWith("claim:") && !entry.startsWith("work:"))).toEqual([
+      "cancelled:a@sweep/a",
+      "release:a:failed",
+      "release:b:landed"
+    ])
   })
 
-  it("stops the whole round, releasing every claim, when the round itself is interrupted", async () => {
+  it("requeues an interrupted item when cancelled answers false or fails", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("a", "b") }, {
+      ...baseOptions(note),
+      work: () => Effect.interrupt,
+      cancelled: ({ item }) => item.id === "a" ? Effect.succeed(false) : Effect.fail("run store unreachable")
+    })
+
+    expect(result.rows).toEqual([
+      { id: "a", status: "requeued", detail: "work: interrupted" },
+      { id: "b", status: "requeued", detail: "work: interrupted" }
+    ])
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toEqual(["release:a:requeued", "release:b:requeued"])
+  })
+
+  it("requeues every open claim when the round itself is interrupted without a recorded cancel", async () => {
     const { note, tape } = recorder()
     const exit = await Effect.runPromiseExit(
       Effect.gen(function*() {
         const fiber = yield* Effect.forkChild(
           Burndown.round({ input: undefined, round: 0, items: items("a") }, {
             ...baseOptions(note),
-            work: () => Effect.never
+            work: () => Effect.never,
+            release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`)
           })
         )
         yield* Effect.yieldNow
@@ -206,7 +247,31 @@ describe("Burndown.round", () => {
     )
 
     expect(Exit.isSuccess(exit) && Exit.hasInterrupts(exit.value)).toBe(true)
-    expect(tape).toEqual(["claim:a", "release:a:failed"])
+    expect(tape).toEqual(["claim:a", "release:a:requeued:round interrupted"])
+  })
+
+  it("releases every open claim failed when the round is interrupted by a recorded cancel", async () => {
+    const { note, tape } = recorder()
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const fiber = yield* Effect.forkChild(
+          Burndown.round({ input: undefined, round: 0, items: items("a", "b") }, {
+            ...baseOptions(note),
+            work: () => Effect.never,
+            cancelled: ({ item }) => Effect.succeed(item.id === "a"),
+            release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`)
+          })
+        )
+        yield* Effect.sleep("5 millis")
+        yield* Fiber.interrupt(fiber)
+        yield* Fiber.await(fiber)
+      })
+    )
+
+    expect(tape.filter((entry) => entry.startsWith("release:")).sort()).toEqual([
+      "release:a:failed:round died",
+      "release:b:requeued:round interrupted"
+    ])
   })
 
   it("still releases every claim when a member dies, each once", async () => {
@@ -253,7 +318,7 @@ describe("Burndown.round", () => {
       })
     )
 
-    expect(tape).toEqual(["claim:a", "claim:b", "release:a:landed", "release:b:failed"])
+    expect(tape).toEqual(["claim:a", "claim:b", "release:a:landed", "release:b:requeued"])
   })
 
   it("lands and releases an item as soon as its work finishes, while a slower item still works", async () => {
@@ -691,6 +756,27 @@ describe("Burndown.make", () => {
       "claim:broken",
       "claim:fresh",
       "claim:held"
+    ])
+  })
+
+  it("works an item again in a later round after its work was interrupted without a cancel", async () => {
+    let attempts = 0
+    const { layers, tape } = scripted({
+      discover: () => items("a", "b"),
+      work: (item) => item.id === "a" && attempts++ === 0 ? Effect.interrupt : Effect.succeed("ok")
+    })
+    const burndown = Burndown.make({ discover: Discover, dispatch: Dispatch, maxRounds: 5 })
+
+    expect(await settle(burndown, { input: null }, layers)).toEqual({
+      rows: [{ id: "a", status: "landed", detail: "" }, { id: "b", status: "landed", detail: "" }],
+      rounds: 3,
+      stopped: "drained"
+    })
+    expect(tape.filter((entry) => entry.startsWith("work:a") || entry.startsWith("release:a"))).toEqual([
+      "work:a@0",
+      "release:a:requeued",
+      "work:a@1",
+      "release:a:landed"
     ])
   })
 

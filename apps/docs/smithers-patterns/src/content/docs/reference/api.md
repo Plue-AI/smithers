@@ -506,7 +506,7 @@ length of a backlog that no plan knows when it is built.
 
 `make({ discover, dispatch, capacity?, maxRounds, deadline?, signal? })`
 settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail }`
-with `status` one of `landed`, `held`, `failed`, or `skipped`. A round that
+with `status` one of `landed`, `held`, `failed`, `skipped`, or `requeued`. A round that
 launched at least one item hands off to the next round, which rediscovers the
 backlog; a round that launched nothing settles the lineage as `drained`.
 `maxRounds` bounds every round the lineage opens, parks included, and
@@ -524,8 +524,8 @@ polls. A host executing a burndown with a capacity member provides
 schema is a defect.
 
 `round` leaves alone the ids in `settled`, so a `held` or `failed` item is
-never retried within a lineage, while a `skipped` item is reconsidered every
-round. Only the exact `ours` selection launches an item; a malformed or failed
+never retried within a lineage, while a `skipped` or `requeued` item is
+reconsidered every round. Only the exact `ours` selection launches an item; a malformed or failed
 selection skips it. Of the items that are ours, the first `slots` launch in
 discovery order, at most `slots` at a time. When an item finishes working, its
 slot asks the round's `capacity` member, when there is one, and admits the next
@@ -538,9 +538,15 @@ the items beside it. A worked item enters the landing queue at once: `land`
 runs one item at a time, in the order work finished, while other items still
 work, and a failed landing does not stop the next; without `land`, a worked
 item counts as landed. `release` runs once for every successful claim, as soon
-as the item settles, with its final status. When a member dies, a release
-already running finishes and every claim not yet released is released with
-status `failed`. A release failure is appended to the row's detail. Rows keep
+as the item settles, with its final status. Interrupted work settles its item
+`failed` with `work: interrupted` only when the optional `cancelled` member
+answers `true` for a recorded operator cancel; any other interruption, such as
+a child released because its host's lease lapsed, gets a `requeued` row and a
+`requeued` release, and a later round works the item again. When a member
+dies, a release already running finishes and every claim not yet released is
+released with status `failed` and `round died`. When the round itself is
+interrupted, each open claim is released the same way if `cancelled` answers
+`true`, and otherwise with status `requeued` and `round interrupted`. A release failure is appended to the row's detail. Rows keep
 discovery order. `round` fails with `PatternError` before any member runs for a
 blank `key`, a `concurrency` or `slots` that is not a positive safe integer,
 a negative or fractional `round`, or an item without a unique nonblank string

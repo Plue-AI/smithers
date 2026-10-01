@@ -11,6 +11,13 @@
 
 ### Fixed
 
+- `Burndown.round` no longer settles an item whose work, or whose round, was
+  interrupted without a recorded operator cancel, such as a host whose lease
+  lapsed. The item gets a non-final `requeued` row, its claim is released with
+  status `requeued`, and a later round or a resumed run works it again. The new
+  optional `cancelled` member reports a recorded cancel, which still settles
+  the item `failed` (#3328).
+
 - `Supervisor`, `Loop`, `ScanFixVerify`, and `DriftDetector` read their stop
   and retry verdicts (`allDone`, `retriable`, `done`, `resolved`, `drifted`)
   as own properties only, as the acceptance vocabulary already did; an

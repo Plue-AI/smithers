@@ -131,14 +131,15 @@ Provide `dispatchLayer`, the `ListIssues` and `Accounts` implementations,
 
 What each member decides:
 
-| Member     | Runs                                             | Its failure                                                 |
-| ---------- | ------------------------------------------------ | ----------------------------------------------------------- |
-| `select`   | For every unsettled item                         | Skips the item this round; the next round asks again        |
-| `claim`    | For each item a slot admits                      | `Held` settles it `held`; anything else settles it `failed` |
-| `work`     | After a successful claim                         | Settles it `failed`; the items beside it keep running       |
-| `land`     | One at a time, in the order work finished        | Settles it `failed`; the next landing still runs            |
-| `release`  | Once per successful claim, when the item settles | Appended to the row's detail; the status stays              |
-| `capacity` | When a slot frees and an item is still waiting   | Admits nothing through that slot                            |
+| Member      | Runs                                             | Its failure                                                 |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `select`    | For every unsettled item                         | Skips the item this round; the next round asks again        |
+| `claim`     | For each item a slot admits                      | `Held` settles it `held`; anything else settles it `failed` |
+| `work`      | After a successful claim                         | Settles it `failed`; the items beside it keep running       |
+| `land`      | One at a time, in the order work finished        | Settles it `failed`; the next landing still runs            |
+| `release`   | Once per successful claim, when the item settles | Appended to the row's detail; the status stays              |
+| `capacity`  | When a slot frees and an item is still waiting   | Admits nothing through that slot                            |
+| `cancelled` | When an item's work or the round is interrupted  | Counts as no cancel: the item is requeued                   |
 
 ## Rolling admission
 
@@ -158,8 +159,13 @@ landed row from the work output and what `land` answered.
 A settled item (`landed`, `held`, `failed`) is never retried within the
 lineage. A new burndown with the same `key` reattaches to each child's
 recorded outcome, including a failure, so retry failures under a new `key`
-or a new execution id. Work interrupted from inside, such as a child an
-operator cancelled, settles its item `failed` with `work: interrupted`.
+or a new execution id.
+
+An interruption settles an item only when `cancelled` reports a recorded
+operator cancel; the item is then `failed` with `work: interrupted`. Any other
+interruption, such as a child released because its host's lease lapsed, is
+`requeued`: `release` receives status `requeued`, the item stays unsettled,
+and the next round, or the resumed run, claims and works it again.
 
 ## Restart without duplicates
 
