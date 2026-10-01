@@ -950,11 +950,13 @@ jobs:
     env:
       CI: "true"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ALCHEMY_PASSWORD: ${{ secrets.ALCHEMY_PASSWORD }}
     steps:
       - name: Require deploy credentials
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Repository secret CLOUDFLARE_API_TOKEN is not set." >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Repository secret CLOUDFLARE_ACCOUNT_ID is not set." >&2; exit 1; }
           test -n "$ALCHEMY_PASSWORD" || { echo "Repository secret ALCHEMY_PASSWORD is not set." >&2; exit 1; }
         shell: bash
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
