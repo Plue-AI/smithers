@@ -21,8 +21,10 @@ test("three agents on one real VM capture and apply independent edits", {
   const threshold = Number(process.env.ISSUE_SWEEP_SHARED_VM_MAX_LOAD ?? 16)
   t.diagnostic(JSON.stringify({ at: new Date().toISOString(), load, freeBytes: freemem(), maxLoad: threshold }))
   assert.ok(Number.isFinite(threshold) && threshold > 0, "the load threshold must be positive")
-  if (load[0] > threshold) {
-    t.skip(`host load ${load[0]} exceeds ${threshold}`)
+  const currentLoad = load[0]
+  assert.ok(currentLoad !== undefined, "the host must report its current load")
+  if (currentLoad > threshold) {
+    t.skip(`host load ${currentLoad} exceeds ${threshold}`)
     return
   }
   const root = mkdtempSync(join(tmpdir(), "issue-sweep-shared-vm-"))
