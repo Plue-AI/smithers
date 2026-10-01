@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3262,
+    3167,
+    3307
+  ],
+  "sourceFrozen": true,
+  "allSourceDependentJobsCompleted": true,
+  "checkedCandidate": "4ac6469f6e28291ed2062aa2b76e467dd03a2519",
+  "candidateHeadAfterChecks": "62263d7418c0d60ee58a9a4a0a9caab6b2072904",
+  "metadataOnlyHeadDelta": [
+    "docs/mvp/implementation/2026-10-01-burndown-batch6/3264-receipt.json",
+    "docs/mvp/implementation/2026-10-01-burndown-batch6/3264-type-overlay-proof.tar.gz",
+    "docs/mvp/implementation/2026-10-01-burndown-batch6/3264-type-overlay-summary.json"
+  ],
+  "qualifiedSources": {
+    "packages/smithers/agent/src/AgentSession.ts": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+    "packages/smithers/agent/test/AgentSessionFailures.test.ts": "f28ff58d6e4b32c56bff258219233bcf3589eb5833cdea33ca8e7835a1850f15",
+    "packages/smithers/test/CloudSandboxCommand.integration.test.ts": "36f31fe05436b1b0fa8d9fb73a4cb984e541a464bd778bb79150ee6dc16f9bfe"
+  },
+  "checks": [
+    {
+      "name": "actual-cli-and-cloud7",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "test/CloudSandboxCommand.integration.test.ts",
+        "-t",
+        "exits 1 for a run that settled failed|settles a failed launch with one terminal write|prints one operator-facing warning for one refusal|prints one operator-facing warning for one canonical agent refusal|CloudSandbox guarded command transport",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 151.46,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-final-4ac6469f6e/actual-cli-and-cloud7.log",
+      "sha256": "03de97659a3813aabff337c152e9336eaf32f6cee708dd0e03a24b987afb473f"
+    },
+    {
+      "name": "cli-test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 15.94,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-final-4ac6469f6e/cli-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "actualPassed": 7,
+  "deselected": 133,
+  "noUnchangedTestsRepeated": true,
+  "retainedOwningProof": {
+    "path": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/ready-checkpoint.json",
+    "sha256": "0851b7bcfc66f26f59cd9865528c6d850f4156a0f476735638065f29adee97ac",
+    "authorityProcessPassed": 79,
+    "agentSourceAndTestTypesExit": 0,
+    "emittedDeclarations": 41,
+    "admittedDeclarationMatches": 41,
+    "archive": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-postrebase-49230e7543/qualified-first3.tar.gz",
+    "archiveSha256": "41be4fb0f98f4af3726ce469b719a5bd884ff5a3f406733d6b2fa8899ecbe692"
+  },
+  "inputAudit": {
+    "previousCount": 1903,
+    "previousUnchangedAfterRebase": 1900,
+    "owningSourceCompilerLockChangedDuringFinalChecks": [],
+    "metadataReceiptsChangedDuringChecks": [
+      "docs/mvp/implementation/2026-10-01-burndown-batch6/3264-receipt.json"
+    ],
+    "proof": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-final-4ac6469f6e/unchanged-owning-evidence.json",
+    "incomingDeltas": "/tmp/smithers-burndown-20260930-receipts/api-batch4/settlement-final-4ac6469f6e/incoming-input-deltas.json"
+  },
+  "rawReceipts": {
+    "actual-cli-and-cloud7-result.json": "a6ad85656a1eda2324536f2b3e28ccd3a7efaeab3226b0717f697d607af1002e",
+    "actual-cli-and-cloud7.log": "03de97659a3813aabff337c152e9336eaf32f6cee708dd0e03a24b987afb473f",
+    "cli-test-types-result.json": "c14ec14bb9191b4691e5ae19c85ea2fe4ad8595895fc1101af09274e3e95900a",
+    "cli-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "incoming-diff.txt": "f21ccba0a4f519b02bac3c001c7f0f544354f61379f57829f8cfa674a1b0c306",
+    "incoming-input-deltas.json": "d616cf51f347f773ee7c8ab11cbfa6a50b6ca4177573d35b09bccbc36564002f",
+    "inputs-after.json": "1a510d20995e6ccb58cda488d290333f721d287d1ba1055077f6597d5459de9d",
+    "inputs-before.json": "6c420fe1ad0cd7b6951d2d80669d9cf016ab6848fa71edb1655cf4501ee0bf48",
+    "qualify.py": "677ea75303739ccb0e85db14dd4692640c76d8b00fc3da259113c7df57fefff7",
+    "result.json": "d0960082acd8acaf290ae0443b9b4b93f46ff32959e2d1613d1469a92bb5c477",
+    "unchanged-owning-evidence.json": "7ca23b986b63f8b383f05ca6651f71a86de79d6555b5cbbbad8c63883a1bc8bf"
+  },
+  "environment": {
+    "node": "/Users/williamcory/.nvm/versions/node/v26.5.0/bin/node",
+    "TMPDIR": "/private/tmp",
+    "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": "/Users/williamcory/smithers/target/debug/smithers-jj-export"
+  },
+  "limits": [
+    "No fresh full50/JS/pack/installed consumer/native rebuild/all-platform qualification",
+    "Whole-agent100% coverage not claimed; separate3317 golden identity diagnosis remains queued",
+    "3235 remains open until3315 guard repair and current full named4 CLI gate",
+    "Previous lint/format0 bound to byte-identical settlement files; not rerun for unrelated incoming source"
+  ]
+}
