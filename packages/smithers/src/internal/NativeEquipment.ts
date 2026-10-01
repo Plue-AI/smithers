@@ -115,14 +115,18 @@ const accountPoolOf = (environment: Readonly<Record<string, string | undefined>>
  * from `OPENAI_API_KEY` to vendor `codex exec`, as `codex:<model>` does.
  * Only Codex reads or refreshes its login.
  *
+ * A Claude Code seat keeps its sessions open between turns. `retain` receives
+ * each such seat's `close`, so the host can end the sessions when it shuts down.
+ *
  * @category constructors
  * @since 0.1.0
  */
 export const seatResolver = (
   environment: Readonly<Record<string, string | undefined>>,
-  executor: RequestExecutor.RequestExecutor
+  executor: RequestExecutor.RequestExecutor,
+  retain: (close: () => void) => void = () => {}
 ): SeatResolver.Service => {
-  const ambient = withAliases(providerSeats(environment, executor), hostOf(environment))
+  const ambient = withAliases(providerSeats(environment, executor, retain), hostOf(environment))
   const accounts = new Map<string, SeatResolver.Service>()
   return SeatResolver.make({
     resolve: (declared) =>
@@ -183,7 +187,7 @@ export const seatResolver = (
             selected.CODEX_HOME = directory
             selected[openaiAuthVariable] = "chatgpt"
           }
-          resolver = withAliases(providerSeats(selected, executor), hostOf(selected))
+          resolver = withAliases(providerSeats(selected, executor, retain), hostOf(selected))
           accounts.set(directory, resolver)
         }
         return yield* resolver.resolve(seat).pipe(
@@ -337,7 +341,8 @@ const poolRouteOf = (
 
 const providerSeats = (
   environment: Readonly<Record<string, string | undefined>>,
-  executor: RequestExecutor.RequestExecutor
+  executor: RequestExecutor.RequestExecutor,
+  retain: (close: () => void) => void
 ): SeatResolver.Service => {
   const pool = accountPoolOf(environment)
   let served: { readonly until: number; readonly routes: ReadonlyArray<string> } | undefined
@@ -446,16 +451,18 @@ const providerSeats = (
           }
           case "ClaudeCode": {
             const model = Providers.claudeCodeModel(modelId)
+            const claude = ClaudeCode.make({
+              model,
+              executable: signed.executable,
+              environment,
+              // A host whose runs a person can take over keeps each session for `claude --resume`.
+              hijackable: environment["SMITHERS_HIJACKABLE"] === "1"
+            })
+            retain(claude.close)
             return Seat.make({
               id: seat,
               modelId: model,
-              model: ClaudeCode.make({
-                model,
-                executable: signed.executable,
-                environment,
-                // A host whose runs a person can take over keeps each session for `claude --resume`.
-                hijackable: environment["SMITHERS_HIJACKABLE"] === "1"
-              }),
+              model: claude,
               route: ClaudeCode.route(model),
               contextWindowTokens: SeatResolver.contextWindowTokensFor(model)
             })
@@ -576,6 +583,8 @@ const seatOf = <Body, Frame, Event, State>(
 
 /**
  * Provides {@link seatResolver} over the composition's request dispatcher.
+ * Releasing the layer ends every Claude Code session its seats still hold, so
+ * an idle session cannot keep the host process alive after its runs finish.
  *
  * @category layers
  * @since 0.1.0
@@ -586,7 +595,9 @@ export const layerSeatResolver = (
   Layer.effect(SeatResolver.SeatResolver)(
     Effect.gen(function*() {
       const executor = yield* RequestExecutor.RequestExecutor
-      return seatResolver(environment, executor)
+      const closes = new Set<() => void>()
+      yield* Effect.addFinalizer(() => Effect.sync(() => closes.forEach((close) => close())))
+      return seatResolver(environment, executor, (close) => closes.add(close))
     })
   )
 

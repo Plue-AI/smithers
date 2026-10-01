@@ -56,6 +56,10 @@
 
 ### Fixed
 
+- A `claude-code` seat's idle sessions end when the host releases its seat
+  resolver. Each conversation's Claude Code process stayed open for up to an
+  hour waiting for a next turn, so `flow start` never exited after a module
+  flow with an agent step finished.
 - A `codex` seat launches the vendor through the platform's contained
   spawner (`ScopedProcess`) instead of `node:child_process`: a supervisor owns
   its process group, so a cancelled, failed or timed-out call, and a host that

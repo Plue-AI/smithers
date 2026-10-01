@@ -304,6 +304,23 @@ describe("ClaudeCode.make", () => {
     expect(claude.started).toHaveLength(2)
   })
 
+  it("ends every idle session when the model is closed, so none outlives its host", async () => {
+    const claude = scripted(() => ({ text: reply }))
+    const seat = model(claude.start)
+    await run(seat, request([user("a")], { cacheKey: "run-a" }))
+    await run(seat, request([user("b")], { cacheKey: "run-b" }))
+    // Each conversation's session stays open for its next turn.
+    expect(claude.started.map((session) => session.closed)).toEqual([false, false])
+
+    seat.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(claude.started.map((session) => [session.interrupts, session.closed])).toEqual([[1, true], [1, true]])
+    // A request after close starts a fresh session.
+    await run(seat, request([user("a")], { cacheKey: "run-a" }))
+    expect(claude.started).toHaveLength(3)
+  })
+
   it("answers a request with no conversation from a one-turn session", async () => {
     const claude = scripted(() => ({ text: "the summary" }))
     const events = await run(model(claude.start), request([user("summarize")], { cacheKey: undefined }))

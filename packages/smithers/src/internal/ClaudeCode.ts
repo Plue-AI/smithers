@@ -256,13 +256,15 @@ const userTurn = (text: string): Sdk.SDKUserMessage => ({
 
 /**
  * The claude-code seat's {@link Model.Model}. Sessions live in the returned
- * model, one per conversation.
+ * model, one per conversation, and stay open between turns. `close` ends every
+ * one of them; the host calls it on shutdown, since an open session's Claude
+ * Code process keeps the host process alive.
  *
  * @category constructors
  * @since 1.0.0
  * @private
  */
-export const make = (options: Options): Model.Model => {
+export const make = (options: Options): Model.Model & { readonly close: () => void } => {
   const start: Start = options.start ?? (({ options, prompt }) => Sdk.query({ prompt, options }))
   const idleMillis = options.idleMillis ?? 60 * 60_000
   const sessions = new Map<string, Session>()
@@ -390,25 +392,32 @@ export const make = (options: Options): Model.Model => {
       : conversation(request, request.cacheKey, signal)
   }
 
-  return Model.make({
-    providerName: "anthropic",
-    stream: (request) =>
-      Stream.unwrap(
-        Effect.map(
-          Effect.tryPromise({
-            try: (signal) => answer(request, signal),
-            catch: (error) =>
-              error instanceof ModelError
-                ? error
-                : new ModelError({
-                  code: "transport",
-                  message: `Claude Code failed: ${Failure.operatorSentence(error)}`
-                })
-          }),
-          Stream.fromIterable
+  return Object.assign(
+    Model.make({
+      providerName: "anthropic",
+      stream: (request) =>
+        Stream.unwrap(
+          Effect.map(
+            Effect.tryPromise({
+              try: (signal) => answer(request, signal),
+              catch: (error) =>
+                error instanceof ModelError
+                  ? error
+                  : new ModelError({
+                    code: "transport",
+                    message: `Claude Code failed: ${Failure.operatorSentence(error)}`
+                  })
+            }),
+            Stream.fromIterable
+          )
         )
-      )
-  })
+    }),
+    {
+      close: () => {
+        for (const session of [...sessions.values()]) session.close()
+      }
+    }
+  )
 }
 
 /**
