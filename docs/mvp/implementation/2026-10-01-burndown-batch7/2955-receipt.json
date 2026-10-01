@@ -1,0 +1,62 @@
+{
+  "issue": 2955,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:15:04.245106+00:00",
+  "disposition": "Retired by intentional upstream removal; acceptance is no longer a supported-feature requirement, not claimed implemented",
+  "retirementCommit": "367758e954e3164210d245801d61ca2a92fe2efd",
+  "review": "Reviewed deletion commit, exact removed declarations/tests/docs and factory-registration diff; confirmed no tracked retired flow source. Reviewed current typed public pattern scope and actual 39 passing behavior tests plus both type gates. Historical source/tests retained only as unexecuted history.",
+  "issueSpecificDisposition": "Retired with flows/burndown/run-agent.ts, worker/flow.ts, schema.ts and parser regressions. Historical fix already used Codex completed turns and Claude result messages, validates assignment mappings, deduplicates repeat commits, and refuses unverified CLOSED. No surviving READY/CLOSED coding-agent parser in replacement.",
+  "acceptance": {
+    "structuredFinalChannel": "retired; historical code and unit vectors retained, not executed",
+    "assignmentDedupeConflict": "retired; current typed pattern independently refuses duplicate IDs before calls",
+    "verifiedHostClosure": "retired; no GitHub state or closure authorizer in generic pattern",
+    "modelAttribution": "retired brief removed, no replacement coding seat briefing"
+  },
+  "sourceHashes": {
+    "packages/smithers/flows/patterns/src/Burndown.ts": "b17f1a190b9341c4c7a6d90c0f8624c5e0cc6837ce453511b27b66df9aa3fb15",
+    "packages/smithers/flows/patterns/test/Burndown.test.ts": "630fcce50be5bf80429924e05ad2de2db1854ffa20d1949299154abdb9787204",
+    "packages/smithers/flows/patterns/docs/burndown.md": "31c4c06ed58a5c96332d1d5e4110226e884a4c17fdd38f9b5fd3144a31be384e",
+    "packages/smithers/flows/patterns/package.json": "e241e534e4f17fa89bc73db3d3f1cd8c6d40ad37b57c8ce406d7ae8a6ca61ea0",
+    "packages/smithers/flows/patterns/tsconfig.json": "0064dce36d22143039105eb068be99456971e6caf6e7cebac24633514a2009b8",
+    "packages/smithers/flows/patterns/tsconfig.test.json": "5966332d67ea7145738840e922d08b3c431d049d5d2903d3aa65574b46c8debd",
+    "packages/smithers/flows/patterns/vitest.config.ts": "51c19ffb97a4c6be24fa047918edfbb0773fd13baa3e4231f4aee01ba2ba3be0",
+    "flows/PACKAGE.ts": "009919c08d9fbff8ca4fc46169e98155c9367ef61e04db2d2cfb986679bddadd",
+    "flows/pack.test.mjs": "a80ec950eeb125ffd7f8ec1edca2471c4dabd58271441c1f23f2272ec5022d3f",
+    ".smithers/factory.json": "40266310810b3abf66cb227effbdc0039a152937c8082fe9c8cea51e067e6c57",
+    ".smithers/target-index.json": "6d9be1a1c20beabf95a97ae33703eaeb12df1ba18fcced6ae6ac3062b1102a25",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6"
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Burndown.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "testsPassed": 39,
+      "filesPassed": 1,
+      "durationSeconds": 1.6,
+      "log": "current-Burndown-tests.log",
+      "scope": "focused assertions; no coverage or full-package gate claim"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p tsconfig.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "log": "current-patterns-source-types.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "log": "current-patterns-test-types.log"
+    }
+  ],
+  "proofArchive": "burndown-retirement-proof.tar.gz",
+  "proofArchiveSha256": "a5605e8eccfc07f8b12d8a46738cb2738ac08d9e3e03d148bc587d7c0632d4e7",
+  "limitations": [
+    "Old Codex/Claude launch, Sonnet monitor seat, watched-host inspection, and root/frontier health are absent by intentional upstream retirement; no historical test execution or live provider qualification is claimed.",
+    "The current generic public Burndown pattern does not implement a coding CLI parser, issue closure verifier, or monitor. Typed provider members own those effects.",
+    "Generated .smithers/target-index.json retains deleted //flows:burndown inputs; retirement commit explicitly tracks generation prerequisite #3276. No generated files were edited.",
+    "Historical docs/mvp/implementation receipt references are retained evidence, not active flow registration.",
+    "Focused pattern controls use the real public Flow interpreter with in-memory engine and test action implementations, not external GitHub/provider services. No package coverage or remote closure claim."
+  ]
+}

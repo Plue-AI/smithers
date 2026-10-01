@@ -1,0 +1,84 @@
+{
+  "head": "1d034089151ea0cd8e27a62ffcbd591b3f93040c",
+  "retirementCommit": "367758e954e3164210d245801d61ca2a92fe2efd",
+  "ownedSourcePaths": [],
+  "sourceWrites": false,
+  "activeJobs": [],
+  "readiness": "READY for retirement reconciliation, not a claim that the removed feature is implemented",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Burndown.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "testsPassed": 39,
+      "filesPassed": 1,
+      "durationSeconds": 1.6,
+      "log": "current-Burndown-tests.log",
+      "scope": "focused assertions; no coverage or full-package gate claim"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p tsconfig.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "log": "current-patterns-source-types.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/flows/patterns",
+      "exitCode": 0,
+      "log": "current-patterns-test-types.log"
+    }
+  ],
+  "sourceHashes": {
+    "packages/smithers/flows/patterns/src/Burndown.ts": "b17f1a190b9341c4c7a6d90c0f8624c5e0cc6837ce453511b27b66df9aa3fb15",
+    "packages/smithers/flows/patterns/test/Burndown.test.ts": "630fcce50be5bf80429924e05ad2de2db1854ffa20d1949299154abdb9787204",
+    "packages/smithers/flows/patterns/docs/burndown.md": "31c4c06ed58a5c96332d1d5e4110226e884a4c17fdd38f9b5fd3144a31be384e",
+    "packages/smithers/flows/patterns/package.json": "e241e534e4f17fa89bc73db3d3f1cd8c6d40ad37b57c8ce406d7ae8a6ca61ea0",
+    "packages/smithers/flows/patterns/tsconfig.json": "0064dce36d22143039105eb068be99456971e6caf6e7cebac24633514a2009b8",
+    "packages/smithers/flows/patterns/tsconfig.test.json": "5966332d67ea7145738840e922d08b3c431d049d5d2903d3aa65574b46c8debd",
+    "packages/smithers/flows/patterns/vitest.config.ts": "51c19ffb97a4c6be24fa047918edfbb0773fd13baa3e4231f4aee01ba2ba3be0",
+    "flows/PACKAGE.ts": "009919c08d9fbff8ca4fc46169e98155c9367ef61e04db2d2cfb986679bddadd",
+    "flows/pack.test.mjs": "a80ec950eeb125ffd7f8ec1edca2471c4dabd58271441c1f23f2272ec5022d3f",
+    ".smithers/factory.json": "40266310810b3abf66cb227effbdc0039a152937c8082fe9c8cea51e067e6c57",
+    ".smithers/target-index.json": "6d9be1a1c20beabf95a97ae33703eaeb12df1ba18fcced6ae6ac3062b1102a25",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6"
+  },
+  "limitations": [
+    "Old Codex/Claude launch, Sonnet monitor seat, watched-host inspection, and root/frontier health are absent by intentional upstream retirement; no historical test execution or live provider qualification is claimed.",
+    "The current generic public Burndown pattern does not implement a coding CLI parser, issue closure verifier, or monitor. Typed provider members own those effects.",
+    "Generated .smithers/target-index.json retains deleted //flows:burndown inputs; retirement commit explicitly tracks generation prerequisite #3276. No generated files were edited.",
+    "Historical docs/mvp/implementation receipt references are retained evidence, not active flow registration.",
+    "Focused pattern controls use the real public Flow interpreter with in-memory engine and test action implementations, not external GitHub/provider services. No package coverage or remote closure claim."
+  ],
+  "issue": 2948,
+  "historicalFixCommit": "5e4b51c432c1a0eab089f079339032e48e181282",
+  "disposition": "Retired monitor/host.ts, flow.ts, loop.ts and monitoring regressions. Historical fix explicitly threaded hostRoot, confined watched CLI/cwd and --root, represented inspection failure as unknown/unhealthy, captured stable callbacks and explicit seat. No surviving hardcoded monitored ~/smithers host in replacement.",
+  "acceptance": {
+    "actualHostCwd": "retired; historical fix source retained",
+    "inspectionFailure": "retired; historical unknown/unhealthy boundary retained, not executed",
+    "stableSonnetSeat": "retired; explicit captured seat and version source retained, not launched",
+    "healthReceipts": "retired with reportRun/monitor.log path"
+  },
+  "rawReceipts": {
+    "checks.json": "6f482d86849011697d955ead0c44f233e1a1c5b1865130b8c6315a8316cc54c5",
+    "current-Burndown-tests.log": "920d97746e5ac642c3e2d89151f9d9226b7fdcfb3fdf415d1fdf390acca836f1",
+    "current-patterns-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "current-patterns-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "historical-final-parser.ts": "2b7f4fe2736d62f47c4fffcac169cf4dce5f1f0250a9cddaed2b1636e5308237",
+    "historical-monitor-fix.patch": "4909c621d0f034af98339ab4fd8b8c4da5762256b82229b9aed06800de92df4c",
+    "historical-monitor-host.ts": "956e5e73c777c4d9276640131b8c532ec9a33f45e700663254eda1e84ac71ca0",
+    "historical-monitor-loop.ts": "2084e7ee5a44c2ccbafd6a6f206df10c2ae7df5c2aaf4203b929a8235c396dd8",
+    "historical-monitor-regressions.ts": "1f72a561b13ed47311bfc0b59f4840b21f4d953a33af37bf12cd809cb6bc5e6d",
+    "historical-parser-fix.patch": "ea1240be391dd61ca455bc14494caa76b9318d9191d95bebfbbf7bf3dbdeb25d",
+    "historical-parser-regressions.ts": "a459d5bd6526a9faf23dab7024cfc1ef03282f24cc465f5b834e0c1a159ff176",
+    "issue-2948.json": "72cd997d000fd616245846238fc36d5534c13ab2c215c817f8ef080e170193dc",
+    "issue-2955.json": "0bc14dcb12e662c767e2d4360370cec0d6ddd54375752281013f8621963463f2",
+    "issue-3256.json": "7b46ce8ac64556b114048491d8abd94d3082f632269b504938ea3547e7ff94d2",
+    "monitor-fix-history.txt": "828d8af56aff293f2e2a91fe2f469ade2d1e0ae6d43035ff40b04aa0dd0b3f87",
+    "parser-fix-history.txt": "8afc91e837d62350005c174d677dcc83474a0b11423aeba0ad8284cf21f3c733",
+    "retirement-commit.txt": "048cd8778773f074df88abf364ed42aec0397873427dc7644dac35e11f7ea30c",
+    "retirement-reference-audit.json": "d2d1719de0f69f7babbeeccecf06a4610d7ab6396ca08ed620ba96b6d0979237",
+    "retirement-registration.patch": "137a0eb5264e6081250a30e3977ca0d7d7b002cba73c4e9ee7cfe777a465b8d3",
+    "source-snapshot.json": "51acc52bf41fed92ee07588191272a001d0a7398e82f610435bcce821f27e8f8"
+  }
+}
