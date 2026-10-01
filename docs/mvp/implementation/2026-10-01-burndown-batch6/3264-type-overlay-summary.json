@@ -1,0 +1,26 @@
+{
+  "kind": "Reviewed summary; complete captured compiler evidence retained in archive",
+  "reference": "a9484f39a0213f02daac6f6048dd8e8f3758238c",
+  "qualifiedHead": "4ac6469f6e28291ed2062aa2b76e467dd03a2519",
+  "compiler": {
+    "version": "5.9.3",
+    "path": "/private/tmp/smithers-burndown-20260930/node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/typescript.js",
+    "sha256": "3ae902c92cc44dace175c0e69e13a4b0899f6983c6121d76b9ab8dd5795e7675"
+  },
+  "method": "Actual installed TypeScript Compiler API; same current parsed config/options/rootnames and cached disk inputs for both programs. Baseline overlays exactly eight tracked file texts from explicit reference and omits only the newly authored EgressRequests.test.ts root. No emit, source changes, assertions/casts, options changes or dependency copies.",
+  "configuredSkipLibCheck": true,
+  "baselineDiagnostics": 48,
+  "currentDiagnostics": 48,
+  "added": 0,
+  "removed": 0,
+  "diskDrift": [],
+  "sourceInputsVerified": 4871,
+  "configurationReadsVerified": 1104,
+  "archive": {
+    "file": "3264-type-overlay-proof.tar.gz",
+    "member": "3264-type-overlay-proof.json",
+    "rawMemberSha256": "5ac9555767262962f6d71cb585a2857667fa92f194827cab9a2a2ff9c5d1efd5",
+    "sha256": "5d442e7528b17ef0cb7953877b3b47139cdec8e5752b67caa66c86f9a8f69807"
+  },
+  "limits": "Complete configured app type gate remains red. Existing skipLibCheck:true preserved; no new bypass or strict gate claim."
+}

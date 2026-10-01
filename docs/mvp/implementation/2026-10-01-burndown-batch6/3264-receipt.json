@@ -1,6 +1,6 @@
 {
   "issue": 3264,
-  "status": "Qualified durable egress behavior; full app gates red and retained; type delta qualification pending",
+  "status": "Qualified durable egress behavior; full app gates remain red, baseline type diagnostics proven unchanged",
   "ownedPaths": [
     {
       "path": "apps/app/src/mainview/state/AppState.ts",
@@ -56,7 +56,23 @@
       "exit": 2,
       "diagnostics": 48,
       "owningPathDiagnostics": 0,
-      "baselineDelta": "pending independent compiler overlay proof"
+      "baselineDelta": {
+        "baseline": "a9484f39a0213f02daac6f6048dd8e8f3758238c",
+        "diagnosticsBoth": 48,
+        "added": 0,
+        "removed": 0,
+        "sourceInputsVerified": 4871,
+        "configReadsVerified": 1104,
+        "existingSkipLibCheck": true,
+        "qualification": "Actual configured Compiler API; no option changes, no new bypass, no whole type-green claim",
+        "receipt": "3264-type-overlay-proof.tar.gz::3264-type-overlay-proof.json",
+        "sha256": "5ac9555767262962f6d71cb585a2857667fa92f194827cab9a2a2ff9c5d1efd5",
+        "summary": "3264-type-overlay-summary.json"
+      },
+      "proofArchive": {
+        "file": "3264-type-overlay-proof.tar.gz",
+        "sha256": "5d442e7528b17ef0cb7953877b3b47139cdec8e5752b67caa66c86f9a8f69807"
+      }
     },
     "style": "Optional3-file real dprint check0; no declared app format gate"
   },
