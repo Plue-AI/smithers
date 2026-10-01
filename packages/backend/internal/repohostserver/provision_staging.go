@@ -227,6 +227,10 @@ func (s *Server) stageProvisionRepo(w http.ResponseWriter, r *http.Request) erro
 			}
 			return internalError("failed to inspect source repository", statErr)
 		}
+		// The copy is the destination owner's storage (smithersai/plue#768).
+		if err := admitGitCopy(r.Context(), r.Header, repoGitDir(sourcePath)); err != nil {
+			return err
+		}
 		err = copyDir(sourcePath, stagedPath)
 	}
 	if err == nil {
@@ -599,12 +603,15 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	if msg := repohost.ReservedRefViolation(commands, "", 0); msg != "" {
 		return forbidden(msg)
 	}
-	maxInputSize := s.config.maxGitRequestBytes()
-	pack := capPack(peeked, source.n, maxInputSize)
+	// An import adds to its owner's storage like any push (smithersai/plue#768).
+	pack, err := capStoragePack(pushCtx, r.Header, gitDir, peeked, source.n, s.config.maxGitRequestBytes())
+	if err != nil {
+		return err
+	}
 	body, gitErr := runGitRPCBuffered(pushCtx, gitDir, "receive-pack", readCloserWithBody(pack, requestBody))
 	gitErr = pushLimited(gitErr)
 	if errors.Is(gitErr, errPushTooLarge) {
-		gitErr = pushTooLarge(false, maxInputSize)
+		gitErr = pack.tooLarge(false)
 	}
 	reconcileCtx, cancelReconcile := detachedPushContext(r.Context())
 	defer cancelReconcile()

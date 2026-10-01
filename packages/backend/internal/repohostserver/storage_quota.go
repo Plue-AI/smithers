@@ -62,6 +62,72 @@ func storagePackCap(remaining int64) int64 {
 	return max(remaining, emptyPackBytes)
 }
 
+// storagePack is a receive-pack body capped at the request's pack limit and
+// at the storage the owner has left for the repository.
+type storagePack struct {
+	io.Reader
+	// maxInputSize is the tighter of the two caps.
+	maxInputSize int64
+	// storageCapped reports that the storage cap is the tighter one.
+	storageCapped bool
+}
+
+// capStoragePack caps a peeked receive-pack body, whose command section is
+// commandBytes long, at maxInputSize and at what the allowance the API sent
+// in h leaves gitDir (smithersai/plue#593). Every receive-pack that adds to
+// an owner's storage, a push or a staged import, caps its pack here while it
+// holds gitDir's write lock.
+func capStoragePack(ctx context.Context, h http.Header, gitDir string, peeked io.Reader, commandBytes, maxInputSize int64) (storagePack, error) {
+	allowance, limited, appErr := gitBytesAllowance(h)
+	if appErr != nil {
+		return storagePack{}, appErr
+	}
+	if !limited {
+		return storagePack{Reader: capPack(peeked, commandBytes, maxInputSize), maxInputSize: maxInputSize}, nil
+	}
+	remaining, err := remainingGitBytes(ctx, gitDir, allowance)
+	if err != nil {
+		return storagePack{}, internalError("failed to measure repository git bytes", err)
+	}
+	pack := storagePack{maxInputSize: maxInputSize}
+	if storageCap := storagePackCap(remaining); storageCap < maxInputSize {
+		pack.maxInputSize, pack.storageCapped = storageCap, true
+	}
+	pack.Reader = requireObjectFreePack(capPack(peeked, commandBytes, pack.maxInputSize), commandBytes, remaining)
+	return pack, nil
+}
+
+// tooLarge answers a push whose pack passed its cap (errPushTooLarge).
+func (p storagePack) tooLarge(userRefs bool) *appError {
+	if p.storageCapped {
+		return storageLimitReached()
+	}
+	return pushTooLarge(userRefs, p.maxInputSize)
+}
+
+// admitGitCopy refuses a fork whose copy of srcGitDir would not fit the
+// allowance the API sent in h for the new repository (smithersai/plue#768).
+// The destination holds nothing yet, so the copy may use the whole
+// allowance, and copyDir shares no objects with the source, so the copy
+// measures what the source measures. The caller holds srcGitDir's lock.
+func admitGitCopy(ctx context.Context, h http.Header, srcGitDir string) error {
+	allowance, limited, appErr := gitBytesAllowance(h)
+	if appErr != nil {
+		return appErr
+	}
+	if !limited {
+		return nil
+	}
+	gitBytes, err := measureGitBytes(ctx, srcGitDir)
+	if err != nil {
+		return internalError("failed to measure source repository git bytes", err)
+	}
+	if gitBytes > allowance {
+		return storageLimitExceeded("fork")
+	}
+	return nil
+}
+
 // packHeaderBytes is a pack's "PACK" signature, version, and object count.
 const packHeaderBytes = 12
 
@@ -104,8 +170,14 @@ func (p *objectFreePack) Read(b []byte) (int, error) {
 // storageLimitReached answers a pack larger than the storage the owner has
 // left.
 func storageLimitReached() *appError {
+	return storageLimitExceeded("push")
+}
+
+// storageLimitExceeded answers a write, a push or a fork, larger than the
+// storage the owner has left.
+func storageLimitExceeded(write string) *appError {
 	return &appError{StatusCode: http.StatusRequestEntityTooLarge, Code: repohost.StorageLimitCode,
-		Message: "this push would exceed the storage limit for the current plan"}
+		Message: "this " + write + " would exceed the storage limit for the current plan"}
 }
 
 // gitSize answers the repository's git object bytes, measured once no push
