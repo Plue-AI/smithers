@@ -187,6 +187,16 @@ type Engine = FlowRuntime.FlowRuntime | Crypto.Crypto
 const repoOf = (args: { readonly input: unknown }) => (args.input as typeof Input.Type).repo
 const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
 
+/**
+ * Whether settling a row releases its claim and removes its workspace. A
+ * `requeued` row keeps both: the run was released (a lapsed lease), and on
+ * resume its children carry on in those workspaces and land under that
+ * claim; removing them failed every resumed landing (run-4, 07:18Z). The next
+ * round's claim by the same holder refreshes it, and a fresh workspace
+ * replaces the old one.
+ */
+export const releasesClaim = (status: Burndown.Status): boolean => status !== "requeued"
+
 const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, Engine, string>(Dispatch, {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
@@ -258,6 +268,7 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
     `${landed === undefined ? report.change : landed.slice(0, 12)} by ${report.agent} ${report.account}`,
   release: (args) =>
     Effect.gen(function*() {
+      if (!releasesClaim(args.status)) return
       const note = args.detail.replaceAll("\n", " ").slice(0, 300)
       const released = args.status === "landed"
         ? claimCommand([

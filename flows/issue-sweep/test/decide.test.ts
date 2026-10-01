@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
-import { claimTool, decide } from "../flow.ts"
+import { claimTool, decide, releasesClaim } from "../flow.ts"
 
 const claim = (host: string, expires: string) =>
   `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
@@ -41,4 +41,10 @@ test("an unparseable expiry is treated as expired", () => {
 test("the claim tool is the copy in this flow's own checkout", () => {
   const root = fileURLToPath(new URL("../../../", import.meta.url))
   assert.equal(claimTool, `${root}scripts/issue-claim.mjs`)
+})
+
+// run-4: a requeued row's release removed the workspaces its resumed children landed from.
+test("a requeued row keeps its claim and workspace; every final row releases them", () => {
+  assert.equal(releasesClaim("requeued"), false)
+  for (const status of ["landed", "held", "failed", "skipped"] as const) assert.equal(releasesClaim(status), true)
 })
