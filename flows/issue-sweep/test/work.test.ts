@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { goCache } from "../land.ts"
 import { accountOf, agentCommand, brief, commitMessage, replyOf } from "../work/flow.ts"
 
 test("commitMessage takes the agent's last COMMIT line and keeps its issue reference", () => {
@@ -48,9 +49,24 @@ test("Claude's prompt precedes the variadic --add-dir, and Codex's is its last a
   assert.equal(claude, "claude-rr")
   assert.deepEqual(claudeArgs.slice(0, 2), ["-p", "PROMPT"])
   assert.equal(claudeArgs.filter((arg) => arg === "PROMPT").length, 1)
-  assert.equal(claudeArgs.at(-2), "--add-dir")
+  assert.deepEqual(claudeArgs.slice(-3), ["--add-dir", goCache, "/private/tmp"])
   const [codex, codexArgs] = agentCommand("codex", "/ws", "PROMPT")
   assert.equal(codex, "codex-rr")
   assert.equal(codexArgs.at(-1), "PROMPT")
   assert.deepEqual(codexArgs.slice(codexArgs.indexOf("-C"), codexArgs.indexOf("-C") + 2), ["-C", "/ws"])
+})
+
+test("the brief leaves out the claim tool's bookkeeping comments", () => {
+  const text = brief("smithersai/smithers", 12, {
+    title: "t",
+    body: "b",
+    comments: [
+      { author: { login: "bot" }, body: "Claimed by issue-sweep on host at 2026-10-01T00:00:00Z; expires x" },
+      { author: { login: "bot" }, body: "Released by issue-sweep on host at 2026-10-01T00:00:00Z: failed" },
+      { author: { login: "bot" }, body: "Took over a stale claim: Claimed by a on b" },
+      { author: { login: "will" }, body: "Repro: run it twice" }
+    ]
+  })
+  assert.doesNotMatch(text, /Claimed by|Released by|Took over/)
+  assert.match(text, /<comment author="will">\nRepro: run it twice/)
 })

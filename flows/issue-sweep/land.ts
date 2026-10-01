@@ -7,7 +7,7 @@
  * on this Mac share, when it exists. The checks run inside `codex sandbox`, so
  * code the agent wrote can write only its own workspace and has no network.
  */
-import { Effect, Option, Result, Schema } from "effect"
+import { Duration, Effect, Option, Result, Schema } from "effect"
 import { existsSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { type Exited, type HostFailed, output, repository, run, tail, workspaces } from "./host.ts"
@@ -181,23 +181,36 @@ const IndexJson = Schema.fromJsonString(Schema.Struct({
   targets: Schema.Array(Schema.Struct({ label: Schema.String, kinds: Schema.Array(Schema.String) }))
 }))
 
+// The longest one landing's checks may take before the change fails to land.
+const checkBudget = Duration.minutes(90)
+
 /** Runs `labels`' tests in `workspace`, sandboxed, against the repository's known-red list. */
 const test = (workspace: string, labels: ReadonlyArray<string>) =>
-  Effect.map(
-    sandboxed(workspace, [
-      "pnpm",
-      "exec",
-      "smthrs",
-      "test",
-      ...labels,
-      "--known-red",
-      ".github/ci-known-red.json",
-      "--jobs",
-      "4",
-      "--format",
-      "json"
-    ]),
-    readChecks
+  sandboxed(workspace, [
+    "pnpm",
+    "exec",
+    "smthrs",
+    "test",
+    ...labels,
+    "--known-red",
+    ".github/ci-known-red.json",
+    "--jobs",
+    "4",
+    "--format",
+    "json",
+    // The workspace's result cache is the agent's to write: a check that
+    // read it would accept a result the agent recorded, not one it earned.
+    "--no-cache"
+  ]).pipe(
+    Effect.map(readChecks),
+    Effect.timeoutOrElse({
+      duration: checkBudget,
+      orElse: () =>
+        Effect.succeed<Checked>({
+          _tag: "Broken",
+          message: `tests did not finish within ${Duration.format(checkBudget)}`
+        })
+    })
   )
 
 // The workspace kept at `main` for telling a new red from an old one.

@@ -23,7 +23,9 @@ const Input = Schema.Struct({
   maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32))),
   // Each issue's work child is keyed by this attempt, so a restarted sweep
   // reattaches to its children; a new attempt works failed issues afresh.
-  attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
+  attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  // Where agents run: on this Mac in their own sandbox (default), or in local microVMs.
+  placement: Schema.optional(Schema.Literals(["local", "vm"]))
 })
 
 const Issue = Schema.Struct({
@@ -220,7 +222,9 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
     const input = args.input as typeof Input.Type
     const id = `${args.executionId}/attempt-${input.attempt ?? 1}`
     const execute = (executionId: string) =>
-      Work.execute({ repo: input.repo, issue: args.item.number, placement: "local" }, { executionId })
+      Work.execute({ repo: input.repo, issue: args.item.number, placement: input.placement ?? "local" }, {
+        executionId
+      })
     return execute(id).pipe(
       Effect.catchCause((cause) =>
         Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
