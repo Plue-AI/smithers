@@ -1,0 +1,58 @@
+{
+  "issue": 3337,
+  "status": "READY_FROZEN_POSTREBASE",
+  "head": "32bd690c1fd3385a30e1cbc41ec8db7f621e6094",
+  "ownedFiles": {
+    ".smithers/FACTORY.ts": "dc607df4b5fe048c085ec87a9f792eabe4a85738e5d10d976f20e1aab9a92864",
+    "flows/pack.test.mjs": "cc21693c5c8a8319bbe9dfe922bbacb8dd528f6f8e8425b2d0d566a751a0e848",
+    ".smithers/factory.json": "92d964265f983813bdba323f37f4d7ce0caae12f79c451a31722429f33a614ec"
+  },
+  "capturedInputs": 357,
+  "beforeAfterInputDrift": [],
+  "incoming": "9b98671152 adds AgentAction completion-brake option and issue-sweep blocked/deferred filtering; incoming actual source diff retained. No discovery/public catalog metadata change; no regeneration needed.",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts lint //:factoryProjection",
+      "exit": 0,
+      "log": "projection-lint.log",
+      "result": "Cache hit only; independent uncached invocation follows."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts lint //:factoryProjection --no-cache",
+      "exit": 0,
+      "log": "projection-lint-uncached.log",
+      "result": "1 actual ran/0hit/0failed. Canonical actual discovery/render/check, no projection drift."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts flow list --format=json",
+      "exit": 0,
+      "log": "public-list.json",
+      "result": "Actual sourceCLI metadata list55/review-first5/bothissueSweep/no retired burndown."
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test flows/pack.test.mjs",
+      "exit": 0,
+      "log": "pack-full.log",
+      "result": "218/218, zero skips,27.20s, complete pack/discovery/catalog/realCLI fixtures."
+    }
+  ],
+  "cwd": "/private/tmp/smithers-burndown-20260930",
+  "sourceWrites": false,
+  "limits": [
+    "Initial projection lint was a cache hit; uncached actual canonical lint independently passed.",
+    "No live provider/remote issue launch, broad package coverage, release/native build, target-index/calibration qualification.",
+    "Original independent generator/catalog/presentation/type evidence remains sealed in initial3337 archive; only affected pack/listing/projection checks repeated."
+  ],
+  "activeJobs": [],
+  "rawReceipts": {
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/incoming.diff": "8b85dad6dfbedca5178875c179abb98043d88b6515f86ad80350dd18275b3538",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/inputs-after.json": "f9d8c097c9fb4ca64dbd411b4598514f6d4024d525d3d85ed6035ae78b4eb4b8",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/inputs-before.json": "f9d8c097c9fb4ca64dbd411b4598514f6d4024d525d3d85ed6035ae78b4eb4b8",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/listing-assertions.json": "146959cb8f8fcce7d94d646fd9c39471c5134c6276dff279ac7068d13d8a6a03",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/pack-full.log": "8138d58e28683170f973ddf188d1f851dbeda58d1166a8fb2e871e7a720e42aa",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/projection-lint-uncached.log": "1403f9a7b8fb543b08dfd6fae95a9a2213377e636818712a14e6a400b85c4e15",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/projection-lint.log": "0a8577a6026cbc7a1f02bedc48d2cd3b74143dbd4f3feeaad39506818e738ef4",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/public-list.json": "08458b29b39390fea77a05bec5371f7fc0f0daba30565f1d2f87f78e1165a127",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/postrebase/public-list.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -16,6 +16,11 @@ import { Smithers as S } from "@smthrs/targets"
 // summary and featured pair every target carries. The projection joins these
 // declarations over the discovered flows; a declaration naming no discovered
 // flow fails that projection by id.
+export const review = S.Flow({
+  flow: "review",
+  summary: "Review the uncommitted change and return a verdict.",
+  featured: true
+})
 export const lint = S.Flow({
   flow: "lint",
   summary: "Lint the files you name against this repository's conventions and fix what it finds.",
@@ -40,7 +45,7 @@ export const releaseNotes = S.Flow({
 
 export const factory = S.Factory({
   summary: "How smithersai/smithers develops itself.",
-  flows: [lint, prTriage, issueTriage, releaseNotes],
+  flows: [review, lint, prTriage, issueTriage, releaseNotes],
   // The day-one Dispatcher table (factory design 2026-09-07 §7). These are
   // the rules the factory declares; the Dispatcher card shows each as a
   // declared row with its sentence. The flows they name land with the

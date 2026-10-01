@@ -1,0 +1,120 @@
+{
+  "issue": 3337,
+  "reviewer": "codex-burndown-20260930",
+  "at": "2026-10-01T08:15:21.018212+00:00",
+  "files": {
+    ".smithers/FACTORY.ts": "dc607df4b5fe048c085ec87a9f792eabe4a85738e5d10d976f20e1aab9a92864",
+    "flows/pack.test.mjs": "cc21693c5c8a8319bbe9dfe922bbacb8dd528f6f8e8425b2d0d566a751a0e848",
+    ".smithers/factory.json": "92d964265f983813bdba323f37f4d7ce0caae12f79c451a31722429f33a614ec"
+  },
+  "sourceDiffReviewed": true,
+  "review": "Root reviewed all3 diffs. Authored review-first feature matches existing source/schedule; canonical generator includes all55 current flows. Independent explicit module/hidden/payload/warning inventories preserve runtime locators, conservative authority and honest refusals. Home stays unchanged; no generator implementation/manual projection edits. Archive retains exact current3-file patch rather than duplicate source files; root authenticated it against current Git diff and all source hashes.",
+  "proofArchive": "3337-proof.tar.gz",
+  "proofArchiveSha256": "02c7fd8f0efa87c4e35d7eac374a49589c0c13b756b8a19d1a0dc555ed2686d5",
+  "checks": [
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "exit": 1,
+      "log": "owning-red.log",
+      "result": "2pass/3fail: stale catalog omits2 discovered modules, missing authored featured review, stale exact warnings."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts target //:factoryProjection --write",
+      "exit": 0,
+      "log": "generator-write.log",
+      "result": "Actual canonical target regenerates factory/home projections."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts lint //:factoryProjection",
+      "exit": 0,
+      "log": "generator-check.log",
+      "result": "Actual canonical drift check green."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "exit": 0,
+      "log": "owning-green.log",
+      "result": "5/5: actual Discovery/Executable module admission, exact catalog/path/description and featured inventory, explicit warning/refusal/schema locator/model visibility controls."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/targets",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Flow.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "catalog-unit.log",
+      "result": "9/9 independent FlowCatalog rows/order/duplicate and missing declaration refusal."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/build-cli",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/FactoryProjectionExecution.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "generator-integration.log",
+      "result": "9/9 actual CLI fixture write/lint/ci/drift/missing-flow/invalid factory boundaries."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test flows/pack.test.mjs",
+      "exit": 0,
+      "log": "pack-full.log",
+      "result": "218/218 complete configured Node pack test file, including actual CLI fixtures; zero skips, 28.03s."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/FeaturedFlows.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "featured-unit.log",
+      "result": "7/7 presentation joins only discovered flows and honors catalog ordering; malformed/absent projections."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p flows/tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "flows-types.log",
+      "result": "Unchanged owning flows compiler green."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts flow list --format=json",
+      "exit": 0,
+      "log": "public-list.json",
+      "result": "Actual source CLI metadata list55; review-first5 featured; both issue-sweep modules visible in catalog; retired burndown absent. Assertions retained separately."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "factory-types-qualified.log",
+      "result": "Root strict compiler options over authored FACTORY with explicit existing workspace Node typeRoots; no source weakening."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec eslint flows/pack.test.mjs .smithers/FACTORY.ts",
+      "exit": 0,
+      "log": "lint.log",
+      "result": "Pack fixture lint green; existing config explicitly ignores FACTORY (one warning)."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp packages/smithers/node_modules/.bin/dprint fmt --config flows/dprint.json --stdin ts < .smithers/FACTORY.ts",
+      "exit": 0,
+      "log": "factory-format-stdin.log",
+      "result": "Existing flow dprint rules format authored FACTORY to exactly identical bytes, no repo writes."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts target //:factoryProjection --write",
+      "exit": 0,
+      "log": "generator-second-write.log",
+      "result": "Second actual canonical write preserves final factory/home bytes."
+    }
+  ],
+  "limits": [
+    "Focused Vitest suites explicitly run without coverage; no whole package coverage claim or threshold edits. Full Node pack has218 executed cases and zero skips.",
+    "Configured flows dprint includes ts/tsx/js/jsx/json/md, excluding mjs: pack.test.mjs verified by Node parser+ESLint+218 tests, not claimed configured dprint-covered. FACTORY formatting validated via stdin with unchanged flow rules.",
+    "Initial root pnpm dprint missing binary and temporary compiler missing Node typeRoots retained as validation setup failures; corrected scoped executable/config checks pass.",
+    "Target-index/calibration #3276 unchanged and not qualified by these gates. No release build, hosted factory, live issue launch or retired burndown restoration claim."
+  ]
+}

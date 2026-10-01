@@ -2,6 +2,41 @@
   "summary": "How smithersai/smithers develops itself.",
   "flows": [
     {
+      "id": "review",
+      "description": "Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.",
+      "summary": "Review the uncommitted change and return a verdict.",
+      "featured": true,
+      "kind": "mdx",
+      "path": "flows/review/flow.mdx",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:*"
+      ],
+      "model": "sol",
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [],
+      "budget": {
+        "tokens": 200000,
+        "milliseconds": 600000
+      }
+    },
+    {
       "id": "lint",
       "description": "Lints the files you name against this repository's own conventions and fixes what it finds.",
       "summary": "Lint the files you name against this repository's conventions and fix what it finds.",
@@ -999,6 +1034,42 @@
       "flows": []
     },
     {
+      "id": "issue-sweep",
+      "description": "Work every open GitHub issue that no other machine holds.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/issue-sweep/flow.ts",
+      "capabilities": [
+        "proc:spawn:gh api *",
+        "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+        "proc:spawn:node /*/scripts/issue-claim.mjs *",
+        "proc:spawn:jj -R *",
+        "proc:spawn:lockf *",
+        "proc:spawn:pnpm *",
+        "proc:spawn:codex *",
+        "proc:spawn:codex-rr *",
+        "proc:spawn:claude-rr *"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
+      "id": "issue-sweep/work",
+      "description": "One coding agent fixes one issue in its own jj workspace.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/issue-sweep/work/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "issue/poc",
       "description": "Build a small proof of concept for an issue.",
       "summary": null,
@@ -1216,41 +1287,6 @@
       "model": null,
       "modelInvocable": true,
       "flows": []
-    },
-    {
-      "id": "review",
-      "description": "Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.",
-      "summary": null,
-      "featured": false,
-      "kind": "mdx",
-      "path": "flows/review/flow.mdx",
-      "capabilities": [
-        "fs:read:**",
-        "proc:spawn:*"
-      ],
-      "model": "sol",
-      "modelInvocable": true,
-      "inputSchema": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "args": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "args"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      },
-      "flows": [],
-      "budget": {
-        "tokens": 200000,
-        "milliseconds": 600000
-      }
     },
     {
       "id": "review/change",

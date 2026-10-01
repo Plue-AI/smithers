@@ -1,0 +1,167 @@
+{
+  "issue": 3337,
+  "status": "READY_FROZEN",
+  "head": "392d910c6a5fbdd8a6c5dd0ad200168d9fd5259d",
+  "ownedFiles": {
+    ".smithers/FACTORY.ts": "dc607df4b5fe048c085ec87a9f792eabe4a85738e5d10d976f20e1aab9a92864",
+    "flows/pack.test.mjs": "cc21693c5c8a8319bbe9dfe922bbacb8dd528f6f8e8425b2d0d566a751a0e848",
+    ".smithers/factory.json": "92d964265f983813bdba323f37f4d7ce0caae12f79c451a31722429f33a614ec"
+  },
+  "sourceInputs": {
+    ".smithers/home.json": "df481c89b5c3ec42a192d25bd542cc27065d60405cfdc80f24c4dcdcfe40f2f7",
+    "flows/review/flow.mdx": "d69c3c416c29184559c245f5b82d73803d434a7c2bb738245907a6c6c978695a",
+    "flows/issue-sweep/flow.ts": "f0d99d2cdbbe8390abf2a8715c23840410e2bc5f93d23af5c68efde2a8d192d3",
+    "flows/issue-sweep/work/flow.ts": "8067909c595002384347811c50865c189c1a5c7cedcd9fcc0de209c1d37053c9",
+    "flows/dprint.json": "42dc71dc3a85ebf2dc45bdb963eb46c1455894413487e2bbe233d1f5ffe952cc",
+    "flows/tsconfig.json": "dfa7b04debd9c18f5864e21c36e302611a782e5f76a4262abbdc0c0e10166304",
+    "tsconfig.json": "f54144e689a9bc204c8ecd1a3568b560b22dbcc5de0b9fdd1372f1115dd2825e",
+    "tsconfig.base.json": "208aefe10b09672b50457f7f42cd90f18530b89c8f780c8d49039428d204fe8b",
+    "pnpm-lock.yaml": "9a8953412677fc1428635d1b7325fb5b88791dbcd37ade37d8f536d65007a2b6",
+    "packages/smithers/build/build-cli/src/FactoryProjectionExec.ts": "cd5726ec69d16bade2136dd4b727ea90afdf1aa2581934d1301b780697717880",
+    "packages/smithers/build/targets/src/FlowCatalog.ts": "c546cbc0b76658e24b65227946751ab3bf9a2632791a3bc2496835ecf55cdc72",
+    "packages/smithers/src/internal/FeaturedFlows.ts": "80da51cd328a61a64690f358f8c78b4e6726a2de2fe828f7f18dd087cece5f7a",
+    "packages/smithers/agent/registry/src/Descriptor.ts": "2303edd1ca0331f063585098a3fe2953dc46280371bf3d77efce46d0847954bf",
+    "packages/smithers/agent/registry/src/Discovery.ts": "4518fc8a75df470c6bb134de749651f63b376c5b0ab1f228acc6de2813793484",
+    "packages/smithers/build/targets/test/Flow.test.ts": "a75fe26e2ce9ea2a51b5afc32807ca54a04470b86abd30239069dd3f0dca590c",
+    "packages/smithers/build/build-cli/test/FactoryProjectionExecution.test.ts": "f1a9c62f59919bbae469b612600019fb8e26ceda000131d18b04008bb205d52c",
+    "packages/smithers/test/FeaturedFlows.test.ts": "70c86b6d4e310dee9890f50404318b4c5073d01fbf3671c557d872778e7a7dab"
+  },
+  "checks": [
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "exit": 1,
+      "log": "owning-red.log",
+      "result": "2pass/3fail: stale catalog omits2 discovered modules, missing authored featured review, stale exact warnings."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts target //:factoryProjection --write",
+      "exit": 0,
+      "log": "generator-write.log",
+      "result": "Actual canonical target regenerates factory/home projections."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts lint //:factoryProjection",
+      "exit": 0,
+      "log": "generator-check.log",
+      "result": "Actual canonical drift check green."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "exit": 0,
+      "log": "owning-green.log",
+      "result": "5/5: actual Discovery/Executable module admission, exact catalog/path/description and featured inventory, explicit warning/refusal/schema locator/model visibility controls."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/targets",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/Flow.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "catalog-unit.log",
+      "result": "9/9 independent FlowCatalog rows/order/duplicate and missing declaration refusal."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/build/build-cli",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/FactoryProjectionExecution.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "generator-integration.log",
+      "result": "9/9 actual CLI fixture write/lint/ci/drift/missing-flow/invalid factory boundaries."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test flows/pack.test.mjs",
+      "exit": 0,
+      "log": "pack-full.log",
+      "result": "218/218 complete configured Node pack test file, including actual CLI fixtures; zero skips, 28.03s."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/FeaturedFlows.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "log": "featured-unit.log",
+      "result": "7/7 presentation joins only discovered flows and honors catalog ordering; malformed/absent projections."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p flows/tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "flows-types.log",
+      "result": "Unchanged owning flows compiler green."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts flow list --format=json",
+      "exit": 0,
+      "log": "public-list.json",
+      "result": "Actual source CLI metadata list55; review-first5 featured; both issue-sweep modules visible in catalog; retired burndown absent. Assertions retained separately."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "factory-types-qualified.log",
+      "result": "Root strict compiler options over authored FACTORY with explicit existing workspace Node typeRoots; no source weakening."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec eslint flows/pack.test.mjs .smithers/FACTORY.ts",
+      "exit": 0,
+      "log": "lint.log",
+      "result": "Pack fixture lint green; existing config explicitly ignores FACTORY (one warning)."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp packages/smithers/node_modules/.bin/dprint fmt --config flows/dprint.json --stdin ts < .smithers/FACTORY.ts",
+      "exit": 0,
+      "log": "factory-format-stdin.log",
+      "result": "Existing flow dprint rules format authored FACTORY to exactly identical bytes, no repo writes."
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts target //:factoryProjection --write",
+      "exit": 0,
+      "log": "generator-second-write.log",
+      "result": "Second actual canonical write preserves final factory/home bytes."
+    }
+  ],
+  "acceptance": {
+    "projection": "Canonical generator, all55 metadata rows from Discovery; review restored through authored FACTORY before lint/pr-triage/issue-triage/release-notes. Home bytes unchanged. No manual generated projection edits.",
+    "refusals": "Explicit independently maintained21 unavailable payload names each retain Module runtime decoder/path and no document. Exact26 warnings retain effect-tier escalation and work wildcard; root has literal capabilities and no wildcard warning. Actual Executable.fromDescriptor loads self-contained flows and preserves named delegate/service refusals.",
+    "visibility": "Both issue-sweep modules remain non-model-invocable, hidden inventory checked independently; catalog membership does not grant execution.",
+    "publicBoundary": "Actual generator CLI integration + complete public flow pack + actual source CLI flow list; no live provider/GitHub flow launches."
+  },
+  "limits": [
+    "Focused Vitest suites explicitly run without coverage; no whole package coverage claim or threshold edits. Full Node pack has218 executed cases and zero skips.",
+    "Configured flows dprint includes ts/tsx/js/jsx/json/md, excluding mjs: pack.test.mjs verified by Node parser+ESLint+218 tests, not claimed configured dprint-covered. FACTORY formatting validated via stdin with unchanged flow rules.",
+    "Initial root pnpm dprint missing binary and temporary compiler missing Node typeRoots retained as validation setup failures; corrected scoped executable/config checks pass.",
+    "Target-index/calibration #3276 unchanged and not qualified by these gates. No release build, hosted factory, live issue launch or retired burndown restoration claim."
+  ],
+  "activeJobs": [],
+  "rawReceipts": {
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/catalog-unit.log": "6663f698db9a109421d6c5dbb091c7560476a3fa8f5be1174ac0c69fa0d8f896",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-dprint.json": "ed380225fc858447650d3e9fa9705a8151794cdf7c1ca54cf8baa63898fa5aa2",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-format-qualified.log": "eefcd27aca52c21a1e8fa107a1474c2e95d948c4935c1ca3ddb2525e0220f2e5",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-format-stdin.log": "58836bb2948d6e8c1579d55a4c64e76e48f1fbc084846c9cded91237e6afc151",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-format.log": "20e23b0d6e91c8d386d0779bdc6e729fc49b606dd492c676ee72e563ff33fb47",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-tsconfig.initial.json": "198ede63dfa5999ba9b8a8ea1e222eaed0564099cddec02784f0eca4aadb8077",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-tsconfig.json": "06132fdf7f47101d803b3c66e4961659ff1ffdb7838ca935b2ce088824e295fc",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-types-qualified.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/factory-types.log": "22d754e33e5e414d820e237c9e477c81ec8db495c45ab51f7665351a89a3c783",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/featured-unit.log": "94ded48e70172b9eaf405014ff8e4ed930ed7619ab9baf406826e9d53ebcb59c",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/flows-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/generator-check.log": "0475cb993e617e90bde40fe65f6420d51434f0abb7de344b556c819f6777a175",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/generator-integration.log": "72d6de1b67ffff0456b348f6eea4a46e024a8319fb4874e93f605b7dc3e55bf5",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/generator-second-write.log": "92d653d915fbc0e9cab5ff268da8a16904237307a31763e3ac13b0c46af1e9b8",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/generator-write.log": "244e8c42ffacae224e92731851f48769e465193dde84ac9f5423699dc77f7e55",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/lint.log": "2af7ca1418ba573dbc312d1ff53c229f5457c61f43d6ca8369681c78bc42a87d",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/owning-green.log": "b71344b84c84b6b074cb3e207c41f877be6fec8b25ba359d8ae7038cd43645a5",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/owning-red.log": "eb36db51f2c52142d5dc174d85c4aadeb4d0f4d599d2acbb0e351c82e6251cba",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/pack-full.log": "1530fe3623ae0fbfadc91e10c3287666508e4c09befe1fc5c49f49606e025503",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/public-list-assertions.json": "cd4c5f0f06c71e26531d51f8f1d1f76d475a24c26c28c62c9e04ef1b2934ce89",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/public-list.json": "08458b29b39390fea77a05bec5371f7fc0f0daba30565f1d2f87f78e1165a127",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/public-list.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/source.diff": "3a15bb708fb2c8af124045f9ec16c75ce5b492ca847c705c0782a12c4dca4725"
+  }
+}

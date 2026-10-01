@@ -30,6 +30,7 @@ import { FlowEngine } from "@smthrs/engine";
 import { Action } from "@smthrs/flow";
 import * as Detect from "@smthrs/migrate/Detect";
 import * as Discovery from "@smthrs/registry/Discovery";
+import * as Descriptor from "@smthrs/registry/Descriptor";
 import * as Executable from "@smthrs/registry/Executable";
 import * as MarkdownFlow from "@smthrs/registry/MarkdownFlow";
 
@@ -590,7 +591,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -603,11 +604,40 @@ describe("discovery over the project flows directory", () => {
     const hostBound = { "memory/mine": "missing_service memory/mine/Binding" };
     // The runners, schedules and registration steps are the host's to start,
     // never a model's tool.
-    const hiddenModules = ["memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
+    const hiddenModules = ["issue-sweep", "issue-sweep/work", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
+    // These named payloads cannot be safely reduced to a static document.
+    // Keep this inventory independent of discovery's emitted warning list.
+    const unavailablePayloads = [
+      "coding", "coding/dispatch", "coding/implementation", "coding/prototype",
+      "coding/request", "coding/verify", "coding/vibe", "coding/wiki",
+      "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine",
+      "notes/calendar-events", "notes/telegram", "notes/traction",
+      "register-repository", "register-repository/setup", "release-content",
+      "release", "wiki", "wrapped",
+    ];
+    for (const name of unavailablePayloads) {
+      const descriptor = scan.entries.find((entry) => entry.name === name);
+      assert.ok(descriptor, `${name} is missing`);
+      assert.equal(descriptor.input._tag, "Module", `${name} must retain its runtime decoder`);
+      assert.equal(descriptor.input.path, descriptor.body.path);
+      assert.equal(Descriptor.inputDocument(descriptor.input), undefined);
+    }
+    for (const name of ["issue-sweep", "issue-sweep/work"]) {
+      const descriptor = scan.entries.find((entry) => entry.name === name);
+      assert.equal(descriptor.effects.tier, "irreversible");
+    }
+    // The root now has literal grants; the commented work array still cannot
+    // be proved statically and must retain its conservative wildcard.
+    assert.ok(!scan.entries.find((entry) => entry.name === "issue-sweep").capabilities.includes("*"));
+    assert.deepEqual(scan.entries.find((entry) => entry.name === "issue-sweep/work").capabilities, ["*"]);
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
       [
         "unsupported_module_metadata at checks/wiki/flow.ts: Effect tier sealed under-classifies declared authority; using irreversible",
+        ...unavailablePayloads.map((name) => `unsupported_module_metadata at ${name}/flow.ts: Payload schema cannot be projected statically; retaining its module locator`),
+        "unsupported_module_metadata at issue-sweep/flow.ts: Effect tier compensable under-classifies declared authority; using irreversible",
+        "unsupported_module_metadata at issue-sweep/work/flow.ts: Capabilities must be a string-literal array for discovery; using the conservative wildcard",
+        "unsupported_module_metadata at issue-sweep/work/flow.ts: Effect tier compensable under-classifies declared authority; using irreversible",
         // `wiki` declares its own paths rather than inheriting the delegating
         // wildcard, so its sealed tier is raised only as far as those allow.
         "unsupported_module_metadata at wiki/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",

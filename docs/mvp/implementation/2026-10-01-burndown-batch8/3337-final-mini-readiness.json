@@ -1,0 +1,47 @@
+{
+  "issue": 3337,
+  "status": "READY_FROZEN_FINAL_MINI",
+  "head": "b2227cff14ba3f0bd3f410403a9b6905454ee54b",
+  "incomingOrigin": "5c7cf217b7",
+  "ownedFiles": {
+    ".smithers/FACTORY.ts": "dc607df4b5fe048c085ec87a9f792eabe4a85738e5d10d976f20e1aab9a92864",
+    "flows/pack.test.mjs": "cc21693c5c8a8319bbe9dfe922bbacb8dd528f6f8e8425b2d0d566a751a0e848",
+    ".smithers/factory.json": "92d964265f983813bdba323f37f4d7ce0caae12f79c451a31722429f33a614ec"
+  },
+  "capturedInputs": 377,
+  "inputDrift": [],
+  "cwd": "/private/tmp/smithers-burndown-20260930",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node --test --test-name-pattern='the flow catalog|discovery over the project flows directory' flows/pack.test.mjs",
+      "exit": 0,
+      "result": "5/5; all actual catalog/discovery/schema refusal/effect warnings/module registration/visibility controls remain green.",
+      "log": "focused.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export node packages/smithers/src/bin.ts lint //:factoryProjection --no-cache",
+      "exit": 0,
+      "result": "1ran/0hit/0fail actual canonical render check; zero drift, no regeneration.",
+      "log": "projection.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec tsc -p flows/tsconfig.json --noEmit",
+      "exit": 0,
+      "result": "Complete configured flows compiler green with incoming NoChange union.",
+      "log": "types.log"
+    }
+  ],
+  "sourceWrites": false,
+  "activeJobs": [],
+  "limits": [
+    "No full218 repeat on this latest head; prior full218 actual run at32bd690c1f remains honestly attributed. Incoming changed only issue-sweep NoChange verdict/body logic and tests; focused actual module loading + current compiler cover affected contract.",
+    "No provider/live issue launch/release build/coverage/foreign target-index qualification."
+  ],
+  "rawReceipts": {
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/final-mini/after.json": "91577fcac02f8f8186e6235bc03921e3113731cf9348ab2f998bf5b0912a75ca",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/final-mini/before.json": "91577fcac02f8f8186e6235bc03921e3113731cf9348ab2f998bf5b0912a75ca",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/final-mini/focused.log": "b30556f1242d2d2c0d02b6ce6ffabbd537dede2722595728fdcbc28bd3bfca5b",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/final-mini/projection.log": "979905c74d4bd83f9a4387c64973609ff3bad89349a620a37c05d12bb164a8c2",
+    "/tmp/smithers-burndown-20260930-receipts/api-batch5/catalog-3337/final-mini/types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
