@@ -1,0 +1,52 @@
+{
+  "issue": 3329,
+  "status": "READY, source frozen",
+  "head": "b33458e8f90983ebb976dc0e382aaf6eba401518",
+  "timeUtc": "2026-10-01T05:56:00.355403+00:00",
+  "files": {
+    "packages/smithers/flows/engine-store/test/JoinLoserChildCrash.test.ts": "1966494325d4301c7ab2ce18f20090944387eea02a7c2efa5f0d01082930aa45"
+  },
+  "productionChanges": false,
+  "cause": "Reachable child registration now executes the declared flow body; old direct-register fixture used a deliberately failing opaque placeholder body. Authored HoldLoser Action body preserves the actual child execution, real SQLite crash journal and resumed cancellation ordering.",
+  "behavior": {
+    "command": "node node_modules/vitest/vitest.mjs run test/JoinLoserChildCrash.test.ts --coverage.enabled=false --disableConsoleIntercept",
+    "cwd": "packages/smithers/flows/engine-store",
+    "result": "exit 0; 1/1 test passes",
+    "assertions": [
+      "First losing child starts exactly once",
+      "Injected durable join decision retains exact opened child ID and no cancellation",
+      "Restart reopens same real SQLite file",
+      "Losing action does not start on replay",
+      "Cancellation is visible before parent After executes"
+    ]
+  },
+  "types": {
+    "command": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+    "cwd": "packages/smithers/flows/engine-store",
+    "result": "exit 0"
+  },
+  "format": {
+    "result": "exit 0",
+    "log": "3329-owning-format.log"
+  },
+  "logs": {
+    "3329-3331-original-focused-red.log": "e7533547d3c7398a9baaf6bf0964ee1e89a17e2417bbf9a73ab6078c17e4c933",
+    "3329-final-owning.log": "c842540fb70cf728a65008a18c73d36120972df14cedb5342682155c04ef4e65",
+    "3329-final-full-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3329-owning-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3329-full-owning-types.log": "f0ee708f22f8229204466f18b8677f348510f636e747335447a32891f05d988b",
+    "3329-3331-first-reconciliation.log": "add78d2d9700584d009dfadae1a7ff4cd4b1bfcff8d7b68917cc581809bf8b72"
+  },
+  "limits": [
+    "SQLite only: this fixture explicitly constructs an SQLite file even when invoked within PG matrix; no PostgreSQL claim",
+    "Existing Jj test layer remains; no native VCS integration or native rebuild claim",
+    "Original 60-second failure is retained; no timeout or coverage threshold change",
+    "First type check failed on separate WIP Trampoline predicate; corrected typed RunRow field and fresh full test type gate passes",
+    "No whole engine-store suite or executed coverage claim"
+  ],
+  "sourceIntent": {
+    "packages/smithers/flows/flow/docs/api.md": "ebbcbf6a34350fed1e2be7a45811b94edb4874d2524bf3ad876f7af6b326892e",
+    "packages/smithers/flows/engine/docs/api.md": "69c2ca91ad71b1ce8224e1a7452267b795c4c15e1f1e08a364b72dd44b9be8e3",
+    "packages/smithers/flows/flow/src/Interpreter.ts": "18acc10db96afb234456ab3569b42d06fded8a9398f9a00106f0d9db7eaeca15"
+  }
+}

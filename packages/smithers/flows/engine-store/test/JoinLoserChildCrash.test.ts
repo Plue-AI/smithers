@@ -27,7 +27,6 @@ import { join } from "node:path"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
-import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
 /** Wins the race; in the first process it never gets the chance. */
@@ -35,7 +34,12 @@ const Win = Action.make("join-loser-crash/win", { payload: {}, success: Schema.N
 /** The parent's step after the join. */
 const After = Action.make("join-loser-crash/after", { payload: {}, success: Schema.String })
 /** The losing child: it opens, then runs until something stops it. */
-const Loser = Flow.make("join-loser-crash/loser", { payload: {}, success: Schema.Number, body: opaqueHandlerBody })
+const HoldLoser = Action.make("join-loser-crash/hold-loser", { payload: {}, success: Schema.Number })
+const Loser = Flow.make("join-loser-crash/loser", {
+  payload: {},
+  success: Schema.Number,
+  body: () => HoldLoser.call({})
+})
 const Parent = Flow.make("join-loser-crash/parent", {
   payload: {},
   success: Schema.String,
@@ -91,17 +95,21 @@ describe("a join that crashed between its journal and its cancellations (#2892)"
           const race = graph.find((node) => node.ast._tag === "Race")!
           const boundary = graph.find((node) => node.ast._tag === "FlowCall" && node.ast.mode === "boundary")!
           let loserId: string | undefined
+          let loserStarts = 0
+          let resumedLoserStarts = 0
 
           const crashed = yield* process_(database, "first", (engine) =>
             Effect.gen(function*() {
               const opened = yield* Deferred.make<void>()
-              yield* engine.register(Loser, () =>
-                Effect.gen(function*() {
-                  loserId = (yield* FlowRuntime.FlowInstance).executionId
-                  yield* Deferred.succeed(opened, undefined)
-                  return yield* Effect.never
-                }))
               const layer = Layer.mergeAll(
+                HoldLoser.toLayer(() =>
+                  Effect.gen(function*() {
+                    loserStarts++
+                    loserId = (yield* FlowRuntime.FlowInstance).executionId
+                    yield* Deferred.succeed(opened, undefined)
+                    return yield* Effect.never
+                  })
+                ),
                 Win.toLayer(() => Effect.never),
                 After.toLayer(() => Effect.die("the first process never reaches the step after the join")),
                 Interpreter.layer(Parent)
@@ -127,6 +135,7 @@ describe("a join that crashed between its journal and its cancellations (#2892)"
               return yield* runs.get(loserId!)
             }))
           expect(loserId).toBeDefined()
+          expect(loserStarts).toBe(1)
           // The crash left the loser un-cancelled: no request was recorded.
           expect(crashed.cancelRequestedAtMs).toBeNull()
 
@@ -134,8 +143,13 @@ describe("a join that crashed between its journal and its cancellations (#2892)"
             Effect.gen(function*() {
               const runs = yield* RunStore.RunStore
               let observed: RunStore.RunRow | undefined
-              yield* engine.register(Loser, () => Effect.die("a journaled loser must not run again"))
               const layer = Layer.mergeAll(
+                HoldLoser.toLayer(() =>
+                  Effect.gen(function*() {
+                    resumedLoserStarts++
+                    return yield* Effect.die("a journaled loser must not run again")
+                  })
+                ),
                 Win.toLayer(() => Effect.succeed(9)),
                 After.toLayer(() =>
                   runs.get(loserId!).pipe(
@@ -158,6 +172,7 @@ describe("a join that crashed between its journal and its cancellations (#2892)"
               return { exit, observed }
             }))
           expect(resumed.exit).toEqual(Exit.succeed("after"))
+          expect(resumedLoserStarts).toBe(0)
           // Asked to stop from the join record, before the parent moved on.
           expect(resumed.observed?.cancelRequestedAtMs).not.toBeNull()
         }),

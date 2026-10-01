@@ -1,0 +1,30 @@
+{
+  "issue": 3329,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:01:23.880187+00:00",
+  "review": "Reviewed full test and diff. Authored HoldLoser action replaces opaque body/manual override made obsolete by reachable child registration. Actual losing child starts once, same durable child ID is journaled on real SQLite, reopened process never reruns losing action and observes cancellation before After. Original assertions and timeout retained; added exact start counts.",
+  "files": {
+    "packages/smithers/flows/engine-store/test/JoinLoserChildCrash.test.ts": "1966494325d4301c7ab2ce18f20090944387eea02a7c2efa5f0d01082930aa45"
+  },
+  "sourceIntent": {
+    "packages/smithers/flows/flow/docs/api.md": "ebbcbf6a34350fed1e2be7a45811b94edb4874d2524bf3ad876f7af6b326892e",
+    "packages/smithers/flows/engine/docs/api.md": "69c2ca91ad71b1ce8224e1a7452267b795c4c15e1f1e08a364b72dd44b9be8e3",
+    "packages/smithers/flows/flow/src/Interpreter.ts": "18acc10db96afb234456ab3569b42d06fded8a9398f9a00106f0d9db7eaeca15"
+  },
+  "checks": {
+    "owningBehavior": {
+      "passed": 1,
+      "failed": 0
+    },
+    "fullOwningTestTypesExit": 0,
+    "owningFormatExit": 0
+  },
+  "proofArchiveSha256": "1da82d5ef4143b5418e57dbcb8cde1d46551b4fc901711a135432a093d26bf4a",
+  "limits": [
+    "SQLite only: this fixture explicitly constructs an SQLite file even when invoked within PG matrix; no PostgreSQL claim",
+    "Existing Jj test layer remains; no native VCS integration or native rebuild claim",
+    "Original 60-second failure is retained; no timeout or coverage threshold change",
+    "First type check failed on separate WIP Trampoline predicate; corrected typed RunRow field and fresh full test type gate passes",
+    "No whole engine-store suite or executed coverage claim"
+  ]
+}
