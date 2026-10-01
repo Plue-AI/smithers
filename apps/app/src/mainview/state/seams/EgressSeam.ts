@@ -18,7 +18,7 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  * which binding was substituted, which is the whole point of the boundary.
  *
  * A blocked call's host can be allowed (#2653): the repository owner's
- * `GET/PUT /api/repos/{o}/{r}/egress-policy` allowlist, which every running
+ * `PATCH /api/repos/{o}/{r}/egress-policy` allowlist, which every running
  * sandbox of the repository reloads without a restart.
  */
 import { createCloudClient } from "./CloudClient"
@@ -228,29 +228,24 @@ export const createEgressSeam = (ctx: SeamContext, withToast: FailureController[
     return { value: listing }
   }
 
-  /* One write per host at a time, and one repository's writes in order: each reads the list the last one wrote. */
+  /* One write per host at a time, with this controller's repository writes in order. */
   const allowing = new Set<string>()
   const queues = new Map<string, Promise<unknown>>()
 
   /*
-   * Read, then write the list with the host in it. A host already listed is
-   * written again: the PUT is what reloads the running sandboxes, so a retry
-   * after a failed reload reaches them. Work whose account is no longer the
-   * one signed in stops before it writes.
+   * Atomic additions preserve another writer's removals. Adding a listed host
+   * again also reloads running sandboxes, so a failed reload remains retryable.
+   * Work whose account has changed stops before it writes.
    */
   const allow = async (repo: string, host: string, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
     if (!current()) return TOAST_SUPERSEDED
     const client = createCloudClient(ctx)
     const path = egressPolicyPath(repo)
-    const read = await client.get(path, "the egress allowlist")
-    if (!current()) return TOAST_SUPERSEDED
-    if ("error" in read) return read.error
-    const domains = parseAllowDomains(read.body)
-    if (domains === null) return UNREADABLE_ALLOWLIST
-    const write = await client.send("PUT", path, { allow_domains: domains.includes(host) ? [...domains] : [...domains, host] },
-      "the egress allowlist")
+    const write = await client.send("PATCH", path, { add: [host] }, "the egress allowlist")
     if (!current()) return TOAST_SUPERSEDED
     if ("error" in write) return write.error
+    const domains = parseAllowDomains(write.body)
+    if (domains === null || !domains.includes(host)) return UNREADABLE_ALLOWLIST
     const stale = staleReloads(write.body)
     return stale === 0 ? true : `${host} allowed; ${stale} running ${stale === 1 ? "box gets" : "boxes get"} it on restart.`
   }

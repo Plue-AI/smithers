@@ -338,15 +338,16 @@ describe("allowing a blocked host (#2653)", () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
   }
-  /** plue's route: GET answers the list, PUT stores it sorted and answers each running sandbox's reload. */
+  /** plue's route: PATCH adds hosts without replacing the list and answers each running sandbox's reload. */
   const policy = (initial: ReadonlyArray<string>, gate?: Promise<void>) => {
     let domains = [...initial]
     const writes: Array<unknown> = []
     const route: Route = async (_url, init) => {
-      if (init?.method === "PUT") {
-        const body = JSON.parse(String(init.body)) as { allow_domains: Array<string> }
+      if (init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as { add: Array<string> }
+        await gate
         writes.push(body)
-        domains = [...body.allow_domains].sort()
+        domains = [...new Set([...domains, ...body.add])].sort()
         return json(200, { allow_domains: domains, reloads: [{ sandbox_id: "sb-1", reloaded: true }] })
       }
       await gate
@@ -354,6 +355,20 @@ describe("allowing a blocked host (#2653)", () => {
     }
     return { route, writes, domains: () => domains }
   }
+
+  test("adds a normalized host through the canonical atomic PATCH without reading or replacing the list", async () => {
+    const sent: Array<unknown> = []
+    const h = await harness({ [POLICY]: (_url, init) => {
+      sent.push({ method: init?.method, body: JSON.parse(String(init?.body ?? "null")) })
+      return init?.method === "PATCH"
+        ? json(200, { allow_domains: ["concurrent.example.com", "api.example.com"], reloads: [] })
+        : json(405, { message: "atomic PATCH required" })
+    } })
+    expect(await h.seam.allowEgressHost(" API.Example.com. ")).toEqual({ value: "Allowing api.example.com for will/smithers." })
+    await settle(h)
+    expect(sent).toEqual([{ method: "PATCH", body: { add: ["api.example.com"] } }])
+    expect(h.toasts[0]?.outcome).toBe(true)
+  })
 
   test("the host, the path and the list read as plue writes them", () => {
     expect(egressPolicyPath("will/smithers")).toBe("/repos/will/smithers/egress-policy")
@@ -379,8 +394,8 @@ describe("allowing a blocked host (#2653)", () => {
     open()
     await settle(h)
     expect(h.toasts[0]?.outcome).toBe(true)
-    expect(cloud.writes).toEqual([{ allow_domains: ["registry.npmjs.org", "api.example.com"] }])
-    expect(h.urls).toEqual([`GET ${POLICY}`, `PUT ${POLICY}`])
+    expect(cloud.writes).toEqual([{ add: ["api.example.com"] }])
+    expect(h.urls).toEqual([`PATCH ${POLICY}`])
   })
 
   test("a repeated request for the same host while one runs sends one write", async () => {
@@ -393,18 +408,18 @@ describe("allowing a blocked host (#2653)", () => {
     open()
     await settle(h)
     expect(h.toasts).toHaveLength(1)
-    expect(cloud.writes).toEqual([{ allow_domains: ["api.example.com"] }])
+    expect(cloud.writes).toEqual([{ add: ["api.example.com"] }])
   })
 
-  test("two hosts in a row both land: the second write reads the list the first wrote", async () => {
+  test("two hosts in a row both land as independent atomic additions", async () => {
     const cloud = policy(["a.example.com"])
     const h = await harness({ [POLICY]: cloud.route })
     await h.seam.allowEgressHost("b.example.com")
     await h.seam.allowEgressHost("c.example.com")
     await settle(h)
     expect(cloud.writes).toEqual([
-      { allow_domains: ["a.example.com", "b.example.com"] },
-      { allow_domains: ["a.example.com", "b.example.com", "c.example.com"] }
+      { add: ["b.example.com"] },
+      { add: ["c.example.com"] }
     ])
     expect(cloud.domains()).toEqual(["a.example.com", "b.example.com", "c.example.com"])
   })
@@ -415,14 +430,14 @@ describe("allowing a blocked host (#2653)", () => {
     await h.seam.allowEgressHost("*.EXAMPLE.com")
     await settle(h)
     expect(h.toasts[0]?.outcome).toBe(true)
-    expect(cloud.writes).toEqual([{ allow_domains: ["*.example.com"] }])
+    expect(cloud.writes).toEqual([{ add: ["*.example.com"] }])
   })
 
   test("a sandbox the write did not reload fails the toast, and asking again writes again", async () => {
     const writes: Array<unknown> = []
     const h = await harness({
       [POLICY]: (_url, init) => {
-        if (init?.method !== "PUT") return json(200, { allow_domains: [] })
+        if (init?.method !== "PATCH") return json(200, { allow_domains: [] })
         writes.push(JSON.parse(String(init.body)))
         return json(200, {
           allow_domains: ["api.example.com"],
@@ -444,7 +459,7 @@ describe("allowing a blocked host (#2653)", () => {
     expect(staleReloads(null)).toBe(0)
   })
 
-  test("work whose account signed out while it waited never writes", async () => {
+  test("sign-out supersedes an unresolved write and never sends queued writes", async () => {
     let open = (): void => undefined
     const gate = new Promise<void>((resolve) => void (open = resolve))
     const cloud = policy([], gate)
@@ -455,8 +470,8 @@ describe("allowing a blocked host (#2653)", () => {
     open()
     await settle(h)
     expect(h.toasts.map((toast) => toast.outcome)).toEqual([TOAST_SUPERSEDED, TOAST_SUPERSEDED])
-    expect(cloud.writes).toEqual([])
-    expect(h.urls).toEqual([`GET ${POLICY}`])
+    expect(cloud.writes).toEqual([{ add: ["api.example.com"] }])
+    expect(h.urls).toEqual([`PATCH ${POLICY}`])
   })
 
   test("a refused write fails the toast with plue's words, and the host can be asked for again", async () => {
@@ -469,9 +484,9 @@ describe("allowing a blocked host (#2653)", () => {
     expect(h.toasts).toHaveLength(2)
   })
 
-  test("a PUT refusal and an unreadable list both fail the toast", async () => {
+  test("a PATCH refusal and an unreadable committed list both fail the toast", async () => {
     const refused = await harness({
-      [POLICY]: (_url, init) => init?.method === "PUT" ? json(400, { message: "egress domain \"*\" would allow every host" }) : json(200, { allow_domains: [] })
+      [POLICY]: (_url, init) => init?.method === "PATCH" ? json(400, { message: "egress domain \"*\" would allow every host" }) : json(200, { allow_domains: [] })
     })
     await refused.seam.allowEgressHost("api.example.com")
     await settle(refused)
@@ -480,7 +495,7 @@ describe("allowing a blocked host (#2653)", () => {
     await unreadable.seam.allowEgressHost("api.example.com")
     await settle(unreadable)
     expect(unreadable.toasts[0]?.outcome).toBe(UNREADABLE_ALLOWLIST)
-    expect(unreadable.urls).toEqual([`GET ${POLICY}`])
+    expect(unreadable.urls).toEqual([`PATCH ${POLICY}`])
   })
 
   test("refuses without a request when signed out, degraded, unnamed or aimed at a malformed repository", async () => {

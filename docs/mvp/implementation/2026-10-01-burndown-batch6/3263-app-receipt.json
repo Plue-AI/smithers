@@ -1,0 +1,23 @@
+{
+  "issue": 3263,
+  "status": "App source prerequisite; whole issue remains open until realPG server and CLI qualification",
+  "candidate": "9acd4dab3f3636448337072bab344f90a2dfa2e4",
+  "files": {
+    "apps/app/src/mainview/state/seams/EgressSeam.ts": "92783ed6fca5f78a24a9bb98d4b5b1e9aa218b831d1ca5cd08491b6726b4011d",
+    "apps/app/src/mainview/state/seams/EgressSeam.test.ts": "88325a6f8b4c5ea44a10327f46580eaf9f3e335c5881ad74fbff2ea47c599020"
+  },
+  "validation": {
+    "red": "canonical atomic PATCH regression exits1 against original RMW; preserved 3263-app-red.log",
+    "green": "bun test apps/app/src/mainview/state/seams/EgressSeam.test.ts:39pass/0fail/164assertions",
+    "format": "dprint fmt owning2 files exit0"
+  },
+  "limits": [
+    "App route fixture qualifies exact PATCH/body and response/ownership behavior; root independently owns actual concurrent GoPG writers and CLI HTTP.",
+    "App full types/behavior gate will follow durable reload implementation; no hosted claim."
+  ],
+  "archive": {
+    "file": "3263-app-validation.tar.gz",
+    "sha256": "3a5160a3b7e3cb24c598d4459d8f176839fda8425533bfabed17d052195afbcd"
+  },
+  "readinessSha256": "e682469616c382c1d875e30ad79c1c4ce84dbc3ad1027a2bbefd4e11ea40d5b3"
+}
