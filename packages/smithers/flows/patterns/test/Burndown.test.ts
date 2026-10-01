@@ -36,9 +36,9 @@ const baseOptions = (note: (entry: string) => Effect.Effect<void>) => ({
     note(`release:${item.id}:${status}`)
 })
 
-const runRound = <W, E>(
+const runRound = <W, E, L = unknown>(
   input: Partial<Burndown.RoundInput<unknown, Issue>> & { readonly items: ReadonlyArray<Issue> },
-  options: Burndown.RoundOptions<unknown, Issue, W, E, never>
+  options: Burndown.RoundOptions<unknown, Issue, W, E, never, L>
 ) => Effect.runPromise(Burndown.round({ input: { repo: "acme/app" }, round: 0, ...input }, options))
 
 const refusedRound = (input: Record<string, unknown>, options: Record<string, unknown> = {}) => {
@@ -167,16 +167,20 @@ describe("Burndown.round", () => {
 
   it("still releases every claim when a member dies", async () => {
     const { note, tape } = recorder()
+    const details: Array<string> = []
     const exit = await Effect.runPromiseExit(
       Burndown.round({ input: undefined, round: 0, items: items("a", "b") }, {
         ...baseOptions(note),
         concurrency: 1,
-        work: ({ item }) => item.id === "b" ? Effect.die("agent crashed") : Effect.succeed("ok")
+        work: ({ item }) => item.id === "b" ? Effect.die("agent crashed") : Effect.succeed("ok"),
+        release: ({ detail, item, status }) =>
+          Effect.andThen(note(`release:${item.id}:${status}`), Effect.sync(() => void details.push(detail)))
       })
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
     expect(tape).toEqual(["claim:a", "claim:b", "release:a:failed", "release:b:failed"])
+    expect(details).toEqual(["round died", "round died"])
   })
 
   it("lands worked items one at a time, in discovery order, and quarantines a failed landing", async () => {
@@ -213,6 +217,40 @@ describe("Burndown.round", () => {
       "release:b:failed",
       "release:c:landed"
     ])
+  })
+
+  it("hands what land answered to detail, and each row's detail to release", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("a", "b") }, {
+      ...baseOptions(note),
+      land: ({ item }): Effect.Effect<string, string> =>
+        item.id === "a" ? Effect.succeed(`rev-${item.id}`) : Effect.fail("checks red"),
+      detail: (output: string, landing: string | undefined) => `${output} as ${landing}`,
+      release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`)
+    })
+
+    expect(result.rows).toEqual([
+      { id: "a", status: "landed", detail: "fixed a as rev-a" },
+      { id: "b", status: "failed", detail: "land: checks red" }
+    ])
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toEqual([
+      "release:a:landed:fixed a as rev-a",
+      "release:b:failed:land: checks red"
+    ])
+  })
+
+  it("renders a landed detail with no landing when there is no land member", async () => {
+    const seen: Array<unknown> = []
+    const { note } = recorder()
+    await runRound({ items: items("a") }, {
+      ...baseOptions(note),
+      detail: (output: string, landing: unknown) => {
+        seen.push(landing)
+        return output
+      }
+    })
+
+    expect(seen).toEqual([undefined])
   })
 
   it("skips the merge queue when nothing worked", async () => {

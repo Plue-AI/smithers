@@ -559,21 +559,24 @@ export interface ItemArgs<I, It extends Item> {
  * concurrency 1 under the `quarantine` policy, so landings are serialized and
  * one failed landing does not stop the next; without it a worked item counts
  * as landed. `release` runs once for every item whose claim succeeded,
- * whatever happened after, with the item's final status. `detail` renders a
- * landed item's detail from its work output.
+ * whatever happened after, with the item's final status and row detail.
+ * `detail` renders a landed item's detail from its work output and, when
+ * `land` is present, what `land` answered, such as the landed revision.
  *
  * @category models
  * @since 1.0.0
  */
-export interface RoundOptions<I, It extends Item, W, E, R> {
+export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
   readonly key: string
   readonly concurrency: number
   readonly select?: ((args: ItemArgs<I, It>) => Effect.Effect<Selection, E, R>) | undefined
   readonly claim: (args: ItemArgs<I, It>) => Effect.Effect<unknown, E | Held, R>
   readonly work: (args: ItemArgs<I, It> & { readonly executionId: string }) => Effect.Effect<W, E, R>
-  readonly land?: ((args: ItemArgs<I, It> & { readonly output: W }) => Effect.Effect<unknown, E, R>) | undefined
-  readonly release: (args: ItemArgs<I, It> & { readonly status: Status }) => Effect.Effect<unknown, E, R>
-  readonly detail?: ((output: W) => string) | undefined
+  readonly land?: ((args: ItemArgs<I, It> & { readonly output: W }) => Effect.Effect<L, E, R>) | undefined
+  readonly release: (
+    args: ItemArgs<I, It> & { readonly status: Status; readonly detail: string }
+  ) => Effect.Effect<unknown, E, R>
+  readonly detail?: ((output: W, landing: L | undefined) => string) | undefined
 }
 
 /**
@@ -657,7 +660,7 @@ type Attempt<W> =
  * message. A failure is recorded on its own row and never cancels the items
  * beside it. Worked items then land, one at a time, through
  * `MergeQueue.run` with the `quarantine` policy. Finally every item whose
- * claim succeeded is released with its final status; a release failure is
+ * claim succeeded is released with its final status and detail; a release failure is
  * appended to the row's detail and does not change its status.
  *
  * Members report failures on the typed channel. A member that throws raises a
@@ -673,9 +676,9 @@ type Attempt<W> =
  * @category combinators
  * @since 1.0.0
  */
-export const round = <I, It extends Item, W, E = never, R = never>(
+export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   input: RoundInput<I, It>,
-  options: RoundOptions<I, It, W, E, R>
+  options: RoundOptions<I, It, W, E, R, L>
 ): Effect.Effect<RoundResult, PatternError, R> => {
   const key = options.key
   const concurrency = options.concurrency
@@ -737,11 +740,11 @@ export const round = <I, It extends Item, W, E = never, R = never>(
           }
         })
       )
-    const releaseAll = (statusOf: (card: Card<It>) => Status) =>
+    const releaseAll = (rowOf: (card: Card<It>) => Pick<Row, "status" | "detail">) =>
       Effect.forEach(
         claimed,
         (card) =>
-          release({ ...args(card), status: statusOf(card) }).pipe(
+          release({ ...args(card), ...rowOf(card) }).pipe(
             Effect.match({
               onSuccess: () => undefined,
               onFailure: (error: E) => `release: ${detailOf(error)}`
@@ -760,10 +763,11 @@ export const round = <I, It extends Item, W, E = never, R = never>(
         }
         return [{ card, output: outcome.output }]
       })
-      const rendered = (output: W): string => detail === undefined ? "" : detail(output)
+      const rendered = (output: W, landing: L | undefined): string =>
+        detail === undefined ? "" : detail(output, landing)
       if (land === undefined || worked.length === 0) {
         for (const { card, output } of worked) {
-          rows.set(card.id, { id: card.id, status: "landed", detail: rendered(output) })
+          rows.set(card.id, { id: card.id, status: "landed", detail: rendered(output, undefined) })
         }
         return
       }
@@ -775,17 +779,21 @@ export const round = <I, It extends Item, W, E = never, R = never>(
         failurePolicy: "quarantine"
       }))
       const quarantined = new Map(queue.quarantined.map((entry) => [entry.id, entry.error]))
+      const landings = new Map(queue.landed.map((entry) => [entry.id, entry.output as L]))
       for (const { card, output } of worked) {
         rows.set(
           card.id,
           quarantined.has(card.id)
             ? { id: card.id, status: "failed", detail: `land: ${detailOf(quarantined.get(card.id))}` }
-            : { id: card.id, status: "landed", detail: rendered(output) }
+            : { id: card.id, status: "landed", detail: rendered(output, landings.get(card.id)) }
         )
       }
     })
-    yield* Effect.onExit(settle, (exit) => Exit.isSuccess(exit) ? Effect.void : releaseAll(() => "failed"))
-    const releases = yield* releaseAll((card) => rows.get(card.id)!.status)
+    yield* Effect.onExit(
+      settle,
+      (exit) => Exit.isSuccess(exit) ? Effect.void : releaseAll(() => ({ status: "failed", detail: "round died" }))
+    )
+    const releases = yield* releaseAll((card) => rows.get(card.id)!)
     for (const { failure, id } of releases) {
       if (failure === undefined) continue
       const row = rows.get(id)!
@@ -831,9 +839,9 @@ export const child = <I, It extends Item, P, A, E, R>(
  * @category layers
  * @since 1.0.0
  */
-export const layer = <Tag extends string, It extends Item, W, E = never, R = never>(
+export const layer = <Tag extends string, It extends Item, W, E = never, R = never, L = unknown>(
   action: Dispatch<Tag>,
-  options: RoundOptions<unknown, It, W, E, R>
+  options: RoundOptions<unknown, It, W, E, R, L>
 ) =>
   action.toLayer((payload) =>
     round(

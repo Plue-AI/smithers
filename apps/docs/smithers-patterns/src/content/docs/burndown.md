@@ -93,7 +93,7 @@ declare class GhFailed {
 }
 declare const liveClaimHost: (repo: string, issue: number) => Effect.Effect<string | undefined, GhFailed>
 declare const claimIssue: (repo: string, issue: number) => Effect.Effect<"claimed" | "held", GhFailed>
-declare const mergePatch: (repo: string, patch: string) => Effect.Effect<void, GhFailed>
+declare const mergePatch: (repo: string, patch: string) => Effect.Effect<string, GhFailed>
 declare const releaseIssue: (repo: string, issue: number, note: string) => Effect.Effect<void, GhFailed>
 
 export const dispatchLayer = Burndown.layer(Dispatch, {
@@ -111,9 +111,10 @@ export const dispatchLayer = Burndown.layer(Dispatch, {
         answer === "held" ? Effect.fail(new Burndown.Held({ message: "claimed by another worker" })) : Effect.void
     ),
   work: Burndown.child(Work, ({ input, item }) => ({ repo: input.repo, issue: item.number })),
+  // land answers the merged revision; detail and release both see it.
   land: ({ input, output }) => mergePatch(input.repo, output.patch),
-  release: ({ input, item, status }) => releaseIssue(input.repo, item.number, status),
-  detail: (report) => report.changed
+  release: ({ input, item, status, detail }) => releaseIssue(input.repo, item.number, `${status}: ${detail}`),
+  detail: (report, revision) => `${revision}: ${report.changed}`
 })
 ```
 
@@ -129,6 +130,9 @@ What each member decides:
 | `work`    | After a successful claim                | Settles it `failed`; the items beside it keep running         |
 | `land`    | One at a time, in discovery order       | Quarantined: settles it `failed`; the next landing still runs |
 | `release` | Once per successful claim, always       | Appended to the row's detail; the status stays                |
+
+`release` receives the row's final `status` and `detail`. `detail` renders a
+landed row from the work output and what `land` answered.
 
 A settled item (`landed`, `held`, `failed`) is never retried within the
 lineage. Run a new burndown to retry failures.
