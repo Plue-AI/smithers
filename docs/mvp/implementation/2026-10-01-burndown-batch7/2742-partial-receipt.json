@@ -1,0 +1,91 @@
+{
+  "issue": 2742,
+  "status": "Partial qualification; issue remains open",
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:41:32.298610+00:00",
+  "review": "Reviewed original command/count/format fixes, eight matching admitted declarations and four actual newer deltas.608 existing delta behavior cases and103 OneCli pass. Root has not admitted new declaration hashes: RunProgress adds required public State sets and a renderer status; two other public additions have optional/internal constraints. All raw proof hashes verified. Later private app/RPC WIP drift separated from the successful captured compiler cohort. Full CLI and full50 API gates are not green/qualified.",
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/OneCli.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "testsPassed": 103,
+      "durationSeconds": 6.28,
+      "log": "current-OneCli.log",
+      "scope": "focused assertions, not aggregate coverage gate"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec dprint check",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "log": "current-owning-dprint.log",
+      "scope": "unchanged owning config, all CLI included paths"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp node /tmp/smithers-burndown-20260930-receipts/api-batch5/main-reds-2742/current-cli-declarations.mjs",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "exitCode": 1,
+      "compilerExitCode": 0,
+      "declarations": 285,
+      "privateDeclarations": 136,
+      "exportsMatch": true,
+      "driftFiles": [
+        "cli/RunActivity.d.ts",
+        "cli/RunProgress.d.ts",
+        "internal/backend/ProductApi.d.ts",
+        "operator/TriggerPlans.d.ts"
+      ],
+      "log": "current-cli-declarations.log",
+      "scope": "one CLI owner release compiler/config with production normalization/private producer; not full50 API or JS/pack build"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/RunActivity.test.ts test/RunProgress.test.ts test/ProductApi.test.ts test/OperatorTriggerPlans.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "testsPassed": 608,
+      "filesPassed": 4,
+      "durationSeconds": 5.73,
+      "log": "current-baseline-delta-behavior.log",
+      "scope": "existing owning behaviors only, no whole CLI or coverage claim"
+    }
+  ],
+  "blockers": [
+    "Current API comparison RED for four newer entries. Root semantic review/admission plus unchanged canonical50 check required; no blind repin.",
+    "Whole //packages/smithers:test Linux/PG/coverage gate not rerun. Foreign active #2978 owner codex-root-cli-current-2978 refreshed04:22UTC to10:22UTC; latest a227 receipt4257pass/47fail/4skip. No duplicate40m run."
+  ],
+  "laterSharedWorkspaceChanges": {
+    "apps/app/src/mainview/native/WebAgent.ts": {
+      "captured": "e133fc82a20473f8bcfb99d448c69716e6f1032f12bccb461eab2da2be88f1c4",
+      "current": "7cab0a66ea7425bc7ba4c9328cfbead4c39cc8f545e1416e908b3e8ef95a89e8"
+    },
+    "apps/app/src/mainview/runtime/AgentPort.ts": {
+      "captured": "9856cd7ebb7424d1daaa4a057c387b507f348e7f340af80d0131bf61f0f367b2",
+      "current": "6414989df9d416e906d23f1deb97a0839658d2c09864ab175e8b9a9e7628b899"
+    },
+    "apps/app/src/mainview/state/controller/httpTurns.ts": {
+      "captured": "b1eb72a2d2cdce44e0d364e7494d6382f17b21258d88ed2eae56147aae04c6c0",
+      "current": "e350db790398edba6446813669999a7e3b91f2d0501c7b702656fc789f38562a"
+    },
+    "packages/rpc/src/AgentApiRoutes.ts": {
+      "captured": "17d3f6e989156400b52617dab941746ea289b9855e52353e6902430b383bde7f",
+      "current": "465d8a6e743a0030602c65b76752bdc4528807748cfa53c8081e34518ff8189e"
+    },
+    "packages/rpc/src/AgentTurnJournal.ts": {
+      "captured": "532f89ad05be47b751e4629c0deb607ea09eea39e003b6fd7735b32ba167ef38",
+      "current": "b1dbd650f774061b5f540de72ebed00d2251c862429fb735d80089c8c4fac17a"
+    },
+    "packages/rpc/src/NativeAgent.ts": {
+      "captured": "3adda63edffa34cfae9783c98408e4bcdc87428cc3ff31642d3959a486fa06e2",
+      "current": "1d5594e1fe728d39c543646d1b2cae01fcdc1768822386793ccc5e1cee41096b"
+    }
+  },
+  "proofArchiveSha256": "d27bf51b84e5e85461cac5623d7ddfc850210d86b912109028494c173ad9f96d",
+  "limitations": [
+    "No overall2742 closure/fullCLI/fullAPI green claim.",
+    "One-owner declarations use production flags/normalization/private producer into temporary output; adapter JS materialization is not full CLI JS build or release cohort.",
+    "Three old changed declaration texts authenticated to current baseline using retained incremental882 output; new RunActivity has no old baseline file.",
+    "Compiler execution before/after source audit passed. Subsequent other-agent edits to private app and RPC files are retained as later drift; old emission is not claimed to qualify these later bytes. CLI/format/owning test files still match.",
+    "Root metadata-only receipt commits advanced HEAD during proof.",
+    "Configured coverage thresholds unchanged; focused coverage-disabled runs do not qualify aggregate floors."
+  ]
+}
