@@ -263,7 +263,11 @@ describe("implementation composition", () => {
           ))
         )
         expect(Exit.isFailure(exit)).toBe(true)
-        if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBeInstanceOf(Action.DuplicateImplementation)
+        if (Exit.isFailure(exit)) {
+          const defect = Cause.squash(exit.cause)
+          expect(defect).toBeInstanceOf(Action.DuplicateImplementation)
+          expect((defect as Error).message).toContain("already has an implementation")
+        }
         expect(runs).toBe(0)
       })
     ))
