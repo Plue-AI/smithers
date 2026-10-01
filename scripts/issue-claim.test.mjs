@@ -1,31 +1,46 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
-import { generateKeyPairSync, verify } from "node:crypto"
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { appAuth, claimBody, holder, LABEL, parseRef, releaseBody, run, splitResponse, throttle, TOKEN_MARGIN, TRANSIENT, Transient } from "./issue-claim.mjs"
+import { claimBody, holder, LABEL, parseRef, proxied, releaseBody, run, splitResponse, TRANSIENT } from "./issue-claim.mjs"
 
 const T0 = new Date("2026-09-29T00:00:00Z")
 const hours = (n) => new Date(T0.getTime() + n * 3600_000)
 const HOST = hostname()
-// No test may pick up this machine's real GitHub App configuration.
+// No test may pick up this machine's real GitHub App configuration or reach its real proxy.
 const NO_APP = "/nonexistent/issue-claim-app.json"
 process.env.ISSUE_CLAIM_APP_CONFIG = NO_APP
+const PROXY = "http://proxy.test"
 
-// An unthrottled cache dir per fake, so command tests never wait; throttle tests set their own limits.
+// A label-marker cache dir per fake, and a proxy address no real proxy listens on.
 const cacheEnv = (extra = {}) => ({ ISSUE_CLAIM_CACHE: mkdtempSync(join(tmpdir(), "issue-claim-cache-")),
-  ISSUE_CLAIM_SPACING_MS: "0", ISSUE_CLAIM_PER_MINUTE: "100000", ISSUE_CLAIM_APP_CONFIG: NO_APP, ...extra })
+  SMITHERS_GITHUB_PROXY: PROXY, ...extra })
+
+/**
+ * The proxy's side of `gh`: answers admission from `state.deferUntil` and hands every other
+ * call to `gh` with the proxy origin stripped, so fakes match on GitHub paths.
+ */
+const viaProxy = (gh, state) => (args) => {
+  const admission = args.find((arg) => arg.startsWith(`${PROXY}/_smithers/admission`))
+  if (admission) {
+    ;(state.admissions ??= []).push(admission)
+    const deferred = (state.deferUntil ?? 0) > state.clock.getTime()
+    return JSON.stringify({ principal: "gh-user", startsAt: new Date(deferred ? state.deferUntil : state.clock.getTime()).toISOString(), deferred })
+  }
+  return gh(args.map((arg) => arg.startsWith(`${PROXY}/`) ? arg.slice(PROXY.length + 1) : arg))
+}
+
+const runVia = (gh, state, argv, at = T0) => run(argv, { gh: viaProxy(gh, state), now: () => at, env: state.env, ensure: () => {} })
 
 // An in-memory GitHub issue behind the `gh api` calls the CLI makes.
 const fakeGitHub = (issue = {}) => {
   const state = { labels: [], comments: [], events: [], calls: [], clock: T0, open: true, env: cacheEnv(), ...issue }
-  const gh = (args, auth = {}) => {
+  const gh = (args) => {
     state.calls.push(args.join(" "))
-    ;(state.tokens ??= []).push(auth.GH_TOKEN)
     const path = args.find((arg) => arg.startsWith("repos/"))
     const field = (name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1)
     if (args.includes("PATCH")) {
@@ -65,7 +80,7 @@ const fakeGitHub = (issue = {}) => {
 
 const cli = (github, argv, at = T0, by = "lane-1") => {
   github.state.clock = at
-  return run([...argv, "--by", by], { gh: github.gh, now: () => at, env: github.state.env })
+  return runVia(github.gh, github.state, [...argv, "--by", by], at)
 }
 
 const writesOf = (github) => github.state.calls.filter((call) => / -f |--method/.test(call))
@@ -152,7 +167,7 @@ describe("issue-claim commands", () => {
     }
     assert.throws(() => cli(github, ["claim", "smithers#7"]), (caught) => caught === error)
     assert.deepEqual(github.state.labels, [])
-    assert.ok(github.state.calls.includes(`api --method DELETE repos/smithersai/smithers/issues/7/labels/${LABEL}`))
+    assert.ok(github.state.calls.includes(`api -i --method DELETE repos/smithersai/smithers/issues/7/labels/${LABEL}`))
     assert.deepEqual(github.state.comments, [])
     github.gh = gh
     assert.equal(cli(github, ["claim", "smithers#7"]).code, 0)
@@ -168,8 +183,7 @@ describe("issue-claim commands", () => {
       }
       return gh(args)
     }
-    assert.throws(() => run(["claim", "smithers#7", "--by", "lane-1"],
-      { gh: limitedGh, now: () => T0, env: github.state.env }), /Bad Gateway/)
+    assert.throws(() => runVia(limitedGh, github.state, ["claim", "smithers#7", "--by", "lane-1"]), /Bad Gateway/)
     assert.deepEqual(github.state.labels, [LABEL])
     assert.equal(cli(github, ["check", "smithers#7"], T0, "lane-1").out.holder.by, "rival")
   })
@@ -184,8 +198,7 @@ describe("issue-claim commands", () => {
       }
       return gh(args)
     }
-    assert.throws(() => run(["claim", "smithers#7", "--by", "lane-1"],
-      { gh: ambiguousGh, now: () => T0, env: github.state.env }), /response lost/)
+    assert.throws(() => runVia(ambiguousGh, github.state, ["claim", "smithers#7", "--by", "lane-1"]), /response lost/)
     assert.deepEqual(github.state.labels, [LABEL])
     assert.equal(cli(github, ["check", "smithers#7"], T0, "lane-1").out.mine, true)
   })
@@ -334,354 +347,215 @@ describe("issue-claim idempotency and folded release", () => {
   })
 })
 
-describe("issue-claim write throttle", () => {
-  // A fake clock the throttle's sleep advances, so minutes of spacing run instantly.
-  const clocked = (env) => {
-    let t = T0.getTime()
-    return { now: () => new Date(t), sleep: (ms) => { if (ms > 0) t += ms }, advance: (ms) => { t += ms },
-      throttle: () => throttle({ env, now: () => new Date(t), sleep: (ms) => { if (ms > 0) t += ms } }), get t() { return t } }
+describe("issue-claim through the GitHub proxy", () => {
+  const refusal = (status, headers, message) => Object.assign(new Error(`gh: ${message} (HTTP ${status})`),
+    { stderr: `gh: ${message} (HTTP ${status})`,
+      stdout: `HTTP/1.1 ${status} Refused\r\n${headers}Content-Type: application/json\r\n\r\n{"message":"${message}"}` })
+  const failingComment = (github, error) => (args) => {
+    if (/issues\/\d+\/comments$/.test(args.find((arg) => arg.startsWith("repos/")) ?? "") && args.includes("-f")) throw error
+    return github.gh(args)
   }
-  const limitError = (headers = "") => Object.assign(new Error("gh: You have exceeded a secondary rate limit (HTTP 403)"),
-    { stderr: "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)",
-      stdout: `HTTP/2.0 403 Forbidden\r\n${headers}Content-Type: application/json\r\n\r\n{"message":"secondary rate limit"}` })
 
-  it("spaces writes 3 s apart and never exceeds 15 in any minute", () => {
-    const env = { ISSUE_CLAIM_CACHE: cacheEnv().ISSUE_CLAIM_CACHE, ISSUE_CLAIM_MAX_WAIT_MS: "3600000" }
-    const clock = clocked(env)
-    const times = []
-    const gh = () => { times.push(clock.t); return "{}" }
-    for (let i = 0; i < 40; i++) { const writes = clock.throttle(); writes.write(writes.reserve(1)[0], gh, ["api", "x", "-f", "a=b"]) }
-    for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 3000)
-    for (let i = 15; i < times.length; i++) assert.ok(times[i] - times[i - 15] >= 60_000, `write ${i} is the 16th within a minute`)
+  it("names every GitHub path by its absolute proxy URL and reads write responses with -i", () => {
+    const seen = []
+    const github = proxied({ gh: (args) => { seen.push(args); return "HTTP/1.1 201 Created\r\nX-A: b\r\n\r\n{\"id\":1}" }, base: PROXY })
+    assert.equal(github.write(["api", "--method", "PATCH", "repos/o/r/issues/1", "-f", "state=closed"]), "{\"id\":1}")
+    github.read(["api", "--paginate", "--slurp", "repos/o/r/issues/1/comments?per_page=100"])
+    assert.deepEqual(seen, [
+      ["api", "-i", "--method", "PATCH", `${PROXY}/repos/o/r/issues/1`, "-f", "state=closed"],
+      ["api", "--paginate", "--slurp", `${PROXY}/repos/o/r/issues/1/comments?per_page=100`]
+    ])
   })
 
-  it("books all slots or none, and defers when the budget is booked past the wait limit", () => {
-    const env = { ISSUE_CLAIM_CACHE: cacheEnv().ISSUE_CLAIM_CACHE, ISSUE_CLAIM_PER_MINUTE: "2", ISSUE_CLAIM_MAX_WAIT_MS: "10000" }
-    const clock = clocked(env)
-    assert.throws(() => clock.throttle().reserve(3), (error) => error instanceof Transient && error.retryAt === T0.getTime() + 60_000)
-    assert.deepEqual(clock.throttle().reserve(2), [T0.getTime(), T0.getTime() + 3000], "the failed booking reserved nothing")
+  it("asks the proxy for all of a command's writes before the first, and reports its principal", () => {
+    const github = fakeGitHub()
+    assert.equal(cli(github, ["claim", "smithers#7"]).out.identity, "gh-user")
+    assert.deepEqual(github.state.admissions.map((url) => new URL(url).searchParams.get("writes")), ["0", "2"])
+    const out = cli(github, ["comment", "smithers#7", "--body", "receipt", "--release", "--close"])
+    assert.equal(out.out.identity, "gh-user")
+    assert.deepEqual(github.state.admissions.slice(2).map((url) => new URL(url).searchParams.get("writes")), ["0", "3"])
   })
 
-  it("blocks every writer for Retry-After, then backs off exponentially from 1 minute, and resets on success", () => {
-    const env = { ISSUE_CLAIM_CACHE: cacheEnv().ISSUE_CLAIM_CACHE }
-    const clock = clocked(env)
-    const fail = (headers) => () => { throw limitError(headers) }
-    const writes = clock.throttle()
-    assert.throws(() => writes.write(writes.reserve(1)[0], fail("Retry-After: 300\r\n"), ["api", "x"]),
-      (error) => error instanceof Transient && error.retryAt === clock.t + 300_000)
-    assert.throws(() => clock.throttle().open(), Transient, "a second process sees the block without calling GitHub")
-    clock.advance(300_000)
-    const again = clock.throttle()
-    assert.throws(() => again.write(again.reserve(1)[0], fail(""), ["api", "x"]), (error) => error.retryAt - clock.t === 120_000, "backoff doubled from 60 s")
-    clock.advance(120_000)
-    const third = clock.throttle()
-    assert.throws(() => third.write(third.reserve(1)[0], fail(""), ["api", "x"]), (error) => error.retryAt - clock.t === 240_000)
-    clock.advance(240_000)
-    const ok = clock.throttle()
-    assert.equal(ok.write(ok.reserve(1)[0], () => "HTTP/2.0 201 Created\r\nX-Ratelimit-Remaining: 10\r\n\r\n{\"id\":1}", ["api", "x"]), "{\"id\":1}")
-    const after = clock.throttle()
-    assert.throws(() => after.write(after.reserve(1)[0], fail(""), ["api", "x"]), (error) => error.retryAt - clock.t === 60_000, "success reset the backoff")
+  it("exits 75 and writes nothing while the proxy cannot start the writes soon", () => {
+    const github = fakeGitHub()
+    github.state.deferUntil = T0.getTime() + 120_000
+    for (const command of ["check", "claim", "release", "comment"]) {
+      const { code, out } = cli(github, [command, "smithers#10", "--body", "x"])
+      assert.deepEqual([code, out.action, out.retry_at], [TRANSIENT, "deferred", "2026-09-29T00:02:00.000Z"], command)
+    }
+    assert.deepEqual(writesOf(github), [])
   })
 
-  it("waits for the x-ratelimit reset when the quota is exhausted", () => {
-    const env = { ISSUE_CLAIM_CACHE: cacheEnv().ISSUE_CLAIM_CACHE }
-    const clock = clocked(env)
-    const reset = Math.floor(T0.getTime() / 1000) + 900
-    const writes = clock.throttle()
-    writes.write(writes.reserve(1)[0], () => `HTTP/2.0 201 Created\nx-ratelimit-remaining: 0\nx-ratelimit-reset: ${reset}\n\n{}`, ["api", "x"])
-    assert.throws(() => clock.throttle().open(), (error) => error.retryAt === reset * 1000)
+  it("exits 75 at the proxy's retry instant when it defers a write, and rolls the new label back", () => {
+    const github = fakeGitHub()
+    const deferred = refusal(429, "Retry-After: 90\r\nX-Smithers-Retry-At: 2026-09-29T00:01:30.000Z\r\n", "API rate limit: deferred")
+    const { code, out } = runVia(failingComment(github, deferred), github.state, ["claim", "smithers#9", "--by", "lane-1"])
+    assert.deepEqual([code, out.action, out.retry_at], [TRANSIENT, "deferred", "2026-09-29T00:01:30.000Z"])
+    assert.deepEqual(github.state.labels, [], "the new label is rolled back")
+  })
+
+  it("waits for GitHub's Retry-After, or at least a minute, when GitHub itself refuses", () => {
+    for (const [headers, retryAt] of [["Retry-After: 300\r\n", "2026-09-29T00:05:00.000Z"], ["", "2026-09-29T00:01:00.000Z"]]) {
+      const github = fakeGitHub()
+      const limit = refusal(403, headers, "You have exceeded a secondary rate limit")
+      const { code, out } = runVia(failingComment(github, limit), github.state, ["comment", "smithers#9", "--body", "x"])
+      assert.deepEqual([code, out.retry_at], [TRANSIENT, retryAt])
+    }
+  })
+
+  it("exits 75 a minute later when a read is rate limited", () => {
+    const github = fakeGitHub()
+    const limitedRead = (args) => {
+      if (!args.includes("-f") && args.some((arg) => arg.endsWith("/comments?per_page=100"))) throw new Error("gh: API rate limit (HTTP 429)")
+      return github.gh(args)
+    }
+    const { code, out } = runVia(limitedRead, github.state, ["check", "smithers#9"])
+    assert.deepEqual([code, out.retry_at], [TRANSIENT, "2026-09-29T00:01:00.000Z"])
   })
 
   it("treats a plain permission 403 as an error, not a rate limit", () => {
-    const writes = clocked({ ISSUE_CLAIM_CACHE: cacheEnv().ISSUE_CLAIM_CACHE }).throttle()
+    const github = fakeGitHub()
     const denied = Object.assign(new Error("HTTP 403"), { stderr: "gh: Resource not accessible by integration (HTTP 403)" })
-    assert.throws(() => writes.write(writes.reserve(1)[0], () => { throw denied }, ["api", "x"]), (error) => error === denied)
+    assert.throws(() => runVia(failingComment(github, denied), github.state, ["comment", "smithers#9", "--body", "x"]), (error) => error === denied)
   })
 
   it("splits gh api -i output into headers and body", () => {
     assert.deepEqual(splitResponse("HTTP/2.0 200 OK\r\nRetry-After: 5\r\nX-A: b: c\r\n\r\n[1]"), { headers: { "retry-after": "5", "x-a": "b: c" }, body: "[1]" })
     assert.deepEqual(splitResponse("[1]"), { headers: {}, body: "[1]" })
   })
-
-  it("returns 75 without any GitHub call while writes are blocked, and after a rate-limited claim comment", () => {
-    const github = fakeGitHub()
-    const gh = github.gh
-    github.gh = (args) => {
-      if (args.includes("repos/smithersai/smithers/issues/9/comments") && args.includes("-f")) throw limitError("Retry-After: 300\r\n")
-      return gh(args)
-    }
-    const limited = cli(github, ["claim", "smithers#9"])
-    assert.deepEqual([limited.code, limited.out.action], [TRANSIENT, "deferred"])
-    assert.equal(limited.out.retry_at, "2026-09-29T00:05:00.000Z")
-    assert.deepEqual(github.state.labels, [], "the new label is rolled back")
-    const calls = github.state.calls.length
-    for (const command of ["claim", "release", "comment"]) {
-      assert.equal(cli(github, [command, "smithers#10", "--body", "x"], new Date(T0.getTime() + 30_000)).code, TRANSIENT)
-    }
-    assert.equal(github.state.calls.length, calls)
-    assert.equal(cli(github, ["check", "smithers#10"], new Date(T0.getTime() + 30_000)).code, 0, "check only reads")
-  })
 })
 
-describe("issue-claim executable", () => {
-  it("prints one JSON line and exits 2 when the issue is held", () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
-    try {
-      const fake = join(dir, "gh")
-      const comment = claimBody({ by: "other", host: "mac", now: new Date(Date.now() - 60_000) })
-      writeFileSync(fake, `#!/usr/bin/env node
-const args = process.argv.slice(2)
-require("node:fs").appendFileSync(${JSON.stringify(join(dir, "log"))}, args.join(" ") + "\\n")
-const path = args.find((a) => a.startsWith("repos/"))
-if (path.endsWith("/comments?per_page=100")) console.log(JSON.stringify([[{ body: ${JSON.stringify(comment)}, created_at: new Date().toISOString() }]]))
-else console.log(JSON.stringify({ state: "open", labels: [{ name: "in-progress" }] }))
-`, { mode: 0o755 })
-      const script = new URL("./issue-claim.mjs", import.meta.url).pathname
-      let status = 0, stdout = ""
-      try { execFileSync(process.execPath, [script, "claim", "plue#9", "--by", "me"], { env: { ...process.env, ISSUE_CLAIM_GH: fake }, encoding: "utf8" }) }
-      catch (error) { status = error.status; stdout = error.stdout }
-      assert.equal(status, 2)
-      assert.equal(JSON.parse(stdout).holder.by, "other")
-      assert.doesNotMatch(readFileSync(join(dir, "log"), "utf8"), /-f body=/)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
-  })
+const hasGh = (() => { try { execFileSync("gh", ["--version"], { stdio: "ignore" }); return true } catch { return false } })()
 
-  const fakeGhScript = (dir) => {
-    const fake = join(dir, "gh")
-    writeFileSync(fake, `#!/usr/bin/env node
-const args = process.argv.slice(2)
-const fs = require("node:fs")
-if (args.includes("-f") || args.includes("--method")) fs.appendFileSync(${JSON.stringify(join(dir, "writes"))}, Date.now() + " " + args.join(" ") + "\\n")
-if (process.env.FAKE_LIMIT && args.includes("-f")) { console.error("gh: You have exceeded a secondary rate limit (HTTP 403)"); process.exit(1) }
-const path = args.find((a) => a.startsWith("repos/"))
-if (path.endsWith("/comments?per_page=100")) console.log(JSON.stringify([[]]))
-else if (path.endsWith("/events?per_page=100")) console.log("[[]]")
-else console.log(JSON.stringify({ state: "open", labels: [] }))
-`, { mode: 0o755 })
-    return fake
-  }
+// The real CLI, the real `gh`, and the real proxy daemon in front of a fake GitHub.
+describe("issue-claim, gh and the GitHub proxy end to end", { skip: hasGh ? false : "gh is not installed" }, () => {
+  const TOKEN = "ghp_operator_token_for_tests"
 
-  it("claims, then posts a --body-file receipt verbatim with the release folded in and closes, through the real CLI", () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
-    try {
-      const store = join(dir, "issue.json")
-      writeFileSync(store, JSON.stringify({ state: "open", labels: [], comments: [] }))
-      const fake = join(dir, "gh")
-      writeFileSync(fake, `#!/usr/bin/env node
-const fs = require("node:fs")
-const args = process.argv.slice(2)
-const store = ${JSON.stringify(store)}
-const issue = JSON.parse(fs.readFileSync(store, "utf8"))
-const save = () => fs.writeFileSync(store, JSON.stringify(issue))
-const path = args.find((a) => a.startsWith("repos/"))
-const field = (name) => { const at = args.findIndex((a, i) => args[i - 1] === "-f" && a.startsWith(name + "=")); return at < 0 ? undefined : args[at].slice(name.length + 1) }
-if (args.includes("PATCH")) { issue.state = field("state"); save(); console.log("{}") }
-else if (args.includes("DELETE")) { issue.labels = issue.labels.filter((l) => l !== "in-progress"); save(); console.log("{}") }
-else if (path.endsWith("/labels/in-progress")) console.log("{}")
-else if (/issues\\/\\d+\\/labels$/.test(path)) { issue.labels.push(field("labels[]")); save(); console.log("[]") }
-else if (path.endsWith("/comments") && args.includes("-f")) { issue.comments.push({ body: field("body"), created_at: new Date().toISOString() }); save(); console.log("{}") }
-else if (path.endsWith("/comments?per_page=100")) console.log(JSON.stringify([issue.comments]))
-else if (path.endsWith("/events?per_page=100")) console.log("[[]]")
-else console.log(JSON.stringify({ state: issue.state, labels: issue.labels.map((name) => ({ name })) }))
-`, { mode: 0o755 })
-      const env = { ...process.env, ISSUE_CLAIM_GH: fake, ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "0" }
-      const script = new URL("./issue-claim.mjs", import.meta.url).pathname
-      const cliRun = (...argv) => {
-        try { return { status: 0, out: JSON.parse(execFileSync(process.execPath, [script, ...argv], { env, encoding: "utf8" })) } }
-        catch (error) { return { status: error.status, out: JSON.parse(error.stdout) } }
-      }
-      assert.equal(cliRun("claim", "smithers#2941", "--by", "agent-a").out.action, "claimed")
-      const claim = JSON.parse(readFileSync(store, "utf8")).comments[0].body
-      assert.ok(claim.startsWith(`Claimed by agent-a on ${HOST} at `), claim)
-      const [, at, expires] = claim.match(/ at (\S+); expires (\S+)$/)
-      assert.equal(Date.parse(expires) - Date.parse(at), 6 * 3600_000)
-      // A rival on this host is refused while the claim is live, and nothing is written.
-      const refused = cliRun("claim", "smithers#2941", "--by", "agent-b")
-      assert.deepEqual([refused.status, refused.out.action, refused.out.holder.by], [2, "refused", "agent-a"])
-      assert.equal(JSON.parse(readFileSync(store, "utf8")).comments.length, 1)
-      const receipt = "## Receipt\n\nLanded `abc123` on main.\n\n    indented = kept\n- a=b @file --close\n"
-      writeFileSync(join(dir, "receipt.md"), receipt)
-      const done = cliRun("comment", "smithers#2941", "--by", "agent-a", "--body-file", join(dir, "receipt.md"), "--release", "--note", "landed abc123", "--close")
-      assert.deepEqual([done.status, done.out.action, done.out.released, done.out.closed], [0, "commented", true, true])
-      const issue = JSON.parse(readFileSync(store, "utf8"))
-      assert.equal(issue.comments.length, 2, "one receipt comment carries the release")
-      assert.ok(issue.comments[1].body.startsWith(receipt.trim() + "\n\nReleased by agent-a on "), issue.comments[1].body)
-      assert.ok(issue.comments[1].body.endsWith(": landed abc123"))
-      assert.deepEqual([issue.labels, issue.state], [[], "closed"])
-      assert.equal(cliRun("check", "smithers#2941", "--by", "agent-b").out.free, true)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
-  })
-
-  it("shares one throttle across concurrent processes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
-    try {
-      const env = { ...process.env, ISSUE_CLAIM_GH: fakeGhScript(dir), ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "250" }
-      const script = new URL("./issue-claim.mjs", import.meta.url).pathname
-      const { spawn } = await import("node:child_process")
-      const codes = await Promise.all([1, 2, 3, 4].map((n) => new Promise((resolve) => {
-        spawn(process.execPath, [script, "comment", `plue#${n}`, "--body", `receipt ${n}`], { env, stdio: "ignore" }).on("exit", resolve)
-      })))
-      assert.deepEqual(codes, [0, 0, 0, 0])
-      assert.equal(readFileSync(join(dir, "writes"), "utf8").trim().split("\n").length, 4)
-      // Each process books its slot in the shared state; gh start-up jitter makes wall-clock gaps noisier.
-      const { slots } = JSON.parse(readFileSync(join(dir, "cache", "throttle.json"), "utf8"))
-      assert.equal(slots.length, 4)
-      for (let i = 1; i < slots.length; i++) assert.ok(slots[i] - slots[i - 1] >= 250, `slots ${slots[i - 1]} and ${slots[i]} too close`)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
-  })
-
-  it("exits 75 with retry_at on a secondary rate limit, then defers without calling gh", () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-"))
-    try {
-      const env = { ...process.env, ISSUE_CLAIM_GH: fakeGhScript(dir), ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "0", FAKE_LIMIT: "1" }
-      const script = new URL("./issue-claim.mjs", import.meta.url).pathname
-      const attempt = () => {
-        try { execFileSync(process.execPath, [script, "release", "plue#9", "--by", "me"], { env, encoding: "utf8" }); return { status: 0 } }
-        catch (error) { return error }
-      }
-      execFileSync(process.execPath, [script, "comment", "plue#9", "--body", "x"], { env: { ...env, FAKE_LIMIT: "" }, encoding: "utf8" })
-      const writes = readFileSync(join(dir, "writes"), "utf8")
-      const limited = (() => { try { execFileSync(process.execPath, [script, "comment", "plue#10", "--body", "y"], { env, encoding: "utf8" }) } catch (error) { return error } })()
-      assert.equal(limited.status, 75)
-      assert.ok(Date.parse(JSON.parse(limited.stdout).retry_at) >= Date.now() + 50_000)
-      const blocked = attempt()
-      assert.equal(blocked.status, 75)
-      assert.equal(readFileSync(join(dir, "writes"), "utf8").split("\n").length, writes.split("\n").length + 1, "only the limited write reached gh")
-    } finally { rmSync(dir, { recursive: true, force: true }) }
-  })
-})
-
-describe("issue-claim GitHub App identity", () => {
-  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
-  const KEY = privateKey.export({ type: "pkcs1", format: "pem" })
-  const TOKEN = "ghs_installationTokenForTests"
-  const SLUG = "smitherspreviewrelease"
-
-  // A stub GitHub REST API for the two App calls: installation lookup and token mint.
-  const stubApi = ({ installed = true, expiresIn = 3600_000, clock = () => T0 } = {}) => {
-    const calls = []
-    const request = ({ url, method, jwt }) => {
-      calls.push({ url, method, jwt })
-      if (url.endsWith("/installation")) return installed ? { status: 200, body: JSON.stringify({ id: 42, app_slug: SLUG }) } : { status: 404, body: "{\"message\":\"Not Found\"}" }
-      if (url.endsWith("/app/installations/42/access_tokens") && method === "POST") {
-        return { status: 201, body: JSON.stringify({ token: `${TOKEN}${calls.length}`, expires_at: new Date(clock().getTime() + expiresIn).toISOString() }) }
-      }
-      return { status: 500, body: "{}" }
+  /** A fake GitHub REST API over one issue store, recording every request. */
+  const fakeApi = async ({ limitComments = false } = {}) => {
+    const issues = new Map()
+    const requests = []
+    const issueOf = (number) => {
+      if (!issues.has(number)) issues.set(number, { state: "open", labels: [], comments: [] })
+      return issues.get(number)
     }
-    return { calls, request }
-  }
-  const appEnv = () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-app-"))
-    writeFileSync(join(dir, "key.pem"), KEY, { mode: 0o600 })
-    return cacheEnv({ ISSUE_CLAIM_APP_ID: "4163546", ISSUE_CLAIM_APP_KEY_FILE: join(dir, "key.pem") })
-  }
-
-  it("mints an installation token with an App JWT, caches it 0600 and runs every call as the App", () => {
-    const github = fakeGitHub()
-    github.state.env = appEnv()
-    const api = stubApi()
-    const { code, out } = run(["claim", "plue#7", "--by", "lane-1"], { gh: github.gh, now: () => T0, env: github.state.env, request: api.request })
-    assert.equal(code, 0)
-    assert.equal(out.identity, `app:${SLUG}`)
-    assert.deepEqual(api.calls.map((call) => `${call.method} ${new URL(call.url).pathname}`),
-      ["GET /repos/smithersai/plue/installation", "POST /app/installations/42/access_tokens"])
-    const [header, payload, signature] = api.calls[0].jwt.split(".")
-    assert.deepEqual(JSON.parse(Buffer.from(header, "base64url")), { alg: "RS256", typ: "JWT" })
-    const claims = JSON.parse(Buffer.from(payload, "base64url"))
-    assert.equal(claims.iss, "4163546")
-    assert.ok(claims.exp - claims.iat <= 600)
-    assert.ok(verify("RSA-SHA256", Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, "base64url")))
-    assert.ok(github.state.tokens.length > 0 && github.state.tokens.every((token) => token === `${TOKEN}2`), "every gh call carries the App token")
-    const cache = join(github.state.env.ISSUE_CLAIM_CACHE, "app-4163546-smithersai.json")
-    assert.equal(statSync(cache).mode & 0o777, 0o600)
-    assert.ok(!JSON.stringify(out).includes(TOKEN))
-  })
-
-  it("reuses the cached token until five minutes before expiry, then mints a new one", () => {
-    const env = appEnv()
-    let at = T0
-    const api = stubApi({ clock: () => at })
-    const auth = () => appAuth("smithersai/smithers", { env, now: () => at, request: api.request })
-    assert.equal(auth().token, `${TOKEN}2`)
-    at = new Date(T0.getTime() + 3600_000 - TOKEN_MARGIN - 1000)
-    assert.equal(auth().token, `${TOKEN}2`)
-    assert.equal(api.calls.length, 2, "a token with more than 5 minutes left is reused")
-    at = new Date(T0.getTime() + 3600_000 - TOKEN_MARGIN + 1000)
-    assert.equal(auth().token, `${TOKEN}4`)
-    assert.equal(api.calls.length, 4)
-  })
-
-  it("runs as the gh user when no App is configured or the App is not installed for the owner", () => {
-    const github = fakeGitHub()
-    const api = stubApi()
-    const none = run(["claim", "plue#7", "--by", "lane-1"], { gh: github.gh, now: () => T0, env: github.state.env, request: api.request })
-    assert.equal(none.out.identity, "gh-user")
-    assert.equal(api.calls.length, 0)
-    assert.ok(github.state.tokens.every((token) => token === undefined))
-    const elsewhere = fakeGitHub()
-    elsewhere.state.env = appEnv()
-    const missing = stubApi({ installed: false })
-    const { out } = run(["check", "acme/tool#3"], { gh: elsewhere.gh, now: () => T0, env: elsewhere.state.env, request: missing.request })
-    assert.equal(out.identity, "gh-user")
-    assert.match(out.identity_reason, /not installed for acme\/tool/)
-    assert.ok(elsewhere.state.tokens.every((token) => token === undefined))
-  })
-
-  it("never prints the key, the JWT or the token, through the real CLI against a stub API", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "issue-claim-app-cli-"))
-    const seen = []
     const server = createServer((req, res) => {
-      seen.push({ path: req.url, auth: req.headers.authorization })
-      res.setHeader("content-type", "application/json")
-      if (req.url === "/repos/smithersai/plue/installation") return res.end(JSON.stringify({ id: 42, app_slug: SLUG }))
-      if (req.url === "/app/installations/42/access_tokens" && process.env.FAKE_MINT_FAIL !== "1") {
-        res.statusCode = 201
-        return res.end(JSON.stringify({ token: TOKEN, expires_at: new Date(Date.now() + 3600_000).toISOString() }))
-      }
-      res.statusCode = 500
-      res.end(JSON.stringify({ message: "boom" }))
+      let body = ""
+      req.on("data", (chunk) => { body += chunk })
+      req.on("end", () => {
+        requests.push({ method: req.method, url: req.url, auth: req.headers.authorization, at: Date.now(), body })
+        const reply = (status, value, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(value)) }
+        const match = /^\/repos\/[\w.-]+\/[\w.-]+\/(?:issues|pulls)\/(\d+)(\/.*)?$/.exec(req.url.split("?")[0])
+        if (/\/labels\/in-progress$/.test(req.url) && !match) return reply(200, { name: LABEL })
+        if (!match) return reply(404, { message: "Not Found" })
+        const issue = issueOf(Number(match[1]))
+        const rest = match[2] ?? ""
+        const fields = body ? JSON.parse(body) : {}
+        if (rest === "" && req.method === "PATCH") { issue.state = fields.state; return reply(200, {}) }
+        if (rest === "") return reply(200, { state: issue.state, labels: issue.labels.map((name) => ({ name })) })
+        if (rest === "/labels" && req.method === "POST") { issue.labels.push(...fields.labels); return reply(200, []) }
+        if (rest === "/labels/in-progress" && req.method === "DELETE") { issue.labels = issue.labels.filter((l) => l !== LABEL); return reply(200, []) }
+        if (rest === "/comments" && req.method === "POST") {
+          if (limitComments) return reply(403, { message: "You have exceeded a secondary rate limit" }, { "retry-after": "300" })
+          issue.comments.push({ body: fields.body, created_at: new Date().toISOString() })
+          return reply(201, { id: issue.comments.length })
+        }
+        if (rest === "/comments") return reply(200, issue.comments)
+        if (rest === "/events") return reply(200, [])
+        reply(404, { message: "Not Found" })
+      })
     })
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+    return { origin: `http://127.0.0.1:${server.address().port}`, issues, requests, close: () => new Promise((resolve) => { server.closeAllConnections(); server.close(resolve) }) }
+  }
+
+  const freePort = async () => {
+    const probe = createServer()
+    await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve))
+    const { port } = probe.address()
+    await new Promise((resolve) => probe.close(resolve))
+    return port
+  }
+
+  /** Runs the proxy daemon in front of `api` until `body` settles. */
+  const withProxy = async (api, extra, body) => {
+    const port = await freePort()
+    const dir = mkdtempSync(join(tmpdir(), "issue-claim-e2e-"))
+    const env = { ...process.env, SMITHERS_GITHUB_PROXY: `http://127.0.0.1:${port}`, SMITHERS_GITHUB_PROXY_UPSTREAM: api.origin,
+      SMITHERS_GITHUB_TOKEN: TOKEN, ISSUE_CLAIM_APP_CONFIG: NO_APP, ISSUE_CLAIM_CACHE: join(dir, "cache"), ...extra }
+    delete env.ISSUE_CLAIM_GH
+    const daemon = spawn(process.execPath, [new URL("./github-proxy.mjs", import.meta.url).pathname], { env, stdio: ["ignore", "ignore", "pipe"] })
+    let log = ""
+    daemon.stderr.on("data", (chunk) => { log += chunk })
     try {
-      writeFileSync(join(dir, "key.pem"), KEY, { mode: 0o600 })
-      writeFileSync(join(dir, "app.json"), JSON.stringify({ app_id: 4163546, private_key_path: join(dir, "key.pem") }))
-      const gh = join(dir, "gh")
-      writeFileSync(gh, `#!/usr/bin/env node
-const args = process.argv.slice(2)
-require("node:fs").appendFileSync(${JSON.stringify(join(dir, "gh-calls"))}, (process.env.GH_TOKEN === ${JSON.stringify(TOKEN)} ? "app " : "user ") + args.join(" ") + "\\n")
-const path = args.find((a) => a.startsWith("repos/"))
-if (args.includes("-f")) console.log("HTTP/2.0 201 Created\\n\\n{}")
-else if (path.endsWith("/comments?per_page=100")) console.log("[[]]")
-else console.log(JSON.stringify({ state: "open", labels: [] }))
-`, { mode: 0o755 })
-      const env = { ...process.env, ISSUE_CLAIM_GH: gh, ISSUE_CLAIM_CACHE: join(dir, "cache"), ISSUE_CLAIM_SPACING_MS: "0",
-        ISSUE_CLAIM_APP_CONFIG: join(dir, "app.json"), ISSUE_CLAIM_API_URL: `http://127.0.0.1:${server.address().port}` }
-      const cli = (argv) => new Promise((resolve) => {
-        const child = spawn(process.execPath, [new URL("./issue-claim.mjs", import.meta.url).pathname, ...argv], { env })
-        let output = ""
-        child.stdout.on("data", (chunk) => { output += chunk })
-        child.stderr.on("data", (chunk) => { output += chunk })
-        child.on("exit", (code) => resolve({ code, output }))
-      })
-      const ok = await cli(["comment", "plue#9", "--body", "receipt"])
-      assert.equal(ok.code, 0, ok.output)
-      assert.equal(JSON.parse(ok.output).identity, `app:${SLUG}`)
-      assert.match(readFileSync(join(dir, "gh-calls"), "utf8"), /^app api -i repos\/smithersai\/plue\/issues\/9\/comments -f body=receipt$/m)
-      const jwt = seen[0].auth.slice("Bearer ".length)
-      rmSync(join(dir, "cache", "app-4163546-smithersai.json"))
-      process.env.FAKE_MINT_FAIL = "1"
-      const failed = await cli(["comment", "plue#9", "--body", "again"])
-      delete process.env.FAKE_MINT_FAIL
-      assert.equal(failed.code, 1)
-      assert.match(failed.output, /HTTP 500 boom/)
-      const keyBody = KEY.split("\n")[1]
-      const artifacts = readdirSync(join(dir, "cache")).filter((name) => !name.startsWith("app-")).map((name) => readFileSync(join(dir, "cache", name), "utf8")).join("\n")
-      for (const text of [ok.output, failed.output, artifacts, readFileSync(join(dir, "gh-calls"), "utf8")]) {
-        for (const secret of [TOKEN, jwt, keyBody]) assert.ok(!text.includes(secret), "no secret in output, logs or throttle state")
+      for (let i = 0; i < 100; i++) {
+        try { if ((await fetch(`${env.SMITHERS_GITHUB_PROXY}/_smithers/health`)).ok) break } catch { /* not yet */ }
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
+      // The CLI's own environment: no GitHub token at all, as in a confined child.
+      const cliEnv = { ...env, GH_ENTERPRISE_TOKEN: "unused", GH_CONFIG_DIR: join(dir, "gh") }
+      delete cliEnv.SMITHERS_GITHUB_TOKEN
+      delete cliEnv.GH_TOKEN
+      delete cliEnv.GITHUB_TOKEN
+      const cli = (...argv) => new Promise((resolve) => {
+        const child = spawn(process.execPath, [new URL("./issue-claim.mjs", import.meta.url).pathname, ...argv], { env: cliEnv })
+        let stdout = ""
+        let stderr = ""
+        child.stdout.on("data", (chunk) => { stdout += chunk })
+        child.stderr.on("data", (chunk) => { stderr += chunk })
+        child.on("exit", (code) => resolve({ code, out: stdout ? JSON.parse(stdout) : null, stderr }))
+      })
+      return await body(cli, () => log)
     } finally {
-      server.close()
+      daemon.kill()
       rmSync(dir, { recursive: true, force: true })
     }
+  }
+
+  it("claims, refuses a rival, and folds the release into a closing receipt", async () => {
+    const api = await fakeApi()
+    try {
+      await withProxy(api, {}, async (cli, log) => {
+        const claimed = await cli("claim", "o/r#7", "--by", "agent-a")
+        assert.deepEqual([claimed.code, claimed.out.action, claimed.out.identity], [0, "claimed", "gh-user"], claimed.stderr)
+        const refused = await cli("claim", "o/r#7", "--by", "agent-b")
+        assert.deepEqual([refused.code, refused.out.action, refused.out.holder.by], [2, "refused", "agent-a"])
+        const done = await cli("comment", "o/r#7", "--by", "agent-a", "--body", "Landed abc", "--release", "--note", "landed", "--close")
+        assert.deepEqual([done.code, done.out.released, done.out.closed], [0, true, true], done.stderr)
+        const issue = api.issues.get(7)
+        assert.deepEqual([issue.labels, issue.state, issue.comments.length], [[], "closed", 2])
+        assert.match(issue.comments[1].body, /^Landed abc\n\nReleased by agent-a on .*: landed$/)
+        assert.ok(api.requests.every((request) => request.auth === `Bearer ${TOKEN}`), "the proxy injects the operator's token")
+        for (const text of [JSON.stringify([claimed, refused, done]), log()]) assert.ok(!text.includes(TOKEN), "no token in output or log")
+      })
+    } finally { await api.close() }
+  })
+
+  it("spaces the writes of concurrent processes through the one proxy", async () => {
+    const api = await fakeApi()
+    try {
+      await withProxy(api, { SMITHERS_GITHUB_WRITE_SPACING_MS: "250" }, async (cli) => {
+        const runs = await Promise.all([1, 2, 3, 4].map((n) => cli("comment", `o/r#${n}`, "--body", `receipt ${n}`)))
+        assert.deepEqual(runs.map((run) => run.code), [0, 0, 0, 0], runs.map((run) => run.stderr).join("\n"))
+        const writes = api.requests.filter((request) => request.method !== "GET").map((request) => request.at).sort((a, b) => a - b)
+        assert.equal(writes.length, 4)
+        for (let i = 1; i < writes.length; i++) assert.ok(writes[i] - writes[i - 1] >= 200, `writes ${writes[i - 1]} and ${writes[i]} too close`)
+      })
+    } finally { await api.close() }
+  })
+
+  it("exits 75 on GitHub's secondary limit, then defers every caller without reaching GitHub", async () => {
+    const api = await fakeApi({ limitComments: true })
+    try {
+      await withProxy(api, {}, async (cli) => {
+        const limited = await cli("comment", "o/r#9", "--body", "x")
+        assert.equal(limited.code, 75, limited.stderr)
+        assert.ok(Date.parse(limited.out.retry_at) >= Date.now() + 250_000)
+        const seen = api.requests.length
+        const blocked = await cli("release", "o/r#10", "--by", "me")
+        assert.equal(blocked.code, 75)
+        assert.equal(api.requests.length, seen, "the paused proxy sent nothing to GitHub")
+      })
+    } finally { await api.close() }
   })
 })

@@ -636,23 +636,37 @@ const githubTriage = Smithers.NodeTest({
 })
 
 /**
- * The shared issue-claim convention: an `in-progress` label plus a dated,
- * expiring claim comment. The suite fakes the GitHub API and proves that a live
+ * The shared issue-claim convention and the machine's GitHub proxy it calls
+ * GitHub through. The issue-claim suite fakes the proxy and proves that a live
  * claim blocks other agents, a stale one can be taken over, racing claimants
- * agree on the first, retries never re-post, a receipt carries the release, and
- * every write passes one machine-wide throttle that exits 75 on rate limits.
- * Against a stub GitHub API it proves calls run as a configured GitHub App's
- * cached installation token, refreshed before expiry, fall back to the `gh`
- * user without one, and never print the key, the JWT or the token.
+ * agree on the first, retries never re-post, a receipt carries the release, a
+ * command asks the proxy for all its writes before the first, and every rate
+ * limit exits 75 with its retry instant. End to end, with the real `gh`, the
+ * real proxy daemon and a fake GitHub, it proves concurrent processes' writes
+ * are spaced by the one proxy, a secondary limit defers every caller without
+ * reaching GitHub, and the operator's token never leaves the proxy. The proxy
+ * suite proves `--ensure` starts one daemon, a capability gates every caller
+ * beyond loopback, and a missing credential is a typed 502. The App suite
+ * proves installation tokens are minted with an App JWT, cached 0600, and
+ * refreshed before expiry.
  *
  * @since 1.0.0
  * @category test
  */
 const issueClaim = Smithers.NodeTest({
   summary:
-    "Agents claim an issue before work and release it after, through one machine-wide GitHub write throttle; a live claim blocks others and a stale one can be taken over.",
-  runner: Smithers.testRunner([Smithers.file("//scripts/issue-claim.test.mjs")]),
-  srcs: [Smithers.file("//scripts/issue-claim.mjs")],
+    "Agents claim an issue before work and release it after, through the machine's GitHub proxy; a live claim blocks others and a stale one can be taken over.",
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/issue-claim.test.mjs"),
+    Smithers.file("//scripts/github-proxy.test.mjs"),
+    Smithers.file("//scripts/github-app-auth.test.mjs")
+  ]),
+  srcs: [
+    Smithers.file("//scripts/issue-claim.mjs"),
+    Smithers.file("//scripts/github-proxy.mjs"),
+    Smithers.file("//scripts/github-app-auth.mjs"),
+    Smithers.glob("//packages/smithers/agent/integrations/src/**/*.ts")
+  ],
   deps: []
 })
 
