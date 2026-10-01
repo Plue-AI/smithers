@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { blocking, packageOf, packagesOf, readChecks, testTargets } from "../land.ts"
+import { blocking, isDocsSource, packageOf, packagesOf, readChecks, testTargets } from "../land.ts"
 
 const index = [
   { label: "//:backendGo", kinds: ["test"] },
@@ -91,4 +91,11 @@ test("blocking keeps only the reds main does not share", () => {
   assert.deepEqual(blocking(["//a:test", "//b:test"], ["//b:test", "//c:test"]), ["//a:test"])
   assert.deepEqual(blocking(["//a:test"], ["//a:test"]), [])
   assert.deepEqual(blocking([], ["//a:test"]), [])
+})
+
+test("isDocsSource picks package docs that docs:sync generates from, never the generated mirrors", () => {
+  assert.equal(isDocsSource("packages/smithers/agent/registry/docs/api.md"), true)
+  assert.equal(isDocsSource("docs/blog/building-burndown-notes.md"), true)
+  assert.equal(isDocsSource("apps/docs/registry/src/content/docs/reference/api.md"), false)
+  assert.equal(isDocsSource("packages/smithers/src/Docs.ts"), false)
 })

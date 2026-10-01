@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { goCache } from "../land.ts"
-import { accountOf, agentCommand, brief, commitMessage, replyOf } from "../work/flow.ts"
+import { accountOf, agentCommand, brief, commitMessage, replyOf, spreadAccount } from "../work/flow.ts"
 
 test("commitMessage takes the agent's last COMMIT line and keeps its issue reference", () => {
   const reply = "Fixed it.\nCOMMIT: draft\nTests pass.\nCOMMIT: 🐛 fix(cli): pin the guest home (#3265)\n"
@@ -69,4 +69,19 @@ test("the brief leaves out the claim tool's bookkeeping comments", () => {
   })
   assert.doesNotMatch(text, /Claimed by|Released by|Took over/)
   assert.match(text, /<comment author="will">\nRepro: run it twice/)
+})
+
+test("spreadAccount spreads remote runs over the ready Codex accounts by issue", () => {
+  const ready = ["codex-1", "codex-2", "codex-3"]
+  assert.deepEqual([3300, 3301, 3302, 3303].map((issue) => spreadAccount(ready, issue)), [
+    "codex-1",
+    "codex-2",
+    "codex-3",
+    "codex-1"
+  ])
+  assert.equal(spreadAccount([], 7), undefined)
+})
+
+test("the brief asks for synced docs when an agent edits docs", () => {
+  assert.match(brief("r", 1, { title: "t", body: "b", comments: [] }), /pnpm docs:sync[\s\S]*pnpm docs:check/)
 })

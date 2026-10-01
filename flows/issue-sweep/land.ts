@@ -229,6 +229,32 @@ const redOnMain = (labels: ReadonlyArray<string>, revision: string) =>
     return checked._tag === "Red" ? checked.labels : checked._tag === "Green" ? [] : labels
   })
 
+/** Whether `file` is documentation `pnpm docs:sync` generates other files from. */
+export const isDocsSource = (file: string) => /(^|\/)docs\//.test(file) && !file.startsWith("apps/")
+
+/**
+ * Regenerates the documentation mirrors a change's docs edits feed, folds
+ * what changed into the change, and requires `pnpm docs:check` to pass, so
+ * a landing never leaves the generated docs behind their sources.
+ */
+const syncDocs = (workspace: string, change: string, files: ReadonlyArray<string>) =>
+  Effect.gen(function*() {
+    if (!files.some(isDocsSource)) return
+    const synced = yield* asLand(sandboxed(workspace, ["pnpm", "docs:sync"]))
+    if (synced.code !== 0) {
+      return yield* fail(`pnpm docs:sync for ${change}: exit ${synced.code}: ${tail(synced.stderr)}`)
+    }
+    if ((yield* jj(workspace, ["diff", "--name-only", "-r", "@"])).trim() !== "") {
+      yield* jjWrite(workspace, ["squash", "--from", "@", "--into", change, "-u"])
+    }
+    const checked = yield* asLand(sandboxed(workspace, ["pnpm", "docs:check"]))
+    if (checked.code !== 0) {
+      return yield* fail(
+        `pnpm docs:check for ${change}: exit ${checked.code}: ${tail(`${checked.stdout}\n${checked.stderr}`)}`
+      )
+    }
+  })
+
 /**
  * Lands the change `change` (a jj change id) from `workspace` on `main`, and
  * answers the landed commit id.
@@ -259,6 +285,7 @@ export const landChange = (workspace: string, change: string) =>
         return yield* fail(`change ${change} edits install hooks (${hooks.join(" ")}); land it by hand`)
       }
       yield* install(workspace)
+      yield* syncDocs(workspace, change, files)
       const index = yield* asLand(Effect.flatMap(
         output("pnpm", ["exec", "smthrs", "index", "//...", "--format", "json"], { cwd: workspace }),
         (text) =>

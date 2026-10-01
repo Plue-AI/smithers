@@ -165,6 +165,7 @@ Your working directory is a private jj workspace of the repository, checked out 
 This flow already holds the issue claim: do not claim, release or comment on the issue, and do not push.
 Do not run jj or git: your sandbox cannot write the repository store, and the flow records your edits as one change after you finish.
 Follow the repository's AGENTS.md. Reproduce the problem with a failing test, make the smallest fix, and run the tests of the packages you touched until they pass (\`pnpm exec smthrs test //<package dir>:test\`, or the package's own test command); do not run the whole repository's suite.
+If you edit any package's docs/, run \`pnpm docs:sync\` and keep the files it regenerates, then make \`pnpm docs:check\` pass.
 Reply with what was wrong (file:line), what you changed, and the test commands you ran with their results.
 End your reply with exactly one line of the form:
 COMMIT: <emoji conventional commit subject> (#${issue})
@@ -377,15 +378,21 @@ const guestCodexHome = "/home/developer/.codex-sweep"
 
 const loginFile = (account: string) => `${homedir()}/.smithers/accounts/${account}/auth.json`
 
-// Ask codex-rr which account is next, without advancing its cursor past it.
-const nextCodexAccount = output("codex-rr", ["next"]).pipe(
-  Effect.map((stdout) => stdout.trim()),
-  Effect.filterOrFail(
-    (account) => account !== "" && account !== "none",
-    () => new AgentFailed({ message: "codex-rr next: no ready account" })
-  ),
-  Effect.mapError(agentFailed)
-)
+/**
+ * The Codex account for one remote run. A remote run is invisible to
+ * codex-rr's per-account accounting and `codex-rr next` never advances, so
+ * runs are spread over the ready accounts by issue number instead.
+ */
+export const spreadAccount = (ready: ReadonlyArray<string>, issue: number): string | undefined =>
+  ready.length === 0 ? undefined : ready[issue % ready.length]
+
+const codexAccountFor = (issue: number) =>
+  Effect.gen(function*() {
+    const pools = yield* Effect.mapError(readPools, agentFailed)
+    const account = spreadAccount(pools.codex.ready, issue)
+    if (account === undefined) return yield* new AgentFailed({ message: "no ready Codex account" })
+    return account
+  })
 
 /** The isolated machine a remote fix runs in. */
 const machine = (placement: "vm" | "cloud", repo: string, issue: number) =>
@@ -399,7 +406,7 @@ const machine = (placement: "vm" | "cloud", repo: string, issue: number) =>
 
 const remoteFix = RemoteFix.toLayer((input) =>
   Effect.gen(function*() {
-    const account = yield* nextCodexAccount
+    const account = yield* codexAccountFor(input.issue)
     const login = yield* Effect.tryPromise({
       try: () => readFile(loginFile(account), "utf8"),
       catch: () => new AgentFailed({ message: `${account}: no auth.json` })
@@ -416,10 +423,11 @@ const remoteFix = RemoteFix.toLayer((input) =>
       const [stdout, stderr, code] = yield* run("sh", [
         "-c",
         // The Cloud image has node but no codex, and /usr/local is root's: install per user.
+        // codex exec reads a piped stdin as more prompt, and the guest's stays open: close it.
         `PATH="$HOME/.local/bin:$PATH"; command -v codex >/dev/null || ` +
         `{ npm install -g --prefix "$HOME/.local" @openai/codex >&2 && rm -rf "$NPM_CONFIG_CACHE"; } || exit 127; ` +
         `cd ${guestCheckout} && CODEX_HOME=${guestCodexHome} codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
-        `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1"`,
+        `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1" </dev/null`,
         "sh",
         brief(input.repo, input.issue, input.text)
       ]).pipe(
