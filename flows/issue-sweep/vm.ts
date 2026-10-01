@@ -28,7 +28,31 @@
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
 import { Effect, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
+import { readdirSync } from "node:fs"
 import { hostname } from "node:os"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+/**
+ * Every microVM runs at a lower CPU priority than this host: under 32 busy
+ * guests a host that misses its 19 s run-lease heartbeat parks the whole sweep
+ * (#3328). The SDK runs whatever binary `MSB_PATH` names, so it names
+ * `msb-nice.sh`, which execs the bundled `msb` under `nice`. An operator's own
+ * `MSB_PATH` is left alone.
+ */
+export const niceWrapper = fileURLToPath(new URL("./msb-nice.sh", import.meta.url))
+if (process.env.MSB_PATH === undefined) {
+  const resolver = new URL("./internal/resolve-binary.js", import.meta.resolve("microsandbox"))
+  const bundled = ((await import(resolver.href)) as { msbPath: () => string | undefined }).msbPath()
+  if (bundled === undefined) throw new Error("issue-sweep vm: the microsandbox package bundles no msb binary")
+  // msb looks for libkrunfw beside the binary MSB_PATH names, which is now the wrapper.
+  const lib = join(dirname(dirname(bundled)), "lib")
+  const krunfw = readdirSync(lib).find((name) => name.startsWith("libkrunfw."))
+  if (krunfw === undefined) throw new Error(`issue-sweep vm: no libkrunfw in ${lib}`)
+  process.env.ISSUE_SWEEP_MSB = bundled
+  process.env.MSB_LIBKRUNFW_PATH ??= join(lib, krunfw)
+  process.env.MSB_PATH = niceWrapper
+}
 
 /** The guest checkout the work flow edits, the same path CloudSandbox uses. */
 export const guestCheckout = "/home/developer/workspace"
@@ -76,7 +100,9 @@ export const toolchainEnv: Readonly<Record<string, string>> = {
   // The guest /tmp is too small for linking backend test binaries.
   GOTMPDIR: `${guestCheckout}/.cache/go-tmp`,
   RUSTUP_HOME: "/usr/local/rustup",
-  CARGO_HOME: `${guestCheckout}/.cache/cargo`
+  CARGO_HOME: `${guestCheckout}/.cache/cargo`,
+  // Browsers are only read at test time, so they live outside the checkout.
+  PLAYWRIGHT_BROWSERS_PATH: "/usr/local/ms-playwright"
 }
 
 /** The guest PATH: the Go and Rust toolchains before the system directories. */
@@ -94,7 +120,8 @@ const goChecksum = "let s=\"\";process.stdin.on(\"data\",(d)=>s+=d).on(\"end\",(
  * against go.dev's published SHA-256; Rust is the channel rust-toolchain.toml
  * pins, installed by a checksum-verified rustup. Modules and crates are
  * prefetched and the backend packages compiled, so an agent's first `go test`
- * or `cargo test` downloads nothing.
+ * or `cargo test` downloads nothing. Playwright's Chromium, with its system
+ * libraries, is the version apps/app pins.
  */
 export const provisionScript = (revision: string): string =>
   `set -eux
@@ -130,10 +157,13 @@ mkdir -p "$GOTMPDIR"
 go mod download
 go build ./packages/backend/...
 cargo fetch --locked
+pnpm --filter ./apps/app exec playwright install --with-deps chromium
 go version
 cargo --version
 jj st >/dev/null
 rm -rf /tmp/* /root/.npm
+# The capture stops the machine; unflushed pages would be captured as empty files.
+sync
 `
 
 /** A guest command's whole output and exit status. */

@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { hostname } from "node:os"
 import test from "node:test"
-import { agentHosts, guestCheckout, holderAlive, make, refreshLine, sh } from "../vm.ts"
+import { agentHosts, guestCheckout, holderAlive, make, niceWrapper, refreshLine, sh } from "../vm.ts"
 
 type Event =
   | { readonly kind: "started"; readonly pid: number }
@@ -246,4 +246,16 @@ test("bootConcurrency boots at most that many microVMs at once while maxVms admi
   assert.equal(fake.boots.peak, 2)
   assert.equal(fake.created.length, 6)
   assert.deepEqual([...fake.live], [])
+})
+
+// #3328: busy guests starved the flow host's run-lease heartbeat and parked the sweep.
+test("microVMs run through the nice wrapper at nice 10, below the flow host", () => {
+  assert.equal(process.env.MSB_PATH, niceWrapper)
+  const real = process.env.ISSUE_SWEEP_MSB ?? ""
+  assert.match(real, /microsandbox-.*\/bin\/msb$/)
+  const nice = execFileSync(niceWrapper, ["-c", "ps -o nice= -p $$"], {
+    encoding: "utf8",
+    env: { ...process.env, ISSUE_SWEEP_MSB: "/bin/sh" }
+  }).trim()
+  assert.equal(Number(nice), 10)
 })
