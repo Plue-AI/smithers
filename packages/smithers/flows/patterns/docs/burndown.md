@@ -5,8 +5,8 @@ description: "Apply the @smthrs/patterns Burndown pattern to GitHub issues: disc
 
 `Burndown` works a backlog until nothing in it is yours. Each round it
 rediscovers the backlog, selects the items that are yours, claims them, works
-each one as a durable child execution, lands the results one at a time, and
-releases every claim. This guide applies it to the open issues of a GitHub
+each one as a durable child execution, lands each result as its work finishes,
+one at a time, and releases every claim. This guide applies it to the open issues of a GitHub
 repository. The same members fit Linear tickets or a message queue; only the
 four provider calls change.
 
@@ -17,8 +17,14 @@ round N:  capacity? ─┬─ Available(slots) ─▶ discover ─▶ dispatch �
                      ├─ WaitUntil(at) ───▶ Sleep ──▶ Flow.to(N+1)  └─ launched = 0 ─▶ drained
                      └─ Exhausted ───────▶ WaitFor(signal) ──▶ Flow.to(N+1)
 
-dispatch: select ─▶ claim ─▶ work (child: key/id) ─▶ land (MergeQueue, serial) ─▶ release
+dispatch: select ─▶ slot: claim ─▶ work (child: key/id) ─┬─▶ land (serial queue) ─▶ release
+                    ▲                                    │
+                    └── capacity allows? next ours item ─┘
 ```
+
+A slot hands its item to the landing queue when the work finishes and takes
+the next item at once, so one slow item never holds another slot idle or
+delays a finished item's landing.
 
 `Burndown.make` declares the lineage. `Burndown.round` is the Effect a
 dispatch runs, because the number of issues is a runtime fact that no plan
@@ -94,6 +100,7 @@ declare const liveClaimHost: (repo: string, issue: number) => Effect.Effect<stri
 declare const claimIssue: (repo: string, issue: number) => Effect.Effect<"claimed" | "held", GhFailed>
 declare const mergePatch: (repo: string, patch: string) => Effect.Effect<string, GhFailed>
 declare const releaseIssue: (repo: string, issue: number, note: string) => Effect.Effect<void, GhFailed>
+declare const readAccounts: (repo: string) => Effect.Effect<Burndown.Capacity, GhFailed>
 
 export const dispatchLayer = Burndown.layer(Dispatch, {
   key: "issues/smithersai-smithers",
@@ -113,7 +120,9 @@ export const dispatchLayer = Burndown.layer(Dispatch, {
   // land answers the merged revision; detail and release both see it.
   land: ({ input, output }) => mergePatch(input.repo, output.patch),
   release: ({ input, item, status, detail }) => releaseIssue(input.repo, item.number, `${status}: ${detail}`),
-  detail: (report, revision) => `${revision}: ${report.changed}`
+  detail: (report, revision) => `${revision}: ${report.changed}`,
+  // Asked each time a slot frees; the same answer the Accounts action gives.
+  capacity: ({ input }) => readAccounts(input.repo)
 })
 ```
 
@@ -122,13 +131,26 @@ Provide `dispatchLayer`, the `ListIssues` and `Accounts` implementations,
 
 What each member decides:
 
-| Member    | Runs                                    | Its failure                                                   |
-| --------- | --------------------------------------- | ------------------------------------------------------------- |
-| `select`  | For every unsettled item                | Skips the item this round; the next round asks again          |
-| `claim`   | For each item that is ours, up to slots | `Held` settles it `held`; anything else settles it `failed`   |
-| `work`    | After a successful claim                | Settles it `failed`; the items beside it keep running         |
-| `land`    | One at a time, in discovery order       | Quarantined: settles it `failed`; the next landing still runs |
-| `release` | Once per successful claim, always       | Appended to the row's detail; the status stays                |
+| Member     | Runs                                             | Its failure                                                 |
+| ---------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `select`   | For every unsettled item                         | Skips the item this round; the next round asks again        |
+| `claim`    | For each item a slot admits                      | `Held` settles it `held`; anything else settles it `failed` |
+| `work`     | After a successful claim                         | Settles it `failed`; the items beside it keep running       |
+| `land`     | One at a time, in the order work finished        | Settles it `failed`; the next landing still runs            |
+| `release`  | Once per successful claim, when the item settles | Appended to the row's detail; the status stays              |
+| `capacity` | When a slot frees and an item is still waiting   | Admits nothing through that slot                            |
+
+## Rolling admission
+
+The first `slots` items that are ours launch on the capacity the lineage
+asked for, at most `slots` at a time. When an item finishes working, its slot
+asks the round's `capacity` member and admits the next item only on
+`Burndown.available(n)` with `n` above the work still in flight. On any other
+answer the slot retires. The items no slot admitted are `deferred`: the next
+round rediscovers them, and its capacity gate parks if the accounts are out.
+
+Without a round `capacity` member the round launches `slots` items and defers
+the rest, because nothing says the capacity still holds.
 
 `release` receives the row's final `status` and `detail`. `detail` renders a
 landed row from the work output and what `land` answered.

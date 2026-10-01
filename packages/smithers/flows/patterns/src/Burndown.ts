@@ -1,8 +1,8 @@
 /**
  * Burndown pattern: work a backlog down to nothing. Each round re-discovers the
  * backlog, selects the items that are ours, claims them, works each one as a
- * durable child, lands the results through a merge queue, and releases every
- * claim, at a concurrency and a capacity the burndown owns.
+ * durable child, lands each result as its work finishes, one at a time, and
+ * releases every claim, at a concurrency and a capacity the burndown owns.
  *
  * The backlog can be anything with a stable `id` per item: GitHub issues, Linear
  * tickets, queue messages. Nothing here names a provider.
@@ -26,16 +26,16 @@ import * as Sleep from "@smthrs/flow/Sleep"
 import * as WaitFor from "@smthrs/flow/WaitFor"
 import * as Node from "@smthrs/plan/Node"
 import type * as Planned from "@smthrs/plan/Planned"
+import * as Cause from "effect/Cause"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Cause from "effect/Cause"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
+import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as Compose from "./internal/Compose.ts"
 import type { Member as Callable } from "./internal/Member.ts"
 import { call as callMember } from "./internal/Member.ts"
-import * as MergeQueue from "./MergeQueue.ts"
 import { PatternError } from "./PatternError.ts"
 
 /**
@@ -128,8 +128,8 @@ export type Result = typeof Result.Type
  * What one dispatched round reports.
  *
  * `launched` counts the items the round claimed or tried to claim. `deferred`
- * counts the items that were ours but did not fit the capacity's slots; the
- * next round rediscovers them.
+ * counts the items that were ours but that the capacity admitted no slot
+ * for; the next round rediscovers them.
  *
  * @category models
  * @since 1.0.0
@@ -360,6 +360,7 @@ const bound = (value: number): boolean => Number.isSafeInteger(value) && value >
 
 const decodeCapacity = Schema.decodeUnknownSync(Capacity)
 const decodeRound = Schema.decodeUnknownSync(RoundResult)
+const isCapacity = Schema.is(Capacity)
 
 interface Folded {
   readonly continue: boolean
@@ -522,7 +523,8 @@ export const make = (options: MakeOptions): BurndownFlow => {
  *
  * `items` is the discovered backlog. `settled` lists ids an earlier round
  * already settled; they are left alone. `slots`, when present, caps how many
- * items launch this round.
+ * items are worked at once and how many launch before
+ * {@link RoundOptions.capacity} is asked.
  *
  * @category models
  * @since 1.0.0
@@ -556,13 +558,19 @@ export interface ItemArgs<I, It extends Item> {
  * exists instead of starting a second one.
  *
  * `select` defaults to {@link ours} for every item. `claim` may fail with
- * {@link Held}. `land`, when present, runs through a `MergeQueue` at
- * concurrency 1 under the `quarantine` policy, so landings are serialized and
- * one failed landing does not stop the next; without it a worked item counts
- * as landed. `release` runs once for every item whose claim succeeded,
- * whatever happened after, with the item's final status and row detail.
- * `detail` renders a landed item's detail from its work output and, when
- * `land` is present, what `land` answered, such as the landed revision.
+ * {@link Held}. `land`, when present, runs one item at a time, in the order
+ * work finished, and one failed landing does not stop the next; without it a
+ * worked item counts as landed. `release` runs once for every item whose claim
+ * succeeded, whatever happened after, with the item's final status and row
+ * detail. `detail` renders a landed item's detail from its work output and,
+ * when `land` is present, what `land` answered, such as the landed revision.
+ *
+ * `capacity`, when present, is asked each time a slot frees and an item that
+ * is ours is still waiting beyond the round's `slots`. Only an `Available`
+ * answer with more slots than the work still in flight admits the item. Any
+ * other answer, or a failure, admits nothing through that slot, and the items
+ * left over are `deferred` to the next round, where the lineage's capacity
+ * gate can park. Without it a round launches at most `slots` items.
  *
  * @category models
  * @since 1.0.0
@@ -578,6 +586,9 @@ export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
     args: ItemArgs<I, It> & { readonly status: Status; readonly detail: string }
   ) => Effect.Effect<unknown, E, R>
   readonly detail?: ((output: W, landing: L | undefined) => string) | undefined
+  readonly capacity?:
+    | ((args: { readonly input: I; readonly round: number }) => Effect.Effect<Capacity, E, R>)
+    | undefined
 }
 
 /**
@@ -652,23 +663,27 @@ type Attempt<W> =
  * Items whose id is in `settled` are left alone. `select` runs for the rest at
  * `concurrency`; a skipped item, or one whose selection failed, gets a
  * `skipped` row and is reconsidered next round. Of the items that are ours,
- * the first `slots` launch, in discovery order, and the remainder count as
- * `deferred`.
+ * the first `slots` launch, in discovery order. When a launched item finishes
+ * working, its slot admits the next item that is ours while
+ * {@link RoundOptions.capacity} allows, so a slow item never holds another
+ * slot idle. The items never admitted count as `deferred`.
  *
- * Each launched item is claimed, then worked, at most `concurrency` at a time.
- * A claim that fails with {@link Held} settles the item `held`; any other
- * claim, work, or landing failure settles it `failed` with the failure's
- * message. A failure is recorded on its own row and never cancels the items
- * beside it. Worked items then land, one at a time, through
- * `MergeQueue.run` with the `quarantine` policy. Finally every item whose
- * claim succeeded is released with its final status and detail; a release failure is
- * appended to the row's detail and does not change its status.
+ * Each launched item is claimed, then worked, at most `concurrency` and at
+ * most `slots` at a time. A claim that fails with {@link Held} settles the
+ * item `held`; any other claim, work, or landing failure settles it `failed`
+ * with the failure's message. A failure is recorded on its own row and never
+ * cancels the items beside it. A worked item enters the landing queue at
+ * once: landings run one at a time, in the order work finished, while other
+ * items still work. Every item whose claim succeeded is released as soon as
+ * it settles, with its final status and detail; a release failure is appended
+ * to the row's detail and does not change its status. Rows keep discovery
+ * order.
  *
  * Members report failures on the typed channel. Work interrupted from inside,
  * such as a child execution an operator cancelled, settles its item `failed`
  * with the detail `work: interrupted`. A member that throws raises a defect,
- * which fails the round; the claims already taken are still released, each
- * with status `failed`.
+ * which fails the round; a release already running finishes, and every claim
+ * not yet released is released with status `failed`.
  *
  * `round` fails with a `PatternError` before any member runs when `key` is
  * blank, `concurrency` or `slots` is not a positive safe integer, `round` is
@@ -691,6 +706,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   const land = options.land
   const release = options.release
   const detail = options.detail
+  const capacity = options.capacity
   const invalid = roundRefusal(input, key, concurrency)
   if (invalid !== undefined) return Effect.fail(invalid)
   const value = input.input
@@ -717,8 +733,13 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
       if (selection._tag === "Ours") mine.push(card)
       else rows.set(card.id, { id: card.id, status: "skipped", detail: selection.detail })
     }
-    const launch = mine.slice(0, slots ?? mine.length)
-    const claimed: Array<Card<It>> = []
+    // The first `budget` items launch on the capacity the lineage already
+    // asked for; every later admission asks the round's own capacity member.
+    const budget = Math.min(slots ?? mine.length, mine.length)
+    const first = mine.slice(0, Math.min(concurrency, budget))
+    let next = first.length
+    let working = 0
+    const claimed = new Set<Card<It>>()
     const attempt = (card: Card<It>): Effect.Effect<Attempt<W>, never, R> =>
       claim(args(card)).pipe(
         Effect.matchEffect({
@@ -729,7 +750,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
                 : { _tag: "Settled", status: "failed", detail: `claim: ${detailOf(error)}` }
             ),
           onSuccess: () => {
-            claimed.push(card)
+            claimed.add(card)
             return work({ ...args(card), executionId: `${key}/${card.id}` }).pipe(
               Effect.match({
                 onSuccess: (output): Attempt<W> => ({ _tag: "Worked", output }),
@@ -751,72 +772,92 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
           }
         })
       )
-    const releaseAll = (rowOf: (card: Card<It>) => Pick<Row, "status" | "detail">) =>
-      Effect.forEach(
-        claimed,
-        (card) =>
-          release({ ...args(card), ...rowOf(card) }).pipe(
-            Effect.match({
-              onSuccess: () => undefined,
-              onFailure: (error: E) => `release: ${detailOf(error)}`
-            }),
-            Effect.map((failure) => ({ id: card.id, failure }))
-          ),
-        { concurrency }
-      )
-    const settle = Effect.gen(function*() {
-      const attempts = yield* Effect.forEach(launch, attempt, { concurrency })
-      const worked = launch.flatMap((card, position) => {
-        const outcome = attempts[position]!
-        if (outcome._tag === "Settled") {
-          rows.set(card.id, { id: card.id, status: outcome.status, detail: outcome.detail })
-          return []
-        }
-        return [{ card, output: outcome.output }]
-      })
-      const rendered = (output: W, landing: L | undefined): string =>
-        detail === undefined ? "" : detail(output, landing)
-      if (land === undefined || worked.length === 0) {
-        for (const { card, output } of worked) {
-          rows.set(card.id, { id: card.id, status: "landed", detail: rendered(output, undefined) })
-        }
-        return
-      }
-      const queue = yield* Effect.orDie(MergeQueue.run(undefined, {
-        members: worked.map(({ card, output }) => ({
-          id: card.id,
-          run: () => land({ ...args(card), output })
-        })),
-        failurePolicy: "quarantine"
-      }))
-      const quarantined = new Map(queue.quarantined.map((entry) => [entry.id, entry.error]))
-      const landings = new Map(queue.landed.map((entry) => [entry.id, entry.output as L]))
-      for (const { card, output } of worked) {
-        rows.set(
-          card.id,
-          quarantined.has(card.id)
-            ? { id: card.id, status: "failed", detail: `land: ${detailOf(quarantined.get(card.id))}` }
-            : { id: card.id, status: "landed", detail: rendered(output, landings.get(card.id)) }
+    // A claim leaves `claimed` when its release starts, so no path releases it
+    // twice. A release that started always finishes.
+    const releaseOne = (card: Card<It>, row: Pick<Row, "status" | "detail">) =>
+      Effect.uninterruptible(Effect.suspend(() => {
+        claimed.delete(card)
+        return release({ ...args(card), status: row.status, detail: row.detail }).pipe(
+          Effect.match({
+            onSuccess: () => undefined,
+            onFailure: (error: E) => `release: ${detailOf(error)}`
+          })
         )
-      }
+      }))
+    // Whether a freed slot may take another item: only an `Available` answer
+    // wider than the work still in flight admits one.
+    const allows = capacity === undefined
+      ? Effect.succeed(false)
+      : Effect.suspend(() => capacity({ input: value, round: index })).pipe(
+        Effect.match({
+          onFailure: () => false,
+          onSuccess: (answer) => isCapacity(answer) && answer._tag === "Available" && answer.slots > working
+        })
+      )
+    const admit: Effect.Effect<Card<It> | undefined, never, R> = Effect.suspend(() => {
+      if (next < budget) return Effect.succeed(mine[next++])
+      if (next >= mine.length) return Effect.succeed(undefined)
+      return Effect.map(allows, (allowed) => allowed && next < mine.length ? mine[next++] : undefined)
     })
-    yield* Effect.onExit(
-      settle,
-      (exit) => Exit.isSuccess(exit) ? Effect.void : releaseAll(() => ({ status: "failed", detail: "round died" }))
-    )
-    const releases = yield* releaseAll((card) => rows.get(card.id)!)
-    for (const { failure, id } of releases) {
-      if (failure === undefined) continue
-      const row = rows.get(id)!
-      rows.set(id, { ...row, detail: row.detail.length === 0 ? failure : `${row.detail}; ${failure}` })
+    const landings = yield* Queue.unbounded<{ readonly card: Card<It>; readonly output: W }, Cause.Done>()
+    const releases = yield* Queue.unbounded<Card<It>, Cause.Done>()
+    const settleRow = (card: Card<It>, status: Status, text: string) => {
+      rows.set(card.id, { id: card.id, status, detail: text })
+      if (claimed.has(card)) Queue.offerUnsafe(releases, card)
     }
+    const rendered = (output: W, landing: L | undefined): string => detail === undefined ? "" : detail(output, landing)
+    // One slot: works an item, hands it on, and takes the next one admitted.
+    const slot = (start: Card<It>) =>
+      Effect.gen(function*() {
+        let card: Card<It> | undefined = start
+        while (card !== undefined) {
+          working += 1
+          const outcome = yield* attempt(card)
+          working -= 1
+          if (outcome._tag === "Settled") settleRow(card, outcome.status, outcome.detail)
+          else if (land === undefined) settleRow(card, "landed", rendered(outcome.output, undefined))
+          else Queue.offerUnsafe(landings, { card, output: outcome.output })
+          card = yield* admit
+        }
+      })
+    const drain = <A>(queue: Queue.Dequeue<A, Cause.Done>, handle: (entry: A) => Effect.Effect<void, never, R>) =>
+      Queue.take(queue).pipe(Effect.flatMap(handle), Effect.forever, Effect.catchIf(Cause.isDone, () => Effect.void))
+    // Landings stay serial, in the order work finished.
+    const lander = drain(landings, ({ card, output }) =>
+      land!({ ...args(card), output }).pipe(
+        Effect.match({
+          onFailure: (error: E) => settleRow(card, "failed", `land: ${detailOf(error)}`),
+          onSuccess: (landing) => settleRow(card, "landed", rendered(output, landing))
+        })
+      ))
+    const releaser = drain(releases, (card) =>
+      Effect.map(releaseOne(card, rows.get(card.id)!), (failure) => {
+        if (failure === undefined) return
+        const row = rows.get(card.id)!
+        rows.set(card.id, { ...row, detail: row.detail.length === 0 ? failure : `${row.detail}; ${failure}` })
+      }))
+    const each = { concurrency: "unbounded", discard: true } as const
+    yield* Effect.onExit(
+      Effect.all([
+        Effect.andThen(Effect.forEach(first, slot, each), Queue.end(landings)),
+        Effect.andThen(lander, Queue.end(releases)),
+        Effect.forEach(first, () => releaser, each)
+      ], each),
+      (exit) =>
+        Exit.isSuccess(exit)
+          ? Effect.void
+          : Effect.forEach([...claimed], (card) => releaseOne(card, { status: "failed", detail: "round died" }), {
+            concurrency,
+            discard: true
+          })
+    )
     return {
       rows: cards.flatMap((card) => {
         const row = rows.get(card.id)
         return row === undefined ? [] : [row]
       }),
-      launched: launch.length,
-      deferred: mine.length - launch.length
+      launched: next,
+      deferred: mine.length - next
     }
   })
 }

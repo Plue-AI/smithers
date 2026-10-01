@@ -37,6 +37,12 @@ const baseOptions = (note: (entry: string) => Effect.Effect<void>) => ({
     note(`release:${item.id}:${status}`)
 })
 
+/** Work that takes `millis[item.id]` milliseconds and notes when it finishes. */
+const timed =
+  (note: (entry: string) => Effect.Effect<void>, millis: Record<string, number>) =>
+  ({ item }: Burndown.ItemArgs<unknown, Issue>) =>
+    Effect.as(Effect.andThen(Effect.sleep(millis[item.id] ?? 0), note(`worked:${item.id}`)), `fixed ${item.id}`)
+
 const runRound = <W, E, L = unknown>(
   input: Partial<Burndown.RoundInput<unknown, Issue>> & { readonly items: ReadonlyArray<Issue> },
   options: Burndown.RoundOptions<unknown, Issue, W, E, never, L>
@@ -149,7 +155,8 @@ describe("Burndown.round", () => {
       { id: "a", status: "failed", detail: "work: agent exited 2" },
       { id: "b", status: "landed", detail: "" }
     ])
-    expect(tape).toEqual(["claim:a", "claim:b", "work:b", "release:a:failed", "release:b:landed"])
+    // The failed item is released at once, not after its sibling finishes.
+    expect(tape).toEqual(["claim:a", "claim:b", "release:a:failed", "work:b", "release:b:landed"])
   })
 
   it("appends a release failure to the row without changing its status", async () => {
@@ -202,22 +209,168 @@ describe("Burndown.round", () => {
     expect(tape).toEqual(["claim:a", "release:a:failed"])
   })
 
-  it("still releases every claim when a member dies", async () => {
+  it("still releases every claim when a member dies, each once", async () => {
     const { note, tape } = recorder()
-    const details: Array<string> = []
     const exit = await Effect.runPromiseExit(
-      Burndown.round({ input: undefined, round: 0, items: items("a", "b") }, {
+      Burndown.round({ input: undefined, round: 0, items: items("a", "b", "c") }, {
         ...baseOptions(note),
-        concurrency: 1,
-        work: ({ item }) => item.id === "b" ? Effect.die("agent crashed") : Effect.succeed("ok"),
-        release: ({ detail, item, status }) =>
-          Effect.andThen(note(`release:${item.id}:${status}`), Effect.sync(() => void details.push(detail)))
+        work: ({ item }) =>
+          item.id === "a"
+            ? Effect.succeed("ok")
+            : item.id === "b"
+            ? Effect.andThen(Effect.sleep(10), Effect.die("agent crashed"))
+            : Effect.never,
+        release: ({ detail, item, status }) => note(`release:${item.id}:${status}:${detail}`)
       })
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(tape).toEqual(["claim:a", "claim:b", "release:a:failed", "release:b:failed"])
-    expect(details).toEqual(["round died", "round died"])
+    // `a` settled before the defect and keeps its own release; the claims still
+    // open are released as failed.
+    expect(tape).toEqual([
+      "claim:a",
+      "claim:b",
+      "claim:c",
+      "release:a:landed:",
+      "release:b:failed:round died",
+      "release:c:failed:round died"
+    ])
+  })
+
+  it("finishes a release already in flight when the round is interrupted", async () => {
+    const { note, tape } = recorder()
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const fiber = yield* Effect.forkChild(
+          Burndown.round({ input: undefined, round: 0, items: items("a", "b") }, {
+            ...baseOptions(note),
+            work: ({ item }) => item.id === "a" ? Effect.succeed("ok") : Effect.never,
+            release: ({ item, status }) => Effect.andThen(Effect.sleep(20), note(`release:${item.id}:${status}`))
+          })
+        )
+        yield* Effect.sleep(5)
+        yield* Fiber.interrupt(fiber)
+      })
+    )
+
+    expect(tape).toEqual(["claim:a", "claim:b", "release:a:landed", "release:b:failed"])
+  })
+
+  it("lands and releases an item as soon as its work finishes, while a slower item still works", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("slow", "fast") }, {
+      ...baseOptions(note),
+      work: timed(note, { slow: 40 }),
+      land: ({ item }) => note(`land:${item.id}`)
+    })
+
+    // Rows keep discovery order; landings follow the order work finished.
+    expect(result.rows.map((row) => `${row.id}:${row.status}`)).toEqual(["slow:landed", "fast:landed"])
+    expect(tape).toEqual([
+      "claim:slow",
+      "claim:fast",
+      "worked:fast",
+      "land:fast",
+      "release:fast:landed",
+      "worked:slow",
+      "land:slow",
+      "release:slow:landed"
+    ])
+  })
+
+  it("admits the next ours item into a freed slot while the round's capacity allows", async () => {
+    const { note, tape } = recorder()
+    let inFlight = 0
+    let widest = 0
+    const result = await runRound({ items: items("slow", "b", "c", "d"), slots: 2 }, {
+      ...baseOptions(note),
+      capacity: ({ input, round }) =>
+        Effect.as(note(`capacity:${(input as { repo: string }).repo}:${round}`), Burndown.available(2)),
+      work: ({ item }) =>
+        Effect.gen(function*() {
+          inFlight += 1
+          widest = Math.max(widest, inFlight)
+          yield* Effect.sleep(item.id === "slow" ? 40 : 1)
+          inFlight -= 1
+          yield* note(`worked:${item.id}`)
+          return "ok"
+        })
+    })
+
+    expect(result.rows.map((row) => `${row.id}:${row.status}`)).toEqual([
+      "slow:landed",
+      "b:landed",
+      "c:landed",
+      "d:landed"
+    ])
+    expect(result).toMatchObject({ launched: 4, deferred: 0 })
+    expect(widest).toBe(2)
+    // The slow item never held the other slot idle.
+    expect(tape.indexOf("release:d:landed")).toBeLessThan(tape.indexOf("worked:slow"))
+    // The first `slots` items launch unasked; each later admission asks once.
+    expect(tape.filter((entry) => entry.startsWith("capacity:"))).toEqual([
+      "capacity:acme/app:0",
+      "capacity:acme/app:0"
+    ])
+  })
+
+  it("defers the remaining items when the round's capacity does not allow another", async () => {
+    const answers: ReadonlyArray<Effect.Effect<unknown, string>> = [
+      Effect.succeed(Burndown.exhausted("every account is out")),
+      Effect.succeed(Burndown.waitUntil(1)),
+      Effect.fail("status unreadable"),
+      Effect.succeed({ _tag: "Available" }),
+      Effect.succeed({ _tag: "Available", slots: 0 }),
+      Effect.succeed(undefined)
+    ]
+    for (const answer of answers) {
+      const { note, tape } = recorder()
+      const result = await runRound({ items: items("a", "b", "c"), slots: 1 }, {
+        ...baseOptions(note),
+        capacity: () => answer as Effect.Effect<Burndown.Capacity, string>
+      })
+
+      expect(result).toEqual({ rows: [{ id: "a", status: "landed", detail: "" }], launched: 1, deferred: 2 })
+      expect(tape).toEqual(["claim:a", "work:a@sweep/a", "release:a:landed"])
+    }
+  })
+
+  it("retires a freed slot while the capacity is no wider than the work still in flight", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("slow", "b", "c", "d"), slots: 2 }, {
+      ...baseOptions(note),
+      capacity: () => Effect.succeed(Burndown.available(1)),
+      work: timed(note, { slow: 20 })
+    })
+
+    expect(result).toMatchObject({ launched: 4, deferred: 0 })
+    // `b`'s slot retires because `slow` already fills the one slot left; the
+    // slot `slow` frees then works the rest one at a time.
+    expect(tape.filter((entry) => entry.startsWith("claim:") || entry.startsWith("worked:"))).toEqual([
+      "claim:slow",
+      "claim:b",
+      "worked:b",
+      "worked:slow",
+      "claim:c",
+      "worked:c",
+      "claim:d",
+      "worked:d"
+    ])
+  })
+
+  it("admits an item once when two freed slots ask for it together", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("a", "b", "c"), slots: 2 }, {
+      ...baseOptions(note),
+      capacity: () => Effect.as(Effect.andThen(note("capacity"), Effect.sleep(5)), Burndown.available(2))
+    })
+
+    expect(result).toMatchObject({ launched: 3, deferred: 0 })
+    expect(tape.filter((entry) => entry === "capacity" || entry === "claim:c")).toEqual([
+      "capacity",
+      "capacity",
+      "claim:c"
+    ])
   })
 
   it("lands worked items one at a time, in discovery order, and quarantines a failed landing", async () => {
@@ -532,7 +685,13 @@ describe("Burndown.make", () => {
       rounds: 2,
       stopped: "drained"
     })
-    expect(tape.filter((entry) => entry.startsWith("claim:"))).toEqual(["claim:held", "claim:broken", "claim:fresh"])
+    // Each item is claimed once; the slot the held claim frees takes `fresh`
+    // at once, so the two slots' claims interleave.
+    expect(tape.filter((entry) => entry.startsWith("claim:")).sort()).toEqual([
+      "claim:broken",
+      "claim:fresh",
+      "claim:held"
+    ])
   })
 
   it("replaces a skipped row once a later round calls the item ours", async () => {

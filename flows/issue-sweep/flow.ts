@@ -3,7 +3,8 @@
  * as a `Burndown` from `@smthrs/patterns`. Each round asks the Codex and
  * Claude account pools for capacity, lists the open issues, claims the ones
  * that are ours, fixes each in its own jj workspace (`issue-sweep/work`), lands
- * the results on `main` one at a time, and releases every claim. With every
+ * each result on `main` as its fix finishes, one at a time, and releases every
+ * claim. A finished fix frees its slot for the next issue. With every
  * account out, the sweep parks until an operator resets accounts and signals
  * `issue-sweep/accounts-reset`.
  */
@@ -128,9 +129,10 @@ const listIssues = ListIssues.toLayer(({ input }) =>
 )
 
 // RR_MAX_PER_ACCOUNT agents per ready account, never more than maxAgents.
-const accounts = Accounts.toLayer(({ input }) =>
+const readCapacity = (input: typeof Input.Type) =>
   Effect.map(readPools, (pools) => capacity(pools, perAccount, input.maxAgents ?? 4))
-)
+
+const accounts = Accounts.toLayer(({ input }) => readCapacity(input))
 
 /** The first line of the newest claim comment on `issue`, if any. */
 const newestClaim = (repo: string, issue: number) =>
@@ -186,8 +188,10 @@ const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
 
 const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, Engine, string>(Dispatch, {
   key: "issue-sweep",
-  // The round's capacity slots bound how many launch; this is only the ceiling.
+  // The round's capacity slots bound how many work at once; this is only the
+  // ceiling. A freed slot takes the next issue while the accounts still allow.
   concurrency: 32,
+  capacity: (args) => readCapacity(args.input as typeof Input.Type),
   select: (args) =>
     Effect.gen(function*() {
       if (!args.item.labels.includes("in-progress")) return Burndown.ours

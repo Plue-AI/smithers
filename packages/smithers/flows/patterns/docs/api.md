@@ -494,7 +494,7 @@ length of a backlog that no plan knows when it is built.
 | Export                                | What it is                                                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `make(options)`                       | The lineage: capacity gate, `discover`, one `dispatch` call, then a `Flow.to` handoff to the next round       |
-| `round(input, options)`               | The `Effect` one dispatch runs: select, claim, work, land, release, at `concurrency`                          |
+| `round(input, options)`               | The `Effect` one dispatch runs: select, claim, work, land, release, at `concurrency`, a freed slot at a time  |
 | `dispatch(tag)`                       | Declares the dispatch action `make` calls, with `DispatchPayload` in and `RoundResult` out                    |
 | `layer(action, options)`              | Implements that action with `round`                                                                           |
 | `child(flow, payload)`                | Builds a `work` member that runs `flow.execute(payload, { executionId })` under the derived id                |
@@ -526,14 +526,21 @@ schema is a defect.
 never retried within a lineage, while a `skipped` item is reconsidered every
 round. Only the exact `ours` selection launches an item; a malformed or failed
 selection skips it. Of the items that are ours, the first `slots` launch in
-discovery order and the rest count as `deferred`. A `claim` that fails with
+discovery order, at most `slots` at a time. When an item finishes working, its
+slot asks the round's `capacity` member, when there is one, and admits the next
+item that is ours only on an `Available` answer with more slots than the work
+still in flight. The items never admitted count as `deferred`; without a round
+`capacity` member that is every item past `slots`. A `claim` that fails with
 `Held` settles the item `held` and is not released. Any other claim, work, or
 landing failure settles the item `failed` on its own row and never cancels
-the items beside it. Worked items land through `MergeQueue.run` at concurrency
-1 under `quarantine`; without `land`, a worked item counts as landed. `release`
-runs once for every successful claim with the item's final status, and also
-when a member dies, with status `failed`. A release failure is appended to the
-row's detail. `round` fails with `PatternError` before any member runs for a
+the items beside it. A worked item enters the landing queue at once: `land`
+runs one item at a time, in the order work finished, while other items still
+work, and a failed landing does not stop the next; without `land`, a worked
+item counts as landed. `release` runs once for every successful claim, as soon
+as the item settles, with its final status. When a member dies, a release
+already running finishes and every claim not yet released is released with
+status `failed`. A release failure is appended to the row's detail. Rows keep
+discovery order. `round` fails with `PatternError` before any member runs for a
 blank `key`, a `concurrency` or `slots` that is not a positive safe integer,
 a negative or fractional `round`, or an item without a unique nonblank string
 `id`.

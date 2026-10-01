@@ -49,6 +49,16 @@
 
 ### Changed
 
+- `Burndown.round` no longer works a round as one batch. A worked item lands
+  and is released as soon as its work finishes, one landing at a time in the
+  order work finished, instead of after every item of the round has worked.
+  `slots` now also caps how many items work at once. The new `capacity` round
+  member is asked each time a slot frees: on `Available` with more slots than
+  the work in flight, the slot admits the next item that is ours; otherwise the
+  remaining items stay `deferred`. Landing no longer goes through
+  `MergeQueue.run`. When a member dies, only the claims not yet released are
+  released as `failed`.
+
 - Every `MakeOptions` accepts an optional `name` and `description` for the
   `Flow` it returns. An unnamed pattern is named after its kind and declared
   bounds, `reviewLoop(maxRounds=3)`, so a plan, a journal, or a decorator over
