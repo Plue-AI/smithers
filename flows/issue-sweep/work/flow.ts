@@ -220,7 +220,11 @@ const prepareWorkspace = PrepareWorkspace.toLayer((input) =>
 const agentBudget = Duration.hours(2)
 
 /** The agent's command line: each confined by its own sandbox to the workspace. */
-const agentCommand = (agent: Agent, workspace: string, prompt: string): readonly [string, ReadonlyArray<string>] =>
+export const agentCommand = (
+  agent: Agent,
+  workspace: string,
+  prompt: string
+): readonly [string, ReadonlyArray<string>] =>
   agent === "codex"
     ? ["codex-rr", [
       "exec",
@@ -236,7 +240,9 @@ const agentCommand = (agent: Agent, workspace: string, prompt: string): readonly
       prompt
     ]]
     : ["claude-rr", [
+      // The prompt comes first: `--add-dir` takes every following argument.
       "-p",
+      prompt,
       "--model",
       "claude-opus-5-5",
       "--output-format",
@@ -251,8 +257,7 @@ const agentCommand = (agent: Agent, workspace: string, prompt: string): readonly
         sandbox: { enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false }
       }),
       "--add-dir",
-      goCache,
-      prompt
+      goCache
     ]]
 
 /**
