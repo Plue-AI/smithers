@@ -30,7 +30,14 @@ const workspaceArtifactRoot = "/var/lib/smithers/workspace-artifacts"
 const workspaceArtifactCurrent = workspaceArtifactRoot + "/current"
 const workspaceArtifactOwnerPath = workspaceArtifactRoot + "/owner"
 const workspaceArtifactManifest = "bundle.sha256"
-const workspaceArtifactGuestPath = "PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin; export PATH; "
+
+// workspaceArtifactGuestPath is the PATH every artifact command and the
+// bootstrap it launches run with. A NixOS guest keeps its tools in its system
+// profile; a container guest image (Plue's agent VM, the node L0 image) keeps
+// bun, jj, node and npm in /usr/local/bin. Without that directory the
+// bootstrap finds no jj and fails every container workspace. It comes last so
+// it never shadows a system tool.
+const workspaceArtifactGuestPath = "PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin; export PATH; "
 const workspaceArtifactLock = workspaceArtifactRoot + "/bootstrap.lock"
 const workspaceArtifactBootstrapLog = workspaceArtifactCurrent + "/bootstrap.log"
 

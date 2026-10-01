@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1104,4 +1106,26 @@ func TestWorkspaceBootstrapsInstallPinnedClaudeCode(t *testing.T) {
 			assert.NotRegexp(t, `@anthropic-ai/claude-code\\"`, script, "an unversioned package resolves the registry's latest")
 		})
 	}
+}
+
+// The artifact bootstrap runs with workspaceArtifactGuestPath. A container
+// guest keeps bun, jj and node in /usr/local/bin, so a PATH without it made
+// the bootstrap report "required JJ 0.39.0 could not be installed" and fail
+// every container workspace (prod, 2026-10-01). A stand-in for /usr/local/bin
+// proves the bootstrap's own lookup finds a tool there.
+func TestWorkspaceArtifactGuestPathFindsContainerTools(t *testing.T) {
+	t.Parallel()
+	dirs := strings.Split(strings.TrimSuffix(strings.TrimPrefix(workspaceArtifactGuestPath, "PATH="), "; export PATH; "), ":")
+	require.Contains(t, dirs, "/usr/local/bin")
+	require.Contains(t, dirs, "/run/current-system/sw/bin")
+	for _, system := range []string{"/usr/bin", "/bin"} {
+		assert.Less(t, slices.Index(dirs, system), slices.Index(dirs, "/usr/local/bin"), "/usr/local/bin must not shadow %s", system)
+	}
+
+	local := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(local, "jj"), []byte("#!/bin/sh\necho 'jj 0.39.0-d9689cd9'\n"), 0o755))
+	guestPath := strings.ReplaceAll(workspaceArtifactGuestPath, "/usr/local/bin", local)
+	out, err := exec.Command("/bin/sh", "-c", guestPath+`jj --version | grep -Eq '^jj 0\.39\.0([-+].*)?$' && echo found`).CombinedOutput()
+	require.NoError(t, err, string(out))
+	assert.Equal(t, "found\n", string(out))
 }
