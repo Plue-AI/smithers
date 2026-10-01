@@ -1,0 +1,37 @@
+import assert from "node:assert/strict"
+import test from "node:test"
+import { decide } from "../flow.ts"
+
+const claim = (host: string, expires: string) =>
+  `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
+const expires = "2026-10-01T05:28:42.882Z"
+const at = Date.parse(expires)
+
+test("an issue with no claim comment is ours", () => {
+  assert.equal(decide(undefined, at), "ours")
+})
+
+test("a comment that is not a claim is ours", () => {
+  assert.equal(decide("Claimed it, will look tomorrow", at), "ours")
+})
+
+test("a live Mac mini claim is skipped up to the millisecond before it expires", () => {
+  assert.equal(decide(claim("Williams-Mac-mini.local", expires), at - 1), "skip")
+})
+
+test("a Mac mini claim is ours from the moment it expires", () => {
+  assert.equal(decide(claim("Williams-Mac-mini.local", expires), at), "ours")
+  assert.equal(decide(claim("Williams-Mac-mini.local", expires), at + 1), "ours")
+})
+
+test("a live claim from any other machine is ours", () => {
+  assert.equal(decide(claim("Williams-MacBook-Pro-3.local", expires), at - 1), "ours")
+})
+
+test("a claim line ending in a period still parses", () => {
+  assert.equal(decide(`${claim("Williams-Mac-mini.local", expires)}.`, at - 1), "skip")
+})
+
+test("an unparseable expiry is treated as expired", () => {
+  assert.equal(decide(claim("Williams-Mac-mini.local", "soon"), at), "ours")
+})

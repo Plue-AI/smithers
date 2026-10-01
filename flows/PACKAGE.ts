@@ -84,6 +84,17 @@ const recording = Smithers.NodeTest({
   deps: [],
   cwd
 })
+const issueSweep = Smithers.NodeTest({
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/issue-sweep/test/decide.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/accounts.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/land.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/work.test.ts")
+  ]),
+  srcs: [sources],
+  deps: [],
+  cwd
+})
 const provider = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//flows/test/provider-runtime.test.ts")]),
   srcs: [sources],
@@ -663,6 +674,7 @@ export const Package = Smithers.Package({
     repository,
     suite,
     recording,
+    issueSweep,
     provider,
     wiki,
     ...securityReview
