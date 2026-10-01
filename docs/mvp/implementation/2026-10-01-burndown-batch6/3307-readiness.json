@@ -1,0 +1,141 @@
+{
+  "issue": 3307,
+  "status": "READY/FROZEN",
+  "session": "codex-burndown-20260930",
+  "worktree": "/private/tmp/smithers-burndown-20260930",
+  "head": "9acd4dab3f3636448337072bab344f90a2dfa2e4",
+  "ownedFiles": [
+    {
+      "path": "packages/smithers/test/CloudSandboxCommand.integration.test.ts",
+      "sha256": "36f31fe05436b1b0fa8d9fb73a4cb984e541a464bd778bb79150ee6dc16f9bfe"
+    }
+  ],
+  "productionChanges": [],
+  "cause": "Real process confinement denies reading the local fake SSH script/cwd with proc-only authority. With root reads fixed, it correctly denies guest-global /tmp/.smthrs-sbx writes. The fixture previously conflated guest and host filesystem namespaces and declared Schema.Unknown for non-JSON Error values, masking ProviderError as Expected JSON value.",
+  "repair": [
+    "Declare actual local transport root read and guest subtree write capabilities/effects consistently in metadata and Flow.",
+    "Map only fixture guest PID namespace into owned guest/pids through same real shell/framed stdin transport.",
+    "Use test-only tagged InstallFailure with ProviderError-or-Defect encoded cause.",
+    "Retain durable proc-only failure and assert typed unavailable/permission refusal, zero installer output and no guest creation.",
+    "Assert approved guest tree cannot write parent marker."
+  ],
+  "qualification": {
+    "behavior": {
+      "exit": 0,
+      "files": 2,
+      "passed": 5,
+      "selector": [
+        "test/CloudSandboxCommand.integration.test.ts",
+        "test/ModuleCapabilityCeilingCli.test.ts"
+      ],
+      "durationSeconds": 58.93,
+      "coverage": "Explicitly authorized focused behavior with coverage disabled; unchanged configured thresholds, no whole-package percentage claim.",
+      "receipt": "3307-stable-final-behavior.json"
+    },
+    "types": {
+      "command": "pnpm exec tsc --noEmit -p tsconfig.test.json",
+      "exit": 0,
+      "scope": "Complete CLI test TypeScript project",
+      "receipt": "3307-final-468-test-types.log",
+      "driverSha256": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd"
+    },
+    "format": {
+      "command": "pnpm exec dprint check test/CloudSandboxCommand.integration.test.ts",
+      "exit": 0
+    },
+    "lint": "Owning ESLint config covers src, not test; no applicable changed-source lint target.",
+    "inputBinding": {
+      "receipt": "3307-stable-final-input-audit.json",
+      "enumeratedFiles": 498,
+      "changed": [],
+      "actualDriverPath": "packages/smithers/agent/src/AgentSession.ts",
+      "sha256": "b50ea812f4b363dc576e731bbcf0af2991164d1052879d72021f1aad51c46a0c"
+    },
+    "finalDriverBehavior": {
+      "exit": 0,
+      "passed": 3,
+      "files": 1,
+      "durationSeconds": 12.01,
+      "selector": "test/CloudSandboxCommand.integration.test.ts",
+      "receipt": "3307-final-driver-behavior.json",
+      "sha256": "d3dc8f92f3c3abd153870ad843e139bd8281c9c4e6cfde986ad00c66f56d3ea7",
+      "unchangedInputs": 498,
+      "changed": [
+        "packages/smithers/agent/src/AgentSession.ts"
+      ],
+      "qualification": "candidate-only: driver changed during execution"
+    },
+    "currentDriverBehavior": {
+      "exit": 0,
+      "passed": 3,
+      "files": 1,
+      "durationSeconds": 8.69,
+      "receipt": "3307-final-468-behavior.json",
+      "selector": "test/CloudSandboxCommand.integration.test.ts",
+      "actualDriverPath": "packages/smithers/agent/src/AgentSession.ts",
+      "sha256": "46861429fe9a885bfdce85f164b26f53cd2e4d6c6be188d40f91c6d7cc6d35cd",
+      "enumeratedInputs": 498,
+      "changed": [],
+      "beforeAfterReceipt": "3307-final-468-input-audit.json"
+    },
+    "precedingD3Behavior": {
+      "exit": 0,
+      "passed": 3,
+      "files": 1,
+      "durationSeconds": 27.34,
+      "receipt": "3307-final-d3-behavior.json",
+      "selector": "test/CloudSandboxCommand.integration.test.ts",
+      "actualDriverPath": "packages/smithers/agent/src/AgentSession.ts",
+      "sha256": "d3dc8f92f3c3abd153870ad843e139bd8281c9c4e6cfde986ad00c66f56d3ea7",
+      "enumeratedInputs": 498,
+      "changed": [],
+      "beforeAfterReceipt": "3307-final-d3-input-audit.json"
+    }
+  },
+  "limits": [
+    "Actual local shell subprocess, durable SQLite control/engine and public Control plan/approve/run/watch execute. Controlled Cloud API/SSH provisioning is justified because remote VM provisioning is outside this transport/authority regression.",
+    "Live Cloud opt-in was not executed; no hosted VM, actual remote SSH or Linux claim.",
+    "No production Schema.Unknown error-codec migration or production containment bypass. No full aggregateCLI behavior/coverage claim.",
+    "Latest actual3owning controls and completeCLI testtypes execute on frozen46861429 driver with498 before/after inputs unchanged. Five-control receipt binds the precedingb50 driver and includes2 unchanged actualCLI capability ceiling controls. All later driver-only changes belong to API3308 and do not alter kernel/NativeControl guard bytes; no claim that5controls all re-executed on468.",
+    "Extra candidate repeats that overlapped driver changes are retained, explicitly marked candidate-only, never attached to current-source qualification."
+  ],
+  "receipts": {
+    "3307-unchanged-local-red.log": "9c26699527f51c341c7163c0c2578d6478913ddc1ac208fced0e9292d907ec5b",
+    "3307-unchanged-local-helper-red.log": "0f5adf46f1cc8f9e892fcb5751aba3997da96ca7a5198f1c2f58320a23b53c33",
+    "3307-unchanged-local-helper-red.json": "79cba98372335aec646951e2e452141986763631c320f82da9714df5db200ab0",
+    "3307-observed-local-red2.log": "1e2b2a15263c89a74bac7be139532f06eec3095bd109c532a8a53b5d17fe63cc",
+    "3307-observed-local-red2.json": "864988d4dd079ce08c1326b527570e103b2079a3fc0e58f14edee409c01c774e",
+    "3307-declared-root-probe.log": "59f27d2c5d8df427da69d725052fc59299ceed7c71b0b455bb678be9bf1eaf32",
+    "3307-original-owning.test.ts.txt": "2458e1be060d590df0d7eec003b98d57a6ff7eb157486ff0f610b22a05de579a",
+    "3307-original-observer.test.ts.txt": "2bb606ea5a2728d563f171628f9be0beab78da407489c198deafc21d8b623538",
+    "3307-local-candidate2.log": "8f5e1c1cf4499bc302b9f6e9cccb26bef86764c2896c2150e5fa986e909b8a80",
+    "3307-owning-final.log": "b522b312a4417c413027f59bea3e3cc1ec1fb7c83907987ff59c6fb5ce277f66",
+    "3307-test-types.log": "6a4e7b817a478b447270c8153c5d08373aeb36a6ba10bada6ba6e471aae85087",
+    "3307-test-types-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3307-final-behavior.log": "e05750d6181af07d64f9d1023c240e57d6248f49fdd64c42c031ada4184cedf8",
+    "3307-final-behavior.json": "f923b0559e94ba565f44a51121f18c75beac55489bdf45ddc746c31d4637852a",
+    "3307-format-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3307-owning-inputs-start.json": "fa30e008fa148c4fb45062ce809530d1800cc1ebc3c98ca637284c8a51a023a3",
+    "3307-final-run-inputs.json": "f4f05fa6ce61d6b8cb584538b65c056fecb0a9555fab509d8cd96d476a822358",
+    "3307-final-input-audit.json": "adaca8ffc7ff5038411d956d36f084b091868e6ec0de98783f1ebcad34b67109",
+    "3307-stable-final-inputs-before.json": "5edb235b24ca7c86a760be5ab989e2eef27abd1c93d29cbd0ecdb2fa9c5d0757",
+    "3307-stable-final-input-audit.json": "512a9ad6106d7b2103e14e30ca739ac26f9e55a382a7722a3a2a5fc98079505e",
+    "3307-stable-final-behavior.log": "424e2434eb3c2102bc25aa84576b16e6ce692da561cd726c04617658f99ebd8b",
+    "3307-stable-final-behavior.json": "69c3a617b3df4aef407f7a3d963d831ceb413a29b5c9ad3bcce4edf9858de33a",
+    "3307-stable-final-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3307-final-driver-inputs-before.json": "5e8dcaa897db9338dcc1be2d9cfb886c5d55e89fe47d86447f9d1f25a2e5f6f8",
+    "3307-final-driver-input-audit.json": "9fd6d6b01597cc331b6361378e6653c81397c4f44d975898d889c6718fc66b27",
+    "3307-final-driver-behavior.json": "d23131445d8a6d143c6239ce0ae2cf328b652a34a7510e562fc81d172fd81cd7",
+    "3307-final-driver-behavior.log": "362ad6a299d3c83436d3b6f379f58831b1cb8a22e98a3b4ec16857dfe80c3ba0",
+    "3307-final-d3-inputs-before.json": "84f446ed2820f5fa6ab1be7c338826d12ee863d8277fb8813cdb85caf3dbd5c4",
+    "3307-final-d3-input-audit.json": "5e96f7a57e862daadb6d78f818581c100ff24ae1aad1f87e8100836af953a000",
+    "3307-final-d3-behavior.json": "01515d7a34cccd0d745322a2a3c33cf204057bd6352f08370b517b1c0062f841",
+    "3307-final-d3-behavior.log": "c200371c792adc4505b845d88b9b77d7cf0ac0d2d891a1964b7a765e9730be84",
+    "3307-final-d3-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3307-final-468-inputs-before.json": "84d3abffedb59a64226943f6cbf14b8fd4953ed6eee3a82eeedfb830c6163f83",
+    "3307-final-468-input-audit.json": "2e19c7555930cd2a2f2409bdd203dfa39f9bd91b42117b8e9f9d3cb0b51f8420",
+    "3307-final-468-behavior.json": "c68c29859ca60a7f553d0fe3f35e54361a9ba84b61fd0974887554d421965552",
+    "3307-final-468-behavior.log": "2008560a0e689e8ca72126328ca38ed094e5cee065c3ba91196d5535bf077e95",
+    "3307-final-468-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

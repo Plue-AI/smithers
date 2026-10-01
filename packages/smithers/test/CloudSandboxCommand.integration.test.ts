@@ -13,14 +13,19 @@ import * as Workspace from "@smthrs/kernel/Workspace"
 import { Node } from "@smthrs/plan"
 import * as Executable from "@smthrs/registry/Executable"
 import { Sandbox } from "@smthrs/sandbox"
+import { ProviderError } from "@smthrs/sandbox/RemoteChildProcessSpawner"
 import { Effect, FileSystem, Layer, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import * as NodeControl from "../src/NodeControl.ts"
+
+class InstallFailure extends Schema.TaggedError<InstallFailure>()("fixture/CloudInstallFailure", {
+  cause: Schema.Union([ProviderError, Schema.Defect()])
+}) {}
 
 const roots: Array<string> = []
 afterEach(() => {
@@ -108,14 +113,29 @@ describe("CloudSandbox guarded command transport", () => {
   })
 
   it.each([
-    { mode: "local", live: false },
-    ...(process.env.SMITHERS_CLOUD_SANDBOX_SMOKE === "1" ? [{ mode: "live", live: true }] : [])
-  ])("runs a $mode Cloud installer module through the durable host", async ({ live }) => {
+    { mode: "local", live: false, localFiles: true },
+    { mode: "local proc-only", live: false, localFiles: false },
+    ...(process.env.SMITHERS_CLOUD_SANDBOX_SMOKE === "1" ? [{ mode: "live", live: true, localFiles: false }] : [])
+  ])("runs a $mode Cloud installer module through the durable host", async ({ live, localFiles }) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "cloud-module-command-")))
     roots.push(root)
     const ssh = join(root, "ssh")
-    writeFileSync(ssh, "#!/bin/sh\nexec /bin/sh -c \"$*\"\n", { mode: 0o755 })
     const workdir = join(root, "guest")
+    const outsideWrite = join(root, "undeclared-write")
+    // A real VM has its own /tmp. This local SSH fixture maps only the guest
+    // provider's PID tree into its owned guest directory, leaving the framed
+    // installer and binary stdin intact and retaining real host confinement.
+    writeFileSync(
+      ssh,
+      [
+        "#!/bin/sh",
+        "IFS= read -r frame || exit 1",
+        `mapped=$(printf '%s' "$frame" | base64 -d | sed 's|/tmp/.smthrs-sbx|${workdir}/pids|g' | base64 | tr -d '\\n')`,
+        "{ printf \"%s\\n\" \"$mapped\"; cat; } | /bin/sh -c \"$*\"",
+        ""
+      ].join("\n"),
+      { mode: 0o755 }
+    )
     const repository = live ? process.env.SMITHERS_CLOUD_SANDBOX_REPOSITORY : "acme/repo"
     if (!repository) throw new Error("SMITHERS_CLOUD_SANDBOX_REPOSITORY is required for the live Cloud smoke")
     const methods: Array<string> = []
@@ -126,16 +146,21 @@ describe("CloudSandbox guarded command transport", () => {
       },
       sshPrefix: async () => [ssh]
     }
-    const Install = Action.make("fixture/CloudInstall", { payload: {}, success: Schema.String, error: Schema.Unknown })
+    const capabilities = localFiles
+      ? ["proc:spawn:*", `fs:read:${root}/**`, `fs:write:${workdir}`, `fs:write:${workdir}/**`]
+      : ["proc:spawn:*"]
+    const reads = localFiles ? [root] : []
+    const writes = localFiles ? [workdir] : []
+    const Install = Action.make("fixture/CloudInstall", { payload: {}, success: Schema.String, error: InstallFailure })
     const definition = {
       description: "Install in the acquired workspace.",
       payload: {},
       success: Schema.String,
-      error: Schema.Unknown,
-      capabilities: ["proc:spawn:*"],
+      error: InstallFailure,
+      capabilities,
       effects: {
-        reads: [],
-        writes: [],
+        reads,
+        writes,
         mode: "expected" as const,
         onConflict: "serialize" as const,
         tier: "irreversible" as const
@@ -154,8 +179,10 @@ import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
 export default Flow.make("cloud-install", {
   description: "Install in the acquired workspace.", payload: {}, success: Schema.String,
-  capabilities: ["proc:spawn:*"],
-  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+  capabilities: ${JSON.stringify(capabilities)},
+  effects: { reads: ${JSON.stringify(reads)}, writes: ${
+        JSON.stringify(writes)
+      }, mode: "expected", onConflict: "serialize", tier: "irreversible" },
   body: Node.capture({}, () => Node.succeed("unused"))
 })
 `
@@ -178,6 +205,15 @@ export default Flow.make("cloud-install", {
             "# install package 'x' ; ".repeat(300)
           }\nprintf 'module-installed|%s|%s|' "$HOME" "$TOKEN"; base64`
           expect(script.length).toBeGreaterThan(4096)
+          if (!live) {
+            // The declared guest write tree does not open its parent directory.
+            expect(
+              yield* guest.string(ChildProcess.make("/bin/sh", [
+                "-c",
+                `(printf escaped > ${CommandLine.quote(outsideWrite)}) 2>/dev/null && printf escaped || printf confined`
+              ]))
+            ).toBe("confined")
+          }
           const dummy = new Uint8Array([0, 255, 10, 128, 39, 0])
           return yield* guest.string(ChildProcess.make("/bin/sh", ["-c", script], {
             env: { HOME: "/explicit/module-home", TOKEN: "module-dummy-token" },
@@ -190,7 +226,7 @@ export default Flow.make("cloud-install", {
         )
         observed.push(result)
         return result
-      })
+      }).pipe(Effect.mapError((cause) => new InstallFailure({ cause })))
     )
     const modules = Executable.layer({
       delegates: [],
@@ -223,6 +259,18 @@ export default Flow.make("cloud-install", {
         Effect.scoped
       )
     )
+    if (!live) expect(existsSync(outsideWrite)).toBe(false)
+    if (!live && !localFiles) {
+      expect(events.at(-1)?.kind).toBe("control.run.failed")
+      expect(observed).toEqual([])
+      expect(JSON.stringify(events)).toContain("ProviderError")
+      expect(JSON.stringify(events)).toContain("unavailable")
+      expect(JSON.stringify(events)).toMatch(/Operation not permitted|Permission denied/)
+      expect(existsSync(workdir)).toBe(false)
+      expect(JSON.stringify(events)).not.toContain("Expected JSON value")
+      expect(methods).toEqual(["POST", "GET", "DELETE"])
+      return
+    }
     expect(events.at(-1)?.kind).toBe("control.run.completed")
     expect(observed).toEqual(["module-installed|/explicit/module-home|module-dummy-token|AP8KgCcA\n"])
     if (!live) expect(methods).toEqual(["POST", "GET", "DELETE"])
