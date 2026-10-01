@@ -1,0 +1,258 @@
+{
+  "issue": 3123,
+  "readiness": "READY/FROZEN: actual native/client/router/PG 50-event acceptance and independent owning controls",
+  "sourceFixAlreadyLanded": "61636e3609c8a9be93812e607fef1339b653e139",
+  "ownedSourceFiles": {
+    "packages/backend/internal/services/repository_policy_native_integration_test.go": "b53c23c733babbe3451350536985d5ed0a7454ac37def1c8fde2121bdbd675b4"
+  },
+  "candidate": "a19b878183fb042fbc519b006b045e42220135e6",
+  "headAfter": "a19b878183fb042fbc519b006b045e42220135e6",
+  "checks": [
+    {
+      "name": "native-http-pg-policy",
+      "argv": [
+        "go",
+        "test",
+        "-count=1",
+        "-json",
+        "-timeout=3m",
+        "./internal/services",
+        "-run",
+        "^TestRepositoryPolicyNativeLookupAndConcurrentIssueEvents$"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "exitCode": 0,
+      "seconds": 22.71,
+      "passed": [
+        "TestRepositoryPolicyNativeLookupAndConcurrentIssueEvents"
+      ],
+      "failed": [],
+      "skipped": [],
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/policy-3123/native-http-pg-policy.jsonl",
+      "sha256": "830176320ad49b1f5e46caf284e8c0c21b01f8677066792db05d1bc33b7cba39"
+    },
+    {
+      "name": "independent-client",
+      "argv": [
+        "go",
+        "test",
+        "-count=1",
+        "-json",
+        "-timeout=3m",
+        "./internal/repohost",
+        "-run",
+        "^(TestGetBookmark|TestLookupBookmark|TestGetFileAtCommit)"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "exitCode": 0,
+      "seconds": 1.63,
+      "passed": [
+        "TestGetBookmarkOneLookupBeyond500Bookmarks",
+        "TestLookupBookmarkMissingAndStorageErrors/missing_bookmark",
+        "TestLookupBookmarkMissingAndStorageErrors/missing_repository",
+        "TestLookupBookmarkMissingAndStorageErrors/uncoded_missing_repository",
+        "TestLookupBookmarkMissingAndStorageErrors/unauthorized",
+        "TestLookupBookmarkMissingAndStorageErrors/unavailable",
+        "TestLookupBookmarkMissingAndStorageErrors/found",
+        "TestLookupBookmarkMissingAndStorageErrors",
+        "TestGetBookmarkCanceledContext",
+        "TestGetFileAtCommitCoalescesAndSeparatesSnapshots",
+        "TestGetFileAtCommitCachesMissingButRetriesFailure",
+        "TestGetFileAtCommitCanceledWaiterDoesNotPoisonSharedRead",
+        "TestGetFileAtCommitBoundedCacheAndClientIsolation",
+        "TestGetFileAtCommitBoundsConcurrentCompletions",
+        "TestGetFileAtCommitAlreadyCanceledDoesNotRead",
+        "TestGetFileAtCommitReadTimeoutRetries",
+        "TestGetFileAtCommitGeneric404RetriesUntilRecovery"
+      ],
+      "failed": [],
+      "skipped": [],
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/policy-3123/independent-client.jsonl",
+      "sha256": "934d6b4bf9d7c21ac16b4fdcbadcfc2e35c88e7ad6b674e05dab66db156cc31e"
+    },
+    {
+      "name": "independent-server",
+      "argv": [
+        "go",
+        "test",
+        "-count=1",
+        "-json",
+        "-timeout=3m",
+        "./internal/repohostserver",
+        "-run",
+        "^Test(GetBookmarkResolvesOneBookmarkByName|PublicBookmarkLookupPreservesEscapedNames|ConditionalBookmarkUsesOneExactLookup)$"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "exitCode": 0,
+      "seconds": 2.08,
+      "passed": [
+        "TestGetBookmarkResolvesOneBookmarkByName",
+        "TestPublicBookmarkLookupPreservesEscapedNames",
+        "TestConditionalBookmarkUsesOneExactLookup/absent-create",
+        "TestConditionalBookmarkUsesOneExactLookup/absent-conflict",
+        "TestConditionalBookmarkUsesOneExactLookup/matching",
+        "TestConditionalBookmarkUsesOneExactLookup/changed",
+        "TestConditionalBookmarkUsesOneExactLookup"
+      ],
+      "failed": [],
+      "skipped": [],
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/policy-3123/independent-server.jsonl",
+      "sha256": "49b2926c0c27171fe31e04af5f38f188a634bddd6f19c3cbf070d728b5262d1c"
+    },
+    {
+      "name": "independent-policy-http-pg",
+      "argv": [
+        "go",
+        "test",
+        "-count=1",
+        "-json",
+        "-timeout=3m",
+        "./internal/services",
+        "-run",
+        "^Test(RepositoryPolicyConcurrentHTTPReadsFollowImmutableCommit|ObserveGitHubEventConcurrentPolicyReads|RepositoryPolicyGeneric404FailsClosedThenCachesTypedAbsence)$"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "exitCode": 0,
+      "seconds": 5.65,
+      "passed": [
+        "TestRepositoryPolicyConcurrentHTTPReadsFollowImmutableCommit",
+        "TestObserveGitHubEventConcurrentPolicyReads",
+        "TestRepositoryPolicyGeneric404FailsClosedThenCachesTypedAbsence"
+      ],
+      "failed": [],
+      "skipped": [],
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/policy-3123/independent-policy-http-pg.jsonl",
+      "sha256": "a6e921f99ccc5fd863fa000da20350c20a1019747b57db01874351a25e522200"
+    },
+    {
+      "name": "native-client",
+      "argv": [
+        "go",
+        "test",
+        "-count=1",
+        "-json",
+        "-timeout=3m",
+        "./internal/repohostffi",
+        "-run",
+        "^TestClientNativeBookmarkLookup$"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/backend",
+      "exitCode": 0,
+      "seconds": 1.53,
+      "passed": [
+        "TestClientNativeBookmarkLookup"
+      ],
+      "failed": [],
+      "skipped": [],
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch5/policy-3123/native-client.jsonl",
+      "sha256": "91dad65e14f46f543407b723f1e2fc5b6564ea0d44a7110fe92d97392169611c"
+    }
+  ],
+  "passedTestEvents": 29,
+  "topLevelPassedTests": 19,
+  "sourceInputCount": 2951,
+  "changedDuringChecks": [],
+  "sourceChangesSinceChecks": [],
+  "format": {
+    "argv": [
+      "gofmt",
+      "-l",
+      "packages/backend/internal/services/repository_policy_native_integration_test.go"
+    ],
+    "exitCode": 0,
+    "unformatted": []
+  },
+  "actualNativeContract": {
+    "farBookmark": "feature-0600",
+    "directResolutionHostCalls": 1,
+    "directResolutionNativeCalls": 1,
+    "concurrentActualIssueEvents": 50,
+    "bookmarkHTTPAndNativeCallsAfterEvents": 51,
+    "projectionHTTPAndNativeReadsAtFirstCommit": 1,
+    "movedDefaultBookmark": "Two additional ingress events read the second commit once; the old snapshot remains cached; 52 items durably persist",
+    "listingCallsDuringResolution": 0,
+    "fixtureFeatureBookmarksCreated": 601,
+    "actualNativeInventoryAssertion": "TotalCount > 500"
+  },
+  "nativeArtifact": {
+    "path": "/Users/williamcory/smithers/target/release/deps/libsmithers_ffi.dylib",
+    "sha256": "01daaa71b0f92f09b1c58f86ca8ddc45a134d0ffc5c8b6fbe053c689216ffa39",
+    "getBookmarkSymbolExported": true,
+    "rebuilt": false,
+    "sourceBuildProvenance": "Preexisting release artifact; no byte rebuild from current Rust source or all-platform native ABI campaign claim"
+  },
+  "sourceAudit": {
+    "centralImplementation": "packages/backend/internal/repohost/client.go LookupBookmark -> GetBookmark targeted HTTP",
+    "router": "packages/backend/internal/repohostserver/router.go getBookmark -> one FFI.GetBookmark; the old findBookmark page walk is deleted",
+    "native": "crates/smithers-ffi/src/lib.rs get_bookmark calls self.repo.view().get_local_bookmark(RefName::new(name)); smithers_get_bookmark is exported and the actual native boundary executed",
+    "immutablePolicy": "repository_policy.go reads the resolved TargetCommitID through Client.GetFileAtCommit; immutable_file.go keys owner/repo/commit/path, shares in-flight reads, retains success and typed absence, retries temporary errors and bounds its cache",
+    "namedCallerHashes": {
+      "MythicalService.bookmarkCommit": {
+        "path": "packages/backend/internal/services/mythical.go",
+        "sha256": "3c412d82071d94e82793902a453c0ac48a5a68ca46c359d5c8e42357494fb18f"
+      },
+      "GitHubMainPullService.bookmarkCommit": {
+        "path": "packages/backend/internal/services/github_main_pull.go",
+        "sha256": "64e9ceedc23e153c0a1d9c4d942b29f3d2fcc7a72875e8b95057a8f9d9279a00"
+      },
+      "LandingService.targetBookmarkRevision": {
+        "path": "packages/backend/internal/services/landing.go",
+        "sha256": "d74241db463ab13cd47777a6263b6df2a08d58e39e36e4c45ba7d16e3e34ff2a"
+      },
+      "workerTargetBookmarkRevision": {
+        "path": "packages/backend/internal/services/landing_worker.go",
+        "sha256": "228e6cb83baa6114bc0004825a1077e34425353db0c812192587500462b35ef3"
+      },
+      "ChangesetService.findBookmark": {
+        "path": "packages/backend/internal/services/changeset.go",
+        "sha256": "b3817fc09cb0926a7b4e03a1d68b7a75231560d3c4b835c66d90b24488949775"
+      },
+      "RepoService.resolveChangeRef": {
+        "path": "packages/backend/internal/services/repo.go",
+        "sha256": "14039d2c536e152b0558d0d2d721cea20fd131023390589bd25647d968cad1ba"
+      },
+      "repositorySourceFiles.ResolveSourceRevision": {
+        "path": "packages/backend/internal/compose/workspace_sources.go",
+        "sha256": "5f7cc7e8c22435b4294e07a95b1bfa4e8084e7cbe6d2c62b972c89241a8be233"
+      }
+    },
+    "intentionalListing": "RepoService.walkBookmarks remains for full inventory rather than named resolution; fixture batch creates 601 feature refs plus main and asserts native TotalCount > 500 before counting resolution; actual resolution makes zero listing calls"
+  },
+  "limits": [
+    "No complete backend coverage, full services gate or hosted performance claim.",
+    "Native wrappers count actual delegated FFI calls; no fake bookmark/file contents. Separate unit controls substitute FFI to isolate caller and routing failure branches.",
+    "Initial fixture requested 1,000 per page and hit the canonical cap of 100; its failure and exact old test remain in initial-native-inventory. Correct inventory control reads actual TotalCount with a page of 100; product limits unchanged.",
+    "No public production or source ABI change; the sole retained integration test qualifies the existing upstream fix."
+  ],
+  "sourceFrozen": true,
+  "activeJobs": [],
+  "rawReceipts": {
+    "gofmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "independent-client-result.json": "28241a708bf96e76f6117a1ec59d10db34936b87f615243cd716280e052d2bfd",
+    "independent-client.jsonl": "934d6b4bf9d7c21ac16b4fdcbadcfc2e35c88e7ad6b674e05dab66db156cc31e",
+    "independent-policy-http-pg-result.json": "f387759cd9da3513bee1a40b60bb9e66a5bb064748d512e6651ecf94ca985bac",
+    "independent-policy-http-pg.jsonl": "a6e921f99ccc5fd863fa000da20350c20a1019747b57db01874351a25e522200",
+    "independent-server-result.json": "5af264888c412e67608f72f7e664e7d6e09f2f2056aaae8a75b19d1612d3eb1c",
+    "independent-server.jsonl": "49b2926c0c27171fe31e04af5f38f188a634bddd6f19c3cbf070d728b5262d1c",
+    "initial-native-inventory/inputs-after.json": "68857e983f33ed0aba89a9236a6093f659c704b81ac5480cd82540ed02a81920",
+    "initial-native-inventory/inputs-before.json": "1bc538bd70b784ce4cd542272c22d7c9fbdeeeb3410340f7f3f586002daae619",
+    "initial-native-inventory/live-issue.json": "7f3d276a2236e8f70aa0ceb0bd99fde295729b23a64a871d0fc7e07c2832494b",
+    "initial-native-inventory/native-http-pg-policy-result.json": "97410c42f749d49e351c2614c0cdbe6025751c85219fdda25f105426e2ca21af",
+    "initial-native-inventory/native-http-pg-policy.jsonl": "6cf99ff4257f704d3a5ad7691a84692e3d5cfb5b51e1f2362445a5619bdb45ae",
+    "initial-native-inventory/qualify.py": "886083e2f96936fd8756a66d9dac4742de0ccdd4b3d358e3a11681db1dfc4a7f",
+    "initial-native-inventory/result.json": "a2a14258feebbba623f4cb86abc730649fcad7bcdc25793974a184cb6f2a9c6d",
+    "initial-native-inventory/retained-test-before-inventory-fix.go.txt": "e6cd718d12353b27e009cc62acf8a6bba847c7977e3bef763603223718a56ddd",
+    "inputs-after.json": "515e90c94a3a6f146d63e38d30a006dddf071546313a945fbd8ae1b091be07a4",
+    "inputs-before.json": "5581c5a9cfddc0063a74bb24c7df0cca6d38946d265f2d50a725347a3fa71af6",
+    "live-issue.json": "7f3d276a2236e8f70aa0ceb0bd99fde295729b23a64a871d0fc7e07c2832494b",
+    "native-client-result.json": "d7dea3d0289ab8f3b9d051a77f4698c7b88d0e9df0a023fabfa471d834589029",
+    "native-client.jsonl": "91dad65e14f46f543407b723f1e2fc5b6564ea0d44a7110fe92d97392169611c",
+    "native-http-pg-policy-result.json": "248e0bd97f58dab4f63da7ab0660764256089e23db20a6c4d0785d02c0216107",
+    "native-http-pg-policy.jsonl": "830176320ad49b1f5e46caf284e8c0c21b01f8677066792db05d1bc33b7cba39",
+    "qualify.py": "886083e2f96936fd8756a66d9dac4742de0ccdd4b3d358e3a11681db1dfc4a7f",
+    "release-ffi-symbols.log": "ad8035823d9579041ac07367f7f9e3ffd411c514b2d792ec5fdd4daed7d15a6f",
+    "result.json": "1dca705b68535d896016b23655e9f8389ffa5e2eeb8d6064e992895669e0fe32",
+    "source-contract-audit.json": "38975554dcebf405af075cc67e12db9e0a50d17bc6ecb03e2800e95dcbc19ea3",
+    "upstream-61636e3609.patch": "5cffe94fc4ea5d65962a7871e48eecb9ce468823420be4bfe6e8a11f73198cff"
+  }
+}

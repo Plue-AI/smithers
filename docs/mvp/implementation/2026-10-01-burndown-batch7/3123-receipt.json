@@ -1,0 +1,32 @@
+{
+  "issue": 3123,
+  "reviewer": "codex-burndown-20260930",
+  "reviewedUtc": "2026-10-01T06:01:23.876415+00:00",
+  "sourceFixAlreadyLanded": "61636e3609c8a9be93812e607fef1339b653e139",
+  "review": "Reviewed complete new integration test: actual native 601 refs; targeted exact lookup; 50 concurrent actual issue events via HTTP and PG; immutable commit change, coalescing and persisted 52 items; wrappers delegate actual FFI. All source/raw/native/archive hashes verified. Correct TotalCount inventory assertion retains public 100-page limit.",
+  "checks": {
+    "passedTestEvents": 29,
+    "topLevelPassedTests": 19,
+    "failed": 0,
+    "skipped": 0,
+    "owningFormat": 0,
+    "sourceDrift": []
+  },
+  "nativeArtifact": {
+    "path": "/Users/williamcory/smithers/target/release/deps/libsmithers_ffi.dylib",
+    "sha256": "01daaa71b0f92f09b1c58f86ca8ddc45a134d0ffc5c8b6fbe053c689216ffa39",
+    "getBookmarkSymbolExported": true,
+    "rebuilt": false,
+    "sourceBuildProvenance": "Preexisting release artifact; no byte rebuild from current Rust source or all-platform native ABI campaign claim"
+  },
+  "ownedSourceFiles": {
+    "packages/backend/internal/services/repository_policy_native_integration_test.go": "b53c23c733babbe3451350536985d5ed0a7454ac37def1c8fde2121bdbd675b4"
+  },
+  "proofArchiveSha256": "98e8f220dea23cc2ac14cc939ca8cd693221a50ff54d2a092663b386acb7cd1a",
+  "limits": [
+    "No complete backend coverage, full services gate or hosted performance claim.",
+    "Native wrappers count actual delegated FFI calls; no fake bookmark/file contents. Separate unit controls substitute FFI to isolate caller and routing failure branches.",
+    "Initial fixture requested 1,000 per page and hit the canonical cap of 100; its failure and exact old test remain in initial-native-inventory. Correct inventory control reads actual TotalCount with a page of 100; product limits unchanged.",
+    "No public production or source ABI change; the sole retained integration test qualifies the existing upstream fix."
+  ]
+}
