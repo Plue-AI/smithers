@@ -44,10 +44,21 @@ test("capacity gives every ready account the per-account cap, bounded by maxAgen
 })
 
 test("capacity is exhausted with every account named when no pool has a ready account", () => {
-  assert.deepEqual(capacity({ codex: parsePool("  codex-1       a@b.c     cooling 60m: usage limit\n"), claude: parsePool(claudeStatus.replaceAll("ready", "cooling 5m: rate limit")) }, 6, 4), {
-    _tag: "Exhausted",
-    detail: "reset accounts: codex-1 (cooling 60m: usage limit), claude-1 (cooling 5m: rate limit), claude-2 (cooling 99849m: manual), claude-4 (cooling 5m: rate limit), claude-7 (cooling 58m: You've hit your weekly limit · resets Oct 1 at 11pm (America/Los_Angeles)), claude-8 (reserved by Freestyle: run-12)"
-  })
+  assert.deepEqual(
+    capacity(
+      {
+        codex: parsePool("  codex-1       a@b.c     cooling 60m: usage limit\n"),
+        claude: parsePool(claudeStatus.replaceAll("ready", "cooling 5m: rate limit"))
+      },
+      6,
+      4
+    ),
+    {
+      _tag: "Exhausted",
+      detail:
+        "reset accounts: codex-1 (cooling 60m: usage limit), claude-1 (cooling 5m: rate limit), claude-2 (cooling 99849m: manual), claude-4 (cooling 5m: rate limit), claude-7 (cooling 58m: You've hit your weekly limit · resets Oct 1 at 11pm (America/Los_Angeles)), claude-8 (reserved by Freestyle: run-12)"
+    }
+  )
   assert.deepEqual(capacity({ codex: none, claude: none }, 6, 4), {
     _tag: "Exhausted",
     detail: "reset accounts: no signed-in accounts"

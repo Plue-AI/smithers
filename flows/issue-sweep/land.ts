@@ -157,13 +157,25 @@ export const sandboxed = (workspace: string, command: ReadonlyArray<string>) =>
     ...command
   ], { cwd: workspace, env: { GOCACHE: goCache } })
 
-/** Installs the workspace's locked dependencies from the local store, sandboxed. */
+/**
+ * Installs the workspace's locked dependencies from the local pnpm store.
+ *
+ * It runs on the host, because pnpm must read and write its store and cache
+ * outside the workspace (inside `codex sandbox` it exits 1). Lifecycle
+ * scripts are off; the repository's pnpmfile runs, so a change that edits it
+ * never reaches an install (see {@link landChange}).
+ */
 export const install = (workspace: string) =>
   Effect.flatMap(
-    sandboxed(workspace, ["pnpm", "install", "--prefer-offline", "--frozen-lockfile", "--ignore-scripts"]),
+    run("pnpm", ["install", "--prefer-offline", "--frozen-lockfile", "--ignore-scripts"], { cwd: workspace }),
     (exited) =>
-      exited.code === 0 ? Effect.void : Effect.fail(fail(`pnpm install: exit ${exited.code}: ${tail(exited.stderr)}`))
+      exited.code === 0
+        ? Effect.void
+        : Effect.fail(fail(`pnpm install: exit ${exited.code}: ${tail(`${exited.stdout}\n${exited.stderr}`)}`))
   )
+
+/** Files whose code the host runs during an install; a change to one needs a person. */
+export const installHooks = [".pnpmfile.cjs", ".npmrc", "pnpm-workspace.yaml"]
 
 const IndexJson = Schema.fromJsonString(Schema.Struct({
   targets: Schema.Array(Schema.Struct({ label: Schema.String, kinds: Schema.Array(Schema.String) }))
@@ -229,6 +241,10 @@ export const landChange = (workspace: string, change: string) =>
         file !== ""
       )
       if (files.length === 0) return yield* fail(`change ${change} is empty on main ${main.slice(0, 12)}`)
+      const hooks = files.filter((file) => installHooks.includes(file))
+      if (hooks.length > 0) {
+        return yield* fail(`change ${change} edits install hooks (${hooks.join(" ")}); land it by hand`)
+      }
       yield* install(workspace)
       const index = yield* asLand(Effect.flatMap(
         output("pnpm", ["exec", "smthrs", "index", "//...", "--format", "json"], { cwd: workspace }),

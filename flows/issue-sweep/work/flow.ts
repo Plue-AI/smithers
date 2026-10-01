@@ -44,6 +44,16 @@ export class AgentFailed extends Schema.TaggedError<AgentFailed>()("issue-sweep/
   message: Schema.String
 }) {}
 
+/**
+ * This machine could not prepare a workspace: jj or the dependency install
+ * failed before any agent ran. It says nothing about the issue, and every
+ * other issue would fail the same way, so the sweep stops on it instead of
+ * settling issue after issue as failed.
+ */
+export class WorkspaceFailed extends Schema.TaggedError<WorkspaceFailed>()("issue-sweep/WorkspaceFailed", {
+  message: Schema.String
+}) {}
+
 // The issue as `gh issue view --json title,body,comments` prints it.
 const IssueText = Schema.Struct({
   title: Schema.String,
@@ -63,7 +73,7 @@ export const FetchIssue = Action.make("issue-sweep/fetch-issue", {
 export const PrepareWorkspace = Action.make("issue-sweep/prepare-workspace", {
   payload: Payload,
   success: Workspace,
-  error: AgentFailed,
+  error: WorkspaceFailed,
   idempotencyKey: { workspace: "issue-sweep/v2" }
 })
 
@@ -95,7 +105,7 @@ export default Flow.make("issue-sweep/work", {
   modelInvocable: false,
   payload: Payload,
   success: Report,
-  error: AgentFailed,
+  error: Schema.Union([AgentFailed, WorkspaceFailed]),
   body: (input) =>
     Node.succeed(input.placement === "cloud").pipe(
       Node.branch({
@@ -201,9 +211,9 @@ const prepareWorkspace = PrepareWorkspace.toLayer((input) =>
     yield* removeWorkspace(input.issue)
     yield* jj(repository, ["workspace", "add", directory, "--name", workspaceName(input.issue), "-r", "main"])
     const base = (yield* jj(directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
-    yield* Effect.mapError(install(directory), agentFailed)
+    yield* install(directory)
     return { directory, base }
-  })
+  }).pipe(Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message })))
 )
 
 // The longest one agent may work on one issue before the flow stops it.

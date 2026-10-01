@@ -8,7 +8,10 @@ test("commitMessage takes the agent's last COMMIT line and keeps its issue refer
 })
 
 test("commitMessage appends the issue reference when the agent left it out", () => {
-  assert.equal(commitMessage("COMMIT: 🐛 fix(cli): pin the guest home", 3265, "x"), "🐛 fix(cli): pin the guest home (#3265)")
+  assert.equal(
+    commitMessage("COMMIT: 🐛 fix(cli): pin the guest home", 3265, "x"),
+    "🐛 fix(cli): pin the guest home (#3265)"
+  )
 })
 
 test("commitMessage falls back to the issue title when the agent stated no subject", () => {

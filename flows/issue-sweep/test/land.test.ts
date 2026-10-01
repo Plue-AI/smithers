@@ -42,7 +42,9 @@ test("testTargets runs only the test targets of the touched packages", () => {
 })
 
 test("readChecks: an ok report is green", () => {
-  assert.deepEqual(readChecks({ code: 0, stdout: JSON.stringify({ ok: true, results: [] }), stderr: "" }), { _tag: "Green" })
+  assert.deepEqual(readChecks({ code: 0, stdout: JSON.stringify({ ok: true, results: [] }), stderr: "" }), {
+    _tag: "Green"
+  })
 })
 
 test("readChecks: a targets_failed refusal is red with the targets the known-red list does not excuse", () => {
@@ -62,14 +64,25 @@ test("readChecks: a targets_failed refusal is red with the targets the known-red
 
 test("readChecks: a failure it cannot attribute, or a refusal to plan, means the checks never ran", () => {
   assert.deepEqual(
-    readChecks({ code: 1, stdout: JSON.stringify({ code: "targets_failed", message: "1 of 1 targets failed" }), stderr: "" }),
+    readChecks({
+      code: 1,
+      stdout: JSON.stringify({ code: "targets_failed", message: "1 of 1 targets failed" }),
+      stderr: ""
+    }),
     { _tag: "Broken", message: "1 of 1 targets failed" }
   )
   assert.deepEqual(
-    readChecks({ code: 1, stdout: JSON.stringify({ code: "test_failed", message: "declaration_dependency_mismatch" }), stderr: "" }),
+    readChecks({
+      code: 1,
+      stdout: JSON.stringify({ code: "test_failed", message: "declaration_dependency_mismatch" }),
+      stderr: ""
+    }),
     { _tag: "Broken", message: "test_failed: declaration_dependency_mismatch" }
   )
-  assert.deepEqual(readChecks({ code: 137, stdout: "", stderr: "Killed\n" }), { _tag: "Broken", message: "exit 137: Killed" })
+  assert.deepEqual(readChecks({ code: 137, stdout: "", stderr: "Killed\n" }), {
+    _tag: "Broken",
+    message: "exit 137: Killed"
+  })
   // A zero exit whose report says not ok is not green.
   assert.equal(readChecks({ code: 0, stdout: JSON.stringify({ ok: false }), stderr: "" })._tag, "Broken")
 })

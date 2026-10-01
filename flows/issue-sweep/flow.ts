@@ -7,19 +7,22 @@
  * account out, the sweep parks until an operator resets accounts and signals
  * `issue-sweep/accounts-reset`.
  */
-import { Action, Flow, type FlowRuntime, Sleep, WaitFor } from "@smthrs/flow"
+import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
 import { Burndown } from "@smthrs/patterns"
-import { Clock, Effect, Layer, Schedule, Schema } from "effect"
+import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { capacity, perAccount, readPools } from "./accounts.ts"
 import { HostFailed, output, repository, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
-import Work, { AgentFailed, layer as workLayer, removeWorkspace, type Report } from "./work/flow.ts"
+import Work, { AgentFailed, removeWorkspace, type Report } from "./work/flow.ts"
 
 const Input = Schema.Struct({
   repo: Schema.String,
   // Never more than 32 agents on this machine; Smithers Cloud takes more.
-  maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32)))
+  maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32))),
+  // Each issue's work child is keyed by this attempt, so a restarted sweep
+  // reattaches to its children; a new attempt works failed issues afresh.
+  attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
 })
 
 const Issue = Schema.Struct({
@@ -202,13 +205,27 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
           ? Effect.fail(new Burndown.Held({ message: exited.stdout.trim() || exited.stderr.trim() }))
           : Effect.fail(new AgentFailed({ message: `issue-claim claim: exit ${exited.code}: ${tail(exited.stderr)}` }))
     ),
-  // The work flow's plan does not name its requirements, so the engine's are stated here.
-  work: (args) =>
-    Burndown.child(
-      Work,
-      (item: Args) => ({ repo: repoOf(item), issue: item.item.number, placement: "local" as const })
-    )(args)
-      .pipe(Effect.provide(workLayer)) as Effect.Effect<Worked, Failure, Engine>,
+  // The host registers issue-sweep/work and its implementations from its own
+  // file; providing them again per call registers a conflicting second copy.
+  // Its plan does not name its requirements, so the engine's are stated here.
+  // A child keeps its outcome under its id, so the sweep's attempt is part of
+  // the id. A child an operator cancelled stays cancelled, and joining it
+  // again only reports the interruption; that issue then runs afresh under an
+  // id scoped to this round, which a replay of the round still reattaches to.
+  work: (args) => {
+    const input = args.input as typeof Input.Type
+    const id = `${args.executionId}/attempt-${input.attempt ?? 1}`
+    const execute = (executionId: string) =>
+      Work.execute({ repo: input.repo, issue: args.item.number, placement: "local" }, { executionId })
+    return execute(id).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
+      ),
+      // A workspace this machine cannot prepare would fail every issue the
+      // same way: stop the sweep (its claims are released) instead.
+      Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error))
+    ) as Effect.Effect<Worked, Failure, Engine>
+  },
   land: ({ output }) =>
     output.change === ""
       ? Effect.fail(new LandFailed({ message: `${output.workspace}: only local changes land` }))
@@ -240,4 +257,13 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
     })
 })
 
-export const layer = Layer.mergeAll(listIssues, accounts, dispatch, Sleep.layer, WaitFor.layer)
+// The rounds are a flow of their own that no file declares, so this module
+// registers them; the host registers only discovered file flows.
+export const layer = Layer.mergeAll(
+  listIssues,
+  accounts,
+  dispatch,
+  Sleep.layer,
+  WaitFor.layer,
+  Interpreter.layer(Rounds)
+)
