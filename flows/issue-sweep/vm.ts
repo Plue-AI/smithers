@@ -26,10 +26,10 @@
  *   node flows/issue-sweep/test/vm-image.ts
  */
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
-import { Effect, Semaphore, Stream } from "effect"
+import { type Duration, Effect, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
-import { existsSync, readdirSync } from "node:fs"
-import { hostname } from "node:os"
+import { existsSync, readdirSync, statfsSync } from "node:fs"
+import { homedir, hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -243,7 +243,28 @@ export interface Options {
   readonly bootConcurrency?: number | undefined
   /** Recorded on each machine so `reapOrphans` can tell a dead holder. Default `<host>:<pid>`. */
   readonly holder?: string | undefined
+  /**
+   * Free host disk, in bytes, below which a new microVM waits to boot. Every
+   * guest writes its own copy-on-write layer (dependency refreshes, build
+   * caches), and 23 guests took the host from 46 to 20 GiB free in half an
+   * hour. Default 25 GiB.
+   */
+  readonly minFreeBytes?: number | undefined
+  /** Reads free host disk in bytes. Default: `statfs` of the Microsandbox home. */
+  readonly freeBytes?: (() => number) | undefined
 }
+
+const microsandboxHome = join(homedir(), ".microsandbox")
+const statfsFree = () => {
+  const stats = statfsSync(existsSync(microsandboxHome) ? microsandboxHome : homedir())
+  return stats.bavail * stats.bsize
+}
+
+/** Waits, polling every `interval`, while the host has less than `minimum` bytes free. */
+export const awaitDisk = (freeBytes: () => number, minimum: number, interval: Duration.Input = "30 seconds") =>
+  Effect.gen(function*() {
+    while (freeBytes() < minimum) yield* Effect.sleep(interval)
+  })
 
 const defaultHolder = () => `${hostname()}:${process.pid}`
 
@@ -309,6 +330,7 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
     acquire: (sessionKey) =>
       Effect.gen(function*() {
         yield* Effect.acquireRelease(slots.take(1), () => slots.release(1))
+        yield* awaitDisk(options.freeBytes ?? statfsFree, options.minFreeBytes ?? 25 * 1024 ** 3)
         const snapshot = options.snapshot ?? (yield* latestImage(sdk))
         const session = yield* boots.withPermits(1)(machines(snapshot).acquire(sessionKey))
         if (options.refresh ?? true) yield* required(session, "refreshing the checkout", refreshLine)

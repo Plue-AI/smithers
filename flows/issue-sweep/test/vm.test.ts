@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { hostname } from "node:os"
 import test from "node:test"
-import { agentHosts, guestCheckout, holderAlive, make, niceWrapper, refreshLine, sh } from "../vm.ts"
+import { agentHosts, awaitDisk, guestCheckout, holderAlive, make, niceWrapper, refreshLine, sh } from "../vm.ts"
 
 type Event =
   | { readonly kind: "started"; readonly pid: number }
@@ -258,4 +258,30 @@ test("microVMs run through the nice wrapper at nice 10, below the flow host", ()
     env: { ...process.env, ISSUE_SWEEP_MSB: "/bin/sh" }
   }).trim()
   assert.equal(Number(nice), 10)
+})
+
+// run-4: 23 guests took the host from 46 to 20 GiB free in half an hour.
+test("a microVM waits to boot while the host disk is below the floor", async () => {
+  let free = 10
+  let polls = 0
+  let done = false
+  const fiber = Effect.runFork(
+    awaitDisk(() => (polls++, free), 20, "5 millis").pipe(
+      Effect.andThen(Effect.sync(() => {
+        done = true
+      }))
+    )
+  )
+  await Effect.runPromise(Effect.sleep("40 millis"))
+  assert.equal(done, false, "still waiting below the floor")
+  assert.ok(polls > 1, "it polls again")
+  free = 30
+  await Effect.runPromise(Fiber.join(fiber))
+  assert.equal(done, true)
+  const fake = fakeSdk(() => ok)
+  const provider = make({ sdk: fake.sdk, holder: "test:1", freeBytes: () => 0, minFreeBytes: 1 })
+  const waiting = Effect.runFork(Effect.scoped(provider.acquire("disk")))
+  await Effect.runPromise(Effect.sleep("40 millis"))
+  assert.equal(fake.created.length, 0, "acquire boots nothing below the floor")
+  await Effect.runPromise(Fiber.interrupt(waiting))
 })
