@@ -1,0 +1,218 @@
+{
+  "issue": 3316,
+  "status": "READY/FROZEN focused prerequisite; full canonical3127 remains unqualified",
+  "head": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "at": "2026-10-01T04:48:50.115810+00:00",
+  "ownedFiles": [
+    {
+      "path": "packages/smithers/flows/engine-store/test/RemoteCapabilityCeiling.test.ts",
+      "sha256": "2e4517b6f8986088574412bb5eeb146f7d0858c2ca33e86d8a7bfe56bafea8f3"
+    },
+    {
+      "path": "packages/smithers/flows/engine-store/test/CrossHostRecovery.test.ts",
+      "sha256": "0989129cdc2497f9880f539e33bdc616e9c4963c088a42e6641e2c488788014f"
+    },
+    {
+      "path": "packages/smithers/flows/engine-store/test/fixtures/RemoteTestDatabase.ts",
+      "sha256": "b3e479b3953ed885e8fdae1d065fcd7abd848cada31e479abdca2e7bdccc3594"
+    }
+  ],
+  "jobsRunning": false,
+  "validation": [
+    {
+      "command": "node ../database/scripts/test-matrix.mjs test/RemoteCapabilityCeiling.test.ts test/CrossHostRecovery.test.ts --coverage.enabled=false --disableConsoleIntercept",
+      "cwd": "packages/smithers/flows/engine-store",
+      "environment": {
+        "Node": "26.5.0",
+        "TMPDIR": "/private/tmp",
+        "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": "/Users/williamcory/smithers/target/release/smithers-jj-export",
+        "SMITHERS_TEST_PG_URL": "postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable"
+      },
+      "exit": 0,
+      "sqlite": {
+        "pass": 8,
+        "fail": 0,
+        "seconds": 62.9
+      },
+      "postgres": {
+        "pass": 8,
+        "fail": 0,
+        "seconds": 63.65
+      },
+      "limits": "Focused behavioral qualification without partial production coverage enforcement. Full package100% thresholds unchanged; not claimed100% or full release/3127 green."
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "scope": "Full owning source+tests strict configured program"
+    },
+    {
+      "command": "node_modules/.bin/dprint check test/RemoteCapabilityCeiling.test.ts test/CrossHostRecovery.test.ts test/fixtures/RemoteTestDatabase.ts",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0
+    }
+  ],
+  "behavior": "Existing positive writes, restricted/wildcard/empty/omitted/host-grant ceilings, joins, cancellation, serving restart, killed-caller and killed-both recovery all preserved. Explicit missing/relative helper wildcard requests refuse with PermissionDenied and create no file. Test-only matrix adapter gives actual PG child stores. Exit observed at launch. Killed-both boundary waits for exact durable suspended row with pending future timer, verifies identical timer after kill, then same child run completes one file/result.",
+  "review": "Parent approved helper/env scope, realPG test adapter, deterministic persisted timer checkpoint; final owning assertions types/format pass.",
+  "native": {
+    "path": "/Users/williamcory/smithers/target/release/smithers-jj-export",
+    "sha256": "907db39ce7fe96b172be64aca2f0511229824a70162a24980913a190f558f339",
+    "provenance": "existing configured artifact; not rebuilt"
+  },
+  "storageProof": {
+    "at": "2026-10-01T04:48:50.108280+00:00",
+    "database": {
+      "version": "PostgreSQL 18.6 (Homebrew) on aarch64-apple-darwin25.6.0, compiled by Apple clang version 21.0.0 (clang-2100.1.1.101), 64-bit",
+      "remainingSchemas": [],
+      "maxConnections": "40",
+      "sharedMemoryType": "mmap",
+      "dynamicSharedMemoryType": "posix"
+    },
+    "databaseIdentity": "existing owned127.0.0.1:55491/postgres; not stopped",
+    "events": [
+      {
+        "event": "child-store",
+        "name": "serving",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-remote-ceiling-cFqMAn/serving.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "serving",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-cross-host-recovery-iSHWrM/serving.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "caller-dies",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-cross-host-recovery-iSHWrM/caller-dies.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "missing-helper",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-remote-ceiling-cFqMAn/missing-helper.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "relative-helper",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-remote-ceiling-cFqMAn/relative-helper.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "both-die",
+        "backend": "sqlite",
+        "filename": "/private/tmp/smithers-cross-host-recovery-iSHWrM/both-die.sqlite"
+      },
+      {
+        "event": "child-store",
+        "name": "serving",
+        "backend": "postgres",
+        "schema": "remote_b427faf654c3417f804192aae4577d5a"
+      },
+      {
+        "event": "child-store",
+        "name": "serving",
+        "backend": "postgres",
+        "schema": "remote_ab1f8eae23fa473db45551f8e7eb1192"
+      },
+      {
+        "event": "child-store",
+        "name": "missing-helper",
+        "backend": "postgres",
+        "schema": "remote_859de5d988c34c469adfd3f77ca6ef62"
+      },
+      {
+        "event": "child-store",
+        "name": "caller-dies",
+        "backend": "postgres",
+        "schema": "remote_624280dc6e21439f9e5caa5598ebfa2d"
+      },
+      {
+        "event": "child-store",
+        "name": "relative-helper",
+        "backend": "postgres",
+        "schema": "remote_8385bcf191ec428daece1902a6ac032b"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_b427faf654c3417f804192aae4577d5a"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_859de5d988c34c469adfd3f77ca6ef62"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_8385bcf191ec428daece1902a6ac032b"
+      },
+      {
+        "event": "child-store",
+        "name": "both-die",
+        "backend": "postgres",
+        "schema": "remote_c913b723a5de4289a9a076d9abc3cf6f"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_ab1f8eae23fa473db45551f8e7eb1192"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_624280dc6e21439f9e5caa5598ebfa2d"
+      },
+      {
+        "event": "child-store-retired",
+        "backend": "postgres",
+        "schema": "remote_c913b723a5de4289a9a076d9abc3cf6f"
+      }
+    ],
+    "schemas": [
+      "remote_624280dc6e21439f9e5caa5598ebfa2d",
+      "remote_8385bcf191ec428daece1902a6ac032b",
+      "remote_859de5d988c34c469adfd3f77ca6ef62",
+      "remote_ab1f8eae23fa473db45551f8e7eb1192",
+      "remote_b427faf654c3417f804192aae4577d5a",
+      "remote_c913b723a5de4289a9a076d9abc3cf6f"
+    ],
+    "retired": [
+      "remote_624280dc6e21439f9e5caa5598ebfa2d",
+      "remote_8385bcf191ec428daece1902a6ac032b",
+      "remote_859de5d988c34c469adfd3f77ca6ef62",
+      "remote_ab1f8eae23fa473db45551f8e7eb1192",
+      "remote_b427faf654c3417f804192aae4577d5a",
+      "remote_c913b723a5de4289a9a076d9abc3cf6f"
+    ],
+    "allSchemasRetired": true,
+    "sqliteFileCleanup": {
+      "/private/tmp/smithers-remote-ceiling-cFqMAn/serving.sqlite": true,
+      "/private/tmp/smithers-cross-host-recovery-iSHWrM/serving.sqlite": true,
+      "/private/tmp/smithers-cross-host-recovery-iSHWrM/caller-dies.sqlite": true,
+      "/private/tmp/smithers-remote-ceiling-cFqMAn/missing-helper.sqlite": true,
+      "/private/tmp/smithers-remote-ceiling-cFqMAn/relative-helper.sqlite": true,
+      "/private/tmp/smithers-cross-host-recovery-iSHWrM/both-die.sqlite": true
+    },
+    "inputDrift": []
+  },
+  "receipts": {
+    "3316-postrebase-real-storage.log": "68e8782a90063bfbc1b323346de46aa4e33b476ac1854f1bff4571fb0efd7fdb",
+    "3316-postrebase-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3316-postrebase-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3316-storage-cleanup-proof.json": "64c5b7b7d601c1f4396969a9dbd5cb14a1094839338b6901689f0e7459eafaf3",
+    "3316-original-focused-red.log": "1af0b6c0f15c8f1fa79ae713531c24a9c28f3d9321c9b077aade1106e35e2891",
+    "3316-sqlite-helper-controls.log": "c7422e380d864d6a7c138634a6edd00c60d7355a4cb8fbe06ff942c5ee56ac6e",
+    "3316-helper-positive-hang.json": "816ce32a31f58bed1314e915d8d085fc32362a0fdbb22be5a5886a8908c071da",
+    "3316-real-storage-focused.log": "19aab31e8d35344acffd1c507e1c61371ac5767a1205d23bcd92f2f9a6712b5d",
+    "3316-real-storage-55491.log": "3361e9c40c86c5eb1eb53a19fa4afb457daf02d3330f3e4f8c5c5dd59706baeb",
+    "3316-postrebase-source-inputs.json": "985fc29956a59f2300e81a3ad71d1896967c6569bfc5babaee5d032cd6d40843"
+  },
+  "previousResults": "Original6fail1pass; helper-positive hang canceled143 after >5min (not a completed gate); stock initdb failed SHMMNI; first corrected matrix SQLite7pass1fail status race / realPG8pass; all retained. Original3failed3127loadedcohorts unchanged.",
+  "next": "Root must review/land prerequisite and coordinate publicCI/engine program source freeze plus host PG startup prerequisite before any new predefined loaded3127campaign."
+}

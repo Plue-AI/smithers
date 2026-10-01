@@ -9,7 +9,6 @@
  * the serving engine keeps exactly one run for the id the parent derived.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { Interpreter } from "@smthrs/flow"
 import { Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -22,12 +21,19 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import * as TestStores from "../src/test/TestStores.ts"
 import { RemoteWrite } from "./fixtures/RemoteCeilingFlow.ts"
+import { remoteTestDatabases } from "./fixtures/RemoteTestDatabase.ts"
 
 const servingFixture = fileURLToPath(new URL("./fixtures/remote-ceiling-engine.ts", import.meta.url))
 const callerFixture = fileURLToPath(new URL("./fixtures/placed-caller-engine.ts", import.meta.url))
 const repositoryRoot = fileURLToPath(new URL("../../../../../", import.meta.url))
-const childEnv = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, LANG: "C.UTF-8" }
+const childEnv = {
+  PATH: process.env.PATH,
+  TMPDIR: process.env.TMPDIR,
+  LANG: "C.UTF-8",
+  SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
+}
 /** Booting a child engine under a loaded suite can take many seconds. */
 const bootBudget = 120_000
 
@@ -35,6 +41,7 @@ interface Host {
   readonly child: ChildProcessWithoutNullStreams
   readonly events: Array<Record<string, unknown>>
   readonly output: () => string
+  readonly exited: Promise<void>
 }
 
 const freePort = (): Promise<number> =>
@@ -49,6 +56,8 @@ const freePort = (): Promise<number> =>
 
 const launch = (argv: ReadonlyArray<string>): Host => {
   const child = spawn(process.execPath, argv, { cwd: repositoryRoot, env: childEnv })
+  // Observe exit before a fast replay can print its result and leave.
+  const exited = once(child, "exit").then(() => undefined)
   const events: Array<Record<string, unknown>> = []
   let stdout = ""
   let stderr = ""
@@ -61,7 +70,7 @@ const launch = (argv: ReadonlyArray<string>): Host => {
       if (text.startsWith("{\"event\"")) events.push(JSON.parse(text) as Record<string, unknown>)
     }
   })
-  return { child, events, output: () => `${stderr.slice(-4096)}\n${stdout.slice(-4096)}` }
+  return { child, events, exited, output: () => `${stderr.slice(-4096)}\n${stdout.slice(-4096)}` }
 }
 
 const waitFor = async (host: Host, predicate: (event: Record<string, unknown>) => boolean) => {
@@ -77,9 +86,8 @@ const waitFor = async (host: Host, predicate: (event: Record<string, unknown>) =
 
 const kill = async (host: Host) => {
   if (host.child.exitCode !== null || host.child.signalCode !== null) return
-  const exited = once(host.child, "exit")
   host.child.kill("SIGKILL")
-  await exited
+  await host.exited
 }
 
 let directory: string
@@ -87,6 +95,7 @@ let root: string
 let servingFile: string
 let port: number
 let serving: Host
+let databases: ReturnType<typeof remoteTestDatabases>
 
 const serve = async () => {
   serving = launch([servingFixture, servingFile, root, String(port)])
@@ -98,20 +107,34 @@ const call = (callerFile: string, executionId: string, name: string, waitMs: num
 
 const settled = (caller: Host) => waitFor(caller, (event) => event.event === "result" || event.event === "failure")
 
-const runs = (filename: string, where: string, value: string) =>
+const runs = (filename: string, field: "state_json" | "run_id", value: string, like = false) =>
   Effect.runPromise(
     Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
-      const rows = yield* sql.unsafe<{ run_id: string; status: string }>(
-        `SELECT run_id, status FROM flows_runs WHERE ${where}`,
-        [value]
-      )
+      expect(sql.onDialectOrElse({ pg: () => "postgres", orElse: () => "sqlite" }))
+        .toBe(process.env.SMITHERS_TEST_PG_URL ? "postgres" : "sqlite")
+      const rows = yield* sql<{ run_id: string; status: string }>`
+        SELECT run_id, status FROM flows_runs WHERE ${sql(field)} ${sql.literal(like ? "LIKE" : "=")} ${value}`
       return rows.map((row) => ({ runId: row.run_id, status: row.status }))
-    }).pipe(Effect.provide(NodeDatabase.layer({ filename })))
+    }).pipe(Effect.provide(TestStores.databaseAt(filename)))
   )
 
 /** The serving engine's runs of the placed child that wrote `name`. */
-const servedRuns = (name: string) => runs(servingFile, "state_json LIKE ?", `%"name":"${name}"%`)
+const servedRuns = (name: string) => runs(servingFile, "state_json", `%"name":"${name}"%`, true)
+
+const sleepReceipt = (runId: string) =>
+  Effect.runPromise(Effect.scoped(
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      return yield* sql<
+        { runId: string; status: string; clockName: string; dueAt: number; completedAt: number | null }
+      >`
+    SELECT r.run_id AS "runId", r.status, c.clock_name AS "clockName",
+      c.due_at_ms AS "dueAt", c.completed_at_ms AS "completedAt"
+    FROM flows_runs r JOIN flows_clock_deadlines c ON c.execution_id = r.run_id
+    WHERE r.run_id = ${runId}`
+    }).pipe(Effect.provide(TestStores.databaseAt(servingFile)))
+  ))
 
 /** The id the caller's parent derives for its placed child. */
 const childId = (parentId: string, name: string, waitMs: number) =>
@@ -126,21 +149,23 @@ const runningEvents = (name: string) =>
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "smithers-cross-host-recovery-"))
+  databases = remoteTestDatabases(directory)
   root = join(directory, "workspace")
   await mkdir(root, { recursive: true })
-  servingFile = join(directory, "serving.sqlite")
+  servingFile = databases.filename("serving")
   port = await freePort()
   await serve()
 }, bootBudget)
 
 afterAll(async () => {
   await kill(serving)
+  await databases.close()
   await rm(directory, { recursive: true, force: true })
 })
 
 describe("cross-host recovery drill", () => {
   it("settles a parent whose caller died while its placed child ran, from the child's one run", async () => {
-    const callerFile = join(directory, "caller-dies.sqlite")
+    const callerFile = databases.filename("caller-dies")
     const name = "caller-dies.txt"
     const first = call(callerFile, "caller-dies", name, 1_500)
     await waitFor(serving, (event) => event.event === "running" && event.name === name)
@@ -156,35 +181,57 @@ describe("cross-host recovery drill", () => {
 
     const second = call(callerFile, "caller-dies", name, 1_500)
     expect(await settled(second)).toEqual({ event: "result", value: "parent saw written" })
-    await once(second.child, "exit")
+    await second.exited
 
     // The restarted caller read the recorded result: the body never ran again.
     expect(runningEvents(name)).toBe(entered)
     expect(await servedRuns(name)).toEqual([
       { runId: await childId("caller-dies", name, 1_500), status: "completed" }
     ])
-    expect(await runs(callerFile, "run_id = ?", "caller-dies")).toEqual([
+    expect(await runs(callerFile, "run_id", "caller-dies")).toEqual([
       { runId: "caller-dies", status: "completed" }
     ])
   }, bootBudget * 2)
 
   it("settles a parent after both hosts died mid-child and restarted on their journals", async () => {
-    const callerFile = join(directory, "both-die.sqlite")
+    const callerFile = databases.filename("both-die")
     const name = "both-die.txt"
     const first = call(callerFile, "both-die", name, 3_000)
     await waitFor(serving, (event) => event.event === "running" && event.name === name)
+    // Body entry precedes its journaled wait. Crash only after that exact
+    // recoverable boundary is durable, rather than racing the park write.
+    const runId = await childId("both-die", name, 3_000)
+    const deadline = Date.now() + bootBudget
+    let checkpoint = await sleepReceipt(runId)
+    while (
+      !checkpoint.some((row) => row.status === "suspended" && row.completedAt === null && row.dueAt > Date.now())
+      && Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      checkpoint = await sleepReceipt(runId)
+    }
+    expect(checkpoint).toEqual([{
+      runId,
+      status: "suspended",
+      clockName: expect.any(String),
+      dueAt: expect.any(Number),
+      completedAt: null
+    }])
+    expect(checkpoint[0]!.clockName.length).toBeGreaterThan(0)
+    expect(checkpoint[0]!.dueAt).toBeGreaterThan(Date.now())
     await Promise.all([kill(first), kill(serving)])
     expect(existsSync(join(root, name))).toBe(false)
-    expect(await servedRuns(name)).toEqual([{ runId: await childId("both-die", name, 3_000), status: "running" }])
+    expect(await servedRuns(name)).toEqual([{ runId, status: "suspended" }])
+    expect(await sleepReceipt(runId)).toEqual(checkpoint)
 
     await serve()
     const second = call(callerFile, "both-die", name, 3_000)
     expect(await settled(second)).toEqual({ event: "result", value: "parent saw written" })
-    await once(second.child, "exit")
+    await second.exited
 
     expect(readFileSync(join(root, name), "utf8")).toBe("written")
     // One run under the id the parent derived, recovered, never a second one.
     expect(await servedRuns(name)).toEqual([{ runId: await childId("both-die", name, 3_000), status: "completed" }])
-    expect(await runs(callerFile, "run_id = ?", "both-die")).toEqual([{ runId: "both-die", status: "completed" }])
+    expect(await runs(callerFile, "run_id", "both-die")).toEqual([{ runId: "both-die", status: "completed" }])
   }, bootBudget * 3)
 })

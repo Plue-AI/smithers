@@ -9,7 +9,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
-import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { FlowEngine, FlowProxy, Hosts } from "@smthrs/engine"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
@@ -26,11 +25,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import * as TestStores from "../src/test/TestStores.ts"
 import { RemoteWrite } from "./fixtures/RemoteCeilingFlow.ts"
+import { remoteTestDatabases } from "./fixtures/RemoteTestDatabase.ts"
 
 const fixture = fileURLToPath(new URL("./fixtures/remote-ceiling-engine.ts", import.meta.url))
 const repositoryRoot = fileURLToPath(new URL("../../../../../", import.meta.url))
-const childEnv = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, LANG: "C.UTF-8" }
+const childEnv = {
+  PATH: process.env.PATH,
+  TMPDIR: process.env.TMPDIR,
+  LANG: "C.UTF-8",
+  SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY
+}
 /** Booting a child engine under a loaded suite can take many seconds. */
 const bootBudget = 120_000
 
@@ -50,10 +56,15 @@ const freePort = (): Promise<number> =>
     })
   })
 
-const serve = async (filename: string, root: string, port: number): Promise<Serving> => {
+const serve = async (
+  filename: string,
+  root: string,
+  port: number,
+  environment: NodeJS.ProcessEnv = childEnv
+): Promise<Serving> => {
   const child = spawn(process.execPath, [fixture, filename, root, String(port)], {
     cwd: repositoryRoot,
-    env: childEnv
+    env: environment
   })
   const events: Array<Record<string, unknown>> = []
   let stdout = ""
@@ -136,11 +147,13 @@ const statusOf = (filename: string, name: string): Promise<ReadonlyArray<string>
   run(
     Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
+      expect(sql.onDialectOrElse({ pg: () => "postgres", orElse: () => "sqlite" }))
+        .toBe(process.env.SMITHERS_TEST_PG_URL ? "postgres" : "sqlite")
       const rows = yield* sql<{ status: string }>`
       SELECT status FROM flows_runs WHERE state_json LIKE ${`%"name":"${name}"%`}
     `
       return rows.map((row) => row.status)
-    }).pipe(Effect.provide(NodeDatabase.layer({ filename })))
+    }).pipe(Effect.provide(TestStores.databaseAt(filename)))
   )
 
 const pattern = (action: string, resource: string) => new CapabilityPattern({ action: action as never, resource })
@@ -162,22 +175,48 @@ let root: string
 let filename: string
 let port: number
 let serving: Serving
+let databases: ReturnType<typeof remoteTestDatabases>
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "smithers-remote-ceiling-"))
+  databases = remoteTestDatabases(directory)
   root = join(directory, "workspace")
   await mkdir(join(root, "allowed"), { recursive: true })
-  filename = join(directory, "serving.sqlite")
+  filename = databases.filename("serving")
   port = await freePort()
   serving = await serve(filename, root, port)
 }, bootBudget)
 
 afterAll(async () => {
   await stop(serving)
+  await databases.close()
   await rm(directory, { recursive: true, force: true })
 })
 
 describe("remote execution under a carried capability ceiling", () => {
+  it("refuses missing or relative explicitly configured helpers in the real serving child", async () => {
+    for (
+      const [tag, helper] of [["missing", join(directory, "missing-helper")], [
+        "relative",
+        "smithers-jj-export"
+      ]] as const
+    ) {
+      const refusalPort = await freePort()
+      const refused = await serve(databases.filename(`${tag}-helper`), root, refusalPort, {
+        ...childEnv,
+        SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: helper
+      })
+      const name = `${tag}-helper.txt`
+      try {
+        expect(await execute(refusalPort, parent(`helper-${tag}`, ["*"]), name, `helper-${tag}`))
+          .toBe("denied:PermissionDenied")
+        expect(existsSync(join(root, name))).toBe(false)
+      } finally {
+        await stop(refused)
+      }
+    }
+  }, bootBudget)
+
   it("enforces empty, narrowed, wildcard and omitted ceilings on the serving host", async () => {
     const narrowed = [`fs:write:${root}/allowed/**`]
     const cases = [

@@ -1,0 +1,74 @@
+{
+  "issue": 3316,
+  "status": "qualified focused real-storage boundary",
+  "sourceSnapshot": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "sourceFiles": [
+    {
+      "path": "packages/smithers/flows/engine-store/test/RemoteCapabilityCeiling.test.ts",
+      "sha256": "2e4517b6f8986088574412bb5eeb146f7d0858c2ca33e86d8a7bfe56bafea8f3"
+    },
+    {
+      "path": "packages/smithers/flows/engine-store/test/CrossHostRecovery.test.ts",
+      "sha256": "0989129cdc2497f9880f539e33bdc616e9c4963c088a42e6641e2c488788014f"
+    },
+    {
+      "path": "packages/smithers/flows/engine-store/test/fixtures/RemoteTestDatabase.ts",
+      "sha256": "b3e479b3953ed885e8fdae1d065fcd7abd848cada31e479abdca2e7bdccc3594"
+    }
+  ],
+  "checks": [
+    {
+      "command": "node ../database/scripts/test-matrix.mjs test/RemoteCapabilityCeiling.test.ts test/CrossHostRecovery.test.ts --coverage.enabled=false --disableConsoleIntercept",
+      "cwd": "packages/smithers/flows/engine-store",
+      "environment": {
+        "Node": "26.5.0",
+        "TMPDIR": "/private/tmp",
+        "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": "/Users/williamcory/smithers/target/release/smithers-jj-export",
+        "SMITHERS_TEST_PG_URL": "postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable"
+      },
+      "exit": 0,
+      "sqlite": {
+        "pass": 8,
+        "fail": 0,
+        "seconds": 62.9
+      },
+      "postgres": {
+        "pass": 8,
+        "fail": 0,
+        "seconds": 63.65
+      },
+      "limits": "Focused behavioral qualification without partial production coverage enforcement. Full package100% thresholds unchanged; not claimed100% or full release/3127 green."
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc -p tsconfig.test.json --noEmit",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0,
+      "scope": "Full owning source+tests strict configured program"
+    },
+    {
+      "command": "node_modules/.bin/dprint check test/RemoteCapabilityCeiling.test.ts test/CrossHostRecovery.test.ts test/fixtures/RemoteTestDatabase.ts",
+      "cwd": "packages/smithers/flows/engine-store",
+      "exit": 0
+    }
+  ],
+  "inputsVerified": 10,
+  "proofSha256": "cdab4a035dfcf787835064ec3f55db7e3adcf86040f73610164cb6f627d8a94f",
+  "parentReview": "Reviewed fixture-only helper forwarding, genuine missing/relative refusal, launch-time exit observer, durable exact timer checkpoint, and actual PG child-store adapter. No production authority changes.",
+  "limits": [
+    "#3127 full canonical cohort remains open",
+    "No full package100% claim; thresholds unchanged",
+    "Native helper already existed and was not rebuilt"
+  ],
+  "retainedFailures": [
+    "3316-postrebase-real-storage.log",
+    "3316-postrebase-test-types.log",
+    "3316-postrebase-format.log",
+    "3316-storage-cleanup-proof.json",
+    "3316-original-focused-red.log",
+    "3316-sqlite-helper-controls.log",
+    "3316-helper-positive-hang.json",
+    "3316-real-storage-focused.log",
+    "3316-real-storage-55491.log",
+    "3316-postrebase-source-inputs.json"
+  ]
+}
