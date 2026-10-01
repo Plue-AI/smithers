@@ -12,10 +12,11 @@ import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@sm
 import { Burndown } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
+import { readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, readPools } from "./accounts.ts"
 import { api, openIssues } from "./github.ts"
-import { HostFailed, repository, run, tail } from "./host.ts"
+import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
 import Work, { AgentFailed, NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
@@ -134,8 +135,26 @@ const github = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     (cause) => new GhFailed({ message: String((cause as { message?: unknown }).message ?? cause) })
   )
 
+/**
+ * The issue workspaces left beside the checkout whose issue is no longer open.
+ * A cancelled run, or a requeued item never worked again, leaves its
+ * workspace with installed dependencies behind; 51 of them held 24 GiB.
+ */
+export const staleWorkspaces = (entries: ReadonlyArray<string>, open: ReadonlySet<number>): ReadonlyArray<number> =>
+  entries.flatMap((entry) => {
+    const match = /^issue-(\d+)$/.exec(entry)
+    return match === null || open.has(Number(match[1])) ? [] : [Number(match[1])]
+  })
+
+const reapWorkspaces = (open: ReadonlySet<number>) =>
+  Effect.gen(function*() {
+    const entries = yield* Effect.promise(() => readdir(workspaces).catch(() => [] as Array<string>))
+    yield* Effect.forEach(staleWorkspaces(entries, open), removeWorkspace, { discard: true })
+  })
+
 const listIssues = ListIssues.toLayer(({ input }) =>
   github(openIssues(input.repo)).pipe(
+    Effect.tap((rows) => reapWorkspaces(new Set(rows.map((row) => row.number)))),
     Effect.map((rows) => rows.map((row) => ({ id: String(row.number), ...row })))
   )
 )

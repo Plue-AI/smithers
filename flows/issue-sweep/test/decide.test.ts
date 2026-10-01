@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
-import { claimTool, decide, parkedFor, releasesClaim } from "../flow.ts"
+import { claimTool, decide, parkedFor, releasesClaim, staleWorkspaces } from "../flow.ts"
 
 const claim = (host: string, expires: string) =>
   `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
@@ -56,4 +56,13 @@ test("issues for the maintainer or deferred by title are not dispatched", () => 
   assert.equal(parkedFor({ title: "  deferred: x", labels: ["bug"] }), "deferred")
   assert.equal(parkedFor({ title: "Defer the cache flush until close", labels: [] }), undefined)
   assert.equal(parkedFor({ title: "Retire the legacy Workers", labels: ["bug", "in-progress"] }), undefined)
+})
+
+// 51 leftover issue workspaces held 24 GiB after cancelled runs.
+test("only workspaces of issues no longer open are stale", () => {
+  assert.deepEqual(
+    staleWorkspaces(["issue-1", "issue-2", "issue-30", "notes.txt", "issue-x"], new Set([2])),
+    [1, 30]
+  )
+  assert.deepEqual(staleWorkspaces([], new Set()), [])
 })
