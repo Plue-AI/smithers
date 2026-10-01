@@ -78,7 +78,7 @@ INSERT INTO repository_egress_policies AS p (repository_id, allow_domains, updat
 SELECT $1, fresh.domains, $2
 FROM (
     SELECT ARRAY(
-        SELECT DISTINCT d FROM unnest(COALESCE($3::text[], '{}')) AS d
+        SELECT DISTINCT d COLLATE "C" FROM unnest(COALESCE($3::text[], '{}')) AS d
         WHERE NOT d = ANY(COALESCE($4::text[], '{}'))
         ORDER BY d COLLATE "C"
     )::text[] AS domains
@@ -87,7 +87,7 @@ WHERE cardinality(fresh.domains) <= $5::int
 ON CONFLICT (repository_id)
 DO UPDATE SET
     allow_domains = ARRAY(
-        SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+        SELECT DISTINCT d COLLATE "C" FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
         WHERE NOT d = ANY(COALESCE($4::text[], '{}'))
         ORDER BY d COLLATE "C"
     )::text[],

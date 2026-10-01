@@ -1,0 +1,68 @@
+{
+  "issue": 3263,
+  "status": "Qualified backend/CLI prerequisite; whole issue pending final app qualification",
+  "ownedFiles": [
+    {
+      "path": "packages/backend/db/product/queries/repository_egress_policies.sql",
+      "sha256": "c9561a7750b72f529a657120468bd77ce20196a04594627c7e5750e74613e8f6"
+    },
+    {
+      "path": "packages/backend/internal/db/repository_egress_policies.sql.go",
+      "sha256": "0293a5e3b0b78f478a5d6bec104adb124b80f222c5ef858f9e102bfe675f4239"
+    }
+  ],
+  "cause": "Current canonical INSERT/ON CONFLICT patch query selects DISTINCT d but orders by d COLLATE C; PostgreSQL rejects the statement42P10, including first ordinary owner PATCH, so actualHTTP500.",
+  "fix": "Select DISTINCT d COLLATE C in both sorted ARRAY subqueries; regenerate only owning binding from canonical sqlc1.30.0. Atomic union/difference, bytewiseCorder, max200, sessionlocks and reloadordering unchanged.",
+  "qualification": {
+    "go": {
+      "command": "go test -race -count=1 -timeout=180s -json ./packages/backend/internal/services ./packages/backend/internal/compose -run Test(RepositoryEgressPolicy|NormalizeEgressAllowDomains)",
+      "exit": 0,
+      "tests": 15,
+      "skipped": 0,
+      "packages": {
+        "composeSeconds": 5.799,
+        "servicesSeconds": 8.931
+      },
+      "dependency": "Real PostgreSQL55491 with SMITHERS_REQUIRE_DATABASE_TESTS=1"
+    },
+    "cli": {
+      "exit": 0,
+      "tests": 8,
+      "durationSeconds": 21.4,
+      "command": "pnpm exec vitest run --config vitest.config.ts --environment node --coverage.enabled=false --maxWorkers=1 test/BackendEgress.test.ts"
+    },
+    "inputs": {
+      "files": 2669,
+      "changed": []
+    },
+    "sqlc": {
+      "version": "v1.30.0",
+      "generationExit": 0,
+      "ownedBindingMatchesCanonical": true,
+      "fullDriftGateExit": 1,
+      "baselineDrifts": [
+        "admin_manage.sql.go",
+        "models.go",
+        "workspace.sql.go",
+        "workspace_children.sql.go"
+      ]
+    }
+  },
+  "limits": [
+    "Provider live-reload recorder is justified because external running Cloud proxy infrastructure is unavailable; actualSQL durable mutations and reload ordering execute, no liveremoteproxyclaim.",
+    "No wholebackend or wholeCLI coverage/gate claim; focusedCLIcoverage explicitlydisabled and configuredthresholds unchanged.",
+    "Four unrelated incoming-generatedbaseline drifts retained and restored to proven pre-existingbytes after generator probe; parent owns separateissue attribution/fix. Full canonicalSQLC cleanliness remains red outside owningbinding.",
+    "No authoredOpenAPI/APIshape changes. Appatomicmigration/busyreceiptqualification owned separately byUI."
+  ],
+  "foreignPrerequisite": {
+    "issue": 3279,
+    "holder": "codex-root-sqlc-3279",
+    "action": "Skip unexpired foreign claim; exact four canonical generated drift paths match existing issue. Owning egress binding matches canonicalsqlc1.30."
+  },
+  "archive": {
+    "file": "3263-backend-proof.tar.gz",
+    "sha256": "c8ccc86393d717f04de97581af4510ff85c8aa729d799a4635c0ebf357421f58"
+  },
+  "readinessSha256": "902bee805aaa2ab321ab419eb63a301c5c9966717880bd33cbf7f6aef42b0a7c",
+  "rootReview": "Both DISTINCT projections now use the same C-collated expression as ORDER BY, correcting actual42P10. Atomic update SQL and existing advisory lock/max-domain/refusal behavior stay intact. Real PostgreSQL race15 and real CLI HTTP8 controls execute."
+}

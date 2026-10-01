@@ -1,0 +1,84 @@
+{
+  "issue": 3263,
+  "status": "READY/FROZEN backend+CLI; app owned separately by UI",
+  "session": "codex-burndown-20260930",
+  "head": "b80c11079b01db39dad6ca252c32a8228a70040b",
+  "ownedFiles": [
+    {
+      "path": "packages/backend/db/product/queries/repository_egress_policies.sql",
+      "sha256": "c9561a7750b72f529a657120468bd77ce20196a04594627c7e5750e74613e8f6"
+    },
+    {
+      "path": "packages/backend/internal/db/repository_egress_policies.sql.go",
+      "sha256": "0293a5e3b0b78f478a5d6bec104adb124b80f222c5ef858f9e102bfe675f4239"
+    }
+  ],
+  "cause": "Current canonical INSERT/ON CONFLICT patch query selects DISTINCT d but orders by d COLLATE C; PostgreSQL rejects the statement42P10, including first ordinary owner PATCH, so actualHTTP500.",
+  "fix": "Select DISTINCT d COLLATE C in both sorted ARRAY subqueries; regenerate only owning binding from canonical sqlc1.30.0. Atomic union/difference, bytewiseCorder, max200, sessionlocks and reloadordering unchanged.",
+  "retainedRegression": [
+    "Existing actualPG initial insert/conflict update,20overlappingallowA/denyB rounds,16concurrentallows+8denies, max200/refused201st and lockreleased-after-refusal.",
+    "Composed owneronly router actualPG: collaborator/runcredential/anonymous refusals, obsoletePUT405, strictbadbodies/normalization, approvedPATCH reloads and removal toempty.",
+    "CLI Entry/realTCPHTTP fixture8cases: PATCHdelta-only allow/deny/overlap, no priorreadwhole-list mutation, normalization, notallowed/empty/403refusals."
+  ],
+  "qualification": {
+    "go": {
+      "command": "go test -race -count=1 -timeout=180s -json ./packages/backend/internal/services ./packages/backend/internal/compose -run Test(RepositoryEgressPolicy|NormalizeEgressAllowDomains)",
+      "exit": 0,
+      "tests": 15,
+      "skipped": 0,
+      "packages": {
+        "composeSeconds": 5.799,
+        "servicesSeconds": 8.931
+      },
+      "dependency": "Real PostgreSQL55491 with SMITHERS_REQUIRE_DATABASE_TESTS=1"
+    },
+    "cli": {
+      "exit": 0,
+      "tests": 8,
+      "durationSeconds": 21.4,
+      "command": "pnpm exec vitest run --config vitest.config.ts --environment node --coverage.enabled=false --maxWorkers=1 test/BackendEgress.test.ts"
+    },
+    "inputs": {
+      "files": 2669,
+      "changed": []
+    },
+    "sqlc": {
+      "version": "v1.30.0",
+      "generationExit": 0,
+      "ownedBindingMatchesCanonical": true,
+      "fullDriftGateExit": 1,
+      "baselineDrifts": [
+        "admin_manage.sql.go",
+        "models.go",
+        "workspace.sql.go",
+        "workspace_children.sql.go"
+      ]
+    }
+  },
+  "limits": [
+    "Provider live-reload recorder is justified because external running Cloud proxy infrastructure is unavailable; actualSQL durable mutations and reload ordering execute, no liveremoteproxyclaim.",
+    "No wholebackend or wholeCLI coverage/gate claim; focusedCLIcoverage explicitlydisabled and configuredthresholds unchanged.",
+    "Four unrelated incoming-generatedbaseline drifts retained and restored to proven pre-existingbytes after generator probe; parent owns separateissue attribution/fix. Full canonicalSQLC cleanliness remains red outside owningbinding.",
+    "No authoredOpenAPI/APIshape changes. Appatomicmigration/busyreceiptqualification owned separately byUI."
+  ],
+  "receipts": {
+    "3263-live-issue.json": "a3088f59ccadd41300dadb7942c84ad103959c57bfb0409fe699eb12655b7d52",
+    "3263-real-pg-race.jsonl": "8ac1f6a925c43bf42edbf1ea3d4c31a9c3b7a47c669167ad2bc155e02289a7ba",
+    "3263-real-pg-race.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3263-cli-real-http.json": "0dc08937cac35a0accc215aa97917375035bc2819e32cf5b0b784ff127a66ae6",
+    "3263-cli-real-http.log": "414958aab9b00c5557576d6ed0a9f60fbffbd6b5312fd082673b0c1904e33d92",
+    "3263-collation-repair-pg-probe.log": "9bc3bb522e29a62fe5aa8d55336c3fcac19db92a75db59dabdb7742dae20336e",
+    "3263-sqlc-generate.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3263-sqlc-version.log": "af249e1588764d7d22c33474330a69889d729659d32b5250c4c44f5067bc0d2d",
+    "3263-real-pg-race-green.jsonl": "2d5a5bc975ce3db0b8b6f98d62d613f5dae711c66ac6d08f4dbf02bc9b87cabf",
+    "3263-final-real-pg-race.jsonl": "19345c8a74f121d51fc53068d13b928eed057f14fafbf711a43c5d4b04fdc79b",
+    "3263-final-real-pg-race.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3263-final-sqlc-drift-check.log": "96d1706cbef53a0eb3cb9d4b4e20ce87887c6bc9e3dc6a65dc1660872e06b487",
+    "3263-extra-generation.diff": "2d3af1d0215bbc9b993e1f478382eb5d9be0a6afce622e92f483ce1c03f9558e",
+    "3263-extra-generation-inventory.json": "a960fad9e1c854c94728289af59af77306181c1718b728678d4eb58c62fe1bcf",
+    "3263-inputs-before.json": "a53dcb98ed0b95666c0c278966d0513a87ec584a5e38b57e86f07afea7063c90",
+    "3263-final-inputs-before.json": "0dff5e582d73c88d684a6f35b7c5fc7e3548ed8e1ba2e6014a6669e6f647ebb1",
+    "3263-final-input-audit.json": "d57dddf1fdb2b72e1dd1e25a79325f43625c3de0564b80c85df96c1bf66efcff",
+    "3263-owned.diff": "f0adf097d2bd52f7ea6cdbdf1f9f921a65de8a6d3defb82f4f93f08a2ce99db0"
+  }
+}

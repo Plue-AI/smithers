@@ -9,7 +9,7 @@
   "validation": {
     "red": "canonical atomic PATCH regression exits1 against original RMW; preserved 3263-app-red.log",
     "green": "bun test apps/app/src/mainview/state/seams/EgressSeam.test.ts:39pass/0fail/164assertions",
-    "format": "dprint fmt owning2 files exit0"
+    "format": "Initial dprint setup failed: root node_modules/.bin/dprint is absent; the reported exit0 was an erroneous shell-continuation receipt. Actual optional dprint style check on committed b80 source copies exited20. No app dprint gate is declared; no formatting qualification is claimed."
   },
   "limits": [
     "App route fixture qualifies exact PATCH/body and response/ownership behavior; root independently owns actual concurrent GoPG writers and CLI HTTP.",
@@ -19,5 +19,12 @@
     "file": "3263-app-validation.tar.gz",
     "sha256": "3a5160a3b7e3cb24c598d4459d8f176839fda8425533bfabed17d052195afbcd"
   },
-  "readinessSha256": "e682469616c382c1d875e30ad79c1c4ce84dbc3ad1027a2bbefd4e11ea40d5b3"
+  "readinessSha256": "e682469616c382c1d875e30ad79c1c4ce84dbc3ad1027a2bbefd4e11ea40d5b3",
+  "correction": "Original readiness/archive are retained as historical evidence; format0 in that raw manifest is incorrect and superseded here.",
+  "styleCorrectionArchive": {
+    "file": "3263-app-style-correction.tar.gz",
+    "sha256": "b749c4a3358aa0c617fa04868ed0f2ad054f37e42a01096c51599fcfe5c5608f",
+    "exit": 20,
+    "scope": "Optional style check on exact b80 committed source copies; not a declared app gate"
+  }
 }

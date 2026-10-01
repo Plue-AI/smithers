@@ -12,7 +12,7 @@ INSERT INTO repository_egress_policies AS p (repository_id, allow_domains, updat
 SELECT sqlc.arg(repository_id), fresh.domains, sqlc.narg(updated_by)
 FROM (
     SELECT ARRAY(
-        SELECT DISTINCT d FROM unnest(COALESCE(sqlc.arg(add_domains)::text[], '{}')) AS d
+        SELECT DISTINCT d COLLATE "C" FROM unnest(COALESCE(sqlc.arg(add_domains)::text[], '{}')) AS d
         WHERE NOT d = ANY(COALESCE(sqlc.arg(remove_domains)::text[], '{}'))
         ORDER BY d COLLATE "C"
     )::text[] AS domains
@@ -21,7 +21,7 @@ WHERE cardinality(fresh.domains) <= sqlc.arg(max_domains)::int
 ON CONFLICT (repository_id)
 DO UPDATE SET
     allow_domains = ARRAY(
-        SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+        SELECT DISTINCT d COLLATE "C" FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
         WHERE NOT d = ANY(COALESCE(sqlc.arg(remove_domains)::text[], '{}'))
         ORDER BY d COLLATE "C"
     )::text[],
