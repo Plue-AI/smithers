@@ -2,9 +2,12 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -25,6 +28,7 @@ type GitStorageMeter struct {
 }
 
 var _ repohost.PushMeter = (*GitStorageMeter)(nil)
+var _ repohost.ProvisionMeter = (*GitStorageMeter)(nil)
 
 func NewGitStorageMeter(budget StorageBudgeter, store GitBytesStore) *GitStorageMeter {
 	return &GitStorageMeter{budget: budget, store: store}
@@ -65,4 +69,59 @@ func (m *GitStorageMeter) RecordGitBytes(ctx context.Context, repositoryID, gitB
 	return m.store.RecordRepositoryGitBytes(ctx, db.RecordRepositoryGitBytesParams{
 		RepositoryID: repositoryID, GitBytes: gitBytes, MeasuredAt: measuredAt,
 	})
+}
+
+// provisionGitStore finds a staged repository's owner and, once the
+// repository is published, its row. GitStorageMeter needs it only to meter
+// staged forks and imports (smithersai/plue#768).
+type provisionGitStore interface {
+	GetUserByLowerUsername(context.Context, string) (db.User, error)
+	GetOrgByLowerName(context.Context, string) (db.Organization, error)
+	GetRepoByOwnerAndLowerName(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
+}
+
+var _ provisionGitStore = (*db.Queries)(nil)
+
+// OwnerGitBytesAllowance is everything owner may still store: a staged
+// repository has no recorded bytes to add back. An unlimited policy looks
+// nothing up.
+func (m *GitStorageMeter) OwnerGitBytesAllowance(ctx context.Context, owner string) (int64, bool, error) {
+	if _, unlimited := m.budget.(*UnlimitedBillingPolicy); unlimited {
+		return 0, false, nil
+	}
+	store, ok := m.store.(provisionGitStore)
+	if !ok {
+		return 0, false, fmt.Errorf("git storage owner lookup is unavailable")
+	}
+	owner = strings.ToLower(owner)
+	user, err := store.GetUserByLowerUsername(ctx, owner)
+	ownerType, ownerID := BillingOwnerTypeUser, user.ID
+	if errors.Is(err, pgx.ErrNoRows) {
+		org, orgErr := store.GetOrgByLowerName(ctx, owner)
+		ownerType, ownerID, err = BillingOwnerTypeOrg, org.ID, orgErr
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("resolve git storage owner: %w", err)
+	}
+	remaining, limited, err := m.budget.RemainingOwnerStorageBytes(ctx, ownerType, ownerID)
+	if err != nil || !limited {
+		return 0, limited, err
+	}
+	return max(remaining, 0), true, nil
+}
+
+// RecordProvisionedGitBytes records the git bytes of the published
+// repository owner/repo under its row's ID.
+func (m *GitStorageMeter) RecordProvisionedGitBytes(ctx context.Context, owner, repo string, gitBytes int64, measuredAt time.Time) error {
+	store, ok := m.store.(provisionGitStore)
+	if !ok {
+		return fmt.Errorf("provisioned git storage lookup is unavailable")
+	}
+	repository, err := store.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{
+		Owner: strings.ToLower(owner), LowerName: strings.ToLower(repo),
+	})
+	if err != nil {
+		return fmt.Errorf("resolve provisioned repository: %w", err)
+	}
+	return m.RecordGitBytes(ctx, repository.ID, gitBytes, measuredAt)
 }

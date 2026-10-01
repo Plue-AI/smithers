@@ -173,6 +173,10 @@ func (*UnlimitedBillingPolicy) RemainingStorageBytes(context.Context, int64) (in
 	return 0, false, nil
 }
 
+func (*UnlimitedBillingPolicy) RemainingOwnerStorageBytes(context.Context, string, int64) (int64, bool, error) {
+	return 0, false, nil
+}
+
 func (*UnlimitedBillingPolicy) AuthorizeStorageIncreaseCommitted(
 	ctx context.Context,
 	_ int64,

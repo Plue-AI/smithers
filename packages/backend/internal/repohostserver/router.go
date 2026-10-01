@@ -558,6 +558,10 @@ func (s *Server) forkRepo(w http.ResponseWriter, r *http.Request) error {
 	if _, err := os.Stat(dstPath); err == nil {
 		return badRequest("destination repository already exists")
 	}
+	// The copy is the destination owner's storage (smithersai/plue#768).
+	if err := admitGitCopy(r.Context(), r.Header, repoGitDir(srcPath)); err != nil {
+		return err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
 		return internalError("internal server error", err)
@@ -997,38 +1001,19 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		maxInputSize = policy.maxPushBytes
 	}
 	// smithersai/plue#593: a pack may not exceed the storage the owner has
-	// left for this repository (storagePackCap).
-	allowance, storageLimited, storageErr := gitBytesAllowance(r.Header)
-	if storageErr != nil {
-		return storageErr
-	}
-	var remainingStorage int64
-	if storageLimited {
-		if remainingStorage, err = remainingGitBytes(pushCtx, gitDir, allowance); err != nil {
-			return internalError("failed to measure repository git bytes", err)
-		}
-	}
-	storageCap := storagePackCap(remainingStorage)
-	storageCapped := storageLimited && storageCap < maxInputSize
-	if storageCapped {
-		maxInputSize = storageCap
+	// left for this repository (capStoragePack).
+	pack, err := capStoragePack(pushCtx, r.Header, gitDir, peeked, source.n, maxInputSize)
+	if err != nil {
+		return err
 	}
 	// receive-pack responses are small (sideband status lines only), so we
 	// buffer them here. We must hold the full response in memory until after
 	// jj ref import and push hooks so we can still return an HTTP error if the
 	// git subprocess itself fails before any bytes are written to the client.
-	pack := capPack(peeked, source.n, maxInputSize)
-	if storageLimited {
-		pack = requireObjectFreePack(pack, source.n, remainingStorage)
-	}
-	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pack, requestBody), maxInputSize, refViewer(r))
+	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pack, requestBody), pack.maxInputSize, refViewer(r))
 	gitErr := pushLimited(err)
 	if errors.Is(gitErr, errPushTooLarge) {
-		if storageCapped {
-			gitErr = storageLimitReached()
-		} else {
-			gitErr = pushTooLarge(userRefs, maxInputSize)
-		}
+		gitErr = pack.tooLarge(userRefs)
 	}
 
 	// git has applied the ref updates. A path-restricted push is authorized

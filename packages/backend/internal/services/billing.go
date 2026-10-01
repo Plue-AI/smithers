@@ -1007,6 +1007,9 @@ type StorageBudgeter interface {
 	// what the owner stores, negative when the owner is over the limit;
 	// limited is false when the plan has no storage limit.
 	RemainingStorageBytes(ctx context.Context, repositoryID int64) (remaining int64, limited bool, err error)
+	// RemainingOwnerStorageBytes also covers repositories being staged before
+	// their database row exists.
+	RemainingOwnerStorageBytes(ctx context.Context, ownerType string, ownerID int64) (remaining int64, limited bool, err error)
 }
 
 // RemainingStorageBytes returns the repository owner's storage limit less
@@ -1019,6 +1022,19 @@ func (s *BillingService) RemainingStorageBytes(ctx context.Context, repositoryID
 	if err != nil {
 		return 0, false, err
 	}
+	return s.remainingOwnerStorageBytes(ctx, owner)
+}
+
+// RemainingOwnerStorageBytes is RemainingStorageBytes for an owner, which a
+// staged repository has before its row exists (smithersai/plue#768).
+func (s *BillingService) RemainingOwnerStorageBytes(ctx context.Context, ownerType string, ownerID int64) (int64, bool, error) {
+	if ownerID <= 0 || (ownerType != BillingOwnerTypeUser && ownerType != BillingOwnerTypeOrg) {
+		return 0, false, fmt.Errorf("invalid storage billing owner %s %d", ownerType, ownerID)
+	}
+	return s.remainingOwnerStorageBytes(ctx, billingOwnerRef{OwnerType: ownerType, OwnerID: ownerID})
+}
+
+func (s *BillingService) remainingOwnerStorageBytes(ctx context.Context, owner billingOwnerRef) (int64, bool, error) {
 	plan, err := s.resolvePlan(ctx, owner)
 	if err != nil {
 		return 0, false, err

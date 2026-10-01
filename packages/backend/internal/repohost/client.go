@@ -535,23 +535,40 @@ func statusError(resp *http.Response) *StatusError {
 }
 
 // refusalTransport records, on the calling request's context, repo-host's
-// refusal of a write to a held repository, whichever client call received it
-// and whatever the caller makes of the error: the product's error layer
-// answers with it (middleware.DependencyRefusals). It sees every response the
-// client gets, JSON and git alike.
+// refusal of a write to a held repository, or of a write past the owner's
+// storage limit, whichever client call received it and whatever the caller
+// makes of the error: the product's error layer answers with it
+// (middleware.DependencyRefusals). It sees every response the client gets,
+// JSON and git alike.
 type refusalTransport struct{ next http.RoundTripper }
 
 func (t refusalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.next.RoundTrip(req)
-	if err == nil && resp.StatusCode == http.StatusServiceUnavailable && resp.Header.Get("X-Smithers-Error-Code") == RepositoryHeldCode {
+	if err != nil {
+		return resp, err
+	}
+	code := resp.Header.Get("X-Smithers-Error-Code")
+	switch {
+	case resp.StatusCode == http.StatusServiceUnavailable && code == RepositoryHeldCode:
 		refusal := apierrors.New(apierrors.CodeRepositoryHeld, "Repository is busy")
 		if retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After")); retryAfter > 0 {
 			refusal.RetryAfter = retryAfter
 		}
 		apierrors.RecordRefusal(req.Context(), refusal)
+	case resp.StatusCode == http.StatusRequestEntityTooLarge && code == StorageLimitCode:
+		// A staged fork refused here reaches its caller as a failed
+		// provision; the request still answers as a refused push does
+		// (smithersai/plue#768).
+		refusal := apierrors.New(apierrors.CodePlanLimitExceeded, "storage limit reached for the current plan")
+		refusal.LimitKind = storageLimitKind
+		apierrors.RecordRefusal(req.Context(), refusal)
 	}
 	return resp, err
 }
+
+// storageLimitKind is the limit_kind of a storage refusal, the billing
+// metric services.BillingMetricStorageBytes.
+const storageLimitKind = "storage_bytes"
 
 func (e *StatusError) Error() string {
 	if e.Message != "" {
@@ -589,7 +606,7 @@ func (c *Client) Health(ctx context.Context, hostURL string) error {
 	requestCtx, cancel := c.readRequestContext(ctx)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(
+	req, err := newRequest(
 		requestCtx,
 		http.MethodGet,
 		strings.TrimRight(hostURL, "/")+"/health",
@@ -600,7 +617,7 @@ func (c *Client) Health(ctx context.Context, hostURL string) error {
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host health request failed: %w", err)
 	}
@@ -776,13 +793,21 @@ func (c *Client) ExecuteStagedProvision(ctx context.Context, staged StagedProvis
 	if err != nil {
 		return err
 	}
+	// A fork's copy is its destination owner's storage, so repo-host admits
+	// it only within that owner's allowance (smithersai/plue#768).
+	var headers http.Header
+	if staged.OperationType == provisionOperationFork {
+		if headers, err = c.provisionGitHeaders(ctx, staged.Owner); err != nil {
+			return err
+		}
+	}
 	var response stageProvisionRepoResponse
-	if err := c.doJSON(ctx, http.MethodPost, baseURL+"/repos/provision-stages", stageProvisionRepoRequest{
+	if err := c.doJSONHeaders(ctx, http.MethodPost, baseURL+"/repos/provision-stages", stageProvisionRepoRequest{
 		Token: staged.Token, OperationType: staged.OperationType,
 		Owner: staged.Owner, Repo: staged.Repo,
 		DefaultBookmark: staged.DefaultBookmark, AutoInit: staged.AutoInit,
 		SrcOwner: staged.SrcOwner, SrcRepo: staged.SrcRepo,
-	}, http.StatusCreated, &response); err != nil {
+	}, http.StatusCreated, &response, headers); err != nil {
 		return err
 	}
 	if response.Token != staged.Token || (response.Phase != "ready" && response.Phase != "published") {
@@ -796,8 +821,13 @@ func (c *Client) PublishStagedProvision(ctx context.Context, staged StagedProvis
 	return c.completeStagedProvision(ctx, staged, "publish")
 }
 
+// FinalizeStagedProvision first records a published fork's or import's git
+// bytes; a failed record keeps the journal, so the finalize is retried.
 func (c *Client) FinalizeStagedProvision(ctx context.Context, staged StagedProvision) error {
 	defer c.observeOperationDuration("FinalizeStagedProvision", time.Now())
+	if err := c.recordProvisionedGitSize(ctx, staged); err != nil {
+		return err
+	}
 	return c.completeStagedProvision(ctx, staged, "finalize")
 }
 
@@ -1000,7 +1030,7 @@ func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
 		return fmt.Errorf("resolve storage set url: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := newRequest(
 		ctx,
 		http.MethodDelete,
 		repoEndpoint(baseURL, owner, repo),
@@ -1011,7 +1041,7 @@ func (c *Client) DeleteRepo(ctx context.Context, owner, repo string) error {
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host delete request failed: %w", err)
 	}
@@ -1173,7 +1203,7 @@ func (c *Client) InitWikiRepo(ctx context.Context, owner, repo string) error {
 		return fmt.Errorf("resolve storage set url: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := newRequest(
 		ctx,
 		http.MethodPut,
 		repoByIDEndpoint(baseURL, owner, repo)+"/wiki",
@@ -1184,7 +1214,7 @@ func (c *Client) InitWikiRepo(ctx context.Context, owner, repo string) error {
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host request failed: %w", err)
 	}
@@ -1206,7 +1236,7 @@ func (c *Client) InitDocsRepo(ctx context.Context, owner, repo string) error {
 		return fmt.Errorf("resolve storage set url: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := newRequest(
 		ctx,
 		http.MethodPut,
 		repoByIDEndpoint(baseURL, owner, repo)+"/docs",
@@ -1217,7 +1247,7 @@ func (c *Client) InitDocsRepo(ctx context.Context, owner, repo string) error {
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host request failed: %w", err)
 	}
@@ -1833,7 +1863,7 @@ func (c *Client) ImportRefs(ctx context.Context, owner, repo string) error {
 		return fmt.Errorf("resolve storage set url: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
+	req, err := newRequest(
 		ctx,
 		http.MethodPost,
 		repoEndpoint(baseURL, owner, repo)+"/git/import-refs",
@@ -1844,7 +1874,7 @@ func (c *Client) ImportRefs(ctx context.Context, owner, repo string) error {
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host import-refs request failed: %w", err)
 	}
@@ -2217,7 +2247,7 @@ func (c *Client) proxyGitRPCWithMeta(
 			return nil
 		}})
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, gitRPCURL, stdin)
+	req, err := newRequest(ctx, http.MethodPost, gitRPCURL, stdin)
 	if err != nil {
 		return fmt.Errorf("create git proxy request: %w", err)
 	}
@@ -2284,7 +2314,7 @@ func (c *Client) proxyGitRPCWithMeta(
 	client := *c.httpClient
 	client.Timeout = 0
 
-	resp, err := client.Do(req)
+	resp, err := send(&client, req)
 	// A refused push ends in whatever the aborted body made of the request;
 	// the refusal is the answer.
 	if gate != nil {
@@ -2392,7 +2422,7 @@ func (c *Client) proxyGitInfoRefs(
 	defer cancel()
 
 	infoRefsURL := fmt.Sprintf("%s/git/info-refs", repoEndpoint(baseURL, owner, repo))
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, infoRefsURL, nil)
+	req, err := newRequest(requestCtx, http.MethodGet, infoRefsURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create git info-refs request: %w", err)
 	}
@@ -2404,7 +2434,7 @@ func (c *Client) proxyGitInfoRefs(
 	c.applyAuthHeader(req)
 	setRefViewer(ctx, req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return "", fmt.Errorf("git info-refs request failed: %w", err)
 	}
@@ -2426,13 +2456,21 @@ func (c *Client) proxyGitInfoRefs(
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any) error {
+	return c.doJSONHeaders(ctx, method, endpoint, requestBody, expectedStatus, responseBody, nil)
+}
+
+func (c *Client) doJSONHeaders(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any, headers http.Header) error {
 	requestCtx, cancel := c.requestContext(ctx, method)
 	defer cancel()
-	return c.sendJSON(requestCtx, method, endpoint, requestBody, expectedStatus, responseBody)
+	return c.sendJSONHeaders(requestCtx, method, endpoint, requestBody, expectedStatus, responseBody, headers)
 }
 
 // sendJSON is doJSON bounded by ctx alone.
 func (c *Client) sendJSON(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any) error {
+	return c.sendJSONHeaders(ctx, method, endpoint, requestBody, expectedStatus, responseBody, nil)
+}
+
+func (c *Client) sendJSONHeaders(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any, headers http.Header) error {
 	var bodyReader io.Reader
 	if requestBody != nil {
 		encoded, err := json.Marshal(requestBody)
@@ -2442,16 +2480,19 @@ func (c *Client) sendJSON(ctx context.Context, method, endpoint string, requestB
 		bodyReader = bytes.NewReader(encoded)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bodyReader)
+	req, err := newRequest(ctx, method, endpoint, bodyReader)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	if requestBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for key, values := range headers {
+		req.Header[key] = append([]string(nil), values...)
+	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return fmt.Errorf("repo-host request failed: %w", err)
 	}
@@ -2471,10 +2512,41 @@ func (c *Client) sendJSON(ctx context.Context, method, endpoint string, requestB
 	return nil
 }
 
+// newRequest is http.NewRequestWithContext whose error keeps none of
+// endpoint's path (redactRouteURL).
+func newRequest(ctx context.Context, method, endpoint string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	return req, redactRouteURL(err)
+}
+
+// send is client.Do whose error keeps none of the request's path
+// (redactRouteURL).
+func send(client *http.Client, req *http.Request) (*http.Response, error) {
+	resp, err := client.Do(req)
+	return resp, redactRouteURL(err)
+}
+
+// redactRouteURL keeps only the scheme and host of the URL a *url.Error
+// names. A storage route URL carries its capability in its path
+// (smithersai/plue#786), and errors reach logs and API responses.
+func redactRouteURL(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	parsed, parseErr := url.Parse(urlErr.URL)
+	if parseErr != nil || parsed.Host == "" {
+		urlErr.URL = "repo-host"
+		return err
+	}
+	urlErr.URL = (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
+	return err
+}
+
 func doJSONPaginated[T any](ctx context.Context, c *Client, method, endpoint string, cursor string, limit int, expectedStatus int) ([]T, string, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse endpoint: %w", err)
+		return nil, "", fmt.Errorf("parse endpoint: %w", redactRouteURL(err))
 	}
 	query := parsed.Query()
 	query.Set("page", strconv.Itoa(cursorToPage(cursor, limit)))
@@ -2483,13 +2555,13 @@ func doJSONPaginated[T any](ctx context.Context, c *Client, method, endpoint str
 
 	requestCtx, cancel := c.requestContext(ctx, method)
 	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, method, parsed.String(), nil)
+	req, err := newRequest(requestCtx, method, parsed.String(), nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
 	c.applyAuthHeader(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := send(c.httpClient, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("repo-host request failed: %w", err)
 	}

@@ -19,10 +19,13 @@ may send a pack no larger than the storage the owner has left; a larger pack
 is refused before it is written, and HTTPS answers `402 plan_limit_exceeded`
 with `limit_kind` `storage_bytes`. An owner at the limit can still move
 branches to commits the repository already has. Pushes Smithers makes for the
-owner, such as GitHub sync, are refused the same way. After each push the
-repository's git size is measured and replaces its previous measurement.
-History a push deletes counts until repository maintenance removes it and a
-later push measures again.
+owner, such as GitHub sync, are refused the same way. A fork whose source is
+larger than the storage its new owner has left fails with the same `402`; a
+GitHub import whose repository is larger fails before anything is stored.
+After each push the repository's git size is measured and replaces its
+previous measurement; a fork or import is measured when it is created. History
+a push deletes counts until repository maintenance removes it and a later push
+measures again.
 
 | Plan       | Repositories | Private repositories | Organizations | Storage   |
 | ---------- | ------------ | -------------------- | ------------- | --------- |
@@ -36,7 +39,8 @@ The billing overview reports `repositories` for every owner and
 `organizations` for users. Concurrent creates for one owner are admitted one
 at a time, so they cannot pass a limit together. A push measures its
 repository before it accepts a pack, so one repository cannot pass the
-storage limit through pushes. Pushes to different repositories at the same
-time can each use the storage left, and git copies objects the repository
-already has into a pack that needs them, so the owner can pass the limit by
-that much; later pushes are refused. Self-hosted installs have no limits.
+storage limit through pushes. Pushes, forks, and imports to different
+repositories at the same time can each use the storage left, and git copies
+objects the repository already has into a pack that needs them, so the owner
+can pass the limit by that much; later pushes are refused. Self-hosted
+installs have no limits.

@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -261,6 +263,15 @@ type gitHubImportStagedRepoHost interface {
 	FinalizeStagedProvision(context.Context, repohost.StagedProvision) error
 	AbortStagedProvision(context.Context, repohost.StagedProvision) error
 }
+
+// gitHubImportStagedGitHeaders supplies the headers a staged import's mirror
+// push must carry: the destination owner's storage allowance
+// (smithersai/plue#768).
+type gitHubImportStagedGitHeaders interface {
+	StagedProvisionGitHeaders(context.Context, repohost.StagedProvision) (http.Header, error)
+}
+
+var _ gitHubImportStagedGitHeaders = (*repohost.Client)(nil)
 
 type GitHubImportWorkspaceProvisioner interface {
 	CreateWorkspaceAsync(ctx context.Context, input CreateWorkspaceInput) (WorkspaceResponse, error)
@@ -971,8 +982,12 @@ func (s *GitHubImportService) runDurableImport(ctx context.Context, job *claimed
 		if err != nil {
 			return err
 		}
+		pushHeaders, err := s.stagedMirrorPushHeaders(ctx, staged)
+		if err != nil {
+			return err
+		}
 		if err := s.cloneAndSyncMirror(ctx, "mirror.clone.staged", job.GitHubOwner, job.GitHubRepo,
-			githubCloneToken, pushURL, pushCapability, job.ID, mirrorPushArgs); err != nil {
+			githubCloneToken, pushURL, pushCapability, job.ID, mirrorPushArgs, pushHeaders); err != nil {
 			return err
 		}
 		if err := s.renewDurableImportClaims(ctx, *job, operation); err != nil {
@@ -1906,7 +1921,7 @@ func (s *GitHubImportService) refreshMirrorFromGitHub(ctx context.Context, userI
 	}
 
 	s.setStage(ctx, jobID, importStageCloningGitHub)
-	if err := s.cloneAndSyncMirror(ctx, "mirror.refresh", sourceOwner, sourceRepo, githubCloneToken, pushURLParsed.String(), token.Plaintext, jobID, nonPruningPushArgs); err != nil {
+	if err := s.cloneAndSyncMirror(ctx, "mirror.refresh", sourceOwner, sourceRepo, githubCloneToken, pushURLParsed.String(), token.Plaintext, jobID, nonPruningPushArgs, nil); err != nil {
 		return err
 	}
 
@@ -2512,7 +2527,21 @@ func (s *GitHubImportService) proactivelyRefreshGitHubToken(ctx context.Context,
 // mirrors AND prunes the destination to match the source exactly. --mirror is
 // only safe here because the storage was just created this run (nothing to prune).
 func (s *GitHubImportService) cloneAndPushMirror(ctx context.Context, owner, repo, sourceToken, pushURL, pushToken, jobID string) error {
-	return s.cloneAndSyncMirror(ctx, "mirror.clone", owner, repo, sourceToken, pushURL, pushToken, jobID, mirrorPushArgs)
+	return s.cloneAndSyncMirror(ctx, "mirror.clone", owner, repo, sourceToken, pushURL, pushToken, jobID, mirrorPushArgs, nil)
+}
+
+// stagedMirrorPushHeaders reads the headers a staged import's mirror push
+// carries from the staged host, for each push.
+func (s *GitHubImportService) stagedMirrorPushHeaders(ctx context.Context, staged repohost.StagedProvision) (http.Header, error) {
+	host, ok := s.stagedRepoHost.(gitHubImportStagedGitHeaders)
+	if !ok {
+		return nil, nil
+	}
+	headers, err := host.StagedProvisionGitHeaders(ctx, staged)
+	if err != nil {
+		return nil, fmt.Errorf("read staged import push headers: %w", err)
+	}
+	return headers, nil
 }
 
 // cloneAndSyncMirror clones the GitHub source into a temp mirror and pushes it
@@ -2520,7 +2549,8 @@ func (s *GitHubImportService) cloneAndPushMirror(ctx context.Context, owner, rep
 // clone/push plumbing (temp dir, credential-free URL, GIT_CONFIG_* token
 // discipline, cleanup) serves both the fresh --mirror push and the reuse-refresh
 // non-pruning push. spanName names the trace span for the caller's phase.
-func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, owner, repo, sourceToken, pushURL, pushToken, jobID string, buildPushArgs func(gitDir, pushURL string) []string) error {
+// pushHeaders are sent with every push request.
+func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, owner, repo, sourceToken, pushURL, pushToken, jobID string, buildPushArgs func(gitDir, pushURL string) []string, pushHeaders http.Header) error {
 	ctx, span := otel.Tracer("smithers-server").Start(ctx, spanName)
 	span.SetAttributes(attribute.String("repo_owner", owner), attribute.String("repo_name", repo), attribute.String("mirror_id", jobID))
 	defer span.End()
@@ -2557,23 +2587,40 @@ func (s *GitHubImportService) cloneAndSyncMirror(ctx context.Context, spanName, 
 	if s.metrics != nil {
 		s.metrics.ObserveMirrorCloneDuration(time.Since(started).Seconds())
 	}
-	if bytes, err := gitMirrorObjectBytes(ctx, localMirror); err == nil && s.metrics != nil {
-		s.metrics.ObserveMirrorCloneBytes(float64(bytes))
-		span.SetAttributes(attribute.Int64("bytes_cloned", bytes))
+	mirrorBytes, mirrorBytesErr := gitMirrorObjectBytes(ctx, localMirror)
+	if mirrorBytesErr == nil && s.metrics != nil {
+		s.metrics.ObserveMirrorCloneBytes(float64(mirrorBytes))
+		span.SetAttributes(attribute.Int64("bytes_cloned", mirrorBytes))
+	}
+	if mirrorBytesErr == nil {
+		if err := mirrorFitsStorageAllowance(pushHeaders, mirrorBytes); err != nil {
+			return err
+		}
 	}
 	s.setStage(ctx, jobID, importStagePushingMirror)
 	pushEnv := nonInteractiveGitEnv()
 	// The destination push credential also rides GIT_CONFIG_* env, never argv —
 	// pushURL is deliberately credential-free (buildRepoCloneURL).
 	if t := strings.TrimSpace(pushToken); t != "" {
-		pushEnv = append(pushEnv, gitBearerAuthEnv(t)...)
+		pushEnv = append(pushEnv, gitBearerAuthEnv(t, gitHeaderLines(pushHeaders)...)...)
 	} else {
 		return fmt.Errorf("push token is required")
 	}
 	if out, err := runGit(ctx, pushEnv, buildPushArgs(localMirror, pushURL)...); err != nil {
-		return fmt.Errorf("push mirrored refs: %w: %s", err, strings.TrimSpace(out))
+		return fmt.Errorf("push mirrored refs: %w: %s", err, strings.TrimSpace(withoutURLPath(out, pushURL)))
 	}
 	return nil
+}
+
+// withoutURLPath replaces rawURL in git's output with its scheme and host:
+// a staged import's push URL carries the storage route's capability and its
+// stage token (smithersai/plue#786), and a failed push names it.
+func withoutURLPath(out, rawURL string) string {
+	redacted := "repo-host"
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
+		redacted = parsed.Scheme + "://" + parsed.Host
+	}
+	return strings.ReplaceAll(out, rawURL, redacted)
 }
 
 func gitMirrorProgress(ctx context.Context, gitDir string) (ImportJobCounts, error) {
@@ -2642,12 +2689,50 @@ func nonInteractiveGitEnv() []string {
 // (GIT_CONFIG_*), NEVER on argv: an `-c http.extraHeader=…` flag — or a
 // token embedded in the remote URL — leaks the credential to `ps`/proc for
 // every local process for the whole clone/push. Env config keeps it off argv.
-func gitBearerAuthEnv(token string) []string {
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraHeader",
-		"GIT_CONFIG_VALUE_0=Authorization: Bearer " + strings.TrimSpace(token),
+// Each of headers ("Name: value") rides beside the credential the same way.
+func gitBearerAuthEnv(token string, headers ...string) []string {
+	headers = append([]string{"Authorization: Bearer " + strings.TrimSpace(token)}, headers...)
+	env := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(headers))}
+	for i, header := range headers {
+		env = append(env,
+			fmt.Sprintf("GIT_CONFIG_KEY_%d=http.extraHeader", i),
+			fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, header))
 	}
+	return env
+}
+
+// gitHeaderLines renders headers as http.extraHeader values, in name order.
+func gitHeaderLines(headers http.Header) []string {
+	names := slices.Sorted(maps.Keys(headers))
+	var lines []string
+	for _, name := range names {
+		for _, value := range headers[name] {
+			lines = append(lines, name+": "+value)
+		}
+	}
+	return lines
+}
+
+// mirrorFitsStorageAllowance refuses, as the plan limit, a mirror larger
+// than the storage allowance its push carries. mirrorBytes is measured as
+// repo-host measures the repository it stores, so an owner at the storage
+// limit is told so before the push rather than by a failed one; repo-host
+// still caps the pack itself (smithersai/plue#768).
+func mirrorFitsStorageAllowance(pushHeaders http.Header, mirrorBytes int64) error {
+	raw := pushHeaders.Get(repohost.GitBytesAllowanceHeader)
+	if raw == "" {
+		return nil
+	}
+	allowance, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse storage allowance %q: %w", raw, err)
+	}
+	if mirrorBytes <= allowance {
+		return nil
+	}
+	refusal := pkgerrors.New(pkgerrors.CodePlanLimitExceeded, "this import would exceed the storage limit for the current plan")
+	refusal.LimitKind = BillingMetricStorageBytes
+	return refusal
 }
 
 // GitHub's Git HTTPS endpoint uses the token as a Basic-auth password.
