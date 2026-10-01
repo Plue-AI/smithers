@@ -31,6 +31,10 @@ const workspaceArtifactCurrent = workspaceArtifactRoot + "/current"
 const workspaceArtifactOwnerPath = workspaceArtifactRoot + "/owner"
 const workspaceArtifactManifest = "bundle.sha256"
 
+// Images may carry raw release artifacts here. Their bytes must match the
+// source digest; an image tag or package version never proves compatibility.
+const workspaceArtifactBakedRoot = "/usr/local/lib/smithers/workspace-artifacts"
+
 // workspaceArtifactGuestPath is the PATH every artifact command and the
 // bootstrap it launches run with. A NixOS guest keeps its tools in its system
 // profile; a container guest image (Plue's agent VM, the node L0 image) keeps
@@ -309,9 +313,19 @@ func finishWorkspaceArtifacts(ctx context.Context, provider any, id, script stri
 			_, _ = artifactCommand(cleanup, client, id, "if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then exec 9>"+shellQuote(workspaceArtifactLock)+"; flock -w 2 9 || exit 1; if test \"$(readlink "+shellQuote(workspaceArtifactCurrent)+")\" != "+shellQuote(directory)+"; then rm -rf -- "+shellQuote(directory)+" "+shellQuote(directory+".publish")+"; rmdir -- "+shellQuote(path.Dir(directory))+" 2>/dev/null || true; fi; fi")
 		}()
 		for _, artifact := range sources {
+			started := time.Now()
+			reused, err := stageBakedWorkspaceArtifact(ctx, client, id, directory, artifact)
+			if err != nil {
+				return fmt.Errorf("stage baked workspace %s: %w", artifact.label, err)
+			}
+			if reused {
+				slog.Info("workspace artifact staged", "sandbox_id", id, "artifact", artifact.label, "baked", true, "duration_ms", time.Since(started).Milliseconds())
+				continue
+			}
 			if err := streamWorkspaceArtifactChecked(ctx, client, id, artifact.source, directory+"/"+artifact.target, artifact.digest); err != nil {
 				return fmt.Errorf("stage workspace %s: %w", artifact.label, err)
 			}
+			slog.Info("workspace artifact staged", "sandbox_id", id, "artifact", artifact.label, "baked", false, "duration_ms", time.Since(started).Milliseconds())
 		}
 		if err := client.WriteFile(ctx, id, directory+"/bootstrap.sh", sandbox.WriteFileRequest{Content: script}); err != nil {
 			return fmt.Errorf("stage workspace bootstrap script: %w", err)
@@ -346,6 +360,27 @@ func finishWorkspaceArtifacts(ctx context.Context, provider any, id, script stri
 	command := "mkdir -p -- " + shellQuote(workspaceArtifactRoot) + " || exit 1; command -v flock >/dev/null || exit 1; command -v setsid >/dev/null || exit 1; printf '%s\\n' " + shellQuote(token) + " >" + shellQuote(workspaceArtifactCurrent+"/bootstrap.pending") + "; setsid /bin/sh -c " + shellQuote(bootstrap) + " >>/tmp/smithers-workspace-bootstrap.log 2>&1 </dev/null &"
 	_, err = artifactCommand(ctx, client, id, command)
 	return err
+}
+
+// Use the same encoded staging and publication path for baked and transferred
+// artifacts. Verify the encoded bytes as well as the input, so a changed input
+// or an unsuccessful compression cannot publish a misleading bundle receipt.
+func stageBakedWorkspaceArtifact(ctx context.Context, client workspaceArtifactClient, id, directory string, artifact workspaceArtifactSource) (bool, error) {
+	if len(artifact.digest) != 64 {
+		return false, nil
+	}
+	source := workspaceArtifactBakedRoot + "/" + artifact.target + ".source"
+	target := directory + "/" + artifact.target + ".part00000000"
+	command := "source=" + shellQuote(source) + "; target=" + shellQuote(target) + "; expected=" + shellQuote(artifact.digest) + "; " +
+		"if test -f \"$source\" && test \"$(sha256sum \"$source\" | cut -d ' ' -f 1)\" = \"$expected\"; then " +
+		"mkdir -p -- " + shellQuote(directory) + " || exit 1; gzip -1c \"$source\" | base64 > \"$target\"; " +
+		"if test \"$(base64 -d < \"$target\" | gzip -dc | sha256sum | cut -d ' ' -f 1)\" != \"$expected\"; then rm -f -- \"$target\"; exit 1; fi; printf reused; " +
+		"else printf fallback; fi"
+	result, err := artifactCommand(ctx, client, id, command)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(result.Stdout) == "reused", nil
 }
 
 // Every foreground provisioning path must observe a completed bootstrap, not

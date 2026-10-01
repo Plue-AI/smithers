@@ -54,7 +54,7 @@ func TestBootstrapReplacesIncompatibleJJ(t *testing.T) {
 			if start < 0 {
 				t.Fatal("JJ bootstrap section missing")
 			}
-			end := strings.Index(rendered[start:], "if [ ! -x \"/home/dev/.local/bin/node\"") + start
+			end := strings.Index(rendered[start:], "# Reuse the image's toolchain") + start
 			if start < 0 || end < start {
 				t.Fatal("JJ bootstrap section missing")
 			}

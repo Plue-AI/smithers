@@ -36,7 +36,26 @@ if ! smithers_jj_compatible; then
   echo "smithers workspace bootstrap: required JJ 0.39.0 could not be installed" >&2
   exit 1
 fi
-if [ ! -x {{printf "%q" (printf "%s/node" .LocalBinDir)}} ] || [ ! -x {{printf "%q" (printf "%s/npm" .LocalBinDir)}} ]; then
+# Reuse the image's toolchain when its major matches the workspace contract.
+# npm must execute successfully: an executable symlink alone is insufficient.
+smithers_node_compatible() {
+  [ -x "$1/node" ] && [ -x "$1/npm" ] &&
+    "$1/node" --version 2>/dev/null | grep -Eq {{printf "%q" (printf "^v%s\\.[0-9]+\\.[0-9]+$" .NodeMajor)}} &&
+    PATH="$1:$PATH" "$1/npm" --version >/dev/null 2>&1
+}
+if ! smithers_node_compatible {{printf "%q" .LocalBinDir}}; then
+  for smithers_node_bin in /usr/local/bin /usr/bin /bin; do
+    if smithers_node_compatible "$smithers_node_bin"; then
+      ln -sfn "$smithers_node_bin/node" {{printf "%q" (printf "%s/node" .LocalBinDir)}}
+      ln -sfn "$smithers_node_bin/npm" {{printf "%q" (printf "%s/npm" .LocalBinDir)}}
+      if [ -x "$smithers_node_bin/npx" ]; then
+        ln -sfn "$smithers_node_bin/npx" {{printf "%q" (printf "%s/npx" .LocalBinDir)}}
+      fi
+      break
+    fi
+  done
+fi
+if ! smithers_node_compatible {{printf "%q" .LocalBinDir}}; then
   if command -v node >/dev/null 2>&1; then
     export SMITHERS_NODE_ARCHIVE="/var/tmp/smithers-node-release.tar.gz"
     export SMITHERS_NODE_EXTRACT_DIR="/var/tmp/smithers-node-release"

@@ -143,8 +143,9 @@ func TestWorkspaceArtifactTransferFailureNeverPublishesOrStarts(t *testing.T) {
 	err = finishWorkspaceArtifacts(t.Context(), client, "guest", "#!/bin/bash\ntrue\n")
 	require.ErrorContains(t, err, "transfer interrupted")
 	require.Len(t, client.writes, 2)
-	require.Len(t, client.commands, 2, "only readiness probe and bounded attempt cleanup")
-	require.Contains(t, client.commands[1], "rm -rf")
+	require.Len(t, client.commands, 3, "readiness probe, baked-content probe and bounded attempt cleanup")
+	require.Contains(t, client.commands[1], workspaceArtifactBakedRoot)
+	require.Contains(t, client.commands[2], "rm -rf")
 	require.NotContains(t, strings.Join(client.commands, "\n"), "setsid")
 	require.NotContains(t, strings.Join(client.commands, "\n"), "ln -s")
 }
@@ -181,8 +182,9 @@ func TestWorkspaceCreateDefersBootstrapButKeepsBootBarrier(t *testing.T) {
 	_, err = createWorkspaceSandbox(t.Context(), client, req)
 	require.NoError(t, err)
 	require.NotEmpty(t, client.writes)
-	require.Contains(t, client.commands[1], "ln -s")
-	require.Contains(t, client.commands[2], "setsid")
+	require.Contains(t, client.commands[1], workspaceArtifactBakedRoot)
+	require.Contains(t, client.commands[2], "ln -s")
+	require.Contains(t, client.commands[3], "setsid")
 	require.Contains(t, strings.Join(client.commands, "\n"), "setsid")
 	require.Equal(t, workspaceClaudeService, req.Init.Services[0].Name, "caller request remains unchanged")
 }
