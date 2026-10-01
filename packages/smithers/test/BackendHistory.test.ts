@@ -591,7 +591,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("binds the retained landing handler to its observed head while the public command remains unavailable", async () => {
+  it("binds internal and public landing to the observed head and refuses items without a landable pull request", async () => {
     const head = "c".repeat(40)
     const pullRequest = { number: 40, url: "https://github.com/owner/repo/pull/40", state: "open", head }
     const f = await serve((req, res) => {
@@ -605,8 +605,6 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       items(req, res, [item("proposed", { pullRequest })])
     })
     try {
-      // The backend endpoint is deferred under #3059. Preserve the internal
-      // handler's wire contract without advertising or pretending to serve it.
       const invoke = (issue: string) => history["history land"]!(f.client, { issue }, { repo: "owner/repo" })
       const landed = await invoke("#12")
       expect(itemLine(landed as Record<string, unknown>)).toContain("#12 Fix login · PR open")
@@ -621,9 +619,23 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         `/api/repos/owner/repo/mythical/items/${ID}/land {"head":"${head}"}`
       ])
       const count = f.requests.length
-      const unavailable = await f.run(["history", "land", "#12"])
-      expect(unavailable.code).not.toBe(0)
-      expect(f.requests).toHaveLength(count)
+      const publicLanding = await f.run(["history", "land", "#12"])
+      expect(publicLanding.code, publicLanding.output + publicLanding.error).toBe(0)
+      expect(publicLanding.output).toContain("#12 Fix login · PR open")
+      expect(f.requests.slice(count)).toEqual([
+        { method: "GET", url: "/api/repos/owner/repo/mythical/items/12", body: "" },
+        { method: "POST", url: `/api/repos/owner/repo/mythical/items/${ID}/land`, body: JSON.stringify({ head }) }
+      ])
+      for (const ref of ["13", "14", "99"]) {
+        const count = f.requests.length
+        const refused = await f.run(["history", "land", ref, "--json"])
+        expect(refused.code, refused.output + refused.error).toBe(1)
+        expect(JSON.parse(refused.output)).toMatchObject({
+          code: ref === "99" ? "not_found" : "not_landable",
+          message: ref === "99" ? "#99 is not in the history" : `#${ref} has no open pull request to land`
+        })
+        expect(f.requests.slice(count).some((request) => request.method === "POST")).toBe(false)
+      }
     } finally {
       await f.close()
     }

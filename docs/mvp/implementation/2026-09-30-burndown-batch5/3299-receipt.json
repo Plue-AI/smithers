@@ -1,0 +1,68 @@
+{
+  "issue": 3299,
+  "sourceParent": "773fac75dcd1efd5d518bfbe60699b35c8927274",
+  "readinessManifest": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/3299-readiness.json",
+  "readinessSHA256": "848824398e38ba70ceb05de0c669a81553f98424aff31281d4732d6c0aa3ce81",
+  "sourceFiles": [
+    "packages/smithers/test/BackendHistory.test.ts"
+  ],
+  "validation": {
+    "owningHistory": {
+      "files": 1,
+      "tests": 47,
+      "passed": 47,
+      "exit": 0,
+      "seconds": 5.05,
+      "receipt": "3299-history.log"
+    },
+    "broad": {
+      "files": 26,
+      "tests": 666,
+      "passed": 666,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "seconds": 89.49,
+      "commandReceipt": "3020-broad-command.json",
+      "selectorReceipt": "3020-broad-selector.json"
+    },
+    "completeCliTestsTypes": {
+      "lane": "types-tests",
+      "command": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "outerBoundSeconds": 180,
+      "elapsedSeconds": 17.013,
+      "exit": 0,
+      "timedOut": false,
+      "head": "773fac75dcd1efd5d518bfbe60699b35c8927274"
+    },
+    "format": {
+      "command": "pnpm exec dprint check test/BackendHistory.test.ts",
+      "exit": 0,
+      "receipt": "3299-format.log"
+    },
+    "lint": {
+      "command": "pnpm exec eslint test/BackendHistory.test.ts --max-warnings=0",
+      "exit": 1,
+      "receipt": "3299-lint.log",
+      "limit": "Owning test is outside configured ESLint matching scope; ignored-file warning, zero source lint errors. Not an executed test-file lint pass; no configuration modified."
+    }
+  },
+  "archive": "3020-3299-validation.tar.gz",
+  "archiveSHA256": "0991290ec29c1266c1d06366dcd4391fdd929b8e883a3509f29737b00dfb6225",
+  "limits": [
+    "Actual CLI Entry/parser and local HTTP transport exercised against deterministic product endpoint fixture. This does not claim live GitHub merging/CI authority or real backend-PG landing; no production authority changed.",
+    "The approved broad backend/presentation/rendering selection is 26 of 231 default-tag test files. The full 40-minute configured CLI aggregate coverage/release target was not run. Coverage was disabled for scoped behavior selection only; source coverage thresholds remain byte-identical and no executed package coverage percentage is claimed."
+  ],
+  "sourceSHA256": {
+    "packages/smithers/test/BackendHistory.test.ts": "acf7e4aca03149ff8636eedcc7edbcd74a27bf94f386479cd23257c3ffeae1a9"
+  },
+  "scope": "Stale public history-land fixture now tests successful real CLI Entry dispatch and exact pinned-head POST, plus typed refusals without a POST. Production routes and authority are unchanged."
+}
