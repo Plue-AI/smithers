@@ -474,6 +474,35 @@ describe("Burndown.round", () => {
     ])
   })
 
+  it("runs up to landConcurrency landings at once, starting them in the order work finished", async () => {
+    const { note, tape } = recorder()
+    let inFlight = 0
+    let widest = 0
+    const result = await runRound({ items: items("a", "b", "c", "d") }, {
+      ...baseOptions(note),
+      work: timed(note, { a: 1, b: 2, c: 3, d: 4 }),
+      landConcurrency: 2,
+      land: ({ item }) =>
+        Effect.gen(function*() {
+          yield* note(`land:${item.id}`)
+          inFlight += 1
+          widest = Math.max(widest, inFlight)
+          yield* Effect.sleep("20 millis")
+          inFlight -= 1
+          if (item.id === "b") return yield* Effect.fail("red")
+        })
+    })
+
+    expect(result.rows.map((row) => `${row.id}:${row.status}`)).toEqual([
+      "a:landed",
+      "b:failed",
+      "c:landed",
+      "d:landed"
+    ])
+    expect(widest).toBe(2)
+    expect(tape.filter((entry) => entry.startsWith("land:"))).toEqual(["land:a", "land:b", "land:c", "land:d"])
+  })
+
   it("hands what land answered to detail, and each row's detail to release", async () => {
     const { note, tape } = recorder()
     const result = await runRound({ items: items("a", "b") }, {
@@ -573,6 +602,8 @@ describe("Burndown.round", () => {
       [{ round: 0.5 }, {}, "invalid_input", "Burndown round must be a non-negative safe integer"],
       [{ slots: 0 }, {}, "invalid_input", "Burndown slots must be a positive safe integer"],
       [{ slots: "2" }, {}, "invalid_input", "Burndown slots must be a positive safe integer"],
+      [{}, { landConcurrency: 0 }, "invalid_decorator", "Burndown landConcurrency must be a positive safe integer"],
+      [{}, { landConcurrency: 1.5 }, "invalid_decorator", "Burndown landConcurrency must be a positive safe integer"],
       [{ settled: "a" }, {}, "invalid_input", "Burndown settled must be an array of item ids"],
       [{ items: { a: 1 } }, {}, "invalid_input", "Burndown items must be an array"],
       [{ items: [{ id: "" }] }, {}, "invalid_input", "Burndown items must each have a nonblank string id"],

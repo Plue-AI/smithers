@@ -31,8 +31,10 @@ const Payload = Schema.Struct({
 /**
  * What one agent produced. `change` is the jj change id of the single
  * described change holding the agent's edits, on top of `base`, and
- * `workspace` is the host jj workspace whose working copy sits on it; the
- * parent lands it. A remote run reaches this shape through {@link Adopt}.
+ * `workspace` is where the host jj workspace whose working copy sits on it
+ * lives while the parent checks and lands it. A local agent's workspace is
+ * already there; a remote run reaches this shape through {@link Adopt}, which
+ * leaves the workspace to {@link checkout}.
  */
 export const Report = Schema.Struct({
   agent: Schema.Literals(["codex", "claude"]),
@@ -338,6 +340,27 @@ const addWorkspace = (place: Place, revision: string) =>
     Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message }))
   )
 
+/**
+ * The issue's workspace standing on `change`, for landing it: the one already
+ * there when its working copy sits on `change`, otherwise a new one. A
+ * workspace exists only while its change works or lands, because each one
+ * with dependencies installed holds about 3 GB.
+ */
+export const checkout = (place: Place, change: string) =>
+  Effect.gen(function*() {
+    if (existsSync(place.directory)) {
+      const on = yield* jj(place.directory, ["log", "--no-graph", "-r", "@-", "-T", "change_id"]).pipe(
+        Effect.catch(() => Effect.succeed(""))
+      )
+      if (on.trim() === change) return place.directory
+    }
+    yield* addWorkspace(place, change)
+    return place.directory
+  })
+
+/** {@link checkout} at the issue's own place beside the sweep's checkout. */
+export const checkoutIssue = (issue: number, change: string) => checkout(placeOf(issue), change)
+
 /** The issue's workspace at `main`, with its locked dependencies installed for the agent. */
 const prepareWorkspace = PrepareWorkspace.toLayer((input) => {
   const place = placeOf(input.issue)
@@ -606,9 +629,9 @@ const remoteFix = RemoteFix.toLayer((input) =>
 
 /**
  * Lands a remote run's work as one described change on `main` in
- * `place.repository`, adds the workspace at `place` on top of it, and
- * reports it as a local agent's work is reported, so the parent lands both
- * the same way.
+ * `place.repository`, without a workspace, and reports it as a local agent's
+ * work is reported, so the parent lands both the same way: the landing adds
+ * the workspace at `place` with {@link checkout} when its checks start.
  *
  * The change's id derives from the session, the base and the patch: a
  * replayed adoption of the same journaled work answers the change it already
@@ -661,10 +684,12 @@ export const adoptWork = (input: typeof Adopt.payloadSchema.Type, place: Place) 
     if (outcome._tag !== "Merged") {
       return yield* new AgentFailed({ message: `the ${work.session} work did not merge cleanly onto main` })
     }
-    // Only the landing checks need dependencies, and landing installs them.
-    yield* addWorkspace(place, outcome.change)
-    const changed = (yield* jj(place.directory, ["diff", "--stat", "-r", outcome.change])).trim()
-    const patch = yield* jj(place.directory, ["diff", "--git", "-r", outcome.change])
+    // No workspace until the landing needs one: a stale one goes now.
+    yield* forget(place)
+    // Never snapshot the shared checkout: other sessions edit its working copy.
+    const read = ["--ignore-working-copy", "diff", "-r", outcome.change]
+    const changed = (yield* jj(place.repository, [...read, "--stat"])).trim()
+    const patch = yield* jj(place.repository, [...read, "--git"])
     return {
       ...result,
       workspace: place.directory,

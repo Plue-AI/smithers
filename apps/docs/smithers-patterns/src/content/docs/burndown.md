@@ -7,7 +7,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 `Burndown` works a backlog until nothing in it is yours. Each round it
 rediscovers the backlog, selects the items that are yours, claims them, works
 each one as a durable child execution, lands each result as its work finishes,
-one at a time, and releases every claim. This guide applies it to the open issues of a GitHub
+one at a time unless `landConcurrency` allows more, and releases every claim. This guide applies it to the open issues of a GitHub
 repository. The same members fit Linear tickets or a message queue; only the
 four provider calls change.
 
@@ -18,7 +18,7 @@ round N:  capacity? ─┬─ Available(slots) ─▶ discover ─▶ dispatch �
                      ├─ WaitUntil(at) ───▶ Sleep ──▶ Flow.to(N+1)  └─ launched = 0 ─▶ drained
                      └─ Exhausted ───────▶ WaitFor(signal) ──▶ Flow.to(N+1)
 
-dispatch: select ─▶ slot: claim ─▶ work (child: key/id) ─┬─▶ land (serial queue) ─▶ release
+dispatch: select ─▶ slot: claim ─▶ work (child: key/id) ─┬─▶ land (queue)  ─▶ release
                     ▲                                    │
                     └── capacity allows? next ours item ─┘
 ```
@@ -132,15 +132,15 @@ Provide `dispatchLayer`, the `ListIssues` and `Accounts` implementations,
 
 What each member decides:
 
-| Member      | Runs                                             | Its failure                                                 |
-| ----------- | ------------------------------------------------ | ----------------------------------------------------------- |
-| `select`    | For every unsettled item                         | Skips the item this round; the next round asks again        |
-| `claim`     | For each item a slot admits                      | `Held` settles it `held`; anything else settles it `failed` |
-| `work`      | After a successful claim                         | Settles it `failed`; the items beside it keep running       |
-| `land`      | One at a time, in the order work finished        | Settles it `failed`; the next landing still runs            |
-| `release`   | Once per successful claim, when the item settles | Appended to the row's detail; the status stays              |
-| `capacity`  | When a slot frees and an item is still waiting   | Admits nothing through that slot                            |
-| `cancelled` | When an item's work or the round is interrupted  | Counts as no cancel: the item is requeued                   |
+| Member      | Runs                                                                | Its failure                                                 |
+| ----------- | ------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `select`    | For every unsettled item                                            | Skips the item this round; the next round asks again        |
+| `claim`     | For each item a slot admits                                         | `Held` settles it `held`; anything else settles it `failed` |
+| `work`      | After a successful claim                                            | Settles it `failed`; the items beside it keep running       |
+| `land`      | In the order work finished, `landConcurrency` at a time (default 1) | Settles it `failed`; the next landing still runs            |
+| `release`   | Once per successful claim, when the item settles                    | Appended to the row's detail; the status stays              |
+| `capacity`  | When a slot frees and an item is still waiting                      | Admits nothing through that slot                            |
+| `cancelled` | When an item's work or the round is interrupted                     | Counts as no cancel: the item is requeued                   |
 
 ## Rolling admission
 
@@ -153,6 +153,13 @@ round rediscovers them, and its capacity gate parks if the accounts are out.
 
 Without a round `capacity` member the round launches `slots` items and defers
 the rest, because nothing says the capacity still holds.
+
+## Concurrent landing
+
+`landConcurrency` lets several landings run at once; they still start in the
+order work finished. Use it when most of a landing is checks that can run side
+by side, such as tests in separate checkouts, and serialize the step that must
+stay serial, such as moving `main`, inside `land` itself.
 
 `release` receives the row's final `status` and `detail`. `detail` renders a
 landed row from the work output and what `land` answered.

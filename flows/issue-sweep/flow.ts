@@ -3,14 +3,15 @@
  * as a `Burndown` from `@smthrs/patterns`. Each round asks the Codex and
  * Claude account pools for capacity, lists the open issues, claims the ones
  * that are ours, fixes each in its own jj workspace (`issue-sweep/work`), lands
- * each result on `main` as its fix finishes, one at a time, and releases every
- * claim. A finished fix frees its slot for the next issue. With every
- * account out, the sweep parks until an operator resets accounts and signals
+ * each result on `main` as its fix finishes, checking up to `landers` changes
+ * at once and pushing one at a time, and releases every claim. A finished fix
+ * frees its slot for the next issue. With every account out, the sweep parks
+ * until an operator resets accounts and signals
  * `issue-sweep/accounts-reset`.
  */
 import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
 import { Burndown } from "@smthrs/patterns"
-import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
+import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
@@ -19,7 +20,10 @@ import { api, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
-import Work, { AgentFailed, NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
+import Work, { AgentFailed, checkoutIssue, type NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
+
+// The most landings one round runs at once; `landers` picks fewer.
+const maxLanders = 16
 
 const Input = Schema.Struct({
   repo: Schema.String,
@@ -29,7 +33,11 @@ const Input = Schema.Struct({
   // reattaches to its children; a new attempt works failed issues afresh.
   attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   // Where agents run: on this Mac in their own sandbox (default), or in local microVMs.
-  placement: Schema.optional(Schema.Literals(["local", "vm"]))
+  placement: Schema.optional(Schema.Literals(["local", "vm"])),
+  // How many changes run their landing checks at once (default 6); pushes stay serial.
+  landers: Schema.optional(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(maxLanders))
+  )
 })
 
 const Issue = Schema.Struct({
@@ -247,6 +255,14 @@ const settleNoChange = (repo: string, issue: number, verdict: NoChange) =>
     return yield* verdict
   })
 
+// One gate per `landers` value: at most that many landings check at once.
+const landGates = new Map<number, Semaphore.Semaphore>()
+const landGate = (landers: number) => {
+  const gate = landGates.get(landers) ?? Semaphore.makeUnsafe(landers)
+  landGates.set(landers, gate)
+  return gate
+}
+
 const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, Engine, string>(Dispatch, {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
@@ -305,21 +321,29 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
       Effect.catchTag("issue-sweep/NoChange", (verdict) => settleNoChange(input.repo, args.item.number, verdict))
     ) as Effect.Effect<Worked, Failure, Engine>
   },
+  landConcurrency: maxLanders,
   // An issue someone closed while its agent worked is already settled; landing
-  // a second fix for it would only duplicate the first.
+  // a second fix for it would only duplicate the first. The change's
+  // workspace exists only while it lands: release removes it.
   land: ({ input, item, output }) =>
-    Effect.gen(function*() {
-      const state = yield* github(api(`repos/${(input as typeof Input.Type).repo}/issues/${item.number}`, [
-        "--jq",
-        ".state"
-      ]))
-      if (state.trim() !== "open") {
-        return yield* new LandFailed({
-          message: `#${item.number} is ${state.trim().toLowerCase()}; change ${output.change} not landed`
-        })
-      }
-      return yield* landChange(output.workspace, output.change)
-    }),
+    Semaphore.withPermit(
+      landGate((input as typeof Input.Type).landers ?? 6),
+      Effect.gen(function*() {
+        const state = yield* github(api(`repos/${(input as typeof Input.Type).repo}/issues/${item.number}`, [
+          "--jq",
+          ".state"
+        ]))
+        if (state.trim() !== "open") {
+          return yield* new LandFailed({
+            message: `#${item.number} is ${state.trim().toLowerCase()}; change ${output.change} not landed`
+          })
+        }
+        const workspace = yield* checkoutIssue(item.number, output.change).pipe(
+          Effect.mapError((cause) => new LandFailed({ message: `checkout: ${cause.message}` }))
+        )
+        return yield* landChange(workspace, output.change)
+      })
+    ),
   detail: (report, landed) =>
     `${landed === undefined ? report.change : landed.slice(0, 12)} by ${report.agent} ${report.account}`,
   release: (args) =>

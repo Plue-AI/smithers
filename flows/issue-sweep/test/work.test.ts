@@ -24,6 +24,7 @@ import {
   adoptWork,
   agentCommand,
   brief,
+  checkout,
   commitMessage,
   fixRemotely,
   NoChange,
@@ -256,13 +257,22 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
   assert.match(report.changed, /added\.txt/)
   assert.match(report.patch, /^-two$/m)
   assert.match(report.patch, /^\+TWO$/m)
-  // The issue's workspace stands on the change, as a local agent's does.
+  // No workspace holds the change while it waits to land.
   assert.equal(report.workspace, place.directory)
+  assert.equal(existsSync(place.directory), false)
+  assert.doesNotMatch(jjHost("workspace", "list"), /sweep-7/)
+
+  // Landing checks it out: the workspace stands on the change, as a local agent's does.
+  assert.equal(await Effect.runPromise(checkout(place, report.change)), place.directory)
   assert.equal(
     cmd(place.directory, "jj", "log", "--no-graph", "-r", "@-", "-T", "change_id").trim(),
     report.change
   )
   assert.equal(readFileSync(join(place.directory, "added.txt"), "utf8"), "new\n")
+  // A workspace already on the change is kept, edits and all.
+  writeFileSync(join(place.directory, "kept.txt"), "kept\n")
+  await Effect.runPromise(checkout(place, report.change))
+  assert.equal(existsSync(join(place.directory, "kept.txt")), true)
 
   // Replaying the adoption of the same journaled work answers the same change.
   const again = await Effect.runPromise(adoptWork(adoption, place))

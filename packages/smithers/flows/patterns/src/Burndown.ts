@@ -563,9 +563,11 @@ export interface ItemArgs<I, It extends Item> {
  * exists instead of starting a second one.
  *
  * `select` defaults to {@link ours} for every item. `claim` may fail with
- * {@link Held}. `land`, when present, runs one item at a time, in the order
- * work finished, and one failed landing does not stop the next; without it a
- * worked item counts as landed. `release` runs once for every item whose claim
+ * {@link Held}. `land`, when present, starts items in the order work finished,
+ * at most `landConcurrency` at a time (default 1), and one failed landing does
+ * not stop the next; without it a worked item counts as landed. A `land` that
+ * runs concurrently serializes whatever must stay serial, such as the final
+ * push, itself. `release` runs once for every item whose claim
  * succeeded, whatever happened after, with the item's final status and row
  * detail. `detail` renders a landed item's detail from its work output and,
  * when `land` is present, what `land` answered, such as the landed revision.
@@ -594,6 +596,7 @@ export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
   readonly claim: (args: ItemArgs<I, It>) => Effect.Effect<unknown, E | Held, R>
   readonly work: (args: ItemArgs<I, It> & { readonly executionId: string }) => Effect.Effect<W, E, R>
   readonly land?: ((args: ItemArgs<I, It> & { readonly output: W }) => Effect.Effect<L, E, R>) | undefined
+  readonly landConcurrency?: number | undefined
   readonly release: (
     args: ItemArgs<I, It> & { readonly status: Status; readonly detail: string }
   ) => Effect.Effect<unknown, E, R>
@@ -632,13 +635,20 @@ const refusal = (message: string): PatternError => new PatternError({ code: "inv
 const roundRefusal = (
   input: { readonly round: unknown; readonly items: unknown; readonly settled?: unknown; readonly slots?: unknown },
   key: unknown,
-  concurrency: number
+  concurrency: number,
+  landConcurrency: unknown
 ): PatternError | undefined => {
   if (typeof key !== "string" || key.trim().length === 0) {
     return new PatternError({ code: "invalid_decorator", message: "Burndown key must be a nonblank string" })
   }
   const width = Compose.concurrencyRefusal("Burndown", concurrency)
   if (width !== undefined) return width
+  if (landConcurrency !== undefined && (typeof landConcurrency !== "number" || !bound(landConcurrency))) {
+    return new PatternError({
+      code: "invalid_decorator",
+      message: "Burndown landConcurrency must be a positive safe integer"
+    })
+  }
   if (typeof input.round !== "number" || !Number.isSafeInteger(input.round) || input.round < 0) {
     return refusal("Burndown round must be a non-negative safe integer")
   }
@@ -688,8 +698,8 @@ type Attempt<W> =
  * item `held`; any other claim, work, or landing failure settles it `failed`
  * with the failure's message. A failure is recorded on its own row and never
  * cancels the items beside it. A worked item enters the landing queue at
- * once: landings run one at a time, in the order work finished, while other
- * items still work. Every item whose claim succeeded is released as soon as
+ * once: landings start in the order work finished, at most
+ * {@link RoundOptions.landConcurrency} at a time, while other items still work. Every item whose claim succeeded is released as soon as
  * it settles, with its final status and detail; a release failure is appended
  * to the row's detail and does not change its status. Rows keep discovery
  * order.
@@ -708,7 +718,7 @@ type Attempt<W> =
  * so a resumed run claims it again.
  *
  * `round` fails with a `PatternError` before any member runs when `key` is
- * blank, `concurrency` or `slots` is not a positive safe integer, `round` is
+ * blank, `concurrency`, `landConcurrency`, or `slots` is not a positive safe integer, `round` is
  * not a non-negative safe integer, or an item lacks a nonblank string id or
  * repeats one. It snapshots `items`, each item's `id`, and every option at the
  * call; the item records themselves stay the caller's.
@@ -726,11 +736,12 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
   const claim = options.claim
   const work = options.work
   const land = options.land
+  const landers = options.landConcurrency ?? 1
   const release = options.release
   const detail = options.detail
   const capacity = options.capacity
   const cancelled = options.cancelled
-  const invalid = roundRefusal(input, key, concurrency)
+  const invalid = roundRefusal(input, key, concurrency, options.landConcurrency)
   if (invalid !== undefined) return Effect.fail(invalid)
   const value = input.input
   const index = input.round
@@ -858,7 +869,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
       })
     const drain = <A>(queue: Queue.Dequeue<A, Cause.Done>, handle: (entry: A) => Effect.Effect<void, never, R>) =>
       Queue.take(queue).pipe(Effect.flatMap(handle), Effect.forever, Effect.catchIf(Cause.isDone, () => Effect.void))
-    // Landings stay serial, in the order work finished.
+    // Landings start in the order work finished, `landers` at a time.
     const lander = drain(landings, ({ card, output }) =>
       land!({ ...args(card), output }).pipe(
         Effect.match({
@@ -876,7 +887,7 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
     yield* Effect.onExit(
       Effect.all([
         Effect.andThen(Effect.forEach(first, slot, each), Queue.end(landings)),
-        Effect.andThen(lander, Queue.end(releases)),
+        Effect.andThen(Effect.forEach(Array.from({ length: landers }), () => lander, each), Queue.end(releases)),
         Effect.forEach(first, () => releaser, each)
       ], each),
       (exit) =>
