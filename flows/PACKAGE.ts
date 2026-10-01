@@ -118,6 +118,7 @@ const issueSweep = Smithers.NodeTest({
 const issueSweepVm = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/issue-sweep/test/vm.real.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/vm.shared.real.test.ts"),
     Smithers.file("//flows/issue-sweep/test/vm.claude.real.test.ts")
   ]),
   srcs: [sources],

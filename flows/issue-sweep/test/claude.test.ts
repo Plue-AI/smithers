@@ -1,5 +1,5 @@
 import { Sandbox } from "@smthrs/sandbox"
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, PlatformError, Sink, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, PlatformError, Sink, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as Spawner from "effect/unstable/process/ChildProcessSpawner"
@@ -258,7 +258,12 @@ const guest = (options: {
   login?: string
   fail?: "mkdir" | "chmod" | "write" | "spawn" | "stdout" | "remove"
   wait?: boolean
+  checkout?: string
 } = {}) => {
+  const checkout = options.checkout ?? guestCheckout
+  const home = resolve(checkout, "../.claude-sweep")
+  const paths = Effect.runSync(Path.Path.pipe(Effect.provide(Path.layer)))
+  const guestPaths = { ...paths, resolve: (...parts: string[]) => resolve(checkout, ...parts) }
   const events: string[] = []
   const commands: ChildProcess.StandardCommand[] = []
   const ready = Deferred.makeUnsafe<void>()
@@ -269,23 +274,23 @@ const guest = (options: {
     })
   const fs = FileSystem.makeNoop({
     makeDirectory: (path, config) => {
-      assert.equal(path, guestClaudeHome)
+      assert.equal(path, home)
       assert.equal(config?.recursive, true)
       return stage("mkdir")
     },
     chmod: (path, mode) => {
-      assert.equal(path, guestClaudeHome)
+      assert.equal(path, home)
       assert.equal(mode, 0o700)
       return stage("chmod")
     },
     writeFileString: (path, content, config) => {
-      assert.equal(path, `${guestClaudeHome}/oauth-token`)
+      assert.equal(path, `${home}/oauth-token`)
       assert.equal(content, options.login ?? token)
       assert.deepEqual(config, { flag: "wx", mode: 0o600 })
       return stage("write")
     },
     remove: (path, config) => {
-      assert.equal(path, guestClaudeHome)
+      assert.equal(path, home)
       assert.deepEqual(config, { recursive: true, force: true })
       return stage("remove")
     }
@@ -330,7 +335,11 @@ const guest = (options: {
     events,
     commands,
     ready,
-    layer: Layer.mergeAll(Layer.succeed(FileSystem.FileSystem)(fs), Layer.succeed(Spawner.ChildProcessSpawner)(spawner))
+    layer: Layer.mergeAll(
+      Layer.succeed(FileSystem.FileSystem)(fs),
+      Layer.succeed(Spawner.ChildProcessSpawner)(spawner),
+      Layer.succeed(Path.Path)(guestPaths)
+    )
   }
 }
 
@@ -576,4 +585,22 @@ test("remote selection falls back to Codex when all Claude remote logins are una
   const exit = await Effect.runPromiseExit(Effect.scoped(reserveRemoteAccount(3355, { picker: empty, login })))
   assert.ok(Exit.isFailure(exit))
   assert.match(String(exit.cause), /no ready Codex or Claude account/)
+})
+
+// Each VM slot has its own checkout and adjacent login directory.
+test("concurrent guest agents use separate checkout and login paths and clean up both", async () => {
+  const first = guest({ checkout: "/home/developer/slots/one/workspace" })
+  const second = guest({ checkout: "/home/developer/slots/two/workspace" })
+  const results = await Promise.all([first, second].map((made) =>
+    Effect.runPromise(
+      claudeInGuest("claude-5", token, "vm", prompt).pipe(Effect.provide(made.layer))
+    )
+  ))
+  assert.equal(results.length, 2)
+  for (const [index, made] of [first, second].entries()) {
+    const slot = index === 0 ? "one" : "two"
+    assert.match(made.commands[0]!.args[1]!, new RegExp(`/slots/${slot}/workspace`))
+    assert.match(made.commands[0]!.args[1]!, new RegExp(`/slots/${slot}/\\.claude-sweep`))
+    assert.deepEqual(made.events, ["mkdir", "chmod", "write", "spawn", "process-close", "remove"])
+  }
 })

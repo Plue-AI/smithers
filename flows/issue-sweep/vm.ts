@@ -1,6 +1,6 @@
 /**
  * Local microVM placement for `issue-sweep/work`: one Microsandbox microVM per
- * issue on this Mac, booted from a prepared Smithers snapshot.
+ * issue by default, or several isolated sessions per VM with agentsPerVm.
  *
  `work/flow.ts` passes `provider()` to `Sandbox.run` with the session
  * `issue-sweep:<repo>#<issue>`, exactly where a Cloud run passes CloudSandbox;
@@ -11,10 +11,10 @@
  * `/home/developer`, `git`, `jj`, Node 26, pnpm, `gh`, `codex`, `claude`, and the
  * Go and Rust toolchains the checkout pins on PATH, dependencies installed. At
  * acquire the checkout moves to a fresh `main` (`refresh`). Closing the scope
- * removes the microVM, on success, failure and interruption; `reapOrphans` removes the microVMs of a host
+ * releases that session on success, failure and interruption; the last session
+ * destroys its VM. `reapOrphans` removes the microVMs of a host
  * process that died without closing its scopes. `provider()` is one
- * process-wide instance whose `maxVms` gate (default 24) queues acquires beyond
- * the host's measured capacity.
+ * process-wide instance whose agent gate and VM cap queue further acquires.
  *
  * Capabilities: the Microsandbox SDK is a native module running in the flow
  * host process, so booting and driving a microVM spawns nothing through the
@@ -32,6 +32,7 @@ import { existsSync, readdirSync, statfsSync } from "node:fs"
 import { homedir, hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { pooled } from "./vm-pool.ts"
 
 /**
  * Every microVM runs at a lower CPU priority than this host: under 32 busy
@@ -211,6 +212,18 @@ export const refreshLine = "jj git fetch --remote origin --branch main --quiet &
  * How the agent microVMs are shaped.
  */
 export interface Options {
+  /** Sessions per VM. Default 1; larger values require guest cgroup v2 memory control. */
+  readonly agentsPerVm?: number | undefined
+  /** Total live agents, independently of VM count. Default 24. */
+  readonly maxAgents?: number | undefined
+  /** Shared VM memory in MiB, plus memoryPerAgentMib for each slot. Default 1024. */
+  readonly memoryBaseMib?: number | undefined
+  /** Per-session memory ceiling in MiB. Default 3072. */
+  readonly memoryPerAgentMib?: number | undefined
+  /** CPUs per agent slot, in addition to one shared CPU. Default 1. */
+  readonly cpusPerAgent?: number | undefined
+  /** CPU scaling ceiling. Default 8. */
+  readonly maxCpus?: number | undefined
   /** The Microsandbox SDK. Default: the `microsandbox` package. */
   readonly sdk?: MicrosandboxSandbox.Sdk | undefined
   /** The prepared snapshot to boot. Default: the newest of `imageFamily`. */
@@ -294,14 +307,16 @@ export const latestImage = (
   )
 
 /**
- * A provider of agent microVMs: each `acquire` waits for one of `maxVms`
- * slots, boots the snapshot, refreshes the checkout, and hands back a session
- * rooted at `guestCheckout`. The slot and the microVM are both released when
- * the acquiring scope closes.
+ * A provider of agent sessions, bounded by both maxAgents and maxVms.
+ * The default path retains its snapshot checkout. Shared VMs refresh once,
+ * then each lease prepares an independent checkout before Sandbox.run captures
+ * its base. Closing the final session destroys the VM.
  */
 export const make = (options: Options = {}): Sandbox.Provider & { readonly slots: Semaphore.Semaphore } => {
   const sdk = options.sdk ?? Microsandbox
-  const slots = Semaphore.makeUnsafe(options.maxVms ?? 24)
+  const shape = sizing(options)
+  const slots = Semaphore.makeUnsafe(Math.min(options.maxAgents ?? 24, (options.maxVms ?? 24) * shape.agentsPerVm))
+  const vmSlots = Semaphore.makeUnsafe(options.maxVms ?? 24)
   const boots = Semaphore.makeUnsafe(options.bootConcurrency ?? 8)
   let inner: Sandbox.Provider | undefined
   const machines = (snapshot: string) =>
@@ -316,32 +331,95 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
         ...toolchainEnv,
         PATH: guestPath
       },
-      cpus: options.cpus ?? 2,
-      memoryMib: options.memoryMib ?? 4096,
+      cpus: shape.cpus,
+      memoryMib: shape.memoryMib,
       maxDurationSecs: options.maxDurationSecs ?? 3 * 60 * 60,
       network: options.network ?? { allow: agentHosts },
       owner,
       holder: options.holder ?? defaultHolder(),
       labels: { "issue-sweep.snapshot": snapshot }
     })
+  const acquire: Sandbox.Provider["acquire"] = (sessionKey) =>
+    Effect.gen(function*() {
+      // Held until machine teardown finishes, including a last-reference pool close.
+      yield* Effect.acquireRelease(vmSlots.take(1), () => vmSlots.release(1))
+      yield* awaitDisk(options.freeBytes ?? statfsFree, options.minFreeBytes ?? 25 * 1024 ** 3)
+      const snapshot = options.snapshot ?? (yield* latestImage(sdk))
+      const session = yield* boots.withPermits(1)(machines(snapshot).acquire(sessionKey))
+      if (options.refresh ?? true) yield* required(session, "refreshing the checkout", refreshLine)
+      return session
+    })
+  const sessions = shape.agentsPerVm === 1 ? { acquire } : pooled({
+    agentsPerVm: shape.agentsPerVm,
+    memoryPerAgentMib: shape.memoryPerAgentMib,
+    acquire,
+    prepare: required,
+    checkout: guestCheckout
+  })
   return {
     slots,
     acquire: (sessionKey) =>
       Effect.gen(function*() {
         yield* Effect.acquireRelease(slots.take(1), () => slots.release(1))
-        yield* awaitDisk(options.freeBytes ?? statfsFree, options.minFreeBytes ?? 25 * 1024 ** 3)
-        const snapshot = options.snapshot ?? (yield* latestImage(sdk))
-        const session = yield* boots.withPermits(1)(machines(snapshot).acquire(sessionKey))
-        if (options.refresh ?? true) yield* required(session, "refreshing the checkout", refreshLine)
-        return session
+        return yield* sessions.acquire(sessionKey)
       })
   }
 }
 
-let shared: ReturnType<typeof make> | undefined
+/** Validate before provisioning; a bad capacity must never become an infinite wait. */
+export const sizing = (options: Options = {}) => {
+  for (
+    const key of [
+      "agentsPerVm",
+      "maxAgents",
+      "maxVms",
+      "bootConcurrency",
+      "memoryBaseMib",
+      "memoryPerAgentMib",
+      "memoryMib",
+      "cpus",
+      "cpusPerAgent",
+      "maxCpus"
+    ] as const
+  ) {
+    const value = options[key]
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
+      throw new RangeError(`${key} must be a positive integer`)
+    }
+  }
+  const agentsPerVm = options.agentsPerVm ?? 1
+  const memoryPerAgentMib = options.memoryPerAgentMib ?? 3072
+  if (!Number.isSafeInteger((options.maxVms ?? 24) * agentsPerVm)) {
+    throw new RangeError("maxVms * agentsPerVm must be a safe integer")
+  }
+  const requiredMemoryMib = (options.memoryBaseMib ?? 1024) + agentsPerVm * memoryPerAgentMib
+  const memoryMib = options.memoryMib ?? (options.memoryBaseMib ?? 1024) + agentsPerVm * memoryPerAgentMib
+  if (!Number.isSafeInteger(requiredMemoryMib * 1024 ** 2) || !Number.isSafeInteger(memoryMib * 1024 ** 2)) {
+    throw new RangeError("memoryMib allocation and agent ceilings must have safe integer byte sizes")
+  }
+  if (agentsPerVm > 1 && memoryMib < requiredMemoryMib) {
+    throw new RangeError("memoryMib must cover shared memory plus every agent's ceiling")
+  }
+  return {
+    agentsPerVm,
+    memoryPerAgentMib,
+    memoryMib,
+    cpus: options.cpus ?? Math.min(options.maxCpus ?? 8, 1 + agentsPerVm * (options.cpusPerAgent ?? 1))
+  }
+}
 
-/** The process-wide provider, so every work flow in this host shares one `maxVms` gate. */
-export const provider = (options?: Options): ReturnType<typeof make> => shared ??= make(options)
+let shared: ReturnType<typeof make> | undefined
+let sharedOptions: string | undefined
+
+/** One process-wide capacity gate. Conflicting sizing in one host is refused. */
+export const provider = (options: Options = {}): ReturnType<typeof make> => {
+  const key = JSON.stringify({ ...sizing(options), maxAgents: options.maxAgents ?? 24, maxVms: options.maxVms ?? 24 })
+  if (shared && key !== sharedOptions) {
+    throw new Error("issue-sweep VM provider already uses different capacity options")
+  }
+  sharedOptions = key
+  return shared ??= make(options)
+}
 
 /** Whether `<host>:<pid>` names a live process on this host. */
 export const holderAlive = (holder: string): boolean => {

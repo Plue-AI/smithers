@@ -5,18 +5,19 @@ import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { RemoteChildProcessSpawner, Sandbox } from "@smthrs/sandbox"
-import { Duration, Effect, Exit, Layer, ManagedRuntime, Schema, Stream } from "effect"
+import { Duration, Effect, Exit, FileSystem, Layer, ManagedRuntime, Path, Schema, Sink, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as Spawner from "effect/unstable/process/ChildProcessSpawner"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import test from "node:test"
 import { goCache } from "../land.ts"
-import { sh } from "../vm.ts"
+import { guestCheckout, sh, toolchainEnv } from "../vm.ts"
 import {
   Adopt,
   adoptAt,
@@ -461,7 +462,7 @@ const cloudFixture = (
   const made = fixture(t)
   const { root, guest } = made
   const home = join(root, "developer")
-  const guestLogin = join(home, ".codex-sweep")
+  const guestLogin = resolve(guest, "../.codex-sweep")
   const hostLogin = join(root, "host-auth.json")
   const login = "{\"tokens\":{\"refresh_token\":\"before\"}}"
   const refreshed = "{\"tokens\":{\"refresh_token\":\"after\"}}"
@@ -661,7 +662,7 @@ test("interrupting Cloud Codex saves its refreshed host login and cleans the gue
       })
     ])
     assert.equal(readFileSync(hostLogin, "utf8"), login)
-    assert.equal(readFileSync(join(home, ".codex-sweep", "auth.json"), "utf8"), refreshed)
+    assert.equal(readFileSync(resolve(guest, "../.codex-sweep/auth.json"), "utf8"), refreshed)
     assert.deepEqual(deleted, [])
     controller.abort()
     const exit = await running
@@ -671,7 +672,7 @@ test("interrupting Cloud Codex saves its refreshed host login and cleans the gue
     assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
     assert.equal(readFileSync(hostLogin, "utf8"), refreshed)
     assert.equal(statSync(hostLogin).mode & 0o777, 0o600)
-    assert.equal(existsSync(join(home, ".codex-sweep")), false)
+    assert.equal(existsSync(resolve(guest, "../.codex-sweep")), false)
     assert.equal(existsSync(guest), false)
     assert.equal(events.at(-1), "DELETE")
     assert.equal(events.filter((event) => event === "DELETE").length, 1)
@@ -681,4 +682,68 @@ test("interrupting Cloud Codex saves its refreshed host login and cleans the gue
     observer.close()
     clearTimeout(deadline)
   }
+})
+
+test("concurrent Codex guests isolate checkout and login cleanup while sharing only toolchain directories", async () => {
+  const paths = Effect.runSync(Path.Path.pipe(Effect.provide(Path.layer)))
+  const runGuest = async (slot: string) => {
+    const checkout = `/home/developer/slots/${slot}/workspace`
+    const home = resolve(checkout, "../.codex-sweep")
+    const removed: string[] = []
+    const commands: ChildProcess.StandardCommand[] = []
+    const fs = FileSystem.makeNoop({
+      makeDirectory: (path) => {
+        assert.equal(path, home)
+        return Effect.void
+      },
+      writeFileString: (path, content) => {
+        assert.equal(path, `${home}/auth.json`)
+        assert.equal(content, slot)
+        return Effect.void
+      },
+      readFileString: (path) => {
+        assert.equal(path, `${home}/auth.json`)
+        return Effect.succeed(slot)
+      },
+      remove: (path) =>
+        Effect.sync(() => {
+          removed.push(path)
+        })
+    })
+    const spawner = makeSpawner((command) => {
+      assert.equal(command._tag, "StandardCommand")
+      if (command._tag !== "StandardCommand") return Effect.die("unexpected pipeline")
+      commands.push(command)
+      return Effect.succeed(Spawner.makeHandle({
+        pid: Spawner.ProcessId(1),
+        exitCode: Effect.succeed(Spawner.ExitCode(0)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        stdin: Sink.drain,
+        stdout: Stream.make(new TextEncoder().encode("Fixed.")),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+        unref: Effect.succeed(Effect.void)
+      }))
+    })
+    const layer = Layer.mergeAll(
+      Layer.succeed(FileSystem.FileSystem)(fs),
+      Layer.succeed(ChildProcessSpawner)(spawner),
+      Layer.succeed(Path.Path)({ ...paths, resolve: (...parts: string[]) => resolve(checkout, ...parts) })
+    )
+    const result = await Effect.runPromise(codexInGuest("codex-1", slot, "vm", "PROMPT").pipe(Effect.provide(layer)))
+    assert.equal(result.report, "Fixed.")
+    assert.deepEqual(removed, [home])
+    const command = commands[0]!.args[1]!
+    assert.ok(command.includes(`cd ${checkout} && CODEX_HOME=${home}`))
+    for (const key of ["GOCACHE", "GOMODCACHE", "GOTMPDIR", "CARGO_HOME"] as const) {
+      assert.ok(command.includes(`--add-dir "${toolchainEnv[key]}"`))
+    }
+    assert.equal(command.includes(`--add-dir "${guestCheckout}"`), false)
+    return home
+  }
+  const homes = await Promise.all([runGuest("one"), runGuest("two")])
+  assert.notEqual(homes[0], homes[1])
 })

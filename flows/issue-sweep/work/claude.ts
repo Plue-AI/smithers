@@ -1,6 +1,6 @@
 /** Claude's borrowed remote login never enters an action payload or the captured checkout. */
 import type { Sandbox } from "@smthrs/sandbox"
-import { Duration, Effect, FileSystem, Schema, Stream } from "effect"
+import { Duration, Effect, FileSystem, Path, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { execFile } from "node:child_process"
@@ -113,16 +113,19 @@ export const assertNoClaudeLogin = (work: Sandbox.Work, login: string) =>
     ? Effect.fail(new ClaudeFailed({ message: "Claude's captured work contains its borrowed login" }))
     : Effect.void
 
-const guestToken = `${guestClaudeHome}/oauth-token`
 const budget = Duration.hours(2)
 
 /** The brief is one argv element; neither it nor the token is shell source. */
-export const claudeCommand = (prompt: string): readonly [string, ReadonlyArray<string>] => ["sh", [
+export const claudeCommand = (
+  prompt: string,
+  checkout = guestCheckout,
+  home = guestClaudeHome
+): readonly [string, ReadonlyArray<string>] => ["sh", [
   "-c",
-  `set -eu; export CLAUDE_CONFIG_DIR=${guestClaudeHome}; ` +
-  `CLAUDE_CODE_OAUTH_TOKEN=$(cat ${guestToken}); export CLAUDE_CODE_OAUTH_TOKEN; ` +
+  `set -eu; export CLAUDE_CONFIG_DIR=${home}; ` +
+  `CLAUDE_CODE_OAUTH_TOKEN=$(cat ${home}/oauth-token); export CLAUDE_CODE_OAUTH_TOKEN; ` +
   // The VM is the sandbox, including on local images that run as root.
-  `export IS_SANDBOX=1; cd ${guestCheckout}; ` +
+  `export IS_SANDBOX=1; cd ${checkout}; ` +
   `exec claude -p "$1" --model claude-opus-5-5 --output-format json --dangerously-skip-permissions </dev/null`,
   "sh",
   prompt
@@ -145,12 +148,16 @@ export const claudeInGuest = (
 ) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const checkout = path.resolve(".")
+    const guestClaudeHome = path.resolve("../.claude-sweep")
+    const guestToken = `${guestClaudeHome}/oauth-token`
     const redact = (text: string) => login === "" ? text : text.replaceAll(login, "[redacted]")
     return yield* Effect.gen(function*() {
       yield* fs.makeDirectory(guestClaudeHome, { recursive: true })
       yield* fs.chmod(guestClaudeHome, 0o700)
       yield* fs.writeFileString(guestToken, login, { flag: "wx", mode: 0o600 })
-      const [command, args] = claudeCommand(prompt)
+      const [command, args] = claudeCommand(prompt, checkout, guestClaudeHome)
       const [stdout, stderr, code] = yield* Effect.scoped(Effect.gen(function*() {
         const spawner = yield* ChildProcessSpawner
         const handle = yield* spawner.spawn(ChildProcess.make(command, args))

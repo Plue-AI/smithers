@@ -1,7 +1,20 @@
+import { Schema } from "effect"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
-import { claimTool, decide, parkedFor, releasesClaim, staleWorkspaces } from "../flow.ts"
+import {
+  claimTool,
+  decide,
+  Input,
+  localLimit,
+  makePlacementSlots,
+  minFreeBytes,
+  parkedFor,
+  releasesClaim,
+  staleWorkspaces
+} from "../flow.ts"
+import { vmOptions } from "../vm-options.ts"
+import Work, { RemoteFix } from "../work/flow.ts"
 
 const claim = (host: string, expires: string) =>
   `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
@@ -51,7 +64,10 @@ test("a requeued row keeps its claim and workspace; every final row releases the
 
 // run-4: agents spent their run on #2845 (blocked-on-will) and #3165/#3166 ("Deferred past 1.0").
 test("issues for the maintainer or deferred by title are not dispatched", () => {
-  assert.equal(parkedFor({ title: "Release: publish installers", labels: ["blocked-on-will"] }), "blocked on the maintainer")
+  assert.equal(
+    parkedFor({ title: "Release: publish installers", labels: ["blocked-on-will"] }),
+    "blocked on the maintainer"
+  )
   assert.equal(parkedFor({ title: "Deferred past 1.0: Npm.Downstream build target", labels: [] }), "deferred")
   // Owner ruling 2026-10-01: Terminal-Bench, ALE and DeepSWE work is its own program.
   assert.equal(parkedFor({ title: "Terminal-Bench harness", labels: ["benchmark"] }), "benchmark: separate program")
@@ -67,4 +83,55 @@ test("only workspaces of issues no longer open are stale", () => {
     [1, 30]
   )
   assert.deepEqual(staleWorkspaces([], new Set()), [])
+})
+
+test("VM capacity counts agent slots and preserves the host ceiling", () => {
+  const input = { repo: "o/r", placement: "vm" as const, maxAgents: 32, agentsPerVm: 3, maxVms: 2 }
+  assert.equal(localLimit(input, minFreeBytes), 6)
+  assert.equal(localLimit({ ...input, maxAgents: 4 }, minFreeBytes), 4)
+  assert.equal(localLimit({ ...input, maxVms: 12 }, minFreeBytes), 24)
+  assert.equal(localLimit(input, minFreeBytes - 1), 0)
+  assert.equal(localLimit({ ...input, placement: "local" }, minFreeBytes - 1), 32)
+})
+
+test("VM options survive the sweep, work, and remote payload schemas", () => {
+  const options = { agentsPerVm: 3, maxVms: 2, memoryBaseMib: 512, memoryPerAgentMib: 768, cpusPerAgent: 2, maxCpus: 8 }
+  const input = Schema.decodeUnknownSync(Input)({ repo: "o/r", placement: "vm", ...options })
+  const work = Schema.decodeUnknownSync(Work.payloadSchema)({
+    repo: input.repo,
+    issue: 7,
+    placement: input.placement,
+    ...vmOptions(input)
+  })
+  const remote = Schema.decodeUnknownSync(RemoteFix.payloadSchema)({
+    repo: work.repo,
+    issue: work.issue,
+    placement: work.placement,
+    text: { title: "t", body: "b", comments: [] },
+    ...vmOptions(work)
+  })
+  assert.deepEqual(vmOptions(input), options)
+  assert.deepEqual(vmOptions(work), options)
+  assert.deepEqual(vmOptions(remote), options)
+  for (const field of Object.keys(options)) {
+    for (const invalid of [0, -1, 1.5]) {
+      assert.throws(() => Schema.decodeUnknownSync(Input)({ repo: "o/r", ...options, [field]: invalid }))
+    }
+  }
+})
+
+test("placement leases admit all VM agent slots, then cloud, and release idempotently", () => {
+  const slots = makePlacementSlots()
+  const input = { repo: "o/r", placement: "vm" as const, maxAgents: 8, agentsPerVm: 3, maxVms: 2, cloudAgents: 1 }
+  const local = Array.from({ length: 6 }, () => slots.reserve(input, minFreeBytes))
+  for (const lease of local) assert.equal(lease?.placement, "vm")
+  const cloud = slots.reserve(input, minFreeBytes)
+  assert.equal(cloud?.placement, "cloud")
+  assert.equal(slots.reserve(input, minFreeBytes), undefined)
+  local[0]!.release()
+  local[0]!.release()
+  assert.equal(slots.reserve(input, minFreeBytes)?.placement, "vm")
+  assert.equal(slots.reserve(input, minFreeBytes), undefined)
+  cloud!.release()
+  assert.equal(slots.reserve(input, minFreeBytes, "cloud")?.placement, "cloud")
 })

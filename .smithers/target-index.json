@@ -30993,6 +30993,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/issue-sweep/test/vm.shared.real.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/issue-sweep/test/vm.claude.real.test.ts"
       },
       {

@@ -8,7 +8,7 @@ import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Sandbox, SandboxMerge } from "@smthrs/sandbox"
-import { Clock, Duration, Effect, FileSystem, Layer, Schema, Stream } from "effect"
+import { Clock, Duration, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { existsSync } from "node:fs"
@@ -18,10 +18,12 @@ import { accountHome, type Agent, coolAccount, reserveAccount } from "../account
 import { issue } from "../github.ts"
 import { output, repository, ridingOutages, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
+import { vmFields, vmOptions } from "../vm-options.ts"
 import * as LocalVm from "../vm.ts"
 import { assertNoClaudeLogin, claudeInGuest, reserveRemoteAccount } from "./claude.ts"
 
 const Payload = Schema.Struct({
+  ...vmFields,
   repo: Schema.String,
   issue: Schema.Number,
   // local: an agent on this Mac in its own sandbox; vm: an agent in a local
@@ -113,6 +115,7 @@ export const RemoteFix = Action.make("issue-sweep/remote-fix", {
     repo: Schema.String,
     issue: Schema.Number,
     text: IssueText,
+    ...vmFields,
     placement: Schema.Literals(["vm", "cloud"])
   }),
   success: Remoted,
@@ -201,7 +204,8 @@ export default Flow.make("issue-sweep/work", {
                 repo: input.repo,
                 issue: input.issue,
                 text,
-                placement: input.placement === "cloud" ? "cloud" : "vm"
+                placement: input.placement === "cloud" ? "cloud" : "vm",
+                ...vmOptions(input)
               }).pipe(
                 Node.bindPlanned((remote) =>
                   Adopt.call({ repo: input.repo, issue: input.issue, title: text.title, remote })
@@ -503,15 +507,13 @@ const run = (command: string, args: ReadonlyArray<string>) =>
   })).pipe(Effect.catchTag("PlatformError", (cause) => new AgentFailed({ message: `${command}: ${cause.message}` })))
 
 // The guest checkout both providers create, and where the borrowed login goes.
-const guestCheckout = "/home/developer/workspace"
-const guestCodexHome = "/home/developer/.codex-sweep"
 
 const loginFile = (account: string) => `${homedir()}/.smithers/accounts/${account}/auth.json`
 
 /** The machines a remote fix runs in. */
-const providerFor = (placement: "vm" | "cloud", repo: string) =>
+const providerFor = (placement: "vm" | "cloud", repo: string, options: LocalVm.Options) =>
   placement === "vm"
-    ? Effect.succeed<Sandbox.Provider>(LocalVm.provider())
+    ? Effect.succeed<Sandbox.Provider>(LocalVm.provider(options))
     // ssh must read the host-key pin CloudSandbox writes under ~/.local/state.
     : Effect.map(
       Effect.provide(ChildProcessSpawner, NodeServices.layer),
@@ -566,6 +568,9 @@ export const codexInGuest = (
 ) =>
   Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const guestCheckout = path.resolve(".")
+    const guestCodexHome = path.resolve("../.codex-sweep")
     yield* fs.makeDirectory(guestCodexHome, { recursive: true })
     yield* Effect.acquireRelease(
       fs.writeFileString(`${guestCodexHome}/auth.json`, login),
@@ -591,6 +596,10 @@ export const codexInGuest = (
       `PATH="$HOME/.local/bin:$PATH"; command -v codex >/dev/null || ` +
       `{ npm install -g --prefix "$HOME/.local" @openai/codex >&2 && rm -rf "$NPM_CONFIG_CACHE"; } || exit 127; ` +
       `cd ${guestCheckout} && CODEX_HOME=${guestCodexHome} codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
+      (where === "vm" ?
+        `--add-dir "${LocalVm.toolchainEnv.GOCACHE}" --add-dir "${LocalVm.toolchainEnv.GOMODCACHE}" ` +
+        `--add-dir "${LocalVm.toolchainEnv.GOTMPDIR}" --add-dir "${LocalVm.toolchainEnv.CARGO_HOME}" ` :
+        "") +
       `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1" </dev/null`,
       "sh",
       prompt
@@ -622,7 +631,7 @@ const remoteFix = RemoteFix.toLayer((input) =>
         try: () => readFile(loginFile(account), "utf8"),
         catch: () => new AgentFailed({ message: `${account}: no auth.json` })
       }))
-    const provider = yield* providerFor(input.placement, input.repo)
+    const provider = yield* providerFor(input.placement, input.repo, vmOptions(input))
     const prompt = brief(input.repo, input.issue, input.text)
     const remote = yield* fixRemotely(
       provider,

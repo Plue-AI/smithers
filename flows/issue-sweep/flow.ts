@@ -20,6 +20,7 @@ import { api, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
+import { vmFields, vmOptions } from "./vm-options.ts"
 import { statfsFree } from "./vm.ts"
 import Work, { AgentFailed, checkoutIssue, type NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
 
@@ -27,6 +28,7 @@ import Work, { AgentFailed, checkoutIssue, type NoChange, removeWorkspace, type 
 const maxLanders = 16
 
 export const Input = Schema.Struct({
+  ...vmFields,
   repo: Schema.String,
   // Local agents only; microVMs additionally obey the sustainable host limit of 24.
   maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32))),
@@ -173,7 +175,7 @@ const listIssues = ListIssues.toLayer(({ input }) =>
   )
 )
 
-export const maxLocalVms = 24
+export const maxLocalAgents = 24
 export const minFreeBytes = 25 * 1024 ** 3
 
 type Placement = "local" | "vm" | "cloud"
@@ -181,7 +183,9 @@ const Placement = Schema.Literals(["local", "vm", "cloud"])
 
 export const localLimit = (input: typeof Input.Type, freeBytes: number): number =>
   input.placement === "vm"
-    ? freeBytes < minFreeBytes ? 0 : Math.min(maxLocalVms, input.maxAgents ?? 4)
+    ? freeBytes < minFreeBytes
+      ? 0
+      : Math.min(maxLocalAgents, input.maxAgents ?? 4, (input.maxVms ?? 24) * (input.agentsPerVm ?? 1))
     : input.maxAgents ?? 4
 
 /** A total ceiling, including in-flight sweep work; Burndown compares it to work still running. */
@@ -428,7 +432,7 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
         yield* reservePlacement(input, id, placement)
       }
       const execute = (executionId: string) =>
-        Work.execute({ repo: input.repo, issue: args.item.number, placement }, {
+        Work.execute({ repo: input.repo, issue: args.item.number, placement, ...vmOptions(input) }, {
           executionId
         })
       return yield* execute(id).pipe(
