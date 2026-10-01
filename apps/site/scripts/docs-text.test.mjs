@@ -3,6 +3,51 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { docsText } from "./docs-text.mjs"
 
+test("TUI landing page selects the 1.0 local coding workflow and names its limits", () => {
+  const source = readFileSync(new URL("../src/content/docs/docs/tui/index.mdx", import.meta.url), "utf8")
+  assert.match(source, /1\.0[^\n]*local terminal coding workflow/i)
+  assert.match(source, /## Install/)
+  assert.match(source, /smthrs tui/)
+  assert.match(source, /configured model/i)
+  assert.match(source, /## Make a first change/)
+  for (const behavior of [/interrupt/i, /recover/i, /failure/i]) {
+    assert.match(source, behavior, "the selected workflow covers interruption, recovery, and visible failures")
+  }
+  const deferred = source.split(/\n\s*\n/).find((paragraph) => /deferred/i.test(paragraph))
+  assert.ok(deferred, "the landing page explicitly defers advanced surfaces")
+  for (const surface of [/Cloud/, /SSH/, /playground/i, /extension/i]) {
+    assert.match(deferred, surface, "advanced surfaces belong in the deferred scope")
+  }
+  assert.match(source, /not yet release-qualified/i)
+  for (const issue of [3185, 2483]) {
+    assert.ok(source.includes(`https://github.com/smithersai/smithers/issues/${issue}`), `links the #${issue} evidence tracker`)
+  }
+})
+
+test("TUI candidate qualification requires reproducible real terminal evidence", () => {
+  const source = readFileSync(new URL("../src/content/docs/docs/tui/index.mdx", import.meta.url), "utf8")
+  const qualification = /## Candidate qualification\s+([\s\S]*?)(?=\n## |$)/i.exec(source)
+  assert.ok(qualification, "the landing page has a candidate qualification section")
+  for (const requirement of [
+    /exact candidate commit/i,
+    /artifact/i,
+    /SHA-256/i,
+    /macOS arm64/,
+    /Linux x64/,
+    /80x24/,
+    /NO_COLOR/,
+    /real[^\n]*`smthrs tui`/i,
+    /interactive/i
+  ]) {
+    assert.match(qualification[1], requirement, `candidate evidence requires ${requirement}`)
+  }
+  assert.match(qualification[1], /(?:cannot|do not|does not)[^\n]*(?:qualify|qualification)/i,
+    "the qualification section explicitly rejects substitute evidence")
+  for (const substitute of [/--help/, /--print/, /replay/i, /isolated unit tests/i]) {
+    assert.match(qualification[1], substitute, "substitute checks cannot qualify an interactive release")
+  }
+})
+
 test("the schedule tutorial documents reviewed registration and keeps the local scheduler distinct", () => {
   const source = readFileSync(new URL("../src/content/docs/docs/learn/agent-and-trigger.mdx", import.meta.url), "utf8")
   const flows = readFileSync(new URL("../../app/src/mainview/flows/entries/triggers.ts", import.meta.url), "utf8")

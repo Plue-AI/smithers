@@ -646,7 +646,7 @@ Skills are `SKILL.md` files beside your flows. A skill adds instructions, never 
 
 **TUI**
 
-**Available now.** `/agent` opens a picker. `/agent reviewer` fills in the composer; `/agent reviewer Review math.js` starts it in the background right away.
+**Available now.** `/flows` lists agents beside flows; Enter starts one. `/flow reviewer Review math.js` starts it in the background right away with that prompt.
 
 ![Starting a custom review agent from the TUI.](/images/learn/tui-custom-agent.gif)
 
@@ -1243,7 +1243,7 @@ Finding a flow from the message box.
 
 **TUI**
 
-**Available now.** `/flows` lists the project's flows. They also appear in the `/` menu.
+**Available now.** `/flows` lists the project's flows and agents with their inputs, keys and last run. They also appear in the `/` menu and, with their keys, on the home screen.
 
 **CLI**
 
@@ -1286,9 +1286,9 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-Quote values with spaces: `text="hello world"`. A missing input opens a form: Tab moves between fields, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. Each run gets its own tab; `/smithers` lists them. A completed run shows its result. A parked run keeps its question; `r` resumes the same run and `x` stops it.
+Quote values with spaces: `text="hello world"`. A missing input opens a form with every field and each choice's options: Tab moves between fields, Left/Right chooses, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. The run reports in the chat as one line, such as `✓ sum · 40ms → 5`; Enter on it opens its tab with each step. Summary lists past runs. A parked run keeps its question; `r` resumes the same run and `x` stops it.
 
-Discovery refreshes when `flows/` changes. Restart the TUI after editing a `flow.ts` that the host has already loaded. Run only one TUI or CLI flow executor per directory.
+Discovery refreshes when `flows/` changes. A flow added after the TUI loaded shows `Restart to load`; restart after adding or editing a `flow.ts`. Run only one TUI or CLI flow executor per directory.
 
 ![Filling in a flow's input form in the TUI.](/images/learn/tui-flow-form.gif)
 
@@ -1363,7 +1363,7 @@ Allow only what the job needs. [flow.mdx frontmatter](/docs/reference/flow-mdx/)
 
 ## Run it once
 
-Run it like any flow: `/reviewer` in the app, `/agent reviewer` in the TUI, or `smthrs flow start reviewer`. See [Run a flow](/docs/learn/run-a-flow/).
+Run it like any flow: `/reviewer` in the app, `/flow reviewer` in the TUI, or `smthrs flow start reviewer`. See [Run a flow](/docs/learn/run-a-flow/).
 
 ## Put it on a schedule
 
@@ -2632,9 +2632,11 @@ https://smithers.sh/docs/tui/
 
 `smthrs tui` is Smithers in a terminal. It works in your local checkout: ask for a change, keep chatting while it works, and inspect every step. The tutorials show it in each **TUI** tab.
 
-## Try it in a browser
+## 1.0 scope
 
-The [playground](https://tui.smithers.sh) runs the same agent on a two-file sandbox, with no access to your computer. Move the checkpoint slider to see the files at any step, and branch to try another approach.
+The selected 1.0 workflow is the local terminal coding workflow: install, start, connect a configured model, run a checked change, interrupt and recover, and inspect failures. It is not yet release-qualified; [#3185](https://github.com/smithersai/smithers/issues/3185) tracks the candidate receipt.
+
+Cloud and SSH execution, the browser [playground](https://tui.smithers.sh), extensions, custom views, monitors, and factory automation are deferred from this 1.0 scope. Their reference pages describe available features, not release qualification.
 
 ## Install
 
@@ -2645,10 +2647,11 @@ git clone https://github.com/smithersai/smithers.git
 cd smithers
 pnpm install
 cargo build --locked --release -p smithers-ffi --bin smithers-jj-export
-bun run tui /path/to/project
+export PATH="$PWD/node_modules/.bin:$PATH"
+smthrs tui /path/to/project --model openai:gpt-6.1-sol
 ```
 
-Set a provider key first, such as `OPENAI_API_KEY`. `smthrs tui` takes the same arguments once installed. On Alpine, the compiled binary also needs `apk add libstdc++`.
+Set `OPENAI_API_KEY` before starting the example above. For another configured model, use its `provider:modelId` with `--model`; `/model` selects among reachable providers. See [configuration](/docs/tui/configuration/#providers). On Alpine, the compiled binary also needs `apk add libstdc++`.
 
 Interactive compiled builds also need a writable, executable `TMPDIR`. If `/tmp` is mounted `noexec`, [set an executable temporary directory](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) before launching. `--help` and `--print` do not load OpenTUI and cannot verify interactive startup.
 
@@ -2665,6 +2668,31 @@ Fix math.js so node check.mjs passes.
 The TUI replaying a recorded model run.
 
 Press Ctrl+S for **Summary**: each edit with its diff, each command with its output.
+
+## Interrupt and recover
+
+Press Esc to interrupt a running turn. For a background worker, open its tab and use **x Stop**, then **r Resume** to continue with its prior steps. Exit with `/quit`, then run `smthrs tui /path/to/project -c` to recover the saved conversation; `/resume` picks another conversation. Check the saved changes before continuing interrupted work.
+
+## See failures
+
+Open **Summary** with Ctrl+S and select the failed work under **Needs you**. Inspect the failure card and command output. Fix the cause before resuming; in a failed worker tab, **m** chooses another model and **r** resumes. A failed check or provider call must remain visible as a failure.
+
+## Candidate qualification
+
+Retain one receipt for the exact candidate commit and immutable artifact identity from [#2483](https://github.com/smithersai/smithers/issues/2483): release label, artifact ID, SHA-256 digest, and installed TUI binary digest. Record OS, architecture, runtime, terminal, model ID, commands, exit results, screen captures, and saved run receipts without credentials.
+
+Run every step below through the real interactive `smthrs tui` boundary on **macOS arm64** and **Linux x64**, using that candidate's artifacts. Repeat at **80x24** with `NO_COLOR` unset and with `NO_COLOR=1`; retain evidence that input, status, failures, and recovery controls remain visible and usable, with no color escapes in the latter run.
+
+| Step | Required evidence on each platform and color mode |
+| --- | --- |
+| Install | Install the identified candidate artifact; record its digest and version. |
+| Start | Launch `smthrs tui` in a disposable project; capture the interactive screen. |
+| Connect | Select the configured model; send a prompt and retain a successful real model response. |
+| Run work | Fix a deliberately failing local check; retain the diff, command output, and passing check. Keep chat usable while work runs. |
+| Interrupt and recover | Stop running work, confirm it stops, exit, reopen with `-c`, and resume it to a checked completion with saved history intact. |
+| See failures | Trigger a nonzero command and a provider failure; capture their visible causes, correct them, and retain successful recovery. |
+
+Requests, source fixes, `--help`, `--print`, replay fixtures, and isolated unit tests do not qualify the candidate. Link every failure to a focused issue under [#3185](https://github.com/smithersai/smithers/issues/3185); rerun the affected steps on the replacement candidate before recording qualification. No candidate receipt is recorded here yet.
 
 ## Reference
 
@@ -2696,17 +2724,16 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/chat` | Return to chat. | [Guide](/docs/tui/views/) |
 | `/filter` | Show or hide kinds of rows. | [Guide](/docs/tui/views/) |
 | `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
-| `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
+| `/smithers` | The factory's issues. | [Guide](/docs/learn/issue-to-main/) |
 | `/todo <title>` | File a TODO for the factory. | [Guide](/docs/learn/issue-to-main/#file-a-todo) |
 | `/retry #<issue>` | Retry a factory issue. | [Guide](/docs/learn/issue-to-main/) |
 | `/devtools [id] [node]` | Inspect a run's nodes. | [Guide](/docs/learn/devtools/) |
-| `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
-| `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
-| `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
+| `/flows` | Flows and agents. | [Guide](/docs/learn/run-a-flow/) |
+| `/flow <name> [json\|key=value\|prompt]` | Run a flow or agent. | [Guide](/docs/learn/run-a-flow/) |
 | `/quit` | Quit. | [Guide](/docs/tui/cli/) |
 | `/exit` | Alias for `/quit`. | [Guide](/docs/tui/cli/) |
 
-Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
+Repository flows also appear in the menu. `/model`, `/thinking`, and `/flow` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
 
 ---
 
@@ -2802,9 +2829,9 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 
 | Key | Action |
 | --- | --- |
-| `esc` | Close. |
-| `tab` / `down` | Next field. |
-| `shift+tab` / `up` | Previous field. |
+| `esc` | Back. |
+| `tab` / `down` | Next. |
+| `shift+tab` / `up` | Previous. |
 | `space` | Toggle. |
 | `left` / `right` | Choose. |
 | `enter` | Run. |
@@ -6805,7 +6832,7 @@ export const RunGreet = SandboxedFlow.action(Greet)
 export const SandboxedGreeting = Flow.make("examples/SandboxedGreeting", {
   payload: { name: Schema.String },
   success: SandboxedFlow.resultSchema(Greeting),
-  error: SandboxedFlow.SandboxedFlowError,
+  error: SandboxedFlow.ExecuteError,
   body: (payload) => RunGreet.call(payload)
 })
 
@@ -6814,7 +6841,7 @@ const stack = Layer.mergeAll(
     provider,
     session: `greet:${executionId}`,
     entry: new URL("./sandboxed-child.ts", import.meta.url),
-    collectDiff: true
+    captureWork: true
   })),
   Interpreter.layer(SandboxedGreeting)
 )
@@ -6822,7 +6849,7 @@ const stack = Layer.mergeAll(
 
 The helper bundles the child's module with a guest runner, writes the bundle and a request into the session workspace, starts `node` on it inside the machine, and validates the result the guest wrote against the child's own success schema. The child's TypeScript never runs in the parent process.
 
-From the parent's point of view the whole sandboxed execution is one action with one journaled attempt: a second run over the same SQLite file answers the recorded result without acquiring a machine at all. With `collectDiff: true`, files only the guest wrote come back as data; applying them anywhere is the caller's decision.
+From the parent's point of view the whole sandboxed execution is one action with one journaled attempt: a second run over the same SQLite file answers the recorded result without acquiring a machine at all. With `captureWork: true`, the session's workdir must be a git repository, and what the guest changed comes back as `result.work`, a `Sandbox.Work` git patch against the commit the workdir started at; landing it with `SandboxMerge.apply` is the caller's decision.
 
 ## 4. Read the conformance caveats
 
@@ -26747,10 +26774,10 @@ const run = Effect.gen(function*() {
     session: "child-1",
     entry: new URL("./child.ts", import.meta.url),
     runtime: "node",
-    collectDiff: true
+    captureWork: true
   })
   // result.output is Child's success value, decoded through Child's own schema.
-  // result.diff is the files the guest created, as { path, bytes } data.
+  // result.work is the Sandbox.Work git patch the guest left in its checkout.
   return result
 })
 ```
@@ -26777,7 +26804,7 @@ class SandboxedFlowError extends Schema.TaggedError("@smthrs/flows/SandboxedFlow
     | "result_invalid"
     | "result_overflow"
     | "diff_overflow"
-    | "diff_unsafe"
+    | "capture_failed"
     | "deadline_exceeded"
   message: string
   cause?: unknown
@@ -26795,8 +26822,8 @@ The failure type every protocol refusal in this module raises.
 | `result_unreadable` | The guest exited 0 but wrote no result, or one that is not the protocol's JSON, belongs to another attempt, or echoes a different capability ceiling. |
 | `result_invalid`    | The result's `output` does not decode through the flow's success schema.                                                                              |
 | `result_overflow`   | The result file exceeds `Limits.resultBytes`.                                                                                                         |
-| `diff_overflow`     | The workspace diff exceeds `Limits.files` or `Limits.diffBytes`.                                                                                      |
-| `diff_unsafe`       | A changed or deleted path holds a backslash, a `.`, `..`, or empty segment, or a drive prefix.                                                        |
+| `diff_overflow`     | The captured patch exceeds `Limits.diffBytes`.                                                                                                        |
+| `capture_failed`    | Git refused the capture. The message starts with `not_a_repository`, `base_unresolved`, or `capture_failed`, the `Sandbox.CaptureError` reason.       |
 | `deadline_exceeded` | The whole session outlived `ExecuteOptions.timeout`.                                                                                                  |
 
 Messages quote the tail of the guest's stdout and stderr where they help, cut at
@@ -26821,13 +26848,11 @@ local run of the child fails with.
 interface Limits {
   readonly resultBytes?: number | undefined
   readonly diffBytes?: number | undefined
-  readonly files?: number | undefined
 }
 
 interface ResolvedLimits {
   readonly resultBytes: number
   readonly diffBytes: number
-  readonly files: number
 }
 ```
 
@@ -26840,19 +26865,17 @@ its default.
 const defaultLimits: ResolvedLimits
 ```
 
-| Bound         | Default | What it caps                                      |
-| ------------- | ------- | ------------------------------------------------- |
-| `resultBytes` | 5 MiB   | The result JSON the guest wrote.                  |
-| `diffBytes`   | 100 MiB | The total bytes collected across the diff.        |
-| `files`       | 1,000   | The number of created or changed files collected. |
+| Bound         | Default | What it caps                     |
+| ------------- | ------- | -------------------------------- |
+| `resultBytes` | 5 MiB   | The result JSON the guest wrote. |
+| `diffBytes`   | 100 MiB | The captured patch.              |
 
-Limits are inclusive and count bytes, not characters. `resultBytes` includes
-the complete UTF-8 JSON envelope. Metadata can reject oversized files before
-transfer; reads stop at the byte budget plus one. Actual bytes, including any
-growth after stat, count toward `diffBytes` before each entry is appended.
-Native filesystem streams receive `bytesToRead`; other providers use guest
-`head -c`, which the image must supply. Zero permits no result bytes, no diff
-bytes (empty files are allowed), or no changed files, respectively.
+Limits are inclusive and count UTF-8 bytes, not characters. `resultBytes`
+includes the complete JSON envelope. Result metadata can reject an oversized
+file before transfer, and the read stops at the byte budget plus one. Native
+filesystem streams receive `bytesToRead`; other providers use guest `head -c`,
+which the image must supply. `diffBytes` bounds what the result carries into
+the journal; the capture reads the whole patch before the bound is checked.
 
 Guest stdout and stderr are drained concurrently with fixed-size diagnostic
 tails retaining at most 4 KiB each, plus a truncation marker. Redaction runs during collection; when a credential
@@ -26867,39 +26890,29 @@ overlong unfinished quoted credential suppresses the rest of that stream.
 | `session`     | `string`           | required        | The session key the machine is acquired under. An exclusive claim: two live executions with one key share a machine, and the first to finish tears it down under the other. Reusing a key is what resume looks like.           |
 | `entry`       | `URL \| string`    | required        | The module to bundle: a `file:` URL or an absolute path. It must export the flow being executed, under any name, and may export `layer`, an Effect `Layer` providing the implementations of the actions the flow's body names. |
 | `runtime`     | `string`           | `"node"`        | The guest executable that runs the bundle: `"node"`, `"bun"`, or an executable path. Each path is quoted as one shell word. Use a wrapper script for flags.                                                                    |
-| `collectDiff` | `boolean`          | `false`         | Whether to collect the files the guest created, changed, or deleted.                                                                                                                                                           |
-| `limits`      | `Limits`           | `defaultLimits` | Bounds on the result and the diff.                                                                                                                                                                                             |
+| `captureWork` | `boolean`          | `false`         | Whether to capture the workdir's changes as a `Sandbox.Work`. The workdir must be the top of a git work tree with `git` on the guest's `PATH`.                                                                                 |
+| `limits`      | `Limits`           | `defaultLimits` | Bounds on the result and the patch.                                                                                                                                                                                            |
 | `timeout`     | `Duration.Input`   | 10 minutes      | The wall-clock budget for the whole session, acquisition through result readback. Uses platform timers, including chunked timers for long finite budgets. `Duration.infinity` disables the deadline.                           |
 
-### `DiffEntry`, `Diff`, and `Result`
+### `Result`
 
 ```ts
-interface DiffEntry {
-  /** The path relative to the session workdir. */
-  readonly path: string
-  readonly bytes: Uint8Array
-}
-
 interface Result<A> {
   readonly output: A
-  readonly diff: ReadonlyArray<DiffEntry>
-  /** Workspace-relative paths that existed before the guest ran and were gone after. */
-  readonly deleted: ReadonlyArray<string>
+  /** The workspace's work, or null when captureWork was off. */
+  readonly work: Sandbox.Work | null
   /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted; null is no receipt. */
   readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null
 }
 
-const DiffEntry: Schema.Struct<{ path: Schema.String; bytes: Schema.Uint8Array }>
-const Diff: Schema.Array<typeof DiffEntry>
-const Deleted: Schema.Array<Schema.String> // decodes a missing key as []
+const CapturedWork: Schema.NullOr<typeof Sandbox.Work> // decodes a missing key as null
 const EnforcedCeiling: Schema.NullOr<Schema.Array<Schema.Array<typeof CapabilityPattern>>> // decodes a missing key as null
 ```
 
-One `DiffEntry` per file the guest created or changed, as it stood when the
-guest exited, and one `deleted` path per file it removed. A file counts as
-changed when its size or its modification time differs; a provider whose `stat`
-reports no modification time compares sizes alone. The schemas are
-JSON-encodable for the journal: the bytes serialize as base64.
+`work` is `Sandbox.Work` from [`@smthrs/sandbox`](/docs/reference/api/sandbox/): `Changed`
+with a `git diff --binary` patch from `base`, or `Unchanged`. It is plain
+tagged JSON, so the journal records it, and `SandboxMerge.apply` lands it on
+the host.
 `capabilityCeiling` is the receipt of the authority the child ran under. A
 result journaled before ceilings crossed the machine boundary has no receipt
 and decodes as `null`, which is not a claim of unrestricted authority.
@@ -26909,8 +26922,7 @@ and decodes as `null`, which is not a claim of unrestricted authority.
 ```ts
 type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
-  readonly diff: typeof Diff
-  readonly deleted: typeof Deleted
+  readonly work: typeof CapturedWork
   readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
@@ -26943,11 +26955,12 @@ The guest runs the child under the caller's current capability authority
 intersected with the child's own declaration, and can only narrow it. See
 [capability ceilings](https://flows.smithers.sh/concepts/runner-protocol/#capability-ceilings).
 
-Diff change detection compares sizes by path against a snapshot taken before the
-guest ran. A created file and a file whose size changed are collected; a file
-rewritten in place at its previous size on a reattached workspace is the one edit
-it misses. A fresh workspace holds nothing but the protocol's own files, so every
-file the child writes there is a creation.
+With `captureWork`, the base is the workdir's `HEAD`, resolved with
+`Sandbox.resolveBase` as soon as the session is acquired, and the work is
+captured with `Sandbox.capture` before the session is released. A workdir that
+is not a git repository fails with `capture_failed` before the guest runs; this
+replaces the stat snapshot that once listed changed files in any directory. See
+[Capture the work a sandboxed child did](https://flows.smithers.sh/guides/collect-a-workspace-diff/).
 
 ### `SandboxedAction` and `action`
 
@@ -44532,6 +44545,7 @@ Every namespace is also its own subpath, and `./internal/*` is null mapped.
 | `@smthrs/sandbox/ProviderConformance`       | [src/ProviderConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ProviderConformance)             |
 | `@smthrs/sandbox/Sandbox`                   | [src/Sandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/Sandbox)                                     |
 | `@smthrs/sandbox/SandboxConformance`        | [src/SandboxConformance/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxConformance)               |
+| `@smthrs/sandbox/SandboxMerge`              | [src/SandboxMerge/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/SandboxMerge)                           |
 | `@smthrs/sandbox/DirectorySandbox`          | [src/DirectorySandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/DirectorySandbox)                   |
 | `@smthrs/sandbox/CommandSandbox`            | [src/CommandSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/CommandSandbox)                       |
 | `@smthrs/sandbox/ContainerSandbox`          | [src/ContainerSandbox/](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src/ContainerSandbox)                   |
@@ -44699,6 +44713,85 @@ const children = Sandbox.fanOut(session, { count: 16 }) // Effect<ReadonlyArray<
 
 `fanOut(session, { count, concurrency? })` forks `count` children, 1 to `maxFanOut` (128), from a session that declares `fork`. Each run is a new batch: it forks one base from the session, then every child from that base, so the children share one starting tree while the session keeps changing. Children are keyed `<session id>/<batch>/child-<n>`, start without the session's credentials, and are released with the base when the acquiring scope closes, so a fan-out inside the parent's scope never outlives the parent. A count outside the bound throws a `RangeError`; a machine without `fork` fails with `unavailable`; one failed fork fails the fan-out, and machines already forked are released with the scope. `DirectorySandbox` forks by copying the session directory without vendor sign-ins (`.claude/.credentials.json`, `.claude.json`, `.codex/auth.json`, `.config/anthropic`); `TestSession` forks its in-memory tree and leaves behind the paths named in `credentials`.
 
+### Return work from a session
+
+```ts
+const { result, work } = yield * Sandbox.run(provider, { session: "issue:42" }, agent)
+```
+
+`run(provider, options, body)` acquires one session, runs `body` with the session's `Host` services (`ChildProcessSpawner`, `FileSystem`, `Path`, `SandboxHealth`), captures the checkout, and releases the session. It answers `{ result, work }` and fails with the body's error, `ProviderError`, or `CaptureError`. A body that fails captures no work.
+
+| Option     | Default           | Meaning                                                                      |
+| ---------- | ----------------- | ---------------------------------------------------------------------------- |
+| `session`  | required          | the session key                                                              |
+| `base`     | `HEAD`            | the git revision the work is measured from, resolved right after acquisition |
+| `checkout` | `Session.workdir` | the guest path of the git work tree; it must be the work tree's top          |
+| `health`   | 5-second deadline | the `SandboxHealth` probe options, as for `layerHost`                        |
+
+The base is resolved after the provider hands over the session, so a provider that refreshes its checkout during acquisition is measured from the commit it refreshed to. In a jj-colocated checkout `HEAD` is the parent of the working-copy change, never a change made in the guest. The capture runs inside the scope that holds the machine, before teardown.
+
+`Work` is `Changed { session, base, patch }` or `Unchanged { session, base }`, both `Schema.TaggedClass`. `base` is a full commit id. `patch` is `git diff --cached --binary --full-index --find-renames` from `base` to the checkout's final tree, computed through a private copy of the index: committed and uncommitted edits, untracked files, deletions, renames, mode changes, and binary contents are all included, and `.gitignore`d files are not. The checkout's index and history are not changed. The guest needs `git`.
+
+`Sandboxed(resultSchema)` is `Schema.Struct({ result: resultSchema, work: Work })`. Use it as an action's success so the journal records the work with the result.
+
+`resolveBase(session, { checkout?, revision? })` and `capture(session, { checkout?, base })` are the two halves `run` composes, for a caller that holds its own session. Call `capture` while the session is still held.
+
+| `CaptureError.reason` | Cause                                                                     |
+| --------------------- | ------------------------------------------------------------------------- |
+| `not_a_repository`    | the checkout is not the top of a git work tree, or the guest has no `git` |
+| `base_unresolved`     | the base revision names no commit in the checkout                         |
+| `capture_failed`      | `git` failed while diffing                                                |
+
+`hostContext(session, { health? })` builds the `Host` context `layerHost` provides from a session the caller already holds; it requires a `Scope`. `layerHost` and `run` both use it.
+
+## SandboxMerge
+
+```ts
+import { SandboxMerge } from "@smthrs/sandbox"
+
+const outcome = yield* SandboxMerge.apply(work, {
+  repository: "/srv/repo",
+  onto: "main",
+  message: "Fix #42"
+})
+```
+
+`apply(work, options)` lands a session's `Work` in a host jj repository as one jj change on `onto`. The patch is applied to its own base, then the change is rebased onto `onto`, so jj merges whatever `onto` gained since the base. It requires `ChildProcessSpawner` and `FileSystem`, and `jj` and `git` on the host's `PATH`.
+
+| `ApplyOptions` | Default                  | Meaning                                                                     |
+| -------------- | ------------------------ | --------------------------------------------------------------------------- |
+| `repository`   | required                 | the host jj repository's root directory                                     |
+| `onto`         | required                 | a jj revision naming one commit, the change's parent                        |
+| `message`      | required                 | the change's description                                                    |
+| `key`          | session, base, and patch | what makes two applications the same; the change id derives from it         |
+| `fetch`        | `[]`                     | arguments to `jj git fetch` when the base is missing; `false` never fetches |
+| `strategy`     | `recordConflicts`        | what a conflict means                                                       |
+
+`Outcome` is `Merged { change, commit, onto }`, `Conflicted { change, commit, onto, paths }`, or the work's own `Unchanged`, which applies as nothing. `change` is the jj change id; `commit` and `onto` are commit ids. A `Conflicted` change exists and records jj conflicts in `paths`, as `jj rebase` would.
+
+`apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
+
+| `MergeError.reason`   | Cause                                                                     |
+| --------------------- | ------------------------------------------------------------------------- |
+| `base_not_found`      | the work's base is not in the repository, even after the configured fetch |
+| `onto_unresolved`     | `onto` does not name exactly one commit                                   |
+| `patch_rejected`      | the patch does not apply to its own base                                  |
+| `conflict`            | `failOnConflict` met a conflict; `paths` names it                         |
+| `resolution_rejected` | a resolver's answer still has conflicts or does not descend from `onto`   |
+| `vcs_failed`          | `jj` or `git` failed on the host                                          |
+
+A `Strategy<E, R>` has one method, `onConflict(conflicted, repository)`, answering `Merged`, `Conflicted`, or a failure. `apply` lands the change before calling it.
+
+| Strategy                | On conflict                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `recordConflicts`       | answers `Conflicted`; the default                                                                                                          |
+| `failOnConflict`        | abandons the change and fails with `conflict`; the work stays in the journal                                                               |
+| `resolveWith(resolver)` | the resolver answers `{ change }`; it must name one commit descending from `onto` with no conflicts on the way, else `resolution_rejected` |
+
+`Repository` is what a strategy receives: `path`, the repository root, and `jj(args)`, which runs `jj -R <path> --ignore-working-copy` and answers standard output or fails with `vcs_failed`.
+
+See [Return work from a sandbox](https://sandbox.smithers.sh/guides/return-work-from-a-sandbox/) for the two steps as flow actions.
+
 ## SandboxConformance
 
 ```ts
@@ -44710,6 +44803,8 @@ const violations = yield* SandboxConformance.check(provider, {
 ```
 
 Each check acquires a fresh session. The file checks verify binary, empty, and 64 KiB byte round-trips, `not_found`, parent creation, the default workdir and a relative `cwd`, environment delivery, standard input delivery (verified through `readFile`, so a pseudo-terminal transport is not penalized for its output), standard error arriving on one of the two streams, and a working release-then-reacquire cycle. Two checks deliberately cross surfaces: `files-reach-processes` writes through `writeFile` and measures the file with `wc -c` in a process, and `processes-reach-files` has a process produce a file that `readFile` must return, so a session serving files from anywhere but the machine its processes run on cannot pass. The suite then projects the provider through `Sandbox.commandProvider` and delegates spawn, exit, stdin, ping, and process-stop checks to `ProviderConformance`, whose kill check also runs the fixture's `survivor` probe: after a kill, a command that can still be found running on the machine is a violation even though its wrapper exited. Assert that the returned array is empty.
+
+`CheckOptions.work` adds `captures-its-work` and `captures-no-work`, which run `resolveBase` and `capture` in the guest against a `WorkSeed`: a `git bundle` and the commit id `base` whose tree holds `workSeedFiles`. The guest needs `git`; the suite runs no host `git`.
 
 `CheckOptions.checkTimeout` bounds every check, its own and the delegated suite's alike, on the platform timer. The default fixture is `uniquePosixCommands`, whose sleep duration is this process's own, so two suites running side by side on one host cannot mistake each other's fixture for a survivor. That uniqueness is drawn from Web Crypto and never from a process id, because this module is part of a browser-bundleable package and a free `process` identifier survives a bundle to throw in a browser.
 
@@ -44994,6 +45089,7 @@ and names the providers whose command output is not byte exact.
 
 Task-shaped walkthroughs of everything above:
 [place a flow body on a machine](https://sandbox.smithers.sh/guides/place-a-flow-body-on-a-machine/),
+[return work from a sandbox](https://sandbox.smithers.sh/guides/return-work-from-a-sandbox/),
 [run commands through a transport](https://sandbox.smithers.sh/guides/run-commands-through-a-transport/),
 [choose a provider](https://sandbox.smithers.sh/guides/choose-a-provider/),
 [supervise a session](https://sandbox.smithers.sh/guides/supervise-a-session/),
@@ -71820,7 +71916,7 @@ Run a child flow's code inside a provisioned environment as one parent action.
 
 `SandboxedFlow` bundles the child module and guest runner, starts Node inside the session, and validates the guest's result against the child schema. The parent records this as one durable action.
 
-A second drive over the same SQLite state reuses the recorded result without acquiring another session. `collectDiff` returns the guest-written file as data; applying that change elsewhere remains the caller's decision.
+A second drive over the same SQLite state reuses the recorded result without acquiring another session. `captureWork` returns the guest-written file as a `Sandbox.Work` patch against the commit the workdir started at, so the workdir must be a git repository; this example's provider makes each scratch workdir one. Applying the work with `SandboxMerge.apply` remains the caller's decision.
 
 ## Run the test
 
@@ -71850,6 +71946,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { durableEngine } from "./durable-layer.ts"
 import { Greet, Greeting } from "./sandboxed-child.ts"
@@ -71861,7 +71958,7 @@ export const RunGreet = SandboxedFlow.action(Greet)
 export const SandboxedGreeting = Flow.make("examples/SandboxedGreeting", {
   payload: { name: Schema.String },
   success: SandboxedFlow.resultSchema(Greeting),
-  error: SandboxedFlow.SandboxedFlowError,
+  error: SandboxedFlow.ExecuteError,
   body: (payload) => RunGreet.call(payload)
 })
 
@@ -71873,11 +71970,27 @@ export interface MainOptions {
 }
 
 export interface MainResult {
-  /** The child's validated output and the files it wrote. */
+  /** The child's validated output and the work it left in the checkout. */
   readonly result: typeof SandboxedGreeting.successSchema.Type
   /** How many machines the provider was asked for during this `main`. */
   readonly acquisitions: number
 }
+
+/** Makes a fresh scratch workdir a git repository with one empty commit, the base its work is measured from. */
+const initialize = (session: Sandbox.Session) =>
+  Effect.scoped(Effect.gen(function*() {
+    const process = yield* session.spawn(
+      "git init -q && git -c user.name=Example -c user.email=example@example.test -c commit.gpgsign=false " +
+        "commit -q --allow-empty -m base",
+      {}
+    )
+    const [, , code] = yield* Effect.all(
+      [Stream.runDrain(process.stdout), Stream.runDrain(process.stderr), process.exitCode],
+      { concurrency: "unbounded" }
+    )
+    if (code !== 0) return yield* Effect.die(`git could not initialize ${session.workdir}`)
+    return session
+  }))
 
 /** Runs the parent once over `filename` and closes every acquired layer before resolving. */
 export const main = (options: MainOptions): Promise<MainResult> =>
@@ -71890,7 +72003,7 @@ export const main = (options: MainOptions): Promise<MainResult> =>
       const provider: Sandbox.Provider = {
         acquire: (session) => {
           acquisitions++
-          return directory.acquire(session)
+          return Effect.flatMap(directory.acquire(session), initialize)
         }
       }
       const stack = Layer.mergeAll(
@@ -71898,7 +72011,7 @@ export const main = (options: MainOptions): Promise<MainResult> =>
           provider,
           session: `greet:${executionId}`,
           entry: new URL("./sandboxed-child.ts", import.meta.url),
-          collectDiff: true
+          captureWork: true
         })),
         Interpreter.layer(SandboxedGreeting)
       ).pipe(
