@@ -7,7 +7,7 @@
  * @since 0.1.0
  */
 
-import { Action, Flow, FlowRuntime, RetryPolicy, StepIdentity } from "@smthrs/flow"
+import { Action, Fault, Flow, FlowRuntime, RetryPolicy, StepIdentity } from "@smthrs/flow"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
@@ -146,7 +146,14 @@ export const makeActionExecute = (options: Encoded) => {
       return uncanonicalKey(action.name, keyResult.failure)
     }
     const key = keyResult.success
-    const policy = action.retryPolicy
+    const envelope = Context.getOption(action.annotations, Flow.EffectEnvelope)
+    const repeatSafe = action.idempotencyKey !== undefined ||
+      (Option.isSome(envelope) && envelope.value.writes.length === 0)
+    // The irreversible guard also applies to default retries: a read envelope
+    // cannot authorize repeating an unkeyed irreversible action.
+    const defaultTransient = action.retryPolicy === undefined && repeatSafe &&
+      (action.tier !== "irreversible" || action.idempotencyKey !== undefined)
+    const policy = action.retryPolicy ?? (defaultTransient ? RetryPolicy.transient : undefined)
     // Elapsed retry time for the policy's expiration bound. Durable
     // drivers persist the first attempt's start time alongside the attempt
     // row and expose it through `actionRetryOrigin`, so the
@@ -345,10 +352,18 @@ export const makeActionExecute = (options: Encoded) => {
         : timedOutOnly(exit.cause)
         ? exit.cause.reasons.find(Cause.isDieReason)
         : undefined
-      if (policy !== undefined && retryable !== undefined) {
+      const error = retryable === undefined ?
+        undefined :
+        Cause.isFailReason(retryable)
+        ? retryable.error
+        : retryable.defect
+      if (
+        policy !== undefined && retryable !== undefined &&
+        (!defaultTransient || Fault.of(error).class === "infra")
+      ) {
         const decision = yield* RetryPolicy.decideEffect(policy, {
           attempt: currentAttempt,
-          error: Cause.isFailReason(retryable) ? retryable.error : retryable.defect,
+          error,
           elapsedMs: (yield* Clock.currentTimeMillis) - retryStartMs
         })
         if (decision._tag === "RetryAfter") {

@@ -99,7 +99,8 @@ export const FetchIssue = Action.make("issue-sweep/fetch-issue", {
   payload: Payload,
   success: IssueText,
   error: AgentFailed,
-  nondeterministic: true
+  nondeterministic: true,
+  effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize" }
 })
 
 export const PrepareWorkspace = Action.make("issue-sweep/prepare-workspace", {

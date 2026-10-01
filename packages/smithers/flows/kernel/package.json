@@ -58,7 +58,8 @@
     "./test/HostContract": "./src/test/HostContract.ts",
     "./test/TestGrantStore": "./src/test/TestGrantStore.ts",
     "./ChildProcessEnvironment": "./src/ChildProcessEnvironment.ts",
-    "./ProcessConfinement": "./src/ProcessConfinement.ts"
+    "./ProcessConfinement": "./src/ProcessConfinement.ts",
+    "./Unreachable": "./src/Unreachable.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -307,6 +308,16 @@
         "require": {
           "types": "./dist/cjs/ProcessConfinement.d.ts",
           "default": "./dist/cjs/ProcessConfinement.js"
+        }
+      },
+      "./Unreachable": {
+        "import": {
+          "types": "./dist/esm/Unreachable.d.ts",
+          "default": "./dist/esm/Unreachable.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Unreachable.d.ts",
+          "default": "./dist/cjs/Unreachable.js"
         }
       }
     }

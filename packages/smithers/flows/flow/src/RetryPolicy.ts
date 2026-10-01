@@ -173,6 +173,19 @@ export const defaultRetryPolicy: RetryPolicy = Object.freeze(
 )
 
 /**
+ * Bounded infrastructure retry: 5 seconds doubling to 5 minutes, for 2 hours.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const transient: RetryPolicy = make({
+  initialMs: 5000,
+  factor: 2,
+  maxMs: 300000,
+  expirationMs: 7200000
+})
+
+/**
  * A retry decision: wait `delayMs` before the next attempt.
  *
  * @category models

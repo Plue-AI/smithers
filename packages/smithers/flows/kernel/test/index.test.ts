@@ -22,6 +22,7 @@ describe("kernel package barrel", () => {
       "ProcessConfinement",
       "ProcessLedger",
       "Rooted",
+      "Unreachable",
       "Workspace"
     ])
   })

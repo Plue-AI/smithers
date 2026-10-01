@@ -587,6 +587,15 @@ Registers one class for the whole tag, or one per value of `field` (default `cod
 
 Reads the error and up to 15 `cause` links beneath it and answers the innermost registered tag, because a wrapper names where a failure surfaced and its cause names why. Anything unregistered is `{ class: "bug", tag: "unregistered" }`.
 
+### `Fault.retryTransient`
+
+- **Signature:** `retryTransient<A, E, R>(effect: Effect<A, E, R>): Effect<A, E, R>`
+
+Retries plain effects only while `Fault.of(error).class` is `infra`, using
+`RetryPolicy.transient`: 5 seconds doubling to 5 minutes, expiring after 2 hours.
+The caller guarantees the effect is safe to repeat. The final typed failure is
+preserved, including its class. Defects and interruption are not retried.
+
 ### `Fault.respond`
 
 - **Signature:** `respond(fault: Fault, state: State): Response`
@@ -1489,6 +1498,14 @@ A retry policy as plain data, so the next delay is derived from a persisted atte
 - **Since:** `0.1.0`
 
 Creates a policy after checking every numeric bound, and throws a `RangeError` naming the field that is wrong: `initialMs` finite and greater than zero, `factor` finite and positive, `maxMs` finite and not below `initialMs`, `maxAttempts` a safe integer of at least one, `expirationMs` finite and positive, and `jitterRatio` finite and within zero and one inclusive. `initialMs: 0` is refused rather than read as an immediate retry, because every computed delay would be zero and `nextDelay` would report the policy exhausted on the first failure; use `initialMs: 1` for a near-immediate retry. `jitterRatio: 0` disables jitter. The `nonRetryable` array is copied and frozen, so a later mutation of the caller's array cannot change what a parked policy means.
+
+### `RetryPolicy.transient`
+
+- **Type:** `RetryPolicy`
+
+Frozen infrastructure policy: `initialMs: 5000`, `factor: 2`, `maxMs: 300000`,
+`expirationMs: 7200000`. Dispatch uses it by default for repeat-safe typed
+infrastructure failures; `Fault.retryTransient` uses it for plain effects.
 
 ### `RetryPolicy.defaultRetryPolicy`
 

@@ -11,7 +11,9 @@
  * the landing checks run inside `codex sandbox`.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { type Duration, Effect, Schedule, Schema, Stream } from "effect"
+import { Fault } from "@smthrs/flow"
+import { Unreachable } from "@smthrs/kernel"
+import { Effect, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { homedir } from "node:os"
@@ -110,25 +112,22 @@ export const workspaceOf = (issue: number) => `${workspaces}/issue-${issue}`
 /** The jj workspace name of one issue. */
 export const workspaceName = (issue: number) => `sweep-${issue}`
 
-// What git and curl print when the network, not the repository, failed.
-const networkOutage =
-  /Could not resolve host|Failed to connect to|Connection timed out|Operation timed out|Connection reset|Recv failure|Network is unreachable|Temporary failure in name resolution|SSL_ERROR_SYSCALL|The remote end hung up unexpectedly/
+// Keep the caller's error outside `cause`: Fault.of reads the innermost
+// registered cause, whereas this command diagnostic is the infra verdict.
+class HostOutage<E> extends Unreachable.Unreachable {
+  readonly original: E
+  constructor(message: string, original: E) {
+    super({ message })
+    this.original = original
+  }
+}
 
-/** Whether a failure's message says the network was down rather than the work being wrong. */
-export const isNetworkOutage = (message: string): boolean => networkOutage.test(message)
-
-/**
- * Retries `effect` while it fails because the network is down: 15 s, doubling
- * to 5 min between tries, eight tries (about 20 min). A 75-minute DNS outage
- * on 2026-10-01 failed 109 landings and 9 adoptions of finished agent work
- * as final; a failure for any other reason is not retried.
- */
-export const ridingOutages = <A, E extends { readonly message: string }, R>(
-  effect: Effect.Effect<A, E, R>,
-  first: Duration.Input = "15 seconds"
-) =>
-  Effect.retry(effect, {
-    while: (error: E) => isNetworkOutage(error.message),
-    schedule: Schedule.min([Schedule.exponential(first), Schedule.spaced("5 minutes")]),
-    times: 8
-  })
+/** Retries classified host connectivity failures while preserving the caller's error type. */
+export const ridingOutages = <A, E extends { readonly message: string }, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.mapError((error) =>
+      Unreachable.classifyExit(error.message) === undefined ? error : new HostOutage(error.message, error)
+    ),
+    Fault.retryTransient,
+    Effect.mapError((error) => error instanceof HostOutage ? error.original : error)
+  )

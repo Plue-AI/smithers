@@ -92,6 +92,33 @@ ordinals instead of drawing new step keys. A nested block shares the enclosing
 block's pinned slot, so a completed inner dispatch replays rather than
 re-executing.
 
+## Infrastructure failures without a declared policy
+
+When no `retryPolicy` is declared, Dispatch uses `RetryPolicy.transient` only
+for a typed failure whose `Fault.of(error).class` is `infra`, and only when the
+action has an `idempotencyKey` or explicitly declares an empty `effects.writes`.
+A missing effect declaration does not promise repeat safety. Other failures
+return immediately. A declared policy retains its existing behavior.
+
+The transient policy starts at 5 seconds, doubles to a 5-minute cap, and expires
+2 hours after the first attempt. Durable engines retain the origin and attempt
+count across recovery. Exhaustion preserves the final error and its fault class.
+An unkeyed irreversible action still cannot retry under the irreversible guard.
+
+For plain effects that the caller knows are safe to repeat:
+
+```ts
+import { Fault } from "@smthrs/flow"
+
+const recovered = Fault.retryTransient(readStatus)
+```
+
+This helper retries typed infrastructure failures under the same bounded policy.
+It preserves the final typed error; defects and cancellation propagate directly.
+Host command adapters can use `Unreachable.classifyExit(stderr)` from
+`@smthrs/kernel` to turn DNS, connection, HTTP 429, and HTTP 5xx failures into
+typed infrastructure errors. Ordinary command failures remain domain errors.
+
 ## What the engine decides, and when
 
 `RetryPolicy.decide` is the engine's single retry decision point, and

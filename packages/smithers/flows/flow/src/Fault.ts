@@ -9,9 +9,12 @@
  * @since 1.0.0
  */
 
+import * as Clock from "effect/Clock"
+import * as Effect from "effect/Effect"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type { HumanAnswerInvalid, HumanTaskFailed } from "./HumanTask.ts"
-import { errorTag } from "./RetryPolicy.ts"
+import * as RetryPolicy from "./RetryPolicy.ts"
 
 /**
  * Whose problem a failure is. The first five are the wire registry; `factory`
@@ -145,7 +148,7 @@ export const of = (error: unknown): Fault => {
   const seen = new Set<unknown>()
   for (let depth = 0; depth < 16 && typeof current === "object" && current !== null && !seen.has(current); depth++) {
     seen.add(current)
-    const tag = errorTag(current)
+    const tag = RetryPolicy.errorTag(current)
     const row = tag === undefined ? undefined : rows.get(tag)
     if (row !== undefined) {
       const value = read(current, row.field)
@@ -156,6 +159,33 @@ export const of = (error: unknown): Fault => {
   }
   return found
 }
+
+/**
+ * Retries typed infrastructure failures of an effect the caller can safely repeat.
+ * Preserves its error channel when the bounded transient policy expires.
+ * Defects and interruption propagate without retry.
+ *
+ * @category combinators
+ * @since 1.0.0
+ */
+export const retryTransient = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.gen(function*() {
+    const start = yield* Clock.currentTimeMillis
+    let attempt = 1
+    while (true) {
+      const result = yield* Effect.result(effect)
+      if (Result.isSuccess(result)) return result.success
+      if (of(result.failure).class !== "infra") return yield* Effect.fail(result.failure)
+      const decision = yield* RetryPolicy.decideEffect(RetryPolicy.transient, {
+        attempt,
+        error: result.failure,
+        elapsedMs: (yield* Clock.currentTimeMillis) - start
+      })
+      if (decision._tag === "GiveUp") return yield* Effect.fail(result.failure)
+      yield* Effect.sleep(decision.delayMs)
+      attempt++
+    }
+  })
 
 /**
  * What the responder knows when it picks a response.
@@ -235,3 +265,15 @@ for (
     "InterpreterError"
   ]
 ) register(`@smthrs/flow/${tag}`, "bug")
+
+// Lower host seams do not depend on flow authoring. Register their stable wire
+// tags here so classification does not introduce an upward package dependency.
+register("@smthrs/kernel/Unreachable", "infra")
+register("@smthrs/sandbox/RemoteChildProcessSpawner/ProviderError", {
+  unavailable: "infra",
+  timeout: "infra",
+  spawn_error: "bug",
+  not_found: "bug",
+  aborted: "bug",
+  unknown: "bug"
+})

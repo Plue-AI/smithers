@@ -66,14 +66,16 @@ export const ListIssues = Action.make("issue-sweep/list-issues", {
   payload: RoundPayload,
   success: Schema.Array(Issue),
   error: GhFailed,
-  nondeterministic: true
+  nondeterministic: true,
+  effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize" }
 })
 
 export const Accounts = Action.make("issue-sweep/accounts", {
   payload: RoundPayload,
   success: Burndown.Capacity,
   error: HostFailed,
-  nondeterministic: true
+  nondeterministic: true,
+  effects: { reads: ["**"], writes: [], mode: "expected", onConflict: "serialize" }
 })
 
 export const Dispatch = Burndown.dispatch("issue-sweep/dispatch")

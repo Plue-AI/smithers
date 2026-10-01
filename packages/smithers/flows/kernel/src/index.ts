@@ -171,3 +171,11 @@ export * as Workspace from "./Workspace.ts"
  * @since 1.0.0-rc.1
  */
 export * as ProcessConfinement from "./ProcessConfinement.ts"
+
+/**
+ * Typed connectivity failures and host command exit classification.
+ *
+ * @category namespace exports
+ * @since 1.0.0
+ */
+export * as Unreachable from "./Unreachable.ts"

@@ -55,6 +55,11 @@ Every namespace is also its own subpath, and `./internal/*` is null mapped.
 
 Provider acquisition is tied to the layer scope: interrupting an execution or a stream consumer closes that scope and therefore runs the finalizer installed by `Provider.open`. No `AbortSignal` crosses this seam.
 
+The fault registry classifies provider `unavailable` and `timeout` failures as
+`infra`; `spawn_error`, `not_found`, `unknown` and `aborted` are `bug`. A nested
+registered cause retains its own classification. Repeat-safe actions without a
+declared retry policy use the engine's bounded transient infrastructure policy.
+
 A provider may add SDK details to `ProviderError.cause`, but it cannot create new host-visible failure kinds. The code set is closed, and one shared table normalizes each code onto the `PlatformError` reason that already means it: `timeout` becomes `TimedOut`, `unavailable` and `not_found` become `NotFound`, everything else becomes `Unknown`, under the `ChildProcess` module the sibling spawners name. `not_found` and `unavailable` stay apart in the provider vocabulary, where "absent" and "broken" are different facts; they say the same thing to a caller of a spawner, which is to try somewhere else, and a caller that needs the distinction reads the `ProviderError` back off `PlatformError.cause`. `Sandbox.fileSystem` is the one deliberate exception: there `unavailable` stays `Unknown`, because a filesystem's `NotFound` is load bearing (`exists` turns it into `false`) and a broken session must not read as an absent path.
 
 `Provider.kill` and `Provider.ping` are optional, because a transport that can only post a command line has neither. A provider that implements them buys two things it cannot otherwise have: one command can be stopped without tearing down the session that runs it, and the session's liveness can be supervised. When `kill` is present the adapter maps `ChildProcessHandle.kill` onto it and signals a still-running command when its scope closes, ahead of the provider's own release finalizer; a process this side has already seen exit is left alone. When `kill` is absent the adapter refuses with a `BadArgument` `PlatformError` rather than pretending to have delivered a signal.

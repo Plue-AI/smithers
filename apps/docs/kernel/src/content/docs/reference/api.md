@@ -1521,3 +1521,13 @@ contract before marking the client. Replacing the client does not inherit the as
 the kernel guard preserves it when wrapping a supported client. The standard Node and Bun host
 bundles implement it. `HttpClient.supportsDestinationPinning(client)` reports
 whether that exact client is marked. Model requests leave `Destination` unset.
+
+## Unreachable
+
+`Unreachable.Unreachable({ message, cause? })` is a schema-backed infrastructure
+failure. `Unreachable.classifyExit(stderr)` returns it for known DNS and transport
+signatures, including `EAI_AGAIN`, `ENOTFOUND`, HTTP 429 and HTTP 5xx; it returns
+`undefined` for other command failures. Pass stderr from a failed command only.
+The message retains the diagnostic and the optional cause retains the source.
+Import from `@smthrs/kernel` or `@smthrs/kernel/Unreachable`. The fault registry
+classifies this tag as `infra`.
