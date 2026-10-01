@@ -3,7 +3,7 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  * A run parked on its task-time budget, answered after its process exits.
  *
  * The allowance is 500 ms of active time with `onExceeded: park`. The first
- * model call takes 1.1 s, so the second call's admission parks the run on a
+ * model call spends 1.1 s, so the second call's admission parks the run on a
  * `budget/` approval request. Composition A then closes. After a wait longer
  * than the raise the request proposes, composition B opens the same
  * `control.db` and `engine.db` and answers: approve is Continue, deny is Stop.
@@ -13,8 +13,8 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  * again forever (#2120). Stop must fail the run without another provider call.
  *
  * Both compositions use the production control plane, durable engine, and
- * `AgentSession` budget provision; the only in-memory state is the scripted
- * model's call log.
+ * `AgentSession` budget provision. The restart cases advance only their
+ * accounting clock explicitly; polling, sleeps and monotonic time stay real.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
@@ -37,7 +37,7 @@ import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
 import { Migrations as RunStoreMigrations, type Ownership, RunStore } from "@smthrs/run-store"
-import { Effect, Layer, Option, Schedule, Schema, Stream } from "effect"
+import { Clock, Effect, Layer, Option, Schedule, Schema, Stream } from "effect"
 import { mkdtempSync, readFileSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -59,6 +59,28 @@ import * as Safety from "./Safety.ts"
 const allowanceMillis = 500
 const firstCallMillis = 1_100
 const betweenProcessesMillis = 1_500
+
+/** Wall time chosen by the case, with the host's actual timers and monotonic clock. */
+const accountingClock = () => {
+  const zero = Date.now()
+  let now = zero
+  return {
+    zero,
+    elapsed: () => now - zero,
+    advance: (millis: number) => {
+      now += millis
+    },
+    clock: (real: Clock.Clock): Clock.Clock => ({
+      currentTimeMillisUnsafe: () => now,
+      currentTimeMillis: Effect.sync(() => now),
+      currentTimeNanosUnsafe: () => BigInt(now) * 1_000_000n,
+      currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+      monotonicTimeNanosUnsafe: () => real.monotonicTimeNanosUnsafe(),
+      monotonicTimeNanos: real.monotonicTimeNanos,
+      sleep: (duration) => real.sleep(duration)
+    })
+  }
+}
 
 const prepared: Route.PreparedRequest = {
   routeId: "route-a",
@@ -210,6 +232,7 @@ const controlStores = (filename: string) =>
 
 /** The time limits and flows one case's compositions run with. */
 interface Guarded {
+  readonly clock?: (real: Clock.Clock) => Clock.Clock
   readonly modelCallMs?: number
   readonly limits?: { readonly callMs?: number; readonly totalMs?: number }
   readonly flows?: (host: string) => ReadonlyArray<FlowBinding.Source>
@@ -219,6 +242,13 @@ interface Guarded {
 
 /** One process's control plane and production executor over one pair of SQLite files. */
 const host = (root: string, owner: Ownership.OwnerId, engineHost: string, guarded: Guarded = {}) => {
+  // Only the production loop's accounting uses the chosen wall clock. Control
+  // polling, owner recovery and journal followers retain their real clocks.
+  const agent = guarded.clock === undefined ? Agent.layer : Layer.effect(Agent.Agent)(Effect.gen(function*() {
+    const production = yield* Agent.Agent
+    const clock = guarded.clock!(yield* Clock.Clock)
+    return Agent.make({ run: (options) => production.run(options).pipe(Stream.provideService(Clock.Clock, clock)) })
+  })).pipe(Layer.provide(Agent.layer))
   const registration = AgentSession.layer({
     quotaPolicy: Safety.quotaPolicy,
     // The approved envelope, raised by every approved `budget/` request.
@@ -229,7 +259,7 @@ const host = (root: string, owner: Ownership.OwnerId, engineHost: string, guarde
     maxFrames: 4
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(Agent.layer, SeatResolver.layer({ resolve: seatFor(engineHost) }), scriptedCompletionJudge).pipe(
+      Layer.mergeAll(agent, SeatResolver.layer({ resolve: seatFor(engineHost) }), scriptedCompletionJudge).pipe(
         Layer.provide(Safety.layer)
       )
     )
@@ -321,6 +351,33 @@ const readRequestFacts = (root: string, runId: string): ReadonlyArray<typeof Con
   }
 }
 
+/** The actual budget clock records recovered by the second process. */
+const readClockRecords = (root: string, runId: string) => {
+  const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+  try {
+    const rows = database.prepare(
+      "SELECT event_type, payload_json FROM flows_journal_events WHERE run_id = ? AND event_type IN (?, ?, ?) ORDER BY seq"
+    ).all(
+      runId,
+      Budget.budgetStartedEvent,
+      Budget.budgetSuspendedEvent,
+      Budget.budgetResumedEvent
+    ) as unknown as ReadonlyArray<{ readonly event_type: string; readonly payload_json: string }>
+    return rows.map((row) => {
+      const payload = JSON.parse(row.payload_json)
+      if (row.event_type === Budget.budgetStartedEvent) {
+        return { kind: "started", at: Schema.decodeUnknownSync(Budget.BudgetStartedRecord)(payload).startedAt }
+      }
+      return {
+        kind: row.event_type === Budget.budgetSuspendedEvent ? "suspend" : "resume",
+        at: Schema.decodeUnknownSync(Budget.BudgetClockRecord)(payload).at
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
 /** The waiting reason every `control.run.parked` fact of the run recorded, in order. */
 const readParkReasons = (root: string, runId: string): ReadonlyArray<unknown> => {
   const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
@@ -379,7 +436,9 @@ const parkInFirstProcess = (
       }
       const runId = receipt.runId
       const requested = yield* nextIncident(runId)
-      if (requested.kind !== "control.approval.requested") return { runId, kind: requested.kind }
+      if (requested.kind !== "control.approval.requested") {
+        return { runId, kind: requested.kind, payload: requested.payload }
+      }
       // The park is settled once the control summary reads it, as the CLI does.
       yield* control.list({ _tag: "runs", filters: { runId } }).pipe(
         Effect.flatMap((page) =>
@@ -392,7 +451,11 @@ const parkInFirstProcess = (
         (requested.payload as { readonly payload: unknown }).payload
       )
       return { runId, kind: requested.kind, sequence: requested.sequence, approval }
-    }).pipe(Effect.provide(host(root, firstOwner, "runaway-first", guarded)), Effect.scoped, Effect.orDie)
+    }).pipe(
+      Effect.provide(host(root, firstOwner, "runaway-first", guarded)),
+      Effect.scoped,
+      Effect.orDie
+    )
   )
 
 /** Composition B: answers the park and follows the run to its next incident. */
@@ -413,6 +476,17 @@ const answerInSecondProcess = (
           (next.payload as { readonly payload: unknown }).payload
         )
         : undefined
+      if (payload !== undefined) {
+        // An approval is journaled before the engine finishes parking. Keep
+        // this composition open until its durable budget wait has settled.
+        yield* Effect.sync(() => readEngineRun(root, parked.runId)).pipe(
+          Effect.flatMap((row) =>
+            row?.status === "suspended" && row.waiting_reason === "budget" ? Effect.void : Effect.fail(row)
+          ),
+          Effect.retry({ schedule: Schedule.spaced("20 millis"), times: 1_500 }),
+          Effect.orDie
+        )
+      }
       return {
         kind: next.kind,
         sequence: next.sequence,
@@ -420,7 +494,11 @@ const answerInSecondProcess = (
         approval: payload,
         run: yield* runtime.getRun(parked.runId)
       }
-    }).pipe(Effect.provide(host(root, secondOwner, "runaway-second", guarded)), Effect.scoped, Effect.orDie)
+    }).pipe(
+      Effect.provide(host(root, secondOwner, "runaway-second", guarded)),
+      Effect.scoped,
+      Effect.orDie
+    )
   )
 
 /**
@@ -449,16 +527,21 @@ const unaskedRound = (root: string, runId: string, guarded: Guarded = {}) =>
 describe("a run parked on its task-time budget", () => {
   it("a task-time park survives restart and Continue completes the run", async () => {
     const root = makeRoot()
-    const parked = await parkInFirstProcess(root)
+    const time = accountingClock()
+    const guarded: Guarded = { clock: time.clock }
+    script = (n) => {
+      time.advance(n === 0 ? firstCallMillis : 100)
+      return { source: n === 0 ? `console.log("working")` : `ctx.done("settled")`, delayMillis: 0 }
+    }
+    const parked = await parkInFirstProcess(root, undefined, guarded)
 
-    expect(parked.kind).toBe("control.approval.requested")
+    expect(parked.kind, JSON.stringify(parked)).toBe("control.approval.requested")
     if (parked.approval === undefined) return
     expect(modelCalls).toEqual(["runaway-first"])
     expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "budget" })
     // The raise covers the active time spent plus one more allowance.
     const proposed = parked.approval.target.envelope.budget.milliseconds!
-    expect(proposed).toBeGreaterThanOrEqual(firstCallMillis + allowanceMillis)
-    expect(proposed).toBeLessThan(firstCallMillis + allowanceMillis + betweenProcessesMillis)
+    expect(proposed).toBe(firstCallMillis + allowanceMillis)
     // The request carries the guard's exact facts, frozen when it tripped.
     const [request, ...others] = readRequestFacts(root, parked.runId)
     expect(others).toEqual([])
@@ -470,17 +553,64 @@ describe("a run parked on its task-time budget", () => {
       allowance: proposed,
       message: expect.stringMatching(/of its 500 ms budget/)
     })
-    expect(request!.incident!.used).toBeGreaterThanOrEqual(firstCallMillis)
+    expect(request!.incident!.used).toBe(firstCallMillis)
     expect(proposed).toBe(request!.incident!.used! + (request!.incident!.reserved ?? 0) + allowanceMillis)
 
     // Parked wall time past the raised ceiling is not task time.
-    await new Promise((resolve) => setTimeout(resolve, betweenProcessesMillis))
+    time.advance(betweenProcessesMillis)
+    expect(time.elapsed()).toBeGreaterThan(proposed)
 
-    const settled = await answerInSecondProcess(root, parked, "continue")
+    const settled = await answerInSecondProcess(root, parked, "continue", guarded)
 
     expect(settled.kind).toBe("control.run.completed")
     expect(settled.run.status).toBe("completed")
     expect(modelCalls).toEqual(["runaway-first", "runaway-second"])
+    expect(time.elapsed() - betweenProcessesMillis).toBe(firstCallMillis + 100)
+    expect(readRequestFacts(root, parked.runId)).toEqual([request])
+    expect(readClockRecords(root, parked.runId)).toEqual([
+      { kind: "started", at: time.zero },
+      { kind: "suspend", at: time.zero + firstCallMillis },
+      { kind: "resume", at: time.zero + firstCallMillis + betweenProcessesMillis }
+    ])
+  }, 180_000)
+
+  it("Continue re-parks when resumed active work exceeds the raised task-time ceiling", async () => {
+    const root = makeRoot()
+    const time = accountingClock()
+    const guarded: Guarded = { clock: time.clock }
+    script = (n) => {
+      time.advance(n === 0 ? firstCallMillis : allowanceMillis + 100)
+      return { source: `console.log("working")`, delayMillis: 0 }
+    }
+    const parked = await parkInFirstProcess(root, undefined, guarded)
+    expect(parked.kind).toBe("control.approval.requested")
+    if (parked.approval === undefined) return
+    const first = readRequestFacts(root, parked.runId)[0]!
+    expect(first.incident?.used).toBe(firstCallMillis)
+    expect(parked.approval.target.envelope.budget.milliseconds).toBe(firstCallMillis + allowanceMillis)
+
+    time.advance(betweenProcessesMillis)
+    const reparking = await answerInSecondProcess(root, parked, "continue", guarded)
+    expect(reparking.kind).toBe("control.approval.requested")
+    expect(modelCalls).toEqual(["runaway-first", "runaway-second"])
+    const [original, second, ...others] = readRequestFacts(root, parked.runId)
+    expect(original).toEqual(first)
+    expect(others).toEqual([])
+    expect(second?.incident).toMatchObject({
+      classification: "Runaway",
+      source: "latency",
+      used: firstCallMillis + allowanceMillis + 100,
+      max: firstCallMillis + allowanceMillis,
+      next: 0,
+      allowance: 2 * (firstCallMillis + allowanceMillis) + 100
+    })
+    expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "budget" })
+    expect(readClockRecords(root, parked.runId)).toEqual([
+      { kind: "started", at: time.zero },
+      { kind: "suspend", at: time.zero + firstCallMillis },
+      { kind: "resume", at: time.zero + firstCallMillis + betweenProcessesMillis },
+      { kind: "suspend", at: time.zero + firstCallMillis + betweenProcessesMillis + allowanceMillis + 100 }
+    ])
   }, 180_000)
 
   it("Stop holds on a drive whose spend no longer exceeds, as when reservations were released", async () => {
@@ -607,10 +737,12 @@ const settleInThirdProcess = (root: string, parked: { readonly runId: string; re
   )
 
 describe("a decision whose deciding process drove nothing", () => {
-  it.each([
-    ["continue", "control.run.completed", ["runaway-first", "runaway-third"]],
-    ["stop", "control.run.failed", ["runaway-first"]]
-  ] as const)("%s settles the run from the recorded decision in a restarted host", async (answer, kind, calls) => {
+  it.each(
+    [
+      ["continue", "control.run.completed", ["runaway-first", "runaway-third"]],
+      ["stop", "control.run.failed", ["runaway-first"]]
+    ] as const
+  )("%s settles the run from the recorded decision in a restarted host", async (answer, kind, calls) => {
     const root = makeRoot()
     const parked = await parkInFirstProcess(root)
     expect(parked.kind).toBe("control.approval.requested")

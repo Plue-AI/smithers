@@ -1,0 +1,63 @@
+{
+  "issue": 3230,
+  "sourceParent": "773fac75dcd1efd5d518bfbe60699b35c8927274",
+  "ownedFiles": {
+    "packages/smithers/agent/test/RunawayGuard.test.ts": "62deea629dc5860558143d308f84a0c70d6f20871559611150189cca5e492db0"
+  },
+  "readinessSHA256": "f00fea227657726e25879d243c497ab7133c41bbd1e363e2206cf6bfb8d9647e",
+  "sourceScope": "Test fixture only; all captured production agent, policy and compiler/config inputs unchanged before/after final owning execution.",
+  "behavior": [
+    "Real SQLite control/engine process restart; same production Agent.Service run stream and AgentSession budget binding.",
+    "Original 500 ms ceiling, 1100 ms accounted first model work and exact 1600 ms approval raise.",
+    "1500 ms parked wall span is durably subtracted across process boundary; 100 ms resumed work completes with exactly two provider calls and one original request.",
+    "600 ms resumed work causes a second durable budget park with used1700/max1600/allowance3300; third provider call is refused, original request is unchanged.",
+    "Exact ordered started/suspend/resume and companion second-suspend journal timestamps; unchanged Stop/unasked-restart/token/USD/model/cell/tool timeout controls pass."
+  ],
+  "checks": [
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/release/smithers-jj-export node_modules/.bin/vitest run test/RunawayGuard.test.ts test/RunawayGuardFlowLimit.test.ts --coverage.enabled=false",
+      "exit": 0,
+      "tests": 30,
+      "passed": 30,
+      "skips": 0,
+      "durationSeconds": 527.08,
+      "log": "3230-full-guard.log"
+    },
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH node_modules/.bin/tsc -p /tmp/smithers-burndown-20260930-receipts/ui-flow-batch2/3230-owning-tsconfig.json --noEmit",
+      "exit": 0,
+      "log": "3230-owning-types-2.log",
+      "qualification": "Extends unchanged existing test configuration; narrows include to all agent source plus both guard suites and Safety.ts. typeRoots only restores original Node types lookup after external config relocation. No strictness flags changed."
+    },
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH node_modules/.bin/tsc -p tsconfig.test.json --noEmit",
+      "exit": 2,
+      "log": "3230-types.log",
+      "diagnostics": "Five foreign TS2322 diagnostics in unchanged AgentSession.test.ts at lines 801,1772,1883,1981,2033; none in owning guard source/tests. Parent will track independently."
+    },
+    {
+      "cwd": "packages/smithers/agent",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH node_modules/.bin/dprint check test/RunawayGuard.test.ts",
+      "exit": 0,
+      "log": "3230-format-check-2.log"
+    },
+    {
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "git diff --check -- packages/smithers/agent/test/RunawayGuard.test.ts",
+      "exit": 0,
+      "log": "3230-diff-check.log"
+    }
+  ],
+  "archive": "3230-validation.tar.gz",
+  "archiveSHA256": "a0bb7fb4ad55945f36dd0fda4692bad2af6b5fceec70b394ccf7fba2ff1028a0",
+  "limits": [
+    "Original load-sensitive red is issue reporter evidence: 3 of3 failures on host load ~62. Raw original subprocess logs were not available to this subagent; preserved issue body distinguishes reported evidence from independently executed fixture setup diagnostics.",
+    "Retained intermediate Clock setup failures and teardown race are fixture development diagnostics, not evidence of a production regression.",
+    "Test-only change. Focused command disables coverage explicitly as original issue command did; no whole-package production coverage percentage or blanket full-types success claimed.",
+    "Native helper variable uses existing configured absolute artifact, with no fresh-build claim. These guarded runs bind existing jj Noop test service; no new confinement or live-model claims."
+  ],
+  "scope": "A test-only coherent accounting clock wraps the production agent loop; real control/SQLite/timers/monotonic behavior remains. Exact durable start/suspend/resume timestamps, restart completion and re-park enforcement verified; production budget semantics unchanged."
+}
