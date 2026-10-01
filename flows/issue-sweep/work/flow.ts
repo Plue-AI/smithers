@@ -222,8 +222,12 @@ const fetchIssue = FetchIssue.toLayer((input) =>
   )
 )
 
+// From the workspace root, so any path jj prints is repository-relative.
 const jj = (directory: string, args: ReadonlyArray<string>) =>
-  Effect.mapError(output("jj", ["-R", directory, ...args]), agentFailed)
+  Effect.mapError(
+    output("jj", ["-R", directory, ...args], { cwd: existsSync(directory) ? directory : repository }),
+    agentFailed
+  )
 
 /**
  * Adds the issue's jj workspace at `main` beside the checkout and installs its
@@ -250,7 +254,10 @@ const addWorkspace = (issue: number, revision: string, withDependencies: boolean
     const base = (yield* jj(directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
     if (withDependencies) yield* install(directory)
     return { directory, base }
-  }).pipe(Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message })))
+  }).pipe(
+    Effect.tapError(() => removeWorkspace(issue)),
+    Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message }))
+  )
 
 const prepareWorkspace = PrepareWorkspace.toLayer((input) => addWorkspace(input.issue, "main", true))
 
@@ -418,8 +425,10 @@ const remoteFix = RemoteFix.toLayer((input) =>
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory(guestCodexHome, { recursive: true })
       yield* fs.writeFileString(`${guestCodexHome}/auth.json`, login)
-      // The agent's change is whatever lies between the checkout's start and its end.
-      const [start] = yield* run("jj", ["-R", guestCheckout, "log", "-r", "@", "--no-graph", "-T", "commit_id"])
+      // The agent's change is whatever lies between main and the checkout's end.
+      // The machine's refresh leaves an empty @ on main@origin; that @ exists
+      // only in the machine, so the base is its parent, which the host can fetch.
+      const [start] = yield* run("jj", ["-R", guestCheckout, "log", "-r", "@-", "--no-graph", "-T", "commit_id"])
       const [stdout, stderr, code] = yield* run("sh", [
         "-c",
         // The Cloud image has node but no codex, and /usr/local is root's: install per user.

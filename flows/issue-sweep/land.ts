@@ -121,14 +121,25 @@ const asLand = <A, R>(effect: Effect.Effect<A, HostFailed | LandFailed, R>) =>
   Effect.mapError(effect, (error) => error._tag === "issue-sweep/LandFailed" ? error : fail(error.message))
 
 /** A jj command in `workspace`, reading only. */
-const jj = (workspace: string, args: ReadonlyArray<string>) => asLand(output("jj", ["-R", workspace, ...args]))
+// jj prints paths relative to the process's directory, so every command runs
+// from the workspace root: from anywhere else `diff --name-only` names
+// `../smithers-sweep/issue-N/...`, which selects no package and no test.
+const jj = (workspace: string, args: ReadonlyArray<string>) =>
+  asLand(output("jj", ["-R", workspace, ...args], { cwd: workspace }))
+
+/** The repository-relative paths `change` touches. */
+export const changedFiles = (workspace: string, change: string) =>
+  Effect.map(
+    jj(workspace, ["diff", "--name-only", "-r", change]),
+    (text) => text.split("\n").filter((file) => file !== "")
+  )
 
 /** A jj command in `workspace` that writes the shared repository, under the VCS lock. */
 const jjWrite = (workspace: string, args: ReadonlyArray<string>) =>
   asLand(
     existsSync(lockFile)
-      ? output("lockf", ["-k", "-t", "900", lockFile, "jj", "-R", workspace, ...args])
-      : output("jj", ["-R", workspace, ...args])
+      ? output("lockf", ["-k", "-t", "900", lockFile, "jj", "-R", workspace, ...args], { cwd: workspace })
+      : output("jj", ["-R", workspace, ...args], { cwd: workspace })
   )
 
 const one = (workspace: string, revision: string, template: string) =>
@@ -276,9 +287,7 @@ export const landChange = (workspace: string, change: string) =>
       if ((yield* one(workspace, change, `if(conflict, "conflict", "")`)) !== "") {
         return yield* fail(`change ${change} conflicts with main ${main.slice(0, 12)}`)
       }
-      const files = (yield* jj(workspace, ["diff", "--name-only", "-r", change])).split("\n").filter((file) =>
-        file !== ""
-      )
+      const files = yield* changedFiles(workspace, change)
       if (files.length === 0) return yield* fail(`change ${change} is empty on main ${main.slice(0, 12)}`)
       const hooks = files.filter((file) => installHooks.includes(file))
       if (hooks.length > 0) {
