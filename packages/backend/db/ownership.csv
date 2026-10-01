@@ -281,3 +281,4 @@ workspace_children,product,product migration 0089
 repository_egress_policies,product,product migration 0092
 repository_git_usage,product,product migration 0097
 factory_issue_claims,product,durable shared implementation ownership
+repository_registration_reports,product,product migration 0096

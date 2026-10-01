@@ -1,0 +1,26 @@
+{
+  "archive": "/tmp/smithers-burndown-20260930-receipts/api-batch5/proof-2081-independent-1c99090d46.tar.gz",
+  "sha256": "9f1fce51b79580ebdbbbb17f22824417ffeb59e5a1e1ead28f428c3bb862c8a6",
+  "verifiedEntries": [
+    {
+      "member": "independent-1c99090d46/baseline-independent-inputs-after.json",
+      "sha256": "f1863c5fee400e16ee77ce9e3fd5806c2e13f6848a2a24552dbdb19c608fe29e"
+    },
+    {
+      "member": "independent-1c99090d46/baseline-independent-inputs-before.json",
+      "sha256": "fee2e0e3c36ae5bb921b083ad63c7efd49ea0c3fb2fd09deaef546310b7e4a9a"
+    },
+    {
+      "member": "independent-1c99090d46/baseline-independent-owning.jsonl",
+      "sha256": "1d6f258ff3dbe803088aefdfd8ee26de53b13096f35666a6f7aeb5ccb3f4cc14"
+    },
+    {
+      "member": "independent-1c99090d46/baseline-independent-summary.json",
+      "sha256": "c517fd503b0f08cccafee52450a731821d7597fbe25e3cce2d63da747b50d89f"
+    },
+    {
+      "member": "independent-1c99090d46/ready-independent.json",
+      "sha256": "ef2b145cd78f515700ada19c3720403232c921d00d37bb29fa2144c996985c30"
+    }
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "issue": 2081,
+  "status": "READY_FROZEN_INDEPENDENT_BASELINE_QUALIFIED",
+  "head": "1c99090d4600add8380bfeba0c920fbf67a49047",
+  "ownedFiles": [
+    {
+      "path": "packages/backend/db/product/migrations/0102_factory_issue_ownership.sql",
+      "sha256": "bf8384b222fbbea6f5696b80961417410753ef6fbf3a7c92fd0e6c367a894007"
+    },
+    {
+      "path": "packages/backend/db/product/queries/factory_issue_ownership.sql",
+      "sha256": "761255df50487053a32180cc9b4747f8fa37eb877e191b9c638ca85fc08822b3"
+    },
+    {
+      "path": "packages/backend/internal/db/factory_issue_ownership.sql.go",
+      "sha256": "2986b450db162db57c86fdea5ba62f22cc6c5df4822e99021e6cebc87f9799d6"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership.go",
+      "sha256": "54bb2d4da542689207ed939942f88ae7db03bbaa745bbf3f9adc845f5dad93cb"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership_integration_test.go",
+      "sha256": "ee6e2e9230bac31232bec07e65d71e09f5883d3b4cb8cb0406a3ce59dd6dfb61"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership_test.go",
+      "sha256": "1d85e98865536a9d4adb0c5e260cb2285610e015bb6d2a8969d618c633ecc1e7"
+    },
+    {
+      "path": "packages/backend/db/product/factory_issue_ownership_migration_integration_test.go",
+      "sha256": "92ab342b30358adad066844b21c44b47ebbe604f296c9dde34dd991f3886a98f"
+    },
+    {
+      "path": "packages/backend/db/product/migrate.go",
+      "sha256": "6bda620ecd6fb22cb20a42c67b5c429830b4140a99e738d7f9521119063b8805"
+    },
+    {
+      "path": "packages/backend/db/ownership.csv",
+      "sha256": "9b11e1a51ad665a196713edfbe7ad0f2038f7d35ffe18e7cb187cea0036a03fc"
+    },
+    {
+      "path": "packages/backend/internal/db/models.go",
+      "sha256": "5a61d1df0dab60b03cecdc410c69c4e6c85c7c622c8f0d685f7a34009a1375f0"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_jobs.go",
+      "sha256": "4033b3c7294cd95a25e3465fa883556ad3771fc846d1fea550cbf1c3f07ef107"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_jobs_worker.go",
+      "sha256": "8c348e9d344aedb46f9d59d5d373e727b2a26b10ba9de1c34922af9c0d8cc5be"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_job_flow_runtime.go",
+      "sha256": "f661a371d36907577985d1f73004e43eb51d54f8d63d39e89d41f7f4da9db6ca"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_items.go",
+      "sha256": "d5102d787cbc76caa775ab146de500d3e444eadb3daad64f39a699a15210f201"
+    }
+  ],
+  "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -json ./packages/backend/internal/services -run '^TestRepositoryJob|^TestFactory|^TestMythical(LocalFactory|FactoryReconciles|ItemsFlowFromIssue|ItemsRebaseVerify|CancelledRunStops|PersonRetries|NonMaintainerEdit)|^TestGitHubMainPull(RecordsFactory|ClearsFactory)' -count=1 -timeout=240s",
+  "result": {
+    "head": "1c99090d4600add8380bfeba0c920fbf67a49047",
+    "exitCode": 0,
+    "passedEvents": 150,
+    "topLevelPassed": 71,
+    "failed": [],
+    "skipped": [],
+    "seconds": 36.8,
+    "inputCount": 2876,
+    "inputDrift": [],
+    "factoryWipStashed": true,
+    "new2081TopLevelCases": [
+      "TestFactoryIssueOwnershipBarrier",
+      "TestFactoryIssueOwnershipMythicalPhaseGapAndRevisedGeneration",
+      "TestFactoryIssueOwnershipDuplicatesRestartAndInactiveDeclaration",
+      "TestFactoryIssueOwnershipRegistrationReplacementAndReplyAuthority",
+      "TestFactoryIssueOwnershipHTTPWorkerCancellationAndHandoff",
+      "TestFactoryIssueOwnershipAdmissionAuthorityAndRollback",
+      "TestFactoryIssueOwnershipDeferredApprovalRevocation",
+      "TestFactoryIssueOwnershipOnlyDefinitiveNoLaunchFailuresYield",
+      "TestFactoryIssueOwnershipDirectFactoryAndOrdinaryJobsRemainIndependent",
+      "TestFactoryIssueOwnershipEligibility",
+      "TestFactoryIssueOwnershipTypedConflict",
+      "TestFactoryIssueOwnershipSnapshotAuthority"
+    ],
+    "logSha256": "1d6f258ff3dbe803088aefdfd8ee26de53b13096f35666a6f7aeb5ccb3f4cc14"
+  },
+  "baselineContract": "All factory producer and existingfixture sources match committed HEAD; separate2271 WIP is stashed. Canonical factoryFixture supplies the current supported declarative shape.",
+  "comparisonWithPrior": "150/71 versus prior157/72 reflects the separately unlanded2271 discriminator test (six subtests plus one parent) being stashed. Same exact owning selection, all twelve new2081 groups passed independently.",
+  "previousVerifiedArchive": {
+    "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/proof-ownership-2081.tar.gz",
+    "sha256": "72bf8211671bc4122d447c9adbee3403b5bf8e1859e547bdd733bdf1bc0a6f5f"
+  },
+  "limits": [
+    "No wholebackend or executedcoverage claim. RequiredPG/no skips actual sharedSQL+HTTPprotocol worker controls are independent of unit helpers.",
+    "Prior157 suite was WIP-coupled; superseded for landing by current150 suite. All original/introducedred logs remain in previous archive.",
+    "SQLC unrelated preexisting binding drift is retained and excluded; new generatedquery+model identity preserved.",
+    "Controlled HTTP runtime bridge peer is an explicit externalprovider exception, not native/providerlaunch evidence."
+  ],
+  "rawReceipts": [
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/independent-1c99090d46/baseline-independent-inputs-after.json",
+      "sha256": "f1863c5fee400e16ee77ce9e3fd5806c2e13f6848a2a24552dbdb19c608fe29e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/independent-1c99090d46/baseline-independent-inputs-before.json",
+      "sha256": "fee2e0e3c36ae5bb921b083ad63c7efd49ea0c3fb2fd09deaef546310b7e4a9a"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/independent-1c99090d46/baseline-independent-owning.jsonl",
+      "sha256": "1d6f258ff3dbe803088aefdfd8ee26de53b13096f35666a6f7aeb5ccb3f4cc14"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/independent-1c99090d46/baseline-independent-summary.json",
+      "sha256": "c517fd503b0f08cccafee52450a731821d7597fbe25e3cce2d63da747b50d89f"
+    }
+  ]
+}

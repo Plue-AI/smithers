@@ -1,0 +1,31 @@
+{
+  "candidateHead": "1c99090d4600add8380bfeba0c920fbf67a49047",
+  "base": "2b5ff0b20df6ab86a873cb535a5bb7df01f553c2",
+  "at": "2026-10-01T10:21:49.587008+00:00",
+  "2081Independent": {
+    "topLevel": 71,
+    "includingSubtests": 150,
+    "fail": 0,
+    "skip": 0,
+    "unchangedSourceInputs": 2876,
+    "proof": "2081-independent-proof.tar.gz"
+  },
+  "3347AndMigration": {
+    "topLevel": 5,
+    "fail": 0,
+    "skip": 0,
+    "raceDetector": true
+  },
+  "1819LocalRetirement": {
+    "topLevel": 1,
+    "including17HttpDoors": 18,
+    "fail": 0,
+    "skip": 0,
+    "raceDetector": true,
+    "acceptance": "OPEN: native startup foreign3257 and actual deployed Cloud/wiki evidence still outstanding"
+  },
+  "rootUnchangedSourceInputs": 2875,
+  "rootProofSha256": "3a987666b2983478edee1cfdba22400594645b78fe00b1dd72dff2df8ed14899",
+  "sourceChangedAfterQualification": false,
+  "command": "go test -race -p 1 -json ./packages/backend/db/product ./packages/backend/internal/compose -run '^TestFactoryIssueOwnershipMigration|^TestMigrationRegistryMatchesMigrationDirectory$|^TestOwnershipManifestMatchesFreshProductSchema$|^TestProductQueriesExcludeClusterTables$|^TestFirstPartyLinearRetirementHTTPPostgres$' -count=1 -timeout=120s"
+}

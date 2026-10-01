@@ -1,0 +1,58 @@
+{
+  "issue": 3347,
+  "status": "READY_FROZEN",
+  "head": "c9d51ce351553ec2282c7791230d2132d885684f",
+  "ownedFiles": [
+    {
+      "path": "packages/backend/db/ownership.csv",
+      "sha256": "9b11e1a51ad665a196713edfbe7ad0f2038f7d35ffe18e7cb187cea0036a03fc",
+      "ownedRow": "repository_registration_reports,product,product migration 0096",
+      "otherIssueRow": "factory_issue_claims is separately owned2081; stage only this new row"
+    }
+  ],
+  "provenance": {
+    "baselineOmitsTable": true,
+    "head": "c9d51ce351553ec2282c7791230d2132d885684f",
+    "migration": "packages/backend/db/product/migrations/0096_repository_registration_reports.sql",
+    "introducingCommit": "0a1ee68a20062d6daa9903e1939946ec77392981",
+    "baselineOwnershipSha256": "99269a5b6ee8e331b1363ab59dad708d70bf59cd3ff9efec52fdb0d4058f8f36"
+  },
+  "change": "Records existing public registration report table under product ownership; changes no SQL schema or behavior.",
+  "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -json ./packages/backend/db/product -run '^TestFactoryIssueOwnershipMigration|^TestMigrationRegistryMatchesMigrationDirectory$|^TestOwnershipManifestMatchesFreshProductSchema$|^TestProductQueriesExcludeClusterTables$' -count=1 -timeout=90s",
+  "exitCode": 0,
+  "passedTests": [
+    "TestFactoryIssueOwnershipMigrationPreservesAmbiguousOwnersAndFollowers",
+    "TestFactoryIssueOwnershipMigrationWaitsForInFlightAdmission",
+    "TestMigrationRegistryMatchesMigrationDirectory",
+    "TestOwnershipManifestMatchesFreshProductSchema",
+    "TestProductQueriesExcludeClusterTables"
+  ],
+  "seconds": 3.379,
+  "limit": "Tests include current2081 migration; missing0096 manifest entry independently verified on cleanHEAD. No wholeproduct suite claim.",
+  "rawReceipts": [
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/baseline-ownership.csv",
+      "sha256": "99269a5b6ee8e331b1363ab59dad708d70bf59cd3ff9efec52fdb0d4058f8f36"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/before-ownership.csv",
+      "sha256": "90bffe06d9835bade333b01d87a25ca911012edceea14c99e444279d82de077d"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/prior-product-red.jsonl",
+      "sha256": "42180d554d8ace387b37175d72493839f9bad5fd3de34612ac30aa06bd1bb322"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/product-green.jsonl",
+      "sha256": "db763269d7a7d67fb87f88e6f81a3e92871c69fb4f80980885cbbb43fb834462"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/provenance.json",
+      "sha256": "8e34133ca35904cca9e3d138e69ecbf13cea0aafac062e54f1cb9dbac83acfe4"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-3347/source.diff",
+      "sha256": "7788cc42b7112c2397be5e4499e41d169d045cfb886bf79f6e3ba0bfcc156af5"
+    }
+  ]
+}
