@@ -165,7 +165,7 @@ const main = Effect.gen(function*() {
   const refused = Unsupported.refusal(parsed)
   if (refused !== undefined) return yield* Effect.fail(refused)
   // `smthrs --mcp` alone serves MCP, from the canonical command tree.
-  if (parsed.options.get("--mcp") === true) {
+  if (parsed.mcp) {
     return yield* Effect.fail(new CliError.UnsupportedError({ message: "--mcp takes no command; run `smthrs --mcp`" }))
   }
   const applicationConfig = yield* NodeControl.configFromArguments(parsed)

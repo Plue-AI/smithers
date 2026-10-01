@@ -1,0 +1,129 @@
+{
+  "issue": 3315,
+  "status": "Qualified canonical MCP guard repair; parent3235 fullnamed4 gate still running",
+  "ownedSource": {
+    "packages/smithers/src/cli/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b"
+  },
+  "checks": [
+    {
+      "name": "legacy-mcp-refusal",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "-t",
+        "refuses `--mcp` on a legacy verb",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 11.23,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/legacy-mcp-refusal.log",
+      "sha256": "8923904a1623215db13f234f24f1596ae4497605e7e1d0fb945d1a50030007b0"
+    },
+    {
+      "name": "canonical-argument-and-real-mcp",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Argv.test.ts",
+        "test/McpModeCli.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 36.47,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/canonical-argument-and-real-mcp.log",
+      "sha256": "70385f164f4675aacb3d440195d6a9a5016d9c1e5f5c4b4f9c04864920328315"
+    },
+    {
+      "name": "source-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 16.06,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 18.04,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "lint",
+      "argv": [
+        "pnpm",
+        "exec",
+        "eslint",
+        "src/cli/LegacyBin.ts",
+        "--max-warnings=0"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 5.17,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "src/cli/LegacyBin.ts"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 0.35,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "exactLegacyMcpRefusal": 1,
+    "canonicalArgvAndRealMcpTests": 24
+  },
+  "boundaryControls": [
+    "actual legacy command+MCP exits1 with exact migration diagnostic, empty stdout and no control-plane files",
+    "real HTTP-valued opaque flags and disabled MCP forms remain commands",
+    "unsupported literal tails refuse without MCP, handler or HTTP",
+    "genuine MCP initialize for bare/inline/following boolean mode and stdin disconnect",
+    "genuine MCP cancellation remains143",
+    "real repo/environment command tails retain literal --mcp/--help/--version forwarding"
+  ],
+  "limits": [
+    "3235 full named4 gate remains pending; no closure claimed",
+    "Focused tests run with coverage disabled; no whole-package100% coverage claim",
+    "Existing absolute native helper only; no fresh rebuild/all-platform proof"
+  ],
+  "readinessSha256": "608aded977c22e7b0bc12990ae398fd448965caf7613282c8531e37d30971af1",
+  "archive": {
+    "file": "3315-proof.tar.gz",
+    "sha256": "b4e2a58b3c65870554c0eecb2fd78ee33c1762410f5a6ee642ed942e9e60ef44"
+  },
+  "rootReview": "Only predicate changes from removed options-map storage to authoritative parsed.mcp. Existing actual exact diagnostic/empty stdout/no-control-plane file regression is unchanged and passes; real MCP initialize/disconnect, HTTP/stdin, opaque values and literal tails pass independently. No alternate parser or typed-status contract is introduced."
+}

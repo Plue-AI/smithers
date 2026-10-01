@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3315
+  ],
+  "checkedCandidate": "92a94c7b36f5eed4b426aff043c57cfd7ffd0284",
+  "qualifiedUncommittedSources": {
+    "packages/smithers/src/cli/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b"
+  },
+  "sourceFrozen": true,
+  "allFocusedJobsCompleted": true,
+  "change": "Legacy MCP command refusal uses canonical parsed.mcp rather than obsolete options-map storage. Existing exact diagnostic/empty-stdout/exit1/no-created-files regression unchanged.",
+  "checks": [
+    {
+      "name": "legacy-mcp-refusal",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "-t",
+        "refuses `--mcp` on a legacy verb",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 11.23,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/legacy-mcp-refusal.log",
+      "sha256": "8923904a1623215db13f234f24f1596ae4497605e7e1d0fb945d1a50030007b0"
+    },
+    {
+      "name": "canonical-argument-and-real-mcp",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Argv.test.ts",
+        "test/McpModeCli.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 36.47,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/canonical-argument-and-real-mcp.log",
+      "sha256": "70385f164f4675aacb3d440195d6a9a5016d9c1e5f5c4b4f9c04864920328315"
+    },
+    {
+      "name": "source-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 16.06,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 18.04,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "lint",
+      "argv": [
+        "pnpm",
+        "exec",
+        "eslint",
+        "src/cli/LegacyBin.ts",
+        "--max-warnings=0"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 5.17,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "src/cli/LegacyBin.ts"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 0.35,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/green/format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "exactLegacyMcpRefusal": 1,
+    "canonicalArgvAndRealMcpTests": 24
+  },
+  "boundaryControls": [
+    "actual legacy command+MCP exits1 with exact migration diagnostic, empty stdout and no control-plane files",
+    "real HTTP-valued opaque flags and disabled MCP forms remain commands",
+    "unsupported literal tails refuse without MCP, handler or HTTP",
+    "genuine MCP initialize for bare/inline/following boolean mode and stdin disconnect",
+    "genuine MCP cancellation remains143",
+    "real repo/environment command tails retain literal --mcp/--help/--version forwarding"
+  ],
+  "testSources": {
+    "packages/smithers/test/Bin.test.ts": "c18aa7b4500194797f0cf134750f67d14bcf2702fc1113cebc1c16fedc20dac1",
+    "packages/smithers/test/Argv.test.ts": "ab8fa6f97b0c251f4b82ec7c9700cae0d8a92a5332bba687a62254eb0c29bc27",
+    "packages/smithers/test/McpModeCli.test.ts": "cde19707b6acbafd44ad9941a27d7138074496fb3bdad4947522a583ba9a3f8d"
+  },
+  "inputAudit": {
+    "count": 1946,
+    "changedDuringChecks": []
+  },
+  "redProvenance": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/red-provenance.json",
+  "limits": [
+    "3235 full named4 gate remains pending; no closure claimed",
+    "Focused tests run with coverage disabled; no whole-package100% coverage claim",
+    "Existing absolute native helper only; no fresh rebuild/all-platform proof"
+  ],
+  "rawReceipts": {
+    "LegacyBin-before.ts": "7ce8a32eb470db702beb5dd512d51d7dd7e5eaa46b62cc20a2bda646dd45cc12",
+    "green/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b",
+    "green/canonical-argument-and-real-mcp-result.json": "8a71d90a7dafdbd9a8fe859b639c0ee8439e49007b1ef9330d4088a06da50a78",
+    "green/canonical-argument-and-real-mcp.log": "70385f164f4675aacb3d440195d6a9a5016d9c1e5f5c4b4f9c04864920328315",
+    "green/format-result.json": "a9a0929db09c9328649db0843c3d07795a0f4769b7cf8b5cb848da83c4ab7fdc",
+    "green/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/inputs-after.json": "1a25d4639c613b8e33cad9d74d709533007fc64e3c9d7b9b22f4fc2863ac2d2a",
+    "green/inputs-before.json": "f78f7da9c5ac62ef6acb93f24ad8001b556837f37b033691dbe3d22f6eac11a5",
+    "green/legacy-mcp-refusal-result.json": "f76b714e0ed369620b0c509ea17ad225ddebc71415c85490aaef75d7aa337eb0",
+    "green/legacy-mcp-refusal.log": "8923904a1623215db13f234f24f1596ae4497605e7e1d0fb945d1a50030007b0",
+    "green/lint-result.json": "8a83e6f3530d87a2effc983db5f9c3fe2093e3314cd93f6a0c55d66f4e310a31",
+    "green/lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/qualify.py": "16711ac35c85ac95fd98033d47c1c33384edf84e1dafee904ba24d97df3919d0",
+    "green/result.json": "a9c34ec06cfc7db69f289ee493babfa13599517b3d532011033993ebf25c0dec",
+    "green/source-types-result.json": "f5a22eee73c5714b3117f7da613ae56cada4298cf36ea930aed6d61000e78b18",
+    "green/source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/test-types-result.json": "f85fd29a9bb04e4514d8a68476a0328919879ae8b90d34bd0b5cd836ba3c41cb",
+    "green/test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "live-issue.json": "718715b992b415d565f87bea3e7c25e5edd8ac2463c4898bdaae8c9a2c5c5967",
+    "red-provenance.json": "3399d5c744b98099e12023b7afd2da92339310b1b5e6953f19a0e711fe0147d2"
+  }
+}
