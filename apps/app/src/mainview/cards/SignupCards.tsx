@@ -64,6 +64,10 @@ export function SignupCardBody({ signup, repos, onRunCommand, doors = true }: { 
       <div className="signup-doors">
         <button type="button" className="signup-door" data-testid="signup-github" {...flowAction(onRunCommand, "auth.sign-in")}><GitHubMark />Continue with GitHub</button>
       </div>
+      <nav className="signup-legal" aria-label="Legal">
+        <a href="https://smithers.sh/terms/" target="_blank" rel="noopener noreferrer">Terms</a>
+        <a href="https://smithers.sh/privacy/" target="_blank" rel="noopener noreferrer">Privacy</a>
+      </nav>
     </section>}
     {signup.stage === "account" && <section className="signup-card" aria-label="Finish creating your account">
       <h2>Finish creating your account</h2>

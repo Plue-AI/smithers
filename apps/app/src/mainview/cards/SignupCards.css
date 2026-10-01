@@ -1,6 +1,6 @@
 .signup { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .signup button { color: var(--text); font: inherit; }
-.signup button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.signup button:focus-visible, .signup a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* Hero */
 .signup-hero { text-align: center; padding: 40px 0 8px; }
@@ -87,3 +87,6 @@
 
 @media (max-width: 480px) { .signup-hero { padding-top: 24px; } }
 @media (prefers-reduced-motion: reduce) { .signup *, .signup *::before, .signup *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; } }
+
+.signup-legal { display: flex; justify-content: center; gap: 16px; margin-top: 16px; font-size: .85rem; }
+.signup-legal a { color: var(--text-muted); text-underline-offset: 3px; }

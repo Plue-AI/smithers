@@ -101,7 +101,43 @@ describe("the signup cards", () => {
     expect(host.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Automate maintaining your codebase")
     expect(flows()).toEqual([])
     expect(host.querySelector("form")).toBeNull()
+    expect(host.querySelector('nav[aria-label="Legal"]')).toBeNull()
+    expect(host.querySelectorAll("a")).toHaveLength(0)
   })
+
+  test("sign-in offers focusable legal links after GitHub without leaving signup", () => {
+    const { host, calls } = render(initialSignup())
+    const legal = host.querySelector<HTMLElement>('nav[aria-label="Legal"]')
+    expect(legal).not.toBeNull()
+    const github = host.querySelector<HTMLButtonElement>('[data-testid="signup-github"]')!
+    const links = [...legal!.querySelectorAll<HTMLAnchorElement>("a")]
+    expect(links.map(link => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Terms", "https://smithers.sh/terms/"],
+      ["Privacy", "https://smithers.sh/privacy/"]
+    ])
+    expect([...host.querySelectorAll("button, a")]).toEqual([github, ...links])
+    for (const link of links) {
+      expect(link.tabIndex).toBe(0)
+      expect(link.getAttribute("target")).toBe("_blank")
+      expect(link.rel.split(/\s+/).sort()).toEqual(["noopener", "noreferrer"])
+      link.focus()
+      expect(document.activeElement).toBe(link)
+      // Native navigation belongs to the browser; prevent it in this DOM-only test.
+      link.addEventListener("click", event => event.preventDefault(), { once: true })
+      link.click()
+      expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("sign-in")
+      expect(host.querySelector('[data-testid="signup-github"]')).toBe(github)
+      expect(calls).toEqual([])
+    }
+  })
+
+  for (const stage of ["account", "poll", "ready", "done"] as const) {
+    test(`${stage} does not repeat the sign-in legal links`, () => {
+      const { host } = render({ ...initialSignup(), stage, door: "github" })
+      expect(host.querySelector('nav[aria-label="Legal"]')).toBeNull()
+      expect(host.querySelectorAll("a")).toHaveLength(0)
+    })
+  }
 
   test("the account step prefills the GitHub login under smithers.sh/ and submits through signup.account", () => {
     const { host, calls } = render({ ...initialSignup(), stage: "account", door: "github", account: "adapark", draft: { account: "adapark", name: "Ada Park" } })
