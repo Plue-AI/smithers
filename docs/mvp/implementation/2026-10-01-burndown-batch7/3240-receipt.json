@@ -1,0 +1,31 @@
+{
+  "issue": 3240,
+  "status": "original named defects qualified; original timeout not reproduced; full-services remains red for independently tracked gaps",
+  "parentReview": "Actual named service/database/routes/composition cases cover every reported original failure. Upstream fixes retained. Current whole suite completed608.28seconds below old25min timeout; existing debug artifact mismatch isolated via10actual release-native controls. No assertion weakening, native rebuild or whole-green claim.",
+  "namedProof": "3240-named-readiness.json",
+  "wholeExit": 1,
+  "wholeSeconds": 608.28,
+  "wholePassEvents": 9310,
+  "remainingGaps": [
+    {
+      "issue": 3288,
+      "claim": "foreign active child-hours guard"
+    },
+    {
+      "issue": 3265,
+      "claim": "foreign in-progress TerminalFactoryLoop contract"
+    }
+  ],
+  "nativeQualification": {
+    "selectedTopLevel": 10,
+    "actualPassedEvents": 51,
+    "wholeSuiteRerunWithReleaseArtifact": false
+  },
+  "limits": [
+    "Current full-services exit1 remains retained, not represented as green;20skips listed exactly.",
+    "No repeat whole suite; only actual missing-symbol failure controls rerun.",
+    "FFI artifact exact bytes/symbols verified; not rebuilt from current source.",
+    "Metadata HEAD advanced during narrow native run; source captured inputs had zero drift."
+  ],
+  "proofSha256": "42771c73a0ab9be4e8b6a705c31aae3f193bb315ba8a17341394fe6a2564d57c"
+}

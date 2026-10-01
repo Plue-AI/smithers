@@ -1,0 +1,22 @@
+{
+  "issue": 3240,
+  "status": "named failures qualified; issue OPEN for separate full-services assessment",
+  "namedPassedEvents": 71,
+  "topLevelPassedTests": 23,
+  "skips": 0,
+  "upstreamFixes": [
+    "59e14bd96411a15874cf427baa31db0c19df99ec",
+    "0bb8906d7930d5759c7a721bc543d4d6546847d7",
+    "8295e392bb0f09b92a55308bf45cd09a8d1b38cd",
+    "f0fcf5198a0d3dfbf071b00537f5c29ae44d542a",
+    "ecbc7fa0006f412f599223fd1ea6560a890b1c9b"
+  ],
+  "parentReview": "Named actual service/database/routes/composition cases match issue report. Source repairs already landed upstream. LostWorker explicit Isolation fixture preserved; no nil guard or assertion weakening. Node26 provider subprocess supplement retained separately. Full suite currently runs with retained native-artifact mismatch failures, so no whole-services green claim.",
+  "limits": [
+    "Original named runner used default Node24.4.1; sole Node subprocess provider rotation independently rerun and passed with Node26.5.0. No other named control invokes Node.",
+    "FFI is existing exact-hashed artifact; no native rebuild or hosted/all-platform claim.",
+    "No coverage execution or current whole-services pass claimed. Original timeout not silently treated as resolved.",
+    "Current metadata HEAD advanced while supplemental case ran; all captured backend and relevant source hashes unchanged."
+  ],
+  "proofSha256": "cf3c9d1f2da5c74a5bdebb9afcaeeb0d91aaa77e82d7ed3b5f26ce3ae18e54bc"
+}
