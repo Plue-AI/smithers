@@ -1,0 +1,36 @@
+{
+  "issue": 3054,
+  "sourceParent": "2705726675053cbaccfcc475be3452c460d3b932",
+  "readyManifest": "/tmp/smithers-burndown-20260930-receipts/api-batch3/final-cohort-270572/3054-ready-evidence.json",
+  "readyManifestSHA256": "5768f0c9f2bc4f176b449b00c5d1ac6e21e28eca092d0b4d68359fa9669a7d48",
+  "source": [
+    {
+      "path": "/private/tmp/smithers-burndown-20260930/flows/test/registration-calibration.test.ts",
+      "sha256": "dcbc5b2c9243db7c77488e95940586cfeaf33cb10ac0c3ad62533bef34a9d814",
+      "bytes": 4481
+    }
+  ],
+  "validation": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm --dir flows exec tsc -p tsconfig.json --noEmit",
+      "receipt": "3054-flows-noemit-final-green.log",
+      "exit": 0,
+      "compiler": "5.9.3"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm --dir flows exec node --experimental-strip-types --test test/registration-calibration.test.ts",
+      "receipt": "3054-calibration-fixture-final-green.log",
+      "exit": 0,
+      "passed": 6
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm --dir flows exec dprint check test/registration-calibration.test.ts",
+      "receipt": "3054-fixture-format-final-green.log",
+      "exit": 0
+    }
+  ],
+  "archive": "3054-validation.tar.gz",
+  "archiveSHA256": "95a2de19114d5f67fed9d83980390482e76b6806ba02a1f314890e537ce5e817",
+  "scope": "Original five Platform/ControlExecutor errors are absent after upstream repairs. Preserve production nullable corpus semantics and assert synthetic fixture completeness before arithmetic. Owning compiler config and test assertions unchanged.",
+  "retainedFailures": "First assertion mistakenly placed on number result auroc rather than nullable signal; first green-named noEmit log exits2 with original diagnostic. Final source correctly narrows value at reported arithmetic. No ignored errors/casts/non-null assertions or gate weakening."
+}

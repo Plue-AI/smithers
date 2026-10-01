@@ -7,8 +7,8 @@ import {
   type CorpusCase,
   DETERMINISTIC,
   DETERMINISTIC_TOTAL,
-  fit,
   type Fit,
+  fit,
   LANGUAGES,
   projectSimplex,
   split
@@ -69,10 +69,15 @@ test("fitted anchors reproduce the labels on held-out cases", () => {
   const score = (entry: CorpusCase) =>
     DETERMINISTIC.reduce((sum, id) => {
       const anchor = (artifact.strata[`${entry.language}/${entry.band}`] ?? artifact.pooled)[id]
-      return sum + artifact.weights[id] * Math.min(1, entry.values[id] / anchor)
+      const value = entry.values[id]
+      assert.ok(value !== null, `synthetic case ${entry.id} must measure ${id}`)
+      return sum + artifact.weights[id] * Math.min(1, value / anchor)
     }, 0)
   const recomputed = auroc(
-    heldOut.filter((entry) => entry.label !== "hybrid").map((entry) => ({ score: score(entry), positive: entry.label === "agent" }))
+    heldOut.filter((entry) => entry.label !== "hybrid").map((entry) => ({
+      score: score(entry),
+      positive: entry.label === "agent"
+    }))
   )
   assert.ok(Math.abs(recomputed - artifact.auroc.heldOut) <= TOLERANCE)
 })
