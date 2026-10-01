@@ -4,6 +4,11 @@
 
 ### Added
 
+- `AgentAction.make` accepts `claimCap`, overriding `Host.claimCap` for one
+  step. A module flow can now mark a step whose completion is an answer
+  (`claimCap: 0`) so the completion claim brake does not refuse it as an
+  unrecorded claim, and the step runs without a reachable judge.
+
 - `AgentAction.implement` attaches the existing agent implementation to a
   canonical prompt flow's declared action without rebuilding its flow (#1799).
 

@@ -510,6 +510,57 @@ const stack = <ROut, RIn>(
     Layer.provideMerge(NodeCrypto.layer)
   )
 
+describe("AgentAction completion claim brake", () => {
+  // A host whose judge is unreachable, as a CLI with no judge credential is.
+  const noJudge = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+    evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "unconfigured", message: "no judge configured" }))
+  }))
+  const answerer = (name: string, claimCap?: number) =>
+    AgentAction.make(`agent/test/${name}`, {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: "anthropic:test-model",
+      prompt: () => "Review it.",
+      ...(claimCap === undefined ? {} : { claimCap })
+    })
+  const answer = (step: ReturnType<typeof answerer>, executionId: string) => {
+    const flow = Flow.make(`agent/test/${executionId}`, {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => step.call({ diff })
+    })
+    return Effect.runPromise(Effect.exit(
+      flow.execute({ diff: "-  old\n+  new" }, { executionId }).pipe(Effect.provide(
+        Layer.mergeAll(step.layer, Interpreter.layer(flow)).pipe(
+          Layer.provideMerge(AgentAction.layerHost(host)),
+          Layer.provideMerge(seats(scripted([answering(`{"approved":true,"issues":[]}`)], []))),
+          Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, noJudge)),
+          Layer.provideMerge(Safety.layer),
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+      ))
+    ))
+  }
+
+  it("reads every completion against the host's judge by default", async () => {
+    const exit = await answer(answerer("ArmedAnswer"), "claim-armed")
+    expect(exit._tag).toBe("Failure")
+    expect(JSON.stringify(exit)).toContain("no judge configured")
+  })
+
+  it("lets an action whose completion is an answer disarm the brake, so the answer stands unjudged", async () => {
+    const exit = await answer(answerer("DisarmedAnswer", 0), "claim-disarmed")
+    expect(exit).toMatchObject({ _tag: "Success", value: { approved: true, issues: [] } })
+  })
+
+  it("rejects a non-finite, fractional, or negative claim cap at declaration time", () => {
+    for (const claimCap of [Number.NaN, 1.5, -1]) expect(() => answerer("BadCap", claimCap)).toThrow()
+  })
+})
+
 describe("AgentAction completion value types", () => {
   const Output = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null])
   const Typed = AgentAction.make("agent/test/TypedCompletion", {

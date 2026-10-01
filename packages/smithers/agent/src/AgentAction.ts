@@ -382,6 +382,13 @@ export interface Options<
    */
   readonly readOnlyCap?: number | undefined
   /**
+   * Overrides {@link Host.claimCap} for this action. Zero disarms the
+   * completion claim brake, which is right for an action whose completion is
+   * an answer (a classification, an extraction) rather than a claim about work
+   * it did: the answer stands without the host's judge reading it.
+   */
+  readonly claimCap?: number | undefined
+  /**
    * Opening memory rows for this step, built from the decoded payload.
    *
    * They reach the model only as the run's opening memory: a judged step's
@@ -631,6 +638,9 @@ export const make = <
 ): AgentAction<Tag, PayloadSchemaOf<Payload>, Output> => {
   if (options.corrections !== undefined) {
     checkCorrections(options.corrections, "AgentAction corrections")
+  }
+  if (options.claimCap !== undefined && (!Number.isSafeInteger(options.claimCap) || options.claimCap < 0)) {
+    throw new TypeError(`AgentAction claimCap must be a non-negative safe integer, received ${options.claimCap}`)
   }
   type PayloadSchema = PayloadSchemaOf<Payload>
   const declared = Action.make(tag, {
@@ -901,7 +911,7 @@ export const implement = <
                   modelCallMs: host.modelCallMs,
                   maxFrames: options.maxFrames ?? host.maxFrames,
                   readOnlyCap: options.readOnlyCap,
-                  claimCap: host.claimCap,
+                  claimCap: options.claimCap ?? host.claimCap,
                   output,
                   serverTools: host.serverTools,
                   judged: host.judged,
