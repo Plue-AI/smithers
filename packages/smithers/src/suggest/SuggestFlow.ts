@@ -336,8 +336,11 @@ export const layerNode = (config: NodeConfig) => {
     ).pipe(Layer.provide(grantsFor(config.root)))
     const seats = Layer.effect(
       SeatResolver.SeatResolver,
-      Effect.map(RequestExecutor.RequestExecutor, (request) => {
-        const resolver = NodeControl.seatResolver(config.environment, request)
+      Effect.gen(function*() {
+        const resolver = yield* NodeControl.scopedSeatResolver(
+          config.environment,
+          yield* RequestExecutor.RequestExecutor
+        )
         return SeatResolver.make({ resolve: () => resolver.resolve(config.seat) })
       })
     ).pipe(Layer.provide(executor))

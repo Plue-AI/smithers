@@ -90,6 +90,8 @@ export interface Options {
   readonly start?: Start | undefined
   /** How long an idle session stays open, one hour by default. */
   readonly idleMillis?: number | undefined
+  /** How long a close waits for Claude Code to acknowledge the interrupt before closing anyway. */
+  readonly interruptMillis?: number | undefined
 }
 
 const effort: Readonly<Record<ModelRequest.ReasoningEffort, Sdk.EffortLevel>> = {
@@ -267,6 +269,20 @@ const userTurn = (text: string): Sdk.SDKUserMessage => ({
 export const make = (options: Options): Model.Model & { readonly close: () => void } => {
   const start: Start = options.start ?? (({ options, prompt }) => Sdk.query({ prompt, options }))
   const idleMillis = options.idleMillis ?? 60 * 60_000
+  const interruptMillis = options.interruptMillis ?? 5_000
+  // Interrupt the running turn, then close: closing alone can leave a turn
+  // going until the process is gone. A Claude Code that never acknowledges the
+  // interrupt is closed anyway once `interruptMillis` passes.
+  const stop = (query: Query) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void Promise.race([
+      query.interrupt().catch(() => {}),
+      new Promise((resolve) => timer = setTimeout(resolve, interruptMillis))
+    ]).finally(() => {
+      clearTimeout(timer)
+      query.close()
+    })
+  }
   const sessions = new Map<string, Session>()
 
   const locked = (request: ModelRequest.ModelRequest): Sdk.Options => ({
@@ -323,9 +339,7 @@ export const make = (options: Options): Model.Model & { readonly close: () => vo
         if (sessions.get(key) === session) sessions.delete(key)
         closed = true
         wake()
-        // Closing alone can leave a running turn going until the process is
-        // gone, so the turn is interrupted first.
-        void query.interrupt().catch(() => {}).finally(() => query.close())
+        stop(query)
       }
     }
     sessions.set(key, session)

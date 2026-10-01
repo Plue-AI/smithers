@@ -282,6 +282,7 @@ export {
   layerSeatCatalog,
   layerSeatEvaluator,
   layerSeatResolver,
+  scopedSeatResolver,
   seatCandidates,
   seatResolver,
   testFlows,

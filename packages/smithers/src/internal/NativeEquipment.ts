@@ -24,7 +24,7 @@ import type * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
 import * as TestRunner from "@smthrs/std/TestRunner"
 import { Clock, Context, Effect, FileSystem, Layer, Path, Redacted } from "effect"
-import type { Result } from "effect"
+import type { Result, Scope } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -364,6 +364,18 @@ const providerSeats = (
       return served.routes.includes(route) ? pool : undefined
     })
   const host = hostOf(environment)
+  // One Claude Code model per model and executable: an agent step resolves its
+  // seat on every frame, and each model holds its own pool of sessions.
+  const claudeModels = new Map<string, ReturnType<typeof ClaudeCode.make>>()
+  const claudeModel = (options: Parameters<typeof ClaudeCode.make>[0]) => {
+    const key = `${options.model}\0${options.executable}\0${options.hijackable === true}`
+    const cached = claudeModels.get(key)
+    if (cached !== undefined) return cached
+    const made = ClaudeCode.make(options)
+    claudeModels.set(key, made)
+    retain(made.close)
+    return made
+  }
   return SeatResolver.make({
     resolve: (seat) =>
       Effect.gen(function*() {
@@ -451,14 +463,13 @@ const providerSeats = (
           }
           case "ClaudeCode": {
             const model = Providers.claudeCodeModel(modelId)
-            const claude = ClaudeCode.make({
+            const claude = claudeModel({
               model,
               executable: signed.executable,
               environment,
               // A host whose runs a person can take over keeps each session for `claude --resume`.
               hijackable: environment["SMITHERS_HIJACKABLE"] === "1"
             })
-            retain(claude.close)
             return Seat.make({
               id: seat,
               modelId: model,
@@ -582,9 +593,25 @@ const seatOf = <Body, Frame, Event, State>(
   })
 
 /**
- * Provides {@link seatResolver} over the composition's request dispatcher.
- * Releasing the layer ends every Claude Code session its seats still hold, so
- * an idle session cannot keep the host process alive after its runs finish.
+ * {@link seatResolver} bound to the current scope: closing the scope ends every
+ * Claude Code session its seats still hold, so an idle session cannot keep the
+ * host process alive after its runs finish.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const scopedSeatResolver = (
+  environment: Readonly<Record<string, string | undefined>>,
+  executor: RequestExecutor.RequestExecutor
+): Effect.Effect<SeatResolver.Service, never, Scope.Scope> =>
+  Effect.gen(function*() {
+    const closes = new Set<() => void>()
+    yield* Effect.addFinalizer(() => Effect.sync(() => closes.forEach((close) => close())))
+    return seatResolver(environment, executor, (close) => closes.add(close))
+  })
+
+/**
+ * Provides {@link scopedSeatResolver} over the composition's request dispatcher.
  *
  * @category layers
  * @since 0.1.0
@@ -593,12 +620,7 @@ export const layerSeatResolver = (
   environment: Readonly<Record<string, string | undefined>>
 ): Layer.Layer<SeatResolver.SeatResolver, never, RequestExecutor.RequestExecutor> =>
   Layer.effect(SeatResolver.SeatResolver)(
-    Effect.gen(function*() {
-      const executor = yield* RequestExecutor.RequestExecutor
-      const closes = new Set<() => void>()
-      yield* Effect.addFinalizer(() => Effect.sync(() => closes.forEach((close) => close())))
-      return seatResolver(environment, executor, (close) => closes.add(close))
-    })
+    Effect.flatMap(RequestExecutor.RequestExecutor, (executor) => scopedSeatResolver(environment, executor))
   )
 
 /**

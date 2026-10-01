@@ -46,8 +46,11 @@ interface Started {
   closed: boolean
 }
 
-/** A scripted Claude Code: `answer` sees each user turn and says what Claude does. */
-const scripted = (answer: (turn: string) => Reply) => {
+/**
+ * A scripted Claude Code: `answer` sees each user turn and says what Claude does.
+ * `hangInterrupt` models a Claude Code that never acknowledges an interrupt.
+ */
+const scripted = (answer: (turn: string) => Reply, hangInterrupt = false) => {
   const started: Array<Started> = []
   const start: ClaudeCode.Start = ({ options, prompt }) => {
     const messages = queue<Sdk.SDKMessage>()
@@ -86,8 +89,9 @@ const scripted = (answer: (turn: string) => Reply) => {
     })()
     return {
       [Symbol.asyncIterator]: messages.iterator,
-      interrupt: async () => {
+      interrupt: () => {
         record.interrupts++
+        return hangInterrupt ? new Promise(() => {}) : Promise.resolve()
       },
       close: () => {
         record.closed = true
@@ -97,9 +101,10 @@ const scripted = (answer: (turn: string) => Reply) => {
   return { start, started }
 }
 
-const model = (start: ClaudeCode.Start, hijackable?: boolean) =>
+const model = (start: ClaudeCode.Start, hijackable?: boolean, interruptMillis?: number) =>
   ClaudeCode.make({
     hijackable,
+    interruptMillis,
     model: "claude-opus-5-5",
     executable: "/opt/bin/claude",
     environment: { HOME: "/home/op" },
@@ -319,6 +324,18 @@ describe("ClaudeCode.make", () => {
     // A request after close starts a fresh session.
     await run(seat, request([user("a")], { cacheKey: "run-a" }))
     expect(claude.started).toHaveLength(3)
+  })
+
+  it("closes a session whose Claude Code never acknowledges the interrupt", async () => {
+    const claude = scripted(() => ({ text: reply }), true)
+    const seat = model(claude.start, undefined, 20)
+    await run(seat, request([user("a")]))
+
+    seat.close()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(claude.started[0]).toMatchObject({ interrupts: 1, closed: false })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(claude.started[0]!.closed).toBe(true)
   })
 
   it("answers a request with no conversation from a one-turn session", async () => {
