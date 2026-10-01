@@ -1,0 +1,49 @@
+{
+  "issue": 1819,
+  "status": "Local qualification reviewed; full acceptance remains open",
+  "reviewer": "codex-burndown-20260930",
+  "at": "2026-10-01T08:56:48.957633+00:00",
+  "upstreamProductionRetirement": "f3612d5e48331862592101c0406635a768af5324",
+  "files": {
+    "packages/backend/internal/compose/linear_retirement_integration_test.go": "5cc6ec8974b0a9ac6d83835ac8213088c2a4033bbb1f8b4648b5bd3815b23fac",
+    "apps/app/src/bun/server.test.ts": "980f47ddd9a15b2688f09a57c67ef4c0c264c5275ea2c76d8aa378820c7d3dac",
+    "apps/app/docs/workbench-lanes/sync.md": "ac3b390bd048ec95283f3f48d312df6dd7de2bdee80046e19038340d9ed2f211",
+    "apps/app/docs/workbench-lanes/sync.REPORT.md": "50632b7fd319aee718f40cb1e3fd1c14c802858db07413c63ece0174c10be47e",
+    "apps/app/docs/workbench-lanes/L5-sync-live.REPORT.md": "6a58e9eda14e7c8bc6476edac0efc44e8d0c05534a19fda5935d3b3d12e2ef69"
+  },
+  "sourceDiffReviewed": true,
+  "review": "No new production implementation. Root reviewed actual HTTP listener/database-backed bearer authentication and retired route/status checks, independent supported catalog authentication, no-table-mutation assertions, preserved SDK and historical document disposition. Unrelated Search/Git router ports are not exercised by these routes. Native proxy assertions match current session/origin/path ordering by source inspection but never executed because of existing #3257; no green native startup claim. Legacy storage/privacy provenance preserved.",
+  "proofArchive": "1819-proof.tar.gz",
+  "proofArchiveSha256": "7022cb92e2fcf46e84c43c731eabb113a9c4b995117b560f5d1aa4634c6fa6cc",
+  "executed": {
+    "backend": "four top-level compose controls +17 real HTTP/PG door subtests; every retired path tested anonymous and real database bearer-authenticated; existing independent context router17-door control remains; no mutation of historical integration/issue tables; -race pass",
+    "remainingBackend": "8 catalog+Slack mappings tests passed with required realPG and race detector",
+    "openapi": "4 complete route/bootstrap/path/generator helper conformance tests passed",
+    "app": "70 integration-seam, issue-card, schema cleanup tests passed",
+    "savedCards": "63 compatibility tests passed, including retired Linear rows/forms and preserved Slack row",
+    "sdk": "121 Linear client/actions/webhook tests passed independently; loopback HTTP fixture is deliberate provider exception avoiding external actions; no live calls; default stock SDK coverage is not claimed from this focused coverage-disabled diagnosis",
+    "configuredTypes": {
+      "before": 43,
+      "after": 43,
+      "exactDiagnosticListUnchanged": true,
+      "diskDrift": [],
+      "newOwnedErrors": [],
+      "unchangedOwningCompilerInputHashes": 5976,
+      "configuredGatePass": false,
+      "limit": "43 pre-existing configured diagnostics remain, including foreign3257 missing smithers-server/DurableTurn."
+    },
+    "format": "gofmt empty; git diff --check passed"
+  },
+  "limits": [
+    "Native startup/proxy test never executed: existing missing smithers-server/DurableTurn import, foreign in-progress #3257. Retained failing native-proxy log and unexecuted strengthened method/prefix assertions.",
+    "No genuine deployed Smithers Cloud retirement or wiki refresh receipt found. Actual HTTP here is local composed product backend, not deployed Cloud. #1923/#2290 remain separate outstanding campaign/retirement follow-up boundaries.",
+    "No full backend/app/SDK coverage or full release qualification claim. Thresholds/configuration unchanged; no production code excluded.",
+    "Original1819 issue-creation regression is obsolete under D11/CUT01; current product removal qualified from authenticated upstream f361 source history, no fabricated fresh red. Original /tmp/smithers-testing-campaign-2290 receipts absent on this host.",
+    "Legacy baseline tables/generated sqlc structs, historical filed_by/source=linear provenance, and old-row privacy cleanup remain intentionally preserved; no first-party service/query/router API is revived.",
+    "Reusable provider SDK intentionally remains; its public exports/auth/actions/webhook validation contract is not a first-party Linear product door."
+  ],
+  "remainingAcceptance": [
+    "Foreign #3257 blocks actual native proxy startup/retirement assertions",
+    "Actual deployed Cloud retirement and existing wiki workflow receipts are not available"
+  ]
+}

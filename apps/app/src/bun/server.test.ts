@@ -357,9 +357,20 @@ describe("the local origin", () => {
       expect((await fetch(`${proxied.origin}/api/auth/session`, { headers })).status).toBe(404)
       const unknown = await fetch(`${proxied.origin}/api/nothing/here`, { headers })
       expect(unknown.status).toBe(404)
-      for (const path of ["/api/linear", "/api/integrations/linear", "/api/auth/linear", "/api/repos/a/b/issues/1/linear-link", "/api/cloud/api/linear", "/api/cloud/api/auth/linear", "/api/cloud/api/repos/a/b/issues/1/linear-link"]) {
-        expect((await fetch(`${proxied.origin}${path}`, { headers })).status).toBe(404)
+      for (const path of ["/api/linear", "/api/integrations/linear", "/api/auth/linear", "/api/repos/a/b/issues/1/linear-link", "/api/cloud/api/linear", "/api/cloud/api/integrations/linear", "/api/cloud/api/auth/linear", "/api/cloud/api/repos/a/b/issues/1/linear-link"]) {
+        for (const method of ["GET", "POST", "DELETE"]) {
+          const response = await fetch(`${proxied.origin}${path}`, { method, headers })
+          expect(response.status).toBe(404)
+          expect(await response.json()).toMatchObject({ code: "not_found" })
+          expect(seen).toHaveLength(8)
+        }
       }
+      // Retired paths do not bypass the native session or origin boundary.
+      expect((await fetch(`${proxied.origin}/api/linear`)).status).toBe(401)
+      expect((await fetch(`${proxied.origin}/api/linear`, {
+        headers: { ...headers, origin: "https://foreign.invalid" }
+      })).status).toBe(403)
+      expect((await fetch(`${proxied.origin}/webhooks/linear`, { method: "POST", body: "{}" })).status).toBe(405)
       expect((await fetch(`${proxied.origin}/api/billing`, { method: "POST", headers })).status).toBe(404)
       expect((await fetch(`${proxied.origin}/api/billing-other`, { headers })).status).toBe(404)
       expect(seen).toHaveLength(8)

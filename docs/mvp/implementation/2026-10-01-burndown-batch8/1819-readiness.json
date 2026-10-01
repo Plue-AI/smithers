@@ -1,0 +1,150 @@
+{
+  "issue": 1819,
+  "status": "FROZEN_LOCAL_QUALIFICATION_READY_ACCEPTANCE_BLOCKED",
+  "head": "c793b41ce809dca95ef622bdd4b7c4a52da89f3d",
+  "upstreamProductionRetirement": "f3612d5e48331862592101c0406635a768af5324",
+  "newProductionChanges": false,
+  "ownedFiles": [
+    {
+      "path": "packages/backend/internal/compose/linear_retirement_integration_test.go",
+      "sha256": "5cc6ec8974b0a9ac6d83835ac8213088c2a4033bbb1f8b4648b5bd3815b23fac"
+    },
+    {
+      "path": "apps/app/src/bun/server.test.ts",
+      "sha256": "980f47ddd9a15b2688f09a57c67ef4c0c264c5275ea2c76d8aa378820c7d3dac"
+    },
+    {
+      "path": "apps/app/docs/workbench-lanes/sync.md",
+      "sha256": "ac3b390bd048ec95283f3f48d312df6dd7de2bdee80046e19038340d9ed2f211"
+    },
+    {
+      "path": "apps/app/docs/workbench-lanes/sync.REPORT.md",
+      "sha256": "50632b7fd319aee718f40cb1e3fd1c14c802858db07413c63ece0174c10be47e"
+    },
+    {
+      "path": "apps/app/docs/workbench-lanes/L5-sync-live.REPORT.md",
+      "sha256": "6a58e9eda14e7c8bc6476edac0efc44e8d0c05534a19fda5935d3b3d12e2ef69"
+    }
+  ],
+  "qualification": {
+    "backend": "four top-level compose controls +17 real HTTP/PG door subtests; every retired path tested anonymous and real database bearer-authenticated; existing independent context router17-door control remains; no mutation of historical integration/issue tables; -race pass",
+    "remainingBackend": "8 catalog+Slack mappings tests passed with required realPG and race detector",
+    "openapi": "4 complete route/bootstrap/path/generator helper conformance tests passed",
+    "app": "70 integration-seam, issue-card, schema cleanup tests passed",
+    "savedCards": "63 compatibility tests passed, including retired Linear rows/forms and preserved Slack row",
+    "sdk": "121 Linear client/actions/webhook tests passed independently; loopback HTTP fixture is deliberate provider exception avoiding external actions; no live calls; default stock SDK coverage is not claimed from this focused coverage-disabled diagnosis",
+    "configuredTypes": {
+      "before": 43,
+      "after": 43,
+      "exactDiagnosticListUnchanged": true,
+      "diskDrift": [],
+      "newOwnedErrors": [],
+      "unchangedOwningCompilerInputHashes": 5976,
+      "configuredGatePass": false,
+      "limit": "43 pre-existing configured diagnostics remain, including foreign3257 missing smithers-server/DurableTurn."
+    },
+    "format": "gofmt empty; git diff --check passed"
+  },
+  "limits": [
+    "Native startup/proxy test never executed: existing missing smithers-server/DurableTurn import, foreign in-progress #3257. Retained failing native-proxy log and unexecuted strengthened method/prefix assertions.",
+    "No genuine deployed Smithers Cloud retirement or wiki refresh receipt found. Actual HTTP here is local composed product backend, not deployed Cloud. #1923/#2290 remain separate outstanding campaign/retirement follow-up boundaries.",
+    "No full backend/app/SDK coverage or full release qualification claim. Thresholds/configuration unchanged; no production code excluded.",
+    "Original1819 issue-creation regression is obsolete under D11/CUT01; current product removal qualified from authenticated upstream f361 source history, no fabricated fresh red. Original /tmp/smithers-testing-campaign-2290 receipts absent on this host.",
+    "Legacy baseline tables/generated sqlc structs, historical filed_by/source=linear provenance, and old-row privacy cleanup remain intentionally preserved; no first-party service/query/router API is revived.",
+    "Reusable provider SDK intentionally remains; its public exports/auth/actions/webhook validation contract is not a first-party Linear product door."
+  ],
+  "reconciledRequests": {
+    "2267": "already closed and rewritten to Slack; explicitly defers Linear product removal to1819",
+    "2116": "already closed historical LinearOAuth request; D11 supersedes restoration, no implementation reintroduced"
+  },
+  "receipts": [
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-after-configured-types.json",
+      "sha256": "44c76f571e4d8b60cace36270958135696b683e1245fead297b6d652e36bb51a"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-app-retirement.log",
+      "sha256": "f26816861778d02e3b28affcbb9a448e98a20d406899d6efa66c815acb8f787a"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-before-configured-types.json",
+      "sha256": "0649e668b3e1b6cb79fa063398e63fa85d3dbf822f8fd29e125ba5213272600d"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-capture-types.cjs",
+      "sha256": "2aae370871ddf7182693e8c3f81caa4aa33d998a94b7312aeab570e6c1a6b4b3"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-commands.json",
+      "sha256": "1cc2f6fdb6424356f290c86679a39ea9e839e3ad758075a34f166bed89f102e0"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-compose.log",
+      "sha256": "190be8f77beda1478c99d6accd243fdee118a631785d12d22a9a80a7c3d31eb1"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-issue-1819.json",
+      "sha256": "c265642306f8c2d6e2a706f8e5c3d71abd91b4ce0ca82cae09fbaa5bd5b99446"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-issue-2116.json",
+      "sha256": "bb0a49be6339aa39ab449182663af4cbc11e725f690fbf4cc2b5cd5cfe4bcfbf"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-issue-2267.json",
+      "sha256": "13f4e063d85c5ea40ac5148c3949f52531b47b8bb65bd6a0819b206d89fcf327"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-native-proxy.log",
+      "sha256": "5092d4a77184fd587b01f223e06fc9d98cbc388b190ae7d86792946955e5a1f9"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-new-retirement-test.go",
+      "sha256": "5cc6ec8974b0a9ac6d83835ac8213088c2a4033bbb1f8b4648b5bd3815b23fac"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-openapi.log",
+      "sha256": "131462531158f6ede21948587f02b9775f8ff44ad743b340d8dd40a29730cb4e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-owned.patch",
+      "sha256": "e6e98f431469c74fc93714595b427239e9dbb509f9eae965fe65b0f6d3b5cc4b"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-qualified-inputs.json",
+      "sha256": "a17c44842c68658b87ab95be23daa2c654564956266cbd585718d6447f20dca8"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-remaining-backend.log",
+      "sha256": "75eed7edcace1153489cd03579382bdbdb8cf69180afaf2ddffa55538b412a42"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-retirement-source-inventory.txt",
+      "sha256": "d559db8b7b4a22817b7aca67589910f6b99aec958ab89ad1e27aa01b1889057f"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-rpc-legacy.log",
+      "sha256": "b8dd6a974e76b880fcbd31d11c6c0b2ad0dcb5a0232171dd233c21b3e888069e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-sdk-linear.log",
+      "sha256": "1bac82cefa896dd67badb32f5339c8bee8e6553615d67a1b553534834938cf54"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-types-after.log",
+      "sha256": "5f8ad226a28f8b600fabf4d4c4d87e5a07cbc2652faac29250bf0a745554baac"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-types-before.log",
+      "sha256": "91f102a71d2417316954a13eb247107ed936049e89808dcf15e9f6b12b9c963c"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-types-comparison.json",
+      "sha256": "cfb16c46cbbd88b4839396ebb2c9e8d5d48ca8ba3af9a0e6d1f6e4443b182e93"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/1819-upstream-retirement.patch",
+      "sha256": "13497284891a74b32b4a761f49f5a95ae50348eb2de2902ccf7de9d67eaffbc7"
+    }
+  ]
+}
