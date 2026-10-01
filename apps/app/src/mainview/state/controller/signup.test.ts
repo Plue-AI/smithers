@@ -32,7 +32,7 @@ const boot = async (saved: unknown = null) => {
 }
 
 const signIn = (store: Awaited<ReturnType<typeof createAppStore>>, login: string) =>
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
 
 describe("the signup controller", () => {
   test("the account step needs a name and a valid account, then opens the poll", async () => {

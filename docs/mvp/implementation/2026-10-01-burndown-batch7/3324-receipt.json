@@ -1,0 +1,69 @@
+{
+  "issue": 3324,
+  "parentReview": "Reviewed all four owning diffs. Null and absent import boxes use existing canonical binding; explicit concrete box stays bound. Actual local HTTP and no-default refusal controls preserve launch/cache semantics. Truthful VerifyReport/ForkOutput literals, full FetchLike input domain, and retired signup fixture field corrected without casts/suppression.",
+  "qualification": {
+    "originalBehaviorRed": {
+      "command": "bun test src/mainview/state/controller/registration.test.ts",
+      "exit": 1,
+      "pass": 28,
+      "fail": 2,
+      "reason": "null explicitbinding bypasses defaultbox/nobox resolver"
+    },
+    "owningBehavior": {
+      "command": "bun test src/mainview/state/controller/registration.test.ts src/mainview/state/controller/gateway.test.ts src/mainview/state/controller/signup.test.ts",
+      "exit": 0,
+      "pass": 90,
+      "fail": 0,
+      "expectCalls": 366,
+      "seconds": 8.56
+    },
+    "completeConfiguredTypes": {
+      "command": "actual installed TS CompilerAPI parse apps/app/tsconfig.json +complete getPreEmitDiagnostics (equivalent configured noEmit diagnostics)",
+      "beforeExit": 2,
+      "afterExit": 2,
+      "beforeErrors": 49,
+      "afterErrors": 44,
+      "removedExactOwningErrors": 5,
+      "addedErrors": 0,
+      "beforeSeconds": 23.676,
+      "afterSeconds": 25.465,
+      "sourceCount": 4873,
+      "allRemainingDiagnosticsMatchExactly": true,
+      "optionsUnchanged": true,
+      "changedInputPaths": [
+        "apps/app/src/mainview/state/controller/registration.test.ts",
+        "apps/app/src/mainview/state/controller/gateway.test.ts",
+        "apps/app/src/mainview/state/controller/registration.ts",
+        "apps/app/src/mainview/state/controller/signup.test.ts"
+      ],
+      "inputDrift": []
+    },
+    "diffCheck": "git diff --check empty"
+  },
+  "limits": [
+    "Full configured app TypeScript still fails44 unrelated/foreign diagnostics; this is exact diagnostic-delta qualification, not wholeapp green/coverage/release evidence.",
+    "Foreign3257 retired-server migration and3247 typedstatus code untouched. Remaining commands.select matrix diagnostic tracked separately3326 queued.",
+    "Controllers, actual gateway seam, real local HTTP and actual persisted TanStack collections execute; backend report responses/import/launch use controlled local fixtures, justified to test browser controller binding without outbound GitHub/Cloud/provider operations. No liveCloud/jobcompletion claim.",
+    "Unit suite storage is existing in-memory localStorage adapter, not SQLite integration; no new storage semantics introduced.",
+    "Existing coverage policy declares no whole source percentage for this owning app suite; no coverage threshold or gate changed."
+  ],
+  "sourceHashes": [
+    {
+      "path": "apps/app/src/mainview/state/controller/registration.ts",
+      "sha256": "13dd914d63289d96dd16f4d8ad2853c6256d2309337d6610a9ea8ffa955b6d99"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/registration.test.ts",
+      "sha256": "8ba7e6830dc8a41046ad7bd31aeeb70ea7b2f2c1a1e7065ff95b1ef56d418eb1"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/gateway.test.ts",
+      "sha256": "c3a90f89614d6779af0be64388bd40f3c8dd3742d500d575df0ef447bc4865a8"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/signup.test.ts",
+      "sha256": "dd13dddeb1d3ba2e8a113eba9640e6d376ea117ec71b9e116701f517fe4a9a08"
+    }
+  ],
+  "proofSha256": "e8abf5a24688afa30c4f8afc74f58d7f2677abee24e9afac9bcd710c97f57854"
+}

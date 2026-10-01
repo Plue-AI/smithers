@@ -5,6 +5,7 @@
  * the allowlisted procedures fails here, not in a browser.
  */
 import { describe, expect, test } from "bun:test"
+import type { ForkOutput, VerifyReport } from "@smthrs/gateway/RunHistory"
 import { createGatewaySeam, INVALID_HISTORY_CODE, INVALID_PLAN_CODE, INVALID_PROJECTION_CODE } from "./gateway"
 import { GATEWAY_REFUSED, gatewayRefusalSentence } from "./GatewayFailureCopy"
 
@@ -674,7 +675,7 @@ describe("run history", () => {
     replayed: [{ stepKeyDigest: "a", action: "verify/first" }],
     executes: { stepKeyDigest: "c" },
     notReplayed: [{ stepKeyDigest: "b" }]
-  }
+  } satisfies VerifyReport
 
   test("Run.Verify answers the decoded report, divergent or not", async () => {
     const { seam, calls } = relay({ "Run.Verify": { ok: true, payload: report } })
@@ -683,7 +684,7 @@ describe("run history", () => {
   })
 
   test("Run.Fork sends the frame and the one edited step and answers the parked child", async () => {
-    const child = { runId: "run-1-fork", parentRunId: "run-1", status: "parked" }
+    const child = { runId: "run-1-fork", parentRunId: "run-1", status: "parked" } satisfies ForkOutput
     const { seam, calls } = relay({ "Run.Fork": { ok: true, payload: child } })
     expect(await seam.fork("o/r", "run-1", 4)).toEqual({ status: "ok", value: child })
     const step = { stepKeyDigest: "b", result: { text: "edited" } }

@@ -76,7 +76,7 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
   const sharedReport = async (cloudRepo: string, repo: string) => {
     const box = importOf(repo)?.payload.workspaceId
     try {
-      const answer = await ctx.gateway.call(cloudRepo, "Registration.Report", { repo }, box === undefined ? undefined : { workspaceId: box })
+      const answer = await ctx.gateway.call(cloudRepo, "Registration.Report", { repo }, box == null ? undefined : { workspaceId: box })
       if (answer.status !== "ok") return undefined
       const value = answer.value
       return typeof value === "object" && value !== null ? sharedReportOf((value as { report?: unknown }).report, repo) : undefined

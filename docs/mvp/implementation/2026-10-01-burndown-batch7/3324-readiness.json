@@ -1,0 +1,94 @@
+{
+  "issue": 3324,
+  "status": "READY/FROZEN owning five boundaries; full configured gate remains44foreign/unrelated diagnostics",
+  "session": "codex-burndown-20260930",
+  "head": "5c28a91aee7d4b2e59dbd531199f6df62cf9e647",
+  "ownedChanges": [
+    {
+      "path": "apps/app/src/mainview/state/controller/registration.ts",
+      "sha256": "13dd914d63289d96dd16f4d8ad2853c6256d2309337d6610a9ea8ffa955b6d99"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/registration.test.ts",
+      "sha256": "8ba7e6830dc8a41046ad7bd31aeeb70ea7b2f2c1a1e7065ff95b1ef56d418eb1"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/gateway.test.ts",
+      "sha256": "c3a90f89614d6779af0be64388bd40f3c8dd3742d500d575df0ef447bc4865a8"
+    },
+    {
+      "path": "apps/app/src/mainview/state/controller/signup.test.ts",
+      "sha256": "dd13dddeb1d3ba2e8a113eba9640e6d376ea117ec71b9e116701f517fe4a9a08"
+    }
+  ],
+  "implementation": [
+    "Null/absent import workspace uses the existing canonical selected/default repository binding. Present import workspace remains explicit even before box inventory updates. Missing repository binding refuses before HTTP, preserving normal report-miss fallback to existing launch path.",
+    "Registration fixtures use actual FetchLike string|URL|Request contract, truthful nullable import metadata.",
+    "Gateway history fixtures satisfy existing VerifyReport/ForkOutput instead of widening verdict/status or casting. Signup fixture uses current identity.session.loaded fields; retired allowlisted removed without product semantics change."
+  ],
+  "qualification": {
+    "originalBehaviorRed": {
+      "command": "bun test src/mainview/state/controller/registration.test.ts",
+      "exit": 1,
+      "pass": 28,
+      "fail": 2,
+      "reason": "null explicitbinding bypasses defaultbox/nobox resolver"
+    },
+    "owningBehavior": {
+      "command": "bun test src/mainview/state/controller/registration.test.ts src/mainview/state/controller/gateway.test.ts src/mainview/state/controller/signup.test.ts",
+      "exit": 0,
+      "pass": 90,
+      "fail": 0,
+      "expectCalls": 366,
+      "seconds": 8.56
+    },
+    "completeConfiguredTypes": {
+      "command": "actual installed TS CompilerAPI parse apps/app/tsconfig.json +complete getPreEmitDiagnostics (equivalent configured noEmit diagnostics)",
+      "beforeExit": 2,
+      "afterExit": 2,
+      "beforeErrors": 49,
+      "afterErrors": 44,
+      "removedExactOwningErrors": 5,
+      "addedErrors": 0,
+      "beforeSeconds": 23.676,
+      "afterSeconds": 25.465,
+      "sourceCount": 4873,
+      "allRemainingDiagnosticsMatchExactly": true,
+      "optionsUnchanged": true,
+      "changedInputPaths": [
+        "apps/app/src/mainview/state/controller/registration.test.ts",
+        "apps/app/src/mainview/state/controller/gateway.test.ts",
+        "apps/app/src/mainview/state/controller/registration.ts",
+        "apps/app/src/mainview/state/controller/signup.test.ts"
+      ],
+      "inputDrift": []
+    },
+    "diffCheck": "git diff --check empty"
+  },
+  "acceptance": [
+    "Real local TCP HTTP report requests for absent/null/present import workspace all use expected nonnull workspace. Absent/null select repository default; present retains import namedbox. Cached report reflected in persisted card and no registration launch.",
+    "No-default absent/null import workspace refuses before any report request; existing pending registration launch fallback retains null-box argument and no cached claim.",
+    "Existing pending launch/chat usability, duplicate/admission, actor account ownership, reload, error and late shared-report recovery controls remain within owning90case suite.",
+    "Exact original five compiler diagnostics disappear with no new diagnostic; no casts/assertion suppression, configuration/skipLibCheck changes, weakened tests or threshold changes."
+  ],
+  "limits": [
+    "Full configured app TypeScript still fails44 unrelated/foreign diagnostics; this is exact diagnostic-delta qualification, not wholeapp green/coverage/release evidence.",
+    "Foreign3257 retired-server migration and3247 typedstatus code untouched. Remaining commands.select matrix diagnostic tracked separately3326 queued.",
+    "Controllers, actual gateway seam, real local HTTP and actual persisted TanStack collections execute; backend report responses/import/launch use controlled local fixtures, justified to test browser controller binding without outbound GitHub/Cloud/provider operations. No liveCloud/jobcompletion claim.",
+    "Unit suite storage is existing in-memory localStorage adapter, not SQLite integration; no new storage semantics introduced.",
+    "Existing coverage policy declares no whole source percentage for this owning app suite; no coverage threshold or gate changed."
+  ],
+  "receipts": {
+    "3324-live-issue.json": "8b15504c4bff238322995a7d55514e126e1ec81d44c1686cbf396a7b56cd6a1a",
+    "3324-capture-types.cjs": "0d4a2af8f0aad4d34d0c3d222b0be4ab945a39fe3ac9e805aed4a05ba69babb1",
+    "3324-before-configured-types.json": "42aa68e0a4fa6c69d1d984ee0a142de62f1cb1f144f7304c7cd6b809a173d157",
+    "3324-before-configured-types.log": "e6d4c89b92fc385edef97eb1ca043d630a5595285009bfaf2f62725727f1e50d",
+    "3324-after-configured-types.json": "f74bb888b05e98d42bc1def6974e6eee05f834b9f8d5c30c78d0988b597c94a3",
+    "3324-after-configured-types.log": "0b6a9af92d1042b325c6ccbab4dd0b50ebbdf57cdd2d69f27add7b49ae95018b",
+    "3324-type-delta.json": "43e1b8c1e3260903c36f243405af1b7d8e52c79fe56c1bda9fe454ec5cf33210",
+    "3324-null-binding-red.log": "6a5be0b58a3922dee0d0ce5bb70823a0d01df13d3df3397bce12b429c8fcbce4",
+    "3324-final-owning-behavior.log": "5ff4ff4dbc0fb55e6951e12bd232e6b393e2142ff790eb2cbc5abdb7b85cd8c7",
+    "3324-owned-change.diff": "a9fcb8fceb7753b247d729442622900d40a3589ac2877612e4fe7423d473d52a",
+    "3324-diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

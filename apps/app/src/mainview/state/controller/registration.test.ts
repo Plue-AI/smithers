@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import ready from "../../cards/fixtures/register-repository-ready.json"
 import review from "../../cards/fixtures/register-repository-review.json"
 import { createAppStore, type AppStore } from "../AppStore"
@@ -15,7 +16,7 @@ const fixture = async (options: {
   wrapStore?: (store: AppStore) => AppStore
   importRepository?: (repo: string) => Promise<unknown>
   startRegistration?: (cloudRepo: string, link: string, box: string | null) => Promise<{ value: string } | string>
-  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>
+  fetchImpl?: FetchLike
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
@@ -25,7 +26,7 @@ const fixture = async (options: {
   const launches: Array<{ cloudRepo: string; link: string; box?: string | null }> = []
   /** The launch never answers unless a test settles it. */
   const pending = Promise.withResolvers<{ value: string } | string>()
-  const importCard = (repo: string, phase: Phase, error?: string, workspaceId?: string) =>
+  const importCard = (repo: string, phase: Phase, error?: string, workspaceId?: string | null) =>
     store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: `repo-import-${repo}`, kind: "repo-import", title: `Import · ${repo}`, status: "active", createdAt: Date.now(), ordinal: store.nextOrdinal(),
       payload: { repo, jobId: "job-1", phase, detail: null, error: error ?? null, repository: { owner: repo.split("/")[0]!, name: repo.split("/")[1]! },
@@ -398,7 +399,7 @@ const BOX = "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90"
 /** A relay answering Registration.Report with `answer`; `gate` holds the answer until released. */
 const reportRelay = (answer: () => unknown, gate?: Promise<void>) => {
   const asked: Array<{ procedure: string; repo: string; workspaceId: string; payload: unknown }> = []
-  const fetchImpl = async (_url: string, init?: RequestInit) => {
+  const fetchImpl: FetchLike = async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { procedure: string; repo: string; workspaceId: string; payload: unknown }
     asked.push(body)
     await gate
@@ -406,6 +407,57 @@ const reportRelay = (answer: () => unknown, gate?: Promise<void>) => {
   }
   return { asked, fetchImpl }
 }
+
+const importBoxCases: Array<[string, string | null | undefined]> = [
+  ["absent", undefined],
+  ["null", null],
+  ["present", BOX]
+]
+
+test.each(importBoxCases)("a %s import box uses the canonical repository binding for the report over actual HTTP", async (_name, workspaceId) => {
+  const defaultBox = "7c86980f-e5f7-4d53-b655-cd080906ed17"
+  const expectedBox = workspaceId ?? defaultBox
+  const asked: Array<{ repo: string; workspaceId: string | null; procedure: string }> = []
+  const server = Bun.serve({
+    port: 0, hostname: "127.0.0.1",
+    fetch: async request => {
+      const body = await request.json()
+      asked.push(body)
+      if (request.method !== "POST" || new URL(request.url).pathname !== "/api/workflow/rpc" || body.workspaceId !== expectedBox) {
+        return Response.json({ code: "workspace_required", message: "A concrete workspace is required." }, { status: 400 })
+      }
+      return Response.json({ ok: true, payload: { report: { repo: "acme/widgets", commit: COMMIT, report: recordedReport(), recordedAt: "2026-09-30T00:00:00Z" } } })
+    }
+  })
+  const origin = `http://127.0.0.1:${server.port}`
+  const fetchImpl: FetchLike = (input, init) => fetch(new URL(input instanceof Request ? input.url : String(input), origin), init)
+  const t = await fixture({ fetchImpl })
+  try {
+    await t.store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{
+      id: defaultBox, repoId: "acme/widgets", name: "default", targetBookmark: null, status: "running", provisioningStage: null, suspendedAt: null, createdAt: null
+    }] }).isPersisted.promise
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done", undefined, workspaceId)
+    await waitFor(() => t.card("acme/widgets")?.payload.phase === "cached" || t.launches.length > 0)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toMatchObject({ repo: "acme/widgets", procedure: "Registration.Report", workspaceId: expectedBox })
+    expect(t.card("acme/widgets")?.payload).toMatchObject({ phase: "cached", cached: { commit: COMMIT }, error: null })
+    expect(t.launches).toEqual([])
+  } finally { await t.dispose(); server.stop(true) }
+})
+
+test.each([undefined, null])("a missing import box %s cannot bypass a missing repository binding", async workspaceId => {
+  const relay = reportRelay(() => null)
+  const t = await fixture({ fetchImpl: relay.fetchImpl })
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done", undefined, workspaceId)
+    await waitFor(() => t.launches.length === 1)
+    expect(relay.asked).toEqual([])
+    expect(t.launches[0]).toEqual({ cloudRepo: "acme/widgets", link: "acme/widgets" })
+    expect(t.card("acme/widgets")?.payload.cached).toBeUndefined()
+  } finally { await t.dispose() }
+})
 
 test("a recorded report of the public repository is the card's cached result and nothing launches", async () => {
   const relay = reportRelay(() => ({ repo: "acme/widgets", commit: COMMIT, report: recordedReport(), recordedAt: "2026-09-30T00:00:00Z" }))
