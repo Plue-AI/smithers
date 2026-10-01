@@ -6,6 +6,8 @@ import { hostname } from "node:os"
 import test from "node:test"
 import { agentHosts, awaitDisk, guestCheckout, holderAlive, make, niceWrapper, refreshLine, sh, sizing } from "../vm.ts"
 
+const fakeFreeBytes = () => 100 * 1024 ** 3
+
 type Event =
   | { readonly kind: "started"; readonly pid: number }
   | { readonly kind: "stdout" | "stderr"; readonly data: Uint8Array }
@@ -159,7 +161,7 @@ test("acquire boots the newest issue-sweep snapshot at the Cloud checkout path a
     { name: "other.new", createdAt: new Date(3) },
     { name: "issue-sweep.new", createdAt: new Date(2) }
   ])
-  const provider = make({ sdk: fake.sdk, minFreeBytes: 0, holder: "test:1" })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, holder: "test:1" })
   const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     const session = yield* provider.acquire("issue-sweep:smithersai/smithers#1")
     assert.deepEqual([...fake.live], [session.remoteId])
@@ -189,7 +191,7 @@ test("acquire boots the newest issue-sweep snapshot at the Cloud checkout path a
 
 test("a failed refresh fails the acquire with the guest's words, removes the microVM and frees its slot", async () => {
   const fake = fakeSdk((line) => line.includes("jj git fetch") ? { stderr: "fetch refused", code: 1 } : ok)
-  const provider = make({ sdk: fake.sdk, minFreeBytes: 0, maxVms: 1, holder: "test:1" })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1, holder: "test:1" })
   const exit = await Effect.runPromiseExit(Effect.scoped(provider.acquire("one")))
   assert.ok(Exit.isFailure(exit))
   assert.match(Cause.pretty(exit.cause), /refreshing the checkout exited 1: fetch refused/)
@@ -200,7 +202,7 @@ test("a failed refresh fails the acquire with the guest's words, removes the mic
 
 test("a failing body still removes its microVM", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, minFreeBytes: 0, holder: "test:1" })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, holder: "test:1" })
   const exit = await Effect.runPromiseExit(Effect.scoped(Effect.gen(function*() {
     yield* provider.acquire("body-fails")
     return yield* Effect.fail("agent failed")
@@ -212,7 +214,7 @@ test("a failing body still removes its microVM", async () => {
 
 test("interrupting a running guest command kills it, removes the microVM and frees the slot", async () => {
   const fake = fakeSdk((line) => line.includes("sleep") ? "hang" : ok)
-  const provider = make({ sdk: fake.sdk, minFreeBytes: 0, maxVms: 1, holder: "test:1" })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1, holder: "test:1" })
   const running = await Effect.runPromise(Deferred.make<void>())
   const fiber = Effect.runFork(Effect.scoped(Effect.gen(function*() {
     const session = yield* provider.acquire("interrupted")
@@ -229,7 +231,7 @@ test("interrupting a running guest command kills it, removes the microVM and fre
 
 test("maxVms queues an acquire until a slot frees", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, minFreeBytes: 0, maxVms: 1, refresh: false, holder: "test:1" })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1, refresh: false, holder: "test:1" })
   const release = await Effect.runPromise(Deferred.make<void>())
   const first = Effect.runFork(Effect.scoped(Effect.andThen(provider.acquire("a"), Deferred.await(release))))
   await new Promise((resolve) => setTimeout(resolve, 20))
@@ -246,7 +248,7 @@ test("maxVms queues an acquire until a slot frees", async () => {
 test("without a snapshot the acquire names the build command and boots nothing", async () => {
   const fake = fakeSdk(() => ok, [])
   const exit = await Effect.runPromiseExit(
-    Effect.scoped(make({ sdk: fake.sdk, minFreeBytes: 0, holder: "test:1" }).acquire("x"))
+    Effect.scoped(make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, holder: "test:1" }).acquire("x"))
   )
   assert.ok(Exit.isFailure(exit))
   assert.match(Cause.pretty(exit.cause), /vm-image\.ts/)
@@ -264,7 +266,8 @@ test("bootConcurrency boots at most that many microVMs at once while maxVms admi
   const fake = fakeSdk(() => ok, undefined, 10)
   const provider = make({
     sdk: fake.sdk,
-    minFreeBytes: 0,
+    freeBytes: fakeFreeBytes,
+   
     maxVms: 6,
     bootConcurrency: 2,
     refresh: false,
@@ -332,7 +335,7 @@ test("three agents share a microVM with separate working directories, homes and 
     if (line.includes("SMITHERS_BASE")) return { code: 0, stdout: patches.get(command.cwd) ?? "" }
     return ok
   })
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxVms: 1, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 1, refresh: false })
   const agents = await Promise.all(["one", "two", "three"].map((key) => held(provider, key)))
   try {
     assert.equal(fake.created.length, 1)
@@ -376,7 +379,7 @@ test("three agents share a microVM with separate working directories, homes and 
 
 test("a full shared VM queues the next agent until capacity is released", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 2, maxVms: 1, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, maxVms: 1, refresh: false })
   const first = await held(provider, "first")
   const second = await held(provider, "second")
   const ready = await Effect.runPromise(Deferred.make<void>())
@@ -408,7 +411,7 @@ test("a full shared VM queues the next agent until capacity is released", async 
 
 test("interrupting one agent kills only its command and keeps its sibling usable", async () => {
   const fake = fakeSdk((line) => line.includes("sleep 1000") ? "hang" : ok)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 2, maxVms: 1, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, maxVms: 1, refresh: false })
   const sibling = await held(provider, "sibling")
   const running = await Effect.runPromise(Deferred.make<void>())
   const fiber = Effect.runFork(Effect.scoped(Effect.gen(function*() {
@@ -433,7 +436,7 @@ test("interrupting one agent kills only its command and keeps its sibling usable
 
 test("default agentsPerVm keeps each concurrent session on its own VM", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, maxVms: 2, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 2, refresh: false })
   const agents = await Promise.all([held(provider, "default-a"), held(provider, "default-b")])
   try {
     assert.equal(fake.created.length, 2)
@@ -452,7 +455,7 @@ test("workspace preparation failure releases only that agent and a subsequent ac
     if (line.includes("git clone --shared") && failed) return { code: 1, stderr: "workspace install refused" }
     return ok
   })
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 2, maxVms: 1, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, maxVms: 1, refresh: false })
   const survivor = await held(provider, "survivor")
   try {
     failed = true
@@ -476,7 +479,7 @@ test("workspace preparation failure releases only that agent and a subsequent ac
 
 test("maxAgents bounds sessions even when the VM has vacant capacity", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxAgents: 1, maxVms: 2, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxAgents: 1, maxVms: 2, refresh: false })
   const first = await held(provider, "limited-first")
   const ready = await Effect.runPromise(Deferred.make<void>())
   const queued = Effect.runFork(Effect.scoped(Effect.gen(function*() {
@@ -499,7 +502,7 @@ test("maxAgents bounds sessions even when the VM has vacant capacity", async () 
 
 test("shared VM sizing scales with agents and explicit CPU overrides retain the isolation memory floor", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxVms: 1, cpus: 5, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 1, cpus: 5, refresh: false })
   await Effect.runPromise(Effect.scoped(provider.acquire("sizing")))
   assert.equal(fake.created[0]!.cpus, 5)
   assert.equal(fake.created[0]!.memory, 10240)
@@ -514,7 +517,7 @@ test("shared VM sizing scales with agents and explicit CPU overrides retain the 
 test("shared dependency install enters the agent OOM boundary before cloning or installing", async () => {
   const fake = fakeSdk(() => ok)
   await Effect.runPromise(
-    Effect.scoped(make({ sdk: fake.sdk, agentsPerVm: 2, refresh: false, minFreeBytes: 0 }).acquire("oom-boundary"))
+    Effect.scoped(make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, refresh: false }).acquire("oom-boundary"))
   )
   const prepare = fake.lines.find((line) => line.includes("git clone --shared"))!
   assert.ok(prepare.indexOf("memory.max") < prepare.indexOf("echo $$ >"))
@@ -527,7 +530,7 @@ test("shared dependency install enters the agent OOM boundary before cloning or 
 
 test("interrupting the shared boot publisher releases waiting neighbors and all permits", async () => {
   const fake = fakeSdk(() => ok, undefined, 100)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxVms: 1, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 1, refresh: false })
   const leader = Effect.runFork(Effect.scoped(provider.acquire("boot-leader")))
   await Effect.runPromise(Effect.sleep("10 millis"))
   const waiter = Effect.runFork(Effect.scoped(provider.acquire("boot-waiter")))
@@ -541,7 +544,7 @@ test("interrupting the shared boot publisher releases waiting neighbors and all 
 
 test("a missing shared snapshot fails all boot waiters without leaking permits", async () => {
   const fake = fakeSdk(() => ok, [])
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxVms: 1, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 1 })
   const exits = await Promise.all(
     ["one", "two", "three"].map((key) => Effect.runPromiseExit(Effect.scoped(provider.acquire(key))))
   )
@@ -555,7 +558,7 @@ test("a missing shared snapshot fails all boot waiters without leaking permits",
 
 test("fragmented shared VM leases reuse capacity while respecting the physical VM cap", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxVms: 2, maxAgents: 6, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 2, maxAgents: 6, refresh: false })
   const agents = await Promise.all(Array.from({ length: 6 }, (_, i) => held(provider, `fragment-${i}`)))
   try {
     assert.equal(fake.live.size, 2)
@@ -615,7 +618,7 @@ test("maxVms includes machines whose last agent is still tearing down", async ()
     finishDestroy = resolve
   })
   const fake = fakeSdk(() => ok, undefined, 0, 0, destroyGate)
-  const provider = make({ sdk: fake.sdk, agentsPerVm: 3, maxAgents: 6, maxVms: 2, refresh: false, minFreeBytes: 0 })
+  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxAgents: 6, maxVms: 2, refresh: false })
   const agents = await Promise.all(Array.from({ length: 6 }, (_, i) => held(provider, `teardown-${i}`)))
   const retiring = agents.filter((agent) => agent.session.remoteId === agents[0]!.session.remoteId)
   await retiring[0]!.close()
