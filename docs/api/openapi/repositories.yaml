@@ -285,6 +285,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -552,6 +553,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -2434,6 +2436,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -3080,6 +3083,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -3276,6 +3280,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -8071,6 +8076,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -8902,6 +8908,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -9800,6 +9807,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - {}
         - tokenAuth: []
@@ -9843,6 +9851,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -9886,6 +9895,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - {}
         - tokenAuth: []
@@ -9929,6 +9939,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -13272,6 +13283,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       requestBody:
         required: false
         content:
@@ -13330,6 +13342,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       requestBody:
         required: false
         content:
@@ -13585,6 +13598,7 @@ paths:
           required: true
           schema:
             type: string
+      x-smithers-opaque-body: true
       requestBody:
         required: false
         content:

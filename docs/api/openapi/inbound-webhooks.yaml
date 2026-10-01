@@ -6,6 +6,7 @@ paths:
       tags:
         - Inbound Webhooks
       parameters: []
+      x-smithers-opaque-body: true
       responses:
         '200':
           description: Successful response

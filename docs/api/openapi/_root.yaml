@@ -2,7 +2,11 @@ openapi: 3.1.0
 info:
   title: Smithers API
   version: 1.0.0
-  description: Pre-release Smithers product API. TestOpenAPIDescribesEveryServedRoute in packages/backend/internal/compose fails when a served route and this document disagree; schemas are being tightened during product extraction.
+  description: >-
+    Pre-release Smithers product API. TestOpenAPIDescribesEveryServedRoute in packages/backend/internal/compose fails when a served route and this document disagree; schemas are being tightened during product extraction.
+    An operation marked `x-smithers-opaque-body: true` accepts a request body that is opaque or user-authored by design: file and blob bytes and their transfer manifests, shell lines and setup scripts, secret values, model prompts, and signed third-party webhooks.
+    Edge filters that match attack signatures in request bodies, such as a deployment's WAF, must skip these operations; the backend authenticates and bounds them itself.
+    Only POST, PUT, and PATCH operations carry it, as the boolean true; docs/api/openapi_opaque_body_test.go enforces both.
 servers:
   - url: /
     description: Same-origin Smithers backend

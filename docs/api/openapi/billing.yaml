@@ -192,6 +192,7 @@ paths:
       tags:
         - Billing
       parameters: []
+      x-smithers-opaque-body: true
       security:
         - tokenAuth: []
         - bearerAuth: []
