@@ -128,7 +128,7 @@ export const j10: Journey = {
       act: state => {
         branch(state.world, "b-retry").rebasePending = undefined
         stackOp(state, "b-retry", "Rebased onto T8 · checks rerun on 5e7d2b0", MAYA)
-        revise(state, "t-retry", "5e7d2b0")
+        revise(state, "t-retry", "5e7d2b0", "clean-rebase")
         dismissToasts(state, MAYA)
       }
     },
@@ -150,7 +150,7 @@ export const j10: Journey = {
         pr(state).body.splice(2, 1)
         pr(state).draftAfter = undefined
         stackOp(state, "b-retry", "Rebased onto main · checks rerun on a1f9e33")
-        revise(state, "t-retry", "a1f9e33")
+        revise(state, "t-retry", "a1f9e33", "clean-rebase")
         setTodo(state, "t-retry", { mergeBlock: "1 approving review required on GitHub" })
       }
     },

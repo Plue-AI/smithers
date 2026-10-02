@@ -839,19 +839,22 @@ export const edit = (state: State, path: string, n: number, text: string, by: Ac
 
 /** A push or a rebase makes a new revision (mvp.md §4.2): checks rerun on it, and any approval no longer applies. */
 /*
- * A new revision (a rebase, a push, a steer's commit): every check and the
- * review run again on it. The old review stays only as history; nothing from
- * the old revision counts as evidence for the new one (mvp.md §4.2, §6.10).
+ * A new revision: every check runs again on it, and when the code changed (a
+ * commit, a person's push, a resolved conflict) the review does too; a clean
+ * rebase reruns checks only (spec §10.4.1). The old review stays only as
+ * history; nothing from the old revision counts for the new one (§4.2, §6.10).
  */
-export const revise = (state: State, id: string, rev: string): void => {
+export const revise = (state: State, id: string, rev: string, change: "code" | "clean-rebase" = "code"): void => {
   const item = todo(state.world, id)
   if (item.evidence === undefined) return
   const old = item.evidence
+  /* A clean rebase changes no code: only the checks run again. New code (a commit, a resolved conflict) is reviewed again too. */
+  const review = change === "code"
   item.evidence = {
-    ...old, rev, reviewing: true,
+    ...old, rev, reviewing: review || old.reviewing === true,
     checks: old.checks.map(check => ({ name: check.name, state: "running" as const })),
     github: { passed: 0, total: old.github.total },
-    ...(old.rev === undefined || old.reviewing === true ? {} : { previous: { rev: old.rev, review: old.review } })
+    ...(!review || old.rev === undefined || old.reviewing === true ? {} : { previous: { rev: old.rev, review: old.review } })
   }
   if (item.approvedRev !== undefined) item.approvalCleared = true
   item.seq = state.seq

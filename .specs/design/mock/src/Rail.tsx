@@ -145,7 +145,7 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
     }
     case "act": {
       const act = world.acts.find(each => each.id === card.target)
-      if (act === undefined) return undefined
+      if (act === undefined || act.by !== me) return undefined
       const asked = act.state === "asked"
       return { id: entry.id, title: `${act.verb} ${act.target}`, summary: asked ? (act.by === me ? "Waiting for you" : `Waiting for ${actorName(world, act.by)}`) : act.state === "done" ? act.receipt : "Cancelled",
         tone: asked && act.by === me ? "attention" : "quiet", glyph: <StateGlyph state={asked ? "needs-you" : "merged"} /> }

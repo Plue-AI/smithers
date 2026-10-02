@@ -16,7 +16,7 @@ export const actorName = (world: World, who: ActorId): string => {
   if (who === OUTSIDE) return "Outside Smithers"
   if (isSmithers(who)) { const person = forWhom(who); return person === undefined ? "Smithers" : `Smithers for ${first(world, person)}` }
   const acting = via(who)
-  if (acting !== undefined) return `${member(world, acting.person)?.name.split(" ")[0] ?? acting.person} via ${acting.agent}`
+  if (acting !== undefined) return who.endsWith("~ssh") ? `${first(world, acting.person)} via SSH` : `${acting.agent} for ${first(world, acting.person)}`
   return isAgent(who) ? "Coding agent" : member(world, who)?.name.split(" ")[0] ?? who
 }
 
@@ -24,7 +24,7 @@ export const actorName = (world: World, who: ActorId): string => {
 export const flagName = (world: World, who: ActorId): string => {
   if (isSmithers(who)) return "Smithers"
   const acting = via(who)
-  if (acting !== undefined) return `${first(world, acting.person)} · ${acting.agent}`
+  if (acting !== undefined) return who.endsWith("~ssh") ? `${first(world, acting.person)} · SSH` : acting.agent
   return isAgent(who) ? "Agent" : first(world, who)
 }
 
@@ -50,12 +50,18 @@ export const Avatar = ({ world, who, size = 22, live = false }: {
       <FolderSync size={Math.round(size * 0.58)} aria-hidden="true" /></span>
   }
   const acting = via(who)
+  if (acting !== undefined && !who.endsWith("~ssh")) {
+    /* An agent a person runs (Claude Code, Codex) is its own participant (M-34): its mark, and "for Ben" in their colour. */
+    const person = member(world, acting.person)
+    return <span className="mvp-avatar" data-external style={{ "--size": `${size}px` } as CSSProperties} title={actorName(world, who)} aria-label={actorName(world, who)}>
+      {acting.agent.charAt(0)}{person === undefined ? null : <span className="mvp-avatar-for" style={{ "--who": `var(--lane-${person.lane})` } as CSSProperties} aria-hidden="true">{person.initials[0]}</span>}</span>
+  }
   if (acting !== undefined) {
+    /* A person over SSH is still that person: their circle with a terminal badge. */
     const person = member(world, acting.person)
     return <span className="mvp-avatar" data-via style={{ "--size": `${size}px`, "--who": `var(--lane-${person?.lane ?? 0})` } as CSSProperties}
       title={actorName(world, who)} aria-label={actorName(world, who)}>{person?.initials ?? "?"}
-      <span className="mvp-avatar-badge" data-ssh={who.endsWith("~ssh") || undefined} aria-hidden="true">
-        {who.endsWith("~ssh") ? <SquareTerminal size={Math.max(8, Math.round(size * 0.38))} /> : <Bot size={Math.max(8, Math.round(size * 0.38))} />}</span></span>
+      <span className="mvp-avatar-badge" data-ssh aria-hidden="true"><SquareTerminal size={Math.max(8, Math.round(size * 0.38))} /></span></span>
   }
   if (isAgent(who)) {
     return <span className="mvp-avatar" data-agent data-live={live || undefined} style={{ "--size": `${size}px` } as CSSProperties}

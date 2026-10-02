@@ -2037,3 +2037,5 @@ body { overflow: hidden; }
 /* Who said it, in a shared conversation: a small name over others' prompts and over Smithers' answers. */
 .mvp-author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .mock-message:not([data-mine]) .mvp-author { margin-left: 2px; }
+/* M-34: an agent a person runs (Claude Code, Codex) has its own mark; "for Ben" rides on its corner. */
+.mvp-avatar[data-external] { position: relative; border-radius: 6px; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--text-muted); color: var(--text); font-size: calc(var(--size) * 0.5); font-weight: 700; }

@@ -221,7 +221,7 @@ export const insideRun: Journey = {
         setTodo(state, "t-stripe", { state: "merged" })
         trace(state).phases.push(...RECHECK(state.seq))
         trace(state).held = { since: "11:06" }
-        revise(state, TODO, "c41a9e0")
+        revise(state, TODO, "c41a9e0", "clean-rebase")
         checksPassed(state, TODO, { typecheck: "11s", test: "37s" })
         state.viewers[BEN]!.selected = "c-recheck"
       }

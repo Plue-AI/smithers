@@ -140,11 +140,11 @@ export const j3: Journey = {
       }
     },
     {
-      caption: "Alice asks Smithers. It joins the branch like a teammate: in the list, reading retry.ts, its flag on line 14. Both screens see her question and its answer.",
+      caption: "Alice asks Smithers. It joins the branch like a teammate: Ben sees its flag on line 14 as it reads, and Alice gets the answer.",
       spec: "M-34",
       viewer: ALICE, keys: "⌘ K", typing: { viewer: ALICE, into: "composer", text: QUESTION }, hold: 3400,
       pre: (state: State) => { state.viewers[ALICE]!.composerOpen = true },
-      show: [{ viewer: BEN, target: '[data-mock="card-branch"]' }, { viewer: ALICE, target: '[data-mock="card-file"]' }],
+      show: [{ viewer: BEN, target: '[data-mock="card-file"]' }, { viewer: ALICE, target: '.mock-messages > :last-child' }],
       act: (state: State) => {
         say(state, ALICE, QUESTION)
         present(state, "b-retry", SMITHERS_FOR_ALICE, { kind: "reading", path: RETRY_FILE, line: 14 })
