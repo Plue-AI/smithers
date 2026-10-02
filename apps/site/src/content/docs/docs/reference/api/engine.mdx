@@ -134,7 +134,7 @@ The refusal raised when a flow operation names a declaration this engine has not
 
 ### `FlowEngine.ExecutionIdentityConflict`
 
-- **Type:** `class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdentityConflict>()("@smthrs/engine/ExecutionIdentityConflict", { code, executionId, field, expected, actual, message })`
+- **Type:** `class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdentityConflict>()("@smthrs/engine/ExecutionIdentityConflict", { code, executionId, field, expected, actual, status, message })`
 - **Since:** `1.0.0`
 
 The refusal raised when a caller reuses an execution id for different persisted run identity. `field` is `"flow"`, `"payload"`, `"lineage"`, `"round"`, or `"parent"`. Answering would attach the caller to a run or trampoline round it did not name. `layerMemory` raises it as a defect on `execute` and on a `deferredDone` addressed to the wrong flow; the durable driver also raises it when an existing run row disagrees with the requested flow, encoded payload, lineage, round, or predecessor.

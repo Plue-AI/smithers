@@ -499,11 +499,8 @@ Cerebras, and most other "OpenAI-compatible" servers implement.
 | `protocolWith(options?)` | constructor | Builds the protocol, optionally with native structured output. Without the option the lowering is byte-for-byte the historical one, so existing sealed step keys are unchanged.                  |
 | `protocol`               | protocol    | `protocolWith()` with structured output off. Id `openai-chat-completions`.                                                                                                                       |
 
-A route configured with `structuredOutput` refuses a request that declares
-tools, failing preparation with `invalid_request`, because providers reject
-`tools` together with `response_format`. The one exception is
-`toolChoice: "none"`: that lowering omits `tools`, so the two fields never
-meet on the wire. Finish reasons map `stop`, `length`, `tool_calls`, and
+A route configured with `structuredOutput` preserves declared tools alongside
+`response_format`. `toolChoice: "none"` omits tools. Finish reasons map `stop`, `length`, `tool_calls`, and
 `content_filter` onto the matching stop reasons; only `stop` normalizes to
 `"tool-calls"` when a call completed, since Gemini finishes a successful tool
 turn that way, while `length` and `content_filter` after a completed call stay

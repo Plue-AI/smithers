@@ -164,6 +164,7 @@ machine-readable `reason`.
 | `credentials-missing` | A required credential was not configured.                                                                                                                        |
 | `permission-denied`   | The credential lacks the scope the operation needs.                                                                                                              |
 | `listener-conflict`   | An unowned hook holds a declared callback URL, or a reconcile apply lock is held.                                                                                |
+| `rate-limited`        | A rate limiter refused to wait for the budget. Nothing was sent; `details.retryAt` is the instant to retry.                                                      |
 
 | Export               | Signature                                       | Notes                                                                           |
 | -------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -346,12 +347,64 @@ Service interface:
 | `MAX_PER_PAGE`        | `100`                                                                    | The largest `per_page` GitHub accepts.                                                                                                                                                         |
 | `DEFAULT_MAX_PAGES`   | `10`                                                                     | The default page budget.                                                                                                                                                                       |
 | `MAX_PAGES_LIMIT`     | `1000`                                                                   | The largest accepted page budget.                                                                                                                                                              |
+| `PROXY_RETRY_AT`      | `"x-smithers-retry-at"`                                                  | The header in which the GitHub proxy names when a refused request may be retried.                                                                                                              |
+| `PROXY_REASON`        | `"x-smithers-rate-limit-reason"`                                         | The header in which the GitHub proxy names why it refused.                                                                                                                                     |
+
+A `429` that carries `PROXY_RETRY_AT` comes from the [GitHub proxy](#githubproxy),
+which never sent the request to GitHub. The client fails `rate-limited` at once
+with `details.retryAt` and does not repeat the call, because a retry before
+that instant only waits again.
 
 `RequestOptions` fields: `query` and `retryUnsafeWrites`.
 `DecodedRequestOptions<A>` adds the required `schema`, whose type is the
 request's result type: a caller cannot name a response type the client never
 decoded. `Page` fields: `items` and `truncated`. `RequestMethod` is
 `"GET" | "POST" | "PATCH" | "PUT" | "DELETE"`.
+
+### GitHub.RateLimit
+
+The limiter the [GitHub proxy](#githubproxy) runs for each principal, so a
+machine stays inside GitHub's documented limits. Before a request it waits for
+a write slot (`POST`, `PATCH`, `PUT`, `DELETE`: 1 s apart, at most 80 a minute
+and 500 an hour), a concurrency permit (50), the pause a limit response
+imposed, and the primary budget of the request's resource, modeled from every
+response's `x-ratelimit-*` headers. A `403` or `429` limit response pauses
+every caller: for `retry-after`, until `x-ratelimit-reset` when the budget is
+spent, or for at least a minute, doubling while limits persist. A wait longer
+than `maxWait` fails `rate-limited` without running the request.
+
+| Export             | Signature                                                                             | Notes                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make`             | `(options?: { limits?: Limits; maxWait?: Duration }) => Effect<RateLimiter>`          | A limiter with its own state.                                                                                                                                                                                     |
+| `RateLimiter`      | `{ limit(method, path, attempt, observe), earliestStart(writes, path) }`              | `limit` runs `attempt` once the budget allows and folds `observe(exit)` into it; `earliestStart` books nothing.                                                                                                   |
+| `Observation`      | `{ headers?: Headers; limited: boolean }`                                             | What one finished attempt tells the limiter.                                                                                                                                                                      |
+| `resolveLimits`    | `(explicit?: Partial<Limits>, env?) => Limits`                                        | Explicit values, then `SMITHERS_GITHUB_MAX_CONCURRENT`, `_WRITE_SPACING_MS`, `_WRITES_PER_MINUTE`, `_WRITES_PER_HOUR`, `_MIN_PAUSE_MS`, `_MAX_PAUSE_MS`, then the defaults. Throws for a value below its minimum. |
+| `DEFAULT_LIMITS`   | `Limits`                                                                              | 50 concurrent, 1000 ms spacing, 80 per minute, 500 per hour, 60 s minimum pause, 1 h maximum pause.                                                                                                               |
+| `DEFAULT_MAX_WAIT` | `Duration.minutes(1)`                                                                 | The longest one request waits.                                                                                                                                                                                    |
+| `rateLimited`      | `(retryAt: number, reason: string, method: string, path: string) => IntegrationError` | The `rate-limited` failure: `details` carries `retryAt`, `reason`, `method`, `path`, `rateLimited: true`, `retryable: false`.                                                                                     |
+| `waits`, `pauses`  | `Metric` counters                                                                     | `smithers_github_rate_limit_waits` by `reason` (`spacing`, `paused`, `budget`) and `smithers_github_rate_limit_pauses`.                                                                                           |
+
+### GitHub.Proxy
+
+The machine's one GitHub client: a reverse proxy that every other GitHub
+client on the machine calls instead of `api.github.com`. It owns one
+`RateLimit` limiter per principal and the credential: it drops any
+`Authorization` a caller sends and injects the principal's token. A request
+the limiter will not wait for is answered `429` with `retry-after`,
+`PROXY_RETRY_AT`, and `PROXY_REASON`. Everything else is forwarded once with
+GitHub's status, headers, and body; a `rel="next"` link is rewritten to the
+proxy. A transport failure is `502` and a deadline `504`; the proxy never
+repeats a request. The [GitHub guide](https://integrations.smithers.sh/guides/github/#stay-inside-githubs-rate-limits)
+shows how to run it.
+
+| Export           | Signature                                                                                 | Notes                                                                                                                                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make`           | `(options: ProxyOptions) => Effect<Effect<HttpServerResponse, never, HttpServerRequest>>` | The proxy as an HTTP application.                                                                                                                                                                       |
+| `layer`          | `(options: ProxyOptions) => Layer<never, never, HttpServer>`                              | Serves it on the `HttpServer` in context, such as `NodeHttpServer.layer`.                                                                                                                               |
+| `ProxyOptions`   | `{ credential, upstream?, capability?, limits?, maxWait?, requestTimeout? }`              | `credential(repository)` answers `{ token, principal }` for a request on `owner/name` or on no repository. `capability`, when set, is required from every caller as `Authorization: Bearer` or `token`. |
+| `Credential`     | `{ token: string; principal: string }`                                                    | Credentials with one `principal` share one budget.                                                                                                                                                      |
+| `repositoryOf`   | `(path: string) => string \| undefined`                                                   | The `owner/name` a REST path addresses.                                                                                                                                                                 |
+| `CONTROL_PREFIX` | `"/_smithers/"`                                                                           | `GET /_smithers/health` answers `{ ok: true }`. `GET /_smithers/admission?repo=owner/name&writes=n` answers `{ principal, startsAt, deferred }` without booking anything.                               |
 
 ### GitHub.Repository
 

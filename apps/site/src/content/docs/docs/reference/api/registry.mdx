@@ -8,7 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/age
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/agent/registry/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/agent/registry/docs/api.md) · [package docs](https://registry.smithers.sh)
 
-> **Related APIs:** [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/)
+> **Related APIs:** [`@smthrs/artifacts`](/docs/reference/api/artifacts/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/)
 
 `@smthrs/registry` exports nine modules from its root entry point, and each is
 also importable from `@smthrs/registry/<Module>`:
@@ -28,17 +28,18 @@ and interpreters, see the [`@smthrs/flow` reference](/docs/reference/api/flow/).
 declaration values a discovered body carries, see the
 [`@smthrs/core` reference](/docs/reference/api/core/).
 
-| Module                            | What it owns                                                              |
-| --------------------------------- | ------------------------------------------------------------------------- |
-| [`Descriptor`](#descriptor)       | The serializable `FlowDescriptor` and every value it is built from.       |
-| [`Discovery`](#discovery)         | The service that walks one source root and returns a `SourceScan`.        |
-| [`MarkdownFlow`](#markdownflow)   | Markdown and Agent Skills compatibility.                                  |
-| [`Registry`](#registry)           | The refreshable, first-found-wins catalog and its layers.                 |
-| [`Disclosure`](#disclosure)       | The compact projections a model and an autocomplete list are shown.       |
-| [`Executable`](#executable)       | Turning a descriptor into a runnable `@smthrs/flow` value.                |
-| [`Pack`](#pack)                   | Manifests, content addresses, compatibility ranges, and merge precedence. |
-| [`RegistryError`](#registryerror) | The typed failures and their constructors.                                |
-| [`Prompt`](#prompt)               | Compiles typed MDX prompts to Markdown text components.                   |
+| Module                                    | What it owns                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------- |
+| [`Descriptor`](#descriptor)               | The serializable `FlowDescriptor` and every value it is built from.       |
+| [`Discovery`](#discovery)                 | The service that walks one source root and returns a `SourceScan`.        |
+| [`MarkdownFlow`](#markdownflow)           | Markdown and Agent Skills compatibility.                                  |
+| [`Registry`](#registry)                   | The refreshable, first-found-wins catalog and its layers.                 |
+| [`Disclosure`](#disclosure)               | The compact projections a model and an autocomplete list are shown.       |
+| [`Executable`](#executable)               | Turning a descriptor into a runnable `@smthrs/flow` value.                |
+| [`ExecutionSnapshot`](#executionsnapshot) | Durable admitted source closures and approved descriptor restoration.     |
+| [`Pack`](#pack)                           | Manifests, content addresses, compatibility ranges, and merge precedence. |
+| [`RegistryError`](#registryerror)         | The typed failures and their constructors.                                |
+| [`Prompt`](#prompt)                       | Compiles typed MDX prompts to Markdown text components.                   |
 
 ## Example
 
@@ -128,8 +129,8 @@ The repository host also binds its own policy identity to reserved job
 descriptors. In source mode it measures every TypeScript file in
 `flows/repository`, including the semantic judge and its helpers, together with
 the other host sources and prompt bodies. A change to those bytes changes the
-job's execution digest; `Registry.loadBody` refuses a previously approved digest
-with `execution_changed`. A compiled host uses its bundled artifact digest.
+job's execution digest; without an admitted source snapshot, `Registry.loadBody`
+refuses a previously approved digest with `execution_changed`. A compiled host uses its bundled artifact digest.
 
 ### Descriptor.declarationDigest
 
@@ -231,6 +232,7 @@ class BodyRefModule {
   readonly path: string
   readonly contentDigest?: string
   readonly imports?: ReadonlyArray<ModuleImport>
+  readonly hostImports?: ReadonlyArray<string>
 }
 
 const BodyRef: Schema.Union<[typeof BodyRefMarkdown, typeof BodyRefModule]>
@@ -267,6 +269,13 @@ one that resolves to no file, a module it could not read, an `import()` or
 specifier, a `#` specifier with no relative `imports` target, a self-import of
 the flow's own package through `exports`, or a closure past its bound. Its `path` then carries that reason instead of a
 location, and `Executable.fromDescriptor` refuses to run such a module.
+
+`hostImports` names builtins, relative native `.node` addons and external package
+specifiers found in that project closure. The native host projects this sorted
+inventory into `envelope.hostImports` on plan and approval cards, bound to their
+digest. These modules run with host authority outside guarded capabilities.
+External packages are listed conservatively: this is not a native dependency
+audit or JavaScript confinement.
 
 The pin covers the loads a static scan of the source can read. It is not a
 sandbox: a module that hides a load from the scan, for example behind
@@ -639,6 +648,7 @@ The refreshable, first-found-wins catalog a host consumes.
 
 ```ts
 interface Registry {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   readonly list: () => Effect.Effect<ReadonlyArray<FlowDescriptor>>
   readonly visible: () => Effect.Effect<ReadonlyArray<FlowDescriptor>>
   readonly get: (name: string) => Effect.Effect<FlowDescriptor, RegistryError>
@@ -683,15 +693,17 @@ rescan leaves the previous complete snapshot serving reads.
 `loadBody` and `runPrompt` are the only two members that touch the filesystem.
 
 Pass the plan's `executionDigest` to `loadBody` when loading an approved flow.
-A descriptor that no longer matches it fails with `execution_changed`, before
-body loading. A markdown file changed after discovery fails with
-`body_unavailable`. Refreshing the registry does not authorize the new work;
-create and approve a new plan.
+With `snapshots`, an admitted approved descriptor and its verified bytes can be
+restored after a live edit, deletion, or restart. A missing or invalid snapshot
+or changed project lockfile refuses restoration. Without snapshots, a descriptor
+that no longer matches fails with `execution_changed`; a changed markdown file
+fails with `body_unavailable`. Refreshing does not authorize new work.
 
 ### Registry.Config and Registry.PackConfig
 
 ```ts
 interface Config {
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   readonly sources: ReadonlyArray<Descriptor.Source>
   readonly packs?: PackConfig | undefined
 }
@@ -872,6 +884,8 @@ Turning a discovered descriptor into something the durable engine runs.
 
 ```ts
 interface Executable {
+  readonly quiesce?: ((executionIds: Iterable<string>) => Effect.Effect<void>) | undefined
+  readonly source?: VerifiedSource | undefined
   readonly descriptor: Descriptor.FlowDescriptor
   readonly delegate: string | undefined
   readonly lowered: Lowered
@@ -897,6 +911,8 @@ that entry imports from beside itself.
 
 ```ts
 interface Options {
+  readonly adapterExecutionDigest?: ((descriptor: Descriptor.FlowDescriptor) => string | undefined) | undefined
+  readonly snapshots?: ExecutionSnapshot.Service | undefined
   readonly sourceRoot?: { readonly identity: string; readonly workspace: string } | undefined
   readonly delegates: ReadonlyArray<Delegate>
   readonly agent?: string | undefined
@@ -940,6 +956,18 @@ cache, and deferred calls can outlive sibling cleanup. Installed packages
 without project mappings and Node/Bun builtins retain host trust and use the
 normal host loader.
 
+`executable.quiesce(executionIds)` blocks and joins this module's local
+registered handlers for the specified native executions before explicit code
+adoption retires the registration. It preserves durable receipts and does not
+request cancellation. Other executions remain usable. A replacement executable
+owns a fresh registration and may resume the same execution IDs.
+
+`adapterExecutionDigest` lets a host retain the original plan's adapter
+registration name when explicitly adopting new code. It changes the registration
+name only; the descriptor, source verification, and approved executable digest
+still identify the adopted bytes. Without it, the adapter uses the descriptor's
+execution digest.
+
 `sourceRoot` is a host-owned retained checkout of the same project. Approved
 locators and executable digests stay under `identity`; entry bytes, schema
 exports, imported helpers and markdown resources load under `workspace`.
@@ -948,10 +976,12 @@ closure are refused. The host still verifies committed workspace routing and
 run approval before recovery; relocation grants no execution authority.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
-defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes
-`ExecutableError { code: "body_unavailable" }` naming the flow, source path,
+defaults to `SMITHERS_FLOW_LOAD_TIMEOUT_MS`, or 30000 milliseconds when unset
+or invalid. Supply a positive finite number. Expiry becomes
+`ExecutableError { code: "load_timeout" }` naming the flow, source path,
 and deadline. The catalog logs the refusal immediately and proceeds to the
-next entry. Direct `fromDescriptor` and `fromRegistry` calls have no deadline.
+next entry. Direct `fromDescriptor` and `fromRegistry` calls have no deadline
+and log progress every 30 seconds.
 Native imports cannot be cancelled: the deadline stops waiting and cleans up
 temporary files, but cannot stop initialization resources or synchronous code
 that blocks the event loop. Hosts needing termination must supply an isolated,
@@ -1093,6 +1123,9 @@ before the flow exists: a missing delegate, an undecidable one, an unreadable
 or changed body, a module that exports something else. A flow either function
 returns is one the engine can drive.
 
+Direct loads have no deadline and log progress every 30 seconds. A native
+start or resume remains bounded by its admission window.
+
 The delegate is resolved before the body is loaded. Both refusals are real, but
 only one of them is about this host, and an operator reading "could not load"
 would go looking in the wrong place.
@@ -1103,6 +1136,10 @@ would go looking in the wrong place.
 interface Catalog {
   readonly executables: ReadonlyArray<Executable>
   readonly refused: ReadonlyArray<ExecutableError>
+  readonly load?: (name: string) => Effect.Effect<
+    Executable,
+    ExecutableError | RegistryError | DiscoveryError
+  >
 }
 
 const Catalog: Context.Service<Catalog, Catalog>
@@ -1119,7 +1156,16 @@ flows directory is a mixed set: some entries delegate to a flow this host
 registered, others name a delegate only another host has, and one may simply be
 broken. None of those is a reason to withhold the rest, so every refusal is
 reported in `refused` carrying its code rather than raised. Each refusal is
-logged before loading the next entry. Each entry has the `loadTimeoutMs` deadline.
+logged before loading the next entry. Each entry has a catalog deadline:
+`Options.loadTimeoutMs`, then `SMITHERS_FLOW_LOAD_TIMEOUT_MS`, then 30000 ms.
+The environment setting must be positive and finite; invalid values use the
+default. A timeout is `load_timeout`, separate from `body_unavailable`.
+
+The live catalog provided by `layer` or `layerRefreshable` exposes `load(name)`.
+It returns an already loaded executable or retries a `load_timeout` through
+the direct path, registers the recovered body, and removes its refusal.
+Concurrent first uses share the recovered executable. Other refusals remain
+typed failures; retry does not adopt edited source bytes.
 
 The service tag is provided by `layer`, so a command that lists or diagnoses
 flows reads the same refusals the registration phase acted on instead of
@@ -1246,6 +1292,7 @@ class ExecutableError {
   readonly code:
     | "missing_delegate"
     | "ambiguous_delegate"
+    | "load_timeout"
     | "body_unavailable"
     | "invalid_module"
     | "invalid_layer"
@@ -1573,3 +1620,24 @@ The constructors. Each formats `message` as
 `<code>: <module>.<method>: <description>`, so every failure reads the same way
 whether a caller prints the message or branches on the fields. `module`
 defaults to `Discovery` and `Registry` respectively.
+
+## ExecutionSnapshot
+
+`makeFileSystem({ root, store? })` and `layerFileSystem({ root, store? })` require
+`FileSystem`, `Path`, and `Crypto`. The service captures those dependencies. By
+default, blobs live in `.flows/objects` and atomic manifest indexes live in
+`.flows/executions/<executionDigest>.json`.
+
+`pin(executable)` persists its verified `source` at first admission. Merely
+discovering or loading a catalog does not pin it. `descriptor(digest)` recovers
+the approved metadata; `restore(digest)` returns that descriptor, entry path,
+entry bytes, and the complete source module map including compiled source and
+static import links. Both verify the manifest and project lockfile identity.
+
+`roots(digests)` returns manifest and source blob addresses for nonterminal
+executions. Lockfile drift does not remove these roots. Missing or corrupt
+snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
+`corrupt`, `lockfile_changed`, or `unavailable`.
+
+The manifest pins project source, while installed workspace packages remain
+host code. Run the host from a pinned checkout.

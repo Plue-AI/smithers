@@ -491,6 +491,87 @@ than raised as a defect, so the residue still names it and the finalizers
 behind it still run. See
 [Undo work with compensation](/docs/guides/compensation/).
 
+## `Burndown`
+
+`Burndown` works a backlog down to nothing: GitHub issues, Linear tickets,
+queue messages, or anything else whose items carry a stable string `id`. Its
+halves differ from the other containers because a round's width is the
+length of a backlog that no plan knows when it is built.
+
+| Export                                | What it is                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `make(options)`                       | The lineage: capacity gate, `discover`, one `dispatch` call, then a `Flow.to` handoff to the next round       |
+| `round(input, options)`               | The `Effect` one dispatch runs: select, claim, work, land, release, at `concurrency`, a freed slot at a time  |
+| `dispatch(tag)`                       | Declares the dispatch action `make` calls, with `DispatchPayload` in and `RoundResult` out                    |
+| `layer(action, options)`              | Implements that action with `round`                                                                           |
+| `child(flow, payload)`                | Builds a `work` member that runs `flow.execute(payload, { executionId })` under the derived id                |
+| `signal(name?)`                       | The `WaitFor` deferred an operator completes to resume an exhausted burndown                                  |
+| `Stop`                                | The typed failure that stops a round and releases its open claims                                             |
+| `Held`                                | The typed failure a `claim` raises when another owner holds the item                                          |
+| `available`, `waitUntil`, `exhausted` | `Capacity` answers: launch at most `slots`, sleep until an epoch-millisecond instant, or park for an operator |
+| `ours`, `skip(detail)`                | `Selection` answers                                                                                           |
+
+`make({ discover, dispatch, capacity?, maxRounds, deadline?, signal? })`
+settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail, requeues? }`
+with `status` one of `landed`, `held`, `failed`, `skipped`, or `requeued`. A round that
+launched at least one item hands off to the next round, which rediscovers the
+backlog; a round that launched nothing settles the lineage as `drained`,
+unless its selection erred, when the round's `Stop` fails the lineage.
+`maxRounds` bounds every round the lineage opens, parks included, and
+settles it as `max_rounds`. `deadline` is the lineage deadline `Flow.make`
+enforces. `make` throws an `invalid_decorator` `PatternError` for a
+`maxRounds` that is not a positive safe integer below `Number.MAX_SAFE_INTEGER`, a `deadline` that is not a
+positive finite duration, or a blank `signal`.
+
+A `capacity` answer of `WaitUntil` arms `Sleep.action` until the instant, and
+`Exhausted` awaits `WaitFor.action` on `signal` (default
+`"burndown/capacity"`). Either then hands off to a fresh round that asks for
+capacity again, so the lineage never launches while it is parked and never
+polls. A host executing a burndown with a capacity member provides
+`Sleep.layer` and `WaitFor.layer`. A capacity or dispatch answer outside its
+schema is a defect.
+
+`round` leaves alone the ids in `settled`, so a `held` or `failed` item is
+never retried within a lineage, while a `skipped` or `requeued` item is
+reconsidered every round. Only the exact `ours` selection launches an item; a malformed or failed
+selection skips it. An answered `skip` is a policy decision; a failed or
+malformed selection is an error. When no item is ours and none was requeued
+but a selection erred, `round` fails with `Stop` before any claim, naming how
+many selections failed and the first three causes. Of the items that are ours, the first `slots` launch in
+discovery order, at most `slots` at a time. When an item finishes working, its
+slot asks the round's `capacity` member, when there is one, and admits the next
+item that is ours only on an `Available` answer with more slots than the work
+still in flight. The items never admitted count as `deferred`; without a round
+`capacity` member that is every item past `slots`. A `claim` that fails with
+`Held` settles the item `held` and is not released. A typed claim, work, or landing failure classified by `Fault.of` as `infra`
+requeues its item up to `maxRequeues` (default 3), then fails it. The count
+is persisted in `row.requeues`; pass the carried `rows` to `round`.
+`make` passes these rows through `DispatchPayload`, and `layer` forwards them.
+Other failures settle only their own item as `failed`. A worked item enters the landing queue at once: `land`
+runs one item at a time, in the order work finished, while other items still
+work, and a failed landing does not stop the next; without `land`, a worked
+item counts as landed. `release` runs once for every successful claim, as soon
+as the item settles, with its final status. Interrupted work settles its item
+`failed` with `work: interrupted` only when the optional `cancelled` member
+answers `true` for a recorded operator cancel; any other interruption, such as
+a child released because its host's lease lapsed, gets a `requeued` row and a
+`requeued` release, and a later round works the item again. A member defect settles only its item as `failed`, including the
+`Fault.of(defect)` class and tag in its detail; siblings continue. This also
+applies to thrown selection, detail, landing, and release callbacks.
+Only typed `Stop({ message })` stops the round; open claims are released.
+A defect containing a `Stop` is still an item defect. When the round itself is
+interrupted, each open claim is released the same way if `cancelled` answers
+`true`, and otherwise with status `requeued` and `round interrupted`. A release failure is appended to the row's detail. Rows keep
+discovery order. `round` fails with `PatternError` before any member runs for a
+blank `key`, a `concurrency` or `slots` that is not a positive safe integer,
+a negative or fractional `round`, or an item without a unique nonblank string
+`id`.
+
+Each `work` call receives `executionId` `${key}/${item.id}`. Hand it to
+`Flow.execute`, or build `work` with `child`, so a rerun reaches the child
+execution that already exists instead of starting a second one. See
+[Burn down a backlog](https://smithers-patterns.smithers.sh/burndown/) for a GitHub issues example.
+
 ## A worked release
 
 [Failure control](/docs/examples/30-failure-control/) runs one release through
@@ -528,7 +609,7 @@ with a `graph_too_deep` `GraphBuildError` naming the node.
 
 The root exports each module as a namespace, and every module is also
 importable as `@smthrs/patterns/<Module>`. The `internal/*` and nested
-`*/index` subpaths are private. The [module index](https://smithers-patterns.smithers.sh/modules/) lists all 28
+`*/index` subpaths are private. The [module index](https://smithers-patterns.smithers.sh/modules/) lists all 29
 modules with their specifiers.
 
 [`@smthrs/flow`](/docs/reference/api/flow/) supplies `Flow` and `Graph`, and

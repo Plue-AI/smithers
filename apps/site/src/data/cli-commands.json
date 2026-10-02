@@ -14050,7 +14050,7 @@
             },
             "disk": {
               "type": "number",
-              "description": "Writable disk in MiB"
+              "description": "Writable disk in GiB"
             },
             "idleTimeout": {
               "type": "number",
