@@ -3,7 +3,7 @@
  * one per step (mvp.md §4.1, §6.3, §6.7, §6.8, M-02, M-18, M-27). Ben's screen,
  * a maintainer; one card renders as Alice, a member, sees it.
  */
-import type { Journey, Step } from "../journey"
+import { cite, type Journey, type Step } from "../journey"
 import { changed, OUTSIDE, showCard, showCardAs, toast, type State, type Todo } from "../world"
 import { ALICE, BEN, MAYA, RETRY_FILE, seedState, TODO_FLOW } from "./seed"
 
@@ -121,7 +121,7 @@ export const states: Journey = {
   intro: "Every state a card can be in, one per step. Step with → to study each.",
   viewers: [BEN],
   setup,
-  steps: [
+  steps: cite(["§4.1", "§4.2", "§6.4", "§4.1", "§4.1", "§4.1", "§4.2", "J10.3", "§4.1", "B.4", "§4.2", "§6.3", "§4.2", "§6.10", "§6.10", "M-05", "§4.1", "§6.3", "§6.7", "M-06", "§6.7", "§6.7", "J7.3", "B.4", "B.4", "B.4", "§6.8", "B.4", "B.4", "M-18", "B.2", "§6.4", "§6.3", "§6.3", "§6.12", "M-30", "§6.7", "§6.15", "§6.15", "§6.1", "J1.2", "§6.1", "§6.4"], [
     view("The stack in every state: waiting for a machine, working, needs you, a conflict to resolve, paused, failed, in review, merged with lessons, dropped. Sync is stale, in gold, with Retry.", () => {}, 4200),
     view("Each row's ⋯ menu reorders: Move up, Move down, Drop. Alt+↑ and Alt+↓ do the same from the keyboard.", state => { showCard(state, BEN, "home", "acme/api", "menu:s-failed") }),
     view("Background runs sit under the stack. A failed run stays, with Retry and Dismiss, until someone acts.", state => { showCard(state, BEN, "home", "acme/api", "") }),
@@ -200,5 +200,5 @@ export const states: Journey = {
       state.world.setup.upgrade = "1.0.1"
       showCardAs(state, BEN, "settings", "acme/api", MAYA)
     })
-  ]
+  ])
 }

@@ -52,7 +52,7 @@ export const j7: Journey = {
   intro: "Ben, a maintainer, has drafted a TODO in main. Place decides where it joins the stack.",
   viewers: [BEN],
   setup,
-  steps: cite(["J7.1", "J7.1", "J7.1", "J7.1", "J7.2", "B.1", "J7.2", "J7.2", "J7.2", "J7.3", "J7.3", "J7.3", "J7.3", "J7.4", "J7.4"], [
+  steps: cite(["J7.1", "J7.1", "J7.1", "J7.1", "J7.2", "B.1", "J7.2", "J7.2", "J7.2", "J7.3", "J7.3", "J7.3", "J7.3", "J7.4", "J7.4", "J7.4"], [
     {
       caption: "Alice's checkout fix will need a fake clock, so Ben places his TODO before T10.",
       target: '[data-mock="place-before-t-checkout"]', hold: 2200,

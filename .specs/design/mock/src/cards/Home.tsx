@@ -6,7 +6,7 @@
  * plus a ⋯ menu for order. Background runs sit below the stack.
  */
 import { Button } from "@smthrs/ui"
-import { ArrowDown, ArrowUp, BookOpen, Check, GitBranch, Loader, MoreHorizontal, Plus, RotateCw, Trash2, X } from "lucide-react"
+import { ArrowDown, ArrowUp, BookOpen, Check, CircleDashed, GitBranch, Loader, MoreHorizontal, Plus, RotateCw, Trash2, X } from "lucide-react"
 import { Card, AvatarStack, BranchChip, StateGlyph, StatePill, Avatar, Ref } from "../parts"
 import { useFrame } from "../frame"
 import { mergeReadiness, refOf, type BackgroundRun, type Todo, type TodoState, type World } from "../world"
@@ -123,11 +123,12 @@ const RunRow = ({ run }: { readonly run: BackgroundRun }) => {
   const { state: { seq } } = useFrame()
   return (
     <li className="mvp-run-row" data-state={run.state} data-fresh={run.seq === seq || undefined}>
-      {run.state === "running" ? <Loader size={14} className="mvp-run-icon" aria-hidden="true" />
+      {run.queue !== undefined ? <CircleDashed size={14} className="mvp-run-icon" aria-hidden="true" />
+        : run.state === "running" ? <Loader size={14} className="mvp-run-icon" aria-hidden="true" />
         : run.state === "done" ? <Check size={14} className="mvp-run-icon" aria-hidden="true" />
         : <X size={14} className="mvp-run-icon" aria-hidden="true" />}
       <button type="button" className="mvp-link" data-mock={`run-${run.id}`}>{run.title}</button>
-      {run.detail === undefined ? null : <span className="mvp-meta">{run.detail}</span>}
+      {run.queue !== undefined ? <span className="mvp-meta">Queued · #{run.queue}</span> : run.detail === undefined ? null : <span className="mvp-meta">{run.detail}</span>}
       {run.state === "failed" ? <span className="mvp-row-end">
         <Button size="sm" variant="outline"><RotateCw size={13} aria-hidden="true" />Retry</Button>
         <Button size="sm" variant="ghost">Dismiss</Button>

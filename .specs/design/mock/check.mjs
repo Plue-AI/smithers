@@ -30,6 +30,8 @@ for (const journey of journeys) {
     await page.goto(`${base}?j=${journey.id}&s=${i}&still=1`)
     await page.waitForTimeout(120)
     const step = journey.steps[i]
+    /* Every step cites the spec line it shows, so a review note lands on that line. */
+    if (step !== undefined && (typeof step.spec !== "string" || step.spec === "")) { failures += 1; console.log(`✗ ${journey.id} step ${i + 1}: no spec citation`) }
     if (step?.target) {
       const box = await page.evaluate(({ viewer, target }) => {
         const element = document.querySelector(`[data-frame="${viewer}"]`)?.querySelector(target)

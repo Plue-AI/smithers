@@ -166,7 +166,7 @@ export const j4: Journey = {
     {
       caption: "Fix the flaky checkout test opens PR #96. Its machine goes to her retry: Starting, with her steer.",
       hold: 2800,
-      show: [{ viewer: MAYA, target: '[data-card="todo:t-invoices:maya"]' }],
+      show: [{ viewer: MAYA, target: '[data-card="todo:t-invoices"]' }],
       act: state => {
         setTodo(state, "t-checkout", { state: "in-review", step: undefined, elapsed: undefined, pr: 96, evidence: CHECKOUT_EVIDENCE })
         release(state, "b-checkout")

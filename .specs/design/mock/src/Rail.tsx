@@ -129,7 +129,8 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
     }
     case "proposal": {
       const proposal = world.proposals.find(each => each.id === card.target)
-      return { id: entry.id, title: proposal?.title ?? "Suggestion", summary: "Suggested by learning", tone: "quiet", glyph: <StateGlyph state="queued" /> }
+      const made = proposal?.todo === undefined ? undefined : world.todos.find(each => each.id === proposal.todo)
+      return { id: entry.id, title: proposal?.title ?? "Suggestion", summary: made === undefined ? "Suggested by learning" : `Committed as ${refOf(world, made)}`, tone: "quiet", glyph: <StateGlyph state="queued" /> }
     }
     case "wiki": {
       const page = world.wiki.find(each => each.id === card.target)

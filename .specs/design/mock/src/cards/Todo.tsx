@@ -177,6 +177,8 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
   const place = placeOf(world, todo)
   const settled = todo.state === "merged" || todo.state === "dropped"
   const live = todo.state === "working" || todo.state === "starting" || todo.state === "needs-you"
+  /* The learning run that follows a merge, if one exists yet (mvp.md §4.1: learning is a run, not a state). */
+  const learning = world.runs.find(each => each.todo === todo.id)
   /* The TODO's latest attempt: its flags ride on this card, and Inspect opens its monitor (one card per thing). */
   const run = world.traces.filter(each => each.todo === todo.id).sort((a, b) => b.attempt - a.attempt)[0]
   return (
@@ -188,6 +190,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
         {branch?.machine === "waiting" && todo.state === "working" ? <span className="mvp-waiting">Waiting for a machine · #{branch.waitPosition ?? 1}</span> : null}
         {place === "" ? null : <span>{place}</span>}
         {(todo.attempts ?? 1) > 1 ? <button type="button" className="mvp-count-chip">Attempt {todo.attempts}</button> : null}
+        {todo.flowVersion === undefined || settled ? null : <span className="mvp-ref-chip" title={`TODO flow ${todo.flowVersion}`}>{todo.flowVersion}</span>}
         {todo.issue === undefined ? null : <span>{todo.state === "merged" && world.issues.find(each => each.number === todo.issue)?.fixes !== false ? "closed" : "from"} #{todo.issue}</span>}
         <span>{actorName(world, todo.owner)}</span>
       </div>
@@ -205,7 +208,9 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
         <div className="mvp-actions">
           <span className="mvp-receipt"><Check size={14} aria-hidden="true" />Merged into main{todo.mergedVia !== undefined
             ? ` · in ${refOf(world, todoOf(world, todo.mergedVia))}'s commit` : todo.pr === undefined ? "" : ` · #${todo.pr}`}</span>
-          {todo.mergedVia !== undefined ? null : todo.lessons === undefined ? <span className="mvp-meta"><Loader size={13} className="mvp-run-icon" aria-hidden="true" />Learning</span> : (
+          {todo.mergedVia !== undefined || (todo.lessons === undefined && learning === undefined) ? null
+            : todo.lessons === undefined ? <span className="mvp-meta" data-state={learning!.queue !== undefined ? "queued" : learning!.state}>
+                {learning!.queue !== undefined ? "Learning queued" : learning!.state === "failed" ? "Learning failed" : <><Loader size={13} className="mvp-run-icon" aria-hidden="true" />Learning</>}</span> : (
             <button type="button" className="mvp-count-chip mvp-lessons" data-mock={`lessons-${todo.id}`}>
               <BookOpen size={13} aria-hidden="true" />{todo.lessons} {todo.lessons === 1 ? "lesson" : "lessons"}
             </button>

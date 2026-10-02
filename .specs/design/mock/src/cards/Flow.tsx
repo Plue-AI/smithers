@@ -27,6 +27,7 @@ const VersionChip = ({ version, selected }: { readonly version: FlowVersion; rea
   return (
     <button type="button" className="mvp-version" data-state={version.state} aria-pressed={selected} data-mock={`version-${version.id}`}>
       {icon}<span>{word}</span>{todo?.pr === undefined ? null : <span className="mvp-version-pr">#{todo.pr}</span>}
+      {version.by === undefined || version.state !== "proposed" ? null : <Avatar world={world} who={version.by} size={16} />}
     </button>
   )
 }
