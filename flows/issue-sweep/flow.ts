@@ -477,6 +477,16 @@ export interface SelectSeams<E, R> extends Seams<E, R> {
   readonly newestClaim: (repo: string, issue: number) => Effect.Effect<string | undefined, E, R>
 }
 
+const excludedLabels: ReadonlySet<string> = new Set([
+  "do-not-implement",
+  "needs-human-approval",
+  "wontfix",
+  "epic",
+  "invalid",
+  "duplicate",
+  "question"
+])
+
 /**
  * Whether an issue is ours. A parked issue, a `sweep:no-change` issue no human
  * acted on, and one the Mac mini holds are skipped without reading it; any
@@ -488,6 +498,8 @@ export const selectWith =
   (args: Burndown.ItemArgs<unknown, Item>): Effect.Effect<Burndown.Selection, E | TriageFailed | Burndown.Stop, R> =>
     Effect.gen(function*() {
       const repo = repoOf(args)
+      const excluded = args.item.labels.find((label) => excludedLabels.has(label))
+      if (excluded !== undefined) return Burndown.skip(`label: ${excluded}`)
       const parked = parkedFor(args.item)
       if (parked !== undefined) return Burndown.skip(parked)
       if (args.item.labels.includes(noChangeLabel) && !(yield* seams.requalified(repo, args.item.number))) {
@@ -666,8 +678,7 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
         ),
         Effect.catchTag(
           "issue-sweep/AdoptConflicted",
-          (conflict) =>
-            requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
+          (conflict) => requeue(conflict, { repo: input.repo, issue: args.item.number, executionId: id, repository })
         ),
         // A workspace this machine cannot prepare would fail every issue the
         // same way: stop the sweep (its claims are released) instead.

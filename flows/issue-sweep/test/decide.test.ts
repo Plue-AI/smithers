@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Clock, Effect, Schema } from "effect"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
@@ -14,6 +14,8 @@ import {
   parkedFor,
   releasesClaim,
   roundStats,
+  type SelectSeams,
+  selectWith,
   staleWorkspaces,
   urgent
 } from "../flow.ts"
@@ -78,6 +80,75 @@ test("issues for the maintainer or deferred by title are not dispatched", () => 
   assert.equal(parkedFor({ title: "  deferred: x", labels: ["bug"] }), "deferred")
   assert.equal(parkedFor({ title: "Defer the cache flush until close", labels: [] }), undefined)
   assert.equal(parkedFor({ title: "Retire the legacy Workers", labels: ["bug", "in-progress"] }), undefined)
+})
+
+// Exercise the dispatcher selector while recording every external selection dependency.
+const selection = async (labels: ReadonlyArray<string>, comment?: string) => {
+  const calls: string[] = []
+  const answer = <A>(name: string, value: A) => Effect.sync(() => (calls.push(name), value))
+  const seams: SelectSeams<never, never> = {
+    requalified: () => answer("requalified", false),
+    newestClaim: () => answer("claim", comment),
+    cache: { get: () => answer("cache.get", undefined), set: () => answer("cache.set", undefined) },
+    read: () => answer("read", { title: "Fix a regression", body: "Fix it", comments: [] }),
+    classify: () => answer("classify", { need: "code-change" as const, reason: "fix" }),
+    record: () => answer("record", undefined)
+  }
+  const result = await Effect.runPromise(Effect.clockWith((clock) =>
+    selectWith(seams)({
+      input: { repo: "o/r" },
+      round: 0,
+      item: { id: "7", number: 7, title: "Fix a regression", labels }
+    }).pipe(Effect.provideService(Clock.Clock, { ...clock, currentTimeMillis: answer("clock", at - 1) }))
+  ))
+  return { result, calls }
+}
+
+for (
+  const label of ["do-not-implement", "needs-human-approval", "wontfix", "epic", "invalid", "duplicate", "question"]
+) {
+  for (const claimed of [false, true]) {
+    test(`dispatcher skips ${label} ${claimed ? "before requalification and claims" : "before triage"}`, async () => {
+      const labels = claimed ? ["bug", "in-progress", "sweep:no-change", label] : [label, "bug"]
+      const { result, calls } = await selection(labels, claim("Williams-Mac-mini.local", expires))
+      assert.deepEqual(result, { _tag: "Skip", detail: `label: ${label}` })
+      assert.deepEqual(calls, [])
+    })
+  }
+}
+
+test("dispatcher names the first matching exclusion label among unrelated labels", async () => {
+  const { result, calls } = await selection(["bug", "question", "epic", "in-progress"])
+  assert.deepEqual(result, { _tag: "Skip", detail: "label: question" })
+  assert.deepEqual(calls, [])
+})
+
+test("dispatcher retains blocked-on-will filtering before claim reads", async () => {
+  const { result, calls } = await selection(["blocked-on-will", "in-progress"])
+  assert.deepEqual(result, { _tag: "Skip", detail: "blocked on the maintainer" })
+  assert.deepEqual(calls, [])
+})
+
+test("dispatcher permits ordinary and merely similar labels through triage", async () => {
+  const { result, calls } = await selection(["bug", "enhancement", "not-question", "wontfix-later", "duplicate-check"])
+  assert.deepEqual(result, { _tag: "Ours" })
+  assert.deepEqual(calls, ["cache.get", "read", "classify", "cache.set"])
+})
+
+test("dispatcher preserves live Mac mini, expired Mac mini and other machine claims", async () => {
+  const live = await selection(["in-progress"], claim("Williams-Mac-mini.local", expires))
+  assert.deepEqual(live.result, { _tag: "Skip", detail: "claimed on Williams-Mac-mini.local" })
+  assert.deepEqual(live.calls, ["clock", "claim"])
+  for (
+    const comment of [
+      claim("Williams-Mac-mini.local", new Date(at - 1).toISOString()),
+      claim("Williams-MacBook-Pro-3.local", expires)
+    ]
+  ) {
+    const { result, calls } = await selection(["in-progress"], comment)
+    assert.deepEqual(result, { _tag: "Ours" })
+    assert.deepEqual(calls, ["clock", "claim", "cache.get", "read", "classify", "cache.set"])
+  }
 })
 
 // 51 leftover issue workspaces held 24 GiB after cancelled runs.
