@@ -70,7 +70,7 @@ Smithers has to beat that setup on three counts:
 | **Branch** | The single live place where work happens. Each working TODO has its own branch. A member can also fork a scratch branch. Awake, a branch has one machine, shared by everyone on it. |
 | **Machine** | The isolated VM an awake branch runs on: its working copy, terminals, services and coding agent. |
 | **Issue** | A GitHub issue, where discussion happens. |
-| **App agent** | The fast assistant in each branch's conversation. It answers questions and drives the app. Each prompt runs with the authority of the person who wrote it. |
+| **App agent (Smithers)** | The fast assistant in each branch's conversation. It answers questions and drives the app. Each prompt runs with the authority of the person who wrote it. It appears as a participant with its own avatar, like a person (M-34). |
 | **Conversation** | One per branch, shared by everyone on that branch. `main`'s conversation is the team's home and holds the stack. People prompt the agents there; it is not for chatting with each other. |
 | **Coding agent** | The agent on a branch's machine that works a TODO. |
 | **Run** | One durable execution of a flow. TODO work, questions, stack operations and learning are all runs. |
@@ -368,7 +368,7 @@ Smithers wraps the team's GitHub repository; it doesn't replace it. GitHub stays
 
 | Feature | Behavior | Status |
 | --- | --- | --- |
-| Presence | Avatars of the people and agents on the branch, and where each one is: a terminal session, a file or a run. | Missing: Pair's presence API was removed in `2753d2e3d2`. |
+| Presence (Will) | Every participant doing work shows on the branch exactly like a person: people; Smithers, the app agent (its own avatar); the coding agent; external agents such as Claude Code; and reviewers. Each shows its avatar and where it is (a terminal session, a file and line, a run). When Smithers works for someone, its avatar carries "for Ben". | Missing: Pair's presence API was removed in `2753d2e3d2`. |
 | Live co-editing | The File card is a live co-editor for code, built on the Yjs collaboration the wiki already uses. Keystrokes reach everyone with the file open in under 1 s, each person's characters in their colour, with a name flag in the gutter on each editor's line. The live document saves to the working copy continuously, debounced, so the header shows "Saved to the machine" and there is no Save button. Writes from the coding agent and from terminals enter the document as attributed edits. | Missing: a new system. The wiki's Yjs sends HTTP updates with an SSE refetch, has no presence, and keeps the document in the API, not on the machine. |
 | No silent overwrite | Every write through Smithers (agents, the app) carries the version it was based on. A write that would replace a newer version is refused, and the writer re-reads and retries: the coding agent does this automatically, and the File card never needs to because it is the live document. Writes that bypass Smithers, such as an editor in a terminal saving an older copy, are recorded with their author and recoverable from the branch's snapshots. Flagging them ("Ben's save replaced Alice's edit") is deferred (§16). | Missing (stage 1 contract: `base_digest` on every write, stale write refused) |
 | External changes | Anything can change the machine's files: SSH editors, terminal tools, formatters, package managers, or `git` and `jj` run by hand. The app handles all of it without breaking. The machine watches the working copy. Changes made through Smithers carry their exact author. A change from a terminal or SSH session is attributed to that session's person when only one person's session was active on the branch; otherwise it reads "changed outside Smithers". Exact per-write attribution of terminal changes is deferred (§16). <br>• Branch activity groups each burst into one entry, e.g. "Maya via SSH changed 3 files", which opens the diff. <br>• An open File card applies the change live. A deleted or renamed file says so ("Deleted by Maya via SSH · Restore", "Renamed to `deliver.ts` · Follow"). <br>• Hand-run version control that moves the working copy off its item shows Needs you: "Maya moved this branch off T2". **Return to T2** puts the working copy back on the item's commit, and anything written since stays recoverable. **Keep for now** records the move and holds the TODO in Needs you until the working copy is back on T2. <br>• The coding agent re-reads changed files before writing. <br>• Ignored paths never show as edits. <br>• Every change is recoverable from the branch's snapshots. <br>The command name on each entry, per-entry Undo, and flags for a save that replaced someone's edit are deferred (§16). | Partial: commit-level head updates every 2 s and snapshots every 30 s. |
@@ -485,6 +485,9 @@ These are the GitHub-style basics without which most teams can't do useful work.
 | M-31 (Will) | Once stage 1 passes its parts of J1 and J2 (§11), Smithers' own development moves onto the stack on Will's Mac mini, and `issue-sweep` stops pushing straight to `main`. | The dogfood target (§10) only counts if we stop using the side door. |
 | M-32 (Fable for Will) | The stack service is the agent in charge of jj, as Will described: the only writer of branch history. Every fork, place, reorder, rebase and merge is attributed to it in branch activity. The app agent and the buttons delegate to it, and the coding agent resolves conflicts. jj operations are never free-form model output. | Will: "There is an agent that is in charge of doing jj stuff." One writer keeps history safe (AGENTS.md: only the stack service writes the stack). |
 | M-33 | Smithers never overwrites a person's commit. A push from outside Smithers to a TODO's branch holds the agent's push until a person chooses Bring in or Discard. | A wrapper that discards a teammate's push is worse than plain GitHub. |
+| M-34 (Will) | Any agent doing work appears as a participant in the workspace, just like a person. That includes Smithers, the main agent you talk to on the fast model, as well as the coding agent, external agents and reviewers. Each has its own avatar in presence, activity, line flags and terminals. When an agent acts for a person, its avatar shows "for Ben" in place of the old "Ben via Smithers" badge. | Will: "make it so any agent doing work including smithers… should be shown as participating in the workspace just like a human." |
+| M-35 (Will, via the frontend lead) | Docs live in the app as their own flow (`/docs`), rendered from one Markdown source per page. The standalone docs site is removed. The README and one install page on smithers.sh stay, because you can't read in-app docs before installing. | Will: "remove the docs completely and make it just a part of the app; /docs should be its own flow in the app." |
+| M-36 (Will, via the frontend lead) | An in-app API playground (`/debug-api`) lets a person try any call in the open API. It's an advanced primitive, one click away (§6.14). | Everything is a flow, and the whole API is open; the playground is the lowest-level door. |
 
 ## 8. What we cut
 
@@ -667,6 +670,7 @@ This is what `/help`, the palette, the CLI and the Smithers skill list for a mem
 | **Ask** | | | |
 | ⌘K (no slash) | Ask or tell Smithers anything | all | chat.send |
 | `/help` | List these commands | | chat.commands |
+| `/docs` | Read the docs in the app | | new (M-35) |
 | `/stop` | Stop the current answer | | chat.stop |
 | `/search` | Search code, wiki and runs | J9 | search.open |
 | **TODOs and the stack** | | | |
@@ -719,6 +723,7 @@ This is what `/help`, the palette, the CLI and the Smithers skill list for a mem
 | `/github` | Show sync status and retry | J10 | github.reconcile, github.app |
 | **Advanced (collapsed in /help)** | | | |
 | `/monitor` | Every run, with its debug view | J11 | new (runs.trace.view) |
+| `/debug-api` | Try any call in the open API | | new (M-36) |
 | `/run.inspect <id>` | Open a run's monitor | J11 | runs.trace.view, runs.graph.* |
 | `/flow.source <name>` | Co-edit a flow's source | J11 | new |
 | `/flow.plan <name>` | Preview a flow's plan | J11 | flow.plan |
