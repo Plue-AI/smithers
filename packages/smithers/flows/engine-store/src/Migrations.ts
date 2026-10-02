@@ -31,6 +31,7 @@ import { executionListing } from "./migrations/0006_execution_listing.ts"
 import { runParentSequence } from "./migrations/0007_run_parent_sequence.ts"
 import { deferredConsumption } from "./migrations/0008_deferred_consumption.ts"
 import { deferredClockFacts } from "./migrations/0009_deferred_clock_facts.ts"
+import { pendingCancellation } from "./migrations/0010_pending_cancellation.ts"
 
 /**
  * Engine-store's own namespaced migration set.
@@ -50,7 +51,8 @@ export const set: DatabaseMigrations.MigrationSet = {
     "0006_execution_listing": executionListing,
     "0007_run_parent_sequence": runParentSequence,
     "0008_deferred_consumption": deferredConsumption,
-    "0009_deferred_clock_facts": deferredClockFacts
+    "0009_deferred_clock_facts": deferredClockFacts,
+    "0010_pending_cancellation": pendingCancellation
   }
 }
 

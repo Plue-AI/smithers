@@ -25,6 +25,10 @@ interface Options {
 export const make = ({ runs, control, registry, catalog }: Options) => (runId: string): Effect.Effect<boolean> =>
   Effect.gen(function*() {
     const row = yield* runs.get(runId)
+    // A durable cancellation admits only the driver's owner-fenced cleanup.
+    // It cancels before decoding module payloads or invoking handlers; observing and
+    // cancellation hosts need no execution catalog or source approval for that.
+    if (row.cancelRequestedAtMs !== null && row.cancelRequestedAtMs !== undefined) return true
     const state = yield* Schema.decodeUnknownEffect(RunState.RunState)(JSON.parse(row.stateJson))
     if (state.flowName !== "agent/run") return true
     const payload = state.payload as { readonly planId?: unknown } | null

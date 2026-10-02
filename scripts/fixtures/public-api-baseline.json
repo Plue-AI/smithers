@@ -3493,7 +3493,7 @@
         "CacheSync.d.ts": "18cb77f3084f0279f7450a7dac9756e3cd5336b8aa884d0c7229d4adedd9dc80",
         "DeferredClockFold.d.ts": "cd99bca72964a6a64eec9469dccc1d2adfb61d0065d818d4ac283f06fa6222b2",
         "DisasterRecovery.d.ts": "b38ccc589181848a067fa1c825303fc321dcdfa61c0ad46b6f3f02a55a23f60b",
-        "DurableEngineState.d.ts": "346433e47fc3c1165366541a167e042baa0467c878671287113a466b34de0b93",
+        "DurableEngineState.d.ts": "1455131c2d066f00dd1cf32d2dd6e55052666106f7c4987832071e221db6cfd6",
         "EngineStore.d.ts": "01ed4d93a48c5de94881842455a1c6af0cd3978569443301f1f36ba852dfa97e",
         "EngineStoreMetrics.d.ts": "25e4710636661098d1f7d10ccda4dd6c35237669be9472f2524d15c362526780",
         "Errors.d.ts": "9013130829b7f8df2e986e3b259c282797f3ce0b44c3bcf8f4de311815965d7b",
@@ -3570,7 +3570,8 @@
         "migrations/0007_run_parent_sequence.d.ts": "89a12e1015beb9d0bcc92b298fbfe8995d13de84b3b01ae5082609c5ba0f727a",
         "migrations/0008_deferred_consumption.d.ts": "1192fd5c27b235a30b861f057aca95a29b962a66f5c9b034294568e1fa2b2b56",
         "migrations/0009_deferred_clock_facts.d.ts": "bd527f8da85df80c5367569a10a6e781c176638aac9a2e6a276287f5f6b9e858",
-        "test/TestStores.d.ts": "505b56a7d499a85a5d6a09732ecbd13c97a32ccb40ae1854acaa1060443ac9df"
+        "test/TestStores.d.ts": "505b56a7d499a85a5d6a09732ecbd13c97a32ccb40ae1854acaa1060443ac9df",
+        "migrations/0010_pending_cancellation.d.ts": "b2566433863449a3985cd5081aebc5cfbe4a05ed3cfca20c82ab4719fa26bba4"
       }
     },
     "@smthrs/errors": {

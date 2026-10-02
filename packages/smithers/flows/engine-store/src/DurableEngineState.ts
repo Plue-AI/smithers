@@ -40,6 +40,11 @@ export interface PendingRunCursor {
   readonly createdAtMs: number
 }
 
+const pendingCancellationLimit = (limit: number): Effect.Effect<void> =>
+  Number.isSafeInteger(limit) && limit >= 0
+    ? Effect.void
+    : Effect.die(new RangeError("Pending cancellation limit must be a non-negative safe integer"))
+
 /** JSON text carrying an arbitrary decoded value. */
 const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown)
 
@@ -559,6 +564,14 @@ export interface Service {
     flowName: string,
     eligibleBeforeMs?: number | undefined
   ) => Effect.Effect<Option.Option<PendingRunCursor>>
+  /** Pending cancellation requests in bounded creation order; limit is zero or a positive safe integer. */
+  readonly pendingCancellationRuns: (
+    limit: number,
+    after?: PendingRunCursor | undefined,
+    through?: PendingRunCursor | undefined
+  ) => Effect.Effect<ReadonlyArray<PendingRunCursor>>
+  /** Latest pending cancellation, bounding one finite cleanup scan cycle. */
+  readonly pendingCancellationTail: () => Effect.Effect<Option.Option<PendingRunCursor>>
   /**
    * Lists the runs whose row is `running` with a heartbeat strictly older
    * than `staleBeforeMs`, each with that heartbeat — an owner that stopped heartbeating without
@@ -1657,6 +1670,39 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     )
   )
 
+  const pendingCancellationRows = (
+    limit: number,
+    after?: PendingRunCursor,
+    through?: PendingRunCursor,
+    descending = false
+  ): Effect.Effect<ReadonlyArray<PendingRunCursor>> =>
+    pendingCancellationLimit(limit).pipe(
+      Effect.andThen(sql<{ readonly runId: string; readonly createdAtMs: number | bigint | string }>`
+      SELECT run_id AS "runId", created_at_ms AS "createdAtMs" FROM flows_runs
+        ${Dialect.isPostgres(sql) ? sql`` : sql`INDEXED BY flows_runs_pending_cancel_idx`}
+      WHERE status = 'pending' AND cancel_requested_at_ms IS NOT NULL
+        AND ${after === undefined ? sql`TRUE` : sql`(created_at_ms, run_id) > (${after.createdAtMs}, ${after.runId})`}
+        AND ${
+        through === undefined ? sql`TRUE` : sql`(created_at_ms, run_id) <= (${through.createdAtMs}, ${through.runId})`
+      }
+      ORDER BY ${descending ? sql`created_at_ms DESC, run_id DESC` : sql`created_at_ms, run_id`}
+      LIMIT ${limit}
+    `.pipe(
+        Effect.orDie,
+        Effect.map((rows) => rows.map((row) => ({ runId: row.runId, createdAtMs: Number(row.createdAtMs) })))
+      ))
+    )
+  const pendingCancellationRuns: Service["pendingCancellationRuns"] = Effect.fn(
+    "DurableEngineState.pendingCancellationRuns"
+  )((limit, after, through) => pendingCancellationRows(limit, after, through))
+  const pendingCancellationTail: Service["pendingCancellationTail"] = Effect.fn(
+    "DurableEngineState.pendingCancellationTail"
+  )(() =>
+    pendingCancellationRows(1, undefined, undefined, true).pipe(
+      Effect.map((rows) => Option.fromNullishOr(rows[0]))
+    )
+  )
+
   const staleRunningRuns: Service["staleRunningRuns"] = Effect.fn(
     "DurableEngineState.staleRunningRuns"
   )((staleBeforeMs, limit) =>
@@ -1908,6 +1954,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     waitingRuns,
     pendingRuns,
     pendingRunTail,
+    pendingCancellationRuns,
+    pendingCancellationTail,
     staleRunningRuns,
     attemptSurvivors,
     recordRunParent,
@@ -2104,14 +2152,16 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
   }
 
   const pendingMemoryRows = (
-    flowName: string,
+    flowName: string | undefined,
     after?: PendingRunCursor,
     through?: PendingRunCursor,
-    eligibleBeforeMs?: number
+    eligibleBeforeMs?: number,
+    cancellationOnly = false
   ) =>
     Array.from(options.listRuns?.() ?? [])
       .filter(([runId, view]) =>
-        view.status === "pending" && view.flowName === flowName &&
+        view.status === "pending" && (flowName === undefined || view.flowName === flowName) &&
+        (!cancellationOnly || view.cancelRequestedAtMs != null) &&
         (eligibleBeforeMs === undefined || (view.createdAtMs ?? 0) < eligibleBeforeMs) &&
         (after === undefined || (view.createdAtMs ?? 0) > after.createdAtMs ||
           ((view.createdAtMs ?? 0) === after.createdAtMs && compareText(runId, after.runId) > 0)) &&
@@ -2375,6 +2425,18 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
         Option.fromNullishOr(pendingMemoryRows(flowName, undefined, undefined, eligibleBeforeMs).at(-1))
       )
     ),
+    pendingCancellationRuns: Effect.fn("DurableEngineState.pendingCancellationRuns")((limit, after, through) =>
+      pendingCancellationLimit(limit).pipe(Effect.andThen(
+        Effect.sync(() => pendingMemoryRows(undefined, after, through, undefined, true).slice(0, limit))
+      ))
+    ),
+    pendingCancellationTail: Effect.fn("DurableEngineState.pendingCancellationTail")(() =>
+      Effect.sync(() =>
+        Option.fromNullishOr(
+          pendingMemoryRows(undefined, undefined, undefined, undefined, true).at(-1)
+        )
+      )
+    ),
     staleRunningRuns: Effect.fn("DurableEngineState.staleRunningRuns")((staleBeforeMs, limit) =>
       Effect.sync(() => {
         // Mirrors the SQL scan of `flows_runs`: without an enumerator there
@@ -2535,6 +2597,8 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     pendingRuns: (flowName, limit, after, through, eligibleBeforeMs) =>
       guard(unguarded.pendingRuns(flowName, limit, after, through, eligibleBeforeMs)),
     pendingRunTail: (flowName, eligibleBeforeMs) => guard(unguarded.pendingRunTail(flowName, eligibleBeforeMs)),
+    pendingCancellationRuns: (limit, after, through) => guard(unguarded.pendingCancellationRuns(limit, after, through)),
+    pendingCancellationTail: () => guard(unguarded.pendingCancellationTail()),
     staleRunningRuns: (staleBeforeMs, limit) => guard(unguarded.staleRunningRuns(staleBeforeMs, limit)),
     attemptSurvivors: undefined,
     recordRunParent: (childId, parentId) => guard(unguarded.recordRunParent(childId, parentId)),

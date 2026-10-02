@@ -63,7 +63,18 @@ describe("execution snapshot migration ladder", () => {
             const heads = yield* sql<
               { migration_id: number }
             >`SELECT migration_id FROM flows_migrations WHERE migration_id BETWEEN 3000 AND 3999 ORDER BY migration_id`
-            expect(heads.map((row) => row.migration_id)).toEqual([3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009])
+            expect(heads.map((row) => row.migration_id)).toEqual([
+              3001,
+              3002,
+              3003,
+              3004,
+              3005,
+              3006,
+              3007,
+              3008,
+              3009,
+              3010
+            ])
           })
         )
         yield* onFile(

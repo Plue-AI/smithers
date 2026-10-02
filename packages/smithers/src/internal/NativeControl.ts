@@ -1510,8 +1510,9 @@ export const make = (
         // together: this is the first point in the composition that holds the
         // control runtime.
         resumes = yield* ControlRuntime.ControlRuntime
+        const engineRuns = yield* RunStore.RunStore
         const moduleAdmission = ModuleAdmission.make({
-          runs: yield* RunStore.RunStore,
+          runs: engineRuns,
           control: resumes,
           registry: yield* Registry.Registry,
           catalog
@@ -1539,6 +1540,10 @@ export const make = (
             Effect.flatMap((allowed) => allowed ? controlAffinity(runId) : Effect.succeed(false)),
             Effect.flatMap((allowed) =>
               !allowed ? Effect.succeed(false) : Effect.gen(function*() {
+                // Cancellation needs only owner-fenced native cleanup, never a
+                // late module import on a host that cannot execute the plan.
+                const native = yield* engineRuns.get(runId)
+                if (native.cancelRequestedAtMs !== null) return yield* moduleAdmission(runId)
                 // A startup catalog deadline does not make an approved module
                 // unavailable. Load that one entry before persisted admission.
                 const run = yield* resumes!.getRun(runId).pipe(

@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
@@ -12,8 +13,8 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { describe, expect, it } from "@effect/vitest"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type { Journal } from "@smthrs/journal"
-import { Node } from "@smthrs/plan"
 import { Journal as JournalService } from "@smthrs/journal"
+import { Node } from "@smthrs/plan"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -113,22 +114,127 @@ describe("interrupt-released records why the run was released (#3328)", () => {
       expect(recorded[0]!.cause).toEqual({ kind: "interrupted" })
     }))
 
+  it.effect("retains owned work after a successful reconfirm and durably records the recovered lease", () =>
+    withCrypto(provideJournal(Effect.gen(function*() {
+      const store = yield* RunStore.RunStore
+      const journal = yield* JournalService.Journal
+      const executionId = "release-reconfirmed"
+      const toleranceMs = Duration.toMillis(Ownership.heartbeatWriteTolerance)
+      const intervalMs = Duration.toMillis(Ownership.heartbeatInterval)
+      let heartbeatFailures = 0
+      const renewalStamps: Array<number> = []
+      const recovering: RunStore.Service = {
+        ...store,
+        heartbeat: () =>
+          Effect.sync(() => {
+            heartbeatFailures++
+          }).pipe(Effect.andThen(Effect.fail(
+            new RunStore.RunStoreError({
+              method: "heartbeat",
+              code: "persistence_failed",
+              message: "ordinary heartbeat write unavailable",
+              cause: undefined
+            })
+          ))),
+        reconfirm: (runId, claimant, nowMs) =>
+          store.reconfirm(runId, claimant, nowMs).pipe(
+            Effect.tap((outcome) =>
+              Effect.sync(() => {
+                if (outcome._tag === "Updated") renewalStamps.push(nowMs)
+              })
+            )
+          )
+      }
+      const driver = yield* makeDriver("owner-positive").pipe(Effect.provideService(RunStore.RunStore, recovering))
+      const started = yield* Latch.make(false)
+      let executions = 0
+      yield* driver.register(TestFlow, () =>
+        Effect.sync(() => {
+          executions++
+        }).pipe(
+          Effect.andThen(Latch.open(started)),
+          Effect.andThen(Effect.never)
+        ))
+      yield* executeAndDrain(driver, TestFlow, {
+        executionId,
+        payload: {},
+        discard: true
+      }).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Latch.await(started)
+      const original = yield* store.get(executionId)
+      expect(original).toMatchObject({
+        status: "running",
+        owner: { hostId: "reclaim-host", pid: 1, nonce: "owner-positive" },
+        claim: null
+      })
+      expect(original.heartbeatAtMs).not.toBeNull()
+      yield* TestClock.adjust(intervalMs)
+      yield* TestDatabase.until(Effect.sync(() => heartbeatFailures > 0))
+      // Reach the old lease's complete budget, then let actual adapter I/O
+      // finish without advancing the new lease while its receipt commits.
+      yield* TestClock.adjust(toleranceMs - intervalMs)
+      const reconfirmed = () =>
+        Effect.gen(function*() {
+          yield* journal.flush
+          const page = yield* JournalRecords.entries(executionId, undefined, 100)
+          return page.entries.filter((entry) =>
+            entry.eventType === "flows.engine.run-decision" &&
+            (entry.payload as { decision: string }).decision === "lease-reconfirmed"
+          )
+        })
+      yield* TestDatabase.until(reconfirmed().pipe(Effect.map((records) => records.length === 1)))
+      const renewed = yield* store.get(executionId)
+      expect(renewalStamps).toHaveLength(1)
+      expect(renewed).toMatchObject({ status: "running", owner: original.owner, claim: null })
+      expect(renewed.heartbeatAtMs).toBe(renewalStamps[0])
+      expect(renewed.heartbeatAtMs! - original.heartbeatAtMs!).toBe(toleranceMs)
+      expect((yield* reconfirmed())[0]?.payload).toMatchObject({
+        decision: "lease-reconfirmed",
+        detail: { unconfirmedMs: toleranceMs }
+      })
+      // Prove the same action survives beyond the original deadline, rather
+      // than being released and silently replaced by the reclaim sweep.
+      yield* TestClock.adjust(intervalMs)
+      yield* TestDatabase.until(Effect.sync(() => heartbeatFailures >= 2))
+      expect(yield* store.get(executionId)).toMatchObject({ status: "running", owner: original.owner })
+      expect(executions).toBe(1)
+      expect(yield* releases(executionId)).toEqual([])
+      expect(yield* reconfirmed()).toHaveLength(1)
+      yield* driver.interrupt(TestFlow, executionId)
+      yield* TestDatabase.until(store.get(executionId).pipe(Effect.map((row) => row.status === "cancelled")))
+      expect(yield* store.get(executionId)).toMatchObject({ status: "cancelled", owner: null, claim: null })
+      yield* journal.flush
+      const final = yield* JournalRecords.entries(executionId, undefined, 100)
+      const interruptions = final.entries.filter((entry) => entry.eventType === "flows.engine.interrupted")
+      expect(interruptions).toHaveLength(1)
+      expect(interruptions[0]?.payload).toMatchObject({ outcome: "cancelled" })
+      expect(yield* releases(executionId)).toEqual([])
+      expect(yield* reconfirmed()).toHaveLength(1)
+      expect(executions).toBe(1)
+    }))))
+
   it.effect("records lease-lapsed with the unconfirmed duration when heartbeat writes stall", () =>
     Effect.gen(function*() {
       const toleranceMs = Duration.toMillis(Ownership.heartbeatWriteTolerance)
       const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
+        let reconfirmAttempts = 0
+        const unavailable = (method: "heartbeat" | "reconfirm") =>
+          Effect.fail(
+            new RunStore.RunStoreError({
+              method,
+              code: "persistence_failed",
+              message: "database unavailable",
+              cause: undefined
+            })
+          )
         const stalled = RunStore.makeNoop({
           ...store,
-          heartbeat: () =>
-            Effect.fail(
-              new RunStore.RunStoreError({
-                method: "heartbeat",
-                code: "persistence_failed",
-                message: "database unavailable",
-                cause: undefined
-              })
-            )
+          heartbeat: () => unavailable("heartbeat"),
+          reconfirm: () =>
+            Effect.sync(() => {
+              reconfirmAttempts++
+            }).pipe(Effect.andThen(unavailable("reconfirm")))
         })
         const driver = yield* makeDriver("owner-1").pipe(Effect.provideService(RunStore.RunStore, stalled))
         const started = yield* Latch.make(false)
@@ -145,10 +251,11 @@ describe("interrupt-released records why the run was released (#3328)", () => {
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
           row = yield* store.get("release-lapsed")
         }
-        return { row, recorded: yield* releases("release-lapsed") }
+        return { row, recorded: yield* releases("release-lapsed"), reconfirmAttempts }
       })))
 
       expect(result.row.status).toBe("suspended")
+      expect(result.reconfirmAttempts).toBeGreaterThan(0)
       expect(result.recorded).toHaveLength(1)
       const cause = result.recorded[0]!.cause as { readonly kind: string; readonly unconfirmedMs: number }
       expect(cause.kind).toBe("lease-lapsed")

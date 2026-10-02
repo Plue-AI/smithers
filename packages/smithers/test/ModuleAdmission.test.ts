@@ -56,13 +56,14 @@ const executableFor = (descriptor: Descriptor.FlowDescriptor): Executable.Execut
 
 const admit = (options: {
   readonly registered: Descriptor.FlowDescriptor
-  readonly catalogued: Descriptor.FlowDescriptor
+  readonly catalogued?: Descriptor.FlowDescriptor | undefined
   readonly approvedDigest?: string | undefined
 }) =>
   ModuleAdmission.make({
     runs: {
       get: () =>
         Effect.succeed({
+          cancelRequestedAtMs: null,
           stateJson: JSON.stringify({ version: 1, flowName: "agent/run", payload: { planId } })
         })
     } as never,
@@ -84,7 +85,9 @@ const admit = (options: {
       get: () => Effect.succeed(options.registered),
       loadBody: () => Effect.succeed(new Descriptor.FlowBodyModule({ path: "/flows/agents/build/flow.ts" }))
     } as never,
-    catalog: { executables: [executableFor(options.catalogued)], refused: [] }
+    catalog: options.catalogued === undefined
+      ? undefined
+      : { executables: [executableFor(options.catalogued)], refused: [] }
   })(runId)
 
 describe("adopting a persisted module root", () => {
@@ -118,7 +121,10 @@ describe("adopting a persisted module root", () => {
       const delegating = ModuleAdmission.make({
         runs: {
           get: () =>
-            Effect.succeed({ stateJson: JSON.stringify({ version: 1, flowName: "agent/run", payload: { planId } }) })
+            Effect.succeed({
+              cancelRequestedAtMs: null,
+              stateJson: JSON.stringify({ version: 1, flowName: "agent/run", payload: { planId } })
+            })
         } as never,
         control: {
           getRun: () => Effect.succeed({ planId, planDigest: "plan-digest" }),
@@ -147,5 +153,37 @@ describe("adopting a persisted module root", () => {
       })(runId)
 
       expect(yield* delegating).toBe(false)
+    }))
+})
+
+describe("cancellation-only admission", () => {
+  for (const cancelRequestedAtMs of [0, 1790918173888]) {
+    it.effect(`admits durable cancellation at ${cancelRequestedAtMs} without approval or loading code`, () =>
+      Effect.gen(function*() {
+        const forbidden = () => Effect.die("Cancellation attempted to look up executable code")
+        const cleanup = ModuleAdmission.make({
+          runs: { get: () => Effect.succeed({ cancelRequestedAtMs, stateJson: "unavailable legacy state" }) } as never,
+          control: { getRun: forbidden, getPlan: forbidden } as never,
+          registry: { get: forbidden, loadBody: forbidden } as never,
+          catalog: undefined
+        })
+        expect(yield* cleanup(runId)).toBe(true)
+      }))
+  }
+
+  it.effect("refuses normal execution when the approved module is missing from the host catalog", () =>
+    Effect.gen(function*() {
+      expect(yield* admit({ registered: approved })).toBe(false)
+    }))
+
+  it.effect("does not treat absent legacy cancellation metadata as consent", () =>
+    Effect.gen(function*() {
+      const unrequested = ModuleAdmission.make({
+        runs: { get: () => Effect.succeed({ stateJson: "unavailable legacy state" }) } as never,
+        control: {} as never,
+        registry: {} as never,
+        catalog: undefined
+      })
+      expect(yield* unrequested(runId)).toBe(false)
     }))
 })

@@ -1966,6 +1966,9 @@ export const make = (
           interruptState = state
           const registration = registrations.get(state.flowName)?.at(-1)
           if (registration === undefined) {
+            // A coalesced wake can outlive terminal settlement. There is no
+            // parked work left for a handler to reclaim.
+            if (initial.status === "cancelled" || initial.status === "completed" || initial.status === "failed") return
             // Cancelling needs no handler. A parked run whose cancellation was
             // durably requested used to be dropped here with everything else,
             // and nothing else could ever reach it: the sweep woke the row every
@@ -1990,7 +1993,7 @@ export const make = (
             // `claimAndActivate`'s and not this guard's: a fresh lease or a live
             // owner refuses the takeover and the run is left exactly as it was.
             if (
-              (initial.status === "suspended" || initial.status === "running") &&
+              (initial.status === "pending" || initial.status === "suspended" || initial.status === "running") &&
               initial.cancelRequestedAtMs !== null
             ) {
               if (!(yield* claimAndActivate(initial))) {
@@ -2400,6 +2403,52 @@ export const make = (
       readonly eligibleBeforeMs: number
       after?: DurableEngineState.PendingRunCursor
     }>()
+    let pendingCancellationCycle: {
+      readonly through: DurableEngineState.PendingRunCursor
+      after?: DurableEngineState.PendingRunCursor
+    } | undefined
+    // Explicit cancellation needs no registration or admission grace. A finite
+    // tail and cursor keep a denied prefix from starving eligible later rows,
+    // even when new cancellations arrive continuously.
+    const sweepPendingCancellation = (): Effect.Effect<void> =>
+      Effect.gen(function*() {
+        if (pendingCancellationCycle === undefined) {
+          const tail = yield* engineState.pendingCancellationTail()
+          if (Option.isNone(tail)) return
+          pendingCancellationCycle = { through: tail.value }
+        }
+        const cycle = pendingCancellationCycle
+        const candidates = yield* engineState.pendingCancellationRuns(
+          staleRunningSweepBatch,
+          cycle.after,
+          cycle.through
+        )
+        for (const cursor of candidates) {
+          const row = yield* store.get(cursor.runId).pipe(
+            Effect.catch((error) =>
+              error.code === "not_found_row" ? Effect.succeed(undefined) : error.code === "decode_failed"
+                ? Effect.logWarning("engine-store: unreadable pending cancellation skipped", {
+                  runId: cursor.runId,
+                  error
+                })
+                  .pipe(Effect.as(undefined))
+                : Effect.die(error)
+            )
+          )
+          // Permanent misses advance; a transient read failure retries this slot.
+          cycle.after = cursor
+          if (
+            row === undefined || row.status !== "pending" || row.cancelRequestedAtMs === null ||
+            (yield* coordinator.active).has(cursor.runId)
+          ) continue
+          if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) continue
+          if (!(yield* coordinator.active).has(cursor.runId)) yield* coordinator.schedule(cursor.runId)
+        }
+        if (
+          candidates.length < staleRunningSweepBatch ||
+          candidates.at(-1)?.runId === cycle.through.runId
+        ) pendingCancellationCycle = undefined
+      })
     let pendingFlowOffset = 0
     const sweepPending = (): Effect.Effect<void> =>
       Effect.gen(function*() {
@@ -2527,6 +2576,7 @@ export const make = (
             resilientSweep(sweepCancelRequested, "parked-run cancel").pipe(
               Effect.andThen(resilientSweep(sweepStaleRunning, "stale-running")),
               Effect.andThen(resilientSweep(sweepReadyTimers, "ready timer")),
+              Effect.andThen(resilientSweep(sweepPendingCancellation(), "pending cancellation")),
               Effect.andThen(resilientSweep(sweepPending(), "pending admission"))
             )
           )

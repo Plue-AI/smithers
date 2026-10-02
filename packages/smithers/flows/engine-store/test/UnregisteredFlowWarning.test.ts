@@ -162,6 +162,72 @@ describe("unregistered-flow reclaim is loud, not silent (issue #62)", () => {
  * execute it.
  */
 describe("a parked run of an unregistered flow still cancels (B-01)", () => {
+  for (const status of ["cancelled", "completed", "failed"] as const) {
+    it.effect(`silently ignores repeated unregistered wakes of an already ${status} run`, () =>
+      withCrypto(provideJournal(Effect.gen(function*() {
+        const store = yield* RunStore.RunStore
+        const journal = yield* Journal.Journal
+        const executionId = `terminal-unregistered-${status}`
+        const terminalOwner: Ownership.OwnerId = { hostId: "terminal-fixture", pid: 1, nonce: status }
+        yield* store.create(
+          executionId,
+          JSON.stringify({
+            version: 1,
+            flowName: TestFlow._tag,
+            payload: {},
+            capabilityCeilings: [[]]
+          })
+        )
+        const pending = yield* store.get(executionId)
+        expect(
+          yield* store.claimAndOwn(
+            executionId,
+            {
+              status: pending.status,
+              owner: pending.owner,
+              heartbeatAtMs: pending.heartbeatAtMs
+            },
+            terminalOwner,
+            0
+          )
+        ).toMatchObject({ _tag: "Activated" })
+        expect(yield* store.transitionOwned(executionId, terminalOwner, status)).toMatchObject({ _tag: "Transitioned" })
+        const before = yield* store.get(executionId)
+        const observed: Array<RunStore.RunRow["status"]> = []
+        const warnings: Array<{ readonly message: string; readonly status: RunStore.RunRow["status"] | undefined }> = []
+        const capture = Logger.make((options) => {
+          if (String(options.message).includes("not registered")) {
+            warnings.push({ message: String(options.message), status: observed.at(-1) })
+          }
+        })
+        const observedStore: RunStore.Service = {
+          ...store,
+          get: (id) =>
+            store.get(id).pipe(Effect.tap((row) =>
+              Effect.sync(() => {
+                if (id === executionId) observed.push(row.status)
+              })
+            ))
+        }
+        yield* Effect.gen(function*() {
+          const driver = yield* makeDriver(`terminal-${status}`)
+          // Polling resume directly enters the keyed drain even for a stale
+          // wake after terminal settlement; it never registers a handler.
+          yield* driver.resume(TestFlow, executionId, { poll: true })
+          yield* driver.resume(TestFlow, executionId, { poll: true })
+        }).pipe(
+          Effect.provideService(RunStore.RunStore, observedStore),
+          Effect.provide(Logger.layer([capture]))
+        )
+        expect(observed.length).toBeGreaterThanOrEqual(4)
+        expect(observed.every((actual) => actual === status)).toBe(true)
+        expect(warnings).toEqual([])
+        expect(yield* store.get(executionId)).toEqual(before)
+        yield* journal.flush
+        expect((yield* journal.entries({ runId: executionId as never, limit: 100 })).entries).toEqual([])
+      }))))
+  }
+
   it.effect("cancels on one sweep tick, records the interruption, and cascades to linked children", () =>
     Effect.gen(function*() {
       const logs: Array<{ readonly message: unknown; readonly logLevel: string }> = []
@@ -191,20 +257,24 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           )
           yield* state.recordRunParent("b01-child", "b01-parked")
 
-          // The control-only process: it has the store and the sweeper, and it
-          // has never registered the flow.
+          // Commit the cancellation before this control-only process starts
+          // its initial sweep. An unrequested released run legitimately warns.
+          yield* store.requestCancel("b01-parked", 1_000)
           const successorScope = yield* Scope.make()
           yield* makeDriver("owner-cancel").pipe(Scope.provide(successorScope))
-          yield* store.requestCancel("b01-parked", 1_000)
           yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatInterval))
 
-          yield* TestDatabase.until(store.get("b01-child").pipe(Effect.map((row) => row.cancelRequestedAtMs !== null)))
+          yield* TestDatabase.until(store.get("b01-child").pipe(Effect.map((row) => row.status === "cancelled")))
           const row = yield* store.get("b01-parked")
           const child = yield* store.get("b01-child")
           const waiting = yield* state.waiting("b01-parked")
           yield* journal.flush
           const entries = yield* journal.entries({ runId: "b01-parked" as never, limit: 200 })
           const interrupted = entries.entries.filter((entry) => entry.eventType === "flows.engine.interrupted")
+          const childEntries = yield* journal.entries({ runId: "b01-child" as never, limit: 200 })
+          const childInterrupted = childEntries.entries.filter((entry) =>
+            entry.eventType === "flows.engine.interrupted"
+          )
           yield* Scope.close(successorScope, Exit.void)
 
           return {
@@ -212,6 +282,7 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
             child,
             waiting,
             interrupted,
+            childInterrupted,
             warnings: logs
               .filter((entry) => String(entry.message).includes("not registered"))
               .map((entry) => String(entry.message))
@@ -228,16 +299,16 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
         outcome: "cancelled",
         cascadedTo: ["b01-child"]
       })
-      // The cascade is a durable request against the child row, which the
-      // child's own owner (or its own sweep) then acts on.
+      // The same control process closes the requested pending child without
+      // loading its handler, and records the cancellation exactly once.
+      expect(result.child).toMatchObject({ status: "cancelled", owner: null, claim: null })
       expect(result.child.cancelRequestedAtMs).not.toBeNull()
+      expect(result.childInterrupted).toHaveLength(1)
+      expect(result.childInterrupted[0]?.payload).toMatchObject({ outcome: "cancelled" })
       // Cancelling is not the case the warning exists for: the parked run was
       // closed here rather than left for a worker that registers the flow.
       expect(result.warnings.filter((message) => message.includes("b01-parked"))).toHaveLength(0)
-      // The child is the case it IS for. The cascade wakes it in this process,
-      // which cannot execute it either, so it says so once and leaves the
-      // durable request for a worker that registers the flow.
-      expect(result.warnings.filter((message) => message.includes("b01-child"))).toHaveLength(1)
+      expect(result.warnings.filter((message) => message.includes("b01-child"))).toHaveLength(0)
     }))
 
   it.effect("leaves the run alone when the claim is lost to another worker", () =>
