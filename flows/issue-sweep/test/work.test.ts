@@ -450,6 +450,18 @@ test("an attempt is a new Adopt identity: the second call in one execution appli
   assert.equal(unsettled(jjHost), "")
 })
 
+test("Cloud agent commands install pnpm dependencies before the sandboxed agent starts", () => {
+  const checkout = "/home/developer/workspace"
+  const install = "if [ -f pnpm-lock.yaml ]; then CI=1 pnpm install --frozen-lockfile"
+  for (const agent of ["codex", "claude"] as const) {
+    const cloud = remoteCommand(agent, "cloud", checkout)
+    assert.ok(cloud.includes(install))
+    assert.ok(cloud.indexOf(`cd ${checkout}`) < cloud.indexOf(install))
+    assert.ok(cloud.indexOf(install) < cloud.indexOf(`exec ${agent}`))
+    assert.equal(remoteCommand(agent, "vm", checkout).includes(install), false)
+  }
+})
+
 test("remote Codex commands isolate homes and allow shared toolchain directories", () => {
   for (const slot of ["one", "two"]) {
     const checkout = `/home/developer/slots/${slot}/workspace`

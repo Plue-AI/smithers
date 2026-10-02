@@ -64,16 +64,8 @@ export const Report = Schema.Struct({
 })
 
 export class AgentFailed extends Schema.TaggedError<AgentFailed>()("issue-sweep/AgentFailed", {
-  message: Schema.String,
-  code: Schema.optional(Schema.Literals(["unreachable", "refused"]))
+  message: Schema.String
 }) {}
-Fault.register("issue-sweep/AgentFailed", { unreachable: "infra", refused: "dependency" })
-
-/** Only issue reads classify connectivity; ordinary agent failures keep their own meaning. */
-export const issueReadFailed = (message: string) => new AgentFailed({
-  message,
-  code: classifyExit(message) === undefined ? "refused" : "unreachable"
-})
 
 /**
  * The agent finished and edited nothing. `report` is its whole reply, which
@@ -316,15 +308,12 @@ export const replyOf = (agent: Agent, stdout: string): string => {
 const agentFailed = (cause: { readonly message: string }) =>
   cause instanceof AgentFailed ? cause : new AgentFailed({ message: cause.message })
 
-/** Issue-read implementation, with a replaceable reader for engine regression tests. */
-export const fetchIssueWith = (read: typeof issue) => FetchIssue.toLayer((input) =>
-  read(input.repo, input.issue).pipe(
+const fetchIssue = FetchIssue.toLayer((input) =>
+  issue(input.repo, input.issue).pipe(
     Effect.map(({ title, body, comments }) => ({ title, body, comments })),
-    Effect.mapError((cause) => issueReadFailed(String((cause as { message?: unknown }).message ?? cause)))
+    Effect.mapError((cause) => agentFailed({ message: String((cause as { message?: unknown }).message ?? cause) }))
   )
 )
-
-const fetchIssue = fetchIssueWith(issue)
 
 // From the workspace root, so any path jj prints is repository-relative.
 const jj = (directory: string, args: ReadonlyArray<string>) =>
@@ -581,7 +570,13 @@ export const remoteCommand = (agent: Agent, placement: "vm" | "cloud", checkout:
   const install = agent === "codex" ? "@openai/codex" : "@anthropic-ai/claude-code"
   const prefix = `set -eu; umask 077; chmod 700 ${q(home)}; chmod 600 ${q(home)}/*; ` +
     `export PATH="$HOME/.local/bin:$PATH"; command -v ${agent} >/dev/null || ` +
-    `{ npm install -g --prefix "$HOME/.local" ${install} >&2 && rm -rf "$NPM_CONFIG_CACHE"; }; cd ${q(checkout)}; `
+    `{ npm install -g --prefix "$HOME/.local" ${install} >&2 && rm -rf "$NPM_CONFIG_CACHE"; }; cd ${q(checkout)}; ` +
+    // Codex's workspace-write sandbox makes $HOME read-only, so Corepack
+    // cannot fetch pnpm and pnpm cannot open its store inside it; a Cloud
+    // workspace installs once before the agent starts (plue#784).
+    (placement === "cloud"
+      ? `if [ -f pnpm-lock.yaml ]; then CI=1 pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --reporter=silent >&2; fi; `
+      : "")
   return prefix + (agent === "claude"
     ? `export CLAUDE_CONFIG_DIR=${q(home)} IS_SANDBOX=1; CLAUDE_CODE_OAUTH_TOKEN=$(cat ${q(`${home}/oauth-token`)}); ` +
       `export CLAUDE_CODE_OAUTH_TOKEN; exec claude -p "$(cat ${
