@@ -126,6 +126,12 @@ worktrees/
 # registration file as its own module, and the test removes each one; a killed
 # run must not leave the checkout dirty with one.
 packages/smithers/test/fixtures/.catalog-refresh/
+# Module load siblings. The registry evaluates each flow module from a copy
+# beside its original, `.smithers-<digest>-<sequence>-<stamp><ext>`
+# (`packages/smithers/agent/registry/src/Executable.ts`), and removes it once
+# the import settles. A snapshot taken mid-load, or a killed load, must not
+# commit one.
+.smithers-*-*-*.*
 
 # Scratch trees test lanes leave behind; never source.
 /tmp/

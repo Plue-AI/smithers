@@ -11,11 +11,16 @@
  * matching names are gitignored at the root, so the next sweep writes them
  * where they stay local.
  *
+ * The registry's module load siblings are scratch of the same kind: a copy of
+ * each flow module written beside it for one import. A jj snapshot taken
+ * mid-load committed six of them under `flows/coding`, so the root
+ * `.gitignore` must ignore that name shape.
+ *
  * Run it with `node --test "scripts/repo-contract/*.test.mjs"`.
  */
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { describe, it } from "node:test"
@@ -80,4 +85,42 @@ it("reads jj when the checkout has one, Git otherwise, and flags only scratch na
     ])
     assert.throws(() => tracked(fixture, () => ({ status: 1, stdout: "", stderr: "inventory unavailable" })), /inventory unavailable/)
   } finally { rmSync(fixture, { recursive: true, force: true }) }
+})
+
+/**
+ * The paths the root `.gitignore` ignores, out of `paths`. Git reads only the
+ * copied root file in a fresh repository, so the answer depends on no checkout
+ * state and no nested ignore file.
+ */
+const ignoredByRoot = (paths) => {
+  const fixture = mkdtempSync(join(tmpdir(), "load-siblings-"))
+  try {
+    copyFileSync(join(root, ".gitignore"), join(fixture, ".gitignore"))
+    const init = spawnSync("git", ["init", "-q"], { cwd: fixture, encoding: "utf8", timeout: 30_000 })
+    assert.equal(init.status, 0, `git init failed: ${init.error?.message ?? init.stderr}`)
+    const check = spawnSync("git", ["check-ignore", "--no-index", "--stdin"], {
+      cwd: fixture, input: paths.join("\n") + "\n", encoding: "utf8", timeout: 30_000
+    })
+    // 0: some path is ignored; 1: none is. Anything else is a failed check.
+    assert.ok(check.status === 0 || check.status === 1, `git check-ignore failed: ${check.error?.message ?? check.stderr}`)
+    return check.stdout.split("\n").filter(Boolean)
+  } finally { rmSync(fixture, { recursive: true, force: true }) }
+}
+
+it("ignores the registry's module load siblings and none of their originals", () => {
+  // The six siblings the mid-load snapshot committed were shaped like this one.
+  const digest = "35e97ae33074c50c174a90d629d94f35ec8f70baf0bb94f0560fcf54e818e689"
+  const siblings = [
+    `flows/coding/.smithers-${digest}-7-murhou7y.ts`,
+    `flows/coding/dispatch/.smithers-${digest}-6-murhou7f.ts`,
+    `flows/review/.smithers-${digest}-a-murhou89.mjs`,
+    `packages/smithers/flows/.smithers-${digest}-b-murhou8c.tsx`
+  ]
+  const originals = [
+    "flows/coding/flow.ts",
+    "flows/review/prompt.mdx",
+    ".smithers/WORKSPACE.ts",
+    ".smithers/target-index.json"
+  ]
+  assert.deepEqual(ignoredByRoot([...siblings, ...originals]), siblings)
 })
