@@ -160,11 +160,13 @@ The design mocks these. P0 journeys must play in the first design build. Every c
 
 ### J1. Install to first merged TODO (P0)
 
-1. The owner installs Smithers on a Mac. `smthrs host start` prints a one-time setup link. The owner opens it on the Mac, or from a laptop if they expose the install on the network, and claims ownership with it. In Settings they set the bind address and public addresses before teammates connect.
-2. Setup is one card, in this order: **Address** (This Mac only, or Network with the public address teammates will use), then the three things below, then one prerequisite check: GitHub allows squash merging (a failed check links to the fix). The address comes first because the GitHub App's sign-in callback is registered to it. The three things:
-   - **GitHub connection:** sign-in, plus the GitHub App that lets Smithers read and write the repository.
-   - **The repository.**
-   - **Model access** (§6.5): the fast model (Cerebras by default), the coding model (a provider key or a ChatGPT sign-in), and the AI Gateway key for Jev.
+1. The owner installs Smithers on a Mac. `smthrs host start` prints a one-time setup link. The owner opens it on the Mac, or from a laptop if the install is exposed on the network. The link opens a setup session that can only do setup.
+2. Setup is one card, in this order:
+   1. **Address:** This Mac only, or Network with the public address teammates will use. It comes first because the GitHub App's sign-in callback is registered to it.
+   2. **GitHub App,** created in one step with GitHub's app-manifest flow.
+   3. **Owner sign-in:** the owner signs in with GitHub through the new App, which completes the ownership claim. They then choose the repository and install the App on it.
+   4. **Model access** (§6.5): the fast model (Cerebras by default), the coding model (a provider key or a ChatGPT sign-in), and the AI Gateway key for Jev.
+   5. **Prerequisite check:** GitHub allows squash merging. A failed check links to the fix.
 3. Smithers mirrors the repository. Questions work as soon as the source is readable.
 4. The first machine image prepares in the background, and the card shows **Source ready** and **Machine ready** as separate steps. A repository with no Smithers declarations still gets a working machine: Smithers detects the toolchain and installs dependencies.
 5. The owner asks the app agent about the code and gets an answer with file cards.
@@ -267,7 +269,7 @@ Section 11 ranks the gaps.
 
 | Feature | Behavior | Status |
 | --- | --- | --- |
-| Install on a Mac | One install on Apple Silicon macOS runs the backend, PostgreSQL 18 and microVMs (isolation on by default) as a launchd service, reachable at the addresses the owner sets (M-28). The package is rebuilt from the assembler half of the deleted `apps/app/scripts/build-native.ts` (at `5b77095672`), without Electrobun. The Docker image is removed (an engineering ticket): it was never published (#2481) and can't host microVMs. The bundle ships the machine base image, so the first machine needs no registry pull. | Missing: no package exists. The launcher binds loopback only and drops the isolation and GitHub settings. |
+| Install on a Mac | One install on Apple Silicon macOS runs the backend, PostgreSQL 18 and microVMs (isolation on by default) as a launchd service, reachable at the addresses the owner sets (M-28). The package is rebuilt from the assembler half of the deleted `apps/app/scripts/build-native.ts` (at `5b77095672`), without Electrobun. The Docker image is removed (an engineering ticket): it was never published (#2481; deletion is #3460) and can't host microVMs. The bundle ships the machine base image, so the first machine needs no registry pull. | Missing: no package exists. The launcher binds loopback only and drops the isolation and GitHub settings. |
 | Reaching the install | The install doesn't care which address it's reached at. It listens on loopback by default. In Settings the owner sets a bind address and the public addresses (http or https, any host), and SSH listens on the same address on port 2222. The app works on plain HTTP: it doesn't need a secure browser context. HTTPS and remote access are whatever the team puts in front, and the docs recommend `tailscale serve` or a reverse proxy. | Missing (bind settings and secure-context-free app) |
 | Machine image without declarations | Smithers detects the toolchain (`.node-version`, `packageManager`, `go.mod` …) and installs dependencies. Declarations only make it faster. The 60-minute activation target covers repositories whose toolchain is detectable from standard files: Node (npm, pnpm, yarn, bun), Go, Rust (cargo) and Python (uv, pip). Other repositories need a declaration first. | Partial: layers need a committed target index. |
 | Restart | Completed steps replay without running again. Interrupted external actions (a shell command, a model call, a GitHub write) reconcile their outcome before retrying. A process that can't be recovered shows as interrupted. Terminal processes are not promised to survive a reboot. | Built in the engine; Partial until exercised through J1 to J5. |
@@ -372,7 +374,7 @@ Smithers wraps the team's GitHub repository; it doesn't replace it. GitHub stays
 | External changes | Anything can change the machine's files: SSH editors, terminal tools, formatters, package managers, or `git` and `jj` run by hand. The app handles all of it without breaking. The machine watches the working copy. Changes made through Smithers carry their exact author. A change from a terminal or SSH session is attributed to that session's person when only one person's session was active on the branch; otherwise it reads "changed outside Smithers". Exact per-write attribution of terminal changes is deferred (§16). <br>• Branch activity groups each burst into one entry, e.g. "Maya via SSH changed 3 files", which opens the diff. <br>• An open File card applies the change live. A deleted or renamed file says so ("Deleted by Maya via SSH · Restore", "Renamed to `deliver.ts` · Follow"). <br>• Hand-run version control that moves the working copy off its item shows Needs you: "Maya moved this branch off T2". **Return to T2** puts the working copy back on the item's commit, and anything written since stays recoverable. **Keep for now** records the move and holds the TODO in Needs you until the working copy is back on T2. <br>• The coding agent re-reads changed files before writing. <br>• Ignored paths never show as edits. <br>• Every change is recoverable from the branch's snapshots. <br>The command name on each entry, per-entry Undo, and flags for a save that replaced someone's edit are deferred (§16). | Partial: commit-level head updates every 2 s and snapshots every 30 s. |
 | Save and recovery guarantees | **Saved:** a co-edited file reaches the working copy within 1 s of a keystroke, and every save survives a restart. **External save to an open file:** it is merged into the live document as an attributed edit. If it overlaps unsaved typing, the live document wins on disk, the external version is kept as a snapshot, and the file shows "Changed outside Smithers · Compare". **Capture:** external changes are snapshotted in bursts, ending 1.5 s after the last write and at most every 10 s. Each burst's end state is recoverable; intermediate states inside one burst are not guaranteed. Writes through Smithers are versioned individually. **Restore:** an external-change entry opens its diff, where **Restore this file** puts one file back to its state before the burst, as a new attributed edit. Undoing a whole entry is deferred (§16). | Missing |
 | Live updates | File, diff and branch cards update when the working copy changes, showing who changed what. | Missing: only commit-level head updates exist. |
-| Terminals | Each person's terminal runs as that person on the machine, with their own home directory, so their tool logins stay theirs. A person logs in to a tool like Claude Code once per install: homes are shared across machines. If engineering's spike #3437 fails, homes fall back to per machine, and a person logs in once per branch. Anyone on the branch can watch any session; only its owner types. Ask to type is deferred (§16). | Partial: terminals can stream to several viewers; per-person homes are missing. |
+| Terminals | Each person's terminal runs as that person on the machine, with their own home directory, so their tool logins stay theirs. A person logs in to a tool like Claude Code once per install: homes are shared across machines (spike #3437 passed). One exception: a member added while a branch's machine is awake uses a temporary home on that machine until its next wake. Their terminal header says "temporary home until next wake", and logins made there don't carry over. Anyone on the branch can watch any session; only its owner types. Ask to type is deferred (§16). | Partial: terminals can stream to several viewers; per-person homes are missing. |
 | Shared agent activity | The coding agent's transcript, steers from any member (with the author shown), and runs are visible to everyone on the branch. | Partial |
 | Not in MVP | Carets and selections of other people inside files. The gutter name flag shows where each person is. | Cut |
 
@@ -591,7 +593,7 @@ The MVP ships when:
 3. Every §8 cut is gone from the product surface.
 4. The docs are one quickstart for this user, plus the reference for flows.
 5. The macOS install is public and needs no Smithers account.
-6. An install made on launch day upgrades in place to the maintainer release with `smthrs host upgrade`, keeping its data (M-26, #1667).
+6. An install made on launch day upgrades in place to the maintainer release with `smthrs host upgrade`, keeping its data (M-26, #3444).
 
 ## 13. Unresolved, with owners
 
@@ -643,15 +645,18 @@ These are deferred from the MVP after the Codex Astra and Opus full reviews, and
 | --- | --- |
 | In-app line comments on diffs; agent replies inside GitHub review threads | §6.10, §6.3 |
 | Stacked PR bases and retargeting (PRs stay based on `main`) | §4.2, §6.3 |
-| Laptop pushes brought into the live working copy; **Open on a machine** for teammates' branches | §6.3 |
+| Bringing a laptop push into the live working copy automatically, without a person's Bring in (M-33's Bring in ships in the MVP); **Open on a machine** for teammates' branches | §6.3 |
 | Ask to type in someone else's terminal | §6.8, M-18 |
 | The command name on each external-change entry, per-entry Undo, and flags for a save that replaced someone's edit | §6.8, M-27 |
 | Email and phone notifications (#3423) | §6.4 |
-| Triggers, the Machine view, sending signals by hand, and editing an agent's permissions, tools and budget | §6.14 |
+| Triggers, the Machine view, sending signals by hand, and editing an agent's permissions, tools and budget (#3469) | §6.14 |
 | Obsidian on teammates' laptops (the vault over git) | §6.11 |
 | Replacing a stack item's work with a scratch branch | J7 |
 | Secret usage by run | §6.15 |
 | Exact per-write attribution of terminal and SSH changes when several people's sessions are active | §6.8 |
+| The TUI (#3468) | §8 |
+| Smithers Cloud, billing and plans (#3467) | M-09 |
+| Agent-pinnable rail icons (#3334) | §6.4: the MVP shell has no rail |
 
 ## Appendix A. The MVP command catalog
 
@@ -801,7 +806,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `branches.list`, `commits.list`, `commits.read` | Branches and their history | P, A, X | Rename → `/branches`, read inside the Branch card | branch |
 | `box.open`, `box.view` | Open a branch's card without waking its machine | P, A, X | Rename → `/branch` | branch |
 | `box.list` | List branches without waking machines | P, A, X | Rename → `/branches` | branch |
-| `box.suspend`, `box.resume` | Sleep and wake | P, A✓, S | Keep (inside the Branch card) | branch |
+| `box.suspend`, `box.resume` | Sleep and wake | P, A, S | Keep (inside the Branch card) | branch |
 | `box.delete`, `box.session.destroy` | Clean up a machine or session | S (P for own session) | Hide (cleanup rules, §6.7) | – |
 | `box.select` | Pick a box | – | Cut | – |
 | (new) `branch.fork`, `branch.add-to-stack`, `branch.rebase` | Fork, add to stack, rebase now | P, X; A for fork and rebase, A✓ for add to stack | Keep, Missing | branch |
@@ -848,7 +853,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `notifications.list`, `notifications.read` | Notification center | – | Cut: toasts and the timeline replace it | – |
 | `triggers.list`, `.register`, `.approve`, `.pause`, `.resume`, `.run` | Triggers | – | Defer (§16) | – |
 | `egress.allow`, `egress.session`, `box.egress`, `box.services`, `box.images` | Machine details | – | Defer (§16) | – |
-| `box.terminal`, `box.sessions` | Terminals on a branch | P (A✓ asks the person to open one) | Rename → `/terminal` | Terminal |
+| `box.terminal`, `box.sessions` | Terminals on a branch | P, A (opens the prompter's own terminal; the agent never types in it) | Rename → `/terminal` | Terminal |
 | `billing.*`, `cloud.*` | Cloud billing and sign-in | – | Defer (§8, M-09): hidden, code kept for Smithers Cloud | – |
 | `admin.grant*`, `admin.health`, `repository.register`, `signup.*`, `setup.*`, `issues.setup`, `review.setup`, `ci.setup`, `feature.setup`, `chores.setup`, `feature.prototype`, `system.recommend` | Admin, registration, signup, five-job setup | – | Cut | – |
 
@@ -890,6 +895,8 @@ These are actions on a card, not slash commands, each with a stable id for the c
 | `notifications.allow` | First Needs you toast | Allow browser notifications (HTTPS or localhost only) | P only |
 | `todo.takeover` (**Take over**) | TODO of a removed member | A maintainer takes ownership | Maintainer only |
 | `merge.confirm` (**Review & merge**) | PR | The person's approval, bound to the reviewed revision | Maintainer only |
+| `order.ok` (**OK**) | Needs you: out-of-order merge ("T3 merged before T2") | Acknowledge, and both items stay Merged with the note | P, A |
+| `background.retry` (**Retry**) / `background.dismiss` (**Dismiss**) | Home card: a failed background run | Retry the run, or remove it from the home card (its record stays) | P, A |
 
 ### B.5 System orchestration and background runs
 
