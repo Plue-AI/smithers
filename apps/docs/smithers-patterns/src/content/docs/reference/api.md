@@ -504,6 +504,7 @@ length of a backlog that no plan knows when it is built.
 | `Held`                                | The typed failure a `claim` raises when another owner holds the item                                          |
 | `available`, `waitUntil`, `exhausted` | `Capacity` answers: launch at most `slots`, sleep until an epoch-millisecond instant, or park for an operator |
 | `ours`, `skip(detail)`                | `Selection` answers                                                                                           |
+| `LandStep`, `ReleaseStep`             | The action names a round journals each item's landing and release under                                       |
 
 `make({ discover, dispatch, capacity?, maxRounds, deadline?, signal? })`
 settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail, requeues? }`
@@ -563,7 +564,14 @@ a negative or fractional `round`, or an item without a unique nonblank string
 
 Each `work` call receives `executionId` `${key}/${item.id}`. Hand it to
 `Flow.execute`, or build `work` with `child`, so a rerun reaches the child
-execution that already exists instead of starting a second one. See
+execution that already exists instead of starting a second one.
+
+Inside a running flow, `round` runs each landing as a durable action named
+`LandStep` and keyed by the item, so a rerun replays a recorded landing
+instead of calling `land` again. It journals each landing and release as it
+settles, as `flows.engine.node-scheduled` and `flows.engine.node-settled`
+records with node id `${key}/${item.id}/land` or `${key}/${item.id}/release`
+and the item's row as the settled value. See
 [Burn down a backlog](/burndown/) for a GitHub issues example.
 
 ## A worked release

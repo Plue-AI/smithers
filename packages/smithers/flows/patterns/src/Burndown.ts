@@ -23,11 +23,14 @@
 import * as Action from "@smthrs/flow/Action"
 import * as Fault from "@smthrs/flow/Fault"
 import * as Flow from "@smthrs/flow/Flow"
+import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
+import * as RetryPolicy from "@smthrs/flow/RetryPolicy"
 import * as Sleep from "@smthrs/flow/Sleep"
 import * as WaitFor from "@smthrs/flow/WaitFor"
 import * as Node from "@smthrs/plan/Node"
 import type * as Planned from "@smthrs/plan/Planned"
 import * as Cause from "effect/Cause"
+import * as Crypto from "effect/Crypto"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -285,6 +288,34 @@ export class Stop extends Schema.TaggedError<Stop>()("flows/patterns/Burndown/St
 }) {}
 
 const DispatchError = Schema.Union([PatternError, Stop])
+
+/**
+ * The action an item's landing runs and is journaled under.
+ *
+ * Inside a running flow, {@link round} lands each item as its own durable
+ * action under this name, keyed by the item, so a round that runs again after
+ * a crash replays the recorded landing instead of landing twice. The step is
+ * journaled as it happens: `flows.engine.node-scheduled` when the landing
+ * starts and `flows.engine.node-settled` when it settles, with node id
+ * `${key}/${item.id}/land` and the item's {@link Row} as the settled value.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const LandStep = "flows/patterns/Burndown/land"
+
+/**
+ * The action an item's release is journaled under.
+ *
+ * Inside a running flow, {@link round} journals each release as it happens,
+ * with node id `${key}/${item.id}/release` and the item's final {@link Row}
+ * as the settled value. A release runs again when the round does, because the
+ * round claims again.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const ReleaseStep = "flows/patterns/Burndown/release"
 
 /**
  * The payload a dispatch member receives, once per round.
@@ -731,6 +762,122 @@ type Attempt<W> =
   | { readonly _tag: "Settled"; readonly status: Status; readonly detail: string }
   | { readonly _tag: "Worked"; readonly output: W }
 
+/** The engine a round runs under when it is the dispatch of a running flow. */
+interface Engine {
+  readonly instance: FlowRuntime.FlowInstance["Service"]
+  readonly runtime: FlowRuntime.FlowRuntime["Service"]
+  readonly crypto: Crypto.Crypto
+}
+
+const engineOf: Effect.Effect<Engine | undefined> = Effect.map(
+  Effect.all([
+    Effect.serviceOption(FlowRuntime.FlowInstance),
+    Effect.serviceOption(FlowRuntime.FlowRuntime),
+    Effect.serviceOption(Crypto.Crypto)
+  ]),
+  ([instance, runtime, crypto]) =>
+    Option.isSome(instance) && Option.isSome(runtime) && Option.isSome(crypto)
+      ? { instance: instance.value, runtime: runtime.value, crypto: crypto.value }
+      : undefined
+)
+
+/** A landing is never retried by the engine: its failures settle the item's row instead. */
+const once = RetryPolicy.make({ initialMs: 1, factor: 1, maxMs: 1, maxAttempts: 1 })
+
+/** A step's settlement: the item's row, and whether the step itself succeeded. */
+const Stepped = Schema.Struct({ row: Row, ok: Schema.Boolean })
+
+/** A step's settlement. */
+type Stepped = typeof Stepped.Type
+
+/**
+ * Journals one item's step of a round the way the interpreter journals a
+ * node: a scheduled record before `run`, and a settled record after it whose
+ * value is the item's row. An interrupted step settles no record, so a rerun
+ * schedules it again and the journal keeps one record per identity.
+ *
+ * `dispatch`, when present, runs the step as a durable action keyed by the
+ * item, so its recorded outcome is replayed instead of run again.
+ */
+const journaled = <R>(
+  engine: Engine,
+  options: {
+    readonly key: string
+    readonly round: number
+    readonly id: string
+    readonly stage: "land" | "release"
+    readonly action: string
+    readonly dispatch: boolean
+  },
+  run: Effect.Effect<Stepped, Stop, R>
+): Effect.Effect<Row, Stop, R> => {
+  const nodeId = `${options.key}/${options.id}/${options.stage}`
+  const sourceId = `burndown/${options.round}/${nodeId}`
+  const record = (make: () => FlowRuntime.NodeRecord) =>
+    engine.runtime.recordNode === undefined
+      ? Effect.void
+      : Effect.provideService(engine.runtime.recordNode(make()), FlowRuntime.FlowInstance, engine.instance)
+  const reports = { executed: 0, replayed: 0, digests: new Set<string | undefined>() }
+  const step: Effect.Effect<Stepped, Stop, R> = options.dispatch
+    ? Action.make({
+      name: options.action,
+      success: Stepped,
+      error: Stop,
+      tier: "irreversible",
+      idempotencyKey: nodeId,
+      retryPolicy: once,
+      // A Stop a member reported as a plain object is recorded as a Stop.
+      execute: Effect.mapError(
+        run,
+        (error): Stop => error instanceof Stop ? error : new Stop({ message: detailOf(error) })
+      )
+    }).pipe(
+      Effect.provideService(
+        Action.DispatchReport,
+        Action.DispatchReport.of({
+          dispatched: (dispatch) =>
+            Effect.sync(() => {
+              if (dispatch.outcome === "executed") reports.executed += 1
+              else reports.replayed += 1
+              reports.digests.add(dispatch.stepKeyDigest)
+            })
+        })
+      ),
+      Effect.provideService(FlowRuntime.FlowInstance, engine.instance),
+      Effect.provideService(FlowRuntime.FlowRuntime, engine.runtime),
+      Effect.provideService(Crypto.Crypto, engine.crypto)
+    )
+    : run
+  const settled = (outcome: FlowRuntime.NodeOutcome, value: unknown) =>
+    record(() => ({
+      _tag: "NodeSettled",
+      sourceId: `${sourceId}/settled`,
+      nodeId,
+      outcome,
+      // Never retried: a landing's failure settles its row.
+      attempts: 1,
+      // A runtime that keeps no attempt rows reports no digest.
+      stepKeyDigests: [...reports.digests].filter((digest): digest is string => digest !== undefined),
+      value,
+      action: options.action
+    }))
+  return record(() => ({
+    _tag: "NodeScheduled",
+    sourceId,
+    nodeId,
+    kind: "ActionCall",
+    attempt: 1,
+    action: options.action
+  })).pipe(
+    Effect.andThen(step),
+    Effect.tap(({ ok, row }) =>
+      settled(!ok ? "failed" : reports.executed === 0 && reports.replayed > 0 ? "clean" : "built", row)
+    ),
+    Effect.tapError((error) => settled("failed", error)),
+    Effect.map(({ row }) => row)
+  )
+}
+
 /**
  * Runs one round of a burndown.
  *
@@ -757,6 +904,12 @@ type Attempt<W> =
  * to the row's detail. A release defect fails the item; a typed infra release
  * failure requeues within the same bound. Rows keep discovery
  * order.
+ *
+ * Inside a running flow, each landing runs as a durable action named
+ * {@link LandStep} and keyed by the item, so a rerun of the round replays a
+ * recorded landing instead of landing again. Each landing and release is
+ * journaled as it settles, as a {@link LandStep} or {@link ReleaseStep} node
+ * record whose settled value is the item's row.
  *
  * Members report failures on the typed channel. Work interrupted from inside
  * settles its item `failed` with the detail `work: interrupted` only when
@@ -1013,33 +1166,63 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
       })
     const drain = <A>(queue: Queue.Dequeue<A, Cause.Done>, handle: (entry: A) => Effect.Effect<void, Stop, R>) =>
       Queue.take(queue).pipe(Effect.flatMap(handle), Effect.forever, Effect.catchIf(Cause.isDone, () => Effect.void))
+    // Inside a running flow, each landing and release is journaled as it
+    // settles, and a landing is a durable step that a rerun replays.
+    const engine = yield* engineOf
+    const step = (
+      card: Card<It>,
+      stage: "land" | "release",
+      run: Effect.Effect<Stepped, Stop, R>
+    ): Effect.Effect<Row, Stop, R> =>
+      engine === undefined ? Effect.map(run, ({ row }) => row) : journaled(engine, {
+        key,
+        round: index,
+        id: card.id,
+        stage,
+        action: stage === "land" ? LandStep : ReleaseStep,
+        dispatch: stage === "land"
+      }, run)
+    // The row landing an item settles it to.
+    const landed = (card: Card<It>, output: W): Effect.Effect<Stepped, Stop, R> =>
+      Effect.flatMap(
+        observe(card, "land", () => land!({ ...args(card), output })),
+        (landing) =>
+          landing._tag === "Settled"
+            ? Effect.succeed(outcomeRow(card, landing.status, landing.detail))
+            : Effect.map(
+              observe(card, "detail", () => Effect.sync(() => rendered(output, landing.value))),
+              (row) =>
+                row._tag === "Settled"
+                  ? outcomeRow(card, row.status, row.detail)
+                  : outcomeRow(card, "landed", row.value)
+            )
+      ).pipe(Effect.map((row) => ({ row, ok: row.status === "landed" })))
     // Landings start in the order work finished, `landers` at a time.
-    const lander = drain(
-      landings,
-      ({ card, output }) =>
-        Effect.flatMap(observe(card, "land", () => land!({ ...args(card), output })), (landing) => {
-          if (landing._tag === "Settled") return Effect.sync(() => settleRow(card, landing.status, landing.detail))
-          return Effect.map(observe(card, "detail", () => Effect.sync(() => rendered(output, landing.value))), (row) =>
-            settleRow(
-              card,
-              row._tag === "Settled" ? row.status : "landed",
-              row._tag === "Settled" ? row.detail : row.value
-            ))
-        })
-    )
-    const releaser = drain(releases, (card) =>
-      Effect.map(releaseOne(card, rows.get(card.id)!), (failure) => {
-        if (failure === undefined) return
-        const row = rows.get(card.id)!
-        rows.set(
-          card.id,
-          outcomeRow(
-            card,
-            failure.status,
-            row.detail.length === 0 ? failure.detail : `${row.detail}; ${failure.detail}`
-          )
-        )
+    const lander = drain(landings, ({ card, output }) =>
+      Effect.map(step(card, "land", landed(card, output)), (row) => {
+        // A replayed landing carries the requeue count its first run spent.
+        if (row.requeues !== undefined) counts.set(card.id, row.requeues)
+        settleRow(card, row.status, row.detail)
       }))
+    const releaser = drain(releases, (card) =>
+      Effect.asVoid(step(
+        card,
+        "release",
+        Effect.map(releaseOne(card, rows.get(card.id)!), (failure) => {
+          if (failure !== undefined) {
+            const row = rows.get(card.id)!
+            rows.set(
+              card.id,
+              outcomeRow(
+                card,
+                failure.status,
+                row.detail.length === 0 ? failure.detail : `${row.detail}; ${failure.detail}`
+              )
+            )
+          }
+          return { row: rows.get(card.id)!, ok: failure === undefined }
+        })
+      )))
     const each = { concurrency: "unbounded", discard: true } as const
     yield* Effect.onExit(
       Effect.all([

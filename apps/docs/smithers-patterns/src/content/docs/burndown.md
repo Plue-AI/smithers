@@ -1,6 +1,6 @@
 ---
 title: "Burn down a backlog"
-description: "Apply the @smthrs/patterns Burndown pattern to GitHub issues: discover, select, claim, work each issue as a durable child, land, release, and park when capacity runs out."
+description: "Apply the @smthrs/patterns Burndown pattern to GitHub issues: discover, select, claim, work each issue as a durable child, land, release, journal each landing as it happens, and park when capacity runs out."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flows/patterns/docs/burndown.md"
 ---
 
@@ -177,6 +177,30 @@ interruption, such as a child released because its host's lease lapsed, is
 `requeued`: `release` receives status `requeued`, the item stays unsettled,
 and the next round, or the resumed run, claims and works it again.
 
+## Watch a round as it runs
+
+A round is one dispatch, and it can run for hours. Inside a running flow the
+round journals each item's landing and release as it happens, so a reader
+does not wait for the round to settle. Each step is a pair of the journal
+records the interpreter writes for its own nodes:
+
+| Step    | Node id                     | Action                 | Scheduled when     | Settled value                            |
+| ------- | --------------------------- | ---------------------- | ------------------ | ---------------------------------------- |
+| Landing | `${key}/${item.id}/land`    | `Burndown.LandStep`    | The landing starts | The item's row after `land` and `detail` |
+| Release | `${key}/${item.id}/release` | `Burndown.ReleaseStep` | The release starts | The item's final row for the round       |
+
+`flows.engine.node-scheduled` marks the start of a step, and
+`flows.engine.node-settled` carries its outcome and the item's `Row`. A
+landing settles `built` when the row is `landed`, with the detail `detail`
+rendered, such as the landed revision, and `failed` otherwise, with a detail
+such as `land: #3265 is closed`. A release that failed settles `failed` with
+the release failure appended to the row's detail. The release record is the
+round's last word on the item, and it equals the row the round reports when it
+settles.
+
+A round run outside a flow, as a plain Effect, journals nothing. A runtime
+that keeps no journal, such as the in-memory engine, skips the records.
+
 ## Restart without duplicates
 
 `work` receives `executionId` `${key}/${item.id}`, here
@@ -184,6 +208,14 @@ and the next round, or the resumed run, claims and works it again.
 `Work.execute`, so when a crashed round runs again, or a new burndown starts
 with the same `key`, each issue reaches the child execution that already
 exists instead of starting a second agent. Keep `key` stable per repository.
+
+Inside a running flow each landing is also its own durable action, keyed by
+the item. When a round crashes after an item landed and runs again, the round
+replays the recorded landing and its row instead of calling `land` a second
+time. A landing that was still running when the process died runs again,
+because nothing recorded how it ended; make `land` safe to repeat. `claim`
+and `release` always run again on a rerun, since the rerun claims again. A
+new burndown with the same `key` is a new run and lands again.
 
 ## Resume after capacity runs out
 

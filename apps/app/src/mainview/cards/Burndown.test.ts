@@ -368,18 +368,55 @@ describe("each state rule", () => {
     expect(burndownOf(events).items[0]).toMatchObject({ state: "adopting", account: "codex-2" })
   })
 
-  /*
-   * A known limit (#3346): the flow lands each change inside its round's
-   * dispatch, which journals nothing until the whole round settles. So a
-   * child that finished reads "landing" for the rest of its round, even after
-   * its commit is on main; "landed" waits for the round's rows.
-   */
   test("a completed child awaits landing until its dispatch row says landed", () => {
     const working = [listed(7), decision(child, "running"), scheduled(child, "issue-sweep/fix"),
       settled(child, "issue-sweep/fix", "built", report), settled(child, "issue-sweep/work", "built", report), decision(child, "completed")]
     expect(stateOf(working, 7)).toBe("landing")
     const landed = burndownOf([...working, dispatched([{ id: "7", status: "landed", detail: "0123456789ab by codex codex-3" }])]).items[0]
     expect(landed).toMatchObject({ state: "landed", commit: "0123456789ab", account: "codex-3", diff: { files: 2, insertions: 12, deletions: 4 }, patch: report.patch })
+  })
+
+  /*
+   * The round journals each landing and release as it settles (#3346), so an
+   * item lands on the board when its commit lands, not when its round ends.
+   */
+  describe("a round's landing and release steps", () => {
+    const LAND = "flows/patterns/Burndown/land"
+    const RELEASE = "flows/patterns/Burndown/release"
+    const working = [listed(7), decision(child, "running"), scheduled(child, "issue-sweep/fix"),
+      settled(child, "issue-sweep/fix", "built", report), settled(child, "issue-sweep/work", "built", report), decision(child, "completed")]
+    const step = (action: string, outcome: string, row: { id: string; status: string; detail: string }, round = "rounds") =>
+      settled(round, action, outcome, row, `issue-sweep/7/${action === LAND ? "land" : "release"}`)
+
+    test("a landed step lands the item with its commit before the round's rows", () => {
+      const landing = [...working, scheduled("rounds", LAND, "issue-sweep/7/land")]
+      expect(stateOf(landing, 7)).toBe("landing")
+      const landed = burndownOf([...landing, step(LAND, "built", { id: "7", status: "landed", detail: "0123456789ab by codex codex-3" })]).items[0]
+      expect(landed).toMatchObject({ state: "landed", commit: "0123456789ab", account: "codex-3" })
+    })
+
+    test("a failed landing is failed with its reason", () => {
+      const failed = burndownOf([...working, step(LAND, "failed", { id: "7", status: "failed", detail: "land: #7 is closed" })]).items[0]
+      expect(failed).toMatchObject({ state: "failed", reason: "land: #7 is closed" })
+    })
+
+    test("a landing that settled with no row, such as a stopped round's, changes nothing", () => {
+      const stopped = settled("rounds", LAND, "failed", { _tag: "flows/patterns/Burndown/Stop", message: "main is frozen" }, "issue-sweep/7/land")
+      expect(stateOf([...working, stopped], 7)).toBe("landing")
+    })
+
+    test("the release's row is the round's last word; the round's own row agrees", () => {
+      const landed = step(LAND, "built", { id: "7", status: "landed", detail: "0123456789ab by codex codex-3" })
+      const requeued = { id: "7", status: "requeued", detail: "0123456789ab by codex codex-3; release: rate limited" }
+      expect(stateOf([...working, landed, step(RELEASE, "failed", requeued)], 7)).toBe("ours")
+      expect(stateOf([...working, landed, dispatched([requeued])], 7)).toBe("ours")
+    })
+
+    test("a later round's rows never replace a row an earlier round's step settled", () => {
+      const landed = step(LAND, "built", { id: "7", status: "landed", detail: "0123456789ab by codex codex-3" }, "round-1")
+      const skipped = step(RELEASE, "built", { id: "7", status: "skipped", detail: "x" }, "round-2")
+      expect(stateOf([...working, landed, skipped, dispatched([{ id: "7", status: "failed", detail: "y" }])], 7)).toBe("landed")
+    })
   })
 
   test("a dispatch row wins over the child's own state, and a skipped row yields to a later settled one", () => {

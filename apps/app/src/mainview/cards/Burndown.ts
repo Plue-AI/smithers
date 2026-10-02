@@ -10,8 +10,11 @@
  * placement it runs in (local, vm, or cloud for overflow) is the payload its
  * `created` decision carries. Remote work that conflicted with main is
  * applied again by `<child>/readopt-<n>` executions. Landing,
- * release and selection happen inside `issue-sweep/dispatch` and are journaled
- * only when the dispatch settles, as `Burndown.RoundResult` rows.
+ * release and selection happen inside `issue-sweep/dispatch`. The round
+ * journals each item's landing and release as it settles, as a
+ * `Burndown.LandStep` or `Burndown.ReleaseStep` step whose settled value is the
+ * item's row; selection is journaled only when the dispatch settles, as
+ * `Burndown.RoundResult` rows.
  *
  * The journal carries each settled step's result as a preview cut at about
  * 2 KB (`result.truncated`), so every result is read with {@link salvage},
@@ -286,6 +289,9 @@ const rowsOf = (value: unknown): ReadonlyArray<Row> => {
   })
 }
 
+/* `Burndown.LandStep` and `Burndown.ReleaseStep` (@smthrs/patterns): a round's per-item steps, each settling to the item's row. */
+const ROW_STEPS: ReadonlySet<string> = new Set(["flows/patterns/Burndown/land", "flows/patterns/Burndown/release"])
+
 const IN_FLIGHT: ReadonlySet<BurndownState> = new Set(["claimed", "working", "adopting"])
 
 const order = (state: BurndownState): number => BURNDOWN_STATES.indexOf(state)
@@ -312,6 +318,17 @@ export const burndownOf = (
   const titles = new Map<number, string>()
   let capacity: { readonly tag: string; readonly slots?: number; readonly at?: number; readonly detail?: string } | undefined
   const rows = new Map<string, Row>()
+  // The round whose landing or release step set an item's row: that row is the round's latest, not yet its last.
+  const stepped = new Map<string, string>()
+  // Burndown.make's merge: a settled row is final; a skipped or requeued row yields to the item's latest.
+  // A step's row also yields to its own round's later step and to that round's dispatch row.
+  const settle = (row: Row, round: string, step: boolean) => {
+    const held = rows.get(row.id)
+    if (held !== undefined && held.status !== "skipped" && held.status !== "requeued" && stepped.get(row.id) !== round) return
+    rows.set(row.id, row)
+    if (step) stepped.set(row.id, round)
+    else stepped.delete(row.id)
+  }
   let status: { readonly health?: string; readonly freshness?: string; readonly observedAt?: number } = {}
   let runKind: string | undefined
   let journaledInput: Rec | undefined
@@ -365,6 +382,10 @@ export const burndownOf = (
       executionId, action, nodeId, sequence: previous?.sequence ?? num(event.sequence) ?? sequence,
       settled: { outcome, value: result?.value, complete: result?.complete ?? false }
     })
+    if (ROW_STEPS.has(action)) {
+      for (const row of rowsOf({ rows: [result?.value] })) settle(row, executionId, true)
+      continue
+    }
     if (outcome !== "built" || result === undefined) continue
     if (action === "issue-sweep/accounts") {
       const answer = record(result.value)
@@ -379,11 +400,7 @@ export const burndownOf = (
       })
       for (const issue of discovered) titles.set(issue.number, issue.title)
     } else if (action === "issue-sweep/dispatch") {
-      // Burndown.make's merge: a settled row is final; a skipped or requeued row yields to the item's latest.
-      for (const row of rowsOf(result.value)) {
-        const held = rows.get(row.id)
-        if (held === undefined || held.status === "skipped" || held.status === "requeued") rows.set(row.id, row)
-      }
+      for (const row of rowsOf(result.value)) settle(row, executionId, false)
     }
   }
 
