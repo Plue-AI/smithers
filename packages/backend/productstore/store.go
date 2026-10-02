@@ -18,6 +18,7 @@ type Product interface {
 	SetWorkspaceClientLease(ctx context.Context, arg db.SetWorkspaceClientLeaseParams) (db.Workspace, error)
 	RenewWorkspaceClientLease(ctx context.Context, id string) (db.Workspace, error)
 	ListLapsedLeaseWorkspaces(ctx context.Context, maxRows int32) ([]db.Workspace, error)
+	SwapWorkspaceHeadPushTokenID(ctx context.Context, id string, userID int64, expected, next pgtype.Int8) (bool, error)
 	ListAccessTokensByUserID(ctx context.Context, userID int64) ([]db.AccessToken, error)
 	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
 	StampAgentSessionRevisionsWorkspaceSnapshot(ctx context.Context, arg db.StampAgentSessionRevisionsWorkspaceSnapshotParams) (int64, error)

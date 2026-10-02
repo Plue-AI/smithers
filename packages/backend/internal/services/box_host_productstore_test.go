@@ -17,4 +17,9 @@ func TestProductStoreWrapperPreservesBoxHostCapabilities(t *testing.T) {
 	if _, ok := any(wrapped).(workspaceHeadStore); !ok {
 		t.Fatal("product store wrapper cannot install the native source binding")
 	}
+	// Without the swap, a runtime workspace never starts its publisher: no
+	// repository credential and no head reports (smithers#3112).
+	if _, ok := any(wrapped).(workspaceHeadSwapStore); !ok {
+		t.Fatal("product store wrapper cannot install the runtime workspace publisher")
+	}
 }
