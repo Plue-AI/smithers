@@ -30,29 +30,27 @@ FAULT_3367_RECEIPTS=/absolute/receipts \
   test/faults/burndown-infrastructure.test.ts --reporter=verbose
 ```
 
-The default runs all faults, with one synchronous desired-recovery assertion
-registered through `it.fails`. Setup, precise fault identification, preserved
-work and cleanup are ordinary tests. A setup failure also leaves the associated
-expected-failure test as an unexpected pass, so an import error cannot count as
-successful fault evidence. The control, host stall, DNS recovery, slow-load, source-edit and disk cases are green.
-The pin register is [scripts/test-pins.md](../../../../scripts/test-pins.md).
+All current assertions are ordinary tests: fault identification, preserved work,
+caller recovery, admission refusal and cleanup. The former generic identity
+expected-failure pin is explicitly retired below; historical raw failures remain
+available. The pin register is [scripts/test-pins.md](../../../../scripts/test-pins.md).
 
-Run desired assertions without their expected-failure marker:
+Run the added host-kill/restart cases serially:
 
 ```sh
-FAULT_3367_RAW=1 pnpm exec vitest run --config vitest.faults.config.ts \
-  test/faults/burndown-infrastructure.test.ts --reporter=verbose
+FAULT_3367_RECEIPTS=/absolute/receipts pnpm exec vitest run \
+  --config vitest.faults.config.ts test/faults/retained-job-restart.test.ts --reporter=verbose
 ```
 
-Or replay an executed receipt with no fault injection, Vitest or inversion:
+Replay an executed historical receipt with no fault injection or inversion:
 
 ```sh
 node test/faults/fixtures/burndown/recovery.ts \
   /absolute/receipts/fault-3367-host-XXXXXX/recovery.json
 ```
 
-A current raw replay exits 1 for the capability identity conflict and 0 for
-control/host/load/model/landing/source/disk receipts. `desired-assertion.log` contains the exact raw
+Historical raw replay exits 1 for the generic capability identity desired
+assertion and 0 for the historical green receipts. `desired-assertion.log` contains the exact raw
 assertion diff. `recovery.json`, `runs.json`, the real `.flows/engine.db`, CLI
 stdout/stderr/exits, `commands.jsonl`, `processes.jsonl`, changes and `landed`
 retain state and ordering. DNS adds query/HTTP/URL receipts and external process
@@ -64,7 +62,59 @@ Roots are deleted by default and after preservation. No manual resume is issued.
 
 ## Executed evidence
 
-Final integration validation uses base `7309afb21bef` on pinned Node 26.5.0,
+Qualification on base `20e6edc45874` (2026-10-02), pinned Node 26.5.0,
+macOS arm64, ran the original assertions without inversion: **8 passed,
+2 failed** (178.88s). The identity failure is the typed
+`Fail/capabilities/completed` refusal. The disk fixture failed during
+`hdiutil create` with `Device not configured`, before the guard executed.
+Earlier green disk evidence does not qualify this host's current disk case.
+
+The generic identity fixture intentionally lacks the caller's policy. An
+engine cannot choose a new work identity on behalf of a caller, because that
+may repeat completed irreversible work. Its refusal remains a control.
+The added `recover` fixture copies the exact terminal-conflict predicate from
+`flows/issue-sweep/identity.ts`; it drives that owning policy through the public
+CLI. Its terminal case passed with fresh work after the old children exited,
+and its running-conflict case refused narrowing without another worker:
+**2/2 passed** (45.80s). These replace the wrong-layer desired-recovery pin;
+the generic refusal remains an ordinary control rather than being weakened.
+The predicate status table separately passes all pending/running/suspended/
+completed/failed/cancelled/unknown and malformed-error controls. No capability
+or identity guard changes are involved.
+
+`retained-job-restart.test.ts` adds a real native host, public Control admission,
+SQLite, a keyed local ExternalJob adapter, and an independent external process.
+It kills only the first host with SIGKILL, starts a replacement without resume,
+and requires the original worker/key and preserved work. The edited case changes
+the entry, layer and imported helper, then requires the original approved bytes
+after restart. Start, collect and finish must each occur once; cancellation must
+not occur. This is an ordinary durable timer suspension, not a released action
+or an intervention wait.
+
+That test exposed [#3408](https://github.com/smithersai/smithers/issues/3408): a
+clock completion can wake a replacement before dead-owner admission permits
+claiming; the durable completion then has no later wake. The fix revisits only
+due timer waits with an unconsumed completion through ordinary admission and
+CAS. Real SQLite recovery/filtering/stale-admission tests passed **9/9**, and
+the engine-store strict test typecheck passed. After the fix, the edited restart
+passed (152.806s), and the unchanged restart passed on a clean serial retry
+(87.381s): replacement status after 29.378s, whole-run completion 46.740s after
+releasing the worker to finish. Both retain the original 120-second poll budgets. A prior
+unchanged retry exceeded that budget under heavy load; its raw failure is retained
+and does not become a pass. Failure snapshots and stage timestamps distinguish
+external completion from whole-run settlement.
+
+Full raw commands, databases, journal, processes, output and cleanup receipts
+are retained externally. [The current summary](receipts/burndown-20e6edc4/summary.json)
+retains results and source/receipt hashes without private paths or process identities.
+The generic refusal control passed (27.10s); strict engine-store and Smithers
+test typechecks passed. The pin checker still reports the same pre-existing
+`observing host over PostgreSQL` condition on the baseline and candidate;
+the declared history PostgreSQL URL supplies that suite's fallback condition.
+This update does not claim full fault qualification,
+Cloud/provider restart coverage, or 100% coverage; #3367 remains open.
+
+Historical integration validation uses base `7309afb21bef` on pinned Node 26.5.0,
 macOS arm64: **9 ordinary passes, 1 expected capability-conflict failure,
 0 failures/skips** (252.08s). All eight final receipts were replayed uninverted:
 capability identity exits1 with `ERR_ASSERTION`; the seven green cases exit0.
@@ -120,7 +170,7 @@ Ordinary fault tests separately assert exact current work and absence of duplica
 The CLI's outer run plus registry parent account for two additional run rows;
 the identity scenario intentionally launches two parent invocations.
 
-The current root map is for the executed base `7309afb21bef`:
+The following historical root map is for the executed base `7309afb21bef`:
 
 | Fault                        | Current evidence and owning source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Issue                                                                                                                    |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -135,8 +185,9 @@ The current root map is for the executed base `7309afb21bef`:
 [#3342](https://github.com/smithersai/smithers/issues/3342) concerns resume
 reporting, including newer resume routing on this base. This suite never invokes
 resume and does not test that behavior. The latest typed identity class and
-ExternalJob changes are present in the measured base; ExternalJob
-lifecycle/provider behavior is not exercised by these generic action fixtures.
+ExternalJob changes are present in the historical measured base. The generic
+action fixtures do not exercise ExternalJob; the added retained-job test
+exercises its lifecycle against a local adapter, without claiming provider behavior.
 
 The following historical map records the pre-fix executed base `2714bb64`.
 Its model and landing entries describe the older fixture/policy above.
@@ -171,8 +222,9 @@ Its model and landing entries describe the older fixture/policy above.
   stubbed, and no VM is acquired. This exercises the real exported gate through
   CLI action execution, not the complete microVM placement path. Linux emits
   a visible capability receipt and skips this one dedicated-volume case.
-- Source editing covers later children in an already admitted live host;
-  restart, catalog refresh and deployment replacement are not exercised.
+- Source editing covers later children in an already admitted live host and
+  the added host-kill/restart case's pinned entry, layer and imported helper.
+  Provider deployment replacement and catalog refresh are not exercised.
 - The fake agents perform long-lived file work and landing; they are not model
   providers or full coding agents. Unclassified external errors and unkeyed irreversible actions do not establish
   an automatic network recovery contract and are not promoted into invented

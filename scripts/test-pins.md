@@ -144,7 +144,6 @@ only.
 
 | Package                       | Test                                                                                               | Form                                                        |
 | ----------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `smithers`                    | `#3367 capability ceiling changes refresh conflicted child identity without failing parent`        | `it.fails` (#3367)                                          |
 | `smithers/flows/platform-bun` | `executes the declared Bun lane in a Bun worker`                                                   | `it.skipIf(process.env.SMITHERS_PLATFORM_BUN_LANE === "1")` |
 | `smithers/agent/harness`      | `workerd smoke`                                                                                    | `describe.skipIf(FLOWS_WORKERD_SMOKE !== "1")`              |
 | `smithers/agent/integrations` | `GitHub live contract (GITHUB_TOKEN)`                                                              | `describe.skipIf(GITHUB_TOKEN === undefined)`               |
@@ -446,26 +445,32 @@ guard, not an unexecuted compatibility case.
 `//packages/smithers:faults`. It drives real CLI admission, durable SQLite runs,
 N=2 children per fault, and an N=3 control with external processes and serial
 per-child landing. Ordinary tests validate setup, exact fault signatures,
-child identities/content/uniqueness/order, and cleanup. Only a prevalidated,
-synchronous desired-recovery assertion uses `it.fails` through `knownRed`:
+child identities/content/uniqueness/order, and cleanup. The former capability
+ceiling expected-failure pin is retired explicitly: its assertion asked generic
+execute to invent a new work identity after a terminal refusal. That behavior
+belongs to the caller, which decides whether repeating work is appropriate.
+The generic refusal is now an ordinary control requiring the exact typed
+`Fail/capabilities/completed` conflict and unchanged unique original work.
 
-- `#3367 capability ceiling changes refresh conflicted child identity without failing parent`:
-  a new parent joins the same completed child attempt under a narrower ceiling.
-  The fixture records the exact typed `ExecutionIdentityConflict` Fail before
-  the current CLI surfaces the subsequent codec diagnostic `Expected JSON value`; the unchanged
-  uncaught refusal fails the new parent. Current issue-sweep declares its own
-  terminal-conflict fallback, which this generic fixture does not include or
-  claim to validate. All original
-  child work and landing receipts remain unique and intact.
+The actual issue-sweep terminal-only policy is copied byte-for-byte into a
+public CLI fixture. Terminal children permit fresh identities after their old
+workers exit; a live running conflict is refused without duplicate children.
+A separate status/error table covers suspended, pending, unknown and malformed
+refusals. Identity/capability admission is unchanged. This is replacement with
+owning-boundary acceptance, not conversion of the old raw failure into a pass.
+The original raw expected-failure receipts remain linked in
+[the suite README](../packages/smithers/test/faults/README-burndown.md).
 
-Use `FAULT_3367_RAW=1` to run identical desired assertions without inversion.
-Retained `recovery.json` also replays with plain Node, producing a raw assertion
-failure. [The suite README](../packages/smithers/test/faults/README-burndown.md)
-contains commands, root causes, artifact names and duration/platform limits.
+The new host-SIGKILL/restart fixture joins one retained keyed ExternalJob without
+resume, and edits the entry/layer/imported helper to verify approved bytes survive
+restart. Ready-timer recovery is tracked in #3408. Current qualification retains
+a disk setup failure (`hdiutil: Device not configured`), before guard execution;
+historical disk passes do not qualify the current host. #3367 remains open for
+these limits and provider/full campaign evidence.
 
 Host stalls, slow catalog loads, typed agent/action DNS recovery, source edits
-and the owning disk-floor guard are ordinary green
-regression cases on current main. [#3372](https://github.com/smithersai/smithers/issues/3372)
+are ordinary regression cases; the disk guard retains historical green
+evidence and a current host capability failure. [#3372](https://github.com/smithersai/smithers/issues/3372)
 reconfirms ownership after a real 23-second SIGSTOP; the same workers finish
 without manual resume. The slow load retries through first-use catalog loading, and the owning landing
 policy from [#3369](https://github.com/smithersai/smithers/issues/3369) retries real DNS after restoration. The generic agent-facing probe is

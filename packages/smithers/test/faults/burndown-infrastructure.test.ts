@@ -34,7 +34,6 @@ const modules = fileURLToPath(new URL("../../node_modules", import.meta.url))
 const owner = fileURLToPath(new URL("../../../../flows/issue-sweep/", import.meta.url))
 const roots: string[] = []
 const reaped = new Set<string>()
-const assertionTests = new Set<string>()
 const compileCache = realpathSync(mkdtempSync(join(tmpdir(), "fault-3367-compile-")))
 const hosts: Array<{ root: string; host: ChildProcess; done: Promise<Exit> }> = []
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -88,11 +87,16 @@ const make = (name: string) => {
   roots.push(root)
   cpSync(fixture, root, { recursive: true })
   json(join(root, "runtime.json"), { node: process.version, platform: process.platform, arch: process.arch })
-  const keep = new Set(["burndown", ...(name === "identity" ? ["reuse"] : name === "source" ? ["live"] : [])])
+  const keep = new Set([
+    "burndown",
+    ...(name === "disk" ? ["disk"] : []),
+    ...(name === "identity" ? ["reuse"] : name.startsWith("recover") ? ["recover"] : name === "source" ? ["live"] : [])
+  ])
   for (const name of readdirSync(join(root, "flows"))) {
     if (!keep.has(name)) rmSync(join(root, "flows", name), { recursive: true })
   }
   copyOwner(root, "host.ts", join(root, "flows", "burndown", "host.ts"))
+  if (name.startsWith("recover")) copyOwner(root, "identity.ts", join(root, "flows", "recover", "identity.ts"))
   mkdirSync(join(root, ".flows"))
   mkdirSync(join(root, "node_modules"))
   for (const name of readdirSync(modules).filter((name) => !name.startsWith("."))) {
@@ -411,7 +415,7 @@ const receipt = (root: string, count: number, invocations = 1) => {
   json(join(root, "recovery.json"), value)
   json(join(root, "runs.json"), rows(root))
   console.log("FAULT_3367_RECEIPT", JSON.stringify({ root, ...value }))
-  // Raw diagnostic writes belong to this ordinary setup test, outside it.fails.
+  // Retain the original campaign's raw desired-recovery comparison.
   try {
     assertRecovery(value)
   } catch (error) {
@@ -422,16 +426,7 @@ const receipt = (root: string, count: number, invocations = 1) => {
   }
   return value
 }
-// Registered it.fails pins are explained in scripts/test-pins.md. RAW executes identical assertions normally.
-const knownRed = (title: string, assertion: () => void) => {
-  assertionTests.add(title)
-  if (process.env.FAULT_3367_RAW === "1") it(title, assertion)
-  else it.fails(title, assertion)
-}
-
-afterEach(async (context) => {
-  // Never invert a cleanup/hook failure with a desired-assertion pin.
-  if (assertionTests.has(context.task.name)) return
+afterEach(async () => {
   for (const root of roots) await reap(root)
 })
 afterAll(async () => {
@@ -726,10 +721,9 @@ for (const boundary of ["model", "landing"] as const) {
   })
 }
 
-describe("changed capability ceiling with reused child attempt", () => {
-  let root: string, value: ReturnType<typeof receipt> | undefined
-  it("validates completed exact work, reused N=2 identity and precise ceiling conflict", async () => {
-    root = make("identity")
+describe("generic execute identity guard control", () => {
+  it("refuses a changed ceiling without inventing another child identity", async () => {
+    const root = make("identity")
     const first = launch(root, 1, 2, "reuse")
     await completed(first, 0)
     await reap(root)
@@ -753,11 +747,45 @@ describe("changed capability ceiling with reused child attempt", () => {
     expect(rows(root).filter((row) => row.status === "failed")).toHaveLength(2)
     await reap(root)
     integrity(root, 2, true, true, true)
-    value = receipt(root, 2, 2)
+    json(join(root, "generic-refusal.json"), { refusals, records: records(root), runs: rows(root), manualResumes: 0 })
   }, 360_000)
-  knownRed("#3367 capability ceiling changes refresh conflicted child identity without failing parent", () => {
-    if (value) assertRecovery(value)
-  })
+})
+
+describe("issue-sweep terminal identity recovery policy through public CLI", () => {
+  it("refreshes terminal child identity after a ceiling change", async () => {
+    const root = make("recover-terminal")
+    await completed(launch(root, 1, 2, "recover"), 0)
+    const before = records(root)
+    const source = join(root, "flows", "recover", "flow.ts")
+    writeFileSync(source, readFileSync(source, "utf8").replace("capabilities: [\"fs:read:**\"]", "capabilities: []"))
+    await completed(launch(root, 1, 2, "recover"), 0)
+    await reap(root)
+    const after = records(root)
+    expect(rows(root).every((row) => row.status === "completed")).toBe(true)
+    expect(rows(root).filter((row) => JSON.parse(row.state_json).flowName === "burndown/Child")).toHaveLength(4)
+    for (const index of ids(2)) {
+      const work = after.filter((row) => row.index === index)
+      expect(work.filter((row) => row.event === "start")).toHaveLength(2)
+      expect(work.filter((row) => row.event === "exit")).toHaveLength(2)
+      const secondStart = work.filter((row) => row.event === "start")[1]!
+      const firstExit = before.find((row) => row.index === index && row.event === "exit")!
+      expect(secondStart.at).toBeGreaterThanOrEqual(firstExit.at)
+    }
+    expect(lines(join(root, "identity-refusals.jsonl"))).toEqual([])
+    json(join(root, "terminal-recovery.json"), { before, after, runs: rows(root), manualResumes: 0 })
+  }, 360_000)
+  it("refuses a changed ceiling beside live children without starting another worker", async () => {
+    const root = make("recover-live")
+    writeFileSync(join(root, "live-conflict"), "")
+    await completed(launch(root, 30, 2, "recover"), 1)
+    const refusals = lines(join(root, "identity-refusals.jsonl"))
+    expect(refusals.length).toBeGreaterThan(0)
+    expect(refusals.every((row) => row.status === "running" && row.field === "capabilities")).toBe(true)
+    expect(rows(root).filter((row) => JSON.parse(row.state_json).flowName === "burndown/Child")).toHaveLength(2)
+    await reap(root)
+    integrity(root, 2, true, false, false, true)
+    json(join(root, "live-refusal.json"), { refusals, records: records(root), runs: rows(root), manualResumes: 0 })
+  }, 360_000)
 })
 
 it("#3320 #3367 live source edit retains admitted bytes for later durable children", async () => {
@@ -795,9 +823,6 @@ it.skipIf(process.platform !== "darwin")(
   "#3367 owning disk guard polls real statfs and resumes N=2 automatically",
   async () => {
     const root = make("disk")
-    cpSync(fileURLToPath(new URL("./fixtures/disk-flow", import.meta.url)), join(root, "flows", "disk"), {
-      recursive: true
-    })
     // Current owning closure: vm-pool is imported by vm; vm-options travels alongside placement.
     for (const name of ["vm.ts", "vm-pool.ts", "vm-options.ts", "msb-nice.sh"]) {
       copyOwner(root, name, join(root, "flows", "disk", name))

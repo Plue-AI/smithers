@@ -2356,6 +2356,32 @@ export const make = (
         }
       }
     })
+    /**
+     * A timer can fire while a dead control owner is still inside its stale
+     * cutoff. The clock completion is durable, but that first coordinator
+     * wake cannot claim yet (#3408). Revisit only due timer waits with an
+     * unconsumed completion; the normal drive still checks admission and CAS.
+     * Released actions, future timers and ordinary event waits are excluded.
+     */
+    const sweepReadyTimers: Effect.Effect<void> = Effect.gen(function*() {
+      const nowMs = yield* Clock.currentTimeMillis
+      const due = yield* engineState.waitingRuns({ reason: "timer", dueBeforeMs: nowMs })
+      const completions = new Map<string, ReadonlySet<string>>()
+      for (const waiting of due) {
+        const row = yield* store.get(waiting.runId).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (row === undefined || row.status !== "suspended") continue
+        const state = yield* decodeState(row.stateJson)
+        if (!registrations.has(state.flowName)) continue
+        let ready = completions.get(state.flowName)
+        if (ready === undefined) {
+          ready = new Set((yield* engineState.completedDeferreds(state.flowName)).map((address) => address.executionId))
+          completions.set(state.flowName, ready)
+        }
+        if (!ready.has(row.runId)) continue
+        yield* coordinator.schedule(row.runId)
+      }
+    })
+
     // Admissions committed before a host crash have no lease to go stale.
     // Reuse the normal coordinator and claim/activate path for these rows.
     const pendingCycles = new Map<string, {
@@ -2489,6 +2515,7 @@ export const make = (
             // log it, and keep ticking.
             resilientSweep(sweepCancelRequested, "parked-run cancel").pipe(
               Effect.andThen(resilientSweep(sweepStaleRunning, "stale-running")),
+              Effect.andThen(resilientSweep(sweepReadyTimers, "ready timer")),
               Effect.andThen(resilientSweep(sweepPending(), "pending admission"))
             )
           )

@@ -1,0 +1,130 @@
+{
+  "issue": 3367,
+  "timer_issue": 3408,
+  "base": "20e6edc45874135f04fb9ce09a526c4edf76f8e1",
+  "node": "26.5.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "coverage_claim": false,
+  "full_campaign_complete": false,
+  "baseline_raw": {
+    "passed": 8,
+    "failed": 2,
+    "duration_seconds": 178.88,
+    "failures": [
+      "wrong-layer generic identity auto-rekey desired assertion",
+      "hdiutil Device not configured before disk guard execution"
+    ]
+  },
+  "selected_validation": {
+    "sqlite_timer_filtering_stale_admission": {
+      "passed": 9,
+      "failed": 0
+    },
+    "owning_identity_status_error_table": {
+      "passed": 8,
+      "failed": 0
+    },
+    "public_cli_terminal_and_running_identity_policy": {
+      "passed": 2,
+      "failed": 0,
+      "duration_seconds": 45.8
+    },
+    "public_cli_generic_guard_control": {
+      "passed": 1,
+      "failed": 0,
+      "duration_seconds": 27.1
+    },
+    "sigkill_restart_unchanged": {
+      "passed": 1,
+      "failed": 0,
+      "duration_seconds": 87.381,
+      "manual_resumes": 0,
+      "worker_count": 1,
+      "key_count": 1,
+      "start_count": 1,
+      "collect_count": 1,
+      "finish_count": 1,
+      "cancel_count": 0,
+      "terminal_run_rows": 6,
+      "replacement_probe_seconds": 29.378,
+      "completion_after_worker_release_seconds": 46.74
+    },
+    "sigkill_restart_edited_entry_layer_helper": {
+      "passed": 1,
+      "failed": 0,
+      "duration_seconds": 152.806,
+      "manual_resumes": 0,
+      "worker_count": 1,
+      "key_count": 1,
+      "start_count": 1,
+      "collect_count": 1,
+      "finish_count": 1,
+      "cancel_count": 0,
+      "terminal_run_rows": 6,
+      "result": "approved-layer/approved-helper/preserved-work",
+      "finished": "approved-entry"
+    },
+    "strict_engine_store_tsc": {
+      "exit_code": 0
+    },
+    "strict_smithers_tsc": {
+      "exit_code": 0
+    },
+    "pin_checker": {
+      "exit_code": 1,
+      "baseline_unchanged": true,
+      "undocumented_baseline_title": "observing host over PostgreSQL"
+    }
+  },
+  "retained_failures": [
+    "Before fix: neither restart recovered its timer probe within120s",
+    "Prior fixed unchanged restart exceeded120s parent completion budget under severe load; not counted as pass",
+    "Concurrent edited-source two-host join experiment timed out; source pinning prevented intended ceiling change; not counted as pass",
+    "Corrected caller fixture first failed module load due fixture namespace import; setup failure not counted as pass"
+  ],
+  "limits": [
+    "Disk guard current host not executed: isolated hdiutil volume creation failed",
+    "Local external adapter/process only; no provider deployment restart or real model calls",
+    "Running conflict covered through publicCLI; suspended conflict refusal covered by owning unit policy, no separate live suspended process case",
+    "No full suite rerun, fleet soak, full2h outage or100%coverage claim",
+    "Fresh post-owner-exit cancellation projection disagreement tracked separately in3412"
+  ],
+  "raw_receipt_sha256": {
+    "unchanged_restart": "bacb09e40ec27edb4c2f2b446216f74b88d4b425e6557a6bd7ceb43b5ae48e49",
+    "edited_restart": "46800141ba10dac9b05d4927a78eb8caa41961d2bab4bbae03c1ef87414e8fe9",
+    "terminal_identity": "77a09c298754882d907c361c252aa636aec9a145a9b2ddee70302c66cac2f5ef",
+    "running_identity_refusal": "1dae719cdc3b31286c146f0145047d4cf922d00bacf5e6c967c53f9c98404dbd"
+  },
+  "raw_log_sha256": {
+    "raw.log": "4cfdae143e68dd3731b7b02f6c263de8a56ac960002c0b800cfedd427a179ba2",
+    "unit-timer-final.log": "925c4a2c8aba07cb31b52a7aa7a01ac61f2f7fa6e188dc8c70d546e8e15db008",
+    "unit-identity.log": "b9be4ff6b30db04fd3264042cc56511555e6149588a7c3340e993abee25eeed7",
+    "identity-final.log": "7ba2e1276f806447fa0e5f970fc1b39ef2407234e72b1c04595af265740547bf",
+    "identity-generic-control.log": "7d8342416781c208ed5801572af6e2dc00e0bd05e8a849d29c11db5fa30b54e2",
+    "restart-fixed.log": "ab67c98a5951131ba3c3f3877984c839320c2be24380333236bd9743cfb6d14e",
+    "restart-final-unchanged.log": "5fdbcfaa346e0f24974b31cfe91761963628f120c6415fe6a8854ada9e6a8f15",
+    "typecheck-engine.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "typecheck-smithers-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pins-baseline-comparison.json": "2c83b31c78f1e13f8e1e6fc5e6769e0921eca06a47c6eee4560c1ac18ab926b0"
+  },
+  "source_sha256": {
+    "flows/issue-sweep/flow.ts": "e898259f54d4d12716c5ccc2f27f4a7c84d441e641ae28e3cf778f205a6e9aca",
+    "flows/issue-sweep/identity.ts": "792558def570c5bb5267e4f9daf93deded9b8af10710b785a2d2c29e1846c807",
+    "flows/issue-sweep/test/identity.test.ts": "eb78dbc1d1b1a81dc153d2f240ccc6a1ad2da90753e1df40cd56c810cfc2ade7",
+    "packages/smithers/flows/engine-store/src/internal/RunDriver.ts": "e8a776d9304aacf8b3a869e9c70b955527ac1020d15f51b19d5b1d9ecc2d0e5c",
+    "packages/smithers/flows/engine-store/test/ReadyTimerRecovery.test.ts": "37869a50e82db69de61efd6fc1cca640e51ee00f86c708e968f299b3ea6c69db",
+    "packages/smithers/test/faults/burndown-infrastructure.test.ts": "a975082193010b0b23b86e643b5998d379e01de4244d4cc4e01adc91dbc3a5f7",
+    "packages/smithers/test/faults/fixtures/burndown/flows/burndown/host.ts": "7499124958e58d8abe8f6b0f7725ac274d325f5e74ad01a3e61ffb126ce6e30b",
+    "packages/smithers/test/faults/fixtures/burndown/flows/disk/flow.ts": "71f0e6cf7a13580c6d394c34938f05b7eb12d19a7aa72011a9266f6bd35f2022",
+    "packages/smithers/test/faults/fixtures/burndown/flows/disk/vm.ts": "1ae752eaf82d8d989b70e80d2e56d76efce4bbc58b781c02399b9d7c22ce9726",
+    "packages/smithers/test/faults/fixtures/burndown/flows/recover/flow.ts": "ff9fe24fb06b78b68aa4a8656f6ba57c3c1fff296cf2dcaa9fa6c94c83459a31",
+    "packages/smithers/test/faults/fixtures/burndown/flows/recover/identity.ts": "1808a6f6a07379b135ff897fda1f450b4ffb7fdf6503e25865ae4f453c41bdb6",
+    "packages/smithers/test/faults/fixtures/burndown/flows/retained/flow.ts": "413c7f0a19ba9c79089f896d6cf51f41ea5fe90b114a6a11a98ef6093ab13b84",
+    "packages/smithers/test/faults/fixtures/burndown/flows/retained/helper.ts": "0e0496043ac9fdbf517b13c329c63d9a2c5859efb8943bad69d524b39b89f9b0",
+    "packages/smithers/test/faults/fixtures/burndown/restart-host.ts": "0a786f03e657eaead3c64ec79dc913ae4ad2ccf408de7c24527c5c3d194dbff8",
+    "packages/smithers/test/faults/fixtures/burndown/retained-worker.mjs": "c510805e88b9330cd599563e45078089366153666e70f24efd049c360e2f9db0",
+    "packages/smithers/test/faults/retained-job-restart.test.ts": "913cdaa1eba22c2dcae1c316f9d9e8fc05765a1032bc4154f01156b1df2ea857",
+    "packages/smithers/tsconfig.test.json": "d89dcd46636d3cbcf0378e5d405c4021d1ceea3b9295ac38b6d601d28f2d5f52"
+  }
+}

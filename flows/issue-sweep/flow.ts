@@ -23,6 +23,7 @@ import { capacity, perAccount, type Pools, readPools } from "./accounts.ts"
 import { configureDiskReaper, DiskAdmission, diskLayer, makeSettledWorkspaceReaper, workspaceBytes } from "./disk.ts"
 import { api, issue as readIssue, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
+import { terminalIdentityConflict } from "./identity.ts"
 import { landChange, LandFailed } from "./land.ts"
 import {
   cachePath,
@@ -659,10 +660,7 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
           executionId
         })
       return yield* execute(id).pipe(
-        Effect.catchTag("@smthrs/engine/ExecutionIdentityConflict", (error) =>
-          error.status === "completed" || error.status === "failed" || error.status === "cancelled"
-            ? execute(`${id}/round-${args.round}`)
-            : Effect.fail(error)),
+        Effect.catchIf(terminalIdentityConflict, () => execute(`${id}/round-${args.round}`)),
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause) ? execute(`${id}/round-${args.round}`) : Effect.failCause(cause)
         ),
