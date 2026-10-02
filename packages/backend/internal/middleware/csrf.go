@@ -63,8 +63,6 @@ func CSRF(next http.Handler) http.Handler {
 	})
 }
 
-
-
 // enforceCSRF validates the double-submit token for session-authenticated
 // requests and forwards to next; anonymous and token-authenticated requests
 // are exempt (no ambient cookie credential to forge).
