@@ -153,8 +153,8 @@ describe("child-process containment conformance", () => {
       + "closing its control pipe, including host death, terminates the job."
     ],
     [
-      "smithers/build/targets/src/ExecSandbox.ts",
-      "Build-sandbox host resolution on macOS reads the developer directory with "
+      "smithers/flows/platform-node/src/ProcessSandbox.ts",
+      "The shared process sandbox on macOS reads the developer directory with "
       + "`/usr/bin/xcode-select -p` when `DEVELOPER_DIR` is unset: a fixed absolute program, "
       + "fixed arguments and a 2-second timeout, outside a durable host."
     ],

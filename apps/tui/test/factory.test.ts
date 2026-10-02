@@ -216,7 +216,11 @@ it("files a TODO under one request id, resent after an unanswered filing and dro
   const queued = item("40", "queued")
   // A dropped network keeps the id: the same TODO again resends it and files once.
   answers.push(() => Promise.reject(new Error("fetch failed")), () => Promise.resolve(queued))
-  expect(await file("o/r", "Add dark mode")).toEqual({ ok: false, detail: "fetch failed", settled: false })
+  expect(await file("o/r", "Add dark mode")).toEqual({
+    ok: false,
+    detail: "That command could not run. Details: /conversation",
+    settled: false
+  })
   const filed = await file("o/r", "Add dark mode")
   expect(filed.ok && filed.item.issue?.number).toBe(40)
   expect(sent.map((each) => [each.path, each.body.request])).toEqual([
@@ -319,13 +323,13 @@ it("shows a refused retry as a typed failure, and never posts for an issue that 
   )
   const refused = await Factory.retryCommand("2431", "o/r", signIn(origin)).settled
   expect(refused).toEqual({
-    text: "#2431 not retried: /api/repos/o/r/mythical/items/2431/retry: HTTP 409",
+    text: "#2431 not retried: That command could not run. Details: /conversation",
     tone: "warning"
   })
   const cloud = (await signIn(origin)())!
   expect(await Factory.retry(cloud, "o/r", 2431)).toEqual({
     ok: false,
-    detail: "/api/repos/o/r/mythical/items/2431/retry: HTTP 409",
+    detail: "That command could not run. Details: /conversation",
     settled: true
   })
   // A running issue and an issue the stack does not hold are refused here, before any POST.
@@ -358,7 +362,10 @@ it("persists a retry request before authentication or lookup and refuses a faile
     throw new Error("disk full")
   })
   expect(refused.settled).toBeUndefined()
-  expect(refused.now).toEqual({ text: "Retry #2431 not requested: disk full", tone: "warning" })
+  expect(refused.now).toEqual({
+    text: "Retry #2431 not requested: That command could not run. Details: /conversation",
+    tone: "warning"
+  })
   expect(ordering).toEqual(["persist", "authenticate"])
 })
 
@@ -422,7 +429,7 @@ it("settles an unreachable Cloud as a failure that may not have been sent", asyn
   const failing = await cloudAt(() => ({ status: 503, body: {} }))
   expect(await Factory.retry((await signIn(failing)())!, "o/r", 2431)).toEqual({
     ok: false,
-    detail: `${stackRoute}: HTTP 503`,
+    detail: "That command could not run. Details: /conversation",
     settled: false
   })
 })
@@ -441,7 +448,7 @@ it("answers a /retry it cannot send at once: no issue, no repository, signed out
     tone: "warning"
   })
   expect(await Factory.retryCommand("12", "o/r", () => Promise.reject(new Error("keyring locked"))).settled).toEqual({
-    text: "#12 not retried: keyring locked",
+    text: "#12 not retried: That command could not run. Details: /conversation",
     tone: "warning"
   })
 })
@@ -510,4 +517,14 @@ it("lands a proposed TODO at the head the stack served, and never posts for one 
   })
   expect(Factory.landCommand("x", "o/r", signIn(origin)).now).toEqual({ text: "Usage: /land <issue>", tone: "warning" })
   expect(received.filter((each) => each.method === "POST")).toHaveLength(1)
+})
+
+it("keeps raw Cloud failures out of filing results", async () => {
+  const raw = "HTTP 503: private backend stack trace"
+  const file = Factory.filer(async () => {
+    throw new Error(raw)
+  })
+  const answer = await file("o/r", "Fix it")
+  expect(answer).toMatchObject({ ok: false, settled: false })
+  expect(answer.ok ? "" : answer.detail).not.toContain(raw)
 })

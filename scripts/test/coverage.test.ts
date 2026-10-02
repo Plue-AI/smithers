@@ -604,11 +604,6 @@ describe("coverage conformance", () => {
       // AttemptStore's insert conflict and row lookup share one serialized
       // write transaction, so the conflicting attempt cannot disappear.
       "smithers/flows/run-store/src/AttemptStore.ts": 1,
-      // RunStore's two reflection hints left with the shared JSON admission
-      // helper. Its remaining hint covers V8's synthetic generator branch;
-      // RunStore.test.ts asserts successful, missing and stale-owner CAS
-      // outcomes through the real SQLite adapter.
-      "smithers/flows/run-store/src/RunStore.ts": 1,
       // Provider processes can only originate from each provider's `spawn`,
       // which records the opaque handle before returning it. These guards
       // turn a future provenance violation into a typed unknown-process error.

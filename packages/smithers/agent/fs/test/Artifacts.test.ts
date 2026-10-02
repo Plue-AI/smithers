@@ -22,7 +22,10 @@ const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url))
 // package, so the scratch mirrors both at their repository locations. The
 // helper is a declared input of the package build target (RELEASE_SUPPORT.md).
 const packagePath = relative(repoRoot, packageRoot)
-const buildHelperPath = "packages/repo-targets/scripts/build-library.mjs"
+const buildHelperPaths = [
+  "packages/repo-targets/scripts/build-library.mjs",
+  "packages/repo-targets/scripts/private-effect-adapters.mjs"
+]
 
 interface Scratch {
   /** The mirrored repository root; remove this to discard the fixture. */
@@ -54,7 +57,7 @@ const copyPackage = (source: string): Scratch => {
     for (const path of ["src", "scripts", "test/fixtures", "tsconfig.json", "package.json"]) {
       cpSync(join(source, path), join(packageDir, path), { recursive: true })
     }
-    cpSync(join(repoRoot, buildHelperPath), join(root, buildHelperPath))
+    for (const path of buildHelperPaths) cpSync(join(repoRoot, path), join(root, path))
     // Resolve each package before linking it: a junction over node_modules
     // leaves pnpm's relative workspace links dependent on the scratch path.
     // Include hoisted build tools from the repository root.

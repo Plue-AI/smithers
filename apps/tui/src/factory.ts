@@ -17,6 +17,7 @@ import {
 } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
 import { itemReason, itemStateLabel, itemTitle, landable, retryable } from "@smthrs/rpc/StackView"
+import * as Failures from "./failures.ts"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -89,7 +90,7 @@ export const filer = (
 /** A request that failed: a refusal (HTTP 4xx) is final; anything else may not have reached Cloud. */
 const failed = (error: unknown): Filing & { readonly ok: false } => ({
   ok: false,
-  detail: error instanceof Error ? error.message : String(error),
+  detail: Failures.line("command", error),
   settled: /HTTP 4\d\d\b/.test(String(error))
 })
 

@@ -4,6 +4,7 @@ import { Rule } from "@smthrs/capability/Permission"
 import * as GuardedSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as CommandLine from "@smthrs/kernel/CommandLine"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as ProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Effect, Exit, Layer, Scope, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -23,7 +24,10 @@ const ssh = join(root, "ssh")
 // This executable models SSH's remote shell reparse, using real local processes.
 writeFileSync(ssh, "#!/bin/sh\nexec /bin/sh -c \"$*\"\n", { mode: 0o755 })
 
+// This local SSH reparse fixture tests transport bytes and permission refusals;
+// real OS confinement is exercised independently by the kernel platform suites.
 const guardedPlatform = GuardedSpawner.layer.pipe(
+  Layer.provide(ProcessConfinement.layerNoop),
   Layer.provide(GrantStore.layer({
     attended: false,
     rules: [new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "*" }) })]

@@ -14,17 +14,17 @@ the Worker returns `local_host_required` after its session gate.
 
 Each route family has one home module, and a route constant is declared only there. A route belongs to the longest family it falls under. Add a route to the module its family names; a new family gets a row here first. `test/RouteOwnership.test.ts` holds every `/api/` constant to this table.
 
-| Family                                                                                                                                                                                         | Module               |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `/api/auth/github/start`, `/api/auth/github/callback`                                                                                                                                          | `AgentApiRoutes.ts`  |
-| `/api/auth/local`, `/api/auth/sse-ticket`, `/api/auth/github`, `/api/user`                                                                                                                     | `ApplicationAuth.ts` |
-| `/api/repo/files`                                                                                                                                                                              | `LocalApp.ts`        |
-| `/api/cloud`, `/api/cloud-ws`, `/api/cloud-auth`                                                                                                                                               | `CloudTunnel.ts`     |
-| `/api/bootstrap`                                                                                                                                                                               | `AppBootstrap.ts`    |
-| `/api/repository-setup`                                                                                                                                                                        | `RepositorySetup.ts` |
-| `/api/repos/{owner}/{repo}/mythical`                                                                                                                                                           | `Mythical.ts`        |
-| `/api/model/credential`, `/api/model/credential/receipt`                                                                                                                                       | `AgentApiRoutes.ts`  |
-| `/api/agent`, `/api/auth`, `/api/identity`, `/api/billing`, `/api/tools`, `/api/workflow`, `/api/model`, `/api/public`, `/api/admin`, `/api/recommend`, `/api/jev`, `/api/chat`, `/api/health` | `AgentApiRoutes.ts`  |
+| Family                                                                                                                                                                                                          | Module               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `/api/auth/github/start`, `/api/auth/github/callback`                                                                                                                                                           | `AgentApiRoutes.ts`  |
+| `/api/auth/local`, `/api/auth/sse-ticket`, `/api/auth/github`, `/api/user`                                                                                                                                      | `ApplicationAuth.ts` |
+| `/api/repo/files`                                                                                                                                                                                               | `LocalApp.ts`        |
+| `/api/cloud`, `/api/cloud-ws`, `/api/cloud-auth`                                                                                                                                                                | `CloudTunnel.ts`     |
+| `/api/bootstrap`                                                                                                                                                                                                | `AppBootstrap.ts`    |
+| `/api/repository-setup`                                                                                                                                                                                         | `RepositorySetup.ts` |
+| `/api/repos/{owner}/{repo}/mythical`                                                                                                                                                                            | `Mythical.ts`        |
+| `/api/model/credential`, `/api/model/credential/receipt`                                                                                                                                                        | `AgentApiRoutes.ts`  |
+| `/api/commands`, `/api/agent`, `/api/auth`, `/api/identity`, `/api/billing`, `/api/tools`, `/api/workflow`, `/api/model`, `/api/public`, `/api/admin`, `/api/recommend`, `/api/jev`, `/api/chat`, `/api/health` | `AgentApiRoutes.ts`  |
 
 These are public product contracts even while the package is private. Preserve wire fields and route strings when changing implementation details. All exported declarations carry descriptions, `@since`, and `@category`.
 

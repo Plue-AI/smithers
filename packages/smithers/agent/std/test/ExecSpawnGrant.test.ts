@@ -11,6 +11,7 @@ import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as ProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Effect, Layer, Path, Sink, Stream } from "effect"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -44,7 +45,10 @@ const host = makeSpawner((command) =>
   })
 )
 
+// This recording host never executes a process; test the permission boundary
+// independently from the real OS confinement suites.
 const guarded = KernelChildProcessSpawner.layer.pipe(
+  Layer.provide(ProcessConfinement.layerNoop),
   Layer.provide(GrantStore.layer({
     attended: false,
     rules: [

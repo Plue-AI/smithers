@@ -118,20 +118,22 @@ describe("BrowserHost shared mount contract", () => {
           const bashRead = yield* spawner.string(
             ChildProcess.make("read-shared", [], { cwd: "/" })
           )
-          const { changeId: first } = yield* jj.snapshot("shared mount first")
+          const { commitId: first, changeId: firstChange } = yield* jj.snapshot("shared mount first")
 
           yield* fileSystem.writeFileString("/shared.txt", "second\n")
           const status = yield* jj.status()
-          const { changeId: second } = yield* jj.snapshot("shared mount second")
+          const { commitId: second, changeId: secondChange } = yield* jj.snapshot("shared mount second")
           const diff = yield* jj.diff(first, second)
-          return { bashRead, diff, first, second, status }
+          return { bashRead, diff, first, second, firstChange, secondChange, status }
         }).pipe(Effect.provide(layer))
       )
 
       expect(observed.bashRead).toBe("first\n")
       expect(observed.first).toMatch(/^[a-z0-9]+$/)
       expect(observed.second).not.toBe(observed.first)
-      expect(observed.status).toContain("M shared.txt")
+      expect(observed.secondChange).toBe(observed.firstChange)
+      // Snapshots amend the same change; its parent still has no shared file.
+      expect(observed.status).toContain("A shared.txt")
       expect(observed.diff).toContain("shared.txt")
       expect(observed.diff).toContain("-first")
       expect(observed.diff).toContain("+second")

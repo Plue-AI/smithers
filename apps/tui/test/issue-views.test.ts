@@ -128,7 +128,10 @@ describe("issue views controller", () => {
     const failed = IssueViews.panel(control.state())
     valid(failed)
     expect(failed.rows[0]!.status).toBe("failed")
-    expect(failed.rows.at(-1)).toMatchObject({ status: "failed", label: "HTTP 404: issue view \"bugs\" not found" })
+    expect(failed.rows.at(-1)).toMatchObject({
+      status: "failed",
+      label: "That command could not run. Details: /conversation"
+    })
     fail = false
     await control.select("bugs")
     expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
@@ -181,7 +184,12 @@ describe("issue views controller", () => {
     await broken.refresh()
     const panel = IssueViews.panel(broken.state())
     valid(panel)
-    expect(panel.rows).toEqual([{ id: "issue-views:failed", label: "Read failed", status: "failed", details: [] }])
+    expect(panel.rows).toEqual([{
+      id: "issue-views:failed",
+      label: "That command could not run. Details: /conversation",
+      status: "failed",
+      details: []
+    }])
     const none = IssueViews.controller(async () => {
       throw new Error("unused")
     }, undefined)
@@ -297,4 +305,16 @@ it("reads views and a view's issues from Cloud as the signed-in person", async (
     "/api/repos/o/r/issues?view=everything&limit=100"
   ])
   expect(received.every((each) => each.auth === "token tok_views")).toBe(true)
+})
+
+it("keeps raw Cloud failures out of the issue views panel", async () => {
+  const raw = "HTTP 503: private backend stack trace"
+  const control = IssueViews.controller(async () => ({
+    get: async () => {
+      throw new Error(raw)
+    }
+  }), "o/r")
+  await control.refresh()
+  expect(control.state().phase).toBe("failed")
+  expect(JSON.stringify(IssueViews.panel(control.state()))).not.toContain(raw)
 })

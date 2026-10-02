@@ -29,14 +29,15 @@ const review = {
 }
 
 describe("the projected .smithers/factory.json of this repository", () => {
-  test("parses, features the five repository flows first, and declares the day-one rules", () => {
+  test("parses, features the repository flows first, and declares the day-one rules", () => {
     const projection = FactoryProjectionSchema.parse(JSON.parse(Fs.readFileSync(repositoryProjection, "utf8")))
     expect(featuredFlows(projection).map((flow) => flow.id)).toEqual([
       "review",
       "lint",
       "pr-triage",
       "issue-triage",
-      "release-notes"
+      "release-notes",
+      "issue-sweep"
     ])
     expect(projection.on.map((rule) => rule.event)).toContain("issue.labeled:todo")
     expect(projection.github?.mirror).toBeDefined()

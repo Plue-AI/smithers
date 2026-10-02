@@ -37,16 +37,22 @@ const ALLOWED: Readonly<Record<string, number>> = {
   "contributions.ts": 2,
   // A plugin manifest's decode problem, for the plugin author.
   "extension.ts": 2,
+  // HTTP status classification; the displayed sentence uses Failures.
+  "factory.ts": 1,
   // Control-plane text kept on `FlowError.message` for the model and the log.
   "flow-control.ts": 3,
   // A suspended flow's own question, and the run's persisted message field.
   "flows.ts": 2,
   // Cell and model-facing results.
   "host.ts": 4,
-  // The log.
-  "log.ts": 4,
+  // HTTP status classification; the displayed sentence uses Failures.
+  "issue-views.ts": 1,
+  // The log, including nested causes.
+  "log.ts": 6,
   // `MonitorError` and `message`: the model's monitor context.
   "monitors.ts": 11,
+  // Gateway history refusal: designed, redacted copy rendered by /verify-run.
+  "run-history.ts": 1,
   // The model's tool errors.
   "runtime.ts": 3,
   // The model's grep tool.

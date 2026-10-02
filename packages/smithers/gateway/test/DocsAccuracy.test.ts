@@ -45,6 +45,17 @@ describe("the package docs", () => {
     }
   })
 
+  it("installation requires only declared peers and ships its host adapters privately", () => {
+    const prose = read("docs/installation.md").replaceAll(/\s+/g, " ")
+    expect(prose).toContain("`effect` is the only peer")
+    expect(prose).toContain(manifest.peerDependencies.effect)
+    expect(prose).toContain("Node and Bun adapters are bundled privately")
+    expect(prose).not.toMatch(/@effect\/platform-[\w-]+[^.]*optional peer/)
+    const installed = [...prose.matchAll(/pnpm add ([^`]+)/g)]
+      .flatMap((match) => match[1]!.trim().split(/\s+/))
+    expect(installed).toEqual(peers.map((peer) => `${peer}@${manifest.peerDependencies[peer]}`))
+  })
+
   it.each(["README.md", "docs/README.md", "docs/api.md", "docs/troubleshooting.md", "docs/concepts/trust-boundary.md"])(
     "%s requires the Origin to match the request authority",
     (file) => {
@@ -93,8 +104,11 @@ const srcSources = (): ReadonlyArray<string> =>
     .map((file) => Path.join("src", file))
 
 describe("the package manifest and source references", () => {
-  it("installs a runtime dependency only when src imports it", () => {
-    const manifest = JSON.parse(read("package.json")) as { readonly dependencies: Record<string, string> }
+  it("installs runtime dependencies only for source imports or bundled adapters", () => {
+    const manifest = JSON.parse(read("package.json")) as {
+      readonly dependencies: Record<string, string>
+      readonly smthrs: { readonly privateEffectAdapters: ReadonlyArray<string> }
+    }
     // A type-only import is erased at build time and needs no installed package.
     const imported = new Set(
       srcSources().flatMap((file) =>
@@ -105,6 +119,23 @@ describe("the package manifest and source references", () => {
         ].map((match) => match[1] as string)
       )
     )
+    // Private adapters keep their non-Effect dependencies external; the build
+    // verifies exact installed versions for this declared closure.
+    for (const adapter of manifest.smthrs.privateEffectAdapters) {
+      const adapterManifest = JSON.parse(read(`node_modules/${adapter}/package.json`)) as {
+        readonly dependencies?: Record<string, string>
+        readonly peerDependencies?: Record<string, string>
+        readonly peerDependenciesMeta?: Record<string, { readonly optional?: boolean }>
+      }
+      for (const name of Object.keys({ ...adapterManifest.dependencies, ...adapterManifest.peerDependencies })) {
+        if (
+          name === "effect" || name.startsWith("@effect/") || adapterManifest.peerDependenciesMeta?.[name]?.optional
+        ) {
+          continue
+        }
+        imported.add(name)
+      }
+    }
     expect(Object.keys(manifest.dependencies).filter((name) => !imported.has(name))).toEqual([])
   })
 

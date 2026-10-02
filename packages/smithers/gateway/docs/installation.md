@@ -16,27 +16,23 @@ Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
 - One copy of `effect` in the resolved tree. A second copy makes a `Layer`
   built against one fail to satisfy a requirement declared against the other.
 
-`effect` is a required peer pinned to `4.0.0-rc.115`.
-`@effect/platform-node` is an optional peer at the same exact version, needed
-by `node/NodeGateway`. The root and protocol subpaths do not install the Node
-adapter. A Node gateway host selects it explicitly:
+`effect` is the only peer, pinned to `4.0.0-rc.115`. Node and Bun adapters
+are bundled privately at the same version, including their shared implementation.
+Hosts need no separate adapter install:
 
 ```bash
-pnpm add effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115 @effect/platform-node-shared@4.0.0-rc.115
+pnpm add effect@4.0.0-rc.115
 ```
 
-For Bun, add the optional `@effect/platform-bun@4.0.0-rc.115` peer and import
-`@smthrs/gateway/bun/BunGateway`. Pin
-`@effect/platform-node-shared@4.0.0-rc.115` with either adapter: both depend on
-that shared implementation through a caret, which otherwise resolves to a later
-release candidate whose own `effect` peer this release does not satisfy. The
-root and protocol subpaths need neither native adapter.
+Use `@smthrs/gateway/node/NodeGateway` on Node or
+`@smthrs/gateway/bun/BunGateway` on Bun. The root and protocol subpaths need
+neither native adapter at runtime.
 
-Two packages install with it as ordinary dependencies:
+Runtime dependencies install with the package, including
 [`@smthrs/control`](/api/control) and [`@smthrs/sync`](/api/smithers-sync).
-You do not name them separately to
-compile against this package's API. The guides that compose a full host or a
-test stack import more than that, and each says which packages it adds.
+You do not name them separately to compile against this package's API.
+The guides that compose a full host or a test stack say which additional
+packages they import.
 
 ## Import forms
 

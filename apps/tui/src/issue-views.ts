@@ -8,6 +8,7 @@
  * view rows select with Enter once the host routes `viewOf(row.id)` to
  * `select`.
  */
+import * as Failures from "./failures.ts"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -112,7 +113,7 @@ export interface Cloud {
   readonly get: (path: string, signal?: AbortSignal) => Promise<unknown>
 }
 
-const detail = (error: unknown): string => error instanceof Error ? error.message : String(error)
+const detail = (error: unknown): string => Failures.line("command", error)
 
 /** A 401 or 403: the session is gone or may not read the repository. */
 const refused = (error: unknown): boolean => /HTTP 40[13]\b/.test(String(error))
