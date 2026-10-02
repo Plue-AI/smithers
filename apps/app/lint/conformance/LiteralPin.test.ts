@@ -77,6 +77,11 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
+    literal: "chat",
+    file: "e2e/playwright/reaction-owner.spec.ts",
+    reason: "The issue DTO's kind (packages/rpc/src/Cards.ts `kind: z.enum([\"issue\", \"chat\"])`), not a card kind: the wire issue shares id, title and body with a card frame."
+  },
+  {
     literal: "owner-session",
     file: "scripts/run-mode-matrix.ts",
     reason: "Mode-matrix credential kind, declared by the matrix fixture contract, not a card kind."

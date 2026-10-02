@@ -286,13 +286,6 @@ export const productDottedIdentifiers = (): ReadonlySet<string> => {
       if (literal.form === "string" && DOTTED_IDENTIFIER.test(literal.value)) owned.add(literal.value)
     }
   }
-  // The real issue-recovery journey reads receipts written by the Go backend.
-  // Derive their event types from the INSERT, so a backend rename still orphans
-  // the assertion; neither a fixture nor an allowlist supplies the vocabulary.
-  const issueSync = readFileSync(from("../../../../packages/backend/internal/services/issue_sync.go"), "utf8")
-  for (const match of issueSync.matchAll(/INSERT INTO issue_events\(issue_id,actor_id,event_type,payload\)\s+VALUES\(\$1,\$2,'([^']+)'/g)) {
-    if (DOTTED_IDENTIFIER.test(match[1]!)) owned.add(match[1]!)
-  }
   return owned
 }
 

@@ -41,12 +41,12 @@ function joinDefault(root: string, child: string): string {
       "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload",
       "cloud.prompt", "flow.plan.select", "flow.plan.tab", "flow.repo.choose", "history.view", "input.mode",
       "palette.actions", "palette.recent", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select",
-      "runs.graph.tab", "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
+      "runs.graph.tab", "runs.burndown.filter", "runs.burndown.select", "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
       "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit",
     ],
     diagnostics: [
       "admin.reset", "debug.backend", "debug.errors", "debug.events", "debug.net",
-      "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose", "model.fixture",
+      "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose",
     ],
     owed: [
       "admin.grant.confirm", "agent.list",
@@ -54,7 +54,7 @@ function joinDefault(root: string, child: string): string {
       "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
       "change.revert", "change.split", "code.definition", "code.diagnostics",
       "code.hover", "commits.list", "commits.read", "connect", "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
-      "files.list", "files.open-diff", "integrations.admit", "integrations.list", "issues.comment.react", "issues.comment.retry",
+      "files.list", "files.open-diff", "issues.comment.react", "issues.comment.retry",
       "issues.fix", "issues.set", "issues.verify", "files.read", "findings.not-useful", "findings.please-fix",
       "flow.plan", "flow.run.retry", "flows", "github.app.choose", "github.app.open",
       "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "issues",
@@ -62,7 +62,7 @@ function joinDefault(root: string, child: string): string {
       "wiki.cloud.rename", "wiki.history", "wiki.space", "notifications.read-update", "notifications.tag",
       "plugins", "plugins.install", "plugins.list", "plugins.remove", "prs",
       "repo.choose", "repo.tree", "repo.update", "repos.import.retry", "review.ack",
-      "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.release", "runs.seat",
+      "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.release",
       "runs.signal", "runs.takeover", "search.boxes", "search.changes", "search.files", "search.history",
       "search.issues", "search.open", "search.runs", "search.secrets", "secrets.connect.codex",
       "secrets.move", "search.targets", "search.wiki", "setup.ask", "setup.discard",
@@ -70,6 +70,8 @@ function joinDefault(root: string, child: string): string {
       "history.backfill", "history.parallel", "history.retry", "history.show", "triggers.approve",
       "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "workspace.rename",
       "box.session.destroy", "box.select",
+      // Added without a scenario since the review, or left without one by the MVP cut (#3385).
+      "agent.explain", "egress.allow", "form.submit", "history.land", "issue-sweep", "runs.continue", "secrets.bind",
     ],
   } as const
   const covered = new Set(report.scenarios.flatMap((scenario) => scenario.actions))
