@@ -215,9 +215,9 @@ export const physicalPackages = (consumer) => {
 
 export const assertConsumerTree = (consumer, profile) => {
   const installed = physicalPackages(consumer)
-  const family = assertEffectFamilyInstalled(consumer, effect)
   const copies = installed.filter(({ manifest }) => manifest.name === "effect")
   assert.equal(copies.length, 1, profile.name + ": expected exactly one physical Effect copy")
+  const family = assertEffectFamilyInstalled(consumer, effect)
   assert.equal(copies[0].manifest.version, effect)
   const names = new Set(installed.map(({ manifest }) => manifest.name))
   for (const name of profile.absent ?? []) {

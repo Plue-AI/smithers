@@ -297,6 +297,7 @@ test('CLI combines declaration build and baseline update from current source', a
     await cp(join(repositoryRoot, 'scripts/check-api-baseline.mjs'), cli)
     await cp(join(repositoryRoot, 'scripts/workspace-packages.mjs'), join(root, 'scripts/workspace-packages.mjs'))
     await cp(join(repositoryRoot, 'packages/repo-targets/scripts/build-library.mjs'), join(root, 'packages/repo-targets/scripts/build-library.mjs'))
+    await cp(join(repositoryRoot, 'packages/repo-targets/scripts/private-effect-adapters.mjs'), join(root, 'packages/repo-targets/scripts/private-effect-adapters.mjs'))
     await mkdir(join(root, 'scripts/fixtures'), { recursive: true })
     await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'), 'dir')
     await symlink(join(repositoryRoot, 'node_modules'), join(packageRoot, 'node_modules'), 'dir')
@@ -305,7 +306,7 @@ test('CLI combines declaration build and baseline update from current source', a
     const first = await runCli('--build-declarations', '--update')
     assert.match(first.stdout, /Recorded declarations for 1 public packages/)
     const baseline = JSON.parse(await readFile(baselinePath, 'utf8'))
-    assert.equal(baseline.format, 1)
+    assert.equal(baseline.format, 2)
     const releaseRoot = join(root, 'release')
     await runFile(process.execPath, [
       fileURLToPath(new URL('../../node_modules/typescript/bin/tsc', import.meta.url)),

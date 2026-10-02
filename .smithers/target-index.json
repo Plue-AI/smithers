@@ -54066,6 +54066,10 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
       }
     ],
     "outputs": [],
@@ -54102,6 +54106,10 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
       }
     ],
     "outputs": [],

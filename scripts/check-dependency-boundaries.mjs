@@ -12,7 +12,7 @@
  *
  * Test files, config files, and anything under a `scripts/` directory may use
  * `devDependencies`; everything else may use only runtime, peer, and optional
- * dependencies.
+ * dependencies, or validated private adapters vendored into the distribution.
  *
  * Run it with `pnpm exec smithers-build test '//scripts:dependencyBoundaries'`, or
  * directly with `node scripts/check-dependency-boundaries.mjs`.
@@ -23,6 +23,7 @@ import { basename, dirname, extname, join, relative, resolve, sep } from "node:p
 
 import ts from "typescript"
 import { workspacePackages, isMain, repoRoot } from "./workspace-packages.mjs"
+import { privateEffectAdapters } from "../packages/repo-targets/scripts/private-effect-adapters.mjs"
 
 // Resolved from this file, not from `process.cwd()`: the build system runs a
 // target from the directory that owns it, and this gate is about the whole
@@ -400,14 +401,17 @@ function isDevOnlyFile(file) {
  * a consumer's install does not fetch. A `private: true` workspace publishes no
  * tarball and always runs from the workspace install, so for one of those the
  * split carries no meaning and every declared section counts as runtime.
+ * Private Effect adapters are pinned build inputs whose emitted imports are
+ * relocated into the tarball, so their validated declarations count too.
  *
  * @param {WorkspacePackage} pkg
  */
-function dependencySets(pkg) {
+export function dependencySets(pkg) {
   const declared = new Set([
     ...dependencyNames(pkg.manifest, "dependencies"),
     ...dependencyNames(pkg.manifest, "peerDependencies"),
     ...dependencyNames(pkg.manifest, "optionalDependencies"),
+    ...privateEffectAdapters(pkg.manifest),
   ])
   const dev = new Set([...declared, ...dependencyNames(pkg.manifest, "devDependencies")])
   const runtime = pkg.manifest.private === true ? dev : declared

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import test from "node:test"
 
 import ts from "typescript"
-import { blankLiteralRanges, packageSourceReachedBy } from "./check-dependency-boundaries.mjs"
+import { blankLiteralRanges, dependencySets, packageSourceReachedBy } from "./check-dependency-boundaries.mjs"
 import { repoRoot } from "./workspace-packages.mjs"
 
 /**
@@ -119,4 +119,24 @@ test("a relative specifier that stays inside its own package or outside every sr
   assert.equal(packageSourceReachedBy("scripts/generate-ci.mjs", "./workspace-packages.mjs", dirs), null)
   assert.equal(packageSourceReachedBy("scripts/generate-ci.mjs", "@smthrs/targets/Target", dirs), null)
   assert.equal(packageSourceReachedBy("scripts/generate-ci.mjs", "../../outside/src/x.ts", dirs), null)
+})
+
+test("runtime imports allow validated private adapters without admitting unrelated dev dependencies", () => {
+  const manifest = {
+    dependencies: { effect: "4.0.0-rc.115" },
+    devDependencies: {
+      "@effect/platform-node": "4.0.0-rc.115",
+      "@effect/platform-node-shared": "4.0.0-rc.115",
+      typescript: "6.0.3",
+    },
+    smthrs: { privateEffectAdapters: ["@effect/platform-node", "@effect/platform-node-shared"] },
+  }
+  const pkg = { manifest }
+  const { runtime, dev } = dependencySets(pkg)
+  assert.ok(runtime.has("@effect/platform-node"))
+  assert.ok(runtime.has("@effect/platform-node-shared"))
+  assert.equal(runtime.has("typescript"), false)
+  assert.ok(dev.has("typescript"))
+  assert.equal(dependencySets({ manifest: { ...manifest, smthrs: {} } }).runtime.has("@effect/platform-node"), false)
+  assert.throws(() => dependencySets({ manifest: { ...manifest, devDependencies: {} } }), /must equal Effect/)
 })

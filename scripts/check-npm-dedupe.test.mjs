@@ -131,6 +131,7 @@ describe("check-npm-dedupe", () => {
   it("allows a workspace optional peer explicitly installed by the consumer fixture", () => {
     assert.equal(tree.optionalPeers.includes("@smthrs/platform-browser"), false)
     assert.equal(copiesOf(tree.lockPackages, "@smthrs/platform-browser").length, 1)
-    assert.equal(copiesOf(tree.lockPackages, "@effect/platform-bun").length, 1)
+    // Private adapters are shipped inside their owner, without resolver edges.
+    assert.equal(copiesOf(tree.lockPackages, "@effect/platform-bun").length, 0)
   })
 })

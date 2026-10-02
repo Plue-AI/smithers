@@ -559,7 +559,7 @@ const dependencyBoundaries = Smithers.NodeTest({
   summary: "No package imports cross declared workspace boundaries.",
   featured: true,
   runner: Smithers.entrypoint(Smithers.file("//scripts/check-dependency-boundaries.mjs")),
-  srcs: sources,
+  srcs: [...sources, Smithers.file("//packages/repo-targets/scripts/private-effect-adapters.mjs")],
   deps: []
 })
 
@@ -576,7 +576,7 @@ const dependencyBoundaries = Smithers.NodeTest({
  */
 const dependencyBoundariesUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/check-dependency-boundaries.test.mjs")]),
-  srcs: sources,
+  srcs: [...sources, Smithers.file("//packages/repo-targets/scripts/private-effect-adapters.mjs")],
   deps: []
 })
 
