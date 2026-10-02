@@ -32,6 +32,15 @@ const source = (...lines) => `${lines.flat().join("\n")}\n`
 
 const sources = (entries) => new Map([[rootFile, root], ...Object.entries(entries)])
 
+test("workspace service commands are opaque while service controls retain WAF inspection", () => {
+  const paths = YAML.parse(committed()).paths
+  const services = "/api/repos/{owner}/{repo}/workspaces/{id}/services"
+  assert.equal(paths[services].post["x-smithers-opaque-body"], true)
+  assert.equal(paths[services].get["x-smithers-opaque-body"], undefined)
+  assert.equal(paths[`${services}/{name}/{action}`].post["x-smithers-opaque-body"], undefined)
+  assert.equal(paths[`${services}/{port}/visibility`].put["x-smithers-opaque-body"], undefined)
+})
+
 test("the committed bundle is exactly what the per-tag sources produce", () => {
   assert.equal(bundle(readSources(layout.sources)), committed(), "run `smthrs run //:openapiBundle` to re-bundle docs/api/openapi.yaml")
 })
