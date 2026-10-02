@@ -11,3 +11,4 @@
 .mvp-model-menu > button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
 .mvp-agent-receipt { margin: var(--sp-3) 0 0; }
 .mvp-agent-receipt[data-fresh] { border-radius: var(--r-1); animation: mvp-arrive 2.4s var(--ease-current); }
+.mvp-agent-runs { display: flex; flex-wrap: wrap; gap: 4px 10px; }

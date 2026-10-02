@@ -19,6 +19,8 @@ const todos: ReadonlyArray<Todo> = [
   { id: "s-next", title: "Upgrade the Stripe SDK to v17", owner: MAYA, branch: "s-b-next", state: "in-review", pr: 88, prompt: "", approvedRev: "1b2c3d4",
     evidence: { ...EVIDENCE, rev: "9e8f7a6" } },
   { id: "s-after", title: "Retry failed webhooks with backoff", owner: BEN, branch: "s-b-after", state: "in-review", pr: 214, prompt: "", evidence: EVIDENCE },
+  { id: "s-moved", title: "Sign webhook payloads", owner: MAYA, branch: "s-b-ext", state: "needs-you", needs: "moved_off", step: "implement", prompt: "",
+    question: { text: "Maya moved this branch off its item with a checkout over SSH." } },
   { id: "s-blocked", title: "Rotate the webhook signing secret", owner: ALICE, branch: "s-b-blocked", state: "in-review", pr: 219, prompt: "", evidence: EVIDENCE, mergeBlock: "1 approving review required on GitHub" },
   { id: "s-redcheck", title: "Retry Slack notifications", owner: MAYA, branch: "s-b-redcheck", state: "in-review", pr: 224, prompt: "",
     evidence: { ...EVIDENCE, rev: "77c01d2", github: { passed: 4, total: 5, failing: "lint (required)" } } },
@@ -74,9 +76,9 @@ const setup = (): State => {
   place("s-b-waking", "retry-limits-config", "waking", "s-cleared")
   world.branches = world.branches.filter(each => each.id.startsWith("s-b-"))
   world.branches.push({ id: "s-b-scratch", name: "ben/retry-experiment", from: "s-b-after", machine: "asleep", terminals: [], presence: [], activity: [] })
-  world.branches.push({ id: "s-b-ext", name: "retry-webhooks", item: "s-after", from: "main", machine: "awake", terminals: [],
+  world.branches.push({ id: "s-b-ext", name: "sign-webhooks", item: "s-moved", from: "main", machine: "awake", terminals: [],
     presence: [{ who: `${MAYA}~ssh`, where: { kind: "file", path: RETRY_FILE, line: 2 } }, { who: ALICE, where: { kind: "file", path: RETRY_FILE, line: 10 } }],
-    activity: [], rebasePending: "#88", movedOff: { by: `${MAYA}~ssh`, item: "s-after" } })
+    activity: [], movedOff: { by: `${MAYA}~ssh`, item: "s-moved" } })
   world.runs = [
     { id: "r-learn", title: "Learning from #233", state: "done", detail: "2 lessons" },
     { id: "r-wiki", title: "Wiki refresh", state: "running" },
@@ -143,7 +145,7 @@ export const states: Journey = {
     view("Waking: a person's action took the next free machine.", state => { showCard(state, BEN, "branch", "s-b-waking") }),
     view("Closed: its item merged, its machine is gone, and the record stays. Fork starts again from here.", state => { showCard(state, BEN, "branch", "s-b-merged") }),
     view("A scratch branch. Add to stack makes its whole change a new TODO, after the item it forked from or at the end.", state => { showCard(state, BEN, "branch", "s-b-scratch", "add") }),
-    view("Outside changes, handled: one grouped entry opens the diff, unnamed when several sessions were running; a checkout that moved the branch off its item is Needs you; a rebase waits for Rebase now.", state => {
+    view("Outside changes: one grouped entry opens the diff. A checkout that moved the branch off its item makes the item Needs you; Return is the decision.", state => {
       changed(state, "s-b-ext", undefined, 3)
       showCard(state, BEN, "branch", "s-b-ext", "ssh")
     }, 3600),

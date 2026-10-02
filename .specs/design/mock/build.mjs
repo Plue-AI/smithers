@@ -56,12 +56,18 @@ const scopeDark = css => {
   })
   /* Tokens derived from other tokens (color-mix over var(--brand)) resolve where they are declared, so declare
      them again on each screen: a dark screen then blends its own dark base tokens, not the page's light ones. */
-  const derived = []
+  const light = []
+  const dark = []
   root.walkRules(rule => {
-    if (rule.selector !== ":root" || rule.parent?.type !== "root") return
-    rule.walkDecls(/^--/, decl => { if (decl.value.includes("var(")) derived.push(decl.clone()) })
+    if (rule.parent?.type !== "root") return
+    /* Every token, literal or derived: a theme's mapping only holds if the whole set travels together. */
+    if (rule.selector === ":root") rule.walkDecls(/^--/, decl => { light.push(decl.clone()) })
+    if (rule.selector.split(",").map(each => each.trim()).includes(DARK_ROOT)) rule.walkDecls(/^--/, decl => { dark.push(decl.clone()) })
   })
-  if (derived.length > 0) root.append(postcss.rule({ selector: ".mock-shell", nodes: derived }))
+  /* Each screen resolves its theme's mapping itself: light by default, dark under a dark page unless the screen is
+     light, and the screen's own theme wins either way (.mock-shell[data-theme="dark"] comes from the rewrite above). */
+  if (light.length > 0) root.append(postcss.rule({ selector: '.mock-shell, .mock-shell[data-theme="light"]', nodes: light }))
+  if (dark.length > 0) root.append(postcss.rule({ selector: ':root[data-theme="dark"] .mock-shell:not([data-theme="light"]), .mock-shell[data-theme="dark"]', nodes: dark.map(decl => decl.clone()) }))
   return root.toString()
 }
 

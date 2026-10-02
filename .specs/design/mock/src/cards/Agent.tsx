@@ -50,6 +50,12 @@ export const AgentCard = ({ id, target, view }: ExtraCardProps) => {
             </span>
           )}
         </dd>
+        <dt>Runs</dt>
+        <dd className="mvp-agent-runs">
+          {world.traces.filter(trace => trace.phases.some(phase => agent.steps.includes(phase.step))).slice(-3).map(trace => (
+            <button key={trace.id} type="button" className="mvp-file-link" data-mock={`agent-run-${trace.id}`}>{trace.title}</button>
+          ))}
+        </dd>
       </dl>
       {agent.changed === undefined ? null : (
         <p className="mvp-receipt-line mvp-agent-receipt" data-fresh={agent.changed.seq === seq || undefined}>

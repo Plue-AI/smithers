@@ -745,9 +745,8 @@ a.mvp-link {
 	color: var(--text);
 	font: inherit;
 	font-size: var(--fs-small);
-	outline: none;
 }
-.mvp-inline-input input:focus { border-color: var(--ring-border); box-shadow: 0 0 0 3px var(--ring); }
+.mvp-inline-input input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .mvp-inline-input input::placeholder { color: var(--text-placeholder); }
 .mvp-steer { margin-top: var(--sp-3); }
 
@@ -1253,10 +1252,9 @@ body { overflow: hidden; }
 	font-size: var(--fs-small);
 	line-height: 1.5;
 	resize: none;
-	outline: none;
 }
-.mvp-field input:focus,
-.mvp-field textarea:focus { border-color: var(--ring-border); box-shadow: 0 0 0 3px var(--ring); }
+.mvp-field input:focus-visible,
+.mvp-field textarea:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .mvp-field input { font-weight: 500; }
 .mvp-field-row {
 	display: flex;
@@ -1666,7 +1664,7 @@ body { overflow: hidden; }
 .mvp-secrets code { min-width: 130px; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
 .mvp-scope { height: 28px; font-weight: 400; color: var(--text-muted); }
 .mvp-secret-add { display: grid; grid-template-columns: 150px minmax(0, 1fr) max-content max-content; gap: 8px; align-items: center; }
-.mvp-secret-add input { height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 12.5px; outline: none; }
+.mvp-secret-add input { height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-1); background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 12.5px; }
 
 /* PORT · line comments: a steer anchored to a line, mirrored to GitHub */
 .mvp-gh { flex: none; color: var(--text-muted); vertical-align: -2px; }

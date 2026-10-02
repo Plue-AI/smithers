@@ -56,7 +56,11 @@ const setVersion = (state: State, id: string, patch: Partial<FlowVersion>): void
 const setup = (): State => {
   const state = seedState([MAYA])
   const { world } = state
-  /* T8 and T9 merged earlier. Alice's T10 started on v1 and is working; Maya's T11 is queued and has not started. */
+  /*
+   * T8 and T9 merged earlier. Alice's T10 started on v1 and is working; Maya's T11 is queued and has not started.
+   * Two machines (M-06): once T12 holds one, T11, the learning run and T10's retry each wait their turn for one.
+   */
+  world.capacity = 2
   world.todos = world.todos.filter(each => each.id === "t-checkout" || each.id === "t-log")
   world.stack = ["t-checkout", "t-log"]
   world.branches = world.branches.filter(each => each.id === "b-checkout" || each.id === "b-log")
@@ -169,15 +173,14 @@ export const j5: Journey = {
     },
     {
       spec: "J5.3",
-      caption: "The install syncs and loads it: v2 is Active for every TODO that starts from now on. The learning run starts working.",
+      caption: "The install syncs and loads it: v2 is Active for every TODO that starts from now on.",
       hold: 3200,
       act: state => {
         setVersion(state, "v1", { state: "previous" })
         setVersion(state, "v2", { state: "active", steps: stepsOf(V2_STEPS, ["changelog"], state.seq) })
         state.world.flow = stepsOf(V2_STEPS)
+        /* T12's machine is free again. T11 waited longest, so it starts, on v2; the learning run stays queued. */
         start(state, "t-log", "plan", "v2", V2_STEPS)
-        run(state, { id: LEARNING, title: LEARNING_TITLE, state: "running", queue: undefined })
-        toast(state, MAYA, { tone: "running", title: LEARNING_TITLE, detail: "Working" })
         toast(state, MAYA, { tone: "ok", title: "TODO flow v2 is active", detail: "New TODOs use it" })
         showCard(state, MAYA, "flow", "todo")
       }
@@ -205,16 +208,19 @@ export const j5: Journey = {
         release(state, "b-checkout", "asleep")
         setTodo(state, "t-log", { step: "verify", elapsed: "7m" })
         agentAt(state, "b-log", "verify")
+        /* T10's machine is free, so the learning run starts. */
+        run(state, { id: LEARNING, title: LEARNING_TITLE, state: "running", queue: undefined })
+        toast(state, MAYA, { tone: "running", title: LEARNING_TITLE, detail: "Working" })
         showCard(state, MAYA, "todo", "t-checkout")
       }
     },
     {
       spec: "§4.1",
-      caption: "She presses Retry. T10 queues again, as attempt 2.",
-      target: '[data-mock="retry-t-checkout"]', hold: 2400,
+      caption: "She presses Retry. T10 queues again as attempt 2, waiting for a machine.",
+      target: '[data-mock="retry-t-checkout"]', hold: 2600,
       pre: state => { dismissToasts(state, MAYA) },
       act: state => {
-        setTodo(state, "t-checkout", { state: "queued", step: undefined, failure: undefined, attempts: 2 })
+        setTodo(state, "t-checkout", { state: "queued", queue: 1, step: undefined, failure: undefined, attempts: 2 })
         showCard(state, MAYA, "todo", "t-checkout")
       }
     },
@@ -224,7 +230,8 @@ export const j5: Journey = {
       hold: 3400,
       act: state => {
         const { world } = state
-        setTodo(state, "t-checkout", { state: "working", step: "plan", elapsed: "0m" })
+        /* The learning run finished and freed its machine: attempt 2 starts, on the version T10 started with. */
+        setTodo(state, "t-checkout", { state: "working", queue: undefined, step: "plan", elapsed: "0m" })
         agentAt(state, "b-checkout", "plan")
         setTodo(state, "t-log", { step: "changelog", elapsed: "12m" })
         agentAt(state, "b-log", "changelog")
@@ -251,7 +258,7 @@ export const j5: Journey = {
       target: `[data-mock="proposal-todo-${LEARNING}"]`, hold: 3000,
       act: state => {
         const { world } = state
-        world.todos.push({ ...LINT_TODO, seq: state.seq })
+        world.todos.push({ ...LINT_TODO, queue: 1, seq: state.seq })
         world.stack.push(LINT_TODO.id)
         world.branches.push({ id: "b-lint", name: "todo-flow-lint", item: LINT_TODO.id, from: "main", machine: "asleep", presence: [], activity: [], terminals: [] })
         world.proposals.find(each => each.id === LEARNING)!.todo = LINT_TODO.id
@@ -261,7 +268,7 @@ export const j5: Journey = {
     },
     {
       spec: "J5.5",
-      caption: "Later, T10 and T11 merge. T13, started on v2, opens PR #92 and is next to merge.",
+      caption: "Later, T10 and T11 merge. T13 opens PR #92 and is next to merge.",
       hold: 3000,
       act: state => {
         for (const [id, pr] of [["t-checkout", 90], ["t-log", 91]] as const) {
@@ -269,7 +276,8 @@ export const j5: Journey = {
           release(state, todo(state.world, id).branch, "closed")
           run(state, { id: `learn-${pr}`, title: `Learning from #${pr}`, state: "done", detail: "1 lesson", todo: id })
         }
-        setTodo(state, LINT_TODO.id, { state: "in-review", pr: 92, evidence: LINT_EVIDENCE, steps: stepsOf(V2_STEPS), flowVersion: "v2" })
+        /* T13 started once a machine freed up, on v2, the active version then. */
+        setTodo(state, LINT_TODO.id, { state: "in-review", queue: undefined, pr: 92, evidence: LINT_EVIDENCE, steps: stepsOf(V2_STEPS), flowVersion: "v2" })
         showCard(state, MAYA, "todo", LINT_TODO.id)
       }
     },

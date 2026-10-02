@@ -24,7 +24,7 @@ export const placeOf = (world: World, todo: Todo): string => {
 }
 
 /* Reasons a person resolves somewhere else: the card names it and offers the one action, never an answer field. */
-const ELSEWHERE: Partial<Record<NonNullable<Todo["needs"]>, string>> = { conflict: "Resolve", moved_off: "Resolve", force_push: "Review", order: "Move" }
+const ELSEWHERE: Partial<Record<NonNullable<Todo["needs"]>, string>> = { conflict: "Resolve", force_push: "Review", order: "Move" }
 
 const Question = ({ todo }: { readonly todo: Todo }) => {
   const frame = useFrame()
@@ -52,6 +52,12 @@ const Question = ({ todo }: { readonly todo: Todo }) => {
             </div>
           )}
         </>
+      ) : todo.needs === "moved_off" ? (
+        /* B.4 todo.return-to-item and todo.keep-moved: the working copy goes back on the item, or the move is recorded. */
+        <div className="mvp-actions mvp-ask-elsewhere">
+          <Button size="sm" variant="solid" data-mock={`return-${todo.id}`}>Return to {refOf(world, todo)}</Button>
+          <Button size="sm" variant="ghost" data-mock={`keep-moved-${todo.id}`}>Keep for now</Button>
+        </div>
       ) : todo.needs === "foreign_push" ? (
         /* A person's commit is never overwritten: bring it in (the branch rebases onto it at a checkpoint) or discard it on purpose. */
         <div className="mvp-actions mvp-ask-elsewhere">
@@ -182,7 +188,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
         {branch?.machine === "waiting" && todo.state === "working" ? <span className="mvp-waiting">Waiting for a machine · #{branch.waitPosition ?? 1}</span> : null}
         {place === "" ? null : <span>{place}</span>}
         {(todo.attempts ?? 1) > 1 ? <button type="button" className="mvp-count-chip">Attempt {todo.attempts}</button> : null}
-        {todo.issue === undefined ? null : <span>{todo.state === "merged" ? "closed" : "from"} #{todo.issue}</span>}
+        {todo.issue === undefined ? null : <span>{todo.state === "merged" && world.issues.find(each => each.number === todo.issue)?.fixes !== false ? "closed" : "from"} #{todo.issue}</span>}
         <span>{actorName(world, todo.owner)}</span>
       </div>
       {todo.state === "queued" || todo.state === "starting" || todo.state === "dropped" ? (

@@ -8,7 +8,7 @@
  * the card links that TODO and its state, and the evidence folds away.
  */
 import { Button } from "@smthrs/ui"
-import { ArrowUpRight, BookOpen, Check, GitCommitHorizontal, Lightbulb, RotateCw, X } from "lucide-react"
+import { ArrowUpRight, BookOpen, Check, ChevronRight, GitCommitHorizontal, Lightbulb, RotateCw, X } from "lucide-react"
 import { Card, Ref, StatePill } from "../parts"
 import { useFrame } from "../frame"
 import type { BackgroundRun } from "../world"
@@ -40,7 +40,7 @@ export const ProposalCard = ({ id, target }: ExtraCardProps) => {
       {pages.length === 0 ? null : (
         <div className="mvp-learning-lessons">
           <BookOpen size={13} aria-hidden="true" />{pages.length} {pages.length === 1 ? "lesson" : "lessons"}
-          {pages.map(page => <button key={page.id} type="button" className="mvp-file-link" data-mock={`lesson-${page.id}`}>{page.title}</button>)}
+          {pages.map(page => <button key={page.id} type="button" className="mvp-learning-page" data-mock={`lesson-${page.id}`}>{page.title}</button>)}
         </div>
       )}
       {proposal === undefined ? null : (
@@ -50,7 +50,7 @@ export const ProposalCard = ({ id, target }: ExtraCardProps) => {
             {made === undefined ? <span className="mvp-proposal-tag">Suggested</span> : null}
           </div>
           <details className="mvp-learning-evidence" open={made === undefined}>
-            <summary data-mock={`proposal-evidence-${run.id}`}>Evidence</summary>
+            <summary data-mock={`proposal-evidence-${run.id}`}><ChevronRight size={13} aria-hidden="true" />Evidence</summary>
             <p data-copy="data">{proposal.evidence}</p>
             <div className="mvp-proposal-refs">{proposal.refs.map(ref => <a key={ref} className="mvp-ref" href="#">#{ref}</a>)}</div>
           </details>

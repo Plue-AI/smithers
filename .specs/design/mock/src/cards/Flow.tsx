@@ -9,7 +9,7 @@
  * names the model its agent runs on and opens that agent's card.
  */
 import { Button } from "@smthrs/ui"
-import { Check, FileCode2, GitPullRequest, Hourglass, Loader, Lock, Play, TriangleAlert } from "lucide-react"
+import { Check, FileCode2, GitPullRequest, Hourglass, ListTree, Loader, Lock, Play, TriangleAlert } from "lucide-react"
 import { Avatar, Card } from "../parts"
 import { useFrame } from "../frame"
 import type { FlowVersion } from "../world"
@@ -100,6 +100,7 @@ export const FlowCard = ({ id, target, view }: ExtraCardProps) => {
       {selected.state === "active" ? (
         <div className="mvp-actions">
           <Button size="sm" variant="ghost" data-mock="flow-source"><FileCode2 size={14} aria-hidden="true" />Source</Button>
+          <Button size="sm" variant="ghost" data-mock="flow-plan"><ListTree size={14} aria-hidden="true" />Plan</Button>
           <Button size="sm" variant="ghost" data-mock="flow-run"><Play size={13} aria-hidden="true" />Run</Button>
           {versions.length === 1 ? <span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock="flow-edit">Change</Button></span> : null}
         </div>

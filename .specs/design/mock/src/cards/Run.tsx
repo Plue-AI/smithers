@@ -363,7 +363,7 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
                         {phase.took === undefined ? null : <span className="mvp-took">{duration(phase.took)}</span>}
                       </div>
                       <Indicator phase={phase} past={finished(shown)} step={stepTitle(phase.step)} />
-                      {open(phase) ? null : <button type="button" className="mvp-run-collapsed" data-mock={`phase-${phase.id}`}>{phase.cells.length} {phase.cells.length === 1 ? "step" : "steps"}</button>}
+                      {open(phase) ? null : <button type="button" className="mvp-run-collapsed" data-mock={`phase-${phase.id}`}>{phase.cells.length} {phase.cells.length === 1 ? "action" : "actions"}</button>}
                       {!open(phase) ? null : <ol className="mvp-run-cells">
                         {phase.cells.map(cell => (
                           <li key={cell.id}>

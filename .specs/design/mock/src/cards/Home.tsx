@@ -20,7 +20,8 @@ const FILTERS: ReadonlyArray<{ state: TodoState; word: string }> = [
 
 /** A Needs you item's one action follows from why it needs a person. */
 export const needsAction = (todo: Todo): string =>
-  todo.needs === "conflict" || todo.needs === "moved_off" || todo.failure === "conflict" ? "Resolve"
+  todo.needs === "moved_off" ? "Return"
+  : todo.needs === "conflict" || todo.failure === "conflict" ? "Resolve"
   : todo.needs === "foreign_push" || todo.needs === "force_push" ? "Review"
   : todo.needs === "order" ? "Move" : "Answer"
 

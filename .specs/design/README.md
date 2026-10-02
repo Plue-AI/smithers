@@ -1,6 +1,8 @@
 # Smithers MVP design
 
-The design spec is a working mock of the app: [`mock/`](mock/). It plays every P0 journey of the product spec on the app's real stylesheet, Paper palette and `@smthrs/ui` primitives. [`../product/mvp.md`](../product/mvp.md) is the requirements authority; this page records the design decisions the mock embodies.
+The design spec is a working mock of the app: [`mock/`](mock/). It plays every P0 journey of the product spec on the app's real stylesheet, Paper palette and `@smthrs/ui` primitives. [`../product/mvp.md`](../product/mvp.md) is the requirements authority; this page records the design decisions the mock embodies. [`architecture.html`](architecture.html) draws them: one anchored diagram per recurring question.
+
+Every reel step cites the spec line it shows in the caption chip ("J3.5", "§4.2", "B.4", "M-34"), so a review note lands on that line. Press play to judge motion: co-editing, typing and the composer exist only while a step plays.
 
 ## Run it
 
@@ -53,8 +55,10 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 
 - **Chat plus cards.** Every surface is a card in a conversation. There are no tabs, no notification center and no repository switcher.
 - **Crumbs and the branch tree.** `acme/api / main / retry-webhooks ▾`. Parent crumbs go up; the last crumb opens the branch tree: main, each item's branch in stack order, and forks under their origin, with presence.
-- **Timeline (desktop only).** One line per entry: a title and a cheap model's one-line summary. Live entries pulse, Needs you is gold, and failures are ember. A band marks what is on screen. Live work off screen pins to the top or bottom edge, two rows at most plus a count. On narrow screens each edge collapses to one pill ("↑ 2 live above").
-- **Notifications.** Notable events and anything that needs a person also pop at the bottom-left, three at most. One with an action stays until someone acts or hides it; hiding keeps its timeline entry. At a person's first Needs you, Smithers asks once to notify them while the tab is hidden; on plain HTTP it can't, and Settings links to the HTTPS docs.
+- **Timeline (desktop only).** One element. One line per entry: a title and a cheap model's one-line summary. Live entries pulse, Needs you is gold, and failures are ember. A band marks what is on screen, and the rail scrolls to keep it in view. Live work off screen pins to the top or bottom edge, two rows at most plus a count. On narrow screens each edge collapses to one pill ("↑ 2 live above").
+- **Notifications.** Notable events and anything that needs a person are notices: on a desktop they dock at the rail's foot as its own bottom rows (one element per event, never floating over a card); on a narrow screen they float bottom-left. Three at most. One with an action stays until someone acts or hides it; hiding is per person and keeps its timeline entry. At a person's first Needs you, Smithers asks once to notify them while the tab is hidden; on plain HTTP it can't, and Settings links to the HTTPS docs.
+- **Shared and personal.** In a branch's conversation, prompts carry their author and Smithers' answers say whom they were for. Cards and receipts are shared. Scroll, card views, theme, notice hides and unsent drafts are each person's own. There is no person-to-person chat.
+- **Scroll authority.** A card shown to a person is where they are now: their screen goes there; nobody else's moves. A still or seeked frame shows the step's subject too.
 - **Maximize.** Any card opens larger in place, with Restore. Inspect is the maximized Run card.
 
 ## Who acts, and how it looks
@@ -62,10 +66,11 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 | Actor | Looks like | Example |
 | --- | --- | --- |
 | A person | A circle in their lane color | Alice |
+| Smithers (the app agent and the stack service, M-34) | An ink square with "S", a participant like anyone: presence, activity, line flags, chat | Smithers · reading retry.ts:14 |
+| Smithers acting for a person | The same square with the person's color on its corner | Smithers for Ben |
 | A branch's coding agent | A teal rounded square | Coding agent |
-| An agent acting for a person | The person's circle with an agent badge | Ben via Smithers, Ben via Claude Code |
+| A person's own agent in their terminal | The person's circle with an agent badge | Ben via Claude Code |
 | A person over SSH | The person's circle with a terminal badge | Maya via SSH |
-| The stack service (jj) | An ink square, "Smithers" | Maya asked · Rebased onto T8 |
 | An unattributable outside write | A neutral square | Changed outside Smithers · 3 files |
 
 - **The coding agent renders like a teammate** (mvp.md B.3):
@@ -74,7 +79,7 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
   - shell commands run in its own Terminal session that anyone can watch;
   - context is the Context chip;
   - a question is Needs you.
-- **The app agent** acts with the person's authority, as "Ben via Smithers".
+- **The app agent** acts with the person's authority, as "Smithers for Ben".
   - **Runs at once:** reads, steer, answer, stop, resume, retry, rebase, fork, run a flow, and wiki writes.
   - **One-click confirmation (A✓):** commit or drop a TODO, add to stack, delete a wiki page, and propose a flow or agent edit. Only the asker can press it, with ⏎.
   - **Merge:** it opens the person's own Review & merge.
@@ -88,7 +93,10 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
   - An answer that arrives after the machine was released → Queued.
   - Dropped is a person's act.
 - **One attempt is one durable run:** Plan → Implement → Verify → Review → Propose, then a calm, dashed wait for merge. A rebase signal loops the run back to Verify. Every card's step strip ends in that wait.
-- **Evidence is bound to a revision.** A rebase or push reruns the checks, and an earlier approval no longer applies.
+- **Evidence is bound to a revision.** A rebase or push reruns the checks and the review; while they run, the strip is back at Verify, and the old review shows only as history. An earlier approval no longer applies.
+- **One merge rule** (`mergeReadiness` in `mock/src/world.ts`), read by the Home row, the TODO card and Review & merge: role ("A maintainer merges"), then stack order ("Merges after T8"), then this revision's checks and review, then GitHub's rule in its own words. The reason is text beside where Merge would be, never a disabled button.
+- **Run monitor.** Phase titles are deterministic, from the step and its output ("Ran tests · 1 failed ×3"). The one-line summary under each and every cell's explanation are the fast model's, marked with a small sparkle; without one, the title stands alone. Answer settles a question; Steer never does.
+- **Refs never reorder.** A TODO keeps its T number from commit; a new one takes the next number above every existing ref.
 - **Merging is in stack order.** Later items' PRs are GitHub drafts ("Draft · merges after T8"). They are based on main and list the earlier items they include. An item merged out of order on GitHub reads "Merged · in T15's commit".
 
 ## Cards
@@ -144,4 +152,4 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 - 0d92b5c2 (#3419): toast detail wraps.
 - c22ce091 (#3420): the toast stack caps at three with "+N more".
 - c04637a6 (#3421): every `:focus-visible` outline uses `--ring-border`.
-- Filed: #3427 (light ring contrast; use `--water-500`) and #3428 (DeadCss red).
+- 664360dc (#3427): the light focus ring is `--water-500` (4.57:1 on `--surface-2`), with a 3:1 contrast test in every palette and mode. 803cbc58 removed two node_modules symlinks that commit carried by mistake.
