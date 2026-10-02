@@ -778,7 +778,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `toast.dismiss` | Hide a toast | P | Keep | toast |
 | (new) `notifications.allow` | Allow browser notifications (the one-time ask) | P | Keep, Missing | toast |
 | `app.hint.dismiss` | Dismiss the one hint | P | Keep | none |
-| `search.open`, `search.files`, `.flows`, `.issues`, `.runs`, `.wiki`, `.changes`, `.history` | Palette search | P, A | Keep (`/search`) | search-results |
+| `search.open`, `search.files`, `.flows`, `.issues`, `.runs`, `.wiki`, `.changes`, `.history` | Palette search | P,P, A, X | Keep (`/search`) | search-results |
 | `search.targets`, `search.boxes`, `search.secrets` | Search build targets, boxes, secrets | – | Cut (targets, boxes); Hide (secrets: names only, on the Secrets card) | – |
 | `storage.recovery`, `.export`, `.reset` | Private local recovery | P (offer: A) | Keep | message |
 | `runs.graph.*`, `runs.trace.*`, `runs.coding.select`, `runs.steps`, `flow.plan.select`, `flow.plan.tab` | Monitor and plan-view controls | P, A | Keep (monitor) | run-trace, flow-plan |
@@ -847,7 +847,7 @@ Coding agents and external agents can't call these (they have no screen). The ap
 | `browser.open` | Read a web page as a card | P, A | Keep | browser |
 | `secrets.list`, `.set`, `.delete`, `.scope`, `.bind` | Repository secrets | Maintainer (P only; agents: never) | Rename → `/secrets` | secrets |
 | `secrets.connect`, `.connect.codex`, `.connections`, `.move`, `.revoke`, `env.*` | Subscription and environment connections | Owner | Rename → `/settings` (model access) | settings |
-| `github.app`, `github.app.choose`, `github.app.open`, `github.reconcile` | GitHub App and sync health | Owner (status: P, A) | Rename → `/github`, setup card | github |
+| `github.app`, `github.app.choose`, `github.app.open`, `github.reconcile` | GitHub App and sync health | Owner (status: P, A, X) | Rename → `/github`, setup card | github |
 | `github.mirror-sync`, `github.mirror.retry-ref`, `sync.ops.show-more` | Mirror plumbing | S | Hide (the sync row's Retry calls it) | – |
 | `auth.sign-in`, `auth.sign-out`, `auth.prompt`, `account.show` | Sign in, account | P | Keep (`/sign-in`, `/sign-out`; account inside Settings) | account |
 | (new) `members`, `members.add`, `.role`, `.remove` | People and roles | Maintainer (P only; agents: never) | Keep, Missing | members |
@@ -902,6 +902,7 @@ These are actions on a card, not slash commands, each with a stable id for the c
 | `merge.confirm` (**Review & merge**) | PR | The person's approval, bound to the reviewed revision | Maintainer only |
 | `order.ok` (**OK**) | Needs you: out-of-order merge ("T3 merged before T2") | Acknowledge, and both items stay Merged with the note | P, A |
 | `background.retry` (**Retry**) / `background.dismiss` (**Dismiss**) | Home card: a failed background run | Retry the run, or remove it from the home card (its record stays) | P, A |
+| `main.reset-to-github` (**Reset to GitHub main**) | Needs you: `main` rewritten on GitHub (§6.3) | Accept the rewritten `main`; the stack rebases onto it | Owner only |
 
 ### B.5 System orchestration and background runs
 

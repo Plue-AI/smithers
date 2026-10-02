@@ -20,7 +20,7 @@ decided one at a time.
   agents never merge or move `main`.
 - Build in the order of mvp.md §11 (walking skeleton first). Maintainers with
   outside contributors get their release one week after launch (§14); items in
-  §16 ship in the first release after the MVP. Don't build either early.
+  §16 are deferred with no promised release. Don't build either early.
 
 ### Superseded 2026-10-01 rulings ([#3385](https://github.com/smithersai/smithers/issues/3385))
 
