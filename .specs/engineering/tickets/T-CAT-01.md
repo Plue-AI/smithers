@@ -1,0 +1,67 @@
+# T-CAT-01 One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B
+
+Stage S1 · Size L · Depends on — · Unblocks T-FLW-05, T-CAT-02, T-CUT-01, T-CUT-03 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
+Spec: spec.md §6.1.1–§6.1.4, §14.2, §15.1.4, §15.1.5, §15.3 · Delta: delta.md §9 (Add one catalog source; Hide/Delete every command not in Appendix A) · Product: mvp.md §2 rule 1, §6.4 "Commands", §6.13, §6.14 (Advanced group), §8 (CLI and skill), §11 stage 1 item 8, M-21, Appendix A, Appendix B (B.1, B.2, B.4, B.6), Appendix C (`actions.md`)
+
+## Goal
+The palette, slash menu, `/help` and the app agent's tool list show exactly mvp.md Appendix A plus repository flows. Every command is declared once in a descriptor that the app, the CLI and the skill all read. A build that registers a command, control or flow tag absent from Appendix B or Appendix C, or marked Cut there, fails. Card copy passes one product-words lint.
+
+## Scope
+In:
+- The descriptor type and one descriptor per Appendix A command and per Appendix B.4 in-card control. Each descriptor, and each `catalog.mvp.json` row (§6.1.2), holds:
+  - name, slash, payload zod schema and the HTTP binding when the command calls the API;
+  - CLI path, `cli: null` for UI-only rows (⌘K, `/help`, `/stop`, `/theme`);
+  - journey and group;
+  - visibility: `core`, `advanced`, `in-card` or `hidden`;
+  - `agent: run | confirm | never` (§15.1.5) and the person-only flag.
+- `agent` comes from Appendix B's Who column: **A** → `run`, **A✓** → `confirm`, no A → `never`. Person-only rows, `/sign-in` and `/sign-out` are `never` and absent from the agent's tools (§6.1.2, §15.1.4). Repository flows follow `flow.run` (**A**), so they are `run`.
+- `in-card` commands: the B.4 controls with their stable ids (`todo.return-to-item`, `todo.keep-moved`, `branch.bring-in`, `branch.discard-foreign`, `file.restore`, `file.compare`, `file.restore-deleted`, `file.follow-rename`, `todo.retry-current-flow`, `branch.rebase-now`, `learning.accept`, `learning.dismiss`, `terminal.watch`, `notifications.allow`, `todo.takeover`, `merge.confirm`), plus the B.1 card controls (`card.*`, `form.*`, `chat.filter.*`, `toast.dismiss`). They keep the three doors but are absent from `/help` and Appendix A.
+- The app registry reads descriptors. Old ids in the "was" column are renamed (for example `history.todo` → `todo.new`), with no alias left behind.
+- Allowlist hiding: an app entry that isn't in Appendix A, isn't `in-card` and isn't a repository flow is `hidden` by construction. It's absent from the slash menu, palette, `/help` and the agent's tools (§6.1.3).
+- The allowlist test (§6.1.2). It derives from B.1, B.2, B.4 and B.6, plus Appendix C:
+  - App: every registered app flow id matches a B.1, B.2 or B.4 row (its current id, its Rename target or a "(new)" id), and no row marked Cut is registered.
+  - CLI: every command in the backend command tree (`Definitions.ts`) matches a B.6 kept item (including `smthrs host start|stop|status|upgrade|backup|restore`) or an Appendix A row allowed to X. The groups B.6 cuts from MVP docs and acceptance (`admin`, `org`, `webhook`, …) are `hidden` and stay published (§6.1.3, mvp.md §8).
+  - Flow tags: every `Flow.make`, `Action.make` and `AgentAction.make` tag registered in shipped flows and std tools has an Appendix C row (`.specs/product/actions.md`, 386 rows), and none is marked Cut. Defer and Internal ops rows pass. A ticket that adds a tag adds its row in the same change.
+- Repository-flow doors are outside the Appendix A equality. They are asserted separately: each `flows/<name>/flow.ts` on `main` yields exactly one `/<name>` door in the slash menu, palette, `/help` and the agent's tools (C-CAT-01).
+- `/help` lists the catalog by group, with Advanced collapsed (mvp.md §6.14).
+- `catalog.mvp.json`, generated from the descriptors, with a freshness check.
+- The product-words lint of §14.6b (C-UI-02): banned terms (workflow, thread, task, lane, box, workspace, mythical, sandbox, VM, seat, profile) in visible chrome text, at most 12 words per card body line, no explanatory sentences.
+- The list of hidden app entries that duplicate a CLI command, so T-CAT-02 deletes one side.
+
+Out:
+- CLI doors, flags and the skill (T-CAT-02).
+- The confirmation a `confirm` dispatch posts (T-ACC-05).
+- Deleting cut surfaces (T-CUT-01, T-CUT-02) and deferred-surface doors (T-CUT-03).
+- New commands' behavior. Each `new` row's handler lands with its feature ticket, such as T-STK-02 `/todo.amend` or T-FLW-05 `/flow.edit`. Here it gets its descriptor and a typed "not available yet" refusal (§6.2.3 class `infra`) that names nothing internal.
+
+## Changes
+- `packages/rpc/src/catalog/mvpAppendix.ts` (new): parses the Appendix A and B tables from `.specs/product/mvp.md` and the Appendix C tables from `.specs/product/actions.md`, the single sources. Declare both files as test inputs with `Smithers.file(...)` in `packages/rpc/PACKAGE.ts` (AGENTS.md "Cache contracts"). T-DOC-03 moves the paths if they move. T-FLW-07 reads the Appendix C renderings from the same parser.
+- `packages/rpc/src/catalog/Command.ts`, `commands/*.ts` (one file per Appendix A group, plus `in-card.ts`) and `index.ts` (new).
+- `packages/rpc/src/catalog/generate.ts` (new) writes `packages/rpc/src/catalog/catalog.mvp.json` (committed). `--check` fails on drift.
+- `apps/app/src/mainview/flows/entries/Declare.ts` (`flow({...})`): a catalog command's entry takes name, summary, schema, visibility and `agent` from its descriptor.
+- `apps/app/src/mainview/flows/FlowName.ts:17` (`FLOW_NAMES`): apply the renames.
+- `apps/app/src/mainview/flows/registry.ts`: `NAMESPACES` (`:361`) follows Appendix A groups; `slashItems` (`:610`) and `disclosedToAgent` (`:544`) read catalog visibility and `agent`; `discloseToAgent` overrides are deleted.
+- `apps/app/src/mainview/flows/agentTools.ts`: the agent's list is every row with `agent ≠ never`, plus repository flows. `modelInvocable` and `userOnlyReason` are replaced by `agent`.
+- `apps/app/src/mainview/flows/entries/chat.ts` (`chat.commands`, `/help`): groups by descriptor group, Advanced collapsed, `in-card` rows omitted.
+- `apps/app/src/mainview/cards/productWords.ts` (new): the §14.6b term list, shared with C-CAT-03.
+- Update tests and specs that name renamed ids: `flows/{agent-parity,parity,parity-hosts,registry,namespaces}.test.ts`, `apps/app/e2e/playwright/*.spec.ts`, `apps/app/e2e/real/coverage/deferrals/*.ts` and `FormCardsAgainstMain.main.json`.
+
+## Tests
+- Unit `packages/rpc/src/catalog/AppendixA.test.ts` (new): one descriptor per Appendix A row and B.4 control; `catalog.mvp.json` freshness; every payload schema parses its own example; each row's `agent` equals its Appendix B Who column; `cli` is `null` exactly for UI-only rows.
+- Unit `apps/app/src/mainview/flows/catalog-allowlist.test.ts` (new) for C-CAT-01. It builds the real registry and computes the slash, palette, `/help` and agent-tool sets. Without repository flows, the first three equal Appendix A (plus `in-card` rows for slash and palette); the agent set equals the rows with `agent ≠ never`. With fixture repository flows, each set gains exactly their doors.
+- Unit `packages/rpc/src/catalog/AppendixB.test.ts` (new) for C-CAT-01: a registered app id or backend CLI command absent from B.1, B.2, B.4 or B.6, or marked Cut there, fails and names the row.
+- Unit `packages/rpc/src/catalog/AppendixC.test.ts` (new) for C-CAT-01: every tag in the built flow registry has a non-Cut Appendix C row; a fixture tag with no row fails and names it.
+- Unit `apps/app/src/mainview/cards/ProductWords.test.tsx` (new) for C-UI-02.
+- Unit `flows/agent-parity.test.ts`: every person-only row is absent from the agent's tools (§15.1.4).
+- e2e regression: run `apps/app/e2e/playwright` and `apps/app/e2e/real` before and after, and attach both reports. Each new failure ties back to a rename.
+
+## Acceptance
+- [C-CAT-01](../checks/C-CAT-01.md): the visible catalog equals Appendix A, excluding repository-flow doors (asserted against `flows/*/flow.ts`); every registered command, control and tag is in Appendix B or C, and none marked Cut is registered.
+- [C-UI-02](../checks/C-UI-02.md): no banned terms or explanatory sentences in card chrome.
+
+## Risks and notes
+- **Overview risk:** the renames break the 116 Playwright specs. Migrate group by group behind the allowlist test. A suite that drops by more than the renamed specs means a lost door.
+- **Appendix B shorthand.** Rows abbreviate ids (`chat.queue`, `.edit`; `runs.graph.*`). The parser expands a leading-dot name against the previous id's namespace and treats `*` as any suffix. Appendix C has runtime-built ids in angle brackets, matched by pattern. Observation that confirms a wrong rule: a kept id fails the allowlist. The test writes its expansion to the evidence for product to read.
+- Open: Appendix C marks 87 registered tags Cut (C.22), so the tag check fails until they are deleted. The deletions land in this ticket or T-CUT-01 before the check gates CI. Owner: tech lead.
+- Open: three in-card controls the spec names have no B.4 row yet: the order attention's **OK** (§10.6.4, see T-GH-05) and the Home card's background-run Retry and Dismiss (§14.3; Retry can map to `runs.rerun`). Owner: product.
+- Appendix B inventoried 304 app flows; `rg` counts 267 `name:` literals plus wiki operations from `packages/smithers/ui/src/app-operations/wiki.ts`. Generate the list from the built registry in the test, not with `rg`.
