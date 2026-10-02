@@ -6,7 +6,7 @@
  * thing: a TODO's run has no card of its own in the conversation). Inside,
  * attempt 1 beside it, phases under each step titled by what they recorded,
  * each with the fast model's one-line summary, a thrashing indicator, a wait
- * for a person, Ben's steer, two reviewers, the PR, and the wait for merge
+ * for a person, Ben's answer, two reviewers, the PR, and the wait for merge
  * going back to Verify when main moves.
  */
 import type { Journey } from "../journey"
@@ -16,7 +16,6 @@ import { ALICE, BEN, RETRY, seedState } from "./seed"
 const TODO = RETRY.id
 const RUN = "run-retry"
 const RUN_CARD = `run:${RUN}`
-const STEER = "Use backoff() everywhere we sleep before a retry."
 const FAIL = ["$ pnpm test webhooks", " FAIL  src/webhooks/retry.test.ts", "   ✗ retries a 503 with backoff   5001 ms", "     Error: test timed out after 5000 ms"]
 const PASS = ["$ pnpm test webhooks", " PASS  src/webhooks/retry.test.ts", " Tests  14 passed"]
 
@@ -73,7 +72,24 @@ export const PHASES = (): Array<Phase> => [
   }
 ]
 
-/* After the question: the checks, two reviewers and the PR, then the rebase and recheck when T8 merges. J11 shows them once T9 merged. */
+/** Ben's answer, in his words: the one he gives T9's question in J3. */
+export const ANSWER = "Use backoff() from lib/backoff everywhere we sleep before a retry."
+
+/** Answer settles the wait: Ben's words join the question's phase, which keeps how long it waited. A steer never settles it. */
+export const settle = (ask: Phase, seq?: number): void => {
+  Object.assign(ask, { tone: "ok", indicator: undefined, took: 180, summary: "Ben answered after 3 min." })
+  ask.cells = [...ask.cells.map(each => each.id === "c-ask" ? { ...each, took: "3 min" } : each), cell("c-answer", "answer", ANSWER, { who: BEN, seq })]
+}
+
+/* After the answer: the agent's edits, the checks, two reviewers and the PR, then the rebase and recheck when T8 merges. J11 shows them once T9 merged. */
+export const FOLLOW = (seq?: number): Phase => ({
+  id: "p-answer", step: "implement", title: "Edited 2 files", summary: "Following Ben's answer: the second wait was in redeliver().", took: 120, tone: "ok",
+  cells: [
+    cell("c-edit-redeliver", "edit", "Found the second fixed wait in redeliver(); switched it to backoff(1).", { code: "-  await sleep(30_000)\n+  await sleep(backoff(1))", took: "7 s", tokens: "1.1k", seq }),
+    cell("c-revert-timeout", "edit", "Restored the 5 s test timeout: the delay was the cause.", { code: "-  }, 10_000)\n+  }, 5_000)", took: "4 s", tokens: "0.4k", seq })
+  ]
+})
+
 export const VERIFY = (seq?: number): Phase => ({
   id: "p-verify", step: "verify", title: "Ran checks · passed", summary: "Typecheck and all 14 webhook tests pass.", took: 50, tone: "ok",
   cells: [
@@ -129,58 +145,52 @@ export const insideRun: Journey = {
   setup,
   steps: [
     {
-      caption: "The TODO card flags what needs a look in its run: the agent is thrashing.",
+      caption: "The TODO card flags what needs a look in its run: the agent is thrashing.", spec: "§6.14",
       target: '[data-mock="card-todo"] .mvp-run-flag', hover: true, hold: 3000,
       act: () => {}
     },
     {
-      caption: "Inspect opens the attempt: one durable run from Plan to Propose, then a wait for merge.",
+      caption: "Inspect opens the attempt: one durable run from Plan to Propose, then a wait for merge.", spec: "B.5",
       target: `[data-mock="inspect-todo-${TODO}"]`, hold: 3400,
       act: state => { state.viewers[BEN]!.maximized = RUN_CARD }
     },
     {
-      caption: "Attempt 1 stopped when its machine restarted. A retry is a new attempt beside the old one.",
+      caption: "Attempt 1 stopped when its machine restarted. A retry is a new attempt beside the old one.", spec: "§4.1",
       target: '[data-mock="node-1-implement"]', hover: true, hold: 3200,
       act: () => {}
     },
     {
-      caption: "Every cell explains what the agent did. This phase repeats one failure with no new idea: that is thrashing.",
+      caption: "Every cell explains what the agent did. This phase repeats one failure with no new idea: that is thrashing.", spec: "§6.14",
       target: '[data-mock="cell-c-run-2"]', hold: 3400,
       act: state => { state.viewers[BEN]!.selected = "c-run-2" }
     },
     {
-      caption: "Here it raised a timeout instead of finding the cause.",
+      caption: "Here it raised a timeout instead of finding the cause.", spec: "§6.14",
       target: '[data-mock="cell-c-timeout"]', hold: 2800,
       act: state => { state.viewers[BEN]!.selected = "c-timeout" }
     },
     {
-      caption: "Then it stopped to ask. The run waits for a person, and says since when.",
+      caption: "Then it stopped to ask. The run waits for a person, says since when, and takes the answer right here.", spec: "B.3",
       target: '[data-mock="cell-c-ask"]', hold: 2800,
       act: state => { state.viewers[BEN]!.selected = "c-ask" }
     },
     {
-      caption: "Ben steers from inside the run. A new Implement phase opens under his name, and the agent follows it.",
-      target: `[data-mock="run-steer-${RUN}"]`, typing: { into: "steer:b-retry", text: STEER }, hold: 2800,
+      caption: "Ben answers from inside the run. Answer settles the wait: his words join the question, and the agent goes on.", spec: "§4.1",
+      target: `[data-mock="run-answer-${RUN}"]`, typing: { into: `answer:${TODO}`, text: ANSWER }, hold: 2800,
       act: state => {
         trace(state).state = "running"
-        Object.assign(phase(state, "p-ask"), { tone: "ok", indicator: undefined, took: 180 })
-        trace(state).phases.push({
-          id: "p-steer", step: "implement", title: "Steer · Ben", summary: "Following Ben's steer: the second wait was in redeliver().", tone: "live",
-          cells: [
-            cell("c-steer", "steer", STEER, { who: BEN, seq: state.seq }),
-            cell("c-edit-redeliver", "edit", "Found the second fixed wait in redeliver(); switched it to backoff(1).", { code: "-  await sleep(30_000)\n+  await sleep(backoff(1))", took: "7 s", tokens: "1.1k", seq: state.seq }),
-            cell("c-revert-timeout", "edit", "Restored the 5 s test timeout: the delay was the cause.", { code: "-  }, 10_000)\n+  }, 5_000)", took: "4 s", tokens: "0.4k", seq: state.seq })
-          ]
-        })
-        setTodo(state, TODO, { state: "working", question: undefined })
+        settle(phase(state, "p-ask"), state.seq)
+        /* The agent is still at it: no time yet. */
+        trace(state).phases.push({ ...FOLLOW(state.seq), tone: "live", took: undefined })
+        setTodo(state, TODO, { state: "working", question: { text: RETRY.question!.text, answer: { by: BEN, text: ANSWER } } })
         state.viewers[BEN]!.selected = "c-edit-redeliver"
       }
     },
     {
-      caption: "Verify passes. Two reviewers check the change, and each reports in one line.",
+      caption: "Verify passes. Two reviewers check the change, and each reports in one line.", spec: "B.5",
       hold: 3200,
       act: state => {
-        Object.assign(phase(state, "p-steer"), { tone: "ok", took: 120 })
+        Object.assign(phase(state, "p-answer"), { tone: "ok", took: 120 })
         /* Review is still running: no time yet. */
         trace(state).phases.push(VERIFY(state.seq), { ...REVIEW(state.seq), tone: "live", took: undefined })
         setTodo(state, TODO, { step: "review" })
@@ -188,7 +198,7 @@ export const insideRun: Journey = {
       }
     },
     {
-      caption: "Propose opens PR #214, and the run doesn't end: it waits for merge, holding no machine.",
+      caption: "Propose opens PR #214, and the run doesn't end: it waits for merge, holding no machine.", spec: "B.5",
       target: '[data-mock="node-2-merge"]', hover: true, hold: 3400,
       act: state => {
         Object.assign(phase(state, "p-review"), { tone: "ok", took: 180 })
@@ -205,7 +215,7 @@ export const insideRun: Journey = {
       }
     },
     {
-      caption: "T8 merges, so main moves. The rebase loops the run back to Verify, checks pass on the new revision, and it waits again.",
+      caption: "T8 merges, so main moves. The rebase loops the run back to Verify, checks pass on the new revision, and it waits again.", spec: "§4.2",
       hold: 3800,
       act: state => {
         setTodo(state, "t-stripe", { state: "merged" })
@@ -217,7 +227,7 @@ export const insideRun: Journey = {
       }
     },
     {
-      caption: "Restore returns to the conversation. The TODO card shows the PR, rebased and next to merge.",
+      caption: "Restore returns to the conversation. The TODO card shows the PR, rebased and next to merge.", spec: "§6.14",
       target: '[data-mock="restore"]', hold: 2600,
       act: state => { state.viewers[BEN]!.maximized = undefined }
     }

@@ -210,7 +210,7 @@ export const Player = () => {
             <button type="button" onClick={() => setTheme(value => value === "light" ? "dark" : "light")} title="Theme (T)">{theme === "light" ? "Dark" : "Light"}</button>
           </div>
         </div>
-        <p className="mock-caption"><span className="mock-spec">{journey.spec}</span>{caption}</p>
+        <p className="mock-caption"><span className="mock-spec" title="Spec">{(shown === undefined ? undefined : journey.steps[shown]?.spec) ?? journey.spec}</span>{caption}</p>
       </div>
       <div className="mock-stage" data-split={split || undefined}>
         {journey.viewers.map(who => (

@@ -8,7 +8,7 @@
  * carries its one action inline. Desktop only; a narrow screen keeps one pill
  * per edge.
  */
-import type { ReactNode } from "react"
+import { useLayoutEffect, useRef, type ReactNode } from "react"
 import { Button, Spinner } from "@smthrs/ui"
 import { Bell, Check, CircleAlert, MessageSquare, X } from "lucide-react"
 import { StateGlyph, actorName } from "./parts"
@@ -192,12 +192,20 @@ const NotifyAsk = () => (
   </div>
 )
 
-export const Notifications = ({ state, events, ask = false }: { readonly state: State; readonly events: ReadonlyArray<Event>; readonly ask?: boolean }) => {
-  const shown = events.filter(event => event.acked !== true && event.hidden !== true && event.tone !== "running"
+/** The notifications showing now: unhidden, unanswered events with an action, or fresh ones; three at most. */
+export const noticesOf = (state: State, events: ReadonlyArray<Event>, ask: boolean): ReadonlyArray<Event> =>
+  events.filter(event => event.acked !== true && event.hidden !== true && event.tone !== "running"
     && (event.action !== undefined || event.seq === state.seq)).slice(ask ? -2 : -3)
+
+/*
+ * On a desktop the notices are the timeline's own bottom rows, docked in the rail (one element per event, Fable M1);
+ * on a narrow screen, with no rail, they float bottom-left.
+ */
+export const Notifications = ({ state, events, ask = false, docked = false }: { readonly state: State; readonly events: ReadonlyArray<Event>; readonly ask?: boolean; readonly docked?: boolean }) => {
+  const shown = noticesOf(state, events, ask)
   if (shown.length === 0 && !ask) return null
   return (
-    <div className="mvp-notify" aria-label="Notifications">
+    <div className="mvp-notify" data-docked={docked || undefined} aria-label="Notifications">
       {shown.map(event => (
         <div key={event.id} className="mvp-notice" data-tone={event.tone} data-fresh={event.seq === state.seq || undefined} role={event.tone === "failed" ? "alert" : "status"}>
           <span className="mvp-notice-icon">{eventGlyph(event.tone)}</span>
@@ -221,15 +229,27 @@ export const Notifications = ({ state, events, ask = false }: { readonly state: 
 /** Pinned rows per edge of the timeline. */
 const PINNED = 2
 
-export const Rail = ({ marks, inView, desktop, onJump }: {
+export const Rail = ({ marks, inView, desktop, onJump, noticed = new Set<string>(), children }: {
   readonly marks: ReadonlyArray<Mark>
   /** Index range of the card marks on screen. */
   readonly inView: readonly [number, number]
   readonly desktop: boolean
   readonly onJump: (id: string) => void
+  /** Events docked as notices at the rail's foot: the list doesn't repeat them. */
+  readonly noticed?: ReadonlySet<string>
+  /** The docked notices. */
+  readonly children?: ReactNode
 }) => {
+  /* The band follows the conversation: the rail scrolls so the entries on screen stay visible in it (Fable B1). */
+  const rail = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const band = rail.current?.querySelectorAll("li[data-in-view]")
+    if (band === undefined || band.length === 0) return
+    band[band.length - 1]!.scrollIntoView({ block: "nearest" })
+    band[0]!.scrollIntoView({ block: "nearest" })
+  }, [inView[0], inView[1], marks.length])
   const above = marks.slice(0, inView[0]).filter(mark => LIVE.has(mark.tone) && mark.event !== true)
-  const below = marks.slice(inView[1] + 1).filter(mark => LIVE.has(mark.tone) || mark.fresh === true)
+  const below = marks.slice(inView[1] + 1).filter(mark => mark.event !== true && (LIVE.has(mark.tone) || mark.fresh === true))
   if (!desktop) {
     /* Narrow screens (and phones): the timeline collapses to one pill per edge. */
     const pill = (list: ReadonlyArray<Mark>, direction: "up" | "down") => list.length === 0 ? null : (
@@ -268,10 +288,11 @@ export const Rail = ({ marks, inView, desktop, onJump }: {
     )
   }
   return (
-    <nav className="mvp-timeline" aria-label="Timeline">
+    <nav className="mvp-timeline" aria-label="Timeline" ref={rail}>
       {edge(above, "top")}
       <ol>
         {marks.map((mark, index) => {
+          if (noticed.has(mark.id)) return null
           return (
             <li key={mark.id} data-tone={mark.tone} data-event={mark.event || undefined} data-fresh={mark.fresh || undefined}
               data-in-view={index >= inView[0] && index <= inView[1] && mark.event !== true || undefined}>
@@ -290,6 +311,7 @@ export const Rail = ({ marks, inView, desktop, onJump }: {
         })}
       </ol>
       {edge(below, "bottom")}
+      {children}
     </nav>
   )
 }

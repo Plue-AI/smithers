@@ -16,7 +16,8 @@ const EVIDENCE: NonNullable<Todo["evidence"]> = {
 const todos: ReadonlyArray<Todo> = [
   { id: "s-merged", title: "Send one password reset email", owner: MAYA, branch: "s-b-merged", state: "merged", pr: 233, lessons: 2, issue: 231, prompt: "",
     amendments: [{ by: BEN, text: "Keep the v2 subject line." }], evidence: EVIDENCE },
-  { id: "s-next", title: "Upgrade the Stripe SDK to v17", owner: MAYA, branch: "s-b-next", state: "in-review", pr: 88, prompt: "", evidence: EVIDENCE },
+  { id: "s-next", title: "Upgrade the Stripe SDK to v17", owner: MAYA, branch: "s-b-next", state: "in-review", pr: 88, prompt: "", approvedRev: "1b2c3d4",
+    evidence: { ...EVIDENCE, rev: "9e8f7a6" } },
   { id: "s-after", title: "Retry failed webhooks with backoff", owner: BEN, branch: "s-b-after", state: "in-review", pr: 214, prompt: "", evidence: EVIDENCE },
   { id: "s-blocked", title: "Rotate the webhook signing secret", owner: ALICE, branch: "s-b-blocked", state: "in-review", pr: 219, prompt: "", evidence: EVIDENCE, mergeBlock: "1 approving review required on GitHub" },
   { id: "s-redcheck", title: "Retry Slack notifications", owner: MAYA, branch: "s-b-redcheck", state: "in-review", pr: 224, prompt: "",
@@ -97,6 +98,8 @@ const setup = (): State => {
     lines: [{ n: 1, text: "export const formatEvent = (event: WebhookEvent) =>", by: OUTSIDE, was: "export const formatEvent = (event:WebhookEvent)=>", seq: 0 }, { n: 2, text: "  `${event.type} ${event.id}`" }] })
   world.members.push({ id: "sam", name: "Sam Kim", login: "sam-k", initials: "SK", lane: 3, role: "member", needsAccess: true })
   world.members.push({ id: "lee", name: "Lee Ross", login: "leeross", initials: "LR", lane: 5, role: "member", suspended: true })
+  /* Roles defaulted from GitHub permission when each was added (mvp.md §6.15): maintain made Ben a Maintainer, write made Alice and Lee Members. */
+  world.members = world.members.map(each => each.id === BEN ? { ...each, permission: "maintain" as const } : each.id === ALICE || each.id === "lee" ? { ...each, permission: "write" as const } : each)
   world.secrets = [{ name: "STRIPE_TEST_KEY", scope: "all branches" }, { name: "SENTRY_DSN", scope: "main only" }]
   world.flowVersions = [
     { id: "v-prev", label: "flows/todo/flow.ts · previous", state: "active", steps: TODO_FLOW.map(step => ({ ...step })) },
@@ -131,7 +134,7 @@ export const states: Journey = {
     view("In review, blocked on GitHub: GitHub's own reason replaces the Merge label.", state => { showCard(state, BEN, "todo", "s-blocked") }),
     view("In review after a rebase: the revision changed, so the earlier approval no longer applies.", state => { showCard(state, BEN, "todo", "s-cleared") }),
     view("A required GitHub check failed on this revision: it is named, it links to its details, and Merge waits.", state => { showCard(state, BEN, "todo", "s-redcheck") }),
-    view("Alice approved an earlier revision. Review & merge says so and asks for the new one.", state => { showCardAs(state, BEN, "confirm", "s-stale", ALICE) }),
+    view("Ben approved an earlier revision of the next item. Review & merge names both and asks him to review the new one.", state => { showCard(state, BEN, "confirm", "s-next") }),
     view("A member's view of the next item: no Merge, just who can.", state => { showCardAs(state, BEN, "todo", "s-next", ALICE) }),
     view("Merged: done. Its lessons and its amendment history stay on the card.", state => { showCard(state, BEN, "todo", "s-merged") }),
     view("Merged out of order: T15 merged on GitHub before T14, and its commit carried T14's change. T14 is Merged too.", state => { showCard(state, BEN, "todo", "s-via") }),
@@ -175,6 +178,17 @@ export const states: Journey = {
     view("Members: roles, someone added without write access on GitHub, and someone who lost it.", state => { showCard(state, BEN, "members", "acme/api") }),
     view("Secrets: names only, write-only values, and where each reaches.", state => { showCard(state, BEN, "secrets", "acme/api") }),
     view("Settings for the owner, with the one line that connects a laptop agent.", state => { showCardAs(state, BEN, "settings", "acme/api", MAYA) }),
+    { ...view("Setup: Anthropic rejects the coding key. Its field stays open with Anthropic's reason, and nothing saves until a key validates.", state => {
+      Object.assign(state.world.setup, { codingKey: "failed", keyError: "Anthropic rejected this key: invalid x-api-key", source: "mirroring", sourcePct: 62, machine: "waiting" })
+      delete state.world.setup.gatewayKey
+      showCardAs(state, BEN, "setup", "acme/api", MAYA)
+    }), spec: "§6.5" },
+    { ...view("An address change in Settings that doesn't apply: the reason, Retry, and the old address still in effect.", state => {
+      Object.assign(state.world.setup, { codingKey: "saved", gatewayKey: "saved", source: "ready", sourcePct: 100, machine: "ready" })
+      delete state.world.setup.keyError
+      state.world.setup.addressChange = { from: state.world.setup.addresses[0]!, to: "https://smithers.acme.dev", reason: "smithers.acme.dev doesn't reach this Mac" }
+      showCardAs(state, BEN, "settings", "acme/api", MAYA)
+    }), spec: "§6.1" },
     view("On plain HTTP a browser can't notify, so Settings links to the HTTPS docs. An upgrade waits for smthrs host upgrade on the Mac.", state => {
       state.world.setup.addresses = ["http://maya-mini.local:4000"]
       state.world.setup.upgrade = "1.0.1"

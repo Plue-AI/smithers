@@ -1,0 +1,31 @@
+/*
+ * The Issue card's GitHub events (mvp.md J2.2). Loaded after mock.css. PORT
+ * marks proposed product CSS.
+ */
+
+/* ════════════════════════════════════════════════════════════
+ * PORT · Issue: a label applied on GitHub, drawn as GitHub's own timeline
+ * event with its mark, so it reads as GitHub's, not Smithers'
+ * ════════════════════════════════════════════════════════════ */
+.mvp-gh-event {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding-left: 4px;
+	color: var(--text-muted);
+	font-size: var(--fs-small);
+}
+.mvp-gh-event .mvp-avatar { box-shadow: none; }
+.mvp-gh-event b { color: var(--text); font-weight: 500; }
+.mvp-gh-label {
+	padding: 0 8px;
+	border: 1px solid var(--border-strong);
+	border-radius: 999px;
+	color: var(--text);
+	font-size: var(--fs-caption);
+	font-weight: 500;
+	line-height: 18px;
+}
+.mvp-gh-event-age { color: var(--text-faint); font-size: var(--fs-caption); }

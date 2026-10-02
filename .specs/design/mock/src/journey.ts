@@ -22,6 +22,8 @@ export interface Typing {
 export interface Step {
   /** Narration shown in the player, outside the product. */
   readonly caption: string
+  /** The spec line this step shows ("J1.2", "§6.5", "B.4"), so a reviewer's note on it lands on that line. */
+  readonly spec?: string
   /** Whose screen the pointer and typing belong to. */
   readonly viewer?: ActorId
   /** A selector inside that viewer's frame; the pointer travels there and clicks before the act. */

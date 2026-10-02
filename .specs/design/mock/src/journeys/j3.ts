@@ -6,7 +6,7 @@
  * live, the way a teammate's does.
  */
 import type { Journey } from "../journey"
-import { activity, branch, changed, edit, file, navigate, openFile, present, print, setTodo, showCard, todo, type State } from "../world"
+import { activity, branch, changed, edit, file, leave, navigate, openFile, present, print, reply, say, setTodo, showCard, todo, type State } from "../world"
 import { ALICE, BEN, MAYA, RETRY_FILE, seedState } from "./seed"
 
 const AGENT = "agent:b-retry"
@@ -15,6 +15,9 @@ const T_ALICE = "t-alice"
 const T_BEN = "t-ben"
 const BEN_TERMINAL = `terminal:${T_BEN}`
 const STEER = "Use backoff() from lib/backoff everywhere we sleep before a retry."
+/* Smithers answering Alice: a participant on the branch while it reads (M-34). */
+const SMITHERS_FOR_ALICE = `${ALICE}~smithers`
+const QUESTION = "why does redeliver still wait 30 s?"
 
 const line = (n: number) => `line:${RETRY_FILE}:${n}`
 
@@ -137,11 +140,27 @@ export const j3: Journey = {
       }
     },
     {
+      caption: "Alice asks Smithers. It joins the branch like a teammate: in the list, reading retry.ts, its flag on line 14. Both screens see her question and its answer.",
+      spec: "M-34",
+      viewer: ALICE, keys: "⌘ K", typing: { viewer: ALICE, into: "composer", text: QUESTION }, hold: 3400,
+      pre: (state: State) => { state.viewers[ALICE]!.composerOpen = true },
+      show: [{ viewer: BEN, target: '[data-mock="card-branch"]' }, { viewer: ALICE, target: '[data-mock="card-file"]' }],
+      act: (state: State) => {
+        say(state, ALICE, QUESTION)
+        present(state, "b-retry", SMITHERS_FOR_ALICE, { kind: "reading", path: RETRY_FILE, line: 14 })
+        openFile(state, RETRY_FILE, SMITHERS_FOR_ALICE, 14)
+        reply(state, ALICE, "Line 14: redeliver() still sleeps a fixed 30 s. deliver() already uses backoff().", ["retry.ts", "lib/backoff.ts", "T9 prompt"])
+      }
+    },
+    {
       caption: "The agent is asking, so the branch's input answers it. Ben's answer appears in the activity with his avatar, and the agent continues.",
       viewer: BEN, target: '[data-mock="steer-input-b-retry"]', typing: { into: "steer:b-retry", text: STEER }, hold: 2200,
       pre: (state: State) => { state.viewers[BEN]!.focus = undefined },
       show: [{ viewer: BEN, target: '[data-mock="card-branch"]' }],
       act: (state: State) => {
+        leave(state, "b-retry", SMITHERS_FOR_ALICE)
+        const doc = file(state.world, RETRY_FILE)
+        doc.editors = (doc.editors ?? []).filter(each => each.who !== SMITHERS_FOR_ALICE)
         activity(state, "b-retry", BEN, "answer", STEER)
         const item = todo(state.world, "t-retry")
         item.question = { text: item.question!.text, answer: { by: BEN, text: STEER } }

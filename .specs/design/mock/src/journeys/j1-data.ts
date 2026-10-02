@@ -7,7 +7,7 @@ import type { CodeLine, Evidence, FileDoc } from "../world"
 
 /** Smithers listens only to the Mac it runs on until the owner lets the network in (mvp.md §6.1). */
 export const LOOPBACK = "http://localhost:4000"
-/** `smthrs host start` prints this once; opening it claims the install as its owner's (mvp.md J1). */
+/** `smthrs host start` prints this once. Opening it starts a setup session that can only do setup; signing in through the new GitHub App completes the claim (mvp.md J1.2). */
 export const SETUP_LINK = `${LOOPBACK}/setup?claim=7QX2-M9FK`
 export const TERMINAL_TITLE = "Terminal — maya@mini"
 export const SHELL_PROMPT = "maya@mini ~ % "
@@ -44,13 +44,10 @@ export const INSTALLER_DONE: ReadonlyArray<string> = [
 
 /** The coding model's provider. */
 export const PROVIDER = "Anthropic"
-/* Pasted keys, one per model role. The card masks every character as it is typed. */
+/* Pasted keys, one per model role. The card masks every character as it is typed. A rejected key is a States entry, not J1. */
 export const FAST_KEY = "csk-4tW9mQ2xR7vK1pL8nZ3cH6yB5dF0jG2s"
-export const OLD_CODING_KEY = "sk-ant-api03-Wd8kP2nV7xQ4rL6tY1mB5c9e"
 export const CODING_KEY = "sk-ant-api03-hN4wQ8rT2mZ6vK1pL9xC3f2a"
 export const GATEWAY_KEY = "vck_7Rm2Qx9Lp4Tz8Wn5Kd1Hs91bd"
-/** Anthropic's own reason for refusing the first coding key: a 401 authentication_error. */
-export const KEY_ERROR = "Anthropic rejected this key: invalid x-api-key"
 /** The install's Obsidian folder on the Mac, which Settings edits like the address. */
 export const OBSIDIAN = "~/Obsidian/acme-api"
 

@@ -9,21 +9,13 @@
  */
 import { Fragment, type CSSProperties, type ReactNode } from "react"
 import { BookOpen, Link2, Signpost } from "lucide-react"
-import { Avatar, Card, Ref, actorName } from "../parts"
+import { actorName, Avatar, Card, flagName, identityColour, Ref } from "../parts"
 import { useFrame } from "../frame"
-import { isAgent, member, via, wikiPage, type ActorId, type World } from "../world"
+import { wikiPage, type ActorId, type World } from "../world"
 import type { ExtraCardProps } from "./extra"
 
-const colourOf = (world: World, who: ActorId): CSSProperties =>
-  ({ "--who": isAgent(who) && via(who) === undefined ? "var(--brand)" : `var(--lane-${member(world, who)?.lane ?? 0})` }) as CSSProperties
+const colourOf = (world: World, who: ActorId): CSSProperties => identityColour(world, who)
 
-/** A margin flag's name: "Alice", "Ben · Smithers", "Agent". */
-const flagName = (world: World, who: ActorId): string => {
-  const first = (id: ActorId) => member(world, id)?.name.split(" ")[0] ?? id
-  const acting = via(who)
-  if (acting !== undefined) return `${first(acting.person)} · ${acting.agent}`
-  return isAgent(who) ? "Agent" : first(who)
-}
 
 /** The characters `next` changed from `prev`: [from, to) in `next`, their common ends trimmed. */
 const changedOf = (prev: string, next: string): readonly [number, number] => {

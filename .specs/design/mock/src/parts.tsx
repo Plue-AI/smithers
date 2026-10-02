@@ -6,17 +6,31 @@
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react"
 import { Button } from "@smthrs/ui"
 import { Bot, Check, CircleDashed, FolderSync, GitBranch, GitMerge, GitPullRequest, Layers, Maximize2, Minimize2, Moon, Pause, SquareTerminal, X } from "lucide-react"
-import { AGENT, isAgent, member, OUTSIDE, refOf, STACK, via, type ActorId, type Branch, type FlowStep, type Todo, type TodoState, type World } from "./world"
+import { AGENT, forWhom, isAgent, isSmithers, member, OUTSIDE, refOf, via, type ActorId, type Branch, type FlowStep, type Todo, type TodoState, type World } from "./world"
 
 /* ── Who ─────────────────────────────────────────────────── */
 
+const first = (world: World, who: ActorId): string => member(world, who)?.name.split(" ")[0] ?? who
+
 export const actorName = (world: World, who: ActorId): string => {
   if (who === OUTSIDE) return "Outside Smithers"
-  if (who === STACK) return "Smithers"
+  if (isSmithers(who)) { const person = forWhom(who); return person === undefined ? "Smithers" : `Smithers for ${first(world, person)}` }
   const acting = via(who)
   if (acting !== undefined) return `${member(world, acting.person)?.name.split(" ")[0] ?? acting.person} via ${acting.agent}`
   return isAgent(who) ? "Coding agent" : member(world, who)?.name.split(" ")[0] ?? who
 }
+
+/** A line or margin flag's short name: "Alice", "Smithers", "Ben · Claude Code", "Maya · SSH", "Agent". */
+export const flagName = (world: World, who: ActorId): string => {
+  if (isSmithers(who)) return "Smithers"
+  const acting = via(who)
+  if (acting !== undefined) return `${first(world, acting.person)} · ${acting.agent}`
+  return isAgent(who) ? "Agent" : first(world, who)
+}
+
+/** The colour a participant's flags and spans use: a person's lane, an agent's teal, Smithers' ink. */
+export const identityColour = (world: World, who: ActorId): CSSProperties =>
+  ({ "--who": isSmithers(who) ? "var(--text)" : isAgent(who) && via(who) === undefined ? "var(--brand)" : `var(--lane-${member(world, who)?.lane ?? 0})` }) as CSSProperties
 
 export const Avatar = ({ world, who, size = 22, live = false }: {
   readonly world: World
@@ -25,9 +39,11 @@ export const Avatar = ({ world, who, size = 22, live = false }: {
   /** A working agent breathes; a person never does. */
   readonly live?: boolean
 }) => {
-  if (who === STACK) {
-    return <span className="mvp-avatar" data-system style={{ "--size": `${size}px` } as CSSProperties} title="Smithers" aria-label="Smithers">
-      <Layers size={Math.round(size * 0.58)} aria-hidden="true" /></span>
+  if (isSmithers(who)) {
+    /* Smithers has its own mark, like any teammate; acting for someone it carries their colour as "for Ben". */
+    const person = forWhom(who) === undefined ? undefined : member(world, forWhom(who)!)
+    return <span className="mvp-avatar" data-smithers data-live={live || undefined} style={{ "--size": `${size}px` } as CSSProperties} title={actorName(world, who)} aria-label={actorName(world, who)}>
+      S{person === undefined ? null : <span className="mvp-avatar-for" style={{ "--who": `var(--lane-${person.lane})` } as CSSProperties} aria-hidden="true">{person.initials[0]}</span>}</span>
   }
   if (who === OUTSIDE) {
     return <span className="mvp-avatar" data-outside style={{ "--size": `${size}px` } as CSSProperties} title="Outside Smithers" aria-label="Outside Smithers">
@@ -110,9 +126,14 @@ export const StatePill = ({ todo, flow }: { readonly todo: Todo; readonly flow: 
 /* ── How far ─────────────────────────────────────────────── */
 
 export const StepStrip = ({ flow, todo, seq }: { readonly flow: ReadonlyArray<FlowStep>; readonly todo: Todo; readonly seq: number }) => {
-  const current = todo.state === "in-review" || todo.state === "merged" ? flow.length : flow.findIndex(step => step.id === todo.step)
+  /* Evidence is per revision: while a new revision's checks or review run, the strip is back at that step. */
+  const rerun = todo.state === "in-review" && todo.evidence !== undefined
+    && (todo.evidence.checks.some(check => check.state === "running") || todo.evidence.github.passed < todo.evidence.github.total)
+  const rereview = todo.state === "in-review" && todo.evidence?.reviewing === true
+  const back = rerun ? flow.findIndex(step => step.id === "verify") : rereview ? flow.findIndex(step => step.id === "review") : -1
+  const current = back >= 0 ? back : todo.state === "in-review" || todo.state === "merged" ? flow.length : flow.findIndex(step => step.id === todo.step)
   /* One attempt is one durable run: after Propose it holds at a wait for merge, and a rebase loops it back to Verify. */
-  const wait = todo.state === "merged" ? "done" : todo.state === "in-review" ? "held" : "next"
+  const wait = todo.state === "merged" ? "done" : todo.state === "in-review" && back < 0 ? "held" : "next"
   return (
     <ol className="mvp-steps" aria-label="Flow steps">
       {flow.map((step, index) => {

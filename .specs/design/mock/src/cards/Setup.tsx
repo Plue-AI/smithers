@@ -2,7 +2,10 @@
  * Install setup and owner settings (mvp.md J1, §6.1, §6.3, §6.5, §6.11, §6.15).
  *
  * Setup is one card: four asks, then two progress steps. The address comes
- * first, because the GitHub App's sign-in callback is registered to it.
+ * first, because the GitHub App's sign-in callback is registered to it. Then
+ * GitHub: create the App, then sign in through it, which completes the claim
+ * and makes the person the owner (opening the setup link doesn't). Then the
+ * repository, which installs the App on it, and model access.
  * Questions work at Source ready; TODOs need Machine ready. A pending step
  * never claims success, a credential is masked from its first character,
  * and every key validates before it is saved.
@@ -15,13 +18,15 @@
  * repository; a failure links to the fix.
  *
  * Settings is the owner's. This Mac comes first: who can reach the install
- * and at which addresses (mvp.md §6.1). Each other row is a door to what it
- * names, and the capacity steppers live only here. A command that runs
- * elsewhere (an upgrade on the Mac, a laptop agent's login) is a copy line.
+ * and at which addresses (mvp.md §6.1). A change that fails to apply keeps
+ * the old address in effect, with the reason and Retry. Each other row is a
+ * door to what it names, and the capacity steppers live only here. A command
+ * that runs elsewhere (an upgrade on the Mac, a laptop agent's login) is a
+ * copy line.
  */
 import type { ReactNode } from "react"
 import { Button, Spinner } from "@smthrs/ui"
-import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, Minus, Plus, X } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, Circle, Copy, ExternalLink, Minus, Plus, RotateCw, X } from "lucide-react"
 import { Avatar, AvatarStack, Card, GitHubMark } from "../parts"
 import { typedOr, useFrame } from "../frame"
 import type { Setup } from "../world"
@@ -44,8 +49,11 @@ const local = (address: string): boolean => /^https?:\/\/(localhost|127\.0\.0\.1
 /* Where the quickstart puts HTTPS in front of the install (T-DOC-01). */
 const HTTPS_DOCS = "https://smithers.sh/docs/quickstart/#put-https-in-front"
 
-/* Who can reach the install, and at which address (mvp.md §6.1, M-28): Setup's first ask, and Settings' This Mac row. */
-const Reach = ({ id, setup }: { readonly id: "setup" | "settings"; readonly setup: Setup }) => {
+/*
+ * Who can reach the install, and at which address (mvp.md §6.1, M-28): Setup's first ask, and Settings' This Mac row.
+ * `failed` is an address the owner set that didn't apply: the field keeps it, marked, while the old one stays in effect.
+ */
+const Reach = ({ id, setup, failed }: { readonly id: "setup" | "settings"; readonly setup: Setup; readonly failed?: string }) => {
   const frame = useFrame()
   return (
     <>
@@ -53,7 +61,8 @@ const Reach = ({ id, setup }: { readonly id: "setup" | "settings"; readonly setu
         <button type="button" aria-pressed={setup.listen === "mac"} data-mock={`${id}-listen-mac`}>This Mac only</button>
         <button type="button" aria-pressed={setup.listen === "network"} data-mock={`${id}-listen`}>Network</button>
       </span>
-      <input className="mvp-setting-input" aria-label="Address" readOnly value={typedOr(frame, `${id}-address`, setup.addresses[0] ?? "")} data-mock={`${id}-address`} />
+      <input className="mvp-setting-input" aria-label="Address" readOnly aria-invalid={failed !== undefined || undefined}
+        value={typedOr(frame, `${id}-address`, failed ?? setup.addresses[0] ?? "")} data-mock={`${id}-address`} />
     </>
   )
 }
@@ -147,8 +156,11 @@ export const SetupCard = ({ id }: ExtraCardProps) => {
   const setup = world.setup
   if (setup === undefined) return null
   const owner = world.members.find(each => each.role === "owner")
+  /* Signing in through the new App completes the claim: only then is there an owner. */
+  const signedIn = setup.github === "signed-in" || setup.github === "app-installed"
+  const appCreated = setup.appCreated === true || signedIn
   /* Decided once the network has a public address, or once she moves on to GitHub with this Mac only. */
-  const addressDone = setup.github !== "todo" || !local(setup.addresses[0] ?? "")
+  const addressDone = appCreated || setup.github !== "todo" || !local(setup.addresses[0] ?? "")
   const appInstalled = setup.github === "app-installed"
   const keysDone = keyStates(setup).every(each => each === "saved")
   const keyFailed = keyStates(setup).includes("failed")
@@ -162,33 +174,35 @@ export const SetupCard = ({ id }: ExtraCardProps) => {
             <span className="mvp-setup-row"><Reach id="setup" setup={setup} /></span>
           </div>
         </li>
-        <li data-done={appInstalled || undefined}>
-          <Mark n={2} {...(appInstalled ? { state: "done" as const } : setup.github === "app-failed" ? { state: "failed" as const } : {})} />
+        <li data-done={signedIn || undefined}>
+          <Mark n={2} {...(signedIn ? { state: "done" as const } : setup.github === "app-failed" ? { state: "failed" as const } : {})} />
           <div className="mvp-setup-body">
             <span className="mvp-setup-title">GitHub</span>
-            {setup.github === "todo" ? <Button size="sm" variant="solid" data-mock="setup-github"><SignInMark />Sign in with GitHub</Button> : (
-              <span className="mvp-setup-row">
-                <span className="mvp-setup-value"><Avatar world={world} who={owner?.id ?? "maya"} size={18} />{owner?.login}{appInstalled ? " · App installed" : ""}</span>
-                {appInstalled ? null
-                  : <>
-                      {setup.github === "app-failed" ? <span className="mvp-setup-error">App not installed</span> : null}
-                      <Button size="sm" variant="solid" data-mock="setup-app">Create the GitHub App</Button>
-                    </>}
-              </span>
-            )}
+            <span className="mvp-setup-row">
+              {signedIn ? <span className="mvp-setup-value"><Avatar world={world} who={owner?.id ?? "maya"} size={18} />{owner?.login}<span aria-hidden="true">·</span><span className="mvp-setup-role">Owner</span></span>
+                : appCreated ? <>
+                    <span className="mvp-setup-value mvp-setup-done"><Check size={14} aria-hidden="true" />App created</span>
+                    <Button size="sm" variant="solid" data-mock="setup-github"><SignInMark />Sign in with GitHub</Button>
+                  </>
+                : <>
+                    {setup.github === "app-failed" ? <span className="mvp-setup-error">{setup.appError ?? "App not created"}</span> : null}
+                    <Button size="sm" variant="solid" data-mock="setup-app">Create the GitHub App</Button>
+                  </>}
+            </span>
           </div>
         </li>
-        <li data-done={setup.repository !== undefined || undefined} data-off={!appInstalled || undefined}>
+        <li data-done={setup.repository !== undefined || undefined} data-off={!signedIn || undefined}>
           <Mark n={3} {...(setup.repository === undefined ? {} : { state: "done" as const })} />
           <div className="mvp-setup-body">
             <span className="mvp-setup-title">Repository</span>
             {setup.repository === undefined ? (
               <span className="mvp-choices">
-                {["acme/api", "acme/web", "acme/infra"].map(name => <button key={name} type="button" className="mvp-choice" data-mock={`setup-repo-${name}`} disabled={!appInstalled}>{name}</button>)}
+                {["acme/api", "acme/web", "acme/infra"].map(name => <button key={name} type="button" className="mvp-choice" data-mock={`setup-repo-${name}`} disabled={!signedIn}>{name}</button>)}
               </span>
             ) : (
               <span className="mvp-setup-row">
                 <span className="mvp-setup-value mvp-mono">{setup.repository}</span>
+                {appInstalled ? <span className="mvp-check" data-state="ok"><Check size={14} role="img" aria-label="Passed" /><span>App installed</span></span> : null}
                 <SquashCheck repo={setup.repository} off={setup.squash === false} />
               </span>
             )}
@@ -258,11 +272,22 @@ export const SettingsCard = ({ id, view }: ExtraCardProps) => {
   const setup = world.setup
   const address = setup.addresses[0] ?? ""
   const repo = setup.repository ?? world.repo
+  /* A change that didn't apply, while the address it would have replaced is still the one in effect. */
+  const change = setup.addressChange?.from === address ? setup.addressChange : undefined
   return (
     <Card id={id} kind="settings" title="Settings">
       <dl className="mvp-settings">
         <dt>This Mac</dt>
-        <dd className="mvp-this-mac"><Reach id="settings" setup={setup} /><span className="mvp-meta">{setup.memory}</span></dd>
+        <dd className="mvp-this-mac">
+          <Reach id="settings" setup={setup} {...(change === undefined ? {} : { failed: change.to })} /><span className="mvp-meta">{setup.memory}</span>
+          {change === undefined ? null : (
+            <span className="mvp-apply" data-mock="settings-address-failed">
+              <span className="mvp-apply-error" role="alert"><X size={13} aria-hidden="true" />{change.reason}</span>
+              <Button size="sm" variant="outline" data-mock="settings-address-retry"><RotateCw size={13} aria-hidden="true" />Retry</Button>
+              <span className="mvp-apply-now">In effect<code>{change.from}</code></span>
+            </span>
+          )}
+        </dd>
         {address.startsWith("http://") && !local(address) ? <>
           <dt>Notifications</dt>
           <dd><a className="mvp-notify-https" href={HTTPS_DOCS} target="_blank" rel="noreferrer" data-mock="settings-notify-https">Notifications need HTTPS<ExternalLink size={12} aria-hidden="true" /></a></dd>

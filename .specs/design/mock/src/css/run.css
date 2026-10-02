@@ -131,3 +131,9 @@
 .mvp-run-transcript > li > .mvp-took { padding-top: 5px; font-size: var(--fs-caption); white-space: nowrap; }
 /* What the fast model wrote (a summary, an explanation) carries a small sparkle; the deterministic title never does. */
 .mvp-written { display: inline-block; margin-right: 5px; color: var(--text-faint); vertical-align: -1px; }
+/* A finished run says what happened, neutral: gold is only for a live run's flags. */
+.mvp-indicator[data-tone="past"] { background: var(--surface-2); color: var(--text-muted); }
+.mvp-run-timeline[data-past] .mvp-run-phase[data-tone="thrash"] .mvp-run-phase-n,
+.mvp-run-timeline[data-past] .mvp-run-phase[data-tone="wait"] .mvp-run-phase-n { background: var(--surface-2); color: var(--text-muted); }
+.mvp-attempt[data-past] .mvp-node-thrash { color: var(--text-faint); }
+.mvp-run-answer { margin-top: var(--sp-1); }

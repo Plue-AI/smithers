@@ -10,10 +10,10 @@
  * that applies at once.
  */
 import type { Journey } from "../journey"
-import { activity, branch, edit, openFile, present, say, setTodo, showCard, stackOp, type Cell, type FactoryAgent, type FlowStep, type Phase, type State, type Trace } from "../world"
+import { activity, branch, edit, openFile, present, say, setTodo, showCard, stackOp, type Cell, type FactoryAgent, type FlowStep, type State, type Trace } from "../world"
 import { FLOW_FILE, flowSource, ORDER_LINE, stepsOf, V1_STEPS, version } from "./j5-data"
-import { FIRST, PHASES, PROPOSE, RECHECK, REVIEW, VERIFY } from "./run"
-import { BEN, MAYA, RETRY, seedState } from "./seed"
+import { FIRST, FOLLOW, PHASES, PROPOSE, RECHECK, REVIEW, settle, VERIFY } from "./run"
+import { MAYA, RETRY, seedState } from "./seed"
 
 const TODO = RETRY.id
 const RUN = "run-retry"
@@ -41,37 +41,27 @@ const AGENTS = (): Array<FactoryAgent> =>
  * then Ben's answer, the same checks, reviewers, PR and recheck after T8
  * merged, and Maya's merge. Review keeps what it was given and returned.
  */
-const MERGED = (): Trace => ({
-  id: RUN, title: RETRY.title, todo: TODO, attempt: 2, branch: "b-retry", state: "merged",
-  phases: [
-    ...PHASES().map((phase): Phase => phase.id !== "p-ask" ? phase : {
-      ...phase, summary: "Ben answered after 3 min.", took: 180, tone: "ok", indicator: undefined,
-      cells: [
-        ...phase.cells.map(each => each.id === "c-ask" ? { ...each, took: "3 min" } : each),
-        cell("c-answer", "steer", "Use backoff() from lib/backoff everywhere we sleep before a retry.", { who: BEN })
-      ]
-    }),
-    {
-      id: "p-answer", step: "implement", title: "Edited 2 files", summary: "Following Ben's answer: the second wait was in redeliver().", took: 120, tone: "ok",
-      cells: [
-        cell("c-edit-redeliver", "edit", "Found the second fixed wait in redeliver(); switched it to backoff(1).", { code: "-  await sleep(30_000)\n+  await sleep(backoff(1))", took: "7 s", tokens: "1.1k" }),
-        cell("c-revert-timeout", "edit", "Restored the 5 s test timeout: the delay was the cause.", { code: "-  }, 10_000)\n+  }, 5_000)", took: "4 s", tokens: "0.4k" })
-      ]
-    },
-    VERIFY(), REVIEW(), PROPOSE(), ...RECHECK(),
-    {
-      id: "p-merged", step: "merge", title: "Merged · Maya", summary: "In review 28 min, then merged at 11:20.", took: 1680, tone: "ok",
-      cells: [cell("c-merged", "run", "Maya merged PR #214 into main.", { who: MAYA, tone: "ok" })]
-    }
-  ],
-  io: {
-    review: {
-      input: [["revision", "8b1e204"], ["diff", "+26 −9 · 2 files"], ["checks", "typecheck, test passed"]],
-      output: [["verdict", "No blocking issues"], ["findings", "0"]],
-      model: "Fable 5.1"
+const MERGED = (): Trace => {
+  const phases = PHASES()
+  settle(phases.find(each => each.id === "p-ask")!)
+  return {
+    id: RUN, title: RETRY.title, todo: TODO, attempt: 2, branch: "b-retry", state: "merged",
+    phases: [
+      ...phases, FOLLOW(), VERIFY(), REVIEW(), PROPOSE(), ...RECHECK(),
+      {
+        id: "p-merged", step: "merge", title: "Merged · Maya", summary: "In review 28 min, then merged at 11:20.", took: 1680, tone: "ok",
+        cells: [cell("c-merged", "run", "Maya merged PR #214 into main.", { who: MAYA, tone: "ok" })]
+      }
+    ],
+    io: {
+      review: {
+        input: [["revision", "8b1e204"], ["diff", "+26 −9 · 2 files"], ["checks", "typecheck, test passed"]],
+        output: [["verdict", "No blocking issues"], ["findings", "0"]],
+        model: "Fable 5.1"
+      }
     }
   }
-})
+}
 
 /* The test run of her edited flow on the scratch branch, as it starts: its first summary isn't written yet, so the phase shows its title alone. */
 const TEST_RUN = (seq: number): Trace => ({
@@ -116,27 +106,27 @@ export const j11: Journey = {
   setup,
   steps: [
     {
-      caption: "T9 merged. Maya selects Inspect on its card, and the monitor opens: the flow's graph, each step's state, time and tokens.",
+      caption: "T9 merged. Maya selects Inspect on its card, and the monitor opens: the flow's graph, each step's state, time and tokens.", spec: "J11.1",
       target: `[data-mock="inspect-todo-${TODO}"]`, hold: 3600,
       act: state => { state.viewers[MAYA]!.maximized = `run:${RUN}` }
     },
     {
-      caption: "Attempt 1 sits beside attempt 2: its machine restarted, and Retry started a new run. Here the run waited 3 minutes for Ben's answer.",
+      caption: "Attempt 1 sits beside attempt 2: its machine restarted, and Retry started a new run. Here the run waited 3 minutes for Ben's answer.", spec: "J11.1",
       target: '[data-mock="phase-p-ask"]', hold: 3600,
       act: state => { state.viewers[MAYA]!.selected = "c-answer" }
     },
     {
-      caption: "She selects the Review step: what it was given, what it returned, and its transcript, one line per reviewer. It took 3 minutes and 12k tokens.",
+      caption: "She selects the Review step: what it was given, what it returned, and its transcript, one line per reviewer. It took 3 minutes and 12k tokens.", spec: "J11.1",
       target: `[data-mock="node-2-review"]`, hold: 4000,
       act: state => { state.viewers[MAYA]!.selected = `step:${RUN}:review` }
     },
     {
-      caption: "Restore returns to the conversation.",
+      caption: "Restore returns to the conversation.", spec: "J11.1",
       target: '[data-mock="restore"]', hold: 1800,
       act: state => { Object.assign(state.viewers[MAYA]!, { maximized: undefined, selected: undefined }) }
     },
     {
-      caption: "She opens the TODO flow. Each agent's step shows the model it runs on.",
+      caption: "She opens the TODO flow. Each agent's step shows the model it runs on.", spec: "J11.2",
       keys: "⌘ K", typing: { into: "composer", text: "/flow todo" }, hold: 3000,
       pre: state => { state.viewers[MAYA]!.composerOpen = true },
       act: state => {
@@ -145,7 +135,7 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "Source forks a scratch branch for her and opens flows/todo/flow.ts on it, in the File card.",
+      caption: "Source forks a scratch branch for her and opens flows/todo/flow.ts on it, in the File card.", spec: "J11.2",
       target: '[data-mock="flow-source"]', hold: 3000,
       show: [{ viewer: MAYA, target: '[data-mock="card-file"]' }],
       act: state => {
@@ -158,7 +148,7 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "She adds a Docs step after Review. The file saves to the machine as she types.",
+      caption: "She adds a Docs step after Review. The file saves to the machine as she types.", spec: "J11.2",
       target: `[data-mock="card-file"] .mvp-editor-line:nth-child(${ORDER_LINE})`, hold: 2800,
       typing: { into: `line:${FLOW_FILE}:${ORDER_LINE}`, after: ORDER, text: '"docs", "propose"],' },
       act: state => {
@@ -167,7 +157,7 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "Run asks for the flow's input in a form. It runs her edited flow on her scratch branch.",
+      caption: "Run asks for the flow's input in a form. It runs her edited flow on her scratch branch.", spec: "J11.3",
       target: '[data-mock="flow-run"]', hold: 2600,
       show: [{ viewer: MAYA, target: `[data-mock="form-${FORM}-prompt"]` }],
       act: state => {
@@ -176,7 +166,7 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "She types a test prompt and presses Return. Her own Run starts at once, and the monitor draws the new graph live.",
+      caption: "She types a test prompt and presses Return. Her own Run starts at once, and the monitor draws the new graph live.", spec: "J11.3",
       target: `[data-mock="form-${FORM}-prompt"]`, typing: { into: `form:${FORM}:prompt`, text: PROMPT }, hold: 3400,
       act: state => {
         const form = state.world.forms!.find(each => each.id === FORM)!
@@ -189,7 +179,7 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "Minutes later the run passes Review, and the new Docs node lights up.",
+      caption: "Minutes later the run passes Review, and the new Docs node lights up.", spec: "J11.3",
       hold: 3800,
       act: state => {
         const run = testRun(state)
@@ -221,30 +211,30 @@ export const j11: Journey = {
       }
     },
     {
-      caption: "Restore. The run's card stays live in the conversation, on her scratch branch.",
+      caption: "Restore. The run's card stays live in the conversation, on her scratch branch.", spec: "J11.3",
       target: '[data-mock="restore"]', hold: 2400,
       act: state => { state.viewers[MAYA]!.maximized = undefined }
     },
     {
-      caption: "The scratch branch sits under main in the branch tree, with Maya and the coding agent on it.",
+      caption: "The scratch branch sits under main in the branch tree, with Maya and the coding agent on it.", spec: "J11.3",
       target: '[data-mock="crumb-tree"]', hold: 3000,
       act: state => { state.viewers[MAYA]!.tree = true }
     },
     {
-      caption: "Back on the Flow card, Review's agent chip opens the Agent card: its instructions file and its model.",
+      caption: "Back on the Flow card, Review's agent chip opens the Agent card: its instructions file and its model.", spec: "J11.4",
       target: '[data-mock="flow-agent-review"]', hold: 3000,
       pre: state => { state.viewers[MAYA]!.tree = false },
       show: [{ viewer: MAYA, target: '[data-mock="card-agent"]' }],
       act: state => { showCard(state, MAYA, "agent", "review") }
     },
     {
-      caption: "The model is the owner's setting. Each option shows its price per million tokens, in and out.",
+      caption: "The model is the owner's setting. Each option shows its price per million tokens, in and out.", spec: "J11.4",
       target: '[data-mock="agent-model-review"]', hold: 3400,
       show: [{ viewer: MAYA, target: ".mvp-model-menu" }],
       act: state => { showCard(state, MAYA, "agent", "review", "model") }
     },
     {
-      caption: "She switches review to Opus 5.5, under half the price. It applies at once, and the card keeps the receipt.",
+      caption: "She switches review to Opus 5.5, under half the price. It applies at once, and the card keeps the receipt.", spec: "J11.4",
       target: '[data-mock="model-opus-5-5"]', hold: 3600,
       act: state => {
         const agent = state.world.agents!.find(each => each.id === "review")!

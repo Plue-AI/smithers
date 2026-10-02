@@ -6,7 +6,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react"
 import { ChatComposer, ChatMessage } from "@smthrs/ui"
 import { ChevronDown } from "lucide-react"
-import { Notifications, Rail, markOf, type Mark } from "./Rail"
+import { Notifications, Rail, markOf, noticesOf, type Mark } from "./Rail"
 import { FrameContext, typedOr, type FrameValue } from "./frame"
 import { BranchCard } from "./cards/Branch"
 import { DiffCard, FileCard } from "./cards/Code"
@@ -14,10 +14,10 @@ import { HomeCard } from "./cards/Home"
 import { TerminalCard } from "./cards/Terminal"
 import { TodoCard } from "./cards/Todo"
 import { EXTRA_CARDS } from "./cards/extra"
-import { ContextChip, Maximized } from "./parts"
+import { Avatar, ContextChip, Maximized, actorName } from "./parts"
 import { BranchTree } from "./Tree"
 import { WORDMARK } from "../../../../apps/app/src/mainview/Wordmark"
-import type { CardKind, CardRef, Event, State } from "./world"
+import { STACK, type CardKind, type CardRef, type Event, type State } from "./world"
 
 export interface Pointer {
   readonly x: number
@@ -127,6 +127,8 @@ export const AppFrame = ({ frame, pointer, keys }: {
     }
     first.current = false
   }, [screen.reveal?.seq])
+  const events = screen.transcript.filter((entry): entry is Event => entry.kind === "event")
+  const notices = noticesOf(frame.state, events, screen.notifyAsk === "open")
   const spotlight = screen.focus !== undefined
   return (
     <FrameContext.Provider value={frame}>
@@ -155,7 +157,13 @@ export const AppFrame = ({ frame, pointer, keys }: {
                             ? <div key={entry.id} className="mock-entry" data-entry={entry.id}><CardView card={viewOf(entry.card)} /></div>
                             : <div key={entry.id} className="mock-entry mock-as" data-entry={entry.id} data-as={`as ${frame.state.world.members.find(each => each.id === entry.card.as)?.name.split(" ")[0]} sees it`}>
                                 <FrameContext.Provider value={{ ...frame, me: entry.card.as }}><CardView card={entry.card} /></FrameContext.Provider></div>)
-                          : <div key={entry.id} className="mock-message" data-entry={entry.id}>
+                          : <div key={entry.id} className="mock-message" data-entry={entry.id} data-mine={(entry.kind === "user" ? entry.by : entry.for) === frame.me || undefined}>
+                              {/* A shared conversation names who asked, and who Smithers answered (M-34; Astra r2 M1). Your own prompts need no name. */}
+                              {entry.kind === "user" && entry.by !== undefined && entry.by !== frame.me
+                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.by} size={16} />{actorName(frame.state.world, entry.by)}</span> : null}
+                              {entry.kind === "agent"
+                                ? <span className="mvp-author"><Avatar world={frame.state.world} who={entry.for === undefined || entry.for === frame.me ? STACK : `${entry.for}~smithers`} size={16} />
+                                    {actorName(frame.state.world, entry.for === undefined || entry.for === frame.me ? STACK : `${entry.for}~smithers`)}</span> : null}
                               <ChatMessage role={entry.kind === "user" ? "user" : "assistant"} className="smithers-chat-message">{entry.text}</ChatMessage>
                               {entry.kind === "agent" && entry.context !== undefined ? (
                                 <ContextChip id={entry.id} items={entry.context} open={screen.views[`context:${entry.id}`] === "open"} />
@@ -184,9 +192,11 @@ export const AppFrame = ({ frame, pointer, keys }: {
           </footer>
         </div>
         <aside className="mvp-rail" aria-label="Activity rail">
-          <Rail marks={marks} inView={inView} desktop={desktop} onJump={jump} />
+          <Rail marks={marks} inView={inView} desktop={desktop} onJump={jump} noticed={new Set(desktop ? notices.map(each => each.id) : [])}>
+            {desktop ? <Notifications state={frame.state} events={events} ask={screen.notifyAsk === "open"} docked /> : null}
+          </Rail>
         </aside>
-        <Notifications state={frame.state} events={screen.transcript.filter((entry): entry is Event => entry.kind === "event")} ask={screen.notifyAsk === "open"} />
+        {desktop ? null : <Notifications state={frame.state} events={events} ask={screen.notifyAsk === "open"} />}
         {spotlight ? <div className="mock-spotlight-dim" aria-hidden="true" /> : null}
         {screen.connection === "reconnecting" ? <div className="mvp-reconnecting" role="status"><span className="mvp-spin" aria-hidden="true" />Reconnecting to maya-mini</div> : null}
         {(() => {

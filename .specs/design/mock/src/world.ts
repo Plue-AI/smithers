@@ -20,6 +20,8 @@ export interface Member {
   /** Had write access and lost it on GitHub. */
   suspended?: boolean
   seq?: number
+  /** Their permission on the repository on GitHub. Adding them defaults the role from it (mvp.md §6.15): admin or maintain makes a Maintainer, write a Member. */
+  permission?: "admin" | "maintain" | "write"
 }
 
 /** mvp.md §4. Merged is done; learning is a receipt on the merged TODO, not a state. */
@@ -40,6 +42,10 @@ export interface Evidence {
   readonly checks: Array<Check>
   readonly github: { passed: number; total: number; failing?: string }
   readonly review: string
+  /** The agent's review is running again on this revision; until it finishes, the last one is only history. */
+  readonly reviewing?: boolean
+  /** The last revision's review, kept as history while the new revision's runs. */
+  readonly previous?: { readonly rev: string; readonly review: string }
 }
 
 export interface Todo {
@@ -100,6 +106,8 @@ export type MachineState = "awake" | "asleep" | "waking" | "waiting" | "closed"
 export type Where =
   | { readonly kind: "terminal"; readonly id: string; readonly watching?: boolean }
   | { readonly kind: "file"; readonly path: string; readonly line?: number }
+  /** Reading without editing: Smithers answering a question, a reviewer (M-34). */
+  | { readonly kind: "reading"; readonly path: string; readonly line?: number }
   | { readonly kind: "step"; readonly step: string }
   | { readonly kind: "branch" }
 
@@ -234,6 +242,10 @@ export interface Issue {
   open: boolean
   /** The TODO made from it; the issue closes when that TODO merges if the TODO fixes it. */
   todo?: string
+  /** Its TODO fixes it, so merging that TODO closes it: the Draft's "Closes #n when merged" box, which the `todo` label also sets (mvp.md J2.6). Unset, the TODO is only related, and the issue stays open. */
+  fixes?: boolean
+  /** A member labeled it `todo` on GitHub, which committed its title and body as a TODO (mvp.md J2.2). */
+  labeled?: { readonly by: ActorId; readonly age: string }
 }
 
 /* A TODO being written in one member's chat: not on the stack until committed. */
@@ -324,6 +336,15 @@ export interface Setup {
   machineNote?: string
   /** A failed machine build keeps its reason and offers Retry. */
   machineError?: string
+  /** GitHub's app-manifest flow created the install's App; the owner signs in through it next (mvp.md J1.2). */
+  appCreated?: boolean
+  /*
+   * An address change in Settings that failed to apply (mvp.md §6.1): the
+   * address in effect when it was tried, the one the owner set, and why. The
+   * old address stays in effect, and Retry tries the new one again. Once
+   * another address is in effect, the failed change no longer shows.
+   */
+  addressChange?: { readonly from: string; readonly to: string; readonly reason: string }
 }
 
 export interface FlowStep {
@@ -388,16 +409,20 @@ export type CardKind = "act" | "run" | "home" | "todo" | "branch" | "terminal" |
 /*
  * A run, inside (Will, 2026-10-02): what Inspect opens. One TODO attempt is
  * one durable run of the TODO flow (mvp.md B.4): Plan to Propose, then a
- * wait for merge that a rebase loops back to Verify. A cheap model splits
- * each step into phases by what the agent is doing and writes each phase's
- * title; every cell the agent writes carries a plain explanation of what it
+ * wait for merge that a rebase loops back to Verify. Each step splits into
+ * phases at deterministic boundaries, each titled from the step and what it
+ * recorded ("Ran tests · 1 failed ×3"); the fast model writes a one-line
+ * summary under the title and a plain explanation of every cell the agent
  * did. Indicators flag thrashing (the same failure repeated with no new idea),
  * waits and failures. Review's phase holds its reviewers, each reporting in one line.
  */
 export interface Cell {
   readonly id: string
-  /** rebase: main or an earlier item moved, and the run went back to Verify. reviewer: one of Review's lenses. */
-  readonly kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "reviewer" | "rebase"
+  /**
+   * rebase: main or an earlier item moved, and the run went back to Verify. reviewer: one of Review's lenses.
+   * answer: a person's answer to the agent's question, which settles the wait; a steer never does.
+   */
+  readonly kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "answer" | "steer" | "reviewer" | "rebase"
   /** What the agent did, in plain words: written for a person, not a log. */
   readonly explain: string
   /** The words as the agent said them (its whole question), shown in the detail pane. */
@@ -539,8 +564,10 @@ export interface Event {
 }
 
 export type Entry =
-  | { readonly id: string; readonly kind: "user"; readonly text: string }
-  | { readonly id: string; readonly kind: "agent"; readonly text: string; readonly context?: ReadonlyArray<string> }
+  /** A prompt in a shared branch conversation carries its author (Astra r2 M1). */
+  | { readonly id: string; readonly kind: "user"; readonly text: string; readonly by?: ActorId }
+  /** Smithers' answer, and who asked (it reads "Smithers for Ben" to everyone else). */
+  | { readonly id: string; readonly kind: "agent"; readonly text: string; readonly context?: ReadonlyArray<string>; readonly for?: ActorId }
   | { readonly id: string; readonly kind: "card"; readonly card: CardRef }
   | Event
 
@@ -603,10 +630,22 @@ export const via = (who: ActorId): { readonly person: ActorId; readonly agent: s
   const [person, agent] = who.split("~")
   return agent === undefined || person === undefined ? undefined : { person, agent: VIA_NAMES[agent] ?? agent }
 }
-export const isAgent = (who: ActorId): boolean => who === AGENT || who.startsWith("agent:") || (via(who) !== undefined && !who.endsWith("~ssh"))
+export const isAgent = (who: ActorId): boolean => who === AGENT || who === STACK || who.startsWith("agent:") || (via(who) !== undefined && !who.endsWith("~ssh"))
+
+/*
+ * Smithers is one participant (M-34): the app agent on the fast model and the
+ * stack service are both "Smithers". Acting for a person it is "Smithers for
+ * Ben" ("ben~smithers"), never Ben with a badge.
+ */
+export const isSmithers = (who: ActorId): boolean => who === STACK || who.endsWith("~smithers")
+export const forWhom = (who: ActorId): ActorId | undefined => who.endsWith("~smithers") ? who.slice(0, -"~smithers".length) : undefined
 
 /** A TODO's reference; one the journey didn't set explicitly gets a stable number from its place in the world. */
-export const refOf = (world: World, todo: Todo): string => todo.ref ?? `T${20 + world.todos.indexOf(todo)}`
+export const refOf = (world: World, item: Todo): string => {
+  if (item.ref !== undefined) return item.ref
+  const top = Math.max(0, ...world.todos.flatMap(each => each.ref === undefined ? [] : [Number(each.ref.slice(1))]))
+  return `T${top + 1 + world.todos.filter(each => each.ref === undefined).indexOf(item)}`
+}
 
 export const member = (world: World, who: ActorId): Member | undefined => world.members.find(each => each.id === (via(who)?.person ?? who))
 
@@ -635,14 +674,14 @@ export const resetIds = (): void => { entryCounter = 0 }
 
 export const say = (state: State, who: ActorId, text: string): void => {
   const view = viewer(state, who)
-  view.transcript.push({ id: nextId("user"), kind: "user", text })
+  view.transcript.push({ id: nextId("user"), kind: "user", text, by: who })
   view.draft = ""
   view.composerOpen = false
 }
 
 /** The app agent answers; `context` is what its preflight pulled in for this answer (files, wiki pages, TODOs, runs). */
 export const reply = (state: State, who: ActorId, text: string, context?: ReadonlyArray<string>): void => {
-  viewer(state, who).transcript.push({ id: nextId("agent"), kind: "agent", text, ...(context === undefined ? {} : { context }) })
+  viewer(state, who).transcript.push({ id: nextId("agent"), kind: "agent", text, for: who, ...(context === undefined ? {} : { context }) })
 }
 
 export const showCardAs = (state: State, who: ActorId, kind: CardKind, target: string, as: ActorId, view?: string): void => {
@@ -786,20 +825,70 @@ export const edit = (state: State, path: string, n: number, text: string, by: Ac
 }
 
 /** A push or a rebase makes a new revision (mvp.md §4.2): checks rerun on it, and any approval no longer applies. */
+/*
+ * A new revision (a rebase, a push, a steer's commit): every check and the
+ * review run again on it. The old review stays only as history; nothing from
+ * the old revision counts as evidence for the new one (mvp.md §4.2, §6.10).
+ */
 export const revise = (state: State, id: string, rev: string): void => {
   const item = todo(state.world, id)
   if (item.evidence === undefined) return
-  item.evidence = { ...item.evidence, rev, checks: item.evidence.checks.map(check => ({ name: check.name, state: "running" as const })), github: { passed: 0, total: item.evidence.github.total } }
+  const old = item.evidence
+  item.evidence = {
+    ...old, rev, reviewing: true,
+    checks: old.checks.map(check => ({ name: check.name, state: "running" as const })),
+    github: { passed: 0, total: old.github.total },
+    ...(old.rev === undefined || old.reviewing === true ? {} : { previous: { rev: old.rev, review: old.review } })
+  }
   if (item.approvedRev !== undefined) item.approvalCleared = true
   item.seq = state.seq
 }
 
-/** Every check passed on the current revision. */
-export const checksPassed = (state: State, id: string, took: Record<string, string> = {}): void => {
+/** Every check passed on the current revision, and its review finished. */
+export const checksPassed = (state: State, id: string, took: Record<string, string> = {}, review?: string): void => {
   const item = todo(state.world, id)
   if (item.evidence === undefined) return
-  item.evidence = { ...item.evidence, checks: item.evidence.checks.map(check => ({ ...check, state: "passed" as const, ...(took[check.name] === undefined ? {} : { took: took[check.name] }) })), github: { passed: item.evidence.github.total, total: item.evidence.github.total } }
+  const { previous: _previous, reviewing: _reviewing, ...rest } = item.evidence
+  item.evidence = {
+    ...rest, review: review ?? rest.review,
+    checks: rest.checks.map(check => ({ ...check, state: "passed" as const, ...(took[check.name] === undefined ? {} : { took: took[check.name] }) })),
+    github: { passed: rest.github.total, total: rest.github.total }
+  }
   item.seq = state.seq
+}
+
+/* ── Merge readiness: one rule for every card ───────────── */
+
+/*
+ * Whether this person can merge this TODO now, and if not, the one reason
+ * (mvp.md §4.2, §6.10, M-05). The Home row, the TODO card and Review & merge
+ * all read it, so no card offers a merge another would refuse. The order of
+ * the tests is the order a person fixes them: role, stack order, this
+ * revision's evidence, then GitHub's own rule.
+ */
+export type MergeReadiness =
+  | { readonly state: "ready" }
+  | { readonly state: "done" }
+  | { readonly state: "waiting" | "blocked"; readonly reason: string; readonly github?: boolean }
+
+export const openItems = (world: World): ReadonlyArray<Todo> =>
+  world.stack.map(id => todo(world, id)).filter(each => each.state !== "merged" && each.state !== "dropped")
+
+export const mergeReadiness = (world: World, item: Todo, who: ActorId): MergeReadiness => {
+  if (item.state === "merged") return { state: "done" }
+  if (!canMerge(world, who)) return { state: "blocked", reason: "A maintainer merges" }
+  const open = openItems(world)
+  const prior = open[open.indexOf(item) - 1]
+  if (prior !== undefined) return { state: "waiting", reason: `Merges after ${refOf(world, prior)}` }
+  const evidence = item.evidence
+  if (item.state !== "in-review" || evidence === undefined) return { state: "waiting", reason: "No PR yet" }
+  const failed = evidence.checks.find(check => check.state === "failed")?.name ?? evidence.github.failing
+  if (failed !== undefined) return { state: "blocked", reason: `${failed} failed`, github: evidence.github.failing !== undefined }
+  const on = evidence.rev === undefined ? "" : ` on ${evidence.rev}`
+  if (evidence.checks.some(check => check.state === "running") || evidence.github.passed < evidence.github.total) return { state: "waiting", reason: `Checks running${on}` }
+  if (evidence.reviewing === true) return { state: "waiting", reason: `Review running${on}` }
+  if (item.mergeBlock !== undefined) return { state: "blocked", reason: item.mergeBlock, github: true }
+  return { state: "ready" }
 }
 
 export const setTodo = (state: State, id: string, patch: Partial<Todo>): void => {

@@ -1789,7 +1789,8 @@ body { overflow: hidden; }
 	mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 14px), transparent);
 	scrollbar-width: none;
 }
-.mvp-timeline ol {
+/* Only the timeline's own list fills the rail and sits low; the pinned edge groups size to their rows (Fable B1). */
+.mvp-timeline > ol:not(.mvp-tl-edge) {
 	position: relative;
 	display: flex;
 	min-height: 100%;
@@ -1799,7 +1800,7 @@ body { overflow: hidden; }
 	padding: 12px 0;
 	list-style: none;
 }
-.mvp-timeline ol::before {
+.mvp-timeline > ol:not(.mvp-tl-edge)::before {
 	position: absolute;
 	top: 12px;
 	bottom: 12px;
@@ -2028,3 +2029,17 @@ body { overflow: hidden; }
 	.mock-stage[data-split] > .mock-frame:not([data-active]) { display: none; }
 }
 .mvp-finding-acts { display: inline-flex; gap: 4px; }
+/* One merge rule, one way to say why not: the reason as quiet text beside where Merge would be. */
+.mvp-merge-reason { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-merge-reason[data-state="blocked"] { color: var(--attention-text); }
+.mvp-review-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.mvp-previous { color: var(--text-faint); font-size: var(--fs-caption); }
+/* M-34: Smithers is a participant with its own mark; "for Ben" is the person's colour on its corner. */
+.mvp-avatar[data-smithers] { position: relative; border-radius: 6px; background: var(--text); color: var(--surface); font-size: calc(var(--size) * 0.5); font-weight: 700; }
+.mvp-avatar-for { position: absolute; right: -4px; bottom: -3px; display: inline-flex; width: calc(var(--size) * 0.5); height: calc(var(--size) * 0.5); min-width: 11px; min-height: 11px; align-items: center; justify-content: center; border-radius: 50%; background: var(--who); box-shadow: 0 0 0 1.5px var(--surface); color: var(--avatar-ink); font-size: max(7px, calc(var(--size) * 0.26)); font-weight: 700; }
+/* Docked in the rail (desktop): the notices are the timeline's own foot, sticky, opaque, never over a card. */
+.mvp-notify[data-docked] { position: sticky; bottom: 0; left: auto; z-index: 4; width: auto; padding: 6px 0 4px; background: var(--bg); }
+.mvp-notify[data-docked] .mvp-notice { box-shadow: var(--shadow-1); backdrop-filter: none; background: var(--surface); }
+/* Who said it, in a shared conversation: a small name over others' prompts and over Smithers' answers. */
+.mvp-author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.mock-message:not([data-mine]) .mvp-author { margin-left: 2px; }

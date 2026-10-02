@@ -33,6 +33,7 @@ const doing = (world: World, presence: Presence): { verb: string; where: ReactNo
   const { where } = presence
   switch (where.kind) {
     case "file": return { verb: "editing", where: <><FileCode2 size={12} aria-hidden="true" />{where.path.split("/").at(-1)}{where.line === undefined ? "" : `:${where.line}`}</> }
+    case "reading": return { verb: "reading", where: <><FileCode2 size={12} aria-hidden="true" />{where.path.split("/").at(-1)}{where.line === undefined ? "" : `:${where.line}`}</> }
     case "terminal": {
       const session = world.terminals.find(each => each.id === where.id)
       if (where.watching) return { verb: "watching", where: <><SquareTerminal size={12} aria-hidden="true" />{session?.title ?? "terminal"}</> }

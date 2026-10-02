@@ -10,18 +10,20 @@
  * top, each step with its time and tokens; below, the run's own timeline on
  * the left, its phases grouped under their step; on the right, the selected
  * cell's detail (code, output, time, tokens), or the selected step's input,
- * output and transcript. Steer and Stop stay in reach. A phase's title comes
- * from its step and what it recorded ("Ran tests · 1 failed ×3"); the fast
- * model writes the one-line summary under it and every explanation of what
- * the agent did, and both carry the sparkle. A summary not yet written leaves
- * the title alone.
+ * output and transcript. Steer and Stop stay in reach, and a question waiting
+ * for a person takes its answer right in the detail: Answer settles the wait,
+ * Steer never does. A phase's title comes from its step and what it recorded
+ * ("Ran tests · 1 failed ×3"); the fast model writes the one-line summary
+ * under it and every explanation of what the agent did, and both carry the
+ * sparkle. A summary not yet written leaves the title alone. Only a live run
+ * flags in gold; a finished one says what happened, in the past, neutral.
  */
 import { Button } from "@smthrs/ui"
-import { BookOpen, Bot, Check, FilePen, Layers, MessageCircleQuestion, Maximize2, Repeat, ScanSearch, Send, Sparkles, SquareTerminal, Undo2, X } from "lucide-react"
+import { BookOpen, Bot, Check, FilePen, Layers, MessageCircleQuestion, Maximize2, Repeat, Reply, ScanSearch, Send, Sparkles, SquareTerminal, Undo2, X } from "lucide-react"
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { Avatar, BranchChip, Card, actorName } from "../parts"
 import { typedOr, useFrame } from "../frame"
-import type { Cell, FlowStep, Phase, Trace } from "../world"
+import type { Cell, FlowStep, Phase, Trace, World } from "../world"
 import type { ExtraCardProps } from "./extra"
 
 const CELL_ICON: Record<Cell["kind"], ReactNode> = {
@@ -31,6 +33,7 @@ const CELL_ICON: Record<Cell["kind"], ReactNode> = {
   run: <SquareTerminal size={13} aria-hidden="true" />,
   think: <Bot size={13} aria-hidden="true" />,
   ask: <MessageCircleQuestion size={13} aria-hidden="true" />,
+  answer: <Reply size={13} aria-hidden="true" />,
   steer: <Send size={13} aria-hidden="true" />,
   reviewer: <ScanSearch size={13} aria-hidden="true" />,
   rebase: <Undo2 size={13} aria-hidden="true" />
@@ -72,15 +75,35 @@ const Written = () => <Sparkles size={11} className="mvp-written" role="img" ari
 /** A cell's explanation, marked when the model wrote it (the agent's cells, not a person's steer or merge). */
 const Explain = ({ cell }: { readonly cell: Cell }) => <>{cell.who === undefined ? <Written /> : null}{cell.explain}</>
 
-const Indicator = ({ phase }: { readonly phase: Phase }) => phase.indicator === undefined ? null : (
-  <span className="mvp-indicator" data-tone={phase.tone}>{phase.tone === "thrash" ? <Repeat size={12} aria-hidden="true" /> : null}{phase.indicator}</span>
-)
+/** A run keeps the flow version it started with: a TODO's steps, an edited flow's on a scratch branch, else the active flow. */
+const flowOf = (world: World, trace: Trace): ReadonlyArray<FlowStep> => trace.steps ?? world.todos.find(each => each.id === trace.todo)?.steps ?? world.flow
+
+/** The flow's name for a step; the wait after Propose is Merge. */
+const titleOf = (flow: ReadonlyArray<FlowStep>, step: string): string => flow.find(each => each.id === step)?.title ?? (step === "merge" ? "Merge" : step)
+
+const finished = (trace: Trace): boolean => trace.state === "merged" || trace.state === "failed"
+
+/*
+ * A phase's indicator. While the run is live it flags what needs a look, in
+ * gold; once the run finished it says what happened, in the past and
+ * neutral. A failure stays ember: that is what failed means.
+ */
+const Indicator = ({ phase, past, step }: { readonly phase: Phase; readonly past: boolean; readonly step: string }) => {
+  if (phase.indicator === undefined) return null
+  const was = past && phase.tone !== "fail"
+  const text = !was ? phase.indicator
+    : phase.tone === "thrash" ? `Thrashed at ${step} · ${phase.cells.filter(cell => cell.kind === "run").length} runs`
+    : phase.tone === "wait" ? "Waited for a person" : phase.indicator
+  return <span className="mvp-indicator" data-tone={was ? "past" : phase.tone}>{phase.tone === "thrash" ? <Repeat size={12} aria-hidden="true" /> : null}{text}</span>
+}
 
 /** What needs a look in the step the run is in (thrashing, a wait for a person): one line each, on the run's embedded card or its TODO's card. */
 export const RunFlags = ({ trace }: { readonly trace: Trace }) => {
+  const { state: { world } } = useFrame()
+  const flow = flowOf(world, trace)
   const step = trace.phases.at(-1)?.step
   return <>{trace.phases.filter(phase => phase.step === step && phase.indicator !== undefined && (phase.tone === "thrash" || phase.tone === "wait"))
-    .map(phase => <div key={phase.id} className="mvp-run-flag"><Indicator phase={phase} /></div>)}</>
+    .map(phase => <div key={phase.id} className="mvp-run-flag"><Indicator phase={phase} past={finished(trace)} step={titleOf(flow, phase.step)} /></div>)}</>
 }
 
 /* ── The attempt graph ───────────────────────────────────── */
@@ -154,7 +177,7 @@ const Attempt = ({ trace, flow, size, label = false, selectedStep, dim = false }
     )
   }
   const graph = (
-    <ol className="mvp-steps mvp-attempt" data-size={size} aria-label={`Attempt ${trace.attempt}`} style={{ "--node-w": `${NODE_W}px` } as CSSProperties}>
+    <ol className="mvp-steps mvp-attempt" data-size={size} data-past={finished(trace) || undefined} aria-label={`Attempt ${trace.attempt}`} style={{ "--node-w": `${NODE_W}px` } as CSSProperties}>
       {steps.map(step => {
         const state = nodeOf(trace, step.id)
         return (
@@ -267,9 +290,8 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
   const { world, seq } = frame.state
   const trace = world.traces.find(each => each.id === target)
   if (trace === undefined) return null
-  /* A run keeps the flow version it started with: a TODO's steps, an edited flow's on a scratch branch, else the active flow. */
-  const flow = trace.steps ?? world.todos.find(each => each.id === trace.todo)?.steps ?? world.flow
-  const stepTitle = (step: string): string => flow.find(each => each.id === step)?.title ?? (step === "merge" ? "Merge" : step)
+  const flow = flowOf(world, trace)
+  const stepTitle = (step: string): string => titleOf(flow, step)
   const status = (
     <span className="mvp-run-state" data-state={trace.state}>
       {trace.state === "running" ? <span className="mvp-dot" data-state="working" aria-hidden="true" /> : trace.state === "held" ? <span className="mvp-run-held" aria-hidden="true" /> : null}
@@ -327,7 +349,7 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
         <Attempt trace={trace} flow={flow} size="full" label={earlier.length > 0} selectedStep={trace === shown ? marked : undefined} />
       </div>
       <div className="mvp-run-max">
-        <nav className="mvp-run-timeline" aria-label="Run timeline" ref={timeline}>
+        <nav className="mvp-run-timeline" aria-label="Run timeline" ref={timeline} data-past={finished(shown) || undefined}>
           <ol>
             {groups.map((group, index) => (
               <li key={index} className="mvp-run-step" aria-current={group.step === selectedStep ? "step" : undefined} data-mock={`group-${group.step}`}>
@@ -340,7 +362,7 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
                         <span className="mvp-run-phase-title"><b>{phase.title}</b>{phase.summary === "" ? null : <span><Written />{phase.summary}</span>}</span>
                         {phase.took === undefined ? null : <span className="mvp-took">{duration(phase.took)}</span>}
                       </div>
-                      <Indicator phase={phase} />
+                      <Indicator phase={phase} past={finished(shown)} step={stepTitle(phase.step)} />
                       {open(phase) ? null : <button type="button" className="mvp-run-collapsed" data-mock={`phase-${phase.id}`}>{phase.cells.length} {phase.cells.length === 1 ? "step" : "steps"}</button>}
                       {!open(phase) ? null : <ol className="mvp-run-cells">
                         {phase.cells.map(cell => (
@@ -372,6 +394,14 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
               </div>
               <p className="mvp-run-explain"><Explain cell={selected} /></p>
               {selected.quote === undefined ? null : <blockquote className="mvp-run-quote" data-copy="data">{selected.quote}</blockquote>}
+              {selected.kind !== "ask" || selectedPhase?.tone !== "wait" ? null : (
+                /* The question waits for a person: Answer settles it and the run goes on; Steer sends the words without settling it. */
+                <form className="mvp-inline-input mvp-run-answer" onSubmit={event => event.preventDefault()}>
+                  <input aria-label="Answer the coding agent" placeholder="Answer" readOnly value={typedOr(frame, `answer:${shown.todo ?? shown.id}`, "")} data-mock={`run-answer-${shown.id}`} />
+                  <Button size="sm" variant="solid" data-mock={`run-answer-send-${shown.id}`}>Answer</Button>
+                  <Button size="sm" variant="outline" data-mock={`run-answer-steer-${shown.id}`}>Steer</Button>
+                </form>
+              )}
               {selected.code === undefined ? null : <pre className="mvp-code mvp-run-code">{selected.code}</pre>}
               {selected.output === undefined ? null : (
                 <div className="mvp-term mvp-run-output">{selected.output.map((line, index) => (

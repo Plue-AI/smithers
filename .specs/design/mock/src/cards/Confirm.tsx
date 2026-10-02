@@ -9,7 +9,7 @@ import { Button } from "@smthrs/ui"
 import { Check, ExternalLink, Loader, X } from "lucide-react"
 import { Card } from "../parts"
 import { useFrame } from "../frame"
-import { refOf, todo as todoOf } from "../world"
+import { mergeReadiness, refOf, todo as todoOf } from "../world"
 import type { ExtraCardProps } from "./extra"
 import { placeOf } from "./Todo"
 
@@ -19,7 +19,8 @@ export const ConfirmCard = ({ id, target }: ExtraCardProps) => {
   const evidence = todo.evidence
   const done = todo.state === "merged"
   const person = world.members.find(each => each.id === me)?.name.split(" ")[0]
-  const checking = evidence !== undefined && (evidence.checks.some(check => check.state === "running") || evidence.github.passed < evidence.github.total)
+  /* The same rule as Home and the TODO card: a member never sees Merge here, and a later item waits its turn. */
+  const readiness = mergeReadiness(world, todo, me)
   const stale = todo.approvedRev !== undefined && evidence?.rev !== undefined && todo.approvedRev !== evidence.rev
   return (
     <Card id={id} kind="confirm" title={done ? `Merged ${refOf(world, todo)}` : `Merge ${refOf(world, todo)} into main?`}>
@@ -36,18 +37,20 @@ export const ConfirmCard = ({ id, target }: ExtraCardProps) => {
           <span className="mvp-check" data-state={evidence.github.passed === evidence.github.total ? "passed" : "running"}>
             {evidence.github.passed === evidence.github.total ? <Check size={13} aria-hidden="true" /> : <Loader size={13} aria-hidden="true" />}GitHub {evidence.github.passed}/{evidence.github.total}
           </span>
-          <span>{evidence.review}</span>
+          <span data-copy="data">{evidence.reviewing === true ? `Review running on ${evidence.rev}` : evidence.review}</span>
         </div>
       )}
-      {stale ? <p className="mvp-warn-text mvp-stale">You approved {todo.approvedRev}; it is now at {evidence?.rev}. Review the new revision.</p> : null}
+      {stale && readiness.state !== "blocked" ? <p className="mvp-warn-text mvp-stale">You approved {todo.approvedRev}. Review {evidence?.rev}.</p> : null}
       {done ? null : (
         <div className="mvp-actions">
-          <span className="mvp-meta">Merges as {person}</span>
+          {readiness.state === "ready" ? <span className="mvp-meta">Merges as {person}</span> : null}
           <span className="mvp-actions-end">
             <Button size="sm" variant="ghost"><ExternalLink size={13} aria-hidden="true" />on GitHub</Button>
             <Button size="sm" variant="ghost">Cancel</Button>
-            {checking ? <Button size="sm" variant="outline" disabled>Checks running</Button>
-              : <Button size="sm" variant="solid" data-mock={`confirm-merge-${todo.id}`}>{stale ? "Review & merge" : "Merge"}</Button>}
+            {readiness.state === "ready"
+              ? <Button size="sm" variant="solid" data-mock={`confirm-merge-${todo.id}`}>{stale ? "Review & merge" : "Merge"}</Button>
+              : readiness.state === "done" ? null
+              : <span className="mvp-merge-reason" data-state={readiness.state} data-mock={`confirm-reason-${todo.id}`}>{readiness.reason}</span>}
           </span>
         </div>
       )}

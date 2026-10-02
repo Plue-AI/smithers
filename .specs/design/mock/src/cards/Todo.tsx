@@ -8,7 +8,7 @@ import { Button } from "@smthrs/ui"
 import { BookOpen, Check, ExternalLink, History, Loader, RotateCw, X } from "lucide-react"
 import { Avatar, AvatarStack, BranchChip, Card, Ref, StatePill, StepStrip, actorName } from "../parts"
 import { typedOr, useFrame } from "../frame"
-import { canMerge, refOf, todo as todoOf, type Todo, type World } from "../world"
+import { mergeReadiness, openItems, refOf, todo as todoOf, type Todo, type World } from "../world"
 import { RunFlags } from "./Run"
 
 const ordinal = (n: number): string => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`
@@ -91,14 +91,12 @@ const Failure = ({ todo }: { readonly todo: Todo }) => {
   )
 }
 
-const Evidence = ({ todo, next }: { readonly todo: Todo; readonly next: boolean }) => {
+const Evidence = ({ todo }: { readonly todo: Todo }) => {
   const { state: { world }, me } = useFrame()
   const evidence = todo.evidence
   if (evidence === undefined) return null
-  const open = world.stack.map(id => world.todos.find(each => each.id === id)!).filter(each => each.state !== "merged" && each.state !== "dropped")
-  const prior = open[open.indexOf(todo) - 1]
-  const checking = evidence.checks.some(check => check.state === "running") || evidence.github.passed < evidence.github.total
-  const failing = evidence.checks.some(check => check.state === "failed") || evidence.github.failing !== undefined
+  const prior = openItems(world)[openItems(world).indexOf(todo) - 1]
+  const readiness = mergeReadiness(world, todo, me)
   return (
     <div className="mvp-evidence" data-mock={`evidence-${todo.id}`}>
       <div className="mvp-evidence-row">
@@ -129,19 +127,24 @@ const Evidence = ({ todo, next }: { readonly todo: Todo; readonly next: boolean 
       </div>
       <div className="mvp-evidence-row">
         <span className="mvp-evidence-key">Review</span>
-        <span>{evidence.review}</span>
+        <span className="mvp-review-line">
+          {evidence.reviewing === true
+            ? <span className="mvp-check" data-state="running"><Loader size={13} aria-hidden="true" />Running on {evidence.rev}</span>
+            : <span data-copy="data">{evidence.review}</span>}
+          {evidence.reviewing === true && evidence.previous !== undefined
+            ? <span className="mvp-previous"><span className="mvp-mono">{evidence.previous.rev}</span> <span data-copy="data">{evidence.previous.review}</span></span> : null}
+        </span>
       </div>
       {todo.approvalCleared ? <div className="mvp-evidence-row"><span className="mvp-evidence-key" /><span className="mvp-warn-text">Approval cleared by rebase · checks rerun</span></div> : null}
       {todo.state === "in-review" ? (
         <div className="mvp-actions">
           <Button size="sm" variant="ghost" data-mock={`diff-${todo.id}`}>Diff</Button>
           <span className="mvp-actions-end">
-            {!canMerge(world, me) ? <span className="mvp-meta">A maintainer merges</span>
-              : failing ? <Button variant="outline" disabled>A required check failed</Button>
-              : checking ? <Button variant="outline" disabled>Checks running{evidence.rev === undefined ? "" : ` on ${evidence.rev}`}</Button>
-              : todo.mergeBlock !== undefined ? <Button variant="outline" disabled>{todo.mergeBlock}<ExternalLink size={12} aria-hidden="true" /></Button>
-              : next ? <Button variant="solid" data-mock={`merge-${todo.id}`}>Merge</Button>
-              : <Button variant="outline" disabled>{prior === undefined ? "Merge" : `Merges after ${refOf(world, prior)}`}</Button>}
+            {/* One rule for every merge surface (world.ts mergeReadiness): the reason is text, never a disabled button. */}
+            {readiness.state === "ready" ? <Button variant="solid" data-mock={`merge-${todo.id}`}>Merge</Button>
+              : readiness.state === "done" ? null
+              : <span className="mvp-merge-reason" data-state={readiness.state} data-mock={`merge-reason-${todo.id}`}>{readiness.reason}
+                  {readiness.github === true ? <a className="mvp-link" href="#">on GitHub<ExternalLink size={11} aria-hidden="true" /></a> : null}</span>}
           </span>
         </div>
       ) : null}
@@ -166,7 +169,6 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
   const flow = todo.steps ?? world.flow
   const branch = world.branches.find(each => each.id === todo.branch)
   const place = placeOf(world, todo)
-  const next = place === "next to merge"
   const settled = todo.state === "merged" || todo.state === "dropped"
   const live = todo.state === "working" || todo.state === "starting" || todo.state === "needs-you"
   /* The TODO's latest attempt: its flags ride on this card, and Inspect opens its monitor (one card per thing). */
@@ -192,7 +194,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
       <Amendments todo={todo} />
       <Question todo={todo} />
       {todo.state === "failed" ? <Failure todo={todo} /> : null}
-      <Evidence todo={todo} next={next} />
+      <Evidence todo={todo} />
       {todo.state === "merged" ? (
         <div className="mvp-actions">
           <span className="mvp-receipt"><Check size={14} aria-hidden="true" />Merged into main{todo.mergedVia !== undefined

@@ -9,7 +9,7 @@ import { Button } from "@smthrs/ui"
 import { ArrowDown, ArrowUp, BookOpen, Check, GitBranch, Loader, MoreHorizontal, Plus, RotateCw, Trash2, X } from "lucide-react"
 import { Card, AvatarStack, BranchChip, StateGlyph, StatePill, Avatar, Ref } from "../parts"
 import { useFrame } from "../frame"
-import { canMerge, refOf, type BackgroundRun, type Todo, type TodoState, type World } from "../world"
+import { mergeReadiness, refOf, type BackgroundRun, type Todo, type TodoState, type World } from "../world"
 
 const FILTERS: ReadonlyArray<{ state: TodoState; word: string }> = [
   { state: "needs-you", word: "Needs you" },
@@ -24,14 +24,11 @@ export const needsAction = (todo: Todo): string =>
   : todo.needs === "foreign_push" || todo.needs === "force_push" ? "Review"
   : todo.needs === "order" ? "Move" : "Answer"
 
-/** The one action a row offers, by state; Merge only on the item next to merge. */
-const rowAction = (todo: Todo, next: boolean, merger: boolean): { label: string; solid?: boolean } | null => {
+/** The one action a row offers, by state; Merge only when the shared readiness rule says so. */
+const rowAction = (world: World, todo: Todo, me: string): { label: string; solid?: boolean } | null => {
   switch (todo.state) {
     case "needs-you": return { label: needsAction(todo) }
-    case "in-review": {
-      const ready = todo.evidence === undefined || (todo.evidence.checks.every(check => check.state === "passed") && todo.evidence.github.passed === todo.evidence.github.total)
-      return next && merger && ready && todo.mergeBlock === undefined ? { label: "Merge", solid: true } : { label: "Review" }
-    }
+    case "in-review": return mergeReadiness(world, todo, me).state === "ready" ? { label: "Merge", solid: true } : { label: "Review" }
     case "failed": return { label: "Retry" }
     case "paused": return { label: "Resume" }
     default: return null
@@ -65,7 +62,7 @@ const Row = ({ world, todo, next, prior, first, last, menu }: {
   const { state: { seq }, me } = useFrame()
   const branch = world.branches.find(each => each.id === todo.branch)
   const present = branch?.presence.map(each => each.who) ?? []
-  const action = rowAction(todo, next, canMerge(world, me))
+  const action = rowAction(world, todo, me)
   const amendments = todo.amendments?.length ?? 0
   const settled = todo.state === "merged" || todo.state === "dropped"
   return (

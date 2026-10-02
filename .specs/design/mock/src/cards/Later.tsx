@@ -1,12 +1,14 @@
 /*
- * Review material, not product UI: what the MVP leaves out (mvp.md §16, and
- * the TUI from §8), one line each with where the spec defers it, for Will to
- * ratify. It is drawn as harness so nobody mistakes it for a card in the app.
+ * Review material, not product UI: what the MVP defers (mvp.md §16, and the
+ * TUI from §8), one line each with where the spec defers it, for Will to
+ * ratify. No release is promised for any of it. It is drawn as harness so
+ * nobody mistakes it for a card in the app.
  */
 import type { ExtraCardProps } from "./extra"
 
 const DEFERRED: ReadonlyArray<{ readonly item: string; readonly area: string }> = [
   { item: "The terminal app (TUI)", area: "§8" },
+  { item: "Smithers Cloud, billing and plans", area: "M-09" },
   { item: "Line comments on diffs in the app", area: "§6.10" },
   { item: "Agent replies on GitHub reviews", area: "§6.3" },
   { item: "Stacked PR bases and retargeting", area: "§4.2" },
@@ -26,9 +28,9 @@ const DEFERRED: ReadonlyArray<{ readonly item: string; readonly area: string }> 
 ]
 
 export const LaterCard = ({ id }: ExtraCardProps) => (
-  <section className="mock-later" data-card={id} data-mock="card-later" aria-label="Not in this release">
+  <section className="mock-later" data-card={id} data-mock="card-later" aria-label="Deferred from MVP">
     <header>
-      <h2>Not in this release</h2>
+      <h2>Deferred from MVP</h2>
       <span>For ratification</span>
     </header>
     <ol>

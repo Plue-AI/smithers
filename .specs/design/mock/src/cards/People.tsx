@@ -1,6 +1,8 @@
 /*
  * Members and Secrets (mvp.md §6.15, M-05, M-25). Members sign in with
- * GitHub; there are no invitations, and everyone added starts as a Member.
+ * GitHub; there are no invitations. A person's role starts from their GitHub
+ * permission when they're added (admin or maintain: Maintainer; write:
+ * Member), and after that the role select here is authoritative.
  * Roles: Owner (installed it), Maintainer (merges, manages people and
  * secrets), Member (everything else). A person needs write access on GitHub:
  * "needs access" was never granted it, "lost access" had it and is suspended.

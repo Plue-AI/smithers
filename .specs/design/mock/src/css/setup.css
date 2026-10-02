@@ -100,6 +100,9 @@
 /* Full width, so the address field's width resolves and it sits beside This Mac only and Network. */
 .mvp-setup-row { display: flex; flex-wrap: wrap; align-items: center; align-self: stretch; gap: var(--sp-2) var(--sp-3); }
 .mvp-setup-error { color: var(--danger); font-size: var(--fs-small); font-weight: 500; }
+/* GitHub: the App exists before the owner signs in through it; signing in is what makes her the owner. */
+.mvp-setup-done > svg { color: var(--success); }
+.mvp-setup-role { color: var(--text); font-weight: 500; }
 .mvp-setup-mark[data-failed] { box-shadow: inset 0 0 0 1.5px var(--danger); color: var(--danger); }
 
 /* Model access (mvp.md §6.5): a row per role with its name, whose key, the key, and its state. */
@@ -126,9 +129,7 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 	font-family: var(--font-mono);
 	font-size: 12.5px;
 	letter-spacing: 0.08em;
-	outline: none;
 }
-.mvp-model input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .mvp-model input::placeholder { color: var(--text-placeholder); font-family: var(--font-ui); letter-spacing: 0; }
 .mvp-model input[data-state="validating"] { color: var(--text-muted); }
 .mvp-model input[data-state="saved"] { border-color: var(--border); background: transparent; color: var(--text-muted); }
@@ -171,9 +172,9 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 	color: var(--text);
 	font-family: var(--font-mono);
 	font-size: 12.5px;
-	outline: none;
 }
-.mvp-setting-input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+/* A change that didn't apply keeps what the owner typed, marked like a failed key. */
+.mvp-setting-input[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 /* Plain HTTP on the network: browser notifications need HTTPS, which only the owner can put in front. */
 .mvp-notify-https {
 	display: inline-flex;
@@ -237,4 +238,20 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 .mvp-segmented { display: inline-flex; padding: 2px; border-radius: var(--r-2); background: var(--surface-2); }
 .mvp-segmented > button { padding: 2px 10px; border-radius: calc(var(--r-2) - 2px); color: var(--text-muted); font-size: var(--fs-small); font-weight: 500; line-height: 22px; }
 .mvp-segmented > button[aria-pressed="true"] { background: var(--surface); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border); color: var(--text); }
-.mvp-segmented > button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+/* An address change that didn't apply: why, Retry, and the address still in effect, on their own line. */
+.mvp-apply { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: var(--fs-small); }
+.mvp-apply-error { display: inline-flex; align-items: center; gap: 5px; color: var(--danger); font-weight: 500; }
+.mvp-apply-error > svg { flex: none; }
+.mvp-apply-now { display: inline-flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 6px; color: var(--text-muted); }
+.mvp-apply-now code { overflow-wrap: anywhere; color: var(--text); font-family: var(--font-mono); font-size: 12.5px; }
+
+/* ════════════════════════════════════════════════════════════
+ * PORT · the one focus ring (apps/app styles/base.css) on every control of
+ * the install's own cards. On an @smthrs/ui button it replaces the library's
+ * shadow ring and covers the border its focus tints.
+ * ════════════════════════════════════════════════════════════ */
+:is([data-kind="setup"], [data-kind="settings"], [data-kind="members"], [data-kind="secrets"]) :is(input, select, textarea, button, a, [role="option"]):focus-visible {
+	outline: 2px solid var(--ring-border);
+	outline-offset: 1px;
+}
+:is([data-kind="setup"], [data-kind="settings"], [data-kind="members"], [data-kind="secrets"]) .sui-button:focus-visible { outline-offset: -1px; box-shadow: none; }

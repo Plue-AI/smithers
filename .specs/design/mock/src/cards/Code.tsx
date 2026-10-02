@@ -14,7 +14,7 @@
 import type { CSSProperties, ReactNode } from "react"
 import { Button } from "@smthrs/ui"
 import { Check, FileSymlink, FileX, FolderSync, History, TriangleAlert } from "lucide-react"
-import { Avatar, AvatarStack, BranchChip, Card, actorName } from "../parts"
+import { actorName, Avatar, AvatarStack, BranchChip, Card, flagName, identityColour } from "../parts"
 import { useFrame } from "../frame"
 import { file as fileOf, isAgent, member, via, type ActorId, type CodeLine, type World } from "../world"
 
@@ -24,20 +24,9 @@ const Where = ({ world, id }: { readonly world: World; readonly id: string }) =>
   return branch === undefined || id === "main" ? <span className="mvp-branch-chip" data-main>main</span> : <BranchChip branch={branch} />
 }
 
-const colourOf = (world: World, who: ActorId | undefined): CSSProperties | undefined => {
-  if (who === undefined) return undefined
-  if (isAgent(who) && via(who) === undefined) return { "--who": "var(--brand)" } as CSSProperties
-  return { "--who": `var(--lane-${member(world, who)?.lane ?? 0})` } as CSSProperties
-}
+const colourOf = (world: World, who: ActorId | undefined): CSSProperties | undefined => who === undefined ? undefined : identityColour(world, who)
 
-const firstName = (world: World, who: ActorId): string => member(world, who)?.name.split(" ")[0] ?? who
 
-/** A gutter flag: "Alice", "Ben · Smithers", "Maya · SSH", "Agent". */
-const flagName = (world: World, who: ActorId): string => {
-  const acting = via(who)
-  if (acting !== undefined) return `${firstName(world, acting.person)} · ${acting.agent}`
-  return isAgent(who) ? "Agent" : firstName(world, who)
-}
 
 /** The unabbreviated name, for a title: "Alice Park", "Ben via Smithers", "Coding agent". */
 const fullName = (world: World, who: ActorId): string =>

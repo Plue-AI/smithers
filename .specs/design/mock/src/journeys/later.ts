@@ -1,5 +1,5 @@
 /*
- * Not in this release (mvp.md §16). Review material, not a journey: one card
+ * Deferred from MVP (mvp.md §16). Review material, not a journey: one card
  * lists every deferral, one line each, so Will can ratify them visually.
  */
 import type { Journey } from "../journey"
@@ -14,12 +14,12 @@ const setup = (): State => {
 
 export const later: Journey = {
   id: "later",
-  title: "Not in this release",
+  title: "Deferred from MVP",
   spec: "§16",
-  intro: "What the MVP leaves for the first release after it, one line each, with where the spec defers it.",
+  intro: "What the MVP defers, one line each, with where the spec defers it. No release is promised for any of it.",
   viewers: [BEN],
   setup,
   steps: [
-    { caption: "Will ratifies these deferrals, or names any the MVP must keep.", hold: 4000, act: () => {} }
+    { caption: "Will ratifies these deferrals, or names any the MVP must keep.", spec: "§16", hold: 4000, act: () => {} }
   ]
 }
