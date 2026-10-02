@@ -10,6 +10,9 @@ const target = "owner/unloaded", ambient = "owner/ambient"
 const cases = [
   ["box.open", { repo: target, kind: "container" }, { repo: target, kind: "container" }],
   ["box.open", { bookmark: "feature/work", repo: target, kind: "vm" }, { bookmark: "feature/work", repo: target, kind: "vm" }],
+  // WorkspaceCard's two restore buttons: a snapshot restore and a fresh recovery.
+  ["box.open", { repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }, { repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }],
+  ["box.open", { repo: target, recoveryOf: "ws-1" }, { repo: target, recoveryOf: "ws-1" }],
   ["prs.review", { number: 42, verdict: "approve", repo: target }, { number: 42, verdict: "approve", text: "", repo: target }],
   ["box.desktop.open", { repo: target }, { repo: target }],
   ["box.desktop.open", { bookmark: "feature/work", repo: target }, { bookmark: "feature/work", repo: target }],
@@ -23,6 +26,14 @@ test.each(cases)("%s retains its typed repository with missing or stale inventor
   for (const known of [new Set<string>(), new Set([ambient])]) {
     expect(payloadFor(name, flowArgs(name, input), undefined, known)).toEqual({ payload: expected })
   }
+})
+
+test("box.open's recovery flags parse from the line its form assembles, in any position", () => {
+  expect(payloadFor("box.open", `feature/work ${target} --kind vm --snapshot snap-1 --recoveryOf ws-1`, undefined, new Set()))
+    .toEqual({ payload: { bookmark: "feature/work", repo: target, kind: "vm", snapshot: "snap-1", recoveryOf: "ws-1" } })
+  expect(payloadFor("box.open", `--recoveryOf ws-1 main ${target}`, undefined, new Set())).toEqual({ payload: { bookmark: "main", repo: target, recoveryOf: "ws-1" } })
+  expect(payloadFor("box.open", `${target} --snapshot`, undefined, new Set())).toEqual({ error: "box.open's --snapshot needs an id" })
+  expect(payloadFor("box.open", `${target} --kind`, undefined, new Set())).toEqual({ error: "box.open's kind must be container, vm, or desktop" })
 })
 
 test("a mirror ref and its explicit repository need no inventory", () => {

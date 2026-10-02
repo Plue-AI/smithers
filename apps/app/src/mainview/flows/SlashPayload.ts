@@ -1118,27 +1118,33 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "box.list": (args) => repoOnly("box.list", args),
   "box.open": (args, known) => {
-    const structured = structuredFields("box.open", args, ["bookmark", "repo", "kind"])
+    const structured = structuredFields("box.open", args, ["bookmark", "repo", "kind", "snapshot", "recoveryOf"])
     if (structured !== undefined) return structured
     /*
      * ADR 0002: the kind IS the choice, so it rides the line as `--kind
      * <container|vm|desktop>` wherever the caller put it — the card's three
-     * buttons append it, a human may type it anywhere. Everything left after
-     * it is the bookmark and the optional trailing owner/repo.
+     * buttons append it, a human may type it anywhere. A recovery's
+     * `--snapshot <id>` and `--recoveryOf <id>` (WorkspaceCard's restore
+     * buttons) ride the same way. Everything left after them is the bookmark
+     * and the optional trailing owner/repo.
      */
-    const flagged = /(?:^|\s)--kind(?:\s+(\S+))?/.exec(args ?? "")
-    if (flagged !== null && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) {
-      return no("box.open's kind must be container, vm, or desktop")
+    let line = args ?? ""
+    const flags: Record<string, string> = {}
+    for (const name of ["kind", "snapshot", "recoveryOf"] as const) {
+      const flagged = new RegExp(`(?:^|\\s)--${name}(?:\\s+(\\S+))?`).exec(line)
+      if (flagged === null) continue
+      if (name === "kind" && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) return no("box.open's kind must be container, vm, or desktop")
+      if (flagged[1] === undefined) return no(`box.open's --${name} needs an id`)
+      flags[name] = flagged[1]
+      line = line.replace(flagged[0], " ")
     }
-    const kind = flagged?.[1]
-    const line = flagged === null ? args : (args ?? "").replace(flagged[0], " ")
     const { rest, repo } = identifierRepo(line, known)
     const bookmark = rest.trim()
     if (/\s/.test(bookmark)) return no("box.open takes a bookmark and optionally an owner/repo")
     return ok({
       ...(bookmark === "" ? {} : { bookmark }),
       ...(repo === undefined ? {} : { repo }),
-      ...(kind === undefined ? {} : { kind })
+      ...flags
     })
   },
   "box.view": (args) => required("workspaceId", args, "box.view needs a workspace id"),

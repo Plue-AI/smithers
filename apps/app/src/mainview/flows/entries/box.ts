@@ -46,7 +46,11 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     /* Launching a cloud computer is an outbound act: the capability always asks. */
     name: "box.open",
     form: {
-      fields: { bookmark: { optionsFrom: "bookmarks", kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" } },
+      /* A recovery's snapshot and recoveryOf are the restore buttons' routing data (WorkspaceCard), never typed. */
+      fields: {
+        bookmark: { optionsFrom: "bookmarks", kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" },
+        snapshot: { hidden: true }, recoveryOf: { hidden: true }
+      },
       args: (payload) => line(text(payload, "bookmark"), text(payload, "repo"), flag(payload, "kind"), flag(payload, "snapshot"), flag(payload, "recoveryOf"))
     },
     summary: "Open (create or reuse) a Linux box in Smithers Cloud on a bookmark: a real machine with a terminal, files, and services the user can use",
