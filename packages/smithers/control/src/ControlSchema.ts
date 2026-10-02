@@ -1155,6 +1155,38 @@ export const PlanSummary = Schema.Struct({
  */
 export type PlanSummary = typeof PlanSummary.Type
 
+/** Exact native observations, including unavailable evidence rather than a guessed lifecycle.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const ExecutionBatch = Schema.Struct({
+  source: Schema.NullOr(Schema.String),
+  revision: Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  snapshots: Schema.Array(Schema.Union([
+    Schema.TaggedStruct("Observed", {
+      executionId: RunId,
+      source: Schema.String,
+      revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      observation: ExecutionFact.Observation
+    }),
+    Schema.TaggedStruct("Missing", {
+      executionId: RunId,
+      source: Schema.String,
+      revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      deleted: Schema.Boolean
+    }),
+    Schema.TaggedStruct("Unavailable", {
+      executionId: RunId,
+      reason: Schema.Literals(["unsupported", "outside-run", "ancestry-unavailable"])
+    })
+  ]))
+})
+/** Native execution observations with their source watermark.
+ * @category models
+ * @since 1.0.0
+ */
+export type ExecutionBatch = typeof ExecutionBatch.Type
+
 /**
  * A typed listing request for discovered flows, durable runs, registered
  * triggers, the trigger fire ledger, or stored plans.
@@ -1173,6 +1205,10 @@ export type PlanSummary = typeof PlanSummary.Type
  * @category models
  */
 export const ListRequest = Schema.Union([
+  Schema.TaggedStruct("executions", {
+    runId: RunId,
+    executionIds: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(200))
+  }),
   Schema.TaggedStruct("flows", {
     filters: Schema.optional(Schema.Json),
     cursor: Schema.optional(Schema.String),
@@ -1243,6 +1279,12 @@ export type ListRequest = typeof ListRequest.Type
  * @category models
  */
 export const ListResponse = Schema.Union([
+  Schema.TaggedStruct("executions", {
+    source: ExecutionBatch.fields.source,
+    revision: ExecutionBatch.fields.revision,
+    items: ExecutionBatch.fields.snapshots,
+    nextCursor: Schema.optional(Schema.Never)
+  }),
   Schema.TaggedStruct("flows", {
     items: Schema.Array(
       Schema.Struct({ flowId: FlowId, description: Schema.String, inputSchema: Schema.optional(Schema.Json) })

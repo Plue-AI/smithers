@@ -125,6 +125,7 @@ import {
   testRunner,
   toolServices
 } from "./NativeEquipment.ts"
+import * as NativeExecutionRead from "./NativeExecutionRead.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
 import * as RegistryWorkspace from "./RegistryWorkspace.ts"
 import * as ReleasedChildResume from "./ReleasedChildResume.ts"
@@ -1727,7 +1728,7 @@ export const make = (
           Effect.provideService(Executable.Catalog, catalog)
         )).pipe(Effect.provideService(Journal.Journal, controlJournal))
         yield* Effect.forkScoped(supervisor.recover)
-        return supervisor.wrap(executor)
+        return supervisor.wrap({ ...executor, readExecutions: yield* NativeExecutionRead.makeFromSql() })
       })
     ).pipe(
       Layer.provide([
@@ -2003,14 +2004,17 @@ export const make = (
       const engine = DatabaseLocation.exists(engineFile)
         ? yield* Layer.build(
           Layer.mergeAll(Layer.fresh(RunStore.layer), DurableEngineState.layer).pipe(
-            Layer.provide(native.observe(engineFile))
+            Layer.provideMerge(native.observe(engineFile))
           )
         )
         : undefined
       return ControlExecutor.makeReadOnly(
         engine === undefined
           ? undefined
-          : (runId) => AgentSession.readExecution(runId).pipe(Effect.provideContext(engine))
+          : (runId) => AgentSession.readExecution(runId).pipe(Effect.provideContext(engine)),
+        engine === undefined
+          ? undefined
+          : yield* NativeExecutionRead.makeFromSql().pipe(Effect.provideContext(engine))
       )
     }))
     return Layer.unwrap(Effect.map(

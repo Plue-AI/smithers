@@ -69,6 +69,16 @@ export interface Batch extends Position {
  */
 export const maximumBatchSize = 200
 /**
+ * Reserves a deferred SQLite / repeatable-read PostgreSQL read transaction
+ * without the durable writer's admission lock. An existing transaction is
+ * reused with its caller-selected isolation.
+ * The supplied effect must contain observations only.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const withReadTransaction = Read.transaction
+/**
  * Engine observation operations.
  *
  * @category models

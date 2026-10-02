@@ -410,7 +410,25 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
                   operation: "run diagnosis",
                   subject: run.runId
                 })
-                return RunActivity.show(run, events)
+                const executionIds = RunActivity.knownExecutionIds(events)
+                const batches: Array<ControlSchema.ExecutionBatch> = []
+                for (let offset = 0; offset < executionIds.length; offset += 200) {
+                  const page = yield* control.list({
+                    _tag: "executions",
+                    runId: run.runId,
+                    executionIds: executionIds.slice(offset, offset + 200)
+                  })
+                  if (page._tag !== "executions") {
+                    return yield* new CliError.UsageError({
+                      message: "runs show: execution observation is unavailable"
+                    })
+                  }
+                  if (batches.length > 0 && page.source !== batches[0]!.source) {
+                    return yield* new CliError.UsageError({ message: "runs show: execution source changed; retry" })
+                  }
+                  batches.push({ source: page.source, revision: page.revision, snapshots: page.items })
+                }
+                return RunActivity.show(run, events, undefined, batches)
               }),
               c.options,
               runtime

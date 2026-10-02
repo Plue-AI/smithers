@@ -521,7 +521,7 @@ describe("run listing filters", () => {
         list: (request: ControlSchema.ListRequest) => {
           pages.push(request)
           return Effect.succeed(
-            request.cursor === undefined
+            request._tag === "executions" || request.cursor === undefined
               ? { _tag: "runs" as const, items: Array.from({ length: 500 }, () => ({})), nextCursor: "p2" }
               : { _tag: "runs" as const, items: Array.from({ length: 7 }, () => ({})) }
           ) as never

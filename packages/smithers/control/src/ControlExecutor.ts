@@ -12,7 +12,15 @@ import type { ExecutionFact } from "@smthrs/journal"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import type { LaunchFailed, PersistenceError } from "./ControlError.ts"
 import type { StoredPlan } from "./ControlRuntime.ts"
-import type { ApprovalTarget, PendingWait, Principal, RunId, RunSummary, SignalPayload } from "./ControlSchema.ts"
+import type {
+  ApprovalTarget,
+  ExecutionBatch,
+  PendingWait,
+  Principal,
+  RunId,
+  RunSummary,
+  SignalPayload
+} from "./ControlSchema.ts"
 
 /**
  * One stored plan and the run summary it is being started as.
@@ -307,6 +315,11 @@ export const answerableWait = (
 export interface Service {
   /** Read from the executor's database, never the control coordination copy. */
   readonly readExecution?: (runId: RunId) => Effect.Effect<ExecutionObservation, PersistenceError>
+  /** Exact observations scoped to the authorized control root; unrelated native rows are never exposed. */
+  readonly readExecutions?: (input: {
+    readonly runId: RunId
+    readonly executionIds: ReadonlyArray<string>
+  }) => Effect.Effect<ExecutionBatch, PersistenceError>
   readonly launch: (input: Launch) => Effect.Effect<Acceptance, LaunchFailed>
   /**
    * Records a cancellation on the engine row, durably, regardless of which
@@ -437,11 +450,15 @@ export const makeObserving = (service: Service): Service => {
  * @category constructors
  * @since 1.0.0
  */
-export const makeReadOnly = (readExecution?: Service["readExecution"]): Service => {
+export const makeReadOnly = (
+  readExecution?: Service["readExecution"],
+  readExecutions?: Service["readExecutions"]
+): Service => {
   const refuse = (method: string) =>
     Effect.die(new Error(`This host only observes runs, so ControlExecutor.${method} is unreachable on it.`))
   return make({
     ...(readExecution === undefined ? {} : { readExecution }),
+    ...(readExecutions === undefined ? {} : { readExecutions }),
     launch: Effect.fn("ControlExecutor.launch")(() => refuse("launch")),
     requestCancel: Effect.fn("ControlExecutor.requestCancel")(() => refuse("requestCancel")),
     deliverSignal: Effect.fn("ControlExecutor.deliverSignal")(() => refuse("deliverSignal")),

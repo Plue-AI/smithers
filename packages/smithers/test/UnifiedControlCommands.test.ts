@@ -390,7 +390,7 @@ describe("unified control dispatch", () => {
     ports.list.mockImplementation((request: ControlSchema.ListRequest) => {
       order.push("query")
       return Effect.succeed(
-        request.cursor === undefined
+        request._tag === "executions" || request.cursor === undefined
           ? { _tag: "runs", items: [row("run-1"), row("run-2")], nextCursor: "page-2" }
           : { _tag: "runs", items: [row("run-3")] }
       )
@@ -444,6 +444,8 @@ describe("unified control dispatch", () => {
       // so its diagnosis has no end yet.
       updatedAt: 3,
       executions: [],
+      executionSnapshots: [],
+      health: { health: "awaiting-human", attention: "awaiting-approval", reason: "awaiting-reply" },
       diagnosis: {
         status: "waiting-approval",
         turns: 0,
@@ -473,6 +475,121 @@ describe("unified control dispatch", () => {
       }
     })
   })
+
+  // These port fixtures qualify serial read ordering and refusal before the
+  // CLI displays evidence. NativeRunActivityCancellation tests the real stores.
+  it("reads 405 exact execution identities in serial 200-ID batches and keeps each batch's revision", async () => {
+    const ids = Array.from({ length: 405 }, (_, i) => `native-${i}`)
+    const requests: Array<ReadonlyArray<string>> = []
+    const order: Array<string> = []
+    const events = ids.map((executionId, i) =>
+      event(i + 1, "control.engine.event", {
+        executionId,
+        eventType: "flows.engine.run-decision",
+        generation: 0,
+        sequence: i + 1,
+        payload: {
+          executionFact: {
+            observation: { executionId, flowName: "demo/ship/work", status: "running", parentRunId: "run-1" }
+          }
+        }
+      })
+    )
+    ports.watch.mockReturnValue(Stream.fromIterable([...events, events[0]!]))
+    ports.list.mockImplementation((request: ControlSchema.ListRequest) => {
+      if (request._tag !== "executions") return Effect.succeed({ _tag: "runs", items: [row("run-1", "cancelled")] })
+      const batch = requests.length
+      requests.push(request.executionIds)
+      order.push(`start:${batch}`)
+      return Effect.sleep("1 millis").pipe(Effect.andThen(Effect.sync(() => {
+        order.push(`end:${batch}`)
+        return {
+          _tag: "executions",
+          source: "native-source",
+          revision: 10 + batch,
+          items: request.executionIds.map((executionId, index) => ({
+            _tag: "Observed",
+            executionId,
+            source: "native-source",
+            revision: 10 + batch,
+            observation: {
+              executionId,
+              flowName: "demo/ship/work",
+              status: "cancelled",
+              createdAtMs: 1,
+              startedAtMs: 2,
+              finishedAtMs: batch * 200 + index + 3,
+              parentRunId: "run-1",
+              lineageId: executionId,
+              roundOrdinal: 0,
+              cancelRequestedAtMs: 3,
+              waiting: null
+            }
+          }))
+        }
+      })))
+    })
+    const result = await invoke(["runs", "show", "run-1", "--remote", "https://control.invalid", "--json"])
+    expect(result.codes).toEqual([])
+    expect(requests).toEqual([ids.slice(0, 200), ids.slice(200, 400), ids.slice(400)])
+    expect(order).toEqual(["start:0", "end:0", "start:1", "end:1", "start:2", "end:2"])
+    const output = JSON.parse(result.stdout)
+    expect(output.executionSnapshots.map((batch: ControlSchema.ExecutionBatch) => batch.revision)).toEqual([10, 11, 12])
+    expect(
+      output.executionSnapshots.flatMap((batch: ControlSchema.ExecutionBatch) =>
+        batch.snapshots.map((row) => row.executionId)
+      )
+    ).toEqual(ids)
+    expect(output.executions).toHaveLength(20)
+    expect(output.executionsOmitted).toBe(385)
+    expect(
+      output.executions.every((execution: { status: string; running: unknown }) =>
+        execution.status === "cancelled" && execution.running === null
+      )
+    ).toBe(true)
+  })
+
+  it.each(["wrong-tag", "source-replaced", "read-failed"] as const)(
+    "refuses a partial activity display when a later exact batch is %s",
+    async (mode) => {
+      const ids = Array.from({ length: 201 }, (_, i) => `native-${i}`)
+      ports.watch.mockReturnValue(
+        Stream.fromIterable(ids.map((executionId, i) => event(i + 1, "control.engine.event", { executionId })))
+      )
+      let batches = 0
+      ports.list.mockImplementation((request: ControlSchema.ListRequest) => {
+        if (request._tag !== "executions") return Effect.succeed({ _tag: "runs", items: [row("run-1")] })
+        batches++
+        if (batches === 2 && mode === "wrong-tag") return Effect.succeed({ _tag: "runs", items: [] })
+        if (batches === 2 && mode === "read-failed") {
+          return Effect.fail(new Error("native observation failed"))
+        }
+        return Effect.succeed({
+          _tag: "executions",
+          source: batches === 2 ? "replaced-source" : "native-source",
+          revision: batches,
+          items: request.executionIds.map((executionId) => ({
+            _tag: "Unavailable",
+            executionId,
+            reason: "unsupported"
+          }))
+        })
+      })
+      const result = await invoke(["runs", "show", "run-1", "--remote", "https://control.invalid", "--json"])
+      expect(result.codes).toEqual([mode === "read-failed" ? 1 : 2])
+      expect(batches).toBe(2)
+      const output = JSON.parse(result.stdout)
+      expect(output).not.toHaveProperty("executions")
+      expect(output).not.toHaveProperty("executionSnapshots")
+      expect(result.stdout).toContain(
+        mode === "wrong-tag"
+          ? "execution observation is unavailable"
+          : mode === "source-replaced"
+          ? "execution source changed; retry"
+          : "native observation failed"
+      )
+    }
+  )
 
   it("inspects the requested run's node tree through the shared DevTools projection", async () => {
     const run = row("run-1", "running")
@@ -623,7 +740,11 @@ describe("unified control dispatch", () => {
       executionRoot: "/stale-child"
     })
     expect(ports.prepare).toHaveBeenCalledExactlyOnceWith("/fixture", "child")
-    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "child"], { root: "/fixture", quiet: false }, {
+    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "child"], {
+      root: "/fixture",
+      quiet: false,
+      verbose: false
+    }, {
       ...result.config,
       executionRoot: "/isolated-child"
     })
@@ -633,7 +754,7 @@ describe("unified control dispatch", () => {
     const result = await invoke(["runs", "resume", "child", "--allow-code-drift", "--root", "/fixture", "--json"])
     expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
       ["resume", "child", "--allow-code-drift"],
-      { root: "/fixture", quiet: false },
+      { root: "/fixture", quiet: false, verbose: false },
       { ...result.config, executionRoot: "/isolated-child" }
     )
   })
@@ -733,7 +854,7 @@ describe("unified control dispatch", () => {
       const result = await invoke(["runs", verb, "run-1", "--json"])
       expect(result.codes).toEqual([])
       expect(ports.watch).toHaveBeenCalledExactlyOnceWith({ runId: "run-1", follow: false })
-      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(argv, { quiet: false }, result.config)
+      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(argv, { quiet: false, verbose: false }, result.config)
       expect(ports.prepare).not.toHaveBeenCalled()
     })
 
@@ -746,7 +867,7 @@ describe("unified control dispatch", () => {
       await invoke(["runs", "stop", "run-1", "--json"])
       expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
         ["deny", JSON.stringify(guardPayload("timeout/run-1/cell"))],
-        { quiet: false },
+        { quiet: false, verbose: false },
         expect.anything()
       )
     })
@@ -761,7 +882,11 @@ describe("unified control dispatch", () => {
         const result = await invoke(["runs", verb, "run-1", "--root", "/fixture", "--json"])
         expect(result.codes).toEqual([])
         expect(ports.prepare).toHaveBeenCalledExactlyOnceWith("/fixture", "run-1")
-        expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "run-1"], { root: "/fixture", quiet: false }, {
+        expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "run-1"], {
+          root: "/fixture",
+          quiet: false,
+          verbose: false
+        }, {
           ...result.config,
           executionRoot: "/isolated-child"
         })
@@ -977,7 +1102,7 @@ describe("unified durable log streams", () => {
     expect(ports.events).toHaveBeenCalledExactlyOnceWith(
       "run-1",
       false,
-      { after: 40, limit: 2, root: "/fixture", quiet: false, follow: false },
+      { after: 40, limit: 2, root: "/fixture", quiet: false, verbose: false, follow: false },
       result.config,
       40
     )

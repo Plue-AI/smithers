@@ -56,6 +56,8 @@ const start = (flowId: string, suffix: string) =>
 
 const items = (listed: ListResponse): ReadonlyArray<string> => {
   switch (listed._tag) {
+    case "executions":
+      return listed.items.map((item) => item.executionId)
     case "flows":
       return listed.items.map((item) => item.flowId)
     case "runs":

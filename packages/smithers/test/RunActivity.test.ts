@@ -3,6 +3,8 @@
  * carries in `control.engine.event` envelopes, read as an operator's view.
  */
 import type { ControlSchema } from "@smthrs/control"
+import { ExecutionFact } from "@smthrs/journal"
+import { Schema } from "effect"
 import { Writable } from "node:stream"
 import { describe, expect, it } from "vitest"
 import * as RunActivity from "../src/cli/RunActivity.ts"
@@ -81,6 +83,124 @@ const tree = (): ReadonlyArray<ControlSchema.ControlEvent> => [
 ]
 
 describe("RunActivity.fold", () => {
+  const observed = (
+    executionId: string,
+    status: "running" | "suspended" | "cancelled" | "completed",
+    options: { parent?: string; finished?: number; flowName?: string; revision?: number } = {}
+  ): ControlSchema.ExecutionBatch["snapshots"][number] => ({
+    _tag: "Observed",
+    executionId,
+    source: "native-source",
+    revision: options.revision ?? 9,
+    observation: Schema.decodeUnknownSync(ExecutionFact.Observation)({
+      executionId,
+      flowName: options.flowName ?? "sweep/work",
+      status,
+      parentRunId: options.parent ?? runId,
+      lineageId: executionId,
+      roundOrdinal: 3,
+      createdAtMs: 1,
+      startedAtMs: 5,
+      finishedAtMs: options.finished ?? null,
+      cancelRequestedAtMs: status === "cancelled" ? 20 : null,
+      waiting: null
+    })
+  })
+  const batch = (snapshots: ControlSchema.ExecutionBatch["snapshots"], revision = 9): ControlSchema.ExecutionBatch => ({
+    source: "native-source",
+    revision,
+    snapshots
+  })
+
+  it("deduplicates exact journal identities in order without accepting unrelated or malformed events", () => {
+    const events = [
+      ...tree(),
+      node("work-1", "scheduled", "another", { kind: "ActionCall" }),
+      { ...control("control.status.observed", 200), payload: { executionId: "unrelated" } },
+      { ...control("control.engine.event", 201), payload: { executionId: "" } },
+      { ...control("control.engine.event", 202), payload: null }
+    ] as ReadonlyArray<ControlSchema.ControlEvent>
+    expect(RunActivity.knownExecutionIds(events)).toEqual([runId, "entry", "rounds", "work-1", "work-2"])
+  })
+
+  it("overlays exact current native states and action idleness without rewriting journal history", () => {
+    const events = tree()
+    const before = JSON.stringify(events)
+    const snapshots = [batch([
+      observed(runId, "cancelled", { flowName: "agent/run", finished: 25 }),
+      observed("work-1", "cancelled", { parent: "rounds", finished: 24 })
+    ])]
+    const activity = RunActivity.fold(events, { runId, flowId: "sweep" }, snapshots)
+    expect(activity.executions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ executionId: runId, status: "cancelled", running: null, finishedAtMs: 25 }),
+      expect.objectContaining({
+        executionId: "work-1",
+        status: "cancelled",
+        running: null,
+        finishedAtMs: 24,
+        round: 3
+      }),
+      expect.objectContaining({ executionId: "rounds", status: "running", running: "sweep/dispatch" })
+    ]))
+    expect(JSON.stringify(events)).toBe(before)
+    expect(RunActivity.fold(events, { runId, flowId: "sweep" }).executions.find((row) => row.executionId === "work-1"))
+      .toMatchObject({ status: "running", running: "sweep/fix" })
+    const shown = RunActivity.show(
+      { runId, flowId: "sweep", status: "cancelled", createdAt: 0, updatedAt: 2 },
+      events,
+      30,
+      snapshots
+    )
+    expect(shown.executionSnapshots).toEqual(snapshots)
+    expect(shown.executions).toEqual(activity.executions)
+    expect(shown.updatedAt).toBe(activity.lastProgressAt)
+  })
+
+  it("does not derive child cancellation from a terminal root or unavailable native evidence", () => {
+    const unavailable: ControlSchema.ExecutionBatch["snapshots"] = [
+      { _tag: "Missing", executionId: "work-1", source: "native-source", revision: 9, deleted: false },
+      { _tag: "Unavailable", executionId: "rounds", reason: "ancestry-unavailable" },
+      observed("unknown", "cancelled"),
+      { ...observed("work-2", "cancelled"), executionId: "work-1" }
+    ]
+    const snapshots = [batch([observed(runId, "cancelled", { flowName: "agent/run", finished: 30 }), ...unavailable])]
+    const activity = RunActivity.fold(tree(), { runId, flowId: "sweep" }, snapshots)
+    expect(activity.executions.find((row) => row.executionId === "work-1"))
+      .toMatchObject({ status: "running", running: "sweep/fix" })
+    expect(activity.executions.find((row) => row.executionId === "rounds")?.status).toBe("running")
+    expect(activity.executions.find((row) => row.executionId === "work-2")?.status).toBe("completed")
+    expect(activity.executions.some((row) => row.executionId === "unknown")).toBe(false)
+  })
+
+  it("refuses incompatible snapshot provenance without replacing a recorded lifecycle", () => {
+    const snapshots = [
+      { ...batch([observed("work-1", "cancelled")]), source: "replacement-source" },
+      { ...batch([observed("work-2", "cancelled")]), revision: null },
+      batch([observed("rounds", "cancelled", { revision: 10 })], 9)
+    ]
+    const activity = RunActivity.fold(tree(), { runId, flowId: "sweep" }, snapshots)
+    expect(activity.executions.find((row) => row.executionId === "work-1")?.status).toBe("running")
+    expect(activity.executions.find((row) => row.executionId === "work-2")?.status).toBe("completed")
+    expect(activity.executions.find((row) => row.executionId === "rounds")?.status).toBe("running")
+  })
+
+  it("overlays more than 200 identities across independently versioned native batches before bounding rows", () => {
+    const ids = Array.from({ length: 205 }, (_, i) => `work-${i}`)
+    const events = ids.map((id) => fact(id, "sweep/work", "running", { parent: runId }))
+    const first = batch(ids.slice(0, 200).map((id, i) => observed(id, "cancelled", { finished: i + 10 })))
+    const second = batch(
+      ids.slice(200).map((id, i) => observed(id, "completed", { finished: i + 210, revision: 10 })),
+      10
+    )
+    const activity = RunActivity.fold(events, { runId, flowId: "sweep" }, [first, second])
+    expect(activity.executions).toHaveLength(RunActivity.maximumExecutions)
+    expect(activity.omitted).toBe(185)
+    expect(activity.executions.map((row) => row.executionId)).toEqual(ids.slice(-20).reverse())
+    expect(activity.executions.slice(0, 5).every((row) => row.status === "completed")).toBe(true)
+    expect(activity.executions.slice(5).every((row) => row.status === "cancelled")).toBe(true)
+    expect(RunActivity.fold(events, { runId, flowId: "sweep" }).executions).toHaveLength(205)
+  })
+
   it("names the run by its flow, folds the wrappers into its row, and lists what each execution runs", () => {
     const activity = RunActivity.fold(tree(), { runId, flowId: "sweep" })
     expect(activity.omitted).toBe(0)

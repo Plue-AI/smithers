@@ -1084,6 +1084,27 @@ export const layer: Layer.Layer<
 
     const list = (request: ListInput): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {
+        if (request._tag === "executions") {
+          if (request.reader !== undefined && !(yield* readerSees(request.reader, request.runId))) {
+            return yield* new RunNotFound({ runId: request.runId })
+          }
+          yield* runtime.getRun(request.runId)
+          if (request.executionIds.length > 200 || request.executionIds.some((id) => id.length === 0)) {
+            return yield* invalid("executionIds: at most 200 nonempty execution IDs are admitted")
+          }
+          const batch = Option.isSome(executor) && executor.value.readExecutions !== undefined
+            ? yield* executor.value.readExecutions(request)
+            : {
+              source: null,
+              revision: null,
+              snapshots: request.executionIds.map((executionId) => ({
+                _tag: "Unavailable" as const,
+                executionId,
+                reason: "unsupported" as const
+              }))
+            }
+          return { _tag: "executions", source: batch.source, revision: batch.revision, items: batch.snapshots }
+        }
         const bounds = yield* pageBounds(request._tag === "runs" ? undefined : request.cursor, request.limit)
         if (request._tag === "plans") {
           // A plan's input and envelope are an operator's to read.

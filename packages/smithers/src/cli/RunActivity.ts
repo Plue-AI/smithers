@@ -39,6 +39,20 @@ const terminal: ReadonlySet<string> = new Set(["completed", "failed", "cancelled
  */
 const observational: ReadonlySet<string> = new Set(["control.status.observed", "control.gateway.heartbeat"])
 
+/** Exact identities recorded by the journal; lifecycle still comes from native snapshots.
+ * @category queries
+ * @since 1.0.0
+ */
+export const knownExecutionIds = (
+  events: ReadonlyArray<ControlSchema.ControlEvent>
+): ReadonlyArray<string> => [
+  ...new Set(events.flatMap((event) => {
+    if (event.kind !== "control.engine.event") return []
+    const id = text(record(event.payload).executionId)
+    return id === undefined ? [] : [id]
+  }))
+]
+
 /**
  * One execution in a run's tree, as `runs show` prints it.
  *
@@ -130,7 +144,8 @@ interface Folded {
  */
 export const fold = (
   events: ReadonlyArray<ControlSchema.ControlEvent>,
-  run: { readonly runId: string; readonly flowId: string }
+  run: { readonly runId: string; readonly flowId: string },
+  snapshots?: ReadonlyArray<ControlSchema.ExecutionBatch>
 ): Activity => {
   let lastProgressAt: number | undefined
   const executions = new Map<string, Folded>()
@@ -179,6 +194,27 @@ export const fold = (
       startedAtMs: number(observation.startedAtMs),
       finishedAtMs: number(observation.finishedAtMs)
     })
+  }
+  for (const batch of snapshots ?? []) {
+    for (const snapshot of batch.snapshots) {
+      if (snapshot._tag !== "Observed") continue
+      const observed = snapshot.observation
+      if (
+        snapshot.executionId !== observed.executionId || snapshot.source !== batch.source ||
+        batch.revision === null || snapshot.revision > batch.revision
+      ) continue
+      const previous = executions.get(snapshot.executionId)
+      if (previous === undefined) continue
+      executions.set(snapshot.executionId, {
+        ...previous,
+        flowName: observed.flowName,
+        status: observed.status,
+        parent: observed.parentRunId,
+        round: observed.roundOrdinal,
+        startedAtMs: observed.startedAtMs,
+        finishedAtMs: observed.finishedAtMs
+      })
+    }
   }
   // The wrappers are the run itself: their ids resolve to the run's row.
   const wrappers = new Set(
@@ -341,6 +377,7 @@ const warningsOf = (events: ReadonlyArray<ControlSchema.ControlEvent>): Readonly
  * @since 1.0.0
  */
 export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
+  readonly executionSnapshots?: ReadonlyArray<ControlSchema.ExecutionBatch>
   readonly codeDrift?: NonNullable<ControlSchema.RunSummary["codeDrift"]> & { readonly verdict: string }
   readonly executions: ReadonlyArray<Execution>
   readonly executionsOmitted?: number
@@ -372,9 +409,10 @@ export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
 export const show = (
   run: ControlSchema.RunSummary,
   events: ReadonlyArray<ControlSchema.ControlEvent>,
-  now: number = Date.now()
+  now: number = Date.now(),
+  snapshots?: ReadonlyArray<ControlSchema.ExecutionBatch>
 ): Shown => {
-  const activity = fold(events, run)
+  const activity = fold(events, run, snapshots)
   const diagnosis = Forensics.digest(events, run.runId)
   const rollup = statusRollup(run, events, now)
   const warnings = warningsOf(events)
@@ -397,6 +435,7 @@ export const show = (
     updatedAt: Math.max(run.updatedAt, activity.lastProgressAt ?? run.updatedAt),
     ...(codeDrift === undefined ? {} : { codeDrift: { ...codeDrift, verdict: driftVerdict(codeDrift) } }),
     executions: activity.executions,
+    ...(snapshots === undefined ? {} : { executionSnapshots: snapshots }),
     ...(activity.omitted === 0 ? {} : { executionsOmitted: activity.omitted }),
     // The fold's span ends at the last event it reads, which is not an end
     // while the run is live.

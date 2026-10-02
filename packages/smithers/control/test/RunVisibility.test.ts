@@ -12,9 +12,9 @@ import { Effect, Layer, Stream } from "effect"
 import { RpcTest } from "effect/unstable/rpc"
 import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
-import { RunNotFound } from "../src/ControlError.ts"
+import { type ControlError, RunNotFound } from "../src/ControlError.ts"
 import { ControlRpcs, layerAuth } from "../src/ControlRpcs.ts"
-import type { Principal } from "../src/ControlSchema.ts"
+import type { Principal, Receipt } from "../src/ControlSchema.ts"
 import * as ControlServer from "../src/ControlServer.ts"
 import { delegateApproval } from "./ApprovalFixtures.ts"
 import { durable } from "./DurableStack.ts"
@@ -188,7 +188,7 @@ describe("run visibility per principal", () => {
         })
         if (started._tag !== "Accepted" || started.runId === undefined) return yield* Effect.die("expected a run")
         const local = started.runId
-        const mutations = (rpc: Client, runId: string) => ({
+        const mutations = (rpc: Client, runId: string): Record<string, Effect.Effect<Receipt, ControlError>> => ({
           steer: rpc.Steer({
             runId,
             message: { messageId: `steer:${runId}`, runId, principal: bob, createdAt: 1, body: "take over" },

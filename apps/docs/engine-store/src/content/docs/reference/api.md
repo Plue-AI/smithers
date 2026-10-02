@@ -1078,20 +1078,22 @@ The engine-owned read port, exported from the root and
 `@smthrs/engine-store/ExecutionSnapshot`. Its `make()` and `layer` require
 `SqlClient` with the engine migrations applied.
 
-| Export                                   | Contract                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                              |
-| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates. |
-| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.    |
-| `Position`                               | Durable database `source` and monotonic `revision`.                                               |
-| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                              |
-| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`. |
-| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                   |
-| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                            |
+| Export                                   | Contract                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                                                                                                                  |
+| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates.                                                                                     |
+| `withReadTransaction(sql, effect)`       | Reserves a read transaction without writer admission: deferred on SQLite and repeatable-read, read-only on PostgreSQL. An existing transaction retains its caller-selected isolation. |
+| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.                                                                                        |
+| `Position`                               | Durable database `source` and monotonic `revision`.                                                                                                                                   |
+| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                                                                                                                  |
+| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`.                                                                                     |
+| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                                                                                                       |
+| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                                                                                                                |
 
 The requested run's lifecycle remains round scoped. Intent and the first owner's
-cancellation acknowledgement are separate fields. Failures use `RunStoreError`
-with causes preserved; interruption releases the read transaction.
+cancellation acknowledgement are separate fields. Observation failures use
+`RunStoreError` with causes preserved. `withReadTransaction` also preserves SQL
+transaction admission errors; interruption releases the read transaction.
 
 ## RunChangeFeed
 
