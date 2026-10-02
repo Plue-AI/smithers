@@ -85,8 +85,9 @@ authenticatedTest("files.list, files.read and search.files read seeded bytes fro
     await expect(fileCard).toContainText(bytes.trim())
     expect(await fileText(page, request, repo, path)).toBe(bytes)
 
-    await slash(page, `/search.files ${stem}`)
-    const search = card(page, "search-search.files")
+    const searchFlow = "search.files"
+    await slash(page, `/${searchFlow} ${stem}`)
+    const search = card(page, `search-${searchFlow}`)
     await expect(search.getByTestId("search-results-query")).toHaveText(`/search.files ${stem} · 1 result`)
     const row = search.getByTestId(`search-item-file-${path}`)
     await expect(row).toBeVisible()

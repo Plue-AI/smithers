@@ -77,11 +77,6 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
-    literal: "libc.so.6",
-    file: "e2e/native/MainProcess.ts",
-    reason: "The Linux C library the native probe calls through FFI to deliver cold-launch links from native code; named by the OS, not the app."
-  },
-  {
     literal: "user.name",
     file: "scripts/build-native.ts",
     reason: "Git configuration key for the packaged repository fixture; declared by Git, not the app flow registry."
@@ -132,11 +127,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "Native gateway call facts exercise the harness wire format outside the app vocabulary, including cursor positions before duplicate telemetry."
   },
   {
-    literal: "registry.npmjs.org",
-    file: "e2e/playwright/factory.spec.ts",
-    reason: "the npm registry host a fixture secret is scoped to, served by the stubbed agent-environment route and echoed in the drawer; a network host, not a flow name"
-  },
-  {
     literal: "smthrs-flow-graph-",
     file: "e2e/graph/lifecycle/gateway.test.ts",
     reason: "the scratch directory `BridgedEngineRun` mkdtemps its two SQLite files into, which this suite counts under its own TMPDIR and asserts removed when the host stops; a directory prefix, never a card id"
@@ -150,6 +140,16 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     literal: "main.home",
     file: "e2e/site/landing-start.spec.ts",
     reason: "CSS selector for the Astro landing's main.home in apps/site/src/pages/index.astro, outside the app vocabulary; the browser assertion requires the element to be visible"
+  },
+  {
+    literal: "data-arrived",
+    file: "e2e/site/landing-tagline.spec.ts",
+    reason: "the attribute the Astro landing's script sets (headline.dataset.arrived in apps/site/src/pages/index.astro) when the tagline arrives through the view transition; set by the site, not rendered by the app"
+  },
+  {
+    literal: "stub-call-",
+    file: "e2e/support/ChatStub.ts",
+    reason: "the call_id the chat stub invents for its own tool_call frame; the app keys the card by its record id (`toolcall-`), never by call_id"
   },
   {
     literal: "demo.v2",
