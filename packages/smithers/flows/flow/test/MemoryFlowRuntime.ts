@@ -194,9 +194,10 @@ const makeRuntime = (durable: MemoryState) =>
     })
 
     const runtime: FlowRuntime.FlowRuntime["Service"] = FlowRuntime.FlowRuntime.of({
-      register: Effect.fnUntraced(function*(flow, execute) {
+      register: Effect.fnUntraced(function*(flow, execute, options) {
         const services = yield* Effect.context<FlowRuntime.FlowRuntime>()
         const scope = yield* Effect.scope
+        if (options?.ifAbsent === true && flows.has(flow._tag)) return
         flows.set(flow._tag, {
           scope,
           handler: (payload, executionId) =>

@@ -2,11 +2,20 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
+import * as ArtifactStore from "@smthrs/artifacts/ArtifactStore"
+import { EngineStore } from "@smthrs/engine-store"
+import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
+import * as TestStores from "@smthrs/engine-store/test/TestStores"
+import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Jj } from "@smthrs/kernel"
+import * as Workspace from "@smthrs/kernel/Workspace"
 import { Node } from "@smthrs/plan"
+import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import {
   Cause,
   Context,
+  Deferred,
   Effect,
   Exit,
   Fiber,
@@ -75,7 +84,218 @@ const Shared = Action.make("test/composition/Shared", {
 })
 const HostOnly = Action.make("test/composition/HostOnly", { payload: { value: Schema.String }, success: Schema.String })
 
+const durableHost = (filename: string, incarnation: number) =>
+  EngineStore.layer({
+    owner: { hostId: `composition-restart-${incarnation}` },
+    journalSource: `composition-restart-${incarnation}`,
+    isAlive: () => Effect.succeed(false)
+  }).pipe(
+    Layer.provideMerge(
+      Layer.merge(StepBoundary.layer, WorkspaceSandbox.layerFileSystem()).pipe(
+        Layer.provideMerge(ArtifactStore.layerMemory),
+        Layer.provideMerge(TestStores.layerAt(filename)),
+        Layer.provideMerge(Workspace.layer(dirname(filename)))
+      )
+    ),
+    Layer.provideMerge(Layer.succeed(
+      Jj.Jj,
+      Jj.make({
+        // These actions touch no files or VCS; only the boundary receipt is needed.
+        snapshot: () => Effect.succeed({ commitId: "composition" as never, changeId: "composition" as never }),
+        restore: () => Effect.void,
+        diff: () => Effect.succeed(""),
+        workspaceAdd: () => Effect.void,
+        workspaceForget: () => Effect.void,
+        status: () => Effect.succeed("")
+      })
+    )),
+    Layer.provideMerge(Action.layerCacheEnvironment({ layers: [], capabilities: {} })),
+    Layer.provideMerge(Layer.mergeAll(AtomicFileSystem.layer, NodePath.layer, NodeCrypto.layer))
+  )
+
 describe("module layer composition", () => {
+  it("retains host and private-child ownership across a cold durable restart and replay", async () => {
+    const calls = { host: 0, module: 0 }
+    const independent = definition("cold-host-child", Shared.call({ value: "host-child" }))
+    const privateChild = definition("cold-private-child", Shared.call({ value: "private-child" }))
+    const module = definition(
+      "fixture",
+      Node.all({
+        own: Shared.call({ value: "parent" }),
+        host: independent.child({ value: "unused" }),
+        private: privateChild.child({ value: "unused" })
+      })
+    )
+    const expected = { own: "module:parent", host: "host:host-child", private: "module:private-child" }
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const root = yield* project(["fixture"])
+        for (const incarnation of [1, 2]) {
+          const hostActions = Layer.merge(
+            Shared.toLayer(({ value }) =>
+              Effect.sync(() => {
+                calls.host++
+                return `host:${value}`
+              })
+            ),
+            Interpreter.layer(independent)
+          ).pipe(Layer.provideMerge(Layer.fresh(Action.layerImplementations)))
+          yield* Effect.gen(function*() {
+            const registry = yield* Registry.Registry
+            const executable = yield* Executable.fromDescriptor(yield* registry.get("fixture"), {
+              delegates: [],
+              load: () =>
+                Effect.succeed({
+                  default: module,
+                  layer: Layer.merge(
+                    Shared.toLayer(({ value }) =>
+                      Effect.sync(() => {
+                        calls.module++
+                        return `module:${value}`
+                      })
+                    ),
+                    Interpreter.layer(privateChild)
+                  )
+                })
+            })
+            const runtime = yield* FlowRuntime.FlowRuntime
+            expect(
+              yield* runtime.execute(executable.flow, {
+                payload: { input: { value: "unused" } },
+                executionId: "composition-cold-replayed"
+              }).pipe(Effect.provide(executable.layer))
+            ).toEqual(expected)
+            // The second incarnation has fresh tables/engine/scopes over the same
+            // SQLite file. Its completed parent and children replay without code.
+            expect(calls).toEqual({ host: 1, module: 2 })
+            if (incarnation === 2) {
+              expect(
+                yield* runtime.execute(executable.flow, {
+                  payload: { input: { value: "unused" } },
+                  executionId: "composition-cold-fresh"
+                }).pipe(Effect.provide(executable.layer))
+              ).toEqual(expected)
+              expect(calls).toEqual({ host: 2, module: 4 })
+            }
+          }).pipe(
+            Effect.provide(Registry.layerProject({ root })),
+            Effect.provide(hostActions),
+            Effect.provide(durableHost(join(root, "engine.db"), incarnation)),
+            Effect.scoped
+          )
+        }
+      }).pipe(Effect.provide(platform), Effect.scoped)
+    )
+  })
+  it("restores private-child ownership after an interrupted durable refresh", async () => {
+    let acquired = 0
+    let released = 0
+    const independent = definition("durable-refresh-host-child", Shared.call({ value: "child" }))
+    const privateChild = definition("durable-refresh-private-child", Shared.call({ value: "private" }))
+    const module = definition(
+      "fixture",
+      Node.all({
+        own: Shared.call({ value: "parent" }),
+        host: independent.child({ value: "unused" }),
+        private: privateChild.child({ value: "unused" })
+      })
+    )
+    const hostActions = Layer.merge(
+      Shared.toLayer(({ value }) => Effect.succeed(`host:${value}`)),
+      Interpreter.layer(independent)
+    ).pipe(Layer.provideMerge(Action.layerImplementations))
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const root = yield* project(["fixture"])
+        const entered = yield* Deferred.make<void>()
+        const registrations = Executable.layer({
+          delegates: [],
+          load: () =>
+            Effect.succeed({
+              default: module,
+              layer: Layer.unwrap(Effect.map(
+                Effect.acquireRelease(
+                  Effect.sync(() => ({ open: true, version: ++acquired })),
+                  (resource) =>
+                    Effect.sync(() => {
+                      resource.open = false
+                      released++
+                    })
+                ),
+                (resource) =>
+                  Layer.merge(
+                    Shared.toLayer(({ value }) =>
+                      resource.open
+                        ? Effect.succeed(`module:${resource.version}:${value}`)
+                        : Effect.die("durable refresh resource closed")
+                    ),
+                    Layer.effectDiscard(Effect.gen(function*() {
+                      yield* Layer.build(Interpreter.layer(privateChild))
+                      if (resource.version === 2) {
+                        yield* Deferred.succeed(entered, undefined)
+                        yield* Effect.never
+                      }
+                    }))
+                  )
+              ))
+            })
+        }).pipe(Layer.provideMerge(Registry.layerProject({ root })))
+        yield* Effect.gen(function*() {
+          const runtime = yield* FlowRuntime.FlowRuntime
+          yield* Effect.gen(function*() {
+            const catalog = yield* Executable.Catalog
+            const refresh = yield* Executable.Refresh
+            const original = catalog.executables[0]!
+            const expected = { own: "module:1:parent", host: "host:child", private: "module:1:private" }
+            expect(
+              yield* runtime.execute(original.flow, {
+                payload: { input: { value: "unused" } },
+                executionId: "composition-durable-before-refresh"
+              })
+            ).toEqual(expected)
+            const fs = yield* FileSystem.FileSystem
+            const path = join(root, "flows", "fixture", "flow.ts")
+            yield* fs.writeFileString(path, `${yield* fs.readFileString(path)}\n// durable staged refresh\n`)
+            const refreshing = yield* refresh.flow("fixture").pipe(Effect.forkChild)
+            yield* Deferred.await(entered)
+            // The staged child is really installed before cancellation; the
+            // production SQLite engine serves its replacement implementation.
+            expect(
+              yield* runtime.execute(privateChild, {
+                payload: { value: "unused" },
+                executionId: "composition-durable-staged-child"
+              })
+            ).toBe("module:2:private")
+            yield* Fiber.interrupt(refreshing)
+            const interrupted = yield* Fiber.await(refreshing)
+            expect(Exit.isFailure(interrupted)).toBe(true)
+            if (Exit.isFailure(interrupted)) expect(Cause.hasInterruptsOnly(interrupted.cause)).toBe(true)
+            expect(catalog.executables[0]).toBe(original)
+            expect(acquired).toBe(2)
+            expect(released).toBe(1)
+            expect(
+              yield* runtime.execute(original.flow, {
+                payload: { input: { value: "unused" } },
+                executionId: "composition-durable-after-refresh"
+              })
+            ).toEqual(expected)
+          }).pipe(Effect.provide(registrations))
+          expect(released).toBe(acquired)
+          expect(
+            yield* runtime.execute(independent, {
+              payload: { value: "unused" },
+              executionId: "composition-durable-host-after-release"
+            })
+          ).toBe("host:child")
+        }).pipe(
+          Effect.provide(hostActions),
+          Effect.provide(durableHost(join(root, "engine.db"), 3)),
+          Effect.scoped
+        )
+      }).pipe(Effect.provide(platform), Effect.scoped)
+    )
+  })
+
   it("refuses an exported replacement implementation table and releases its acquired resources", async () => {
     let acquired = 0
     let released = 0
@@ -249,6 +469,55 @@ describe("module layer composition", () => {
             executionId: "composition-independent-child"
           }).pipe(Effect.provide(executable.layer))
           expect(result).toEqual({ own: "module:parent", child: "host:child" })
+        }).pipe(Effect.provide(Registry.layerProject({ root })))
+      }).pipe(Effect.provide(hostActions), Effect.provide(await host()), Effect.scoped)
+    )
+  })
+
+  it("admits a reachable child after its independent registration scope closes", async () => {
+    const child = definition("released-host-child", Shared.call({ value: "child" }))
+    const module = definition(
+      "fixture",
+      Node.all({
+        own: Shared.call({ value: "parent" }),
+        child: child.child({ value: "unused" })
+      })
+    )
+    const hostActions = Shared.toLayer(({ value }) => Effect.succeed(`host:${value}`)).pipe(
+      Layer.provideMerge(Action.layerImplementations)
+    )
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const root = yield* project(["fixture"])
+        yield* Effect.gen(function*() {
+          const childScope = yield* Scope.fork(yield* Effect.scope)
+          yield* Layer.buildWithScope(Interpreter.layer(child), childScope)
+          const registry = yield* Registry.Registry
+          const executable = yield* Executable.fromDescriptor(yield* registry.get("fixture"), {
+            delegates: [],
+            load: () =>
+              Effect.succeed({
+                default: module,
+                layer: Shared.toLayer(({ value }) => Effect.succeed(`module:${value}`))
+              })
+          })
+          const runtime = yield* FlowRuntime.FlowRuntime
+          // Keep one parent interpreter registration alive across all phases;
+          // rebuilding it per call would hide a memoized skipped child.
+          yield* Effect.gen(function*() {
+            for (const phase of ["registered", "released", "readmitted"]) {
+              if (phase === "released") yield* Scope.close(childScope, Exit.void)
+              expect(
+                yield* runtime.execute(executable.flow, {
+                  payload: { input: { value: "unused" } },
+                  executionId: `composition-child-scope-${phase}`
+                })
+              ).toEqual({
+                own: "module:parent",
+                child: phase === "registered" ? "host:child" : "module:child"
+              })
+            }
+          }).pipe(Effect.provide(executable.layer))
         }).pipe(Effect.provide(Registry.layerProject({ root })))
       }).pipe(Effect.provide(hostActions), Effect.provide(await host()), Effect.scoped)
     )
@@ -491,8 +760,8 @@ describe("module layer composition", () => {
         const runtime = yield* FlowRuntime.FlowRuntime
         const observed = FlowRuntime.FlowRuntime.of({
           ...runtime,
-          register: (flow, execute) =>
-            runtime.register(flow, execute).pipe(Effect.tap(() =>
+          register: (flow, execute, options) =>
+            runtime.register(flow, execute, options).pipe(Effect.tap(() =>
               Effect.sync(() => {
                 if (target !== undefined && flow._tag === child._tag) registered = true
               })
@@ -742,15 +1011,28 @@ describe("module layer composition", () => {
         return false
       }
     }
-    const module = definition("fixture", Shared.call({ value: "resource" }))
+    const independent = definition("refresh-host-child", Shared.call({ value: "child" }))
+    const privateChild = definition("refresh-private-child", Shared.call({ value: "private" }))
+    const module = definition(
+      "fixture",
+      Node.all({
+        own: Shared.call({ value: "resource" }),
+        host: independent.child({ value: "unused" }),
+        private: privateChild.child({ value: "unused" })
+      })
+    )
+    const hostActions = Layer.merge(
+      Shared.toLayer(({ value }) => Effect.succeed(`host:${value}`)),
+      Interpreter.layer(independent)
+    ).pipe(Layer.provideMerge(Action.layerImplementations))
     await Effect.runPromise(
       Effect.gen(function*() {
         const root = yield* project(["fixture"])
         const runtime = yield* FlowRuntime.FlowRuntime
         const observed = FlowRuntime.FlowRuntime.of({
           ...runtime,
-          register: (flow, execute) =>
-            runtime.register(flow, execute).pipe(Effect.tap(() =>
+          register: (flow, execute, options) =>
+            runtime.register(flow, execute, options).pipe(Effect.tap(() =>
               Effect.sync(() => {
                 if (target !== undefined && (flow._tag === "fixture" || flow._tag.startsWith("registry/entry/"))) {
                   registered++
@@ -773,10 +1055,13 @@ describe("module layer composition", () => {
                     })
                 ),
                 (resource) =>
-                  Shared.toLayer(({ value }) =>
-                    resource.open
-                      ? Effect.succeed(`open:${resource.version}:${value}`)
-                      : Effect.die("interrupted refresh resource closed")
+                  Layer.merge(
+                    Shared.toLayer(({ value }) =>
+                      resource.open
+                        ? Effect.succeed(`open:${resource.version}:${value}`)
+                        : Effect.die("interrupted refresh resource closed")
+                    ),
+                    Interpreter.layer(privateChild)
                   )
               ))
             })
@@ -808,32 +1093,56 @@ describe("module layer composition", () => {
               committed++
             } else retained++
             expect(released, `resources after scheduler offset ${offset}`).toBe(acquired - 1)
+            const expected = {
+              own: `open:${liveVersion}:resource`,
+              host: "host:child",
+              private: `open:${liveVersion}:private`
+            }
             expect(
               yield* runtime.execute(module, {
                 payload: { value: "unused" },
                 executionId: `composition-interrupt-default-${offset}`
               })
-            ).toBe(`open:${liveVersion}:resource`)
+            ).toEqual(expected)
             expect(
               yield* runtime.execute(catalog.executables[0]!.flow, {
                 payload: { input: { value: "unused" } },
                 executionId: `composition-interrupt-adapter-${offset}`
               })
-            ).toBe(`open:${liveVersion}:resource`)
+            ).toEqual(expected)
           }
           expect(interrupted).toBeGreaterThan(0)
           expect(retained).toBeGreaterThan(0)
           expect(committed).toBeGreaterThan(0)
         }).pipe(Effect.provide(registrations), Effect.provideService(FlowRuntime.FlowRuntime, observed))
+        // Releasing the catalog retires module/private registrations, leaving
+        // the independent host child's same-tag action and scope intact.
+        expect(released).toBe(acquired)
+        expect(
+          yield* runtime.execute(independent, {
+            payload: { value: "unused" },
+            executionId: "composition-refresh-host-after-release"
+          })
+        ).toBe("host:child")
+        const privateExit = yield* Effect.exit(runtime.execute(privateChild, {
+          payload: { value: "unused" },
+          executionId: "composition-refresh-private-after-release"
+        }))
+        expect(Exit.isFailure(privateExit)).toBe(true)
+        if (Exit.isFailure(privateExit)) {
+          expect(Cause.pretty(privateExit.cause)).toContain(`Flow ${privateChild._tag} is not registered`)
+        }
       }).pipe(
-        Effect.provide(Action.layerImplementations),
+        Effect.provide(hostActions),
         Effect.provide(await host()),
         Effect.provideService(Scheduler.Scheduler, scheduler),
         Effect.scoped
       )
     )
     expect(released).toBe(acquired)
-  })
+    // The 100 scheduler offsets each execute both entry points with three
+    // authority paths (600 actions); retain every boundary under coverage.
+  }, 90_000)
 
   it("runs a valid module while retaining a named refusal for another module even under Layer.orDie", async () => {
     const good = definition("good", Shared.call({ value: "valid" }))

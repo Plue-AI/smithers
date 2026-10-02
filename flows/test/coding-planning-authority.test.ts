@@ -1,4 +1,5 @@
 import { NodeServices } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as Agent from "@smthrs/agent/Agent"
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Budget from "@smthrs/agent/Budget"
@@ -12,8 +13,9 @@ import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Model from "@smthrs/model/Model"
 import { ModelEvent } from "@smthrs/model/ModelEvent"
+import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
-import { Context, Effect, FileSystem, Layer, ManagedRuntime, Option, Path, Schema, Stream } from "effect"
+import { Context, Effect, Exit, FileSystem, Layer, ManagedRuntime, Option, Path, Schema, Scope, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
@@ -193,12 +195,12 @@ const fixture = async (t: TestContext, contributed = false) => {
     const runtime = Layer.effect(FlowRuntime.FlowRuntime)(
       Effect.map(FlowRuntime.FlowRuntime, (engine) => ({
         ...engine,
-        register: (flow, handler) =>
+        register: (flow, handler, options) =>
           engine.register(flow, (payload, id) =>
             handler(payload, id).pipe(
               Effect.provideService(AgentAction.Host, parent),
               CapabilitySet.attenuate(all)
-            ))
+            ), options)
       }))
     ).pipe(Layer.provide(FlowEngine.layerMemory))
     const observed = Layer.effect(Agent.Agent)(Effect.map(Agent.Agent, (agent) => ({
@@ -258,6 +260,41 @@ const fixture = async (t: TestContext, contributed = false) => {
     counters: () => ({ pluginRequests, nativeProbes })
   }
 }
+
+test("evidence authority preserves live flow registrations and scoped override options", async () => {
+  await Effect.gen(function*() {
+    const engine = yield* FlowRuntime.FlowRuntime
+    const context = yield* Layer.build(
+      evidenceOnly(Layer.effect(FlowRuntime.FlowRuntime)(FlowRuntime.FlowRuntime)).pipe(
+        Layer.provide(Action.layerImplementations)
+      )
+    )
+    const runtime = Context.get(context, FlowRuntime.FlowRuntime)
+    for (const name of ["coding/review-request", "test/registration-pass-through"]) {
+      const flow = Flow.make(name, { payload: {}, success: Schema.String, body: () => Node.succeed("declaration") })
+      yield* engine.register(flow, () => Effect.succeed("host"))
+      const lazyScope = yield* Effect.acquireRelease(Scope.make(), (scope) => Scope.close(scope, Exit.void))
+      yield* runtime.register(flow, () => Effect.succeed("discovered"), { ifAbsent: true }).pipe(
+        Scope.provide(lazyScope)
+      )
+      assert.equal(yield* flow.execute({}, { executionId: `${name}/discovery` }), "host")
+      yield* Scope.close(lazyScope, Exit.void)
+      assert.equal(yield* flow.execute({}, { executionId: `${name}/discovery-released` }), "host")
+
+      // The passthrough path executes without a model host. The restricted path
+      // above proves lazy discovery never enters its evidence handler at all.
+      if (name.startsWith("test/")) {
+        const override = yield* Effect.acquireRelease(Scope.make(), (scope) => Scope.close(scope, Exit.void))
+        yield* runtime.register(flow, () => Effect.succeed("override"), { ifAbsent: false }).pipe(
+          Scope.provide(override)
+        )
+        assert.equal(yield* flow.execute({}, { executionId: `${name}/override` }), "override")
+        yield* Scope.close(override, Exit.void)
+        assert.equal(yield* flow.execute({}, { executionId: `${name}/restored` }), "host")
+      }
+    }
+  }).pipe(Effect.provide(FlowEngine.layerMemory), Effect.provide(NodeCrypto.layer), Effect.scoped, Effect.runPromise)
+})
 
 test(
   "all evidence actions refuse real QuickJS Read/Write/Bash after parent host reinjection",

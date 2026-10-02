@@ -239,7 +239,7 @@ export const make = (
     })
     const runtime = FlowRuntime.FlowRuntime.of({
       ...engine,
-      register: (flow, handler) =>
+      register: (flow, handler, options) =>
         engine.register(flow, (payload, executionId) =>
           Effect.scoped(Effect.gen(function*() {
             const { rootId, flowId, envelope } = yield* owner(executionId)
@@ -308,7 +308,7 @@ export const make = (
               Effect.provideService(QuotaPolicy.QuotaClassifier, quota),
               Effect.provideService(EventSink.EventSink, trace)
             )
-          })))
+          })), options)
     })
     return { runtime, steering }
   })

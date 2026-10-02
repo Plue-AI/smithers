@@ -9,11 +9,12 @@
  * with a host wrapper that provides `Budget.Parking` around every handler the
  * way `ModuleAuthority` does.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import { Node } from "@smthrs/plan"
-import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Layer, Schema, Scope } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Budget from "../src/Budget.ts"
 import * as RunawayGuard from "../src/RunawayGuard.ts"
@@ -119,6 +120,31 @@ const slow = Effect.as(Effect.sleep("2 seconds"), "late")
 const quick = Effect.succeed("planned")
 
 describe("RunawayGuard.layerFlowLimit", () => {
+  it.each([guarded, other])("preserves registration ownership and scoped overrides for $_tag", async (flow) => {
+    await Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      const context = yield* Layer.build(RunawayGuard.layerFlowLimit(guarded._tag, 20))
+      const runtime = Context.get(context, FlowRuntime.FlowRuntime)
+      const scope = () => Effect.acquireRelease(Scope.make(), (scope) => Scope.close(scope, Exit.void))
+      yield* engine.register(flow, () => Effect.succeed("host"))
+      const discovered = yield* scope()
+      yield* runtime.register(flow, () => Effect.succeed("discovered"), { ifAbsent: true }).pipe(
+        Scope.provide(discovered)
+      )
+      expect(yield* flow.execute({}, { executionId: "discovery" })).toBe("host")
+      yield* Scope.close(discovered, Exit.void)
+      expect(yield* flow.execute({}, { executionId: "discovery-released" })).toBe("host")
+
+      const override = yield* scope()
+      yield* runtime.register(flow, () => Effect.succeed("override"), { ifAbsent: false }).pipe(
+        Scope.provide(override)
+      )
+      expect(yield* flow.execute({}, { executionId: "override" })).toBe("override")
+      yield* Scope.close(override, Exit.void)
+      expect(yield* flow.execute({}, { executionId: "restored" })).toBe("host")
+    }).pipe(Effect.provide(FlowEngine.layerMemory), Effect.provide(NodeCrypto.layer), Effect.scoped, Effect.runPromise)
+  })
+
   it("parks a drive that runs past its limit on tool-call facts naming the flow and execution", async () => {
     const guard = parking()
     const outcome = await drive(guarded, slow, guard.service)

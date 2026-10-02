@@ -79,12 +79,13 @@ export const evidenceOnly = <A, E, R>(
     Layer.provide(Layer.mergeAll(
       Layer.effect(FlowRuntime.FlowRuntime)(Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
         ...runtime,
-        register: (flow, handler) =>
+        register: (flow, handler, options) =>
           runtime.register(
             flow,
             included(flow._tag)
               ? (payload, executionId) => execute(handler(payload, executionId), payload)
-              : handler
+              : handler,
+            options
           )
       }))),
       Layer.effect(Action.Implementations)(Effect.map(Action.Implementations, (table) => ({

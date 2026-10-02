@@ -70,8 +70,9 @@ export const layerMemory = (journal: Array<JournalEntry>): Layer.Layer<FlowRunti
     Effect.sync(() => {
       const flows = new Map<string, Handler>()
       const runtime: FlowRuntime.FlowRuntime["Service"] = FlowRuntime.FlowRuntime.of({
-        register: Effect.fnUntraced(function*(flow, execute) {
+        register: Effect.fnUntraced(function*(flow, execute, options) {
           const services = yield* Effect.context<FlowRuntime.FlowRuntime>()
+          if (options?.ifAbsent === true && flows.has(flow._tag)) return
           flows.set(
             flow._tag,
             (payload, executionId) =>

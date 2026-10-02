@@ -80,7 +80,9 @@ export class FlowRuntime extends Context.Service<
     /** Storage capability advertised by the runtime implementation. Absence is volatile. */
     readonly durability?: "durable" | undefined
     /**
-     * Register a flow with the runtime.
+     * Register a flow with the runtime. `ifAbsent` preserves a live registration
+     * when discovering a reachable child. Explicit registrations otherwise
+     * replace the registered handler; the registration scope owns its removal.
      */
     readonly register: <
       Name extends string,
@@ -93,7 +95,8 @@ export class FlowRuntime extends Context.Service<
       execute: (
         payload: Payload["Type"],
         executionId: string
-      ) => Effect.Effect<Success["Type"], Error["Type"], R>
+      ) => Effect.Effect<Success["Type"], Error["Type"], R>,
+      options?: { readonly ifAbsent?: boolean | undefined }
     ) => Effect.Effect<
       void,
       never,

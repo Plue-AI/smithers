@@ -1476,7 +1476,8 @@ const makeLayer = <
   flow: Flow<Tag, Payload, Success, Error, any>,
   options: Graph.BuildOptions,
   requireReusableVersions: boolean,
-  reachable?: Set<AnyWithProps>
+  reachable?: Set<AnyWithProps>,
+  ifAbsent = false
 ): Layer.Layer<
   never,
   never,
@@ -1493,9 +1494,12 @@ const makeLayer = <
     const runtime = yield* FlowRuntime
     const registered = reachable ?? new Set<AnyWithProps>()
     if (registered.has(flow)) return
-    registered.add(flow)
+    // Lazy registration can be skipped by an independent live owner. Recheck
+    // on later executions so releasing that owner permits fresh admission.
+    if (!ifAbsent) registered.add(flow)
     const scope = yield* Effect.scope
     const context = yield* Effect.context<Services | Scope.Scope>()
+    const implementations = Context.get(context, Implementations)
     // Keep discovered declarations in the host registration scope, rather
     // than the executing parent's scope: handoffs outlive that parent.
     // Dynamic declarations erase their codec services, just like execute;
@@ -1506,7 +1510,8 @@ const makeLayer = <
           declaration as Flow<string, AnyStructSchema, Schema.Top, Schema.Top, any>,
           options,
           requireReusableVersions,
-          registered
+          registered,
+          true
         ),
         scope
       ).pipe(
@@ -1521,12 +1526,18 @@ const makeLayer = <
           interpretWithPolicy(flow, payload, options, requireReusableVersions, registerReachable),
           (interpretation) => settleOutcome(interpretation.value)
         )
-        return middleware === undefined ? body : middleware.wrap(payload, body)
+        // Registration owns action resolution. A caller may supply a different
+        // table when entering this flow as a child; retain dynamic execution
+        // services while restoring this flow's registered implementations.
+        return (middleware === undefined ? body : middleware.wrap(payload, body)).pipe(
+          Effect.provideService(Implementations, implementations)
+        )
       }) as (payload: Payload["Type"], executionId: string) => Effect.Effect<
         Success["Type"],
         Error["Type"],
         Crypto.Crypto | Implementations
-      >
+      >,
+      { ifAbsent }
     )
   }))
 

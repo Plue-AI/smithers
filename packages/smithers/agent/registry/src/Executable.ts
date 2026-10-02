@@ -1238,36 +1238,27 @@ const moduleServices = (
     const table = Context.get(local, Action.Implementations)
     const moduleTable = Action.Implementations.of({
       add: table.add,
-      get: (name) => Effect.map(table.get(name), Option.map((found) => namingMissing(descriptor, found)))
+      get: (name) =>
+        Effect.flatMap(table.get(name), (found) =>
+          Option.isSome(found)
+            ? Effect.succeed(Option.some(namingMissing(descriptor, found.value)))
+            : Option.isSome(hostTable)
+            ? hostTable.value.get(name)
+            : Effect.succeedNone)
     })
-    const fallback = (name: string) => Option.isSome(hostTable) ? hostTable.value.get(name) : Effect.succeedNone
     // Bind registration before constructing the exported layer: its private
     // interpreters belong to this module just as its default flow does.
     const registrationRuntime = Option.map(runtime, (hostRuntime) =>
       FlowRuntime.of({
         ...hostRuntime,
-        register: (flow, execute) =>
-          hostRuntime.register(flow, (payload, executionId) => {
-            const implementations = Action.Implementations.of({
-              add: table.add,
-              get: (name) =>
-                Effect.flatMap(Effect.serviceOption(FlowInstance), (instance) =>
-                  Option.isSome(instance) && instance.value.executionId !== executionId
-                    ? fallback(name)
-                    : Effect.flatMap(
-                      moduleTable.get(name),
-                      (found) => Option.isSome(found) ? Effect.succeed(found) : fallback(name)
-                    ))
-            })
-            return quiescence.track(
-              executionId,
-              execute(payload, executionId).pipe(
-                Effect.provideService(Action.Implementations, implementations)
-              )
-            )
-          })
+        register: (flow, execute, options) =>
+          hostRuntime.register(
+            flow,
+            (payload, executionId) => quiescence.track(executionId, execute(payload, executionId)),
+            options
+          )
       }))
-    const input = Context.merge(hostServices, local)
+    const input = Context.add(Context.merge(hostServices, local), Action.Implementations, moduleTable)
     const built = yield* Layer.buildWithScope(Layer.fresh(implementation), scope).pipe(
       // Dynamic module types erase requirements; this host closes them here.
       Effect.provideContext(
@@ -1290,7 +1281,7 @@ const moduleServices = (
       })
     ) as Effect.Effect<Context.Context<unknown>, ExecutableError>
     const exportedTable = Context.getOption(built, Action.Implementations)
-    if (Option.isSome(exportedTable) && exportedTable.value !== table) {
+    if (Option.isSome(exportedTable) && exportedTable.value !== moduleTable) {
       yield* Scope.close(scope, Exit.void)
       return yield* Effect.fail(refuse({
         code: "invalid_layer",
@@ -1654,10 +1645,11 @@ export const fromDescriptor = (
               FlowRuntime,
               FlowRuntime.of({
                 ...runtime,
-                register: (declaration, execute) =>
+                register: (declaration, execute, options) =>
                   runtime.register(
                     declaration,
-                    (payload, executionId) => quiescence.track(executionId, execute(payload, executionId))
+                    (payload, executionId) => quiescence.track(executionId, execute(payload, executionId)),
+                    options
                   )
               })
             ))))) :

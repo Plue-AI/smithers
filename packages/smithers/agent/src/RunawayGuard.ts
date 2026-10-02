@@ -145,13 +145,14 @@ export const layerFlowLimit = (
     Effect.map(FlowRuntime.FlowRuntime, (runtime) =>
       FlowRuntime.FlowRuntime.of({
         ...runtime,
-        register: (flow, execute) =>
+        register: (flow, execute, options) =>
           runtime.register(
             flow,
             flow._tag === flowName
               ? (payload, executionId) =>
                 limited(`${flowName}:${executionId}`, flowName, limitMillis, execute(payload, executionId))
-              : execute
+              : execute,
+            options
           )
       }))
   )

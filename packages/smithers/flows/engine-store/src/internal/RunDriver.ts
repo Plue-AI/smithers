@@ -394,7 +394,7 @@ export const make = (
     /** Owner identity equality, the fence's own notion of "the same process". */
     const sameOwner = (left: Ownership.OwnerId, right: Ownership.OwnerId): boolean =>
       left.hostId === right.hostId && left.pid === right.pid && left.nonce === right.nonce
-    const registrations = new Map<string, Registration>()
+    const registrations = new Map<string, Array<Registration>>()
     /**
      * Runs already warned about waking without a registered flow (issue
      * #62): the sweep retries every heartbeat, so the warning is emitted
@@ -1705,7 +1705,7 @@ export const make = (
         // the same posture the wake path takes for an unregistered flow, and
         // the reason a lineage survives a worker that only knows some of its
         // legs.
-        const target = registrations.get(seam.handoff.flow)
+        const target = registrations.get(seam.handoff.flow)?.at(-1)
         const payload = target === undefined
           ? seam.handoff.payload
           : yield* normalizePayload(target.flow, seam.handoff.payload)
@@ -1953,7 +1953,7 @@ export const make = (
 
           const state = yield* decodeState(initial.stateJson)
           interruptState = state
-          const registration = registrations.get(state.flowName)
+          const registration = registrations.get(state.flowName)?.at(-1)
           if (registration === undefined) {
             // Cancelling needs no handler. A parked run whose cancellation was
             // durably requested used to be dropped here with everything else,
@@ -2372,7 +2372,7 @@ export const make = (
         const names = [...allNames.slice(offset), ...allNames.slice(0, offset)]
         pendingFlowOffset++
         for (const name of names) {
-          const registration = registrations.get(name)
+          const registration = registrations.get(name)?.at(-1)
           if (registration === undefined || remaining === 0) continue
           let cycle = pendingCycles.get(name)
           if (cycle === undefined) {
@@ -2391,7 +2391,7 @@ export const make = (
             cycle.eligibleBeforeMs
           )
           for (const cursor of pending) {
-            if (remaining === 0 || registrations.get(name) !== registration) break
+            if (remaining === 0 || registrations.get(name)?.at(-1) !== registration) break
             remaining--
             const row = yield* store.get(cursor.runId).pipe(
               Effect.catch((error) =>
@@ -2413,7 +2413,7 @@ export const make = (
             if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) {
               continue
             }
-            if (registrations.get(name) !== registration || (yield* coordinator.active).has(cursor.runId)) {
+            if (registrations.get(name)?.at(-1) !== registration || (yield* coordinator.active).has(cursor.runId)) {
               continue
             }
             yield* coordinator.schedule(cursor.runId)
@@ -2706,7 +2706,7 @@ export const make = (
               if (!FlowEngine.joinable(state.capabilityCeilings ?? [], requested)) {
                 return Effect.die(FlowEngine.capabilityConflict(executionId))
               }
-              const resultFlow = state.flowName === flow._tag ? flow : registrations.get(state.flowName)?.flow
+              const resultFlow = state.flowName === flow._tag ? flow : registrations.get(state.flowName)?.at(-1)?.flow
               if (resultFlow === undefined) {
                 // Direct nested callers must register the terminal flow's
                 // codec here, even when another worker executed that flow.
@@ -2982,16 +2982,23 @@ export const make = (
         Effect.acquireRelease(
           Effect.sync(() => {
             const registration = { flow, execute: handler }
-            registrations.set(flow._tag, registration)
+            const entries = registrations.get(flow._tag) ?? []
+            entries.push(registration)
+            registrations.set(flow._tag, entries)
             pendingCycles.delete(flow._tag)
             warnedUnregistered.clear()
-            return registration
+            return { registration, entries }
           }),
-          (registration) =>
+          ({ registration, entries }) =>
             Effect.sync(() => {
-              if (registrations.get(flow._tag) === registration) {
-                registrations.delete(flow._tag)
+              const wasLatest = entries.at(-1) === registration
+              entries.splice(entries.indexOf(registration), 1)
+              if (entries.length === 0) registrations.delete(flow._tag)
+              if (wasLatest) {
                 pendingCycles.delete(flow._tag)
+                // Restoring a live predecessor changes which handler may
+                // drive pending work, just like a fresh registration does.
+                if (entries.length > 0) warnedUnregistered.clear()
               }
             })
         ).pipe(Effect.asVoid)

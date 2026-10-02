@@ -13,15 +13,22 @@
 import { Deadline, type DurableClock, type DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import type * as Exit from "effect/Exit"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
 import { renderDiagnostic } from "../internal/Diagnostic.ts"
 import { toJsonExit } from "../internal/JsonExit.ts"
 import { makeActionExecute, resetActionContext } from "./Dispatch.ts"
 import type { Encoded } from "./Encoded.ts"
 import { placeExecute, placeInterrupt, placeResume } from "./Placed.ts"
 import { type Declarations, makeExecute } from "./Trampoline.ts"
+
+const CurrentRegistrations = Context.Reference<ReadonlyArray<{ readonly owner: object; readonly name: string }>>(
+  "@smthrs/engine/CurrentRegistrations",
+  { defaultValue: () => [] }
+)
 
 /**
  * Builds a typed `FlowRuntime` service from a low-level encoded
@@ -47,69 +54,118 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
    * round's payload and to read its round budget.
    */
   const declarations: Declarations = new Map()
+  const registrationGates = new Map<string, { readonly semaphore: Semaphore.Semaphore; users: number }>()
+  const withRegistrationGate = <A, E, R>(name: string, effect: Effect.Effect<A, E, R>) =>
+    Effect.flatMap(
+      CurrentRegistrations,
+      (ancestors) =>
+        ancestors.some((entry) => entry.owner === registrationGates && entry.name === name)
+          ? Effect.die(new Error(`Flow ${name} cannot recursively register itself while admission is in progress`))
+          : Effect.acquireUseRelease(
+            Effect.sync(() => {
+              let gate = registrationGates.get(name)
+              if (gate === undefined) {
+                gate = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+                registrationGates.set(name, gate)
+              }
+              gate.users++
+              return gate
+            }),
+            (gate) =>
+              gate.semaphore.withPermit(effect).pipe(
+                Effect.provideService(CurrentRegistrations, [...ancestors, { owner: registrationGates, name }])
+              ),
+            (gate) =>
+              Effect.sync(() => {
+                // Include waiters in the lifetime so cancellation cannot replace
+                // the lock while another admission still owns or awaits it.
+                if (--gate.users === 0) registrationGates.delete(name)
+              })
+          )
+    )
   return FlowRuntime.FlowRuntime.of({
     // Untraced because registering a flow recursively re-enters the engine.
-    register: Effect.fnUntraced(function*(flow, execute) {
-      const services = yield* Effect.context<FlowRuntime.FlowRuntime>()
-      const registration = { flow, scope: yield* Effect.scope }
-      const existing = declarations.get(flow._tag)
-      const entries = existing ?? []
-      if (existing === undefined) declarations.set(flow._tag, entries)
-      entries.push(registration)
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          entries.splice(entries.indexOf(registration), 1)
-          if (entries.length === 0) declarations.delete(flow._tag)
-        })
-      )
-      const bounded = Deadline.bound({ flowName: flow._tag, deadline: flow.deadline })
-      yield* options.register(
-        flow,
-        (payload, executionId) =>
-          Effect.matchEffect(Effect.suspend(() => bounded(execute(payload, executionId))), {
-            onFailure: (error) =>
-              Effect.matchEffect(flow.errorSchema.makeEffect(error), {
-                // A body failure outside the flow's declared error schema is a
-                // defect, and the defect is the ERROR, not the schema issue
-                // about it. `orDie` on the validation reported only the
-                // mismatch: for a flow declaring no error the whole report was
-                // `InvalidType(<Never>)`, which erased the one message the
-                // operator needed — the interpreter's refusal naming the
-                // action it could not resolve. Dying with the error itself
-                // keeps that message, and keeps it durably: the driver encodes
-                // a settled exit through `Flow.Result({ success, error:
-                // flow.errorSchema })`, whose defect channel is
-                // `Schema.Defect`, so an undeclared failure delivered as a
-                // FAILURE could not be encoded at all and left the run row
-                // `running` and owned forever.
-                //
-                // The raw error stays IN THIS PROCESS. `FlowProxyServer` is
-                // the boundary that must not republish it: a defect crossing
-                // that boundary is rewritten to a redacted refusal there.
-                onFailure: () =>
-                  Effect.andThen(
-                    Effect.annotateLogs(
-                      Effect.logError("A flow body failed with an error outside its declared error schema"),
-                      { flow: flow._tag, error: renderDiagnostic(error) }
-                    ),
-                    Effect.die(error)
-                  ),
-                onSuccess: () => Effect.fail(error)
-              }),
-            onSuccess: (value) =>
-              Effect.flatMap(FlowRuntime.FlowInstance, (instance) =>
-                // A handoff has no success value for this round. Its handler
-                // returns `undefined` only to leave through `Flow.intoResult`,
-                // which replaces that value with the recorded handoff.
-                instance.handoff === undefined
-                  ? Effect.as(Effect.orDie(flow.successSchema.makeEffect(value)), value)
-                  : Effect.succeed(value))
-          }).pipe(
-            Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations)),
-            Effect.updateContext(
-              (input) => resetActionContext(Context.merge(services, input)) as Context.Context<any>
+    register: Effect.fnUntraced(function*(flow, execute, registrationOptions) {
+      return yield* withRegistrationGate(
+        flow._tag,
+        Effect.uninterruptibleMask((restore) =>
+          Effect.gen(function*() {
+            const services = (yield* Effect.context<FlowRuntime.FlowRuntime>()).pipe(Context.omit(CurrentRegistrations))
+            const parent = yield* Effect.scope
+            // The registration gate keeps a losing lazy admission behind the real
+            // handler's construction. Skipping acquires no registration resources.
+            if (registrationOptions?.ifAbsent === true && declarations.has(flow._tag)) return
+            const scope = yield* Scope.fork(parent)
+            const registration = { flow, scope }
+            const entries = yield* Effect.sync(() => {
+              const entries = declarations.get(flow._tag) ?? []
+              declarations.set(flow._tag, entries)
+              entries.push(registration)
+              return entries
+            })
+            const retire = Effect.sync(() => {
+              entries.splice(entries.indexOf(registration), 1)
+              if (entries.length === 0) declarations.delete(flow._tag)
+            })
+            yield* Scope.addFinalizer(scope, retire)
+            const bounded = Deadline.bound({ flowName: flow._tag, deadline: flow.deadline })
+            yield* restore(
+              options.register(
+                flow,
+                (payload, executionId) =>
+                  Effect.matchEffect(Effect.suspend(() => bounded(execute(payload, executionId))), {
+                    onFailure: (error) =>
+                      Effect.matchEffect(flow.errorSchema.makeEffect(error), {
+                        // A body failure outside the flow's declared error schema is a
+                        // defect, and the defect is the ERROR, not the schema issue
+                        // about it. `orDie` on the validation reported only the
+                        // mismatch: for a flow declaring no error the whole report was
+                        // `InvalidType(<Never>)`, which erased the one message the
+                        // operator needed — the interpreter's refusal naming the
+                        // action it could not resolve. Dying with the error itself
+                        // keeps that message, and keeps it durably: the driver encodes
+                        // a settled exit through `Flow.Result({ success, error:
+                        // flow.errorSchema })`, whose defect channel is
+                        // `Schema.Defect`, so an undeclared failure delivered as a
+                        // FAILURE could not be encoded at all and left the run row
+                        // `running` and owned forever.
+                        //
+                        // The raw error stays IN THIS PROCESS. `FlowProxyServer` is
+                        // the boundary that must not republish it: a defect crossing
+                        // that boundary is rewritten to a redacted refusal there.
+                        onFailure: () =>
+                          Effect.andThen(
+                            Effect.annotateLogs(
+                              Effect.logError("A flow body failed with an error outside its declared error schema"),
+                              { flow: flow._tag, error: renderDiagnostic(error) }
+                            ),
+                            Effect.die(error)
+                          ),
+                        onSuccess: () => Effect.fail(error)
+                      }),
+                    onSuccess: (value) =>
+                      Effect.flatMap(FlowRuntime.FlowInstance, (instance) =>
+                        // A handoff has no success value for this round. Its handler
+                        // returns `undefined` only to leave through `Flow.intoResult`,
+                        // which replaces that value with the recorded handoff.
+                        instance.handoff === undefined
+                          ? Effect.as(Effect.orDie(flow.successSchema.makeEffect(value)), value)
+                          : Effect.succeed(value))
+                  }).pipe(
+                    Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations)),
+                    Effect.updateContext(
+                      (input) =>
+                        resetActionContext(
+                          Context.merge(services, input.pipe(Context.omit(CurrentRegistrations)))
+                        ) as Context.Context<any>
+                    )
+                  )
+              ).pipe(Effect.provideService(Scope.Scope, scope))
+            ).pipe(
+              Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
             )
-          )
+          })
+        )
       )
     }),
     // A placement the `Hosts` table binds elsewhere runs on that engine.
