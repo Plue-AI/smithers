@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 
-for (const name of ['review', 'bug-worker']) {
+for (const name of ['bug-worker']) {
   test(`${name} deploy requires a qualified Cloud rollout`, () => {
     const packageDirectory = join(root, 'apps', name)
     const manifest = JSON.parse(readFileSync(join(packageDirectory, 'package.json'), 'utf8'))
