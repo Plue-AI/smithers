@@ -8,12 +8,14 @@ import { Duration, Effect, Exit, Layer, ManagedRuntime, Schema, Stream } from "e
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { promisify } from "node:util"
 import { HostFailed } from "../host.ts"
 import { goCache } from "../land.ts"
 import { sh, toolchainEnv } from "../vm.ts"
@@ -474,7 +476,7 @@ test("an attempt is a new Adopt identity: the second call in one execution appli
 
 test("Cloud agent commands install pnpm dependencies before the sandboxed agent starts", () => {
   const checkout = "/home/developer/workspace"
-  const install = "if [ -f pnpm-lock.yaml ]; then CI=1 pnpm install --frozen-lockfile"
+  const install = "if [ -f pnpm-lock.yaml ]; then NODE_USE_ENV_PROXY=1 CI=1 pnpm install --frozen-lockfile"
   for (const agent of ["codex", "claude"] as const) {
     const cloud = remoteCommand(agent, "cloud", checkout)
     assert.ok(cloud.includes(install))
@@ -482,6 +484,60 @@ test("Cloud agent commands install pnpm dependencies before the sandboxed agent 
     assert.ok(cloud.indexOf(install) < cloud.indexOf(`exec ${agent}`))
     assert.equal(remoteCommand(agent, "vm", checkout).includes(install), false)
   }
+})
+
+test("Cloud bootstrap routes native Corepack fetch through the declared proxy before starting the agent", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "sweep-proxy-"))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const checkout = join(root, "workspace")
+  const bin = join(root, ".local", "bin")
+  mkdirSync(checkout, { recursive: true })
+  mkdirSync(bin, { recursive: true })
+  mkdirSync(join(root, ".codex-sweep"))
+  writeFileSync(join(root, ".codex-sweep", "auth.json"), "{}")
+  writeFileSync(join(root, ".sweep-brief"), "brief")
+  writeFileSync(join(checkout, "pnpm-lock.yaml"), "lock")
+  // Substitute only the external tools: execute the production shell and
+  // Node's real native fetch against a controlled proxy, without public DNS.
+  writeFileSync(
+    join(bin, "pnpm"),
+    `#!${process.execPath}
+fetch('http://corepack-bootstrap.invalid/pnpm.tgz').then(async r => {
+  if (await r.text() !== 'proxied') process.exitCode = 2
+}).catch(e => { console.error(e.cause?.code); process.exitCode = 1 })
+`,
+    { mode: 0o755 }
+  )
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nprintf agent-started", { mode: 0o755 })
+  const requests: Array<string> = []
+  const proxy = createServer((request, response) => {
+    requests.push(request.url!)
+    response.end("proxied")
+  })
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise<void>((resolve, reject) => proxy.close((error) => error ? reject(error) : resolve())))
+  const address = proxy.address()
+  assert.ok(address && typeof address !== "string")
+  const env = {
+    PATH: process.env.PATH,
+    HOME: root,
+    HTTP_PROXY: `http://127.0.0.1:${address.port}`,
+    NO_PROXY: "",
+    NODE_USE_ENV_PROXY: "0"
+  }
+  const run = promisify(execFile)
+  const command = remoteCommand("codex", "cloud", checkout)
+  await assert.rejects(
+    run("/bin/sh", ["-c", command.replace("NODE_USE_ENV_PROXY=1 ", "")], { env }),
+    (error: unknown) => {
+      assert.match((error as { stderr: string }).stderr, /ENOTFOUND/)
+      return true
+    }
+  )
+  assert.deepEqual(requests, [])
+  const result = await run("/bin/sh", ["-c", command], { env })
+  assert.equal(result.stdout, "agent-started")
+  assert.deepEqual(requests, ["http://corepack-bootstrap.invalid/pnpm.tgz"])
 })
 
 test("remote Codex commands isolate homes and allow shared toolchain directories", () => {

@@ -612,8 +612,10 @@ export const remoteCommand = (agent: Agent, placement: "vm" | "cloud", checkout:
     // Codex's workspace-write sandbox makes $HOME read-only, so Corepack
     // cannot fetch pnpm and pnpm cannot open its store inside it; a Cloud
     // workspace installs once before the agent starts (plue#784).
+    // Corepack's native fetch requires this opt-in to use the guest's
+    // declared egress proxy; npm already honors that proxy (#3368).
     (placement === "cloud"
-      ? `if [ -f pnpm-lock.yaml ]; then CI=1 pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --reporter=silent >&2; fi; `
+      ? `if [ -f pnpm-lock.yaml ]; then NODE_USE_ENV_PROXY=1 CI=1 pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --reporter=silent >&2; fi; `
       : "")
   return prefix + (agent === "claude"
     ? `export CLAUDE_CONFIG_DIR=${q(home)} IS_SANDBOX=1; CLAUDE_CODE_OAUTH_TOKEN=$(cat ${q(`${home}/oauth-token`)}); ` +
