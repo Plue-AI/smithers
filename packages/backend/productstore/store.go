@@ -15,6 +15,9 @@ type DBTX = db.DBTX
 // Product includes the optional capabilities used by workspace and workflow
 // services as well as their base interfaces, so wrapping it cannot erase them.
 type Product interface {
+	SetWorkspaceClientLease(ctx context.Context, arg db.SetWorkspaceClientLeaseParams) (db.Workspace, error)
+	RenewWorkspaceClientLease(ctx context.Context, id string) (db.Workspace, error)
+	ListLapsedLeaseWorkspaces(ctx context.Context, maxRows int32) ([]db.Workspace, error)
 	ListAccessTokensByUserID(ctx context.Context, userID int64) ([]db.AccessToken, error)
 	SealOutsiderWorkspaceEgress(ctx context.Context, workspaceID string) error
 	StampAgentSessionRevisionsWorkspaceSnapshot(ctx context.Context, arg db.StampAgentSessionRevisionsWorkspaceSnapshotParams) (int64, error)

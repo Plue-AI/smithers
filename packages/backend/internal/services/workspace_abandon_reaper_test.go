@@ -11,8 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/productstore"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
+
+// hostedLeaseWorkspaceStore matches private adapters that extend the public
+// product contract. Lease capabilities must survive that interface boundary.
+type hostedLeaseWorkspaceStore struct{ productstore.Product }
 
 // A workspace whose client lease lapsed is suspended, then deleted after the
 // configured age; a renewed lease and a workspace without a lease are kept.
@@ -39,7 +44,7 @@ func TestAbandonReaperReclaimsOnlyLapsedLeases(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewWorkspaceService(queries, WithWorkspaceSandboxClient(client), WithWorkspaceLeaseDeleteAfter(time.Hour))
+	svc := NewWorkspaceService(hostedLeaseWorkspaceStore{productstore.New(pool)}, WithWorkspaceSandboxClient(client), WithWorkspaceLeaseDeleteAfter(time.Hour))
 	create := func(name string, lease int32, lapsedFor time.Duration) db.Workspace {
 		t.Helper()
 		row, err := queries.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: user, Name: name,
@@ -114,7 +119,7 @@ func TestApplyWorkspaceClientLeaseClearsAReusedLease(t *testing.T) {
 	user, repo := setupTestUserAndRepo(t, pool)
 	ctx := context.Background()
 	queries := db.New(pool)
-	svc := NewWorkspaceService(queries)
+	svc := NewWorkspaceService(hostedLeaseWorkspaceStore{productstore.New(pool)})
 	row, err := queries.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: user, Name: "reused",
 		TargetBookmark: "main", Kind: "container", EnvironmentSource: defaultWorkspaceEnvironmentSource, Status: "running"})
 	require.NoError(t, err)
