@@ -14,7 +14,17 @@ import { processHost, repoFromRemote, resolveRepo } from "../../commands/Open.ts
 import { packageVersion } from "../../Version.ts"
 import * as Failure from "../Failure.ts"
 import { run } from "./Process.ts"
-import { Session } from "./Session.ts"
+import { normalizeOrigin, Session } from "./Session.ts"
+
+type CredentialResolution = Awaited<ReturnType<Session["require"]>>
+type CredentialEntry = {
+  readonly identity: string
+  readonly controller: AbortController
+  readonly promise: Promise<CredentialResolution>
+  waiters: number
+  settled: boolean
+}
+const requestCancelled = () => new Refused({ fault: "user", code: "cancelled", message: "API request cancelled" })
 
 /**
  * @private
@@ -213,6 +223,8 @@ export class Client {
   readonly runtime: Runtime
   readonly live: boolean
   private readonly secrets = new Set<string>()
+  // One current resolution per exact origin, private to this command's Client.
+  private readonly credentials = new Map<string, CredentialEntry>()
   // Whether a line is still arriving on each channel; the redactor holds it.
   private readonly outputPartial = { stdout: false, stderr: false }
   private readonly outputDecoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") }
@@ -392,7 +404,14 @@ export class Client {
       throw new UsageError({ message: "API path must start with /" })
     }
     const origin = options.origin ?? this.session.target().api_url
-    const token = options.anonymous ? undefined : options.token ?? (await this.session.require(origin)).token
+    // Explicit bounded signals also own cancellation cleanup after the command
+    // signal aborts; retain that contract rather than poisoning the whole Client.
+    const requestSignal = options.signal ?? this.runtime.signal
+    if (requestSignal?.aborted) throw requestCancelled()
+    const credential = !options.anonymous && options.token == null
+      ? await this.credential(origin, requestSignal)
+      : undefined
+    const token = options.anonymous ? undefined : options.token ?? credential?.resolved.token
     if (token) this.protect(token)
     const remember = (value: unknown) => {
       for (const [key, item] of Object.entries(object(value))) {
@@ -414,17 +433,34 @@ export class Client {
       ...(token ? { authorization: `token ${token}` } : {}),
       ...options.headers
     }
-    const requestSignal = options.signal ?? this.runtime.signal
     const signal = options.stream
       ? requestSignal
       : AbortSignal.any([AbortSignal.timeout(120_000), ...(requestSignal ? [requestSignal] : [])])
-    const response = await fetch(`${origin}${path}`, {
+    const request = {
       method,
       headers,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(signal ? { signal } : {}),
-      redirect: "error"
-    }).catch((error: unknown) => {
+      redirect: "error" as const
+    }
+    // credential() returned through an await. Serialize first, then fence at
+    // HTTP admission with no intervening await or user-controlled body getter.
+    if (requestSignal?.aborted) throw requestCancelled()
+    if (credential !== undefined) {
+      try {
+        if (this.session.credentialIdentity(credential.origin) !== credential.entry.identity) {
+          throw new Refused({
+            fault: "wait",
+            code: "credentials_changing",
+            message: "Login changed while preparing the request. Try again"
+          })
+        }
+      } catch (cause) {
+        if (this.credentials.get(credential.origin) === credential.entry) this.credentials.delete(credential.origin)
+        throw cause
+      }
+    }
+    const response = await fetch(`${origin}${path}`, request).catch((error: unknown) => {
       if (requestSignal?.aborted) {
         throw withCause(new Refused({ fault: "user", code: "cancelled", message: "API request cancelled" }), error)
       }
@@ -447,6 +483,11 @@ export class Client {
         error
       )
     })
+    if (
+      response.status === 401 && credential !== undefined &&
+      !Object.keys(options.headers ?? {}).some((key) => key.toLowerCase() === "authorization") &&
+      this.credentials.get(credential.origin) === credential.entry
+    ) this.credentials.delete(credential.origin)
     if (!response.ok) {
       let detail: Values = {}
       try {
@@ -455,6 +496,76 @@ export class Client {
       throw new APIError(response.status, detail, method, path, response.headers)
     }
     return response
+  }
+  private async credential(origin: string, signal: AbortSignal | undefined): Promise<{
+    origin: string
+    entry: CredentialEntry
+    resolved: CredentialResolution
+  }> {
+    const canonical = normalizeOrigin(origin)
+    // No HTTP has begun: a racing login may replace a lookup, but continuous
+    // credential churn must still give a finite, fail-closed result.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (signal?.aborted) throw requestCancelled()
+      const identity = this.session.credentialIdentity(canonical)
+      let entry = this.credentials.get(canonical)
+      if (entry?.identity !== identity) {
+        this.credentials.delete(canonical)
+        const controller = new AbortController()
+        const created: CredentialEntry = {
+          identity,
+          controller,
+          waiters: 0,
+          settled: false,
+          promise: this.session.require(canonical, controller.signal).then((resolved) => {
+            created.settled = true
+            return resolved
+          }, (cause) => {
+            created.settled = true
+            if (this.credentials.get(canonical) === created) this.credentials.delete(canonical)
+            throw cause
+          })
+        }
+        this.credentials.set(canonical, created)
+        // The last waiter can leave before the native process reports its abort.
+        void created.promise.catch(() => {})
+        entry = created
+      }
+      const current = entry
+      current.waiters++
+      try {
+        const resolved = await new Promise<CredentialResolution>((done, failed) => {
+          const abort = () => failed(requestCancelled())
+          signal?.addEventListener("abort", abort, { once: true })
+          current.promise.then((value) => {
+            signal?.removeEventListener("abort", abort)
+            if (signal?.aborted) failed(requestCancelled())
+            else done(value)
+          }, (cause) => {
+            signal?.removeEventListener("abort", abort)
+            failed(cause)
+          })
+          if (signal?.aborted) abort()
+        })
+        if (signal?.aborted) throw requestCancelled()
+        if (this.session.credentialIdentity(canonical) !== identity) {
+          if (this.credentials.get(canonical) === current) this.credentials.delete(canonical)
+          continue
+        }
+        return { origin: canonical, entry: current, resolved }
+      } finally {
+        current.waiters--
+        if (!current.settled && current.waiters === 0) {
+          if (this.credentials.get(canonical) === current) this.credentials.delete(canonical)
+          current.controller.abort()
+        }
+      }
+    }
+    throw new Refused({
+      fault: "wait",
+      code: "credentials_changing",
+      message: "Login changed while preparing the request. Try again"
+    })
   }
   async text(response: Response, maximum = 4 * 1024 * 1024): Promise<string> {
     const chunks: Array<Uint8Array> = []
