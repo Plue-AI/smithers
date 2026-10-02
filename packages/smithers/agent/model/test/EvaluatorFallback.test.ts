@@ -145,7 +145,7 @@ describe("EvaluatorBackup.withFallback", () => {
   })
 
   it.each(["unreachable", "timeout"] as const)(
-    "keeps the actionable Jev setup fault when backup is %s",
+    "preserves the active backup's %s when the primary is unconfigured",
     async (code) => {
       const primary = Evaluator.Evaluator.of({
         evaluate: () =>
@@ -156,34 +156,38 @@ describe("EvaluatorBackup.withFallback", () => {
             })
           )
       })
-      const result = await run(EvaluatorBackup.withFallback(primary, failed(code)))
+      const outage = new Evaluator.EvaluatorError({ code, message: `Active backup ${code}.` })
+      const result = await run(EvaluatorBackup.withFallback(primary, { evaluate: () => Effect.fail(outage) }))
       expect(Result.isFailure(result)).toBe(true)
       if (Result.isFailure(result)) {
-        expect(result.failure).toMatchObject({ code: "unconfigured", message: "Set AI_GATEWAY_API_KEY to enable Jev." })
-        expect(Evaluator.publicMessage(result.failure)).toContain("AI_GATEWAY_API_KEY")
+        expect(result.failure).toBe(outage)
+        expect(Evaluator.publicMessage(result.failure)).not.toContain("AI_GATEWAY_API_KEY")
       }
     }
   )
 
-  it("keeps a subscription setup fault when Jev only had a transport failure", async () => {
-    const backup = Evaluator.Evaluator.of({
-      evaluate: () =>
-        Effect.fail(
-          new Evaluator.EvaluatorError({
-            code: "unconfigured",
-            message: "Sign in to a Codex subscription to enable Luna."
-          })
-        )
-    })
-    const result = await run(EvaluatorBackup.withFallback(failed("unreachable"), backup))
-    expect(Result.isFailure(result)).toBe(true)
-    if (Result.isFailure(result)) {
-      expect(result.failure).toMatchObject({
-        code: "unconfigured",
-        message: "Sign in to a Codex subscription to enable Luna."
+  it.each(["unreachable", "timeout", "unconfigured"] as const)(
+    "keeps a genuine subscription setup fault after a primary %s",
+    async (code) => {
+      const backup = Evaluator.Evaluator.of({
+        evaluate: () =>
+          Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "unconfigured",
+              message: "Sign in to a Codex subscription to enable Luna."
+            })
+          )
       })
+      const result = await run(EvaluatorBackup.withFallback(failed(code), backup))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          code: "unconfigured",
+          message: "Sign in to a Codex subscription to enable Luna."
+        })
+      }
     }
-  })
+  )
 
   it.each(["unreachable", "timeout", "unconfigured"] as const)(
     "does not replace a quota refusal with a %s backup failure",
@@ -249,39 +253,78 @@ describe("EvaluatorBackup.withFallback", () => {
     }
   )
 
-  it("keeps the primary's setup reason with what the failed backup paid", async () => {
-    const backup = Evaluator.Evaluator.of({
-      evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
+  it("does not contact backup after a quota refusal that already carries paid usage", async () => {
+    const calls: Array<Evaluator.Request> = []
+    const quota = new Evaluator.EvaluatorError({
+      code: "refused",
+      status: 429,
+      resetAtEpochMillis: 1_800_000_000_000,
+      message: "Fixture quota refusal.",
+      usage: paid
     })
-    const primary = Evaluator.Evaluator.of({
-      evaluate: () =>
-        Effect.fail(
-          new Evaluator.EvaluatorError({ code: "refused", status: 429, resetAtEpochMillis: 5, message: "quota" })
-        )
-    })
-    const result = await run(EvaluatorBackup.withFallback(primary, backup))
+    const result = await run(EvaluatorBackup.withFallback({ evaluate: () => Effect.fail(quota) }, answered(calls)))
     expect(Result.isFailure(result)).toBe(true)
-    if (Result.isFailure(result)) {
-      expect(result.failure).toMatchObject({
-        code: "refused",
-        status: 429,
-        resetAtEpochMillis: 5,
-        message: "quota",
-        usage: paid
-      })
-    }
+    if (Result.isFailure(result)) expect(result.failure).toBe(quota)
+    expect(calls).toHaveLength(0)
   })
 
-  it("keeps the primary's missing-key reason with what the failed backup paid", async () => {
+  it.each([undefined, 5])(
+    "keeps a quota refusal with reset %s and the failed backup's actual paid usage",
+    async (reset) => {
+      const backup = Evaluator.Evaluator.of({
+        evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
+      })
+      const primary = Evaluator.Evaluator.of({
+        evaluate: () =>
+          Effect.fail(
+            new Evaluator.EvaluatorError({ code: "refused", status: 429, resetAtEpochMillis: reset, message: "quota" })
+          )
+      })
+      const result = await run(EvaluatorBackup.withFallback(primary, backup))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          code: "refused",
+          status: 429,
+          message: "quota",
+          usage: paid
+        })
+        expect(result.failure.resetAtEpochMillis).toBe(reset)
+      }
+    }
+  )
+
+  it("preserves the active backup's timeout and actual paid usage when the primary is unconfigured", async () => {
     const backup = Evaluator.Evaluator.of({
       evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
     })
     const result = await run(EvaluatorBackup.withFallback(failed("unconfigured"), backup))
     expect(Result.isFailure(result)).toBe(true)
     if (Result.isFailure(result)) {
-      expect(result.failure).toMatchObject({ code: "unconfigured", message: "unconfigured", usage: paid })
+      expect(result.failure).toMatchObject({ code: "timeout", message: "late", usage: paid })
       expect(result.failure.status).toBeUndefined()
       expect(result.failure.resetAtEpochMillis).toBeUndefined()
+    }
+  })
+
+  it("retains the backup's exact transport metadata and usage while keeping public details redacted", async () => {
+    const outage = new Evaluator.EvaluatorError({
+      code: "unreachable",
+      message: "Fixture connection failed at https://fixture.invalid/?token=fixture-secret",
+      status: 503,
+      resetAtEpochMillis: 1_800_000_000_001,
+      usage: paid
+    })
+    const result = await run(EvaluatorBackup.withFallback(failed("unconfigured"), {
+      evaluate: () => Effect.fail(outage)
+    }))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBe(outage)
+      const message = Evaluator.publicMessage(result.failure)
+      expect(message).not.toContain("fixture-secret")
+      expect(message).not.toContain("fixture.invalid")
+      expect(message).not.toContain("AI_GATEWAY_API_KEY")
     }
   })
 

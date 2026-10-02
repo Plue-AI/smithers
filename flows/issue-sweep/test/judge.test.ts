@@ -8,11 +8,15 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
+import * as NativeRuntime from "@smthrs/flows/NodeRuntime"
+import { Journal, JournalEvent } from "@smthrs/journal"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as EvaluatorBackup from "@smthrs/model/EvaluatorBackup"
 import { Burndown } from "@smthrs/patterns"
+import { Node } from "@smthrs/plan"
 import { Cause, Effect, Exit, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -95,6 +99,20 @@ const Discover = Action.make("issue-sweep-test/discover", {
 })
 const Dispatch = Burndown.dispatch("issue-sweep-test/dispatch")
 const Rounds = Burndown.make({ name: "issue-sweep-test/rounds", discover: Discover, dispatch: Dispatch, maxRounds: 5 })
+
+const ReplayRound = Flow.make("issue-sweep-test/fallback-replay", {
+  payload: { round: Schema.Number, rows: Schema.Array(Burndown.Row) },
+  success: Burndown.RoundResult,
+  error: Schema.Unknown,
+  body: Node.capture({}, ({ round, rows }) =>
+    Dispatch.call({
+      input: { repo: "o/r" },
+      round,
+      items: [issue(1), issue(2)],
+      settled: rows.filter((row) => row.status === "landed").map((row) => row.id),
+      rows
+    }))
+})
 
 let runs = 0
 
@@ -182,6 +200,155 @@ test("an unreachable judge requeues each issue it could not read, and a later ro
   assert.deepEqual(judge.asked, [probe.title, "#1", "#2", probe.title, "#1", "#2", probe.title])
   assert.deepEqual(round.log.claimed.toSorted(), [1, 2])
   assert.deepEqual(round.log.worked.toSorted(), ["#1@1", "#2@1"])
+})
+
+for (const code of ["unreachable", "timeout"] as const) {
+  test(`an active backup ${code} requeues unread work and retains the earlier completed issue`, async (t) => {
+    let outage = true
+    const backup = scriptedJudge((title) =>
+      title === "#2" && outage
+        ? new Evaluator.EvaluatorError({ code, message: "The active subscription judge temporarily failed." })
+        : "code-change"
+    )
+    const fallback = EvaluatorBackup.withFallback(
+      Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unconfigured()) }),
+      Effect.runSync(Effect.service(Evaluator.Evaluator).pipe(Effect.provide(backup.layer)))
+    )
+    const round = recorded(t, judging(fallback))
+    const exit = await sweep((index) => {
+      if (index > 0) outage = false
+      return [issue(1), issue(2)]
+    }, round)
+    assert.ok(Exit.isSuccess(exit), Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "")
+    assert.deepEqual(exit.value, {
+      rows: [
+        { id: "1", status: "landed", detail: "" },
+        { id: "2", status: "landed", detail: "", requeues: 1 }
+      ],
+      rounds: 3,
+      stopped: "drained"
+    })
+    assert.deepEqual(round.log.claimed.toSorted(), [1, 2])
+    assert.deepEqual(round.log.worked.toSorted(), ["#1@0", "#2@1"])
+    assert.equal(backup.asked.filter((title) => title === "#1").length, 1)
+    assert.equal(backup.asked.filter((title) => title === "#2").length, 2)
+  })
+}
+
+test("SQLite replay retains a captured landing across an active backup outage and retries only unread work", {
+  timeout: 30_000
+}, async (t) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "issue-sweep-fallback-replay-")))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  let outage = true
+  let preflightOutage = false
+  const failures: Array<string> = []
+  // Judgment transport and issue read/claim/work/land/release use fixture
+  // ports to avoid real network and agent side effects. The native host,
+  // SQLite, engine, journal and cache are real: this proves callback/result
+  // retention, not GitHub, VM or SandboxMerge integration.
+  const backup = scriptedJudge((title) => {
+    if ((title === "#2" && outage) || (title === probe.title && preflightOutage)) {
+      failures.push(title)
+      return new Evaluator.EvaluatorError({
+        code: title === probe.title ? "timeout" : "unreachable",
+        message: "Fixture subscription transport outage."
+      })
+    }
+    return "code-change"
+  })
+  const fallback = EvaluatorBackup.withFallback(
+    Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unconfigured()) }),
+    Effect.runSync(Effect.service(Evaluator.Evaluator).pipe(Effect.provide(backup.layer)))
+  )
+  const round = recorded(t, judging(fallback))
+  const landed: Array<number> = []
+  const capture = join(root, "captured-1.json")
+  const options: Burndown.RoundOptions<unknown, Issue, string, TriageFailed | Burndown.Stop, never, string> = {
+    ...round.options,
+    land: ({ item, output }) =>
+      Effect.sync(() => {
+        landed.push(item.number)
+        const commit = `fixture-commit-${item.number}`
+        writeFileSync(join(root, `captured-${item.number}.json`), JSON.stringify({ commit, output }))
+        return commit
+      }),
+    detail: (output, commit) => `${commit} ${output}`
+  }
+  const registration = Interpreter.layer(ReplayRound).pipe(
+    Layer.provideMerge(
+      Dispatch.toLayer((payload) =>
+        sweepRound({ ...payload, items: payload.items as ReadonlyArray<Issue> }, options, round.seams)
+      )
+    ),
+    Layer.provideMerge(Action.layerImplementations)
+  )
+  let incarnation = 0
+  const execute = (executionId: string, input: typeof ReplayRound.payloadSchema.Type) =>
+    Effect.runPromise(
+      Effect.gen(function*() {
+        const result = yield* ReplayRound.execute(input, { executionId })
+        const journal = yield* Journal.Journal
+        const entries = yield* journal.entries({ runId: JournalEvent.RunId.make(executionId), limit: 1000 })
+        return { result, entries: entries.entries }
+      }).pipe(
+        Effect.provide(NativeRuntime.layerHost({
+          filename: join(root, "engine.db"),
+          workspaceRoot: root,
+          owner: { hostId: `fallback-replay-${++incarnation}` },
+          signals: []
+        }, registration)),
+        Effect.scoped
+      ),
+      { signal: t.signal }
+    )
+
+  const first = await execute("retained-round", { round: 0, rows: [] })
+  assert.equal(first.result.rows[0]?.status, "landed")
+  assert.equal(first.result.rows[0]?.detail, "fixture-commit-1 changed")
+  assert.equal(first.result.rows[1]?.status, "requeued")
+  assert.match(first.result.rows[1]?.detail ?? "", /triage: unreachable:/)
+  assert.deepEqual(landed, [1])
+  const retained = readFileSync(capture, "utf8")
+  const calls = [...backup.asked]
+  const journaledLanding = first.entries.filter((entry) =>
+    (entry.payload as { action?: unknown }).action === Burndown.LandStep
+  )
+  assert.ok(journaledLanding.length > 0)
+
+  // A separate host scope reopens the same SQLite file. No network, work,
+  // landing or capture runs again for the completed execution.
+  const replay = await execute("retained-round", { round: 0, rows: [] })
+  assert.deepEqual(replay.result, first.result)
+  assert.deepEqual(replay.entries, first.entries)
+  assert.deepEqual(backup.asked, calls)
+  assert.deepEqual(landed, [1])
+  assert.equal(readFileSync(capture, "utf8"), retained)
+
+  // A later dispatch's preflight also loses the active backup. It remains an
+  // infrastructure requeue, retaining the first issue's captured result.
+  preflightOutage = true
+  const later = await execute("outage-round", { round: 1, rows: first.result.rows })
+  assert.deepEqual(later.result.rows.map((row) => [row.id, row.status]), [["2", "requeued"]])
+  assert.equal(later.result.rows[0]?.requeues, 2)
+  assert.deepEqual(landed, [1])
+  assert.equal(readFileSync(capture, "utf8"), retained)
+  assert.deepEqual(failures, ["#2", probe.title, "#2"])
+
+  outage = false
+  preflightOutage = false
+  const retainedRows = first.result.rows.filter((row) => row.status === "landed")
+  const retry = await execute("retry-round", { round: 2, rows: [...retainedRows, ...later.result.rows] })
+  assert.deepEqual(retry.result.rows.map((row) => [row.id, row.status]), [["2", "landed"]])
+  assert.deepEqual(round.log.worked, ["#1@0", "#2@2"])
+  assert.deepEqual(landed, [1, 2])
+  assert.equal(backup.asked.filter((title) => title === "#1").length, 1)
+  assert.equal(backup.asked.filter((title) => title === "#2").length, 3)
+  assert.equal(readFileSync(capture, "utf8"), retained)
+  assert.deepEqual(JSON.parse(readFileSync(join(root, "captured-2.json"), "utf8")), {
+    commit: "fixture-commit-2",
+    output: "changed"
+  })
 })
 
 test("the sweep's own judge answers triage, not the Evaluator the host provides", async () => {
