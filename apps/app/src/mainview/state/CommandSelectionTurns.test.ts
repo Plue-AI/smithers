@@ -227,9 +227,13 @@ describe("the web turn path (HTTP journal)", () => {
 
     fail = true
     controller.send("and light mode later")
+    const refusal = () => {
+      const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").at(-1)
+      return failed?.text ?? failed?.statusDetail ?? ""
+    }
+    // The send settles asynchronously: an idle phase can be read before the second send leaves it, so wait for its refusal.
+    await until(() => refusal().includes("your balance is spent"))
     await until(() => store.session().phase === "idle")
     expect(remote.starts).toHaveLength(1)
-    const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").at(-1)
-    expect(failed?.text ?? failed?.statusDetail ?? "").toContain("your balance is spent")
   })
 })
