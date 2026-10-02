@@ -32,7 +32,6 @@ export interface Ports {
   readonly read?: (id: string) => unknown
   readonly list?: () => unknown
   readonly retry?: (id: string) => unknown
-  /** Every active tab's and flow run's estimate; see `estimate.ts`. */
   /** The user's flow runs, served to cells by the Smithers plugin. */
   readonly flows?: SmithersPlugin.Ports
   readonly monitors?: Pick<Monitors.Monitors, "create" | "list" | "stop">

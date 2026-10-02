@@ -156,7 +156,6 @@ export interface Host {
     readonly judge: (input: Monitors.Judged) => Promise<boolean>
     readonly compose: (input: Monitors.Judged) => Promise<string>
   }
-  /** One short answer from `seat`, outside any turn; estimates, descriptions and monitor updates use it. */
   readonly complete?: (input: { system: string; prompt: string; seat: string }) => Promise<string>
   /** Whether the host judges worker completions and binds `jev`. */
   readonly judged: boolean

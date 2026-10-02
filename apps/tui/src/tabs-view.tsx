@@ -117,7 +117,6 @@ export function WorkerList(props: {
   readonly active: string
   readonly models: ReadonlyArray<Model>
   readonly now: number
-  /** The worker's estimate label, empty when there is none. */
   readonly onSelect: (id: string) => void
 }) {
   return (
