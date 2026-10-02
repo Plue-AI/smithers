@@ -4,8 +4,7 @@ import { TestClock } from "effect/testing"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as Spawner from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
-import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import test from "node:test"
@@ -22,7 +21,6 @@ import {
 } from "../work/claude.ts"
 
 const token = "fake-subscription-token-for-tests"
-const now = 1_000
 const accounts = (t: { after: (fn: () => void) => void }) => {
   const root = mkdtempSync(join(tmpdir(), "issue-sweep-claude-login-"))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -37,195 +35,41 @@ const failure = <A, E>(exit: Exit.Exit<A, E>) => {
   return error
 }
 
-test("a configured token file trims its final newline and takes precedence over Keychain", async (t) => {
+test("a configured token file trims its final newline", async (t) => {
   const { root, directory } = accounts(t)
   writeFileSync(join(directory, "oauth-token"), ` ${token}\n`, { mode: 0o600 })
-  let calls = 0
-  const login = await Effect.runPromise(readClaudeLogin("claude-5", {
-    accountsDirectory: root,
-    platform: "darwin",
-    keychain: async () => {
-      calls++
-      throw new Error("must not query Keychain")
-    }
-  }))
-  assert.equal(login, token)
-  assert.equal(calls, 0)
+  assert.equal(await Effect.runPromise(readClaudeLogin("claude-5", { accountsDirectory: root })), token)
 })
 
-test("missing token files use the account directory's hashed Keychain service and return only the access token", async (t) => {
-  const { root, directory } = accounts(t)
-  let queried = ""
-  const login = await Effect.runPromise(readClaudeLogin("claude-5", {
-    accountsDirectory: join(root, "..", root.split("/").at(-1)!),
-    platform: "darwin",
-    now,
-    keychain: async (service) => {
-      queried = service
-      return JSON.stringify({
-        claudeAiOauth: { accessToken: token, refreshToken: "never-borrow-refresh", expiresAt: now + 1 }
-      })
-    }
-  }))
-  assert.equal(
-    queried,
-    `Claude Code-credentials-${createHash("sha256").update(resolve(directory)).digest("hex").slice(0, 8)}`
-  )
-  assert.equal(login, token)
-})
-
-test("the native Keychain adapter invokes security with the scoped service and reads JSON stdout", async (t) => {
-  const { root, directory } = accounts(t)
-  const argumentsFile = join(root, "arguments.json")
-  writeFileSync(
-    join(root, "security"),
-    `#!${process.execPath}\n` +
-      `import{writeFileSync}from'node:fs';writeFileSync(${
-        JSON.stringify(argumentsFile)
-      },JSON.stringify(process.argv.slice(2)));` +
-      `process.stdout.write(${
-        JSON.stringify(JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: Date.now() + 60_000 } }))
-      });\n`,
-    { mode: 0o700 }
-  )
-  const previous = process.env.PATH
-  process.env.PATH = `${root}:${previous ?? ""}`
-  t.after(() => {
-    if (previous === undefined) delete process.env.PATH
-    else process.env.PATH = previous
-  })
-  assert.equal(
-    await Effect.runPromise(readClaudeLogin("claude-5", { accountsDirectory: root, platform: "darwin" })),
-    token
-  )
-  assert.deepEqual(JSON.parse(readFileSync(argumentsFile, "utf8")), [
-    "find-generic-password",
-    "-s",
-    `Claude Code-credentials-${createHash("sha256").update(directory).digest("hex").slice(0, 8)}`,
-    "-w"
-  ])
-})
-
-test("default host location and platform query only the generated test account", async () => {
-  const account = `claude-issue-sweep-test-${process.pid}`
-  const exit = await Effect.runPromiseExit(readClaudeLogin(account, {
-    keychain: async () => JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: Date.now() + 60_000 } })
-  }))
-  if (process.platform === "darwin") {
-    assert.ok(Exit.isSuccess(exit))
-    assert.equal(exit.value, token)
-  } else failure(exit)
+// #3351: a borrowed Keychain access token that claimed hours of validity failed on Cloud with zero usage.
+test("an account without a token file has no remote login, whatever the Keychain holds", async (t) => {
+  const { root } = accounts(t)
+  const error = failure(await Effect.runPromiseExit(readClaudeLogin("claude-5", { accountsDirectory: root })))
+  assert.equal(error.message, "claude-5: no usable oauth-token file (run claude setup-token)")
 })
 
 for (const invalid of ["", " \n", "two tokens", "one\nother"]) {
-  test(`an invalid configured token file fails closed (${JSON.stringify(invalid)})`, async (t) => {
+  test(`an invalid configured token file fails closed without echoing it (${JSON.stringify(invalid)})`, async (t) => {
     const { root, directory } = accounts(t)
     writeFileSync(join(directory, "oauth-token"), invalid)
-    let calls = 0
-    const error = failure(
-      await Effect.runPromiseExit(readClaudeLogin("claude-5", {
-        accountsDirectory: root,
-        platform: "darwin",
-        keychain: async () => {
-          calls++
-          return "{}"
-        }
-      }))
-    )
-    assert.equal(calls, 0)
+    const error = failure(await Effect.runPromiseExit(readClaudeLogin("claude-5", { accountsDirectory: root })))
     assert.match(error.message, /claude-5: no usable/)
+    assert.equal(error.message.includes("tokens") || error.message.includes("other"), false)
   })
 }
 
-test("unreadable configured token files fail without consulting Keychain", async (t) => {
+test("an unreadable configured token file fails closed", async (t) => {
   const { root, directory } = accounts(t)
   mkdirSync(join(directory, "oauth-token"))
-  let calls = 0
-  failure(
-    await Effect.runPromiseExit(readClaudeLogin("claude-5", {
-      accountsDirectory: root,
-      platform: "darwin",
-      keychain: async () => {
-        calls++
-        return "{}"
-      }
-    }))
-  )
-  assert.equal(calls, 0)
-})
-
-test("a non-macOS host needs a configured token file", async (t) => {
-  const { root } = accounts(t)
-  let calls = 0
-  failure(
-    await Effect.runPromiseExit(readClaudeLogin("claude-5", {
-      accountsDirectory: root,
-      platform: "linux",
-      keychain: async () => {
-        calls++
-        return "{}"
-      }
-    }))
-  )
-  assert.equal(calls, 0)
-})
-
-for (
-  const credentials of [
-    "not JSON",
-    "null",
-    "{}",
-    JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: now } }),
-    JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: now - 1 } }),
-    JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: "2000" } }),
-    JSON.stringify({ claudeAiOauth: { accessToken: "", expiresAt: now + 1 } }),
-    JSON.stringify({ claudeAiOauth: { accessToken: "two tokens", expiresAt: now + 1 } })
-  ]
-) {
-  test("malformed or expired Keychain credentials fail without exposing their contents", async (t) => {
-    const { root } = accounts(t)
-    const error = failure(
-      await Effect.runPromiseExit(readClaudeLogin("claude-5", {
-        accountsDirectory: root,
-        platform: "darwin",
-        now,
-        keychain: async () => credentials
-      }))
-    )
-    assert.equal(error.message.includes(token), false)
-    assert.equal(error.message, "claude-5: no usable oauth-token file or unexpired Keychain login")
-  })
-}
-
-test("Keychain process errors cannot expose credential stdout", async (t) => {
-  const { root } = accounts(t)
-  const error = failure(
-    await Effect.runPromiseExit(readClaudeLogin("claude-5", {
-      accountsDirectory: root,
-      platform: "darwin",
-      keychain: async () => {
-        throw new Error(`security failed; stdout: ${token}`)
-      }
-    }))
-  )
-  assert.equal(error.message.includes(token), false)
+  failure(await Effect.runPromiseExit(readClaudeLogin("claude-5", { accountsDirectory: root })))
 })
 
 for (const account of ["../claude-5", "claude-5/../../outside", "codex-5", "claude-", "/claude-5"]) {
-  test(`invalid account label never queries a credential store: ${account}`, async (t) => {
-    const { root } = accounts(t)
-    let calls = 0
-    failure(
-      await Effect.runPromiseExit(readClaudeLogin(account, {
-        accountsDirectory: root,
-        platform: "darwin",
-        keychain: async () => {
-          calls++
-          return "{}"
-        }
-      }))
-    )
-    assert.equal(calls, 0)
+  test(`an invalid account label never reads a token file: ${account}`, async (t) => {
+    const { root, directory } = accounts(t)
+    writeFileSync(join(directory, "oauth-token"), token)
+    writeFileSync(join(root, "oauth-token"), token)
+    failure(await Effect.runPromiseExit(readClaudeLogin(account, { accountsDirectory: root })))
   })
 }
 
@@ -504,24 +348,16 @@ test("captured work containing a borrowed login cannot enter an action result", 
   )
 })
 
-test("remote selection skips a ready account's expired login and keeps locally usable accounts available", async (t) => {
+test("remote selection skips a ready account without a token file and keeps it available locally", async (t) => {
   const { root } = accounts(t)
+  mkdirSync(join(root, "claude-1"))
+  writeFileSync(join(root, "claude-5", "oauth-token"), token, { mode: 0o600 })
   const pools: Pools = {
     codex: { ready: [], unavailable: [] },
     claude: { ready: ["claude-1", "claude-5"], unavailable: [] }
   }
   const picker = makeAccountPicker(1, Effect.succeed(pools))
-  const expiredService = `Claude Code-credentials-${
-    createHash("sha256").update(resolve(root, "claude-1")).digest("hex").slice(0, 8)
-  }`
-  const login: typeof readClaudeLogin = (account) =>
-    readClaudeLogin(account, {
-      accountsDirectory: root,
-      platform: "darwin",
-      now,
-      keychain: async (service) =>
-        JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: service === expiredService ? now : now + 1 } })
-    })
+  const login: typeof readClaudeLogin = (account) => readClaudeLogin(account, { accountsDirectory: root })
   const chosen = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
     const remote = yield* reserveRemoteAccount(3355, { picker, login })
     const local = yield* picker(3355)
@@ -532,6 +368,22 @@ test("remote selection skips a ready account's expired login and keeps locally u
   assert.equal(chosen.account, "claude-5")
   assert.equal(chosen.login, token)
   assert.deepEqual(pools.claude.ready, ["claude-1", "claude-5"])
+})
+
+// #3351: until accounts hold `claude setup-token` files, remote work runs on Codex.
+test("with no Claude token files a remote run picks Codex even for a Claude-preferred issue", async (t) => {
+  const { root } = accounts(t)
+  const pools: Pools = {
+    codex: { ready: ["codex-1"], unavailable: [] },
+    claude: { ready: ["claude-5"], unavailable: [] }
+  }
+  const picker = makeAccountPicker(1, Effect.succeed(pools))
+  const login: typeof readClaudeLogin = (account) => readClaudeLogin(account, { accountsDirectory: root })
+  // Odd issues prefer Claude (pickAgent); the remote picker must still land on Codex.
+  const chosen = await Effect.runPromise(Effect.scoped(reserveRemoteAccount(3351, { picker, login })))
+  assert.equal(chosen.agent, "codex")
+  assert.equal(chosen.account, "codex-1")
+  assert.equal(chosen.login, undefined)
 })
 
 test("remote eligibility retains the shared account cap and releases it on interruption", async () => {

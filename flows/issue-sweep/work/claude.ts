@@ -3,12 +3,9 @@ import type { Sandbox } from "@smthrs/sandbox"
 import { Duration, Effect, FileSystem, Path, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { execFile } from "node:child_process"
-import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
-import { promisify } from "node:util"
 import { type makeAccountPicker, reserveAccount } from "../accounts.ts"
 import { guestCheckout, guestHome } from "../vm.ts"
 
@@ -18,49 +15,28 @@ export class ClaudeFailed extends Schema.TaggedError<ClaudeFailed>()("issue-swee
 
 export interface LoginOptions {
   readonly accountsDirectory?: string
-  readonly platform?: string
-  readonly now?: number
-  readonly keychain?: (service: string) => Promise<string>
 }
 
-const keychain = async (service: string): Promise<string> =>
-  (await promisify(execFile)("security", ["find-generic-password", "-s", service, "-w"], {
-    encoding: "utf8",
-    timeout: 10_000
-  })).stdout
-
 /**
- * Save the token from `claude setup-token` in the account's `oauth-token`
- * file (mode 0600) to use a long-lived remote login. Otherwise borrow the
- * unexpired macOS Keychain access token. Never copy a refresh token into a VM.
- * An invalid configured file fails closed instead of silently changing login.
+ * The long-lived login a remote (VM or Cloud) Claude run uses: the token
+ * `claude setup-token` printed, saved in the account's `oauth-token` file
+ * (mode 0600). An account without that file is not eligible remotely, so a
+ * remote run picks Codex; Claude still runs locally on its own login. The
+ * Keychain access token is never borrowed: on 2026-10-01 a borrowed one that
+ * claimed hours of validity failed on Cloud with zero usage (#3351). An
+ * invalid configured file fails closed.
  */
 export const readClaudeLogin = (account: string, options: LoginOptions = {}) =>
   Effect.tryPromise({
     try: async () => {
       if (!/^claude-[A-Za-z0-9_-]+$/.test(account)) throw new Error("invalid account")
       const directory = resolve(options.accountsDirectory ?? join(homedir(), ".smithers/accounts"), account)
-      const token = await readFile(join(directory, "oauth-token"), "utf8").catch((cause: NodeJS.ErrnoException) => {
-        if (cause.code === "ENOENT") return undefined
-        throw cause
-      })
-      if (token !== undefined) {
-        if (!token.trim() || /\s/.test(token.trim())) throw new Error("invalid token file")
-        return token.trim()
-      }
-      if ((options.platform ?? process.platform) !== "darwin") throw new Error("no token file")
-      const service = `Claude Code-credentials-${createHash("sha256").update(directory).digest("hex").slice(0, 8)}`
-      const credentials = JSON.parse(await (options.keychain ?? keychain)(service))
-      const oauth = credentials?.claudeAiOauth
-      if (
-        typeof oauth?.accessToken !== "string" || !oauth.accessToken || /\s/.test(oauth.accessToken) ||
-        typeof oauth.expiresAt !== "number" || !Number.isFinite(oauth.expiresAt) ||
-        oauth.expiresAt <= (options.now ?? Date.now())
-      ) throw new Error("expired or invalid Keychain login")
-      return oauth.accessToken as string
+      const token = (await readFile(join(directory, "oauth-token"), "utf8")).trim()
+      if (!token || /\s/.test(token)) throw new Error("invalid token file")
+      return token
     },
-    // execFile errors can contain credential stdout. Expose only this fixed message.
-    catch: () => new ClaudeFailed({ message: `${account}: no usable oauth-token file or unexpired Keychain login` })
+    // Never echo file contents: a malformed file may still hold a credential.
+    catch: () => new ClaudeFailed({ message: `${account}: no usable oauth-token file (run claude setup-token)` })
   })
 
 /** Remote eligibility checks do not change the local pool or the shared reservation counts. */
