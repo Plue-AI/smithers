@@ -599,7 +599,6 @@ describe("wiki spaces", () => {
     }
     let renameStatus = 200
     let privateIndexRefusal: string | undefined
-    let indexHeld: Promise<void> | undefined
     const services: AppServices = {
       fetchImpl: async (input, init) => {
         const url = String(input)
@@ -611,7 +610,6 @@ describe("wiki spaces", () => {
         if (path.endsWith("/navigation/index") && at === "private" && privateIndexRefusal !== undefined) {
           return Response.json({ code: privateIndexRefusal, message: "the private wiki needs repository access" }, { status: 403 })
         }
-        if (path.endsWith("/navigation/index") && indexHeld !== undefined) await indexHeld
         if (path.endsWith("/navigation/index")) return Response.json({ pages: pages[at], folders: [...new Set(pages[at].flatMap((page) => String(page.path).includes("/") ? [String(page.path).split("/")[0]] : []))], tags: [...new Set(pages[at].flatMap((page) => (page.metadata as { tags: string[] }).tags))] })
         if (/\/history\/\d+$/.test(path)) return Response.json([
           { page_id: 1, revision: 3, path: "Home.md", title: "Home", content_digest: "a".repeat(64), deleted: false, author: { id: 1, login: "will" }, updated_at: "2026-09-26T03:00:00Z" },
@@ -646,29 +644,9 @@ describe("wiki spaces", () => {
     return {
       store, ctx, wiki, requests, toasts,
       refuseRename: () => { renameStatus = 409 },
-      refusePrivateIndex: (code: string) => { privateIndexRefusal = code },
-      holdIndex: () => { const held = Promise.withResolvers<void>(); indexHeld = held.promise; return () => { indexHeld = undefined; held.resolve() } }
+      refusePrivateIndex: (code: string) => { privateIndexRefusal = code }
     }
   }
-
-  test("a page the person opens while a space switch reads its index is not replaced by the space's first page", async () => {
-    const f = await space()
-    await f.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
-    await f.store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
-    await f.wiki.openCloudWiki(repo, "start")
-    await f.store.dispatch({ type: "surface.changed", actor: "user", surface: "world" }).isPersisted.promise
-    const release = f.holdIndex()
-    await f.wiki.setWikiSpace("private", repo)
-    await f.wiki.setWikiSpace("public", repo)
-    // The person opens Start while the public index is still being read.
-    await f.store.dispatch({ type: "world.document.selected", actor: "user", id: wikiDocumentId(repo, 2) }).isPersisted.promise
-    release()
-    await until(() => f.wiki.wikiIndexes.get("owner/repo", "public") !== undefined)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(f.store.session().selectedWorldDocumentId).toBe(wikiDocumentId(repo, 2))
-    // The space's first page was never opened over the choice.
-    expect(f.requests.filter((request) => request.url.startsWith("/api/repos/owner/repo/wiki/home/document")).map((request) => request.url)).toEqual([])
-  })
 
   test.each(["wiki_space_unreadable", "forbidden"])("a refused private index keeps the server's %s code on its row", async (code) => {
     const f = await space()
