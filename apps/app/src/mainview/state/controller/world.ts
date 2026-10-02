@@ -63,7 +63,7 @@ export interface WikiEditorHandle {
 
 export const createWorldController = (
   ctx: ControllerContext,
-  deps: { readonly nextOrdinal: () => number; readonly cloudWiki?: { readonly scrollEditor?: (id: string, cardId: string, line: number) => boolean; readonly editCloudWiki: (id: string, body: string) => Promise<string | void>; readonly prepareCloudWiki?: (id: string, body: string) => PreparedWikiEdit | undefined; readonly hasIndexedPage?: (id: string) => boolean } }
+  deps: { readonly nextOrdinal: () => number; readonly cloudWiki?: { readonly scrollEditor?: (id: string, cardId: string, line: number) => boolean; readonly editCloudWiki: (id: string, body: string) => Promise<string | void>; readonly prepareCloudWiki?: (id: string, body: string) => PreparedWikiEdit | undefined; readonly hasIndexedPage?: (id: string) => boolean; readonly invalidatePaneRead?: () => void } }
 ): WorldController => {
   let pendingClear: AbortController | undefined
   let disposed = false
@@ -214,6 +214,7 @@ export const createWorldController = (
     if (ctx.store.collections.worldDocuments.get(id) === undefined && deps.cloudWiki?.hasIndexedPage?.(id) !== true) {
       return `There is no ${WIKI_DISPLAY_NAME} note with id ${id}.`
     }
+    deps.cloudWiki?.invalidatePaneRead?.()
     ctx.store.dispatch({ type: "world.document.selected", actor: "user", id })
   }
 
