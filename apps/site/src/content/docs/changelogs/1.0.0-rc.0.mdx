@@ -29,7 +29,7 @@ SQLite on Node.js is the supported durable runtime. The control plane uses `.flo
 | Durable waits | Deferred values, timers, signals, and human tasks survive engine restarts. |
 | Retry and ownership | Retry bounds are recorded with attempts. Claims, leases, and same-host process probes prevent a live peer's run from being stolen. |
 | Run control | `runs cancel`, `runs steer`, `runs signal`, `runs resume`, `approvals approve`, and `approvals deny`, subject to the host's authorization policy. |
-| Execution history | `smthrs runs inspect`, `replay`, `fork`, and `rewind`, plus the `@smthrs/time-travel` library. Replay reads history without dispatching actions. Forks may repeat external effects; eligible sealed results require an explicitly shared cache environment. |
+| Execution history | `smthrs runs inspect`, `replay`, and `verify`, plus the `@smthrs/time-travel` library. Replay reads history without dispatching actions. Forks may repeat external effects; eligible sealed results require an explicitly shared cache environment. |
 | Compensable writes | A real snapshot boundary is required. Host snapshots do not provide generic rollback for external services. |
 | Memory | Structured facts and FTS recall over SQLite; namespaces and memory policy determine visibility. |
 | Backup | `@smthrs/engine-store/DisasterRecovery`; source checkout script `packages/smithers/flows/engine-store/scripts/flows-backup.mjs backup\|verify\|restore`. |

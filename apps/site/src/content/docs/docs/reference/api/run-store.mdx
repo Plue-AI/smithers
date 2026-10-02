@@ -778,9 +778,10 @@ itself when the fence is gone, so race it against the owned work with
 `Effect.raceFirst`. A heartbeat outcome other than `Updated` is durable evidence
 and interrupts immediately. An independent deadline bounds failing or stalled
 writes by `heartbeatWriteTolerance`. At expiry it tries `RunStore.reconfirm`
-and its `onReconfirm` receipt for at most one `heartbeatInterval`: the same
-owner with no pending claim renews the lease and continues after the receipt
-finishes; loss, error, or timeout interrupts.
+for at most one `heartbeatInterval`: the same owner with no pending claim renews
+the lease. Its `onReconfirm` receipt must finish within the remaining renewed
+`heartbeatWriteTolerance` budget, measured from the timestamp sent to the store;
+loss, error, or timeout interrupts.
 Successful pulses re-arm that deadline from the timestamp supplied to the store,
 not their completion time.
 
