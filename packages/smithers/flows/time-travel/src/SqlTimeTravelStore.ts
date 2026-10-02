@@ -381,12 +381,15 @@ export const make: Effect.Effect<
           const current = yield* Schema.decodeUnknownEffect(RunStateJson)(fork[0].state_json).pipe(
             Effect.mapError(mapError)
           )
+          // Legacy forks have no recorded key origins; their own journal is
+          // authoritative, including the payload captured at this frame.
+          if (current.forkKeyRunIds === undefined) return yield* encodeJson(state)
           const atFrame = yield* Schema.decodeUnknownEffect(RunState)(state).pipe(Effect.mapError(mapError))
           return yield* Schema.encodeEffect(RunStateJson)({
             ...atFrame,
             payload: current.payload,
             ...(current.parentExecutionId === undefined ? {} : { parentExecutionId: current.parentExecutionId }),
-            ...(current.forkKeyRunIds === undefined ? {} : { forkKeyRunIds: current.forkKeyRunIds })
+            forkKeyRunIds: current.forkKeyRunIds
           }).pipe(Effect.mapError(mapError))
         }
         return yield* encodeJson(state)
