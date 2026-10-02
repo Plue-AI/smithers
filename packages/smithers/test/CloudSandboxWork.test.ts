@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 // The control API is fake because provisioning a VM is outside this contract.
 // Everything the work contract touches is real: the guest is a local git clone
@@ -34,7 +34,7 @@ const run = (cwd: string, program: string, ...args: Array<string>): string =>
   execFileSync(program, args, { cwd, env: { ...process.env, ...identity }, encoding: "utf8" }).trim()
 
 /** A colocated jj repository whose one commit holds the conformance seed files. */
-const fixture = () => {
+const fixture = (deleteFailures = 0) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "cloud-work-")))
   roots.push(root)
   const jjConfig = join(root, "jj.toml")
@@ -67,6 +67,7 @@ const fixture = () => {
         return { id: "ws-work", status: "pending" }
       }
       if (method === "DELETE") {
+        if (deleteFailures-- > 0) throw new Error("secret-do-not-print")
         rmSync(guest, { recursive: true, force: true })
         return null
       }
@@ -97,6 +98,39 @@ const shell = (script: string) =>
     })))
 
 describe("CloudSandbox work", () => {
+  it.each([2, Infinity])("retains captured work after %s deletion failures", async (failures) => {
+    const { guest, events, provider } = fixture(failures)
+    const warning = vi.spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const captured = await Effect.runPromise(
+        Effect.flatMap(
+          provider,
+          (cloud) =>
+            Sandbox.run(
+              cloud,
+              { session: "cleanup-retry" },
+              shell("printf 'saved\\n' >> tracked.txt && printf completed")
+            )
+        )
+          .pipe(Effect.provide(NodeServices.layer))
+      )
+      expect(captured.result).toBe("completed")
+      expect(captured.work._tag).toBe("Changed")
+      if (captured.work._tag === "Changed") expect(captured.work.patch).toContain("+saved")
+      expect(events.filter((event) => event === "DELETE")).toHaveLength(failures === Infinity ? 4 : 3)
+      expect(events.lastIndexOf("ssh")).toBeLessThan(events.indexOf("DELETE"))
+      expect(existsSync(guest)).toBe(failures === Infinity)
+      if (failures === Infinity) {
+        const logs = warning.mock.calls.flat().join(" ")
+        expect(logs).toContain("ws-work")
+        expect(logs).toContain("client lease expiry")
+        expect(logs).not.toContain("secret-do-not-print")
+      }
+    } finally {
+      warning.mockRestore()
+    }
+  }, 120_000)
+
   it("captures the workspace's work before DELETE and merges it onto the host repository", async () => {
     const { host, guest, base, events, provider } = fixture()
     const { result, work } = await Effect.runPromise(

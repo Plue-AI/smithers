@@ -48,7 +48,7 @@ export const workspaceApi = (environment: Readonly<Record<string, string | undef
 export interface Options {
   /** Local host spawner, used to run the SSH client. */
   readonly persistence?: "ephemeral" | "sticky" | undefined
-  /** Retained workspace lease, renewed on every attach/probe. Default 900 seconds. */
+  /** Workspace lease; scoped work renews continuously, retained work on attach. Default 900 seconds. */
   readonly clientLeaseSeconds?: number | undefined
   readonly spawner: ChildProcessSpawner["Service"]
   /** Cloud repository, OWNER/REPO. */
@@ -86,14 +86,25 @@ const guestHome = [
   "BUN_INSTALL_CACHE_DIR=/home/developer/.cache/bun"
 ]
 
+const transient = (error: unknown): boolean => {
+  if (error instanceof APIError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500 && error.status <= 599
+  }
+  const code = object(error).code
+  return error instanceof TypeError || error instanceof Error && error.name === "TimeoutError" ||
+    ["backend_unavailable", "backend_timed_out", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"]
+      .includes(String(code))
+}
+
 const failure = (message: string, code: RemoteChildProcessSpawner.ProviderErrorCode = "unavailable") =>
   new RemoteChildProcessSpawner.ProviderError({ code, message: `cloud-sandbox: ${message}` })
 
 /**
  * Creates or resumes a Cloud workspace by its stable session name, waits until
  * running, and projects CommandSandbox over freshly acquired SSH grants.
- * Closing the acquiring scope deletes the workspace, including when readiness
- * or SSH setup fails or the caller is interrupted. Concurrent holders must use
+ * Closing the acquiring scope attempts bounded deletion, including when readiness
+ * or SSH setup fails or the caller is interrupted. Unavailable cleanup is logged
+ * and left to the client lease reaper without losing completed work. Concurrent holders must use
  * distinct session keys; reusing a key is an exclusive resume claim.
  *
  * Credentials are resolved locally by the existing CLI transport, never placed
@@ -145,17 +156,22 @@ export const make = (options: Options): Sandbox.Provider => {
   if (!Number.isInteger(lease) || lease < 60 || lease > 86400) {
     throw new TypeError("cloud-sandbox: clientLeaseSeconds must be between 60 and 86400")
   }
+  const retry = Schedule.exponential(poll).pipe(Schedule.upTo({ times: 3 }))
   const remove = (id: string) =>
-    Effect.tryPromise({
-      try: (signal) =>
-        api.request(
-          "DELETE",
-          `${base}/${encodeURIComponent(id)}`,
-          undefined,
-          AbortSignal.any([signal, AbortSignal.timeout(30_000)])
-        ),
-      catch: (cause) => cause
+    Effect.suspend(() => {
+      const deadline = AbortSignal.timeout(30_000)
+      return Effect.tryPromise({
+        try: (signal) =>
+          api.request(
+            "DELETE",
+            `${base}/${encodeURIComponent(id)}`,
+            undefined,
+            AbortSignal.any([signal, deadline])
+          ),
+        catch: (cause) => cause
+      })
     }).pipe(
+      Effect.retry({ while: (cause) => !(cause instanceof APIError && cause.status === 404), schedule: retry }),
       Effect.catch((cause) =>
         cause instanceof APIError && cause.status === 404
           ? Effect.void
@@ -172,7 +188,7 @@ export const make = (options: Options): Sandbox.Provider => {
       // Aborting a creation after admission would lose the id and leak a VM.
       const create = request("POST", base, {
         name,
-        ...sticky ? { client_lease_seconds: lease } : {},
+        client_lease_seconds: lease,
         ...(resourceKey ? { resources } : {}),
         ...(options.sourceBookmark === undefined ? {} : { source_bookmark: options.sourceBookmark })
       }, "could not create workspace").pipe(Effect.flatMap((response) => {
@@ -183,7 +199,29 @@ export const make = (options: Options): Sandbox.Provider => {
       }))
       const id = existing !== undefined
         ? existing
-        : yield* Effect.acquireRelease(create, (id) => sticky ? Effect.void : remove(id).pipe(Effect.orDie))
+        : yield* Effect.acquireRelease(create, (id) =>
+          sticky ? Effect.void : remove(id).pipe(
+            Effect.catch(() =>
+              Effect.logWarning(`cloud-sandbox: could not delete workspace ${id}; retained for client lease expiry`)
+            )
+          ))
+      if (!sticky) {
+        // Renew independently of guest commands, including a single long command.
+        // The scope stops this fiber before attempting workspace deletion.
+        yield* Effect.forkScoped(Effect.gen(function*() {
+          for (;;) {
+            yield* Effect.sleep(Duration.seconds(lease / 3))
+            yield* request(
+              "POST",
+              `${base}/${encodeURIComponent(id)}/lease`,
+              undefined,
+              "could not renew workspace lease"
+            ).pipe(
+              Effect.catch(() => Effect.logWarning(`cloud-sandbox: could not renew workspace ${id} client lease`))
+            )
+          }
+        }))
+      }
       if (sticky) {
         yield* request("POST", `${base}/${encodeURIComponent(id)}/lease`, undefined, "could not renew workspace lease")
       }
@@ -199,9 +237,7 @@ export const make = (options: Options): Sandbox.Provider => {
             const status = error instanceof APIError ? error.status : undefined
             const code = object(error).code
             const timedOut = deadline.aborted || error instanceof Error && error.name === "TimeoutError"
-            const transient = timedOut || status === 408 || status === 429 ||
-              status !== undefined && status >= 500 && status <= 599 ||
-              code === "backend_unavailable" || code === "backend_timed_out"
+            const retryable = timedOut || transient(error)
             const category = timedOut ? "timeout" : status !== undefined ?
               `HTTP ${status}` :
               code === "backend_unavailable" || code === "backend_timed_out"
@@ -209,15 +245,15 @@ export const make = (options: Options): Sandbox.Provider => {
               : undefined
             lastReadFailure = `could not read workspace status${category ? ` (${category})` : ""}`
             return {
-              transient,
-              error: failure(lastReadFailure, status === 404 ? "not_found" : timedOut ? "timeout" : "unavailable")
+              transient: retryable,
+              error: failure(lastReadFailure, status === 404 ? "not_found" : "unavailable")
             }
           }
         })
       }).pipe(
         Effect.retry({
           while: (error) => error.transient,
-          schedule: Schedule.spaced(poll)
+          schedule: retry
         }),
         Effect.mapError((error) => error.error)
       )
@@ -254,17 +290,24 @@ export const make = (options: Options): Sandbox.Provider => {
         orElse: () =>
           Effect.fail(failure(
             `workspace did not become running${lastReadFailure ? `; ${lastReadFailure}` : ""}`,
-            "timeout"
+            lastReadFailure ? "unavailable" : "timeout"
           ))
       }))
       const provider = CommandSandbox.make({
         spawner: options.spawner,
         workdir,
         name: id,
-        prefix: Effect.tryPromise({
-          try: (signal) => api.sshPrefix(`${options.repository}/${id}`, signal),
-          catch: () => failure("could not obtain workspace SSH access")
-        }).pipe(Effect.map((prefix) => [...prefix, "env", ...guestHome]))
+        prefix: Effect.suspend(() => {
+          const deadline = AbortSignal.timeout(30_000)
+          return Effect.tryPromise({
+            try: (signal) => api.sshPrefix(`${options.repository}/${id}`, AbortSignal.any([signal, deadline])),
+            catch: (error) => ({ transient: deadline.aborted || transient(error) })
+          })
+        }).pipe(
+          Effect.retry({ while: (error) => error.transient, schedule: retry }),
+          Effect.mapError(() => failure("could not obtain workspace SSH access")),
+          Effect.map((prefix) => [...prefix, "env", ...guestHome])
+        )
       })
       return yield* provider.acquire(session)
     })

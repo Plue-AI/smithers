@@ -1,5 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
+import { Fault } from "@smthrs/flow"
 import { Sandbox } from "@smthrs/sandbox"
 import { Cause, Effect, Exit, Fiber, FileSystem } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -54,6 +55,188 @@ const run = <A, E>(effect: Effect.Effect<A, E, ChildProcessSpawner>) =>
   Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
 
 describe("CloudSandbox", () => {
+  it("retries deletion deadlines reported as client cancellation", async () => {
+    const f = fixture()
+    const request = f.api.request
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    const clock = vi.spyOn(AbortSignal, "timeout").mockImplementation((millis) =>
+      timeout(millis === 30_000 ? 1 : millis)
+    )
+    let deletes = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "DELETE" && ++deletes === 1) {
+        return new Promise((_, reject) =>
+          signal.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("private-secret"), { code: "cancelled" })),
+            { once: true }
+          )
+        )
+      }
+      return request(method, path, body, signal)
+    }
+    try {
+      await run(Effect.gen(function*() {
+        const provider = yield* f.make()
+        yield* Effect.scoped(provider.acquire("delete-deadline"))
+      }))
+      expect(deletes).toBe(2)
+      expect(f.requests.at(-1)?.method).toBe("DELETE")
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it("bounds unavailable SSH grants and classifies the exhausted error as infrastructure", async () => {
+    const f = fixture()
+    let reads = 0
+    f.api.sshPrefix = async () => {
+      reads++
+      throw new APIError(503, { message: "private-secret" }, "GET", "/ssh", new Headers())
+    }
+    const exit = await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      return yield* Effect.exit(Effect.scoped(provider.acquire("ssh-offline")))
+    }))
+    expect(reads).toBe(4)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toMatchObject({ code: "unavailable" })
+      expect(Fault.of(error).class).toBe("infra")
+      expect(String(error)).not.toContain("private-secret")
+    }
+    expect(f.requests.at(-1)?.method).toBe("DELETE")
+  })
+
+  it("classifies transient create failure as infrastructure without retrying admission", async () => {
+    const f = fixture()
+    let creates = 0
+    f.api.request = async () => {
+      creates++
+      throw new APIError(503, { message: "private-secret" }, "POST", "/", new Headers())
+    }
+    const exit = await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      return yield* Effect.exit(Effect.scoped(provider.acquire("create-offline")))
+    }))
+    expect(creates).toBe(1)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(Fault.of(Cause.squash(exit.cause)).class).toBe("infra")
+    expect(f.grants()).toBe(0)
+  })
+
+  it.each([false, true])("renews an ephemeral lease with failure=%s and stops on release", async (fails) => {
+    const f = fixture()
+    const request = f.api.request
+    let renewals = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (path.endsWith("/lease") && ++renewals === 1 && fails) {
+        f.requests.push({ method, path, body })
+        throw new APIError(503, { message: "private-secret" }, method, path, new Headers())
+      }
+      return request(method, path, body, signal)
+    }
+    const warning = vi.spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const result = await run(Effect.gen(function*() {
+        const provider = yield* f.make({ clientLeaseSeconds: 60 })
+        const result = yield* Effect.scoped(Effect.gen(function*() {
+          yield* provider.acquire("long-work")
+          yield* Effect.sleep(fails ? "41 seconds" : "21 seconds")
+          expect(f.requests.filter((r) => r.path.endsWith("/lease"))).toHaveLength(fails ? 2 : 1)
+          expect(f.requests.some((r) => r.method === "DELETE")).toBe(false)
+          return "completed"
+        }))
+        const calls = f.requests.length
+        yield* Effect.sleep("21 seconds")
+        expect(f.requests).toHaveLength(calls)
+        return result
+      }))
+      expect(result).toBe("completed")
+      expect(f.requests[0]?.body).toMatchObject({ client_lease_seconds: 60 })
+      expect(f.requests.at(-1)?.method).toBe("DELETE")
+      if (fails) {
+        const logs = warning.mock.calls.flat().join(" ")
+        expect(logs).toContain("could not renew workspace ws-123 client lease")
+        expect(logs).not.toContain("private-secret")
+      }
+    } finally {
+      warning.mockRestore()
+    }
+  }, 90_000)
+
+  it("preserves infrastructure diagnostics when readiness expires during retry backoff", async () => {
+    const f = fixture()
+    const request = f.api.request
+    let reads = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET") {
+        reads++
+        throw new APIError(503, { message: "private-secret" }, method, path, new Headers())
+      }
+      return request(method, path, body, signal)
+    }
+    const exit = await run(Effect.gen(function*() {
+      const provider = yield* f.make({ pollInterval: "1 second", readyTimeout: "25 millis" })
+      return yield* Effect.exit(Effect.scoped(provider.acquire("readiness-deadline")))
+    }))
+    expect(reads).toBe(1)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toMatchObject({
+        code: "unavailable",
+        message: "cloud-sandbox: workspace did not become running; could not read workspace status (HTTP 503)"
+      })
+      expect(Fault.of(error).class).toBe("infra")
+      expect(String(error)).not.toContain("private-secret")
+    }
+    expect(f.requests.map((r) => r.method)).toEqual(["POST", "DELETE"])
+  })
+
+  it("classifies exhausted status retries as infrastructure without recreating", async () => {
+    const f = fixture()
+    const request = f.api.request
+    let reads = 0
+    f.api.request = async (method, path, body, signal) => {
+      if (method === "GET") {
+        reads++
+        throw new APIError(503, { message: "private-secret" }, method, path, new Headers())
+      }
+      return request(method, path, body, signal)
+    }
+    const exit = await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      return yield* Effect.exit(Effect.scoped(provider.acquire("offline")))
+    }))
+    expect(reads).toBe(4)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const error = Cause.squash(exit.cause)
+      expect(error).toMatchObject({ code: "unavailable" })
+      expect(Fault.of(error).class).toBe("infra")
+      expect(String(error)).not.toContain("private-secret")
+    }
+    expect(f.requests.map((r) => r.method)).toEqual(["POST", "DELETE"])
+  })
+
+  it("retries transient SSH grant reads and deletes only after acquisition", async () => {
+    const f = fixture()
+    const grant = f.api.sshPrefix
+    let reads = 0
+    f.api.sshPrefix = async (reference, signal) => {
+      if (++reads <= 2) throw new APIError(429, {}, "GET", "/ssh", new Headers())
+      return grant(reference, signal)
+    }
+    await run(Effect.gen(function*() {
+      const provider = yield* f.make()
+      yield* Effect.scoped(provider.acquire("ssh-recovery"))
+    }))
+    expect(reads).toBeGreaterThanOrEqual(3)
+    expect(f.requests.at(-1)?.method).toBe("DELETE")
+  })
+
   it("retries its aborted request deadline even when the client reports cancellation", async () => {
     const f = fixture()
     const request = f.api.request
@@ -115,6 +298,7 @@ describe("CloudSandbox", () => {
 
   it.each([
     new DOMException("secret-do-not-print", "TimeoutError"),
+    new TypeError("private-secret"),
     ...["backend_unavailable", "backend_timed_out"].map((code) =>
       Object.assign(new Error("secret-do-not-print"), { code })
     ),
@@ -173,7 +357,7 @@ describe("CloudSandbox", () => {
     await expect(run(Effect.gen(function*() {
       const provider = yield* f.make({ readyTimeout: "25 millis" })
       yield* Effect.scoped(provider.acquire("retry-timeout"))
-    }))).rejects.toThrow("workspace did not become running; could not read workspace status (HTTP 503)")
+    }))).rejects.toThrow("could not read workspace status (HTTP 503)")
     expect(reads).toBeGreaterThan(1)
     expect(f.requests.map((r) => r.method)).toEqual(["POST", "DELETE"])
     expect(f.grants()).toBe(0)
@@ -237,7 +421,8 @@ describe("CloudSandbox", () => {
     expect(f.requests.map((r) => r.method)).toEqual(["POST", "GET", "GET", "GET", "DELETE"])
     expect(f.requests[0]?.body).toEqual({
       name: expect.stringMatching(/^smthrs-[a-f0-9]{64}$/),
-      source_bookmark: "main"
+      source_bookmark: "main",
+      client_lease_seconds: 900
     })
     expect(f.requests.at(-1)?.path).toBe("/api/repos/acme/repo/workspaces/ws-123")
   })
@@ -320,17 +505,19 @@ describe("CloudSandbox", () => {
     expect(f.requests.at(-1)?.method).toBe("DELETE")
   })
 
-  it("reports deletion failures instead of silently leaving the workspace", async () => {
+  it("preserves a successful scoped result when deletion fails", async () => {
     const f = fixture()
     const request = f.api.request
     f.api.request = async (method, path, body, signal) => {
-      if (method === "DELETE") throw new Error("secret-do-not-print")
+      if (method === "DELETE") throw new APIError(503, { message: "secret-do-not-print" }, method, path, new Headers())
       return request(method, path, body, signal)
     }
-    await expect(run(Effect.gen(function*() {
+    const result = await run(Effect.gen(function*() {
       const provider = yield* f.make()
-      yield* Effect.scoped(provider.acquire("delete-failure"))
-    }))).rejects.toThrow("could not delete workspace")
+      return yield* Effect.scoped(provider.acquire("delete-failure").pipe(Effect.as("captured")))
+    }))
+    expect(result).toBe("captured")
+    expect(f.requests[0]?.body).toMatchObject({ client_lease_seconds: 900 })
   })
 
   it("does not fetch SSH or delete another workspace when create fails", async () => {
@@ -477,7 +664,7 @@ describe("CloudSandbox", () => {
         "DELETE /api/repos/acme/repo/workspaces/ws-default"
       ])
       expect(seen.every(({ auth }) => auth === "token test-user-token")).toBe(true)
-      expect(seen[0]?.body).toEqual({ name: expect.stringMatching(/^smthrs-[a-f0-9]{64}$/) })
+      expect(seen[0]?.body).toEqual({ name: expect.stringMatching(/^smthrs-[a-f0-9]{64}$/), client_lease_seconds: 900 })
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
