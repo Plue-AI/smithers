@@ -19,7 +19,7 @@ test("a delayed slash submission preserves the freshly retyped identical command
   await expect(page.getByRole('button',{name:'Chat',exact:true})).toBeVisible()
   await page.keyboard.press('Control+k')
   const input=page.getByTestId('composer-input')
-  const line='/appearance.theme paper'
+  const line='/appearance.dark-mode dark'
   await input.fill(line)
   await page.evaluate(()=>{(window as any).draftCommitProbe.armed=true})
   try {

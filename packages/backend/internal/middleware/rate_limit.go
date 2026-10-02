@@ -379,7 +379,6 @@ const (
 	devtoolsSnapshotPostScope       = "devtools_snapshot_post"
 	workflowDispatchScope           = "workflow_dispatch"
 	appTimelineWriteScope           = "app_timeline_write"
-	shareListingEventScope          = "share_listing_event"
 )
 
 // AppTimelineWriteRateLimit enforces the per-user app-timeline write rate
@@ -388,18 +387,6 @@ const (
 // busy interactive session while still stopping a runaway sync loop.
 func AppTimelineWriteRateLimit(store SearchRateLimitStore, limit int) func(http.Handler) http.Handler {
 	return newRateLimit(store, appTimelineWriteScope, limit, time.Minute, 240, time.Minute)
-}
-
-// ShareListingEventRateLimit enforces the per-user rate of install/run pings
-// against shared listings (POST /api/share/listings/{id}/events). These pings
-// are what the public catalog's usage stats are made of, so the bucket is the
-// first line of defense against a user inflating their own numbers; the
-// per-(listing, user, type) cooldown inside RecordShareListingEvent is the
-// second. Default 30/min: an install burst or a busy run loop rides through,
-// a scripted counter pump does not. Durable (Postgres-backed), so the limit
-// survives restarts and holds across API replicas.
-func ShareListingEventRateLimit(store SearchRateLimitStore, limit int) func(http.Handler) http.Handler {
-	return newRateLimit(store, shareListingEventScope, limit, time.Minute, 30, time.Minute)
 }
 
 // EmailVerificationRateLimit enforces verification email rate limit: 5 requests/hour per user.

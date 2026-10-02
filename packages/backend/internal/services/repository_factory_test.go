@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/stretchr/testify/require"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/stretchr/testify/require"
 )
 
 func factoryFixture(t *testing.T) FactoryProjection {
@@ -589,7 +590,7 @@ func TestFactorySchedulePayloadRegistration(t *testing.T) {
 func TestRepositoryJobLaunchPayloadCarriesTheSchedulePayload(t *testing.T) {
 	registration := db.RepositoryJobRegistration{ID: "reg", Job: "flow:factory-abc", Revision: 3, Digest: strings.Repeat("d", 64)}
 	scheduled := db.RepositoryJobDispatch{ID: "dispatch", Source: "schedule", EventType: "schedule", Payload: json.RawMessage(`{"scheduledAt":"2026-09-30T06:00:00Z"}`)}
-	config := RegisterRepositoryJobInput{FactoryRevision: strings.Repeat("a", 40), FlowID: "notes/traction", Input: json.RawMessage(`{}`)}
+	config := RegisterRepositoryJobInput{FactoryRevision: strings.Repeat("a", 40), FlowID: "wiki", Input: json.RawMessage(`{}`)}
 
 	// Without a declared payload the run starts with the schedule's own event.
 	launch, err := repositoryJobLaunchPayload(registration, scheduled, config, "owner/repo")

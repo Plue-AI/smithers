@@ -43,8 +43,8 @@ hover on native (lanes 2-4).
    `DiffHunks` or `PierreDiffView` (grep). The change card's Diff facet lists
    file rows and opens the `diff` card through `change.diff` (`:304`).
 7. **Theme authority.** `state/Appearance.ts` is a localStorage mirror only
-   (`:1-16`). The tokens live in `styles/tokens.css` on two axes (`data-theme`
-   × `data-palette`, night-owl default plus eight palettes) and in
+   (`:1-16`). The app uses Paper with light/dark variants in `styles/tokens.css`;
+   historical palette names remain decodable. Syntax tokens live in
    `@smthrs/ui-styleguide` `themeRegistry[palette].syntax.{shikiDark,shikiLight}`
    (`packages/smithers/ui/ui-styleguide/src/themes/*.ts:72-73`), fourteen Shiki ids that all
    exist in `@shikijs/themes/dist` (checked, including `night-owl-light`).

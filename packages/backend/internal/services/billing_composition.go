@@ -141,7 +141,6 @@ func (*UnlimitedBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _
 func (*UnlimitedBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (*UnlimitedBillingPolicy) AuthorizePairing(context.Context, int64) error { return nil }
 
 func (*UnlimitedBillingPolicy) AuthorizeBranchLockJoin(context.Context, int64) error { return nil }
 

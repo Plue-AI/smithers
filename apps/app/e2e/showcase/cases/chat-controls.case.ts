@@ -15,9 +15,9 @@ export default showcase({
     await app.say("Summarize the open pull requests.")
     const assistant = page.locator('.smithers-chat-message[data-role="assistant"]').filter({ hasText: "stub:" })
     await expect(assistant).toBeVisible()
-    await app.slash("/appearance.theme")
+    await app.slash("/agent.list")
     await app.closeComposer()
-    const theme = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+    const theme = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
     await expect(theme).toBeVisible()
 
     await app.click(page.getByRole("button", { name: "Filter", exact: true }))

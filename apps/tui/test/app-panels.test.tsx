@@ -12,14 +12,12 @@ import type * as Extension from "../src/extension.ts"
 import type * as Host from "../src/host.ts"
 import type * as Panels from "../src/panels.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Headless component units: actual runtime projection, keys and session files;
 // the public Host boundary is controlled. No provider or shell executes.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let turns: Array<{ input: Host.TurnInput; done: ReturnType<typeof Promise.withResolvers<Host.Outcome>> }> = []
 const records = () => Session.list(cwd).flatMap((summary) => Session.load(summary.file))
@@ -78,7 +76,6 @@ beforeEach(async () => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   turns = []
   const host: Host.Host = {
@@ -115,7 +112,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

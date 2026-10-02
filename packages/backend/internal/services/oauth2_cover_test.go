@@ -12,87 +12,6 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-func TestOAuth2_Cov_ApplicationCRUDAndRedirectValidation(t *testing.T) {
-	ctx := context.Background()
-	pool := getAgentTestPool(t)
-	queries := db.New(pool)
-	owner := oauth2CovSeedUser(t, ctx, "owner")
-	other := oauth2CovSeedUser(t, ctx, "other")
-	svc := NewOAuth2Service(queries)
-
-	confidential := true
-	_, err := svc.CreateApplication(ctx, owner.ID, CreateOAuth2ApplicationRequest{
-		Name:         "   ",
-		RedirectURIs: []string{"https://app.example/callback"},
-		Confidential: &confidential,
-	})
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 422)
-
-	_, err = svc.CreateApplication(ctx, owner.ID, CreateOAuth2ApplicationRequest{
-		Name:         "Bad URI",
-		RedirectURIs: []string{"not a uri"},
-		Confidential: &confidential,
-	})
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 422)
-
-	_, err = svc.CreateApplication(ctx, owner.ID, CreateOAuth2ApplicationRequest{
-		Name:         "Missing Confidential",
-		RedirectURIs: []string{"https://app.example/callback"},
-	})
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 422)
-
-	created, err := svc.CreateApplication(ctx, owner.ID, CreateOAuth2ApplicationRequest{
-		Name: "  Native App  ",
-		RedirectURIs: []string{
-			"https://app.example/callback",
-			"http://127.0.0.1/callback",
-		},
-		Scopes:       []string{"read:user", "write:user"},
-		Confidential: &confidential,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "Native App", created.Name)
-	assert.NotEmpty(t, created.ClientID)
-	assert.True(t, strings.HasPrefix(created.ClientSecret, "smithers_oas_"))
-
-	listed, err := svc.ListApplications(ctx, owner.ID)
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, created.ID, listed[0].ID)
-	assert.Equal(t, []string{"read:user", "write:user"}, listed[0].Scopes)
-
-	got, err := svc.GetApplication(ctx, created.ID, owner.ID)
-	require.NoError(t, err)
-	assert.Equal(t, created.ClientID, got.ClientID)
-
-	_, err = svc.GetApplication(ctx, created.ID, other.ID)
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 404)
-
-	public, err := svc.GetApplicationByClientID(ctx, created.ClientID)
-	require.NoError(t, err)
-	assert.Equal(t, created.RedirectURIs, public.RedirectURIs)
-
-	valid, err := svc.IsValidRegisteredRedirectURI(ctx, created.ClientID, "http://127.0.0.1:49152/callback")
-	require.NoError(t, err)
-	assert.True(t, valid)
-	valid, err = svc.IsValidRegisteredRedirectURI(ctx, created.ClientID, "https://evil.example/callback")
-	require.NoError(t, err)
-	assert.False(t, valid)
-
-	err = svc.DeleteApplication(ctx, created.ID, other.ID)
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 404)
-
-	require.NoError(t, svc.DeleteApplication(ctx, created.ID, owner.ID))
-	_, err = svc.GetApplication(ctx, created.ID, owner.ID)
-	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 404)
-}
-
 func TestOAuth2_Cov_AuthorizeExchangeRefreshAndRevokeWithDB(t *testing.T) {
 	ctx := context.Background()
 	pool := getAgentTestPool(t)
@@ -101,14 +20,14 @@ func TestOAuth2_Cov_AuthorizeExchangeRefreshAndRevokeWithDB(t *testing.T) {
 	svc := NewOAuth2Service(queries)
 
 	confidential := true
-	app, err := svc.CreateApplication(ctx, user.ID, CreateOAuth2ApplicationRequest{
+	app, err := oauth2CovProvisionClient(t, queries, ctx, user.ID, oauth2CovClientRequest{
 		Name:         "Token App",
 		RedirectURIs: []string{"https://app.example/callback"},
 		Scopes:       []string{"read:user", "write:user"},
 		Confidential: &confidential,
 	})
 	require.NoError(t, err)
-	otherApp, err := svc.CreateApplication(ctx, user.ID, CreateOAuth2ApplicationRequest{
+	otherApp, err := oauth2CovProvisionClient(t, queries, ctx, user.ID, oauth2CovClientRequest{
 		Name:         "Other App",
 		RedirectURIs: []string{"https://other.example/callback"},
 		Scopes:       []string{"read:user"},
@@ -141,8 +60,8 @@ func TestOAuth2_Cov_AuthorizeExchangeRefreshAndRevokeWithDB(t *testing.T) {
 
 	_, err = svc.RefreshToken(ctx, otherApp.ClientID, otherApp.ClientSecret, tokens.RefreshToken)
 	require.Error(t, err)
-	oauth2CovAssertAPIStatus(t, err, 400)
-	assert.Contains(t, err.Error(), "does not belong")
+	oauth2CovAssertAPIStatus(t, err, 401)
+	assert.Contains(t, err.Error(), "invalid client_id")
 
 	refreshed, err := svc.RefreshToken(ctx, app.ClientID, app.ClientSecret, tokens.RefreshToken)
 	require.NoError(t, err)
@@ -235,7 +154,7 @@ func TestOAuth2_Cov_AuthorizeEmptyCallerScopesGrantNothing(t *testing.T) {
 	svc := NewOAuth2Service(queries)
 
 	confidential := true
-	app, err := svc.CreateApplication(ctx, user.ID, CreateOAuth2ApplicationRequest{
+	app, err := oauth2CovProvisionClient(t, queries, ctx, user.ID, oauth2CovClientRequest{
 		Name:         "Empty Scopes App",
 		RedirectURIs: []string{"https://app.example/callback"},
 		Scopes:       []string{"read:user", "write:user"},
@@ -268,4 +187,32 @@ func TestOAuth2_Cov_AuthorizeEmptyCallerScopesGrantNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, authz.Code)
 	assert.Equal(t, 1, countCodes())
+}
+
+// Fixture registration is deployment configuration, not a public hosting API.
+type oauth2CovClientRequest struct {
+	Name                 string
+	RedirectURIs, Scopes []string
+	Confidential         *bool
+}
+type oauth2CovClient struct {
+	OAuth2ApplicationResponse
+	ClientSecret string
+}
+
+func oauth2CovProvisionClient(t *testing.T, q *db.Queries, ctx context.Context, owner int64, req oauth2CovClientRequest) (oauth2CovClient, error) {
+	t.Helper()
+	id := FirstPartyClientID
+	if req.Name == "Other App" {
+		id = "historical_third_party"
+	}
+	secret := "integration-secret"
+	app, err := q.CreateOAuth2Application(ctx, db.CreateOAuth2ApplicationParams{ClientID: id, ClientSecretHash: hashOAuth2Secret(secret), Name: req.Name, RedirectUris: req.RedirectURIs, Scopes: req.Scopes, OwnerID: owner, Confidential: *req.Confidential})
+	if err == nil {
+		t.Cleanup(func() {
+			_, cleanupErr := getAgentTestPool(t).Exec(context.Background(), "DELETE FROM oauth2_applications WHERE id = $1", app.ID)
+			require.NoError(t, cleanupErr)
+		})
+	}
+	return oauth2CovClient{toOAuth2ApplicationResponse(app), secret}, err
 }

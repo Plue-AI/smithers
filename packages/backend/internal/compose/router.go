@@ -84,7 +84,6 @@ func buildRouter(
 	wikiService routes.WikiService,
 	gitHandler *routes.GitSmartHandler,
 	notificationHandler *routes.NotificationHandler,
-	pairSessionHandler *routes.PairSessionHandler,
 
 	adminUserHandler *routes.AdminUserHandler,
 	adminOrgHandler *routes.AdminOrgHandler,
@@ -671,36 +670,8 @@ func buildRouter(
 		})
 	}
 
-	// Smithers Pair sessions — the server-authoritative pairing API. Every route
-	// is session-authed (AuthLoader + RequireAuth): identity is the real
-	// signed-in user, roles + the paid-plan gate are enforced inside the service.
-	// Mounted outside /api's 30s JSONTimeout group for headroom, but these are
-	// plain JSON routes (no SSE). This SUPERSEDES the legacy key-gated
-	// /api/pair/* realtime surface below.
-	if pairSessionHandler != nil {
-		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(apiCSRFMiddleware)
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser))
-				// Bound request bodies like every other JSON mount — otherwise an
-				// authenticated editor can POST a multi-GB body to /draft, /queue,
-				// or /presence (each stored verbatim), a cheap DoS.
-				r.Use(middleware.MaxBodySize(middleware.MaxRequestBodySize))
-				pairSessionHandler.Mount(r)
-			})
-		})
-	}
-
-	// LEGACY Smithers Pair realtime API (pair_state + pg_notify SSE, key-gated)
-	// is fully RETIRED: no /api/pair/* legacy routes are mounted — pair sessions
-	// above are the sole sync/authz path, and pair_state is frozen (never
-	// extended, no new write path). The pairauth hash/TTL machinery lives on,
-	// reused by pair_session_invites.
-
 	// App-machine timelines — the REST write path for synchronized xstate
-	// history. Same auth chain as pair sessions: session
+	// history. Authenticated with a session
 	// or read:user token; mutations gated on write:user inside Mount. The
 	// larger body cap covers whole-dump rewrites (service-capped at 4 MiB of
 	// payload; JSON escaping can inflate past the global 1 MB default).
@@ -720,31 +691,6 @@ func buildRouter(
 				r.Use(middleware.MaxBodySize(appTimelineMaxRequestBodySize))
 				appTimelineHandler.Mount(r)
 			})
-		})
-	}
-
-	// Public sharing (/api/share/*) — selective publishing of workflow and
-	// connector DEFINITIONS to a public catalog, with usage stats. The catalog
-	// reads are deliberately unauthenticated (that is the point of a public
-	// catalog), so this group runs AuthLoader without RequireAuth and carries
-	// the global API bucket explicitly: these routes sit outside the /api
-	// group, so the anonymous 600/hr-per-IP ceiling would not otherwise apply.
-	// RequireAuth + scope gating for publish / unpublish / events / my-listings
-	// lives inside Mount, and the events route additionally draws on a durable
-	// per-user bucket so a caller cannot inflate their own listing's stats.
-	if queries != nil {
-		shareListingService := services.NewShareListingService(queries)
-		shareListingHandler := routes.NewShareListingHandler(shareListingService)
-		shareListingEventLimiter := middleware.ShareListingEventRateLimit(queries, cfg.RateLimit.ShareListingEventPerMin)
-		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(apiCSRFMiddleware)
-			r.Use(middleware.GlobalAPIRateLimit(queries))
-			// A publish body is one flow file / connector manifest; the service
-			// caps the snapshot at 256 KiB and this bounds the envelope.
-			r.Use(middleware.MaxBodySize(shareListingMaxRequestBodySize))
-			shareListingHandler.Mount(r, shareListingEventLimiter)
 		})
 	}
 
@@ -1646,13 +1592,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/keys/{id}", sshKeyHandler.GetSSHKey)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/keys", sshKeyHandler.CreateSSHKey)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/keys/{id}", sshKeyHandler.DeleteSSHKey)
-
-			// OAuth2 application management (scoped to authenticated user).
 			if oauth2Handler != nil {
-				r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/oauth2/applications", oauth2Handler.PostApplication)
-				r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/oauth2/applications", oauth2Handler.GetApplications)
-				r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/oauth2/applications/{id}", oauth2Handler.GetApplication)
-				r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/oauth2/applications/{id}", oauth2Handler.DeleteApplication)
 				// revoke-all is destructive (deletes every token issued by the
 				// app for this user), so it demands a write-capable scope: a
 				// read:user-only access token must not be able to kill other

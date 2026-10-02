@@ -1256,7 +1256,7 @@ func (q *accessLogAuthQuerier) GetAuthInfoByTokenHash(_ context.Context, tokenHa
 	}, nil
 }
 
-func (q *accessLogAuthQuerier) GetOAuth2AccessTokenByHash(context.Context, string) (db.Oauth2AccessToken, error) {
+func (q *accessLogAuthQuerier) GetFirstPartyOAuth2AccessTokenByHash(context.Context, string) (db.Oauth2AccessToken, error) {
 	return db.Oauth2AccessToken{}, pgx.ErrNoRows
 }
 

@@ -8,13 +8,11 @@ import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 import type * as TargetApprovals from "../src/target-approvals.ts"
-import * as Theme from "../src/theme.ts"
 
 // App boundary units: the target port is the seam (its database side is
 // covered by target-approvals.test.ts); rendering, keys and focus are real.
 let root = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let pending: Array<TargetApprovals.Row> = []
 let decisions: Array<[string, "approve" | "deny"]> = []
@@ -56,7 +54,6 @@ beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), "tui-app-targets-"))
   mkdirSync(join(root, "workspace"))
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   pending = [push]
   decisions = []
@@ -88,7 +85,6 @@ afterEach(async () => {
   setup = undefined
   if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
   else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
-  Theme.setTheme(previousTheme)
   rmSync(root, { recursive: true, force: true })
 })
 

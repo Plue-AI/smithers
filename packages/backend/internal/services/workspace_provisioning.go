@@ -2265,7 +2265,7 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 	s = s.withWorkspaceIdleTimeout(workspace)
 	defer func() { s.observeWorkspaceLifecycle("start", retErr) }()
 	if strings.TrimSpace(source.VmID) == "" {
-		// Provision-on-empty (Smithers Pair): the source workspace was never
+		// Provision-on-empty: the source workspace was never
 		// provisioned, so there is nothing to fork from. Rather than 409, bind
 		// a fresh VM to the fork workspace — forking nothing yields a new
 		// sandbox for the session. The source row is never mutated.
@@ -2305,11 +2305,11 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 	if err != nil {
 		// Forking is an optimization (see workspaceForkTimeout), not the
 		// session's whole job: a slow snapshot import or wedged fork request
-		// must not fail the pair session. Reap any partial child and bind a
+		// must not fail the workspace. Reap any partial child and bind a
 		// fresh VM to the fork workspace instead — the same cold fallback the
 		// derived-workspace open path takes when its fork attempt dies.
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
-		slog.Warn("pair fork failed; provisioning fresh sandbox for the fork workspace",
+		slog.Warn("workspace fork failed; provisioning fresh sandbox for the fork workspace",
 			"source_vm", source.VmID, "error", err, "type", "workspace")
 		return s.provisionForkVMOnEmptySource(ctx, workspace)
 	}

@@ -11,14 +11,12 @@ import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Real native headless App and session IO, with controlled Host execution and
 // Host turn boundaries. No provider or model calls execute.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let saved: Session.Writer
 let turns: Array<{ input: Host.TurnInput; done: ReturnType<typeof Promise.withResolvers<Host.Outcome>> }> = []
@@ -121,7 +119,6 @@ beforeEach(() => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   turns = []
   saved = Session.create(cwd)
@@ -141,7 +138,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

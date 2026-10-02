@@ -44,8 +44,8 @@ test("clear archives locally and its recovery link restores the conversation aft
   })
   await page.goto("/")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/appearance.theme")
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+  await sendSlash(page, "/agent.list")
+  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()
   const cardId = await card.getAttribute("data-testid")
   const originalUrl = page.url()
@@ -69,9 +69,9 @@ test("clear archives locally and its recovery link restores the conversation aft
 test("frame URLs survive reload, traverse history, and preserve the card node", async ({ page }) => {
   await page.goto("/")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/appearance.theme")
+  await sendSlash(page, "/agent.list")
 
-  const card = page.locator('.smithers-card[data-kind="theme-picker"]')
+  const card = page.locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()
   const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
   expect(cardId).toBeTruthy()
@@ -109,9 +109,9 @@ test("frame URLs survive reload, traverse history, and preserve the card node", 
 test("open-in-tab returns the address bar to the root frame and Escape minimizes a pointer-maximized card", async ({ page }) => {
   await page.goto("/")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/appearance.theme")
+  await sendSlash(page, "/agent.list")
 
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()
   const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
   expect(cardId).toBeTruthy()
@@ -132,7 +132,7 @@ test("open-in-tab returns the address bar to the root frame and Escape minimizes
   await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname))
     .toBe("/w/workspace-main/b/branch-main/f/frame-root:branch-main")
   await page.reload()
-  await expect(page.locator('.smithers-card[data-kind="theme-picker"][data-maximized="true"]')).toHaveCount(0)
+  await expect(page.locator('.smithers-card[data-kind="agents"][data-maximized="true"]')).toHaveCount(0)
   await expect(page.locator(".card-maximize-backdrop")).toHaveCount(0)
 })
 
@@ -190,9 +190,9 @@ for (const sample of [
     await sendSlash(page, "/appearance.dark-mode")
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   }
-  await sendSlash(page, "/appearance.theme")
+  await sendSlash(page, "/agent.list")
 
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
   expect(cardId).toBeTruthy()
   await card.getByTestId(`card-maximize-${cardId}`).click()
@@ -246,9 +246,9 @@ test("booted from a repository path, the address bar keeps it while back and for
   const repoUrl = page.url()
   expect(new URL(repoUrl).pathname).toBe("/smithersai/smithers")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/appearance.theme")
+  await sendSlash(page, "/agent.list")
 
-  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+  const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()
   const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
   expect(cardId).toBeTruthy()

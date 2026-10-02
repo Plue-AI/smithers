@@ -19,37 +19,10 @@ VALUES (
 )
 RETURNING *;
 
--- name: GetOAuth2ApplicationByID :one
-SELECT *
-FROM oauth2_applications
-WHERE id = $1;
-
 -- name: GetOAuth2ApplicationByClientID :one
 SELECT *
 FROM oauth2_applications
 WHERE client_id = $1;
-
--- name: ListOAuth2ApplicationsByOwner :many
-SELECT *
-FROM oauth2_applications
-WHERE owner_id = $1
-ORDER BY created_at DESC;
-
--- name: UpdateOAuth2Application :one
-UPDATE oauth2_applications
-SET name = sqlc.arg(name),
-    redirect_uris = sqlc.arg(redirect_uris),
-    scopes = sqlc.arg(scopes),
-    confidential = sqlc.arg(confidential),
-    updated_at = NOW()
-WHERE id = sqlc.arg(id)
-  AND owner_id = sqlc.arg(owner_id)
-RETURNING *;
-
--- name: DeleteOAuth2Application :execrows
-DELETE FROM oauth2_applications
-WHERE id = sqlc.arg(id)
-  AND owner_id = sqlc.arg(owner_id);
 
 -- name: CreateOAuth2AuthorizationCode :exec
 INSERT INTO oauth2_authorization_codes (
@@ -111,6 +84,16 @@ SELECT *
 FROM oauth2_access_tokens
 WHERE token_hash = $1
   AND expires_at > NOW();
+
+-- name: GetFirstPartyOAuth2AccessTokenByHash :one
+-- Existing hosted-application tokens remain stored and revocable, but only
+-- the deployment's first-party client authenticates product requests.
+SELECT t.*
+FROM oauth2_access_tokens t
+JOIN oauth2_applications a ON a.id = t.app_id
+WHERE t.token_hash = $1
+  AND t.expires_at > NOW()
+  AND a.client_id = 'smithers_first_party_apps';
 
 -- name: DeleteOAuth2AccessTokensByAppAndUser :exec
 DELETE FROM oauth2_access_tokens

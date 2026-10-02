@@ -1,9 +1,8 @@
 /**
  * Alchemy 2 stack for bug.smithers.sh. Importing it deploys nothing.
  *
- * One Cloudflare Worker (entry: src/worker.ts), a repository completion Durable
- * Object, a rate-limit Durable Object (one atomic counter per bucket), and one
- * KV namespace for bug reports and repository requests.
+ * One Cloudflare Worker (entry: src/worker.ts), a rate-limit Durable Object
+ * (one atomic counter per bucket), and one KV namespace for bug reports.
  * The smithers.sh zone lives on
  * this Cloudflare account (migrated from Vercel DNS 2026-06-25), so the
  * Worker serves bug.smithers.sh as a custom domain directly.
@@ -16,11 +15,8 @@
  * The physical names are the ones Alchemy 1 derived for the live resources;
  * the first Alchemy 2 plan and deploy add `--adopt` to take them over.
  *
- * Required env: CLOUDFLARE_API_TOKEN, ALCHEMY_PASSWORD, BUG_ADMIN_TOKEN,
- * RESEND_API_KEY, NOTIFICATION_FROM (a verified sender) and GITHUB_FORK_TOKEN
- * (authenticates the nomination's GitHub lookup and forks nominated
- * repositories into smithers-community). A deploy without one fails instead of
- * removing the live binding.
+ * Required env: CLOUDFLARE_API_TOKEN, ALCHEMY_PASSWORD and BUG_ADMIN_TOKEN.
+ * A deploy without one fails instead of removing the live binding.
  */
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -32,8 +28,6 @@ const requireSecret = (name: string) =>
   Config.schema(Schema.Redacted(Schema.Trim.check(Schema.isNonEmpty())), name).pipe(
     Config.map((value) => Redacted.make(Redacted.value(value).trim())),
   );
-const requireText = (name: string) =>
-  Config.schema(Schema.Trim.check(Schema.isNonEmpty()), name).pipe(Config.map((value) => value.trim()));
 export const bugReportsProps = { title: "smithers-bug-worker-bug-reports-williamcory" };
 const bugs = Cloudflare.KV.Namespace("bug-reports", bugReportsProps);
 
@@ -42,16 +36,11 @@ export const workerProps = {
   main: "src/worker.ts",
   compatibility: { date: "2025-05-01" },
   workersDev: false,
-  crons: ["*/10 * * * *"],
   // Workers Logs keeps the `logFailure` JSON lines queryable by event and route.
   observability: { enabled: true, logs: { enabled: true, invocationLogs: true, persist: true } },
   env: {
     BUGS: bugs,
-    REPO_COMPLETIONS: Cloudflare.DurableObject("RepoCompletion"),
     RATE_LIMITS: Cloudflare.DurableObject("RateLimiter"),
-    RESEND_API_KEY: requireSecret("RESEND_API_KEY"),
-    NOTIFICATION_FROM: requireText("NOTIFICATION_FROM"),
-    GITHUB_FORK_TOKEN: requireSecret("GITHUB_FORK_TOKEN"),
     BUG_ADMIN_TOKEN: requireSecret("BUG_ADMIN_TOKEN"),
     PUBLIC_BASE_URL: "https://bug.smithers.sh",
   },

@@ -668,7 +668,7 @@ describe("POST /api/chat/turn", () => {
 })
 
 /*
- * The explainer seat (R6): a turn that names a model is answered by that
+ * The configured model (R6): a turn that names a model is answered by that
  * model over the real loopback provider, or refused. The stub agent stands
  * behind the same host, so any `stub:` text in an answer is a fallback.
  */

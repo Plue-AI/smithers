@@ -436,13 +436,24 @@ their own output. Chain policy registers approvals directly with the store.
 Legacy cards without a trusted request cannot authorize an operation; a fresh
 runtime request or gateway refresh must register the gate first.
 
-## Plugin Library configuration
+## Focused client scope
 
-`AppServices.features.pluginLibrary` defaults to `false`. Enable it explicitly
-at controller construction to register Library navigation, commands, recommendations,
-and agent tools. Disabled controllers refuse Library mutations and leave existing
-plugin installations available to the other app features. Saved Library cards are
-inert while disabled.
+The app retains Paper in light and dark mode, ordinary chat explanations, the
+browser reader, code intelligence, repository flows and wiki memory. Plugin
+runtime APIs and local installation remain available; the Library storefront
+and dedicated Explainer command are removed.
+
+Saved palettes normalize to Paper through appended system events. Saved Library
+surfaces reopen Chat; plugin installation records and earlier event bytes remain
+intact. Historical explanation cards remain readable.
+
+Restoration sources: [Pair #3401](https://github.com/smithersai/smithers/issues/3401),
+[marketplace #3402](https://github.com/smithersai/smithers/issues/3402), and
+[theme collection #3403](https://github.com/smithersai/smithers/issues/3403).
+The immutable pre-removal source is
+[`ce7fbc112fa37951c0beca985805600c3f8dfe8f`](https://github.com/smithersai/smithers/tree/ce7fbc112fa37951c0beca985805600c3f8dfe8f).
+Client removal and validation are tracked in
+[#3406](https://github.com/smithersai/smithers/issues/3406).
 
 ## MVP feature recovery
 

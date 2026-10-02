@@ -204,25 +204,6 @@ func TestWorkspace_Cov_LoadOwnedWorkspaceSnapshotSessionAndPairSource(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, workspaceID, loaded.ID)
 
-	err = svc.VerifyPairSourceWorkspace(ctx, "not-a-uuid", 101, 1)
-	require.Error(t, err)
-	assert.Equal(t, 404, apiStatus(t, err))
-	svc.q.(*mockWorkspaceQuerier).getWorkspaceShareFn = func(context.Context, db.GetWorkspaceShareParams) (db.WorkspaceShare, error) {
-		return db.WorkspaceShare{}, pgx.ErrNoRows
-	}
-	err = svc.VerifyPairSourceWorkspace(ctx, workspaceID, 101, 2)
-	require.Error(t, err)
-	assert.Equal(t, 404, apiStatus(t, err))
-
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("internal")
-		},
-	})
-	err = svc.VerifyPairSourceWorkspace(ctx, workspaceID, 101, 1)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		getWorkspaceSnapshotByRepoFn: func(_ context.Context, arg db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
 			return sampleDBWorkspaceSnapshot(arg.ID, "", "snap", "fs-snap"), nil

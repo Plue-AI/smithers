@@ -320,12 +320,11 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 
 ### workspaces · Workspace delete, persistence mode (ephemeral/sticky/persistent) and idle timeout, sessions list/destroy, snapshot templates, cross-repo workspace list
 
-### workspaces · Workspace sharing (owner/editor/viewer, share link) and Smithers Pair sessions (create, join, roles, access mode, prompt queue, draft, presence)
+### workspaces · Pair multiplayer (deferred)
 
-- Source: plue · coverage: none · effort: L
-- Exists: Snapshots facet `Share` action designed (WORKBENCH-UX L168); nothing for live sharing or pair.
-- UI: workspace card header gains Share only (no member avatars, no presence dots: NO INVENTION); Share opens a `share` card: rows login · role ▾ · state word present|away from the presence DTO · Remove, a link row with Enable/Disable, and a Pair section with queue rows prompt · owner · state and Join by link.
-- Flows: `workspace.share <id> <login> <owner|editor|viewer>; workspace.share.link <id> <on|off>; workspace.unshare <id> <login> (confirm); pair.start <workspaceId>; pair.join <link>; pair.queue <text>; pair.end (confirm)`
+Removed from the focused MVP. Restore only through
+[Pair #3401](https://github.com/smithersai/smithers/issues/3401), which links the
+immutable pre-removal source. Single-user queues and worker coordination remain.
 
 ### workspaces · Preview environments for landing requests: auto-create/stop/wake, preview URL, logs
 
@@ -399,12 +398,12 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 - UI: workflow-list rows gain one mono meta row `tier · placement · origin · entry ts|mdx|skill` (Copy law: mono meta rows, no badges), installed packs group by name@version, and a Warnings section listing each DiscoveryWarning with path and Open source.
 - Flows: `flow.list --warnings; flow.source <name>`
 
-### identity · Personal access tokens with scopes, sessions list/revoke, connected accounts unlink, OAuth2 applications and revoke-all
+### identity · Personal access tokens with scopes, sessions list/revoke, connected accounts unlink and revoke-all
 
 - Source: plue · coverage: none · effort: M
 - Exists: Nothing.
-- UI: account card facets Tokens (name · scopes · last used, Create with scopes picker, Revoke), Sessions (device · last seen · Revoke), Connections (provider · Unlink), Apps (name · Revoke all).
-- Flows: `account.tokens; account.token.create <name> <scopes>; account.token.revoke <id> (confirm); account.sessions; account.session.revoke <id>; account.connections; account.unlink <provider> (confirm); account.apps`
+- UI: account card facets Tokens (name · scopes · last used, Create with scopes picker, Revoke), Sessions (device · last seen · Revoke), Connections (provider · Unlink).
+- Flows: `account.tokens; account.token.create <name> <scopes>; account.token.revoke <id> (confirm); account.sessions; account.session.revoke <id>; account.connections; account.unlink <provider> (confirm)`
 
 ### identity · Profile edit, emails add/verify, avatar upload, push devices
 
@@ -420,12 +419,11 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 - UI: connect card lists provider rows the server's feature flags enable.
 - Flows: `auth.sign-in [github|auth0|key]`
 
-### identity · OAuth2 consent: approve or deny a third-party application's requested scopes (GET/POST /api/oauth2/authorize, PKCE S256)
+### identity · Third-party OAuth applications (deferred)
 
-- Source: plue · coverage: none · effort: S
-- Exists: Nothing; the consent page is server-rendered HTML today; the identity row manages applications and tokens only.
-- UI: When the authorize URL opens inside the app, the consent renders as the approval card variant `oauth2`: rows application · scopes · redirect host, Approve/Deny; otherwise it remains the server page inside the browser card.
-- Flows: `account.consent <requestId> <allow|deny>`
+App management and third-party consent are outside the focused MVP
+([#3406](https://github.com/smithersai/smithers/issues/3406)). First-party browser
+and CLI authorization, token refresh and revocation remain.
 
 ### integrations · Notion document sync and companion document side-repositories
 

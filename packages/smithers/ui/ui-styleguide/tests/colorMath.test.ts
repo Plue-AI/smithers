@@ -41,10 +41,10 @@ describe("contrastRatio", () => {
   });
 
   test("names the offending value instead of returning NaN", () => {
-    const border = themeRegistry["night-owl"]!.dark.border;
+    const border = themeRegistry.paper!.dark.border;
     expect(border).toStartWith("rgba(");
-    expect(() => contrastRatio(border, themeRegistry["night-owl"]!.dark.bg)).toThrow(TypeError);
-    expect(() => contrastRatio(border, "#ffffff")).toThrow(/rgba\(214,222,235,0\.09\)/);
+    expect(() => contrastRatio(border, themeRegistry.paper!.dark.bg)).toThrow(TypeError);
+    expect(() => contrastRatio(border, "#ffffff")).toThrow(border);
     for (const bad of ["red", "", "#1234", "#12345", "#123456789", "ffffff", " #ffffff", "#ffffff "]) {
       expect(() => contrastRatio(bad, "#ffffff"), bad).toThrow(TypeError);
     }
@@ -149,7 +149,7 @@ describe("mixChannels", () => {
     // This is the 12% recipe the package shipped before `SOFT_TINT_AMOUNT` was
     // lowered to 10%. The vector stays because the generator's own ratchet still
     // runs at percentages where rounding decides the verdict.
-    const one = themeRegistry.one!.dark;
+    const one = themeRegistry.paper.dark;
     const exact = contrastRatioOf(
       [0x64, 0xbc, 0x9d],
       mixChannels("#64bc9d", "#2f333c", 0.12),

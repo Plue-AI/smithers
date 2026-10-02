@@ -251,8 +251,21 @@ describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
-    // Includes history land and workspace children list/spawn/stop (b80b439db473).
-    expect(Object.keys(definitions)).toHaveLength(211)
+    // The original 211 commands include history land and workspace children
+    // (b80b439db473); the reviewed forge-only removals below account for six.
+    const retired = [
+      "changeset create",
+      "changeset get",
+      "changeset land",
+      "changeset list",
+      "repo fork",
+      "repo transfer"
+    ]
+    expect(Object.keys(definitions)).toHaveLength(211 - retired.length)
+    for (const name of retired) {
+      expect(Object.hasOwn(definitions, name)).toBe(false)
+      expect(Object.hasOwn(handlers, name)).toBe(false)
+    }
     expect(Object.keys(definitions).filter((name) => !handlers[name])).toEqual([])
     expect(commandPath("status")).toBe("change status")
     expect(commandPath("run view")).toBe("runs show")
@@ -264,6 +277,24 @@ describe("migrated command dispatch", () => {
       expect(result.code, result.output).toBe(0)
     }
   })
+  it.each([
+    ["repo", "fork", "owner/repo", "--name", "fork"],
+    ["repo", "transfer", "owner/repo", "--to", "other"],
+    ["changeset", "create", "--title", "legacy", "--org", "owner"],
+    ["changeset", "get", "1", "--org", "owner"],
+    ["changeset", "land", "1", "--org", "owner"],
+    ["changeset", "list", "--org", "owner"]
+  ])("refuses retired %s %s without contacting the backend", async (...argv) => {
+    const requests: string[] = []
+    const f = await fixture((req, res) => {
+      requests.push(req.url!)
+      res.end("{}")
+    })
+    const result = await f.run(argv)
+    expect(result.code).not.toBe(0)
+    expect(requests).toEqual([])
+  })
+
   it("summarizes every command and group instead of repeating its name", () => {
     const placeholders: string[] = [], summaries = new Map<string, string>()
     const visit = (commands: Map<string, any>, path: string[]) => {
@@ -402,10 +433,6 @@ describe("migrated command dispatch", () => {
       }],
       [["repo", "archive", "owner/repo"], "POST", "/api/repos/owner/repo/archive", undefined],
       [["repo", "unarchive", "owner/repo"], "POST", "/api/repos/owner/repo/unarchive", undefined],
-      [["repo", "transfer", "owner/repo", "--to", "alice"], "POST", "/api/repos/owner/repo/transfer", {
-        "new_owner": "alice"
-      }],
-      [["repo", "fork", "owner/repo", "--name", "fork"], "POST", "/api/repos/owner/repo/forks", { "name": "fork" }],
       [["repo", "edit", "owner/repo", "--description", "Text"], "PATCH", "/api/repos/owner/repo", {
         "description": "Text"
       }],
@@ -470,10 +497,6 @@ describe("migrated command dispatch", () => {
       [["admin", "user", "enable", "alice"], "PATCH", "/api/admin/users/alice", { "suspended": false }],
       [["admin", "user", "delete", "alice", "--yes"], "DELETE", "/api/admin/users/alice", undefined],
       [["repo", "create", "demo", "--private"], "POST", "/api/user/repos", { name: "demo", private: true }],
-      [["repo", "fork", "owner/repo", "--name", "fork"], "POST", "/api/repos/owner/repo/forks", { name: "fork" }],
-      [["repo", "transfer", "owner/repo", "--to", "other"], "POST", "/api/repos/owner/repo/transfer", {
-        new_owner: "other"
-      }],
       [
         ["wiki", "edit", "page", "--repo", "owner/repo", "--body", "text", "--expected-revision", "2"],
         "PATCH",

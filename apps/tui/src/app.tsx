@@ -71,7 +71,7 @@ import { tabTitle } from "./surfaces.ts"
 import { chip as workerChip, TabStrip, WorkerList, WorkerView } from "./tabs-view.tsx"
 import * as Tabs from "./tabs.ts"
 import type * as TargetApprovals from "./target-approvals.ts"
-import { color, isTheme, loadTheme, saveTheme, setTheme, spinner } from "./theme.ts"
+import { color, spinner } from "./theme.ts"
 import * as Timeline from "./timeline.ts"
 import * as Toasts from "./toasts.ts"
 import * as TranscriptView from "./transcript-view.ts"
@@ -120,8 +120,6 @@ const capForm = "cap:"
 
 export function App(props: AppProps) {
   const renderer = useRenderer()
-  const [, refreshTheme] = useState(0)
-  useState(() => setTheme(loadTheme()))
   const [restored] = useState((): {
     current: ReturnType<typeof Session.restore> | undefined
     file: string | undefined
@@ -1555,9 +1553,6 @@ export function App(props: AppProps) {
         if (argument.includes(":")) switchSeat(argument)
         else setPicker({ kind: "model", query: argument, selected: 0 })
         return true
-      case "theme":
-        setPicker({ kind: "theme", query: "", selected: 0 })
-        return true
       case "new":
         if (occupied()) {
           setStatus("Stop running work first", "warning")
@@ -1806,17 +1801,7 @@ export function App(props: AppProps) {
       command(`/flow ${value}`)
       return
     }
-    if (open.kind === "theme") {
-      if (!isTheme(value)) return
-      setTheme(value)
-      refreshTheme((count) => count + 1)
-      try {
-        saveTheme(value)
-      } catch {
-        setStatus("Could not save theme", "warning")
-      }
-      return
-    }
+
     if (open.kind === "palette") {
       const chosen = JSON.parse(value) as Palette.Value
       switch (chosen.kind) {

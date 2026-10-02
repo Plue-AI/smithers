@@ -33,14 +33,12 @@ import { stackCardFamily } from "./StackCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
 import { notificationsCardFamily } from "./NotificationsCard"
-import { LibrarianLibraryCard } from "../plugins/tutorial2-librarian-card"
 import { RepositoryChoiceCard } from "./RepositoryChoiceCard"
 import { repoImportCardFamily } from "./RepoImportCard"
 import { runsCardFamily } from "./RunsCards"
 import { searchResultsCardFamily } from "./SearchResultsCard"
 import { secretsCardFamily } from "./SecretsCard"
 import { syncCardFamily } from "./SyncCards"
-import { themePickerCardFamily } from "./ThemePickerCard"
 import { triggersCardFamily } from "./TriggersCard"
 import { turnCardFamily } from "./TurnCards"
 import { wikiCardFamily } from "./WikiCards"
@@ -56,15 +54,9 @@ const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
   }
 }
 
-const pluginLibraryCardFamily: CardFamily<"plugin-library"> = {
-  "plugin-library": {
-    render: card => <LibrarianLibraryCard tutorial={card.payload.tutorial} />,
-    pill: () => "done"
-  }
-}
-
 /** Wire kinds retained for old journals, with no live producer or UI. */
-export const RETIRED_CARD_KINDS = ["models", "model-call", "retired", "service-log", "repo", "targets", "target-run", "graph", "run-timeline", "run-history", "affected", "ci-matrix"] as const
+export { RETIRED_CARD_KINDS } from "../state/CardAvailability"
+import { RETIRED_CARD_KINDS } from "../state/CardAvailability"
 type RetiredCardKind = (typeof RETIRED_CARD_KINDS)[number]
 type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind>
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: RetiredCardKind }> =>
@@ -97,14 +89,12 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   syncCardFamily,
   branchesCardFamily,
   fileCardFamily,
-  themePickerCardFamily,
   agentCardFamily,
   flowFormCardFamily,
   workspaceCardFamily,
   anonymousCeilingCardFamily,
   searchResultsCardFamily,
   repositoryChoiceCardFamily,
-  pluginLibraryCardFamily,
   wikiCardFamily,
   commitCardFamily
 ]
@@ -137,14 +127,12 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...syncCardFamily,
   ...branchesCardFamily,
   ...fileCardFamily,
-  ...themePickerCardFamily,
   ...agentCardFamily,
   ...flowFormCardFamily,
   ...workspaceCardFamily,
   ...anonymousCeilingCardFamily,
   ...searchResultsCardFamily,
   ...repositoryChoiceCardFamily,
-  ...pluginLibraryCardFamily,
   ...wikiCardFamily
 }
 

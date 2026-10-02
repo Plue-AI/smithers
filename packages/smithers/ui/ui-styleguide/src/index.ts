@@ -1,5 +1,5 @@
 /**
- * The Smithers house stylesheets: theme tokens for eight palettes in two modes,
+ * The Smithers house stylesheets: Paper tokens in light and dark modes,
  * plus the base element and component rules that consume them.
  *
  * `docs/api.md` and `docs/theming.md` in this package own the prose contract.
@@ -10,14 +10,9 @@ import { reducedMotionCss } from "./standaloneThemeCss.ts";
 import { paletteThemeCss, type PaletteThemeCssOptions } from "./paletteThemeCss.ts";
 
 /**
- * Just the theme token rules: the default palette plus one three-rule override
- * block per selected palette, in the source order the cascade depends on.
- *
- * A host that pins a single palette can emit a subset instead of paying for
- * all eight (roughly 2.9 KB of CSS each). `workflowUiThemeCss` is this joined
- * with `workflowUiPrimitiveCss`, the element and component rules.
- *
- * @throws {RangeError} when `palettes` names an unregistered key.
+ * Paper light/dark token rules; optional palette keys are validated.
+ * Combine with workflowUiPrimitiveCss for shared element and component rules.
+ * @throws {RangeError} when palettes names an unregistered key.
  */
 export function themeCss(options: PaletteThemeCssOptions = {}): string {
   return paletteThemeCss("'", options).join("\n");
@@ -40,7 +35,7 @@ export const workflowUiPrimitiveCss = [
   "body { min-width:320px; min-height:100vh; margin:0; background:var(--bg); color:var(--text); font-size:var(--fs-3); line-height:var(--lh-body); font-synthesis:none; text-rendering:optimizeLegibility; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }",
   // No `::selection` rule. The 0.x sheet washed the selection with 24% brand and
   // left the foreground inherited, which puts every one of the nine foregrounds
-  // this sheet paints on an unaudited background: measured across the eight
+  // this sheet paints on an unaudited background: measured across the shipped
   // palettes, even an 8% wash misses 4.5:1 in 29 (foreground, palette, mode)
   // combinations. Pinning a foreground instead is worse, because it is a global
   // rule and a downstream sheet that overrides only the selection background

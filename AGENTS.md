@@ -18,6 +18,20 @@
 - Review is an ordinary `/review` flow using the shared runtime, host services
   and custom UI. It has no separate service, account, billing or model runtime;
   reviewer quizzes are out of scope. Preserve review quality and verification.
+- Second-round scope ([#3404](https://github.com/smithersai/smithers/issues/3404))
+  removes Pair multiplayer, the public marketplace, community repository
+  nominations, third-party OAuth application hosting, separate Explainer mode,
+  personal calendar-to-notes and public traction-metrics flows. Preserve ordinary
+  teams, approvals, single-user prompt queues, first-party login/tokens,
+  repository-owned flows/plugins/MCP, bug intake and shared notes/memory.
+- Keep browser IDE code intelligence and the general webpage reader. Use the
+  existing Paper palette with light/dark modes and accessibility; defer the
+  theme collection. Old sessions and recorded events must remain readable.
+- Future restoration is explicitly blocked pending Will's authorization:
+  [Pair #3401](https://github.com/smithersai/smithers/issues/3401),
+  [marketplace #3402](https://github.com/smithersai/smithers/issues/3402), and
+  [themes #3403](https://github.com/smithersai/smithers/issues/3403). These open
+  recovery issues are not instructions to implement or merge the features.
 
 Task-specific maintenance guidance lives in
 [the repository skill](.agents/skills/smithers-maintenance/SKILL.md): use it for

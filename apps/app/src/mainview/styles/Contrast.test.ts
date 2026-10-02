@@ -2,22 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { PALETTES } from "../state/AppState"
 import { ratioOf, variant } from "./paletteTokens"
 
-/*
- * §20.6 — every palette's text tokens clear WCAG AA where they are read.
- *
- * The axe sweep on canary found the card byline (`.smithers-card-meta`, the
- * smallest text the product paints at 9px) at 3.75:1 in night-owl dark, and
- * the same token short of the floor in most of the other palettes. The colour
- * is not hardcoded anywhere — it is `--text-faint`, so the defect belongs to
- * the palette table, and fixing it in one card's CSS would leave the other
- * eight palettes and every other consumer of the token wrong.
- *
- * The floor is checked here rather than in the browser because tokens.css IS
- * the source of the values: a ratio computed from the declarations cannot pass
- * while the painted pixels fail, and this runs on every `bun test` instead of
- * only when a machine has Chrome. The a11y e2e suite still walks the rendered
- * tree; this stops a palette from ever being ADDED below the floor.
- */
+/* Paper light and dark must meet the same small-text WCAG AA floor. */
 
 /**
  * WCAG 1.4.3 for body-size text. The tokens under test are read at 9px-13px,

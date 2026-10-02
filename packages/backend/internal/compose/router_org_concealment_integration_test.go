@@ -84,7 +84,7 @@ func TestRouterPrivateOrganizationRoutesMatchMissingPostgres(t *testing.T) {
 		&routes.IssueHandler{},
 		nil,
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		&routes.SecretHandler{Service: secrets},
 		&routes.ProviderConnectionHandler{Service: services.NewProviderConnectionService(q, nil, nil, services.WithSubscriptionConnectionsEnabled(true))},
 		&routes.VariableHandler{Service: variables},

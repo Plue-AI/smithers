@@ -65,6 +65,37 @@ func failureCode(result map[string]any) string {
 	return code
 }
 
+func TestOwnerModelCatalogRetiresExplainerKeepsCredentialInventory(t *testing.T) {
+	f := newOwnerModelsFixture(t)
+	require.Equal(t, true, f.credential(t, "enroll", "enroll-catalog-0001", "CUSTOM_KEY", "https://models.example", "private-model-key")["ok"])
+
+	for _, owner := range []int64{f.owner, f.owner + 1} {
+		request := httptest.NewRequest(http.MethodGet, "/api/model/catalog", nil)
+		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: owner}}))
+		recorder := httptest.NewRecorder()
+		f.handlers.Catalog(recorder, request)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.NotContains(t, recorder.Body.String(), "private-model-key")
+		var catalog map[string]any
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &catalog))
+		require.Equal(t, []any{"chat"}, catalog["seats"])
+		require.Equal(t, map[string]any{"available": true}, catalog["enrollment"])
+		require.Empty(t, catalog["models"])
+		var custom map[string]any
+		for _, entry := range catalog["credentials"].([]any) {
+			row := entry.(map[string]any)
+			if row["name"] == "CUSTOM_KEY" {
+				custom = row
+			}
+		}
+		if owner == f.owner {
+			require.Equal(t, map[string]any{"name": "CUSTOM_KEY", "origins": []any{"https://models.example"}, "present": true, "managed": true}, custom)
+		} else {
+			require.Nil(t, custom, "credentials belong to their owner")
+		}
+	}
+}
+
 func TestOwnerModelCredentialLifecycle(t *testing.T) {
 	f := newOwnerModelsFixture(t)
 	openai := "https://api.openai.com"

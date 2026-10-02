@@ -26,22 +26,6 @@ type mockOAuth2RouteService struct {
 	revokeAllFn                    func(ctx context.Context, appID, userID int64) error
 }
 
-func (m *mockOAuth2RouteService) CreateApplication(context.Context, int64, services.CreateOAuth2ApplicationRequest) (services.CreateOAuth2ApplicationResult, error) {
-	panic("not used in test")
-}
-
-func (m *mockOAuth2RouteService) ListApplications(context.Context, int64) ([]services.OAuth2ApplicationResponse, error) {
-	panic("not used in test")
-}
-
-func (m *mockOAuth2RouteService) GetApplication(context.Context, int64, int64) (services.OAuth2ApplicationResponse, error) {
-	panic("not used in test")
-}
-
-func (m *mockOAuth2RouteService) DeleteApplication(context.Context, int64, int64) error {
-	panic("not used in test")
-}
-
 func (m *mockOAuth2RouteService) Authorize(ctx context.Context, userID int64, clientID, redirectURI, scope, codeChallenge, codeChallengeMethod string, callerScopes []string) (services.OAuth2AuthorizeResult, error) {
 	if m.authorizeFn != nil {
 		return m.authorizeFn(ctx, userID, clientID, redirectURI, scope, codeChallenge, codeChallengeMethod, callerScopes)

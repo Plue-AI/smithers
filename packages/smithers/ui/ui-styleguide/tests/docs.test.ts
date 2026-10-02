@@ -31,7 +31,7 @@ describe("consumer theming guides", () => {
   test("embedding documents defaults before optional attribute overrides", () => {
     const guide = read("docs/guides/embed-a-stylesheet.md").replace(/\s+/g, " ");
     expect(guide).not.toContain("The sheet themes nothing until");
-    expect(guide).toContain("Night Owl light");
+    expect(guide).toContain("Paper light");
     expect(guide).toContain("no attributes");
     expect(guide).toContain("`prefers-color-scheme: dark`");
     expect(guide).toContain("optional overrides");

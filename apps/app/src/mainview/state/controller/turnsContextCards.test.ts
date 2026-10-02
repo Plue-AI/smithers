@@ -86,17 +86,15 @@ test("title line breaks are flattened in runtime context while maximization belo
   expect(f.store.collections.cards.get("first")?.title).toBe("First\r\nline\nLast")
 })
 
-for (const enabled of [false, true]) {
-  test(`restored plugin cards obey the release capability before entering runtime context (${enabled})`, async () => {
-    const f = await fixture({ features: { pluginLibrary: enabled } })
-    await f.upsert({ id: "library", kind: "plugin-library", title: "Library", status: "active", ordinal: 1,
-      createdAt: 1, payload: { tutorial: false } })
-    await f.upsert(file("visible", 2))
-    const request = await f.send()
-    expect(request.context?.recentCards?.map(card => card.id)).toEqual(enabled ? ["library", "visible"] : ["visible"])
-    expect(f.store.collections.cards.has("library")).toBe(true)
-  })
-}
+test("restored storefront cards never enter runtime context, while their saved facts survive", async () => {
+  const f = await fixture()
+  await f.upsert({ id: "library", kind: "plugin-library", title: "Library", status: "active", ordinal: 1,
+    createdAt: 1, payload: { tutorial: false } })
+  await f.upsert(file("visible", 2))
+  const request = await f.send()
+  expect(request.context?.recentCards?.map(card => card.id)).toEqual(["visible"])
+  expect(f.store.collections.cards.has("library")).toBe(true)
+})
 
 test("older workspace cards retain honest unknown-kind and terminal defaults without exposing their payload", async () => {
   const f = await fixture()

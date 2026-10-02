@@ -398,7 +398,7 @@ func RejectRepositoryRestrictedToken(next http.Handler) http.Handler {
 }
 
 // RequireFirstPartyAuth blocks third-party OAuth2 access tokens from mutating
-// Smithers-managed credentials such as PATs, SSH keys, sessions, and OAuth2 apps.
+// Smithers-managed credentials such as PATs, SSH keys, and sessions.
 func RequireFirstPartyAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authInfo := AuthInfoFromContext(r.Context())

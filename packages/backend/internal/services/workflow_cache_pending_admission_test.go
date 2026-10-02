@@ -150,7 +150,7 @@ func (*serializedWorkflowCacheBilling) AuthorizeAgentRunCommitted(ctx context.Co
 func (*serializedWorkflowCacheBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (*serializedWorkflowCacheBilling) AuthorizePairing(context.Context, int64) error { return nil }
+
 func (b *serializedWorkflowCacheBilling) AuthorizeStorageIncreaseCommittedDynamic(
 	ctx context.Context,
 	_ int64,

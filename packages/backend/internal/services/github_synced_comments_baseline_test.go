@@ -355,7 +355,7 @@ func TestGitHubIssueComments_UnrelatedWebhookKeepsHistoricalComments(t *testing.
 	}))
 	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "gho_user"},
 		WithGitHubUserReposSyncedStore(synced))
-	userID := mkPairUser(t, pool, "synced-comments")
+	userID := fixtureUser(t, pool, "synced-comments")
 	row, err := synced.EnrollGitHubRepo(ctx, EnrollGitHubRepoInput{Owner: "octo", Repo: repo, EnrolledVia: GitHubSyncedRepoEnrolledViaLazy})
 	require.NoError(t, err)
 	t.Cleanup(func() {

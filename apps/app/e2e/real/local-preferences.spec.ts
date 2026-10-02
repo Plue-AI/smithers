@@ -11,18 +11,16 @@ const boot = async (page: Page): Promise<void> => {
 }
 
 test(
-  "theme and palette survive an immediate reload",
+  "light/dark and Paper survive an immediate reload",
   scenario("local-appearance-immediate-reload", {
     capabilities: [],
     description: "Reloads immediately after real appearance commands without a settling delay.",
     coverage: [
-      "host:local", "host:production", "door:slash", "path:persistence", "action:appearance.theme",
-      "action:appearance.dark-mode", "dimension:immediate-reload", "evidence:persisted-appearance-after-reload"
+      "host:local", "host:production", "door:slash", "path:persistence", "action:appearance.dark-mode", "dimension:immediate-reload", "evidence:persisted-appearance-after-reload"
     ]
   }),
   async ({ page }) => {
     await boot(page)
-    await command(page, "/appearance.theme paper")
     const before = await page.locator("html").getAttribute("data-theme")
     await command(page, "/appearance.dark-mode")
     const expectedTheme = before === "dark" ? "light" : "dark"

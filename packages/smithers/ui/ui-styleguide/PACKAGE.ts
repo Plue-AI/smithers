@@ -47,12 +47,7 @@ const shikiThemes = Smithers.Filegroup({
     Smithers.file("package.json"),
     Smithers.file("//pnpm-lock.yaml"),
     Smithers.file("node_modules/@shikijs/themes/package.json"),
-    ...[
-      "index", "night-owl", "night-owl-light", "one-dark-pro", "one-light",
-      "github-dark", "github-light", "catppuccin-mocha", "catppuccin-latte",
-      "solarized-dark", "solarized-light", "gruvbox-dark-medium", "gruvbox-light-medium",
-      "rose-pine", "rose-pine-dawn"
-    ].map((id) => Smithers.file(`node_modules/@shikijs/themes/dist/${id}.mjs`))
+    ...["index", "night-owl", "night-owl-light"].map((id) => Smithers.file(`node_modules/@shikijs/themes/dist/${id}.mjs`))
   ],
   cwd
 })

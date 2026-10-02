@@ -1,7 +1,7 @@
 import { MAIN_TAB_ID, parseRepoSelection } from "../AppState"
 import type { TabRow } from "../AppState"
 import type { ControllerContext } from "./context"
-import { knowledgeCardAvailable } from "../KnowledgeFeatures"
+import { cardAvailable } from "../CardAvailability"
 
 /*
  * The card tabs (docs/LOCAL-APP.md "Cards", "Open in tab"): pinning a card in
@@ -38,7 +38,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
 
   const orderedTabs = (): Array<TabRow> =>
     [...collections.tabs.values()].filter(tab => tab.kind !== "card" ||
-      knowledgeCardAvailable(collections.cards.get(tab.cardId)?.kind ?? "", ctx.services.features))
+      cardAvailable(collections.cards.get(tab.cardId)?.kind ?? ""))
       .sort((left, right) => left.ordinal - right.ordinal)
 
   const activeTab = (): TabRow | undefined => collections.tabs.get(store.session().activeTabId ?? MAIN_TAB_ID)
@@ -46,7 +46,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
   const openCardTab: TabsController["openCardTab"] = (cardId) => {
     const card = collections.cards.get(cardId)
     if (card === undefined) return `There is no card with id ${cardId}.`
-    if (!knowledgeCardAvailable(card.kind, ctx.services.features)) return "This feature is not enabled."
+    if (!cardAvailable(card.kind)) return "This feature is not enabled."
     const existing = orderedTabs().find((tab) => tab.kind === "card" && tab.cardId === cardId)
     if (existing !== undefined) {
       store.dispatch({ type: "tab.selected", actor: ctx.commandActor, id: existing.id })
@@ -74,7 +74,7 @@ export const createTabsController = (ctx: ControllerContext): TabsController => 
       // A position past the strip is a no-op keystroke, not an error.
       return position === undefined ? `There is no tab with id ${target}.` : undefined
     }
-    if (tab.kind === "card" && !knowledgeCardAvailable(collections.cards.get(tab.cardId)?.kind ?? "", ctx.services.features)) return "This feature is not enabled."
+    if (tab.kind === "card" && !cardAvailable(collections.cards.get(tab.cardId)?.kind ?? "")) return "This feature is not enabled."
     store.dispatch({ type: "tab.selected", actor: "user", id: tab.id })
   }
 

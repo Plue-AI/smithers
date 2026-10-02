@@ -70,13 +70,12 @@ describe("commands from a maximized card", () => {
     test(`${origin} origin decides presentation independently of the flow name`, async () => {
       const { store, controller } = await freshController()
       try {
-        await controller.commands.run("appearance.theme")
-        const card = [...store.collections.cards.values()].find(card => card.kind === "theme-picker")!
+        await controller.commands.run("agent.list")
+        const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
         await controller.commands.run("card.maximize", card.id)
-        const outcome = await controller.commands.run("appearance.theme", "paper", undefined,
+        const outcome = await controller.commands.run("agent.list", "", undefined,
           origin === "self" ? card.id : origin === "other" ? "other-card" : undefined)
         expect(outcome.status).toBe("executed")
-        expect(store.session().palette).toBe("paper")
         expect(store.session().maximizedCardId).toBe(origin === "self" ? card.id : null)
       } finally { await controller.dispose() }
     })
@@ -85,12 +84,12 @@ describe("commands from a maximized card", () => {
   test("a structured submission preserves only its originating maximized card", async () => {
     const { store, controller } = await freshController()
     try {
-      await controller.commands.run("appearance.theme")
-      const card = [...store.collections.cards.values()].find(card => card.kind === "theme-picker")!
+      await controller.commands.run("agent.list")
+      const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
       await controller.commands.run("card.maximize", card.id)
-      expect((await controller.commands.submit({ name: "appearance.theme", payload: { palette: "paper" }, actor: "user", originCardId: card.id })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user", originCardId: card.id })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBe(card.id)
-      expect((await controller.commands.submit({ name: "appearance.theme", payload: { palette: "github" }, actor: "user" })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user" })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBeNull()
     } finally { await controller.dispose() }
   })

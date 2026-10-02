@@ -124,8 +124,8 @@ describe("card bindings are stable for their controller and origin", () => {
       const actions = cardActions(controller, card)
       expect(cardActions(controller, card)).toBe(actions)
       expect(cardActions(controller, { ...card, id: "other-card" })).not.toBe(actions)
-      actions.onRunCommand("appearance.theme", "paper")
-      expect(run).toHaveBeenLastCalledWith("appearance.theme", "paper", card.id)
+      actions.onRunCommand("appearance.dark-mode", "dark")
+      expect(run).toHaveBeenLastCalledWith("appearance.dark-mode", "dark", card.id)
       actions.onStopRun("run-1")
       expect(run).toHaveBeenLastCalledWith("flow.run.stop", "run-1", card.id)
     } finally { run.mockRestore() }

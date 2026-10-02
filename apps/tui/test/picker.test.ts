@@ -4,7 +4,6 @@ import type * as Extension from "../src/extension.ts"
 import * as Models from "../src/models.ts"
 import * as Picker from "../src/picker.ts"
 import type * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 import * as Timeline from "../src/timeline.ts"
 import type { Tab } from "../src/workspace.ts"
 
@@ -260,28 +259,6 @@ test("kind filter preserves Show all first and marks visible categories, indepen
   expect(filter).toEqual(before)
 })
 
-test("theme selection is shown without changing the active theme", () => {
-  const previous = Theme.activeTheme()
-  try {
-    Theme.setTheme("green")
-    expect(rows({ kind: "theme", query: "", selected: 0 })).toEqual([
-      { key: "purple", label: "purple", current: false, value: "purple" },
-      { key: "blue", label: "blue", current: false, value: "blue" },
-      { key: "green", label: "green", current: true, value: "green" },
-      { key: "orange", label: "orange", current: false, value: "orange" }
-    ])
-    expect(rows({ kind: "theme", query: "blue", selected: 0 })).toEqual([{
-      key: "blue",
-      label: "blue",
-      current: false,
-      value: "blue"
-    }])
-    expect(Theme.activeTheme()).toBe("green")
-  } finally {
-    Theme.setTheme(previous)
-  }
-})
-
 const future = Date.UTC(2500, 0, 1)
 const sessions: ReadonlyArray<Session.Summary> = [
   { file: "/sessions/a.jsonl", name: "Fix build", firstPrompt: "repair", modified: future },
@@ -407,7 +384,6 @@ test.each(
   [
     [{ kind: "model", query: "x", selected: 0 }, "Select model", "No model matches \"x\""],
     [{ kind: "worker-model", id: "w", query: "x", selected: 0 }, "Select model", "No worker-model matches \"x\""],
-    [{ kind: "theme", query: "x", selected: 0 }, "Select theme", "No theme matches \"x\""],
     [{ kind: "filter", query: "x", selected: 0 }, "Filter chat", "No filter matches \"x\""],
     [{ kind: "resume", query: "x", selected: 0, sessions: [] }, "Resume session", "No sessions in this directory"]
   ] satisfies Array<[Picker.Picker, string, string]>

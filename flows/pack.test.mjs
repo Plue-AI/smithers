@@ -477,6 +477,24 @@ describe("the dispatcher table", () => {
    */
   const projection = JSON.parse(readFileSync(join(projectionRoot, "factory.json"), "utf8"));
 
+  it("retires community nominations while retaining native factory dispatch", () => {
+    assert.equal(projection.on.some((rule) => rule.event === "nomination"), false);
+    const rules = new Map(projection.on.map((rule) => [rule.event, rule.flow]));
+    for (const [event, flow] of [
+      ["issue.labeled:todo", "coding/request"],
+      ["change.opened", "review/change"],
+      ["change.updated", "review/change"],
+      ["github.push:main", "coding/wiki"],
+      ["schedule:0 9 * * 1-5", "review"],
+      ["schedule:0 2 * * *", "security-audit"],
+      ["box.session.ended", "improve.mine"],
+      ["schedule:0 10 * * 1", "improve.suggest"],
+    ]) {
+      assert.equal(rules.get(event), flow, `${event} retains its factory flow`);
+    }
+    assert.deepEqual(rules.get("change.landed"), ["coding/wiki", "improve.mine"]);
+  });
+
   it("declares one nightly security audit", () => {
     const schedules = projection.on.filter((rule) =>
       rule.event.startsWith("schedule:") && [rule.flow].flat().includes("security-audit")
@@ -590,7 +608,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -606,14 +624,13 @@ describe("discovery over the project flows directory", () => {
     };
     // The runners, schedules and registration steps are the host's to start,
     // never a model's tool.
-    const hiddenModules = ["issue-sweep", "issue-sweep/work", "memory/mine", "notes/calendar-events", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
+    const hiddenModules = ["issue-sweep", "issue-sweep/work", "memory/mine", "register-repository", "register-repository/setup", "rollout"];
     // These named payloads cannot be safely reduced to a static document.
     // Keep this inventory independent of discovery's emitted warning list.
     const unavailablePayloads = [
       "coding", "coding/dispatch", "coding/implementation", "coding/prototype",
       "coding/request", "coding/verify", "coding/vibe", "coding/wiki",
       "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine",
-      "notes/calendar-events", "notes/traction",
       "register-repository", "register-repository/setup", "release-content",
       "release", "review", "wiki", "wrapped",
     ];

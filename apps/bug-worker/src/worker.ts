@@ -7,14 +7,10 @@ import { logFailure } from "./logFailure.ts";
 import { newBugId } from "./newBugId.ts";
 import { publicBaseUrl } from "./publicBaseUrl.ts";
 import { readBodyBounded } from "./readBodyBounded.ts";
-import { handleRepoClaims } from "./repoClaims.ts";
-import { sweepDeliveries } from "./repoDelivery.ts";
-import { handleRepoRequests } from "./repoRequests.ts";
 
 export type { BugWorkerDeps } from "./deps.ts";
 export type { BugWorkerEnv, BugKv } from "./env.ts";
 export { RateLimiter } from "./RateLimiter.ts";
-export { RepoCompletion } from "./RepoCompletion.ts";
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 
@@ -116,24 +112,12 @@ async function handleGetBug(request: Request, env: BugWorkerEnv, id: string): Pr
 export function defaultBugWorkerDeps(): BugWorkerDeps {
   return {
     now: () => Date.now(),
-    // workerd rejects a host function invoked with a foreign `this` ("Illegal invocation"), so
-    // `fetch: globalThis.fetch` breaks once routes call `deps.fetch(...)`; the arrow keeps `this` clear.
-    fetch: ((input, init) => fetch(input, init)) as typeof fetch,
   };
 }
 
 export function createBugWorker(overrides?: Partial<BugWorkerDeps>) {
   const deps: BugWorkerDeps = { ...defaultBugWorkerDeps(), ...overrides };
   return {
-    async scheduled(_event: unknown, env: BugWorkerEnv): Promise<void> {
-      // Per-repository failures are isolated inside the sweep; a KV failure on
-      // the shared queue or cursor is logged here, and the next run retries.
-      try {
-        await sweepDeliveries(env, deps);
-      } catch (error) {
-        console.error(JSON.stringify({ event: "repo_notification.failed", route: "scheduled", error: error instanceof Error ? error.message : String(error) }));
-      }
-    },
     async fetch(request: Request, env: BugWorkerEnv): Promise<Response> {
       const url = new URL(request.url);
 
@@ -142,12 +126,6 @@ export function createBugWorker(overrides?: Partial<BugWorkerDeps>) {
       }
       if (request.method === "GET" && url.pathname === "/healthz") {
         return json(200, { ok: true });
-      }
-      if (url.pathname === "/api/repo-requests" || url.pathname.startsWith("/api/repo-requests/")) {
-        return handleRepoRequests(request, env, deps);
-      }
-      if (url.pathname === "/api/repo-claims") {
-        return handleRepoClaims(request, env, deps);
       }
       if (request.method === "POST" && url.pathname === "/api/bugs") {
         return handlePostBug(request, env, deps.now());

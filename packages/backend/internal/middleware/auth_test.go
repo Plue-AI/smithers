@@ -171,7 +171,7 @@ func (m *mockAuthLoaderQuerier) GetAuthInfoByTokenHash(ctx context.Context, toke
 	return db.GetAuthInfoByTokenHashRow{}, pgx.ErrNoRows
 }
 
-func (m *mockAuthLoaderQuerier) GetOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error) {
+func (m *mockAuthLoaderQuerier) GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error) {
 	m.getOAuth2AccessTokenByHashHit++
 	if m.getOAuth2AccessTokenByHashFn != nil {
 		return m.getOAuth2AccessTokenByHashFn(ctx, tokenHash)

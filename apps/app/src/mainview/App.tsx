@@ -35,7 +35,6 @@ import { InputModeMenu } from "./InputModeMenu"
 import type { InitMessage } from "./Onboarding"
 import { cloudWebHost, initMessage } from "./Onboarding"
 import { GUIDE_KEYS,GuideButton } from "./onboarding/GuideButton"
-import { PluginsSurface } from "./plugins/PluginsSurface"
 import { pathRepo } from "./RepoLink"
 import type { Card,Message,Suggestion as SuggestionBinding } from "./state/AppState"
 import { conversationTabIdOf,DEFAULT_BRANCH_ID,inConversation,MAIN_TAB_ID } from "./state/AppState"
@@ -613,8 +612,6 @@ function AppContent() {
           <FlowsSurface cards={cardRows} /> :
           session.surface === "subagents" ?
           <SubagentOverview cards={conversationCards} onRunCommand={controller.runCommand} /> :
-          session.surface === "plugins" && controller.features.pluginLibrary ?
-          <PluginsSurface /> :
           null}
 
         {/* Admin-only: the panel is absent — not hidden — for everyone else. */}

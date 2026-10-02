@@ -14,12 +14,12 @@
  * What a plugin may add is deliberately narrow. Every rail entry names a
  * REGISTERED flow (the three-doors law: a button is a flow, a slash command
  * is that same flow, the agent's door is that same flow), so a plugin cannot
- * invent an affordance the registry has never heard of. The gallery's copy is
- * catalog metadata on the manifest; the behaviour is flows that already exist.
+ * invent an affordance the registry has never heard of. Metadata stays on the
+ * manifest; the behaviour is flows that already exist.
  */
 import { Context, Data, Effect } from "effect"
 
-/** The lucide glyph a plugin shows in the gallery and on its rail entries. */
+/** The lucide glyph for a plugin and its UI contributions. */
 export type PluginIcon =
   | "book-open"
   | "history"
@@ -31,17 +31,17 @@ export type PluginIcon =
   | "compass"
   | "puzzle"
 
-/** The catalog half of a plugin: what a person reads before installing it. */
+/** Portable plugin metadata, independent of a discovery storefront. */
 export interface PluginManifest {
-  /** Stable id: the install argument (`/plugins.install librarian`) and the store key. */
+  /** Stable installation id and store key. */
   readonly id: string
   readonly name: string
   /** Who publishes it. First-party plugins say "Smithers". */
   readonly publisher: string
   readonly version: string
-  /** One line, the gallery row. */
+  /** Short summary. */
   readonly summary: string
-  /** The detail pane's paragraph. */
+  /** Description. */
   readonly description: string
   readonly icon: PluginIcon
   readonly tags: ReadonlyArray<string>

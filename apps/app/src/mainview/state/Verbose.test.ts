@@ -78,10 +78,10 @@ describe("/verbose", () => {
     const { store, controller } = await fresh()
     await controller.commands.run("debug.verbose")
     await controller.commands.run("no.such.flow")
-    await controller.commands.run("appearance.theme", "not-a-palette")
+    await controller.commands.run("card.maximize", "missing-card")
     const lines = traces(store)
     expect(lines.some((line) => line.startsWith("You ran /no.such.flow → unknown-command"))).toBe(true)
-    expect(lines.some((line) => line.startsWith("You ran /appearance.theme not-a-palette → failed ("))).toBe(true)
+    expect(lines.some((line) => line.startsWith("You ran /card.maximize missing-card [hidden] → failed ("))).toBe(true)
   })
 
   test("agent invocations trace as Smithers", async () => {

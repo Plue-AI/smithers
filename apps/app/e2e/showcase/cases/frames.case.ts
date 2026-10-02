@@ -11,9 +11,9 @@ export default showcase({
   flows: ["card.maximize", "frame.back", "frame.forward", "tab.card"],
   run: async ({ page, app }) => {
     await app.open("/")
-    await app.slash("/appearance.theme")
+    await app.slash("/agent.list")
     await app.closeComposer()
-    const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="theme-picker"]')
+    const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
     await app.show(card)
     const id = (await card.getAttribute("data-testid"))!.replace(/^card-/, "")
     await app.maximize(card)

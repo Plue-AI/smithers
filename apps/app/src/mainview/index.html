@@ -19,10 +19,10 @@
     -->
     <script>
       (function (window, document) {
+        document.documentElement.setAttribute("data-palette", "paper");
         try {
           var storage = window.localStorage;
           var theme = storage && storage.getItem("smithers-mvp.theme");
-          var palette = storage && storage.getItem("smithers-mvp.palette");
           if (theme !== "light" && theme !== "dark") {
             theme =
               window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -30,9 +30,6 @@
                 : "light";
           }
           document.documentElement.setAttribute("data-theme", theme);
-          if (typeof palette === "string" && /^[a-z][a-z-]*$/.test(palette)) {
-            document.documentElement.setAttribute("data-palette", palette);
-          }
         } catch (error) {
           // A storage the browser refuses (private mode, disabled cookies) is
           // not a reason to paint nothing: light is the built-in default.

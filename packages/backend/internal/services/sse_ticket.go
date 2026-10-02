@@ -32,7 +32,7 @@ type SSETicketQuerier interface {
 	ConsumeSSETicket(ctx context.Context, ticketHash string) (db.SseTicket, error)
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 	GetAuthInfoByTokenHash(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error)
-	GetOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
+	GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
 	GetAuthSessionBySessionKey(ctx context.Context, sessionKey string) (db.AuthSession, error)
 	LegacyAuthSessionLive(ctx context.Context, sessionDigest string) (bool, error)
 }
@@ -204,7 +204,7 @@ func (s *SSETicketService) validateSourceToken(ctx context.Context, userID int64
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Internal("failed to validate SSE ticket source token")
 	}
-	oauth, err := s.Queries.GetOAuth2AccessTokenByHash(ctx, tokenHash)
+	oauth, err := s.Queries.GetFirstPartyOAuth2AccessTokenByHash(ctx, tokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Unauthorized("SSE ticket source token was revoked or expired")
 	}

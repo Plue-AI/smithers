@@ -45,10 +45,6 @@ func (b *workflowArtifactCovBilling) AuthorizeStorageIncrease(_ context.Context,
 	return b.storageErr
 }
 
-func (b *workflowArtifactCovBilling) AuthorizePairing(context.Context, int64) error {
-	return nil
-}
-
 func TestWorkflowArtifact_Cov_BillingAndConstructorOptions(t *testing.T) {
 	ctx := context.Background()
 

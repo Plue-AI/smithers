@@ -180,7 +180,7 @@ beforeAll(async () => {
   const warm = document.createElement("div");
   document.body.appendChild(warm);
   const warmRoot = createRoot(warm);
-  await act(async () => warmRoot.render(<CodeFileView name="src/warm-up.ts" contents={"const warm = 1\n"} mode="dark" palette="night-owl" />));
+  await act(async () => warmRoot.render(<CodeFileView name="src/warm-up.ts" contents={"const warm = 1\n"} mode="dark" palette="paper" />));
   await until(
     () => warm.querySelector("diffs-container")?.shadowRoot?.querySelector("[data-line] span[style]") != null,
     "the worker pool never painted a coloured token",
@@ -290,7 +290,7 @@ describe("the syntax theme ids", () => {
 describe("CodeFileView token model (happy-dom, main thread)", () => {
   for (const [key, fixture] of Object.entries(FIXTURES) as ReadonlyArray<[keyof typeof FIXTURES, (typeof FIXTURES)[keyof typeof FIXTURES]]>) {
     test(`${key}: every line survives tokenizing losslessly, more than one colour appears, and the sequence is pinned`, async () => {
-      await mount(<CodeFileView name={fixture.name} contents={fixture.contents} mode="dark" palette="night-owl" />);
+      await mount(<CodeFileView name={fixture.name} contents={fixture.contents} mode="dark" palette="paper" />);
       await highlighted();
       const model = tokenModel();
       const sourceLines = fixture.contents.split("\n");
@@ -308,11 +308,11 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
   }
 
   test("light and dark of the same palette colour the same tokens differently", async () => {
-    await mount(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="dark" palette="night-owl" />);
+    await mount(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="dark" palette="paper" />);
     await highlighted();
     const dark = coloursOf(tokenModel());
     expect(host().getAttribute("data-theme-mode")).toBe("dark");
-    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="light" palette="night-owl" />);
+    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="light" palette="paper" />);
     /*
      * The theme change re-renders through the pool, so the wait is for the
      * repaint itself: a fixed sleep either reads the dark colours still on
@@ -340,7 +340,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
      * invariant is asserted rather than one fixed order.)
      */
     const contents = "package main\n\nfunc main() {\n\tprintln(\"hi\")\n}\n";
-    await mount(<CodeFileView name="cmd/main.go" contents={contents} mode="dark" palette="night-owl" />);
+    await mount(<CodeFileView name="cmd/main.go" contents={contents} mode="dark" palette="paper" />);
     expect(host().querySelector(".sui-code-view-plain")?.textContent).toBe(contents);
     const painted = shadow().querySelector("[data-line]") != null;
     expect(host().getAttribute("data-state")).toBe(painted ? "ready" : null);
@@ -351,14 +351,14 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
   }, 90_000);
 
   test("the anchored line is marked, and the mark follows the prop", async () => {
-    await mount(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} line={4} mode="dark" palette="night-owl" />);
+    await mount(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} line={4} mode="dark" palette="paper" />);
     await highlighted();
     expect(shadow().querySelector('[data-line="4"]')?.hasAttribute("data-selected-line")).toBe(true);
     expect(shadow().querySelectorAll("[data-line][data-selected-line]")).toHaveLength(1);
-    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} line={6} mode="dark" palette="night-owl" />);
+    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} line={6} mode="dark" palette="paper" />);
     expect(shadow().querySelector('[data-line="6"]')?.hasAttribute("data-selected-line")).toBe(true);
     expect(shadow().querySelector('[data-line="4"]')?.hasAttribute("data-selected-line")).toBe(false);
-    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="dark" palette="night-owl" />);
+    await rerender(<CodeFileView name={FIXTURES.ts.name} contents={FIXTURES.ts.contents} mode="dark" palette="paper" />);
     expect(shadow().querySelectorAll("[data-line][data-selected-line]")).toHaveLength(0);
   }, 90_000);
 
@@ -381,7 +381,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
     try {
       await mount(
         <div className="proto-scroller" style={{ overflowY: "auto" }}>
-          <CodeFileView name="src/long.ts" contents={contents} line={40} mode="dark" palette="night-owl" />
+          <CodeFileView name="src/long.ts" contents={contents} line={40} mode="dark" palette="paper" />
         </div>,
       );
       await highlighted();
@@ -392,7 +392,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
       const instance = host().querySelector("diffs-container");
       await rerender(
         <div className="proto-scroller" style={{ overflowY: "auto" }}>
-          <CodeFileView name="src/long.ts" contents={contents} line={10} mode="dark" palette="night-owl" />
+          <CodeFileView name="src/long.ts" contents={contents} line={10} mode="dark" palette="paper" />
         </div>,
       );
       /*
@@ -409,7 +409,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
       // A line already in view leaves the scroller where it is.
       await rerender(
         <div className="proto-scroller" style={{ overflowY: "auto" }}>
-          <CodeFileView name="src/long.ts" contents={contents} line={12} mode="dark" palette="night-owl" />
+          <CodeFileView name="src/long.ts" contents={contents} line={12} mode="dark" palette="paper" />
         </div>,
       );
       await highlighted();
@@ -453,7 +453,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
     };
     try {
       for (const [name, fileContents] of [["src/big.ts", contents], ["src/big2.ts", contents.slice(200)]] as const) {
-        await mount(<CodeFileView name={name} contents={fileContents} mode="dark" palette="night-owl" />);
+        await mount(<CodeFileView name={name} contents={fileContents} mode="dark" palette="paper" />);
         await until(() => held.length > 0, `${name}: the worker never returned a file result`);
         let callbackServiced = false;
         await act(async () => {
@@ -495,7 +495,7 @@ describe("CodeFileView token model (happy-dom, main thread)", () => {
     document.documentElement.setAttribute("data-palette", "catppuccin");
     await mount(<CodeFileView name={FIXTURES.json.name} contents={FIXTURES.json.contents} />);
     expect(host().getAttribute("data-theme-mode")).toBe("light");
-    expect(host().getAttribute("data-palette")).toBe("catppuccin");
+    expect(host().getAttribute("data-palette")).toBe("paper");
   });
 });
 
@@ -529,7 +529,7 @@ describe("CodeFileView annotations and token gestures", () => {
         name="src/a.ts"
         contents={CONTENTS}
         mode="dark"
-        palette="night-owl"
+        palette="paper"
         annotations={[{ key: "d1", line: 2, node: <p data-slot="probe-annotation">Property 'x' does not exist</p> }]}
       />,
     );
@@ -539,7 +539,7 @@ describe("CodeFileView annotations and token gestures", () => {
     expect(slotted?.closest("[slot]")?.getAttribute("slot")).toBe("annotation-2");
     // pierre placed a slot for it in the shadow root, after line 2.
     expect(shadow().querySelector('slot[name="annotation-2"]')).not.toBeNull();
-    await rerender(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="night-owl" annotations={[]} />);
+    await rerender(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="paper" annotations={[]} />);
     expect(host().querySelector('[data-slot="probe-annotation"]')).toBeNull();
   }, 90_000);
 
@@ -550,7 +550,7 @@ describe("CodeFileView annotations and token gestures", () => {
   test("a pointer at rest on a token for restMs is one onTokenRest with the 1-based line and column; leaving first cancels it", async () => {
     const rest = restRecorder();
     await mount(
-      <CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="night-owl" restMs={REST_MS} onTokenRest={rest.onTokenRest} />,
+      <CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="paper" restMs={REST_MS} onTokenRest={rest.onTokenRest} />,
     );
     await highlighted();
     // `a` on line 2 is the 11th character (0-based 10): `const b = a + 1`.
@@ -595,7 +595,7 @@ describe("CodeFileView annotations and token gestures", () => {
   test("⌘-click or Ctrl-click on a token is one onTokenActivate; a plain click is nothing", async () => {
     const activations: Array<{ line: number; column: number; text: string }> = [];
     await mount(
-      <CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="night-owl" onTokenActivate={(at) => activations.push(at)} />,
+      <CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="paper" onTokenActivate={(at) => activations.push(at)} />,
     );
     await highlighted();
     // Shiki tokenizes `{ b }` on line 3 as one span; `a` on line 2 is its own token.
@@ -616,7 +616,7 @@ describe("CodeFileView annotations and token gestures", () => {
    * fire a gesture. With handlers, the marks are what the gestures read.
    */
   test("without gesture handlers the view is not interactive and no gesture fires; with them it is, and the column marks are there to read", async () => {
-    await mount(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="night-owl" />);
+    await mount(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="paper" />);
     await highlighted();
     expect(host().hasAttribute("data-interactive")).toBe(false);
     const span = shadow().querySelector<HTMLElement>("[data-line] span[style]");
@@ -624,7 +624,7 @@ describe("CodeFileView annotations and token gestures", () => {
     await settle(60);
     span?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true, metaKey: true }));
     const rest = restRecorder();
-    await rerender(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="night-owl" restMs={REST_MS} onTokenRest={rest.onTokenRest} />);
+    await rerender(<CodeFileView name="src/a.ts" contents={CONTENTS} mode="dark" palette="paper" restMs={REST_MS} onTokenRest={rest.onTokenRest} />);
     await highlighted();
     expect(host().hasAttribute("data-interactive")).toBe(true);
     await until(() => shadow().querySelector("[data-line] [data-char]") != null, "pierre never marked a token's column");

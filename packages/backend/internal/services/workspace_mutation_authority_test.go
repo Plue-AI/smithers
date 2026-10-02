@@ -141,11 +141,11 @@ func newAuthorityFixture(t *testing.T, status string, state workspaceapi.Workspa
 	ctx := context.Background()
 	pool := getAgentTestPool(t)
 	fx := &authorityFixture{pool: pool, store: db.New(pool)}
-	fx.owner = mkPairUser(t, pool, "authority-owner")
-	fx.writer = mkPairUser(t, pool, "authority-writer")
-	fx.reader = mkPairUser(t, pool, "authority-reader")
-	fx.revoked = mkPairUser(t, pool, "authority-revoked")
-	fx.repoID = mkPairRepo(t, pool, fx.owner)
+	fx.owner = fixtureUser(t, pool, "authority-owner")
+	fx.writer = fixtureUser(t, pool, "authority-writer")
+	fx.reader = fixtureUser(t, pool, "authority-reader")
+	fx.revoked = fixtureUser(t, pool, "authority-revoked")
+	fx.repoID = fixtureRepo(t, pool, fx.owner)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, name, kind, status, vm_id)
 		VALUES ($1, $2, $3, 'container', $4, 'vm-authority') RETURNING id`,
 		fx.repoID, fx.owner, "authority-"+uuid.NewString()[:8], status).Scan(&fx.workspaceID))

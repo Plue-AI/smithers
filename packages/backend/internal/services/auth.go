@@ -906,7 +906,7 @@ func (s *AuthService) publishSessionRevoked(ctx context.Context, event revocatio
 // the live session bearer credential (it is the session cookie's value — see
 // internal/middleware/auth.go loadSessionAuth), so only its SHA-256 digest is
 // stored, matching the recipe every other Smithers credential class already
-// uses (PATs, OAuth2 tokens, SSE tickets, pair tokens): a read-only database
+// uses (PATs, OAuth2 tokens, SSE tickets): a read-only database
 // compromise must not yield every active login.
 func sessionStorageKey(rawSessionKey string) string {
 	sum := sha256.Sum256([]byte(rawSessionKey))

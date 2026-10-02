@@ -165,7 +165,7 @@ the only help key.
 
 The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 
-`/model [query]`, `/theme`, `/new`, `/resume`, `/conversation`, `/compact`,
+`/model [query]`, `/new`, `/resume`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/chat`, `/filter`,
 `/grep [text]`, `/smithers`, `/retry #<issue>`, `/flows`, `/flow <name> [json|key=value|prompt]`,
 `/quit`, `/exit`. After `/model` and `/flow`

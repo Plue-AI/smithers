@@ -9,14 +9,7 @@ import { memoryStorage } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
-/*
- * The named roles end to end. Launching one as a local CLI retired with the
- * local backend (docs/LOCAL-BACKEND-RETIREMENT.md), so what is left is the
- * side turn: `agent.explain` answers as a card on the explainer role, and the
- * orchestrator's instructions name only what this host can reach. No real
- * model is touched: the agent is a recorder.
- */
-
+/* Ordinary explanation remains chat; no dedicated model side turn is launched. */
 
 const bootstrap: AppBootstrap = {
   apiVersion: 1,
@@ -63,45 +56,16 @@ const boot = async () => {
   return { store, controller, recorder }
 }
 
-describe("agent roles — the explainer", () => {
-  test("agent.explain runs one side turn on the explainer role and streams into an embedded card", async () => {
+describe("ordinary explanations use chat", () => {
+  test("the retired side-turn command cannot launch a model", async () => {
     const { store, controller, recorder } = await boot()
-    controller.runCommand("agent.explain", "why is packages/smithers/flows/jj/wasm not a regular file")
+    expect(controller.commands.find("agent.explain")).toBeUndefined()
+    expect((await controller.commands.run("agent.explain", "why?")).status).not.toBe("executed")
     await settle()
-    const launch = recorder.launches.at(-1)
-    expect(launch).toBeDefined()
-    expect(launch).toMatchObject({ purpose: "explain", role: "explainer" })
-    expect(launch?.tools).toBeUndefined()
-    expect(launch?.messages).toEqual([{ role: "user", content: "why is packages/smithers/flows/jj/wasm not a regular file" }])
-    expect(launch?.instructions).toContain("Explainer")
-    // The conversation's own phase never moves for a side turn.
-    expect(store.session().phase).toBe("idle")
-    const cardId = `explain-${launch?.runId ?? ""}`
-    expect(store.collections.cards.get(cardId)).toMatchObject({ kind: "explain", payload: { phase: "asking", answer: "" } })
-    recorder.emit({ runId: launch?.runId ?? "", type: "delta", kind: "text", text: "It is a directory " })
-    recorder.emit({ runId: launch?.runId ?? "", type: "delta", kind: "text", text: "of build output." })
-    recorder.emit({ runId: launch?.runId ?? "", type: "done", reason: "stop" })
-    await settle()
-    const card = store.collections.cards.get(cardId)
-    expect(card).toMatchObject({ status: "acted", payload: { phase: "answered", answer: "It is a directory of build output." } })
-    // Honest attribution: what was asked for, never a claim about who answered.
-    expect(card?.kind === "explain" ? card.payload.answeredBy : "").toContain("asked for the Explainer role (Kimi K3)")
-  })
-
-  test("a refused or empty explanation lands as a failed card, and a blank ask is refused before any turn", async () => {
-    const { store, controller, recorder } = await boot()
-    controller.runCommand("agent.explain", "this")
-    await settle()
-    const launch = recorder.launches.at(-1)
-    recorder.emit({ runId: launch?.runId ?? "", type: "done", error: "upstream refused" })
-    await settle()
-    expect(store.collections.cards.get(`explain-${launch?.runId ?? ""}`)).toMatchObject({
-      status: "error",
-      payload: { phase: "failed", error: "upstream refused" }
-    })
-    const before = recorder.launches.length
-    controller.runCommand("agent.explain", "   ")
-    await settle()
-    expect(recorder.launches.length).toBe(before)
+    expect(recorder.launches).toEqual([])
+    await controller.commands.run("agent.list")
+    const card = store.collections.cards.get("agents")
+    expect(card?.kind === "agents" && "agents" in card.payload ? card.payload.agents.map(role => role.id) : []).not.toContain("explainer")
+    expect(controller.commands.find("chat.send")).toBeDefined()
   })
 })

@@ -38,10 +38,6 @@ func (b *agentDispatchCovBilling) AuthorizeStorageIncrease(context.Context, int6
 	return nil
 }
 
-func (b *agentDispatchCovBilling) AuthorizePairing(context.Context, int64) error {
-	return nil
-}
-
 func TestAgentDispatch_Cov_AuthorizeTokenAndStepBranches(t *testing.T) {
 	ctx := context.Background()
 	dispatch := &agentDispatch{svc: &AgentService{}, ctx: ctx, input: DispatchAgentRunInput{RepositoryID: 101}}

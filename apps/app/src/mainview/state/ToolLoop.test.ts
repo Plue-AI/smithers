@@ -251,7 +251,7 @@ describe("the client-side agent tool loop", () => {
           type: "tool_call" as const,
           call_id: `call_${requests.length}`,
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "appearance.theme" })
+          arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ]

@@ -5,7 +5,7 @@ import { act, type ReactNode } from "react"
 import type * as Inbox from "../src/inbox.ts"
 import { chat, Overview } from "../src/subagent-view.tsx"
 import { TabStrip, WorkerList } from "../src/tabs-view.tsx"
-import { applyColorMode, color, type ColorMode, colorModeOf, setTheme, themes } from "../src/theme.ts"
+import { applyColorMode, color, type ColorMode, colorModeOf } from "../src/theme.ts"
 import * as View from "../src/view.tsx"
 import type { Tab } from "../src/workspace.ts"
 
@@ -16,7 +16,6 @@ afterEach(async () => {
     setup = undefined
   })
   applyColorMode({ addPostProcessFn: () => {} }, "truecolor")
-  setTheme("purple")
 })
 
 const models = [
@@ -97,8 +96,7 @@ describe("NO_COLOR frames", () => {
     expect(has(spanOf(lines, "GPT-6.1 Sol"), TextAttributes.INVERSE)).toBe(false)
   })
 
-  it("keeps reverse video after another accent is chosen", async () => {
-    setTheme("green")
+  it("keeps the last selected row in reverse video", async () => {
     const lines = await draw("none", list(2))
     expect(has(spanOf(lines, "Claude Opus 5.5"), TextAttributes.INVERSE)).toBe(true)
   })
@@ -288,13 +286,12 @@ describe("indexed frames", () => {
     expect(spanOf(lines, "Claude Opus 5.5").fg.slot).toBe(15)
     expect(spanOf(lines, "Anthropic").fg.slot).toBe(7)
     expect(spanOf(lines, "anthropic:claude-opus-5-5").fg.slot).toBe(8)
-    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(13)
+    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(14)
   })
 
-  it("draw the accent chosen after load in its 16-color hue", async () => {
-    setTheme("blue")
+  it("draw the Paper selected surface in its 16-color hue", async () => {
     const lines = await draw("ansi16", list(1))
-    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(12)
+    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(14)
   })
 
   it("draw the 256-color cube and ramp where TERM names 256 colors", async () => {
@@ -305,7 +302,7 @@ describe("indexed frames", () => {
       expect(rgba.intent).toBe("indexed")
       expect(rgba.slot).toBeGreaterThanOrEqual(16)
     }
-    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(176)
+    expect(spanOf(lines, "Qwen 3.8").bg.slot).toBe(79)
   })
 
   it("leave 24-bit frames untouched", async () => {
@@ -317,9 +314,7 @@ describe("indexed frames", () => {
 
   it("fill the selection with the brand color only under NO_COLOR", () => {
     applyColorMode({ addPostProcessFn: () => {} }, "none")
-    expect(color.selected).toBe(themes.purple)
-    setTheme("orange")
-    expect(color.selected).toBe(themes.orange)
+    expect(color.selected).toBe(color.brand)
     applyColorMode({ addPostProcessFn: () => {} }, "ansi16")
     expect(color.selected).toBe(color.element)
   })

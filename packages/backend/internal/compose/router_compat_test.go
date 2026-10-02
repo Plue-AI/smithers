@@ -117,7 +117,6 @@ func buildRouterCompat(
 		wikiService,
 		gitHandler,
 		notificationHandler,
-		nil,
 		adminUserHandler,
 		adminOrgHandler,
 		adminRepoHandler, // adminSystemMetricsHandler

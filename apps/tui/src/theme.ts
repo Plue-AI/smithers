@@ -1,12 +1,9 @@
 /**
- * Night Owl dark, the palette the Smithers app uses
+ * Paper dark, the retained brand palette the Smithers app uses
  * (`apps/app/src/mainview/styles/tokens.css`, `:root[data-theme="dark"]`).
  * Surfaces layer the way the app's do: the page, a panel, an element on it.
  */
 import { ansi256IndexToRgb, type OptimizedBuffer, RGBA, SyntaxStyle, TextAttributes } from "@opentui/core"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
-import { join } from "node:path"
 
 /** `color-mix(in srgb, a percent%, b)`. */
 export const mix = (a: string, percent: number, b: string): string => {
@@ -19,27 +16,9 @@ export const mix = (a: string, percent: number, b: string): string => {
   }`
 }
 
-const page = "#011627"
-const surface = "#0b253a"
-export const themes = {
-  purple: "#c792ea",
-  blue: "#82aaff",
-  green: "#addb67",
-  orange: "#f78c6c"
-} as const
-export type Theme = keyof typeof themes
-const file = () => join(homedir(), ".smithers", "tui", "theme")
-export const isTheme = (value: string): value is Theme => Object.hasOwn(themes, value)
-export const loadTheme = (): Theme => {
-  try {
-    const saved = readFileSync(file(), "utf8").trim()
-    return isTheme(saved) ? saved : "purple"
-  } catch {
-    return "purple"
-  }
-}
-let current: Theme = "purple"
-const brand: string = themes.purple
+const page = "#0d1514"
+const surface = "#131b1a"
+const brand = "#45c4b2"
 
 /**
  * The colors the terminal shows: `none` under NO_COLOR (bold, dim and reverse
@@ -61,21 +40,21 @@ export const color = {
   /** `--surface`: panels, the composer, dialogs. */
   surface,
   /** `--surface-2`: menus, hovered and nested elements. */
-  element: "#1d3b53",
+  element: "#1a2422",
   /** A selected or focused row's fill; the brand fill, drawn as reverse video, under NO_COLOR. */
-  selected: "#1d3b53",
+  selected: "#1a2422",
   /** `--surface-3`. */
-  raised: "#234d70",
+  raised: "#202b29",
   /** `--border-solid`. */
-  border: "#122d42",
-  text: "#d6deeb",
-  muted: "#8badc1",
-  faint: "#748fa5",
+  border: "#293532",
+  text: "#ece7db",
+  muted: "#a8a193",
+  faint: "#969083",
   brand,
-  success: "#addb67",
-  warning: "#ecc48d",
-  danger: "#ef5350",
-  info: "#82aaff",
+  success: "#7fbfb3",
+  warning: "#f0c169",
+  danger: "#d97757",
+  info: "#82a8b8",
   /** The person acts now: a question, a spend cap, a take-over. Never a theme color. */
   needs: "#c792ea",
   /** `--bubble-outgoing` (dark): the user's messages. */
@@ -94,20 +73,6 @@ export const lane = (index: number): string => {
 /** Under NO_COLOR the selected fill is the brand color, which every frame draws as reverse video. */
 const fillSelected = () => {
   color.selected = mode === "none" ? color.brand : color.element
-}
-
-export const activeTheme = (): Theme => current
-export const setTheme = (theme: Theme): void => {
-  current = theme
-  color.brand = themes[theme]
-  fillSelected()
-  color.bubble = mix(color.brand, 24, color.surface)
-  syntax = makeSyntax()
-}
-
-export const saveTheme = (theme: Theme): void => {
-  mkdirSync(join(homedir(), ".smithers", "tui"), { recursive: true })
-  writeFileSync(file(), theme + "\n")
 }
 
 /**
@@ -155,6 +120,15 @@ const plain = (buffer: OptimizedBuffer): void => {
 
 /** In 16 colors the palette keeps its hues and text stays brighter than muted; other colors take the nearest slot. */
 const sixteen: ReadonlyArray<readonly [string, number]> = [
+  // Semantic Paper colors keep their readable terminal counterparts on ANSI16.
+  ["#0d1514", 0],
+  ["#131b1a", 0],
+  ["#1a2422", 0],
+  ["#202b29", 0],
+  ["#ece7db", 15],
+  ["#a8a193", 7],
+  ["#969083", 8],
+  ["#45c4b2", 14],
   ["#d6deeb", 15],
   ["#8badc1", 7],
   ["#748fa5", 8],
@@ -237,7 +211,7 @@ const makeSyntax = () =>
     "markup.list": fg(color.brand),
     "markup.quote": fg(color.muted, { italic: true })
   })
-export let syntax = makeSyntax()
+export const syntax = makeSyntax()
 
 /** Braille spinner frames, advanced by the app's clock. */
 export const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const

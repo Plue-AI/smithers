@@ -62,6 +62,7 @@ func newPATGrantEnv(t *testing.T) *patGrantEnv {
 	r := chi.NewRouter()
 	r.Use(middleware.AuthLoader(q, config.AuthConfig{}))
 	r.Post("/api/oauth2/token", h.PostToken)
+	r.Post("/api/oauth2/revoke", h.PostRevoke)
 	r.Get("/api/oauth2/authorize", h.GetAuthorize)
 	r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/api/probe", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

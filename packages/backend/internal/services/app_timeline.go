@@ -19,8 +19,7 @@ import (
 // write through REST (append / rewrite / snapshot); every member's local
 // replica converges by streaming the app_timeline_* realtime streams.
 //
-// Ownership is membership-based from day one (pair_session_members pattern)
-// so a timeline is shareable for pairing without schema redesign: the owner
+// Timeline ownership and access are persisted with the event history. The owner
 // holds a live 'owner' member row; AddMember grants 'editor'/'viewer' rows.
 type AppTimelineService struct {
 	store      AppTimelineStore
@@ -87,7 +86,7 @@ func NewAppTimelineService(store AppTimelineStore, opts ...AppTimelineServiceOpt
 	return s
 }
 
-// Timeline roles (same ladder as pair sessions; viewers sync, editors write).
+// Timeline roles: viewers sync, editors write.
 const (
 	AppTimelineRoleOwner  = "owner"
 	AppTimelineRoleEditor = "editor"
@@ -156,7 +155,7 @@ type AppTimelineResolution struct {
 
 // withAppTimelineMutation serializes writes for one timeline across API
 // instances (transaction-scoped advisory lock), mirroring
-// withPairSessionMutation: a direct *db.Queries store is rebound to the lock
+// other transactional mutations: a direct *db.Queries store is rebound to the lock
 // transaction so truncate + inserts + head update commit atomically.
 func (s *AppTimelineService) withAppTimelineMutation(ctx context.Context, timelineID string, fn func(*AppTimelineService) error) error {
 	return s.withAppTimelineLock(ctx, "app-timeline:"+timelineID, fn)
@@ -310,7 +309,7 @@ func (s *AppTimelineService) createAppTimelineUnderOwnerLock(ctx context.Context
 // ensureOwnerMember records/repairs the owner's member row. Best-effort:
 // ownership authority is app_timelines.owner_user_id (resolve() checks it
 // first), the member row exists so the membership-authorized realtime streams
-// and future pairing see the owner uniformly. Owner rows are never revoked
+// see the owner uniformly. Owner rows are never revoked
 // (RevokeAppTimelineMember excludes role='owner'), so the upsert's
 // no-resurrect guard cannot drop this write.
 func (s *AppTimelineService) ensureOwnerMember(ctx context.Context, timeline db.AppTimeline) {

@@ -17,7 +17,7 @@ import type { ThemeSyntaxId } from "./ThemeSyntaxId.ts";
 export type SmithersTheme = {
   /** Registry key and `data-palette` attribute value. */
   key: string;
-  /** Human-readable name for theme pickers. */
+  /** Human-readable palette name. */
   label: string;
   light: ThemeVariantTokens;
   dark: ThemeVariantTokens;

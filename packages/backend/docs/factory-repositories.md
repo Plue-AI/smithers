@@ -47,7 +47,7 @@ with every time the schedule fires:
 ```ts
 on: {
   "schedule:0 6 * * *": {
-    flow: "notes/traction",
+    flow: "wiki",
     description: "Daily traction row",
     payload: { note: "Traction.md", npmPackage: "@smthrs/cli", repository: "smithersai/smithers" }
   }

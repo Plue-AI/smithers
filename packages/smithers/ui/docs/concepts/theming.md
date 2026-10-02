@@ -1,6 +1,6 @@
 ---
 title: "Theme tokens"
-description: "How every color resolves through a var(--house-token, lightFallback) bridge onto the styleguide theme, how light, dark, and the eight palettes are selected, and the two token names that mean something different here."
+description: "How every color resolves through a var(--house-token, lightFallback) bridge onto the styleguide theme, how light, dark, and Paper light/dark are selected, and the two token names that mean something different here."
 sidebar:
   order: 2
 ---
@@ -65,17 +65,15 @@ what `Terminal` and the pierre surfaces do.
 
 ## Selecting a palette
 
-`data-palette` on `<html>` selects among eight registered palettes:
-`night-owl` (the default), `fucory`, `one`, `github`, `catppuccin`, `solarized`,
-`gruvbox`, and `rose-pine`. An unregistered value falls back to the default
-rather than producing an unthemed page.
+Paper is the retained palette. Historical or unregistered `data-palette` values
+fallback to Paper. Light/dark selection and generic custom token APIs remain.
 
 ```ts
 import { DEFAULT_THEME_KEY, resolvePalette, themeRegistry, useResolvedPalette } from "@smthrs/ui"
 
 resolvePalette() // a registered key, or DEFAULT_THEME_KEY
-DEFAULT_THEME_KEY // "night-owl"
-Object.keys(themeRegistry).length // 8
+DEFAULT_THEME_KEY // "paper"
+Object.keys(themeRegistry).length // 1
 ```
 
 `useResolvedPalette` is the React hook form, and it re-renders when the
@@ -89,7 +87,7 @@ second definition.
 
 **`accent` is the hover fill, not the brand.** shadcn's vocabulary calls the
 hover surface `accent`. The styleguide's page-global `--accent` alias is the
-brand violet. The bridge deliberately does not read `--accent`: `tokens.accent`
+brand teal. The bridge deliberately does not read `--accent`: `tokens.accent`
 resolves `--hover`. Reach for `tokens.primary` when you mean the brand.
 
 **`primary` is tinted, not solid.** The house primary button is a 10 percent

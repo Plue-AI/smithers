@@ -32,7 +32,7 @@ toolResultLaunchedRun
 } from "../RunClaims"
 import { toolActLine } from "../ToolActLine"
 import { WORLD_BODY_BUDGET,worldContextDocuments } from "../WorldContext"
-import { knowledgeCardAvailable } from "../KnowledgeFeatures"
+import { cardAvailable } from "../CardAvailability"
 import { isRuntimeOwnedCard } from "../isRuntimeOwnedCard"
 import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
@@ -240,7 +240,7 @@ export const createTurnController = (
       ? undefined
       : store.collections.worldDocuments.get(current.selectedWorldDocumentId)
     const recent = [...store.collections.cards.values()]
-      .filter(card => inConversation(card, conversationTabIdOf(current)) && knowledgeCardAvailable(card.kind, ctx.services.features))
+      .filter(card => inConversation(card, conversationTabIdOf(current)) && cardAvailable(card.kind))
       .sort((a, b) => a.ordinal - b.ordinal).slice(-RECENT_CARD_WINDOW)
     return {
       repositoryUpdate: currentRepositoryUpdate(store),

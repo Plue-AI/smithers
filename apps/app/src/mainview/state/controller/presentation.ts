@@ -1,8 +1,7 @@
 import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { TOOLS_BROWSER_FETCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
-import type { Card,Palette } from "../AppState"
-import { conversationTabIdOf,DEFAULT_PALETTE,isPalette,MAIN_TAB_ID,PALETTES,WIKI_DISPLAY_NAME } from "../AppState"
-import { THEME_PICKER_CARD_ID } from "../AppStore"
+import type { Card } from "../AppState"
+import { conversationTabIdOf,MAIN_TAB_ID,WIKI_DISPLAY_NAME } from "../AppState"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
 import type { ControllerContext,NetEntry } from "./context"
 import { all as allChat, CHAT_KINDS, subagentsFromCards, toggle as toggleChat } from "../ChatTimeline"
@@ -33,7 +32,6 @@ export interface PresentationController {
   readonly debugSeams: () => Promise<string | void | { readonly value: string }>
   readonly openBrowser: (url: string) => Promise<string | void | { readonly value: string }>
   readonly setTheme: (theme?: "light" | "dark") => void
-  readonly setPalette: (args: string) => string | void
 }
 
 export const createPresentationController = (
@@ -427,66 +425,6 @@ export const createPresentationController = (
     })
   }
 
-  /*
-   * The color theme (/theme), the axis orthogonal to the light/dark toggle.
-   * Which palette to wear is the human's own choice, so an unrecognized key
-   * is never rounded to the nearest one: the answer is the list itself, one
-   * calm line, and a bare /theme states where they already are.
-   */
-  const themePickerCard = (): Extract<Card, { kind: "theme-picker" }> | undefined => {
-    const card = ctx.store.collections.cards.get(THEME_PICKER_CARD_ID)
-    return card?.kind === "theme-picker" ? card : undefined
-  }
-
-  /*
-   * Bare /theme answers with the picker card, not a sentence: one swatch per
-   * palette, each painted in its own colors, upserted to the transcript's
-   * tail like the repo chooser. An unrecognized key opens the same picker —
-   * the list of valid answers IS the interface.
-   */
-  const openThemePicker = (selected: Palette): void => {
-    const existing = themePickerCard()
-    let highest = -1
-    for (const message of ctx.store.collections.messages.values()) highest = Math.max(highest, message.ordinal)
-    for (const card of ctx.store.collections.cards.values()) highest = Math.max(highest, card.ordinal)
-    ctx.store.dispatch({
-      type: "card.upsert",
-      actor: "user",
-      card: {
-        id: THEME_PICKER_CARD_ID,
-        kind: "theme-picker",
-        title: "Color themes",
-        status: "active",
-        createdAt: existing?.createdAt ?? Date.now(),
-        ordinal: highest + 1,
-        payload: { selected }
-      }
-    })
-  }
-
-  const setPalette = (args: string): string | void => {
-    const requested = args.trim().toLowerCase()
-    const current = ctx.store.session().palette ?? DEFAULT_PALETTE
-    if (requested === "") {
-      openThemePicker(current)
-      return
-    }
-    if (!isPalette(requested)) {
-      openThemePicker(current)
-      return `theme needs one of: ${PALETTES.join(", ")}`
-    }
-    ctx.store.dispatch({ type: "palette.changed", actor: "user", palette: requested })
-    // The open picker follows the choice, so its "current" mark stays honest.
-    const picker = themePickerCard()
-    if (picker !== undefined) {
-      ctx.store.dispatch({
-        type: "card.upsert",
-        actor: "user",
-        card: { ...picker, payload: { selected: requested } }
-      })
-    }
-  }
-
   return {
     showChat,
     showWorld,
@@ -511,6 +449,5 @@ export const createPresentationController = (
     debugSeams,
     openBrowser,
     setTheme,
-    setPalette
   }
 }

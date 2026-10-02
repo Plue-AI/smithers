@@ -12,14 +12,12 @@ import { App } from "../src/app.tsx"
 import { FlowError, type Port, type Settled } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Actual App routing, native headless rendering and isolated session files.
 // Execution and control-plane boundaries are explicit doubles, not providers.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let active: Session.Writer
 let saved: Session.Writer
@@ -102,7 +100,6 @@ beforeEach(async () => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   turns = []
   launch = Promise.withResolvers<string>()
@@ -187,7 +184,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

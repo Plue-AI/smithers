@@ -109,7 +109,7 @@ func (*releaseReservationBilling) AuthorizeAgentRunCommitted(ctx context.Context
 func (*releaseReservationBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (*releaseReservationBilling) AuthorizePairing(context.Context, int64) error { return nil }
+
 func (p *releaseReservationBilling) AuthorizeStorageIncreaseCommitted(
 	ctx context.Context,
 	_ int64,

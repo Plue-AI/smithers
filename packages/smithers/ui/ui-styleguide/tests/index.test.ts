@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_THEME_KEY,
   reducedMotionCss,
   themeCss,
   themeRegistry,
@@ -10,7 +9,7 @@ import {
   workflowUiThemeCss,
 } from "../src/index.ts";
 
-const nonDefaultKeys = Object.keys(themeRegistry).filter((key) => key !== DEFAULT_THEME_KEY);
+
 
 describe("ui styleguide", () => {
   test("exports the combined theme and layout styles", () => {
@@ -73,41 +72,16 @@ describe("ui styleguide", () => {
     expect(workflowUiThemeCss.match(/--font-sans:Inter/g)).toHaveLength(1);
     expect(workflowUiThemeCss.match(/font-family:var\(--font-sans\)/g)).toHaveLength(1);
     expect(workflowUiThemeCss.match(/--font-mono:ui-monospace/g)).toHaveLength(1);
-    for (const key of nonDefaultKeys) {
-      const rule = workflowUiThemeCss.split("\n").find((line) => line.startsWith(`:root[data-palette='${key}'] {`));
-      expect(rule, key).toBeDefined();
-      expect(rule).not.toContain("--font-sans");
-      expect(rule).not.toContain("font-family");
-    }
+
   });
 
-  test("emits three selection states for every non-default palette", () => {
-    // Selectors only. What each selector declares -- and which variant a
-    // document with a given `data-palette`, `data-theme`, and system preference
-    // actually resolves to -- is `tests/paletteSelection.test.ts`, because
-    // these three assertions hold for any declarations at all.
-    for (const key of nonDefaultKeys) {
-      expect(workflowUiThemeCss).toContain(`:root[data-palette='${key}'] {`);
-      expect(workflowUiThemeCss).toContain(`:root[data-palette='${key}']:not([data-theme='light'])`);
-      expect(workflowUiThemeCss).toContain(`:root[data-palette='${key}'][data-theme='dark']`);
-    }
-    expect(workflowUiThemeCss.split("\n")[0]).toStartWith(":root { color-scheme:light;");
-  });
+  test("emits Paper light and both dark selection strategies without palette overrides", () => {
+    expect(workflowUiThemeCss.split("\n")[0]).toStartWith(":root { color-scheme:light;")
+    expect(workflowUiThemeCss).toContain(":root[data-theme='dark']")
+    expect(workflowUiThemeCss).toContain("@media (prefers-color-scheme: dark) { :root:not([data-theme='light'])")
+    expect(workflowUiThemeCss).not.toContain("data-palette")
+  })
 
-  test("puts every palette override after the equally specific default dark rules", () => {
-    // `:root[data-palette='<key>']` and `:root[data-theme='dark']` both compute
-    // to (0,2,0), so only source order stops the default's dark tokens from
-    // overriding a selected palette's light tokens.
-    const defaultDark = workflowUiThemeCss.indexOf(":root[data-theme='dark']");
-    const defaultMedia = workflowUiThemeCss.indexOf("@media (prefers-color-scheme: dark) { :root:not(");
-    expect(defaultDark).toBeGreaterThan(-1);
-    expect(defaultMedia).toBeGreaterThan(-1);
-    for (const key of nonDefaultKeys) {
-      const palette = workflowUiThemeCss.indexOf(`:root[data-palette='${key}'] {`);
-      expect(palette, key).toBeGreaterThan(defaultDark);
-      expect(palette, key).toBeGreaterThan(defaultMedia);
-    }
-  });
 });
 
 describe("themeCss", () => {
@@ -116,29 +90,21 @@ describe("themeCss", () => {
     expect(themeCss()).toBe(themeCss({ palettes: Object.keys(themeRegistry) }));
   });
 
-  test("emits a subset for a host that pins one palette", () => {
-    const subset = themeCss({ palettes: ["one"] });
-    expect(subset).toContain(":root[data-palette='one'] {");
-    for (const key of nonDefaultKeys.filter((k) => k !== "one")) {
-      expect(subset).not.toContain(`:root[data-palette='${key}']`);
-    }
-    expect(subset).toContain(":root { color-scheme:light;");
-    expect(subset.length).toBeLessThan(themeCss().length / 2);
+  test("a pinned Paper host emits the same complete light/dark rules", () => {
+    expect(themeCss({ palettes: ["paper"] })).toBe(themeCss());
+    expect(themeCss()).not.toContain("data-palette");
   });
 
   test("names an unregistered palette instead of emitting nothing", () => {
     expect(() => themeCss({ palettes: ["dracula"] })).toThrow(/unknown palette "dracula"/);
-    expect(() => themeCss({ palettes: ["one", "dracula"] })).toThrow(/registered: night-owl, fucory/);
+    expect(() => themeCss({ palettes: ["paper", "dracula"] })).toThrow(/registered: paper/);
   });
 
   test("emits registry order for any request order, and each palette once", () => {
-    const forward = themeCss({ palettes: ["one", "github"] });
-    expect(themeCss({ palettes: ["github", "one"] })).toBe(forward);
-    expect(themeCss({ palettes: ["one", "github", "one"] })).toBe(forward);
-    expect(forward.indexOf(":root[data-palette='one'] {")).toBeLessThan(
-      forward.indexOf(":root[data-palette='github'] {"),
-    );
-    expect(forward.match(/:root\[data-palette='one'\] \{/g)).toHaveLength(1);
+    const forward = themeCss({ palettes: ["paper"] });
+    expect(themeCss({ palettes: ["paper"] })).toBe(forward);
+    expect(themeCss({ palettes: ["paper", "paper"] })).toBe(forward);
+    expect(forward.match(/:root \{/g)).toHaveLength(1);
   });
 });
 
@@ -155,7 +121,7 @@ describe("workflowUiPrimitiveCss", () => {
     // primitives from a character offset into the combined sheet. The export
     // has to reproduce it byte for byte, or a host that follows the old guide
     // and a host that follows the new one ship different CSS.
-    const palettes = ["gruvbox"];
+    const palettes = ["paper"];
     const sliced = [
       themeCss({ palettes }),
       workflowUiThemeCss.slice(themeCss().length + 1),

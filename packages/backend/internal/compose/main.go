@@ -327,8 +327,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// stream while the server has not yet observed the old TCP close and run the
 	// deferred Unsubscribe. 100 leaves comfortable headroom for that overlap while
 	// still stopping a single user from opening unbounded streams on one pod.
-	// (Pair stays on the uncapped per-client path — see routes/pair.go — so keyless
-	// viewers are unaffected by this cap.)
 	sseBroker := sse.NewBroker(pool)
 	smithersMetrics.MustRegister(sseBroker.MetricsCollectors()...)
 	sseBroker.MaxStreamsPerUser = 100
@@ -799,25 +797,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			services.WithSandboxEnvironmentImageGoldenSnapshots(goldenSnapshotService, workspaceService.NixBakeVMRequest))
 		services.WithWorkspaceEnvironmentImages(environmentImageService)(workspaceService)
 	}
-
-	// Smithers Pair sessions: the server-authoritative pairing backend
-	// (fork-and-swap, ACL ladder, roles, invites, per-link slugs, serial FIFO
-	// queue with executor election, co-compose draft). Identity is the real
-	// signed-in user; the paid-plan gate rides billingPolicy and the fork rides
-	// workspaceService. Invites deliver via emailTransport when configured and
-	// degrade to invite-record-only ("email delivery unavailable") otherwise.
-	pairSessionService := services.NewPairSessionService(
-		db.New(pool),
-		billingPolicy,
-		workspaceService,
-		services.PairSessionServiceConfig{
-			EmailFrom:     emailFrom,
-			Transport:     emailTransport,
-			InviteBaseURL: publicBaseURL,
-			TxBeginner:    pool,
-		},
-	)
-	pairSessionHandler := routes.NewPairSessionHandler(pairSessionService)
 
 	// One-release convergence (#2198): discard the retired box gateways still
 	// running from before. Delete with services.RepoGatewayRetirement.
@@ -1324,7 +1303,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	oauth2Service.SetRevocationPublisher(revocationPublisher)
 	adminUserService.SetRevocationPublisher(revocationPublisher)
 	orgService.SetRevocationPublisher(revocationPublisher)
-	pairSessionService.SetRevocationPublisher(revocationPublisher)
 	agentService.SetRevocationPublisher(revocationPublisher)
 	repoService.SetRevocationPublisher(revocationPublisher)
 	sshKeyService.SetRevocationPublisher(revocationPublisher)
@@ -1397,7 +1375,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		wikiService,
 		gitHandler,
 		notificationHandler,
-		pairSessionHandler,
 
 		adminUserHandler,
 		adminOrgHandler,
@@ -1672,7 +1649,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		launchWorker(func() { gitHubSyncedRepoService.StartReconciler(workerCtx) })
 		launchWorker(func() { gitHubSyncedRepoService.StartSyncWebhookReconciler(workerCtx, 10*time.Minute) })
-		launchWorker(func() { pairSessionService.StartStaleSweeper(workerCtx) })
 		agentService.StartSessionReaper(workerCtx, time.Duration(cfg.Sandbox.AgentMaxRuntimeSecs)*time.Second)
 		authCleaner.Start(workerCtx)
 		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)

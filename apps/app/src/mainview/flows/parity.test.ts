@@ -303,7 +303,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../AppRoot.tsx": 1, // saved-store recovery Reload, with no writable command journal.
       "../ChatFilterMenu.tsx": 2,
       // Shared by the workspace and tutorial: copy, message CTA, retry, and explain.
-      "../TranscriptMessage.tsx": 4,
+      "../TranscriptMessage.tsx": 3,
       "../LocalAuthPanel.tsx": 4, // Includes the failed read's Retry, a FailureNotice action.
     "../RegistrationStatus.tsx": 1,
       "../StartupError.tsx": 7, // Runtime Reload, writer takeover/reload, backend chooser, credential submission, and the bootstrap Retry (a FailureNotice action).
@@ -325,9 +325,6 @@ describe("launch-law parity: every affordance is a command", () => {
        * plugin contributed. Every one is a delegated prop its binding site
        * runs through the registry.
        */
-      "../plugins/PluginGallery.tsx": 2,
-      "../plugins/PluginRail.tsx": 1,
-      "../plugins/PluginsSurface.tsx": 1,
       /* 11 = 10 + the origin chip's "rev N exists · view" (lane change step 4; renders only when both seqs are known). */
       // Send and Stop, plus the prompt queue: Queue, Resume, Edit and Remove.
       "../Composer.tsx": 6,
@@ -393,7 +390,6 @@ describe("launch-law parity: every affordance is a command", () => {
       
       "../cards/SyncCards.tsx": 5,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */
-      "../cards/ThemePickerCard.tsx": 1,
       /*
        * Lane citc: the workspace card's five facet tabs, the terminal facet's
        * Open and per-session Destroy, the snapshots' Fork-from, Template and
@@ -513,7 +509,7 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(message).toMatch(/onDownload=\{\(\) => \{\s*controller\.runCommand\(STORAGE_RECOVERY_EXPORT\)/)
     expect(message).toContain("runCommandForResult(\"chat.copy-message\"")
     expect(message).toContain("runCommand(\"chat.retry\"")
-    expect(message).toMatch(/runCommand\(\s*"agent\.explain"/)
+    expect(message).not.toContain("agent.explain")
     expect(app).toContain("runCommand(\"toast.dismiss\"")
   })
 
@@ -713,35 +709,11 @@ describe("launch-law parity: every affordance is a command", () => {
     }
   })
 
-  /*
-   * The two look-and-feel axes: the light/dark toggle (/dark-mode) and /theme,
-   * the palette command that takes its key as an argument. The default chrome
-   * has no icon rail (#3334), so the toggle's doors are slash and agent; the
-   * theme picker card binds the palette command only. Both are
-   * model-invocable — every listed flow is a tool call
-   * (flows/invocable.test.ts) — so this test guards the binding sites and
-   * the args hint, not the trigger axis.
-   */
-  test("the light/dark toggle and the color theme are separate commands the model can call", () => {
-    const picker = files["../cards/ThemePickerCard.tsx"] ?? ""
-    expect(picker).toContain("onRunCommand(\"appearance.theme\", swatch.key)")
-    expect(picker).not.toContain("appearance.dark-mode")
-    const registrySource = registrySources()
-    // A declaration is a const literal (`const THEME = { ... }`); the slice ends
-    // at the literal's close.
-    const entry = (name: string): string => {
-      const start = registrySource.indexOf(`name: "${name}"`)
-      expect(start).toBeGreaterThan(-1)
-      return registrySource.slice(start, registrySource.indexOf("\n  }\n", start))
-    }
-    // Listed flows are model-invocable (Will's rule; flows/invocable.test.ts
-    // pins the invariant); the args hint is what makes
-    // `/appearance.theme <palette>` parse as an invocation.
-    expect(entry("appearance.theme")).not.toContain("userOnly")
-    expect(entry("appearance.theme")).toContain("args:")
-    expect(entry("appearance.dark-mode")).not.toContain("userOnly")
-    // The toggle is its own flow, separate from the palette flow.
-    expect(entry("appearance.dark-mode")).not.toContain("hidden")
+  test("light/dark remains callable while decorative themes are absent", () => {
+    const source = registrySources()
+    expect(source).toContain('name: "appearance.dark-mode"')
+    expect(source).not.toContain('name: "appearance.theme"')
+    expect(files["../cards/ThemePickerCard.tsx"]).toBeUndefined()
   })
 
   test("the slash menu wrapper dispatches through the registry", () => {

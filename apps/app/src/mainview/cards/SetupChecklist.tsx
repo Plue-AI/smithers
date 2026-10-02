@@ -208,7 +208,7 @@ export function useFirstRun(commands?: readonly CatalogItem[]) {
   }, repo)
   const featuredFlows = repo === undefined ? [] : repositoryCatalogs.find(row => row.id === repo)?.flows ?? []
   const groups = firstRunGroups(catalog, {
-    surface: session?.surface ?? "chat", typing: session?.phase === "responding", plugins: session?.plugins,
+    surface: session?.surface ?? "chat", typing: session?.phase === "responding",
     signedOut: identity?.state === "signed-out", admin: identity?.admin === true,
     hasConnectors: identity?.state === "signed-in" || connectors.length > 0,
     publicRepo: activeCatalogRepositoryId(controller.store) !== null,

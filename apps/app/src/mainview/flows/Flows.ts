@@ -60,7 +60,6 @@ import { issuesFlows } from "./entries/issues"
 import { setupFlows } from "./entries/setup"
 import { notificationsFlows } from "./entries/notifications"
 import { paletteFlows } from "./entries/palette"
-import { PLUGINS_USER_ONLY_REASON, pluginsFlows, pluginsSurfaceFlows } from "./entries/plugins"
 import { prsFlows } from "./entries/prs"
 import { repoFlows, tutorialRepositoryFlows } from "./entries/repo"
 import { reposImportFlows, reposImportRetryFlows } from "./entries/repos"
@@ -115,7 +114,6 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "flows", why: "surface switch: the model lists flows with flow.list, which answers as an embedded card" },
   { name: "wiki.pane", why: "surface switch: the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards" },
   { name: "wiki.attach", why: "the file comes from the human's own file dialog; a model has no file to give" },
-  { name: "plugins", why: PLUGINS_USER_ONLY_REASON },
   { name: "subagents", why: SUBAGENTS_USER_ONLY_REASON },
   { name: "history.retry", why: HISTORY_RETRY_USER_ONLY_REASON },
   { name: "history.land", why: HISTORY_LAND_USER_ONLY_REASON },
@@ -127,7 +125,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...wikiSurfaceFlows(actions),
   ...worldSurfaceFlows(actions),
   ...flowsSurfaceFlows(actions),
-  ...(actions.snapshot?.()?.pluginLibrary === true ? pluginsSurfaceFlows(actions) : []),
   ...subagentsSurfaceFlows(actions),
   ...appearanceFlows(actions),
   ...debugVerboseFlows(actions),
@@ -190,7 +187,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...smithersFlows(actions),
   ...searchFlows(actions),
   ...paletteFlows(actions),
-  ...(actions.snapshot?.()?.pluginLibrary === true ? pluginsFlows(actions) : []),
 ]
 
 /*

@@ -463,11 +463,10 @@ describe("seats", () => {
   test("lists the seats each host reads", () => {
     expect(MODEL_SEATS.map(({ id, kind, hosts }) => ({ id, kind, hosts }))).toEqual([
       { id: "chat", kind: "generation", hosts: ["local"] },
-      { id: "explainer", kind: "generation", hosts: ["local", "cloud"] },
       { id: "recommend", kind: "decision", hosts: ["cloud"] }
     ])
-    expect(modelSeatsOf("local")).toEqual(["chat", "explainer"])
-    expect(modelSeatsOf("cloud")).toEqual(["explainer", "recommend"])
+    expect(modelSeatsOf("local")).toEqual(["chat"])
+    expect(modelSeatsOf("cloud")).toEqual(["recommend"])
     expect(SeatIdSchema.safeParse("front-door").success).toBe(false)
     expect(SeatIdSchema.safeParse("role:ui").success).toBe(false)
   })
@@ -475,7 +474,6 @@ describe("seats", () => {
   test("a seat takes only a model of its kind", () => {
     const accepted = MODEL_SEATS.map((seat) => MODEL_PROTOCOLS.filter((protocol) => seatAccepts(seat.id, protocol)))
     expect(accepted).toEqual([
-      ["anthropic-messages", "openai-responses", "openai-chat"],
       ["anthropic-messages", "openai-responses", "openai-chat"],
       ["evaluation"]
     ])

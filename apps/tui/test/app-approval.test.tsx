@@ -8,13 +8,11 @@ import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Approvals from "../src/approvals.ts"
 import type * as Host from "../src/host.ts"
-import * as Theme from "../src/theme.ts"
 
 // Headless component units over the public Host approval boundary; the store
 // double controls replies. Actual native focus, timers, and session storage run.
 let root = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let gate: ReturnType<typeof Promise.withResolvers<Host.Outcome>>
 let pending: ReadonlyArray<Approvals.Pending> = []
@@ -59,7 +57,6 @@ beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), "tui-app-approval-"))
   mkdirSync(join(root, "workspace"))
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   gate = Promise.withResolvers<Host.Outcome>()
   pending = [request]
@@ -112,7 +109,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

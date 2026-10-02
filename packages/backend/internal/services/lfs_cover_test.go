@@ -39,9 +39,6 @@ func (p *lfsCovBillingPolicy) AuthorizeStorageIncrease(_ context.Context, _ int6
 	p.storageBytes = append(p.storageBytes, additionalBytes)
 	return p.storageErr
 }
-func (p *lfsCovBillingPolicy) AuthorizePairing(context.Context, int64) error {
-	return nil
-}
 
 func lfsCovOID(body string) string {
 	sum := sha256.Sum256([]byte(body))

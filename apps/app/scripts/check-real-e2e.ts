@@ -60,7 +60,7 @@ function joinDefault(root: string, child: string): string {
       "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "issues",
       "prs.triage", "wiki.ask", "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new",
       "wiki.cloud.rename", "wiki.history", "wiki.space", "notifications.read-update", "notifications.tag",
-      "plugins", "plugins.install", "plugins.list", "plugins.remove", "prs",
+      "prs",
       "repo.choose", "repo.tree", "repo.update", "repos.import.retry", "review.ack",
       "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.release",
       "runs.signal", "runs.takeover", "search.boxes", "search.changes", "search.files", "search.history",

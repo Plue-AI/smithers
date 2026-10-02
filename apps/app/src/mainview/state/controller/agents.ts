@@ -29,7 +29,7 @@ export interface AgentsControllerDependencies {
 
 /** The agents in menu order from the store's mirror; the built-ins while it is empty. */
 export const currentAgentRoles = (_store: Pick<AppStore, "collections">): ReadonlyArray<AgentRole> =>
-  AGENT_ROLES
+  AGENT_ROLES.filter(role => role.id !== "explainer")
 
 /**
  * The model a flow declares, as its frontmatter wrote it: `provider:modelId`

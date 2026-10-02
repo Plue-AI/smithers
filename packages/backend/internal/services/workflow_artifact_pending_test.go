@@ -167,7 +167,6 @@ func (*artifactAdmissionBilling) AuthorizeAgentRunCommitted(ctx context.Context,
 func (*artifactAdmissionBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (*artifactAdmissionBilling) AuthorizePairing(context.Context, int64) error { return nil }
 
 func (p *artifactAdmissionBilling) AuthorizeStorageIncreaseCommittedDynamic(ctx context.Context, _ int64, resolve func(context.Context) (int64, error), commit func(context.Context) error) error {
 	p.mu.Lock()

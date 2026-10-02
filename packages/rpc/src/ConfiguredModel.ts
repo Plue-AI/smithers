@@ -514,6 +514,7 @@ export type DecisionModelId = z.infer<typeof DecisionModelIdSchema>
  * @since 1.0.0
  * @category constants
  */
+// Historical assignment ids remain decodable; MODEL_SEATS lists only active seats.
 export const MODEL_SEAT_IDS = ["chat", "explainer", "recommend"] as const
 /**
  * Validates a seat id at the RPC boundary.
@@ -543,15 +544,14 @@ export interface ModelSeat {
   readonly hosts: ReadonlyArray<ModelHost>
 }
 /**
- * The seats, each with a live reader: `explainer` is the sealed `agent.explain`
- * side turn, `recommend` is the decision model's next-step site.
+ * The active seats: chat generation and the decision model's next-step site.
+ * Historical explainer assignments remain decodable.
  *
  * @since 1.0.0
  * @category constants
  */
 export const MODEL_SEATS = [
   { id: "chat", label: "Chat", kind: "generation", hosts: ["local"] },
-  { id: "explainer", label: "Explainer", kind: "generation", hosts: ["local", "cloud"] },
   { id: "recommend", label: "Recommendations", kind: "decision", hosts: ["cloud"] }
 ] as const satisfies ReadonlyArray<ModelSeat>
 /**

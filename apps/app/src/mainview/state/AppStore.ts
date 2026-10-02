@@ -144,7 +144,7 @@ const SESSION_ID = "main"
  * the newest records: the debuggable tail is the valuable end of a log.
  */
 export {
-MAX_TOOL_CALL_RECORDS,MAX_TRANSITION_RECORDS,THEME_PICKER_CARD_ID,
+MAX_TOOL_CALL_RECORDS,MAX_TRANSITION_RECORDS,
 TRACE_MESSAGE_PREFIX,VERBOSE_OFF_TEXT,VERBOSE_ON_TEXT,verboseTrace
 } from "./AppProjection"
 
@@ -171,7 +171,7 @@ const applyTheme = (theme: Session["theme"]): void => {
  * The color theme, stamped on the same element as data-theme and read by the
  * palette blocks in styles/tokens.css. The default is stamped explicitly too,
  * so the attribute always states which palette is live (tokens.css falls back
- * to night-owl either way).
+ * to Paper either way).
  */
 const applyPalette = (palette: Palette): void => {
   if (typeof document !== "undefined") document.documentElement.dataset.palette = palette
@@ -1902,6 +1902,15 @@ const initializeAppStore = async (
    */
   if (collections.sessions.get(SESSION_ID)?.pendingWorldDeleteId != null) {
     await dispatch({ type: "world.delete.asked", actor: "system", id: null }).isPersisted.promise
+  }
+
+  // Preserve verified historical bytes, then migrate only retired presentation
+  // choices through ordinary durable system transitions.
+  if (collections.sessions.get(SESSION_ID)?.palette !== DEFAULT_PALETTE) {
+    await dispatch({ type: "palette.changed", actor: "system", palette: DEFAULT_PALETTE }).isPersisted.promise
+  }
+  if (collections.sessions.get(SESSION_ID)?.surface === "plugins") {
+    await dispatch({ type: "surface.changed", actor: "system", surface: "chat" }).isPersisted.promise
   }
 
   // The composer overlay is presentation state. Preserve its independently

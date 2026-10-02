@@ -1,14 +1,7 @@
+import { paper } from "./themes/paper.ts";
 import type { SmithersTheme } from "./SmithersTheme.ts";
-import { catppuccin } from "./themes/catppuccin.ts";
-import { fucory } from "./themes/fucory.ts";
-import { github } from "./themes/github.ts";
-import { gruvbox } from "./themes/gruvbox.ts";
-import { nightOwl } from "./themes/nightOwl.ts";
-import { one } from "./themes/one.ts";
-import { rosePine } from "./themes/rosePine.ts";
-import { solarized } from "./themes/solarized.ts";
 
-export const DEFAULT_THEME_KEY = "night-owl";
+export const DEFAULT_THEME_KEY = "paper";
 
 /**
  * `T` with every nested property marked readonly, matching `deepFreeze`.
@@ -30,16 +23,7 @@ function deepFreeze<T>(value: T): DeepReadonly<T> {
   return value as DeepReadonly<T>;
 }
 
-const registry = {
-  "night-owl": nightOwl,
-  fucory,
-  one,
-  github,
-  catppuccin,
-  solarized,
-  gruvbox,
-  "rose-pine": rosePine,
-} satisfies Record<string, SmithersTheme>;
+const registry = { paper } satisfies Record<string, SmithersTheme>;
 
 /**
  * Ordered palette registry used by CSS emitters and widget adapters.

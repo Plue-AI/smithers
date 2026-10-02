@@ -904,11 +904,6 @@ test.describe("screenshots", () => {
           for (const width of [320, 720]) await narrow(page, `${dir}/run-3-${mode}-${width}.png`, width)
         }
         await theme(page, "light")
-        // A non-default palette, both modes.
-        await send(page, "/appearance.theme gruvbox")
-        await expect(page.locator("html")).toHaveAttribute("data-palette", "gruvbox")
-        await shoot(page, "run-3-gruvbox")
-        await send(page, "/appearance.theme night-owl")
         // The keyboard's ring on a row, then on an open detail's reason, under its row.
         for (const mode of ["light", "dark"] as const) {
           await theme(page, mode)

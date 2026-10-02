@@ -73,25 +73,15 @@ test("app stacks retain their Worker routing and defer required redacted credent
   assert.deepEqual(bugs.workerProps.domain, { name: "bug.smithers.sh", aliases: ["bugs.smithers.sh"], zoneId: SMITHERS_ZONE_ID })
   // A workers.dev origin would serve the same routes outside the smithers.sh zone's rules.
   assert.equal(bugs.workerProps.workersDev, false)
-  assert.deepEqual(bugs.workerProps.crons, ["*/10 * * * *"])
+  assert.equal(bugs.workerProps.crons, undefined)
+  for (const retired of ["REPO_COMPLETIONS", "RESEND_API_KEY", "NOTIFICATION_FROM", "GITHUB_FORK_TOKEN"]) {
+    assert.equal(retired in bugs.workerProps.env, false)
+  }
   assert.equal(bugs.workerProps.env.PUBLIC_BASE_URL, "https://bug.smithers.sh")
   assert.ok(Effect.isEffect(bugs.workerProps.env.BUGS))
 
   // A deploy from a shell without a binding's variable must fail, not delete the binding.
-  const sender = bugs.workerProps.env.NOTIFICATION_FROM
-  assert.ok(Config.isConfig(sender), "NOTIFICATION_FROM: resolve only while evaluating the stack")
-  assert.equal(Effect.runSyncExit(sender.parse(ConfigProvider.fromUnknown({})))._tag, "Failure")
-  assert.equal(Effect.runSyncExit(sender.parse(ConfigProvider.fromUnknown({ NOTIFICATION_FROM: "  " })))._tag, "Failure")
-  assert.equal(
-    Effect.runSync(sender.parse(ConfigProvider.fromUnknown({ NOTIFICATION_FROM: " Smithers <reports@example.test> " }))),
-    "Smithers <reports@example.test>"
-  )
-
-  const credentials = [
-    [bugs.workerProps.env.BUG_ADMIN_TOKEN, "BUG_ADMIN_TOKEN"],
-    [bugs.workerProps.env.RESEND_API_KEY, "RESEND_API_KEY"],
-    [bugs.workerProps.env.GITHUB_FORK_TOKEN, "GITHUB_FORK_TOKEN"]
-  ]
+  const credentials = [[bugs.workerProps.env.BUG_ADMIN_TOKEN, "BUG_ADMIN_TOKEN"]]
   for (const [config, name] of credentials) {
     assert.ok(Config.isConfig(config), `${name}: resolve credentials only while evaluating the stack`)
     assert.equal(Effect.runSyncExit(config.parse(ConfigProvider.fromUnknown({})))._tag, "Failure")

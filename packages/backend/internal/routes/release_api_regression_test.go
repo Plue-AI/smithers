@@ -105,7 +105,6 @@ func TestReleaseDirectHandlersRefuseTrailingDataBeforeServices(t *testing.T) {
 		{"session", workspace.CreateSession},
 		{"protected bookmark", (&ProtectedBookmarkHandler{}).UpsertProtectedBookmark},
 		{"environment secret", (&SecretHandler{}).PutAgentEnvironmentSecret},
-		{"share", (&ShareListingHandler{}).Publish},
 	} {
 		for _, suffix := range []string{" {}", " null", " true", " 1", " []", ` "extra"`, " junk"} {
 			t.Run(route.name+suffix, func(t *testing.T) {
@@ -128,7 +127,6 @@ func TestReleaseCustomDecodersPreserveFieldPolicy(t *testing.T) {
 		strict bool
 	}{
 		{"timeline", appTimelineDecode, false},
-		{"pair", pairSessionDecode, false},
 		{"mythical", func(w http.ResponseWriter, r *http.Request, v any) bool { return decodeMythicalBody(w, r, 4096, v) }, true},
 	} {
 		for _, body := range []string{`{"name":"kept"}`, "{\"name\":\"kept\"}\n\t", `{"name":"kept","future":1}`, `{"name":"kept"} {}`, `{"name":"kept"} junk`} {

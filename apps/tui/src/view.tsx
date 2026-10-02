@@ -1,7 +1,7 @@
 /**
  * What the screen draws, owing nothing to the app's state machine.
  *
- * The look is the Smithers app's (`apps/app`): Night Owl surfaces layered
+ * The look is the Smithers app's (`apps/app`): Paper surfaces layered
  * page → panel → element. The user's messages keep the composer's shape. The shapes are opencode's: a left `┃` bar and a filled panel
  * instead of a boxed border, and a selected row filled with the brand color.
  */
@@ -442,7 +442,7 @@ function UserMessage(props: { readonly text: string; readonly queued: boolean; r
   )
 }
 
-/** Read at render time: a theme change repaints writing cells in the new accent. */
+/** The retained brand accent used by writing cells. */
 export const statusColor = (status: Transcript.CellStatus): string =>
   ({
     writing: color.brand,

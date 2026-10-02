@@ -99,7 +99,7 @@ describe("the slash menu is a tree", () => {
     expect(rows(view.host)[0]).toBe("appearance/")
     await press(view, "Enter")
     expect(view.controller.store.session().draft).toBe("/appearance.")
-    expect(rows(view.host)).toEqual(["appearance.theme", "appearance.dark-mode"])
+    expect(rows(view.host)).toEqual(["appearance.dark-mode"])
     // Nothing ran: opening a branch is a draft edit.
     expect(view.controller.store.session().recentCommands ?? []).toEqual(recent)
     await press(view, "ArrowLeft")

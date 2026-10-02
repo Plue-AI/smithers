@@ -17,7 +17,7 @@ type authCovOAuthQuerier struct {
 	userErr error
 }
 
-func (q *authCovOAuthQuerier) GetOAuth2AccessTokenByHash(context.Context, string) (db.Oauth2AccessToken, error) {
+func (q *authCovOAuthQuerier) GetFirstPartyOAuth2AccessTokenByHash(context.Context, string) (db.Oauth2AccessToken, error) {
 	return q.token, nil
 }
 

@@ -40,9 +40,6 @@ func (s *SSHKeyService) SetRevocationPublisher(p revocation.Publisher) { s.revoc
 // SetRevocationPublisher announces deleted deploy keys.
 func (s *DeployKeyService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }
 
-// SetRevocationPublisher announces workspace share removals.
-func (s *PairSessionService) SetRevocationPublisher(p revocation.Publisher) { s.revocations = p }
-
 // WithAgentRevocationPublisher announces cancelled agent sessions.
 func WithAgentRevocationPublisher(p revocation.Publisher) AgentServiceOption {
 	return func(s *AgentService) { s.revocations = p }

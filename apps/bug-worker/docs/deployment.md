@@ -11,8 +11,8 @@ Compose `qualifiedWorkerHost("bug-worker", artifact, ports)` from
 `flows/rollout/worker.ts` with the existing rollout execution layer. The host
 must authenticate its own passing `//apps/bug-worker/...` gate and immutable
 artifact at the exact main revision, and retain adoption evidence for that
-artifact. Preserve the Worker, KV namespace, custom domains and both Durable
-Object namespaces; a resource replacement refuses qualification. The review
+artifact. Preserve the Worker, KV namespace, custom domains and the rate-limit Durable
+Object namespace; a resource replacement refuses qualification. The review
 Worker's D1 migration requirements do not apply to this Worker.
 
 Before publication, reconcile interrupted releases and verify the exclusive
@@ -28,3 +28,8 @@ Cloud host and interruption recovery. [#1906](https://github.com/smithersai/smit
 requires an actual adoption plan without data replacement and a successful
 source-matched Cloud rollout before completion. Local qualification tests are
 not rollout evidence.
+
+The community repository nomination lifecycle is retired in
+[#3407](https://github.com/smithersai/smithers/issues/3407). Its completion
+namespace and historical KV records must remain intact during rollout;
+removing runtime access is not authorization to destroy stored data.

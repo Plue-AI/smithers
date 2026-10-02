@@ -3830,7 +3830,7 @@ type UpsertWorkspaceShareParams struct {
 // Grants (or updates the level of) a workspace share so a grantee passes
 // requireWorkspaceAccess on a shared workspace. Idempotent on
 // (workspace_id, grantee_user_id) — re-granting only adjusts the level, which is
-// how a pair-session member's read/write access tracks their viewer/editor role.
+// how persisted read/write grants track member roles.
 func (q *Queries) UpsertWorkspaceShare(ctx context.Context, arg UpsertWorkspaceShareParams) (WorkspaceShare, error) {
 	row := q.db.QueryRow(ctx, upsertWorkspaceShare,
 		arg.WorkspaceID,

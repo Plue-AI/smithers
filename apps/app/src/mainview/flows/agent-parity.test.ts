@@ -26,7 +26,6 @@ import { modelInvocable, nameOf } from "./registry"
 import { SUBAGENTS_USER_ONLY_REASON } from "./entries/agent"
 import { HISTORY_LAND_USER_ONLY_REASON, HISTORY_RETRY_USER_ONLY_REASON } from "./entries/history"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
-import { PLUGINS_USER_ONLY_REASON } from "./entries/plugins"
 import { WIKI_ASK_USER_ONLY_REASON, WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@smthrs/ui/app-operations/wiki"
 
 /**
@@ -76,7 +75,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "chat.open": "opening Chat and starting the selected microphone mode is the human's gesture",
   "chat.dictate": "microphone capture is the human's explicit gesture",
   "palette.open": PALETTE_OPEN_REASON,
-  "plugins": PLUGINS_USER_ONLY_REASON,
   "palette.actions": PALETTE_ACTIONS_REASON,
   "admin.reset": "destroys the whole store with no undo; the confirm dialog is the only door",
   "admin.reset.ask": "opens the human's confirm dialog for the reset",
@@ -189,7 +187,7 @@ const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
   let picks = 0
   
   const controller = createAppController(store, unavailableAgent, {
-    features: { pluginLibrary: true },
+    features: {},
     bootstrap,
     fetchImpl: async (input) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url

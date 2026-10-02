@@ -100,7 +100,7 @@ test("an accepted command can publish after its signal closes only while its acc
   const t = await harness(store => signedIn(store, "alice"))
   try {
     const abort = new AbortController()
-    const request = { name: "agent.explain", actor: "user" as const, source: "command" as const,
+    const request = { name: "agent.list", actor: "user" as const, source: "command" as const,
       invocation: { signal: abort.signal } as AgentInvocation }
     const lifecycle = createCommandIntentLifecycle(t.ctx)
     const accepted = await lifecycle.accept(request)
@@ -109,7 +109,7 @@ test("an accepted command can publish after its signal closes only while its acc
     abort.abort()
     expect(lifecycle.canPublish?.(accepted.receipt, request)).toBe(true)
     expect(t.store.collections.commandIntents.get(accepted.receipt.id)?.status).toBe("accepted")
-    const executableRequest = { name: "agent.explain", actor: "user" as const, source: "command" as const }
+    const executableRequest = { name: "agent.list", actor: "user" as const, source: "command" as const }
     const executable = await lifecycle.accept(executableRequest)
     if (!("receipt" in executable)) throw new Error(`command acceptance failed: ${executable.refusal}`)
     expect(lifecycle.canExecute?.(executable.receipt, executableRequest)).toBe(true)

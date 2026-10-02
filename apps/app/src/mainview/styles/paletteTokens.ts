@@ -7,7 +7,7 @@
  * and it exists because two tests need the same resolution: the sweep over
  * every small-text pair (Contrast.test.ts) and the graph's own state colours
  * (cards/FlowGraphHardening.test.tsx). A second hand-rolled resolver is how
- * the two would disagree about what `--text-muted` is in gruvbox dark.
+ * the two would disagree about what `--text-muted` is in the dark variant.
  *
  * Nothing here runs in the app. It reads a stylesheet off disk.
  *
@@ -47,7 +47,7 @@ export const rootTokens = (): ReadonlySet<string> => new Set(ROOT.keys())
  * The declarations in force for one palette and mode, later blocks winning:
  * the base `:root`, then the palette's light block, then its dark block.
  *
- * `night-owl` is the default palette, so it has no `data-palette` block of
+ * `paper` is the sole palette, so it has no `data-palette` block of
  * its own and its dark variant is the bare `:root[data-theme="dark"]`.
  *
  * @since 1.0.0
@@ -55,13 +55,8 @@ export const rootTokens = (): ReadonlySet<string> => new Set(ROOT.keys())
  */
 export const variant = (palette: string, mode: "light" | "dark"): Declarations => {
   const merged = new Map(ROOT)
-  const layers = palette === "night-owl"
-    ? mode === "dark"
-      ? [":root[data-theme=\"dark\"]"]
-      : []
-    : mode === "dark"
-    ? [`:root[data-palette="${palette}"]`, `:root[data-palette="${palette}"][data-theme="dark"]`]
-    : [`:root[data-palette="${palette}"]`]
+  if (palette !== "paper") throw new Error(`No active palette: ${palette}`)
+  const layers = mode === "dark" ? [':root[data-theme="dark"]'] : []
   for (const selector of layers) {
     for (const [name, value] of declarationsIn(selector)) merged.set(name, value)
   }

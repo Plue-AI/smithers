@@ -140,8 +140,7 @@ document.documentElement.setAttribute("data-theme", "dark")
 Every color in the panel resolves through a `var(--token, lightFallback)`
 expression, so changing the attribute changes what those custom properties
 resolve to and the browser repaints. That is the whole dark-mode mechanism. See
-[Theme tokens](./concepts/theming.md) for the token bridge and the eight
-palettes.
+[Theme tokens](./concepts/theming.md) for the token bridge and Paper light/dark.
 
 ## What you built
 

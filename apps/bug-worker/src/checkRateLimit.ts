@@ -12,13 +12,6 @@ export const BUG_REPORTS_PER_HOUR = 2000;
 /** Default budget: accepted writes per client per hour, per route bucket. */
 export const RATE_LIMIT_PER_HOUR = 20;
 /**
- * Public reads per client per hour, shared by every public GET. A browser that
- * honours max-age needs at most 60 list reads an hour plus one uncached read
- * per submission, so a well-behaved visitor never meets this bound.
- */
-export const PUBLIC_READS_PER_HOUR = 100;
-
-/**
  * The client a request is charged to. Only Cloudflare's `cf-connecting-ip` is
  * trusted: `x-forwarded-for` is caller-written. An IPv6 client is charged per
  * /64, the smallest prefix one subscriber is routinely assigned, so rotating

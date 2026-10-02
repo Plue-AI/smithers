@@ -44,7 +44,7 @@ type AuthLoaderQuerier interface {
 	GetAuthSessionBySessionKey(ctx context.Context, sessionKey string) (db.AuthSession, error)
 	RefreshAuthSession(ctx context.Context, arg db.RefreshAuthSessionParams) (db.AuthSession, error)
 	GetAuthInfoByTokenHash(ctx context.Context, tokenHash string) (db.GetAuthInfoByTokenHashRow, error)
-	GetOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
+	GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
 	UpdateAccessTokenLastUsed(ctx context.Context, id int64) error
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 }
@@ -425,10 +425,10 @@ func loadOAuth2TokenAuth(ctx context.Context, queries AuthLoaderQuerier, tokenHa
 }
 
 func loadOAuth2AccessToken(ctx context.Context, queries interface {
-	GetOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
+	GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error)
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 }, tokenHash string) (*AuthInfo, error) {
-	token, err := queries.GetOAuth2AccessTokenByHash(ctx, tokenHash)
+	token, err := queries.GetFirstPartyOAuth2AccessTokenByHash(ctx, tokenHash)
 	if err != nil {
 		return nil, err
 	}

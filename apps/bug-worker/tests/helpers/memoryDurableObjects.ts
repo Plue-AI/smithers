@@ -1,6 +1,5 @@
 import type { State } from "../../src/durableState.ts";
 import { RateLimiter } from "../../src/RateLimiter.ts";
-import { RepoCompletion } from "../../src/RepoCompletion.ts";
 
 type Namespace = { getByName(name: string): { fetch(request: Request): Promise<Response> } };
 
@@ -35,5 +34,4 @@ function memoryDurableObjects(make: (state: State) => { fetch(request: Request):
   };
 }
 
-export const memoryRepoCompletions = () => memoryDurableObjects((state) => new RepoCompletion(state));
 export const memoryRateLimits = () => memoryDurableObjects((state) => new RateLimiter(state));

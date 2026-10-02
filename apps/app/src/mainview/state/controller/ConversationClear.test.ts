@@ -45,7 +45,7 @@ const response = (notes: unknown = [note]) =>
     ].map((frame) => JSON.stringify(frame)).join("\n") + "\n"
   )
 
-/* Summarizing into Wiki notes is the opt-in half of chat.clear (state/KnowledgeFeatures.ts), so the fixture turns it on. */
+/* Summarizing into Wiki notes is the optional half of chat.clear. */
 const attachWorld = (
   store: AppStore,
   fetchImpl: FetchLike,

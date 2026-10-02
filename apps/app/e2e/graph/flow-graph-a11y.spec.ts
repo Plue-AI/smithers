@@ -112,18 +112,8 @@ const contrast = (foreground: Rgb, background: Rgb): number => {
   return Math.round(((light + 0.05) / (dark + 0.05)) * 100) / 100
 }
 
-/** The nine palettes the product ships, as `/appearance.theme` takes them. */
-const PALETTES = [
-  "night-owl",
-  "paper",
-  "fucory",
-  "one",
-  "github",
-  "catppuccin",
-  "solarized",
-  "gruvbox",
-  "rose-pine"
-] as const
+/** The retained Paper palette in both light/dark modes. */
+const PALETTES = ["paper"] as const
 
 test.describe("the graph, to a reader who is not looking at it", () => {
   test("loads no canvas library until a graph is opened", async ({ page }) => {
@@ -260,9 +250,8 @@ test.describe("the graph, to a reader who is not looking at it", () => {
     const failures: Array<string> = []
     for (const palette of PALETTES) {
       for (const mode of ["light", "dark"] as const) {
-        await runFlow(page, `/appearance.theme ${palette}`)
         await expect
-          .poll(() => page.evaluate(() => document.documentElement.getAttribute("data-palette") ?? "night-owl"))
+          .poll(() => page.evaluate(() => document.documentElement.getAttribute("data-palette") ?? "paper"))
           .toBe(palette)
         const current = await page.evaluate(() => document.documentElement.getAttribute("data-theme") ?? "light")
         if (current !== mode) {

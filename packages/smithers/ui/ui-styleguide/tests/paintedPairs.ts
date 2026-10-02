@@ -184,18 +184,13 @@ export function ratioFor(pair: PaintedPair, variant: ThemeVariantTokens): number
  * Terminal palettes whose own foreground misses AA on their own background.
  * Terminal colors preserve upstream fidelity separately from the UI AA guarantee.
  */
-export const KNOWN_TERMINAL_GAPS: ReadonlyMap<string, number> = new Map([
-  ["solarized/light", 4.1296],
-]);
+export const KNOWN_TERMINAL_GAPS: ReadonlyMap<string, number> = new Map();
 
 /**
  * Semantic role pairs that share one hex, as `palette/mode/<a>=<b>`.
  * `rose-pine` gives `success` and `info` the same value in both modes, so a
  * passing state and an informational state are indistinguishable.
  */
-export const KNOWN_ROLE_COLLISIONS: ReadonlySet<string> = new Set([
-  "rose-pine/light/success=info",
-  "rose-pine/dark/success=info",
-]);
+export const KNOWN_ROLE_COLLISIONS: ReadonlySet<string> = new Set();
 
 export { SEMANTICS, SURFACES };

@@ -16,17 +16,15 @@ export is missing from it, so nothing below can fall behind the code.
 
 | Export                 | Type                                          | What it is                                                                     |
 | ---------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `workflowUiThemeCss`   | `string`                                      | Theme tokens plus the base element and primitive rules. 33 KB.                   |
-| `workflowUiPrimitiveCss` | `string`                                    | The element and component rules alone, with no tokens, for composing with a `themeCss` subset. 8.5 KB. |
-| `workflowUiLayoutCss`  | `string`                                      | The `.workflow-*` shell and dashboard grid classes. 2 KB.                        |
-| `workflowUiStyles`     | `string`                                      | The theme and layout sheets joined with a newline, for one-tag embedding. 35 KB. |
-| `standaloneThemeCss()` | `() => string`                                | A complete theme for HTML rendered outside a Smithers UI shell. 26 KB.           |
-| `themeCss(options?)`   | `(options?: PaletteThemeCssOptions) => string` | The token rules alone, optionally for a subset of palettes. 25 KB for all eight. |
+| `workflowUiThemeCss`   | `string`                                      | Theme tokens plus the base element and primitive rules.                   |
+| `workflowUiPrimitiveCss` | `string`                                    | The element and component rules alone, with no tokens, for composing with `themeCss()`. |
+| `workflowUiLayoutCss`  | `string`                                      | The `.workflow-*` shell and dashboard grid classes.                        |
+| `workflowUiStyles`     | `string`                                      | The theme and layout sheets joined with a newline, for one-tag embedding. |
+| `standaloneThemeCss()` | `() => string`                                | A complete theme for HTML rendered outside a Smithers UI shell.           |
+| `themeCss(options?)`   | `(options?: PaletteThemeCssOptions) => string` | The token rules alone, optionally for a subset of palettes. Paper light/dark. |
 | `reducedMotionCss`     | `string`                                      | The document-wide reduced-motion guard, already composed into both sheets above. |
 
-Every sheet grows by roughly 2.9 KB per registered palette. A host that pins one
-palette calls `themeCss({ palettes: ["one"] })` (7.7 KB) instead of shipping all
-eight (24.9 KB). See [Pin a palette](./guides/pin-a-palette.md).
+The sheet includes only Paper light/dark. See [Paper stylesheet](./guides/pin-a-palette.md).
 
 ### `themeCss(options?)`
 
@@ -34,15 +32,11 @@ eight (24.9 KB). See [Pin a palette](./guides/pin-a-palette.md).
 function themeCss(options?: PaletteThemeCssOptions): string
 ```
 
-Emits three token rules for the default palette plus three for each requested
-palette, in registry order, joined by newlines. The default palette's rules are
-always emitted, because they carry the 61 theme-invariant tokens and the two
-font stacks.
+Emits three Paper rules: light, system dark, and explicit dark, joined by
+newlines. The base rule also carries shared tokens and fonts.
 
-The function walks the registry rather than the caller's array, so a reordered
-or repeated request emits each palette once in registry order and two callers
-asking for the same set get byte-identical CSS. Rule order is load bearing; see
-[Theming](./theming.md).
+Repeated or reordered valid keys produce the same Paper sheet.
+See [Theming](./theming.md).
 
 **Throws** `RangeError` when `options.palettes` names a key the registry does
 not have. The message quotes the key and lists the registered ones.
@@ -64,8 +58,8 @@ answer differently for one selected theme.
 
 | Export              | Type                                               | What it is                                             |
 | ------------------- | -------------------------------------------------- | ------------------------------------------------------- |
-| `themeRegistry`     | `DeepReadonly<Record<ThemeKey, SmithersTheme>>`     | The eight palettes, in emission order.                  |
-| `DEFAULT_THEME_KEY` | `"night-owl"`                                       | The palette the base `:root` rule carries.              |
+| `themeRegistry`     | `DeepReadonly<Record<ThemeKey, SmithersTheme>>`     | The Paper light/dark variants, in emission order.                  |
+| `DEFAULT_THEME_KEY` | `"paper"`                                       | The palette the base `:root` rule carries.              |
 | `findTheme(key)`    | `(key: string) => DeepReadonly<SmithersTheme> \| undefined` | Registry lookup for an unvalidated `data-palette` value. |
 
 `themeRegistry` is **deeply frozen at construction** and typed to match. That is
@@ -165,7 +159,7 @@ recipe and the measurement that justifies it cannot drift apart.
 | `ThemeVariantTokens`          | The 30 per-variant declarations: `colorScheme` plus 29 colors. See the token reference.        |
 | `TerminalPalette`             | The 19 xterm.js `ITheme` fields the terminal adapter sets, as a plain record.                  |
 | `ThemeSyntaxId`               | The closed union of the 14 Shiki bundled-theme ids the shipped suite uses.                     |
-| `ThemeKey`                    | The eight registered `data-palette` values.                                                    |
+| `ThemeKey`                    | The registered Paper key.                                                    |
 | `DeepReadonly<T>`             | `T` with every nested property readonly, matching the registry's deep freeze.                  |
 | `Rgb`                         | `readonly [number, number, number]`: parsed 0-255 srgb channels.                                |
 | `PaletteThemeCssOptions`      | `{ palettes?: readonly string[] }`.                                                            |

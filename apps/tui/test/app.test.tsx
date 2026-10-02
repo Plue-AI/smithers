@@ -12,7 +12,6 @@ import { App, type AppProps } from "../src/app.tsx"
 import { FlowError, type Port, type Settled } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Headless component units: explicit Host boundary doubles and real session
 // storage. No providers execute. Session-root environment requires serial tests.
@@ -28,7 +27,6 @@ let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let root = ""
 let cwd = ""
 let previousSessionRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let turns: OwnedTurn[] = []
 let host: Host.Host
 let releaseFlow: (() => void) | undefined
@@ -138,7 +136,6 @@ beforeEach(() => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousSessionRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   turns = []
   releaseFlow = undefined
@@ -185,7 +182,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousSessionRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousSessionRoot
     rmSync(root, { recursive: true, force: true })

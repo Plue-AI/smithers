@@ -64,8 +64,7 @@ import { recordingAgent } from "./TestFixtures"
  * rather than a door that fails.
  */
 const createAppController = scopedControllers({
-  pluginLibrary: true
-})
+  })
 
 const STORAGE_FULL =
   "This browser has no room left for Smithers' saved data, so that change was not saved. Free space for this site in your browser settings, then make the change again."

@@ -19,7 +19,7 @@ func TestOAuth2Service_IsValidRegisteredRedirectURI_ExactMatch(t *testing.T) {
 
 	app := db.Oauth2Application{
 		ID:       41,
-		ClientID: "client-123",
+		ClientID: FirstPartyClientID,
 		RedirectUris: []string{
 			"smithers://oauth2/callback",
 			"smithers://auth/callback",
@@ -50,7 +50,7 @@ func TestOAuth2Service_IsValidRegisteredRedirectURI_ExactMatch(t *testing.T) {
 		tc := tc
 		t.Run(tc.uri, func(t *testing.T) {
 			t.Parallel()
-			got, err := svc.IsValidRegisteredRedirectURI(context.Background(), "client-123", tc.uri)
+			got, err := svc.IsValidRegisteredRedirectURI(context.Background(), FirstPartyClientID, tc.uri)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -65,7 +65,7 @@ func TestOAuth2Service_IsValidRegisteredRedirectURI_LoopbackPortAgnostic(t *test
 
 	app := db.Oauth2Application{
 		ID:       41,
-		ClientID: "client-123",
+		ClientID: FirstPartyClientID,
 		RedirectUris: []string{
 			"http://127.0.0.1/callback",
 			"http://[::1]/callback",
@@ -100,7 +100,7 @@ func TestOAuth2Service_IsValidRegisteredRedirectURI_LoopbackPortAgnostic(t *test
 		tc := tc
 		t.Run(tc.uri, func(t *testing.T) {
 			t.Parallel()
-			got, err := svc.IsValidRegisteredRedirectURI(context.Background(), "client-123", tc.uri)
+			got, err := svc.IsValidRegisteredRedirectURI(context.Background(), FirstPartyClientID, tc.uri)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got, "uri=%s", tc.uri)
 		})
@@ -335,12 +335,12 @@ func TestOAuth2Service_GetApplicationByClientID_Public(t *testing.T) {
 
 	svc := NewOAuth2Service(&mockOAuth2Querier{
 		getApplicationByClientIDFn: func(_ context.Context, clientID string) (db.Oauth2Application, error) {
-			if clientID != "client-123" {
+			if clientID != FirstPartyClientID {
 				return db.Oauth2Application{}, pgx.ErrNoRows
 			}
 			return db.Oauth2Application{
 				ID:               41,
-				ClientID:         "client-123",
+				ClientID:         FirstPartyClientID,
 				ClientSecretHash: "super-secret-hash-never-leaks",
 				Name:             "app",
 				RedirectUris:     []string{"smithers://oauth2/callback", "smithers://auth/callback"},
@@ -350,9 +350,9 @@ func TestOAuth2Service_GetApplicationByClientID_Public(t *testing.T) {
 		},
 	})
 
-	got, err := svc.GetApplicationByClientID(context.Background(), "client-123")
+	got, err := svc.GetApplicationByClientID(context.Background(), FirstPartyClientID)
 	require.NoError(t, err)
-	assert.Equal(t, "client-123", got.ClientID)
+	assert.Equal(t, FirstPartyClientID, got.ClientID)
 	assert.Equal(t, []string{"smithers://oauth2/callback", "smithers://auth/callback"}, got.RedirectURIs)
 	assert.False(t, got.Confidential)
 

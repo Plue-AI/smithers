@@ -67,7 +67,7 @@ func (p *dynamicLFSBillingPolicy) AuthorizeStorageIncrease(_ context.Context, _ 
 	p.preflightDeltas = append(p.preflightDeltas, additionalBytes)
 	return p.authorizeErr
 }
-func (*dynamicLFSBillingPolicy) AuthorizePairing(context.Context, int64) error { return nil }
+
 func (p *dynamicLFSBillingPolicy) AuthorizeStorageIncreaseCommittedDynamic(
 	ctx context.Context,
 	_ int64,

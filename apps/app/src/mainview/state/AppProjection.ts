@@ -418,7 +418,6 @@ const SESSION_ID = "main"
 const PALETTE_RECENTS_CAP = 50
 export const MAX_TRANSITION_RECORDS = 500
 export const MAX_TOOL_CALL_RECORDS = 250
-export const THEME_PICKER_CARD_ID = "theme-picker"
 // Code-unit ordering is stable across host locales and replay environments.
 const compareProjectionStrings = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
 const staleLogKeys = <T extends { readonly id: string }>(

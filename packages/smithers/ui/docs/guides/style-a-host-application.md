@@ -92,12 +92,12 @@ wherever your app stores the preference:
 
 ```ts
 document.documentElement.setAttribute("data-theme", "dark") // "light" | "dark"
-document.documentElement.setAttribute("data-palette", "github")
+document.documentElement.setAttribute("data-palette", "paper")
 ```
 
 Omit `data-theme` to follow the OS `prefers-color-scheme` preference. An
-unregistered `data-palette` value falls back to `night-owl` rather than leaving
-the page unthemed. The eight registered keys are listed in
+unregistered `data-palette` value falls back to `paper` rather than leaving
+the page unthemed. The retained Paper key are listed in
 [Theme tokens](../concepts/theming.md).
 
 ## Emit static HTML

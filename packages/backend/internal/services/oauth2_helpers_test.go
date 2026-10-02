@@ -82,26 +82,11 @@ func TestVerifyPKCE_Matrix(t *testing.T) {
 func TestOAuth2Generators_FormatMatrix(t *testing.T) {
 	t.Parallel()
 
-	clientIDs := map[string]struct{}{}
-	clientSecrets := map[string]struct{}{}
 	codes := map[string]struct{}{}
 	tokens := map[string]struct{}{}
 
 	caseCount := 0
 	for i := 0; i < 64; i++ {
-		clientID := generateOAuth2ClientID()
-		require.Len(t, clientID, 40)
-		assert.True(t, isLowerHexForTest(clientID))
-		clientIDs[clientID] = struct{}{}
-		caseCount++
-
-		clientSecret := generateOAuth2ClientSecret()
-		require.True(t, strings.HasPrefix(clientSecret, "smithers_oas_"))
-		require.Len(t, clientSecret, len("smithers_oas_")+64)
-		assert.True(t, isLowerHexForTest(strings.TrimPrefix(clientSecret, "smithers_oas_")))
-		clientSecrets[clientSecret] = struct{}{}
-		caseCount++
-
 		code := generateOAuth2Code()
 		require.Len(t, code, 64)
 		assert.True(t, isLowerHexForTest(code))
@@ -115,11 +100,9 @@ func TestOAuth2Generators_FormatMatrix(t *testing.T) {
 		caseCount++
 	}
 
-	assert.Len(t, clientIDs, 64)
-	assert.Len(t, clientSecrets, 64)
 	assert.Len(t, codes, 64)
 	assert.Len(t, tokens, 64)
-	assert.Equal(t, 256, caseCount)
+	assert.Equal(t, 128, caseCount)
 }
 
 func TestHashOAuth2Secret_Deterministic(t *testing.T) {

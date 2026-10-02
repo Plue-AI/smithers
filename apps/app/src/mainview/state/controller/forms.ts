@@ -6,7 +6,6 @@ import type { FieldOption,FieldValue,FormDraft,FormField,FormHints,OptionProvide
 import { assembleLine,declaredInput,displayLine,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "@smthrs/ui/flow-form"
 import { payloadFor } from "../../flows/SlashPayload"
 import { flowArgs } from "../../flows/FlowArgs"
-import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import type { Card, CloudWorkspaceRow } from "../AppState"
@@ -199,14 +198,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       }
       case "workspaces":
         return [...collections.cloudWorkspaces.values()].map(workspaceOption)
-      case "plugins": {
-        const installed = store.session().plugins ?? []
-        return manifests().map((manifest) =>
-          installed.includes(manifest.id)
-            ? { value: manifest.id, label: manifest.name, disabled: true, reason: "already installed" }
-            : { value: manifest.id, label: manifest.name }
-        )
-      }
+      case "plugins": return []
       case "models":
       case "credentials":
       case "seats": return []

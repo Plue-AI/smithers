@@ -11,11 +11,8 @@ const front = (title, description, order) =>
 const chat = "/docs/learn/chat/"
 const guides = {
   model: "/docs/learn/models/",
-  thinking: "/docs/learn/models/",
-  theme: "/docs/tui/views/",
   new: chat,
   resume: chat,
-  fork: chat,
   conversation: chat,
   compact: chat,
   name: chat,
@@ -41,7 +38,7 @@ const inventory = commands.map((c) =>
 writeFileSync(
   new URL("commands.mdx", target),
   front("Commands", "Every built-in TUI slash command.", 2) +
-    `Type \`/\` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc closes.\n\n| Command | Action | Details |\n| --- | --- | --- |\n${inventory}\n| \`/exit\` | Alias for \`/quit\`. | [Guide](/docs/tui/cli/) |\n\nRepository flows also appear in the menu. \`/model\`, \`/thinking\`, and \`/flow\` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with \`!\` to run a shell command and add its output to the conversation, or \`!!\` to keep it out.\n`
+    `Type \`/\` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc closes.\n\n| Command | Action | Details |\n| --- | --- | --- |\n${inventory}\n| \`/exit\` | Alias for \`/quit\`. | [Guide](/docs/tui/cli/) |\n\nRepository flows also appear in the menu. \`/model\` and \`/flow\` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with \`!\` to run a shell command and add its output to the conversation, or \`!!\` to keep it out.\n`
 )
 let keyDoc = front("Keys", "Every TUI shortcut, grouped by where it works.", 3) +
   `Press **?** with an empty editor to see the keys for where you are. **Esc** or **?** closes the list.\n\n`

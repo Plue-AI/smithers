@@ -143,22 +143,26 @@ describe("<Terminal> headless rendering", () => {
     const ready = await waitFor(() => term);
     await waitFor(() => notifyThemeChanges.length > 0);
     expect(container?.querySelector('[data-slot="terminal"]')?.getAttribute("data-theme-mode")).toBe("light");
-    expect(ready.options.theme?.background).toBe("#F6F6F6");
+    expect(ready.options.theme?.background).toBe("#f7f4ee");
 
     await act(async () => {
       document.documentElement.setAttribute("data-theme", "dark");
       for (const notify of notifyThemeChanges) notify();
       await Promise.resolve();
     });
-    await waitFor(() => ready.options.theme?.background === "#011627");
+    await waitFor(() => ready.options.theme?.background === "#0d1514");
     expect(container?.querySelector('[data-slot="terminal"]')?.getAttribute("data-theme-mode")).toBe("dark");
-    expect(ready.options.theme?.background).toBe("#011627");
+    expect(ready.options.theme?.background).toBe("#0d1514");
   });
 
   test("uses registry terminal palettes", () => {
-    expect(terminalThemeFor("fucory", "dark").background).toBe("#07090d");
-    expect(terminalThemeFor("rose-pine", "light").red).toBeTruthy();
-    expect(terminalThemeFor("catppuccin", "light").brightRed).toBe("#de293e");
+    for (const mode of ["light", "dark"] as const) {
+      const palette = terminalThemeFor("paper", mode);
+      expect(palette.background).toBe(mode === "light" ? "#f7f4ee" : "#0d1514");
+      expect(palette.foreground).toBe(mode === "light" ? "#211d18" : "#ece7db");
+      expect(palette.red).toBeTruthy();
+      expect(palette.brightRed).toBeTruthy();
+    }
   });
 
   test("disables xterm cursor blinking when reduced motion is preferred", async () => {

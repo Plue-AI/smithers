@@ -36,12 +36,12 @@ WHERE id = $1
   AND deleted_at IS NULL
 RETURNING *;
 
--- ---- Members (pair_session_members pattern) ----
+-- ---- Members ----
 
 -- name: UpsertAppTimelineMember :one
 -- Never resurrect a removed (revoked) member: re-adding a revoked user is an
 -- explicit owner action (ReAddAppTimelineMember), mirroring
--- UpsertPairSessionMember's contract.
+-- the persisted membership contract.
 INSERT INTO app_timeline_members (timeline_id, user_id, role)
 VALUES (sqlc.arg(timeline_id)::uuid, sqlc.arg(user_id), sqlc.arg(role)::text)
 ON CONFLICT (timeline_id, user_id) DO UPDATE
@@ -68,7 +68,7 @@ WHERE timeline_id = sqlc.arg(timeline_id)::uuid
 
 -- name: ListLiveAppTimelineMemberProfiles :many
 -- Members with their public identity for the members list (public profile
--- fields only — mirrors ListLivePairSessionMemberProfiles).
+-- fields only).
 SELECT m.timeline_id, m.user_id, m.role, m.joined_at,
        u.username, u.display_name, u.avatar_url
 FROM app_timeline_members m

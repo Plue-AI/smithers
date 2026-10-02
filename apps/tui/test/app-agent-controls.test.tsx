@@ -9,14 +9,12 @@ import { App } from "../src/app.tsx"
 import { type Body, FlowError, type Listed, type Port } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Actual App command/picker routing and real session IO. Flow discovery/body
 // and Host execution are typed boundary doubles; no provider executes.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let bodies: Array<
   { name: string; gate: ReturnType<typeof Promise.withResolvers<Body>>; admitted: ReadonlyArray<Session.Record> }
@@ -94,7 +92,6 @@ beforeEach(async () => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   bodies = []
   turns = []
@@ -186,7 +183,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

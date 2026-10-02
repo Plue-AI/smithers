@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { contrastRatioOf, mixChannels, contrastRatio, DEFAULT_THEME_KEY, serializeThemeVariant, themeRegistry } from "../src/index.ts";
+import { contrastRatioOf, mixChannels, contrastRatio, DEFAULT_THEME_KEY, themeRegistry } from "../src/index.ts";
 import {
   AA_MINIMUM,
   KNOWN_ROLE_COLLISIONS,
@@ -27,34 +27,14 @@ const SHIKI_IDS = new Set([
   "rose-pine-dawn",
 ]);
 
-const FUCORY_LIGHT =
-  "color-scheme:light; --bg:#fafafa; --text:#18181b; --text-muted:#52525b; --text-faint:#6d6d75; --text-placeholder:#6f6f78; --surface:#ffffff; --surface-2:#f4f4f5; --surface-3:#ffffff; --surface-glass:rgba(255,255,255,0.72); --surface-glass-strong:rgba(255,255,255,0.85); --border:rgba(24,24,27,0.08); --border-strong:rgba(24,24,27,0.14); --border-solid:#e4e4e7; --hover:#f4f4f5; --hover-subtle:rgba(24,24,27,0.04); --inverse-bg:#18181b; --inverse-text:#fafafa; --code-bg:#f4f4f5; --code-text:#18181b; --inline-code-bg:rgba(24,24,27,0.06); --brand:#6d56d8; --success:#087461; --danger:#c5343f; --warning:#916000; --info:#2a63c9; --shadow-rgb:24 24 27; --shadow-1:0 1px 2px rgb(var(--shadow-rgb) / 0.05); --shadow-2:0 1px 2px rgb(var(--shadow-rgb) / 0.04), 0 8px 24px rgb(var(--shadow-rgb) / 0.07); --shadow-3:0 4px 12px rgb(var(--shadow-rgb) / 0.10), 0 16px 48px rgb(var(--shadow-rgb) / 0.14)";
-const FUCORY_DARK =
-  "color-scheme:dark; --bg:#09090b; --text:#f4f4f5; --text-muted:#a1a1aa; --text-faint:#8c8c95; --text-placeholder:#8a8a93; --surface:#141417; --surface-2:#1b1b20; --surface-3:#232329; --surface-glass:rgba(20,20,23,0.72); --surface-glass-strong:rgba(20,20,23,0.85); --border:rgba(255,255,255,0.09); --border-strong:rgba(255,255,255,0.16); --border-solid:#2a2a30; --hover:#1f1f24; --hover-subtle:rgba(255,255,255,0.05); --inverse-bg:#f4f4f5; --inverse-text:#18181b; --code-bg:#0c0c0e; --code-text:#e4e4e7; --inline-code-bg:rgba(255,255,255,0.08); --brand:#8e7ce8; --success:#2ec9a8; --danger:#f2555a; --warning:#e0a23a; --info:#6aa5f8; --shadow-rgb:0 0 0; --shadow-1:0 1px 2px rgb(var(--shadow-rgb) / 0.35); --shadow-2:0 1px 2px rgb(var(--shadow-rgb) / 0.30), 0 8px 24px rgb(var(--shadow-rgb) / 0.40); --shadow-3:0 4px 12px rgb(var(--shadow-rgb) / 0.45), 0 16px 48px rgb(var(--shadow-rgb) / 0.50)";
-
 const variants = Object.entries(themeRegistry).flatMap(([key, theme]) =>
   (["light", "dark"] as const).map((mode) => ({ key, mode, variant: theme[mode] }))
 );
 
 describe("theme registry", () => {
-  test("One dark success clears AA on the generator's exact 12% tint", () => {
-    const { success, surface } = themeRegistry.one!.dark;
-    expect(contrastRatioOf(mixChannels(success, surface, 1), mixChannels(success, surface, 0.12)))
-      .toBeGreaterThanOrEqual(4.5);
-  });
-
-  test("contains the complete ordered suite with Night Owl as default", () => {
-    expect(DEFAULT_THEME_KEY).toBe("night-owl");
-    expect(Object.keys(themeRegistry)).toEqual([
-      "night-owl",
-      "fucory",
-      "one",
-      "github",
-      "catppuccin",
-      "solarized",
-      "gruvbox",
-      "rose-pine",
-    ]);
+  test("Paper is the only active palette", () => {
+    expect(DEFAULT_THEME_KEY).toBe("paper");
+    expect(Object.keys(themeRegistry)).toEqual(["paper"]);
   });
 
   test("every record has complete matching variants and bundled Shiki ids", () => {
@@ -172,8 +152,5 @@ describe("theme vocabulary", () => {
     );
   });
 
-  test("serializes Fucory to its accessibility-corrected token strings", () => {
-    expect(serializeThemeVariant(themeRegistry.fucory!.light)).toBe(FUCORY_LIGHT);
-    expect(serializeThemeVariant(themeRegistry.fucory!.dark)).toBe(FUCORY_DARK);
-  });
+
 });

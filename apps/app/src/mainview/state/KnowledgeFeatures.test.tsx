@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { CardView } from "../ChatCards"
-import { ControllerTestProvider } from "../ControllerContext"
 import { cardActions } from "../cards/CardActions"
 import { agentVisibleCatalog } from "../flows/agentTools"
 import { namespace as searchNamespace } from "../flows/entries/search"
@@ -10,7 +9,7 @@ import { recommendedNames } from "../flows/registry"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { smithersInstructions } from "./Instructions"
-import { knowledgeCardAvailable } from "./KnowledgeFeatures"
+import { cardAvailable } from "./CardAvailability"
 import { parseRecommendation } from "./Recommend"
 import { json, memoryStorage, silentAgent } from "./TestFixtures"
 
@@ -60,7 +59,7 @@ describe("the Wiki is core", () => {
     const controller = createAppController(store, silentAgent)
     expect(store.session().surface).toBe("world")
     expect(store.session().maximizedCardId).toBe(card.id)
-    expect(knowledgeCardAvailable("world")).toBe(true)
+    expect(cardAvailable("world")).toBe(true)
     expect((await controller.commands.run("tab.card", card.id)).status).toBe("executed")
   })
 
@@ -109,13 +108,12 @@ describe("a repository that declares a knowledge flow", () => {
   })
 })
 
-describe("the Plugin Library flag", () => {
+describe("the retired Plugin Library", () => {
   const libraryCard = { id: "old-library", kind: "plugin-library" as const, title: "Library", status: "active" as const,
     createdAt: 1, ordinal: 1, payload: { tutorial: false } }
 
   test("a restored Library card is reset, refused and dropped from the agent's context like a Wiki card", async () => {
-    expect(knowledgeCardAvailable("plugin-library")).toBe(false)
-    expect(knowledgeCardAvailable("plugin-library", { pluginLibrary: true })).toBe(true)
+    expect(cardAvailable("plugin-library")).toBe(false)
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await store.dispatch({ type: "card.upsert", actor: "system", card: libraryCard }).isPersisted.promise
     await store.dispatch({ type: "card.maximized", actor: "user", id: libraryCard.id }).isPersisted.promise
@@ -127,18 +125,7 @@ describe("the Plugin Library flag", () => {
     expect(renderToStaticMarkup(createElement(CardView, { card: libraryCard, maximized: false, worldDocuments: [], ...cardActions(controller) }))).toBe("")
   })
 
-  test("the Library card opens as it does today when the flag is on", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    await store.dispatch({ type: "card.upsert", actor: "system", card: libraryCard }).isPersisted.promise
-    await store.dispatch({ type: "card.maximized", actor: "user", id: libraryCard.id }).isPersisted.promise
-    const controller = createAppController(store, silentAgent, { features: { pluginLibrary: true } })
-    expect(store.session().maximizedCardId).toBe(libraryCard.id)
-    expect((await controller.commands.run("tab.card", libraryCard.id)).status).toBe("executed")
-    expect(renderToStaticMarkup(createElement(ControllerTestProvider, {
-      controller,
-      children: createElement(CardView, { card: libraryCard, maximized: false, worldDocuments: [], ...cardActions(controller) })
-    }))).not.toBe("")
-  })
+
 })
 
 describe("the copy the slash menu and the prompt carry", () => {

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { BUG_REPORTS_PER_HOUR, clientAddress, PUBLIC_READS_PER_HOUR, RATE_LIMIT_PER_HOUR } from "../src/checkRateLimit.ts";
+import { BUG_REPORTS_PER_HOUR, clientAddress, RATE_LIMIT_PER_HOUR } from "../src/checkRateLimit.ts";
 import type { BugWorkerEnv } from "../src/env.ts";
 import { createBugWorker } from "../src/worker.ts";
 import { memoryKv } from "./helpers/memoryKv.ts";
-import { memoryRateLimits, memoryRepoCompletions } from "./helpers/memoryDurableObjects.ts";
+import { memoryRateLimits } from "./helpers/memoryDurableObjects.ts";
 
 const worker = createBugWorker({ now: () => 1788500000000 });
 const env = (): BugWorkerEnv & { BUGS: ReturnType<typeof memoryKv> } => ({
-  BUGS: memoryKv(), REPO_COMPLETIONS: memoryRepoCompletions(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: "admin",
+  BUGS: memoryKv(), RATE_LIMITS: memoryRateLimits(), BUG_ADMIN_TOKEN: "admin",
 });
 const report = (headers: Record<string, string>) => new Request("https://bug.smithers.sh/api/bugs", {
   method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ summary: "flood" }),
@@ -68,14 +68,6 @@ describe("rate limits", () => {
   test("the all-clients cap takes at least 100 per-client budgets to spend", () => {
     expect(BUG_REPORTS_PER_HOUR / RATE_LIMIT_PER_HOUR).toBeGreaterThanOrEqual(100);
     expect(BUG_REPORTS_PER_HOUR * 256 * 1024).toBeLessThanOrEqual(512 * 1024 * 1024);
-  });
-
-  test("anonymous claim reads share the public-read budget", async () => {
-    const e = env();
-    const read = () => worker.fetch(new Request("https://bug.smithers.sh/api/repo-claims?repo=owner/repo", { headers: { "cf-connecting-ip": "203.0.113.8" } }), e);
-    const codes = await statuses(Array.from({ length: PUBLIC_READS_PER_HOUR + 5 }, read));
-    expect(codes.filter((code) => code === 404)).toHaveLength(PUBLIC_READS_PER_HOUR);
-    expect(codes.filter((code) => code === 429)).toHaveLength(5);
   });
 
   test("a client is its IPv4 address or its IPv6 /64", () => {

@@ -89,7 +89,6 @@ needed by adapters without copying product queries or schemas.
 - `packages/backend/internal/middleware`
 - `packages/backend/internal/observability`
 - `packages/backend/internal/ownership`
-- `packages/backend/internal/pairauth`
 - `packages/backend/internal/pkg/crypto`
 - `packages/backend/internal/pkg/errors`
 - `packages/backend/internal/repohost`

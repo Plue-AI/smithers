@@ -68,13 +68,13 @@ func TestOAuth2Service_RefreshTokenSurvivesFailedRotation(t *testing.T) {
 		return nil
 	}
 
-	_, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "smithers_ort_old")
+	_, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "smithers_ort_old")
 	require.Error(t, err, "the new refresh token insert failed")
 
-	resp, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "smithers_ort_old")
+	resp, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "smithers_ort_old")
 	require.NoError(t, err, "the old refresh token must stay usable after a failed rotation")
 	require.NotEmpty(t, resp.RefreshToken)
 
-	_, err = svc.RefreshToken(context.Background(), "client-123", "secret-123", "smithers_ort_old")
+	_, err = svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "smithers_ort_old")
 	require.Error(t, err, "a committed rotation spends the old token")
 }

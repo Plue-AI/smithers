@@ -167,7 +167,6 @@ func buildWorkflowTriggerRouter(q *db.Queries, pool *pgxpool.Pool, workflow *rou
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil,                     // notificationHandler
-		nil,                     // pairSessionHandler
 		nil, nil, nil, nil, nil, // admin user/org/repo/github-app/audit
 		nil, nil, nil, nil, nil, nil, nil, nil, // webhook, secret, provider, variable, billing, protected, status, lfs
 		nil, // jjVCSHandler

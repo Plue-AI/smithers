@@ -17,7 +17,7 @@ import { nameOf } from "./registry"
 
 /** Every controller call answers with nothing: registration never invokes a handler. */
 const inertActions = new Proxy({}, {
-  get: (_, key) => key === "snapshot" ? () => ({ pluginLibrary: true }) : () => undefined
+  get: (_, key) => key === "snapshot" ? () => ({}) : () => undefined
 }) as CommandActions
 
 /** baseFlows at the split, in registration order. */
@@ -25,7 +25,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "connect",
   "world",
   "flows",
-  "appearance.theme",
   "appearance.dark-mode",
   "debug.verbose",
   "system.recommend",
@@ -150,7 +149,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "findings.not-useful",
   "chat.reload",
   "chat.commands",
-  "agent.explain",
   "agent.list",
   "form.set",
   "form.submit",

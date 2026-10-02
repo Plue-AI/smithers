@@ -206,21 +206,6 @@ func TestBilling_H_PublicEntryGuardsAndPolicyErrors(t *testing.T) {
 	err = policySvc.AuthorizePrivateRepo(ctx, BillingOwnerTypeUser, 42)
 	assert.Equal(t, 500, httpStatus(err))
 
-	pairingQueries := billingHNewQuerier()
-	pairingQueries.getBillingAccountByOwnerFn = func(context.Context, db.GetBillingAccountByOwnerParams) (db.BillingAccount, error) {
-		return db.BillingAccount{}, errors.New("account read failed")
-	}
-	err = billingHService(pairingQueries, nil).AuthorizePairing(ctx, 42)
-	assert.Equal(t, 500, httpStatus(err))
-
-	planErrQueries := billingHNewQuerier()
-	billingHSeedAccount(planErrQueries, billingHAccount(BillingOwnerTypeUser, 42, "cus_plan_err"))
-	planErrQueries.getLatestLiveSubscriptionFn = func(context.Context, int64) (db.BillingSubscription, error) {
-		return db.BillingSubscription{}, errors.New("subscription read failed")
-	}
-	err = billingHService(planErrQueries, nil).AuthorizePairing(ctx, 42)
-	assert.Equal(t, 500, httpStatus(err))
-
 	authQueries := billingHNewQuerier()
 	authSvc := billingHService(authQueries, nil)
 	err = authSvc.authorizeWorkflowDispatchAdmission(ctx, 404)

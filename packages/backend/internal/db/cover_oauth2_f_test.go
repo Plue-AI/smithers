@@ -25,21 +25,6 @@ func TestFCov_OAuth2_RoundTrip(t *testing.T) {
 	byClient, err := q.GetOAuth2ApplicationByClientID(ctx, clientID)
 	require.NoError(t, err)
 	assert.Equal(t, app.ID, byClient.ID)
-	byID, err := q.GetOAuth2ApplicationByID(ctx, app.ID)
-	require.NoError(t, err)
-	assert.Equal(t, app.ID, byID.ID)
-
-	apps, err := q.ListOAuth2ApplicationsByOwner(ctx, userID)
-	require.NoError(t, err)
-	require.Len(t, apps, 1)
-
-	updated, err := q.UpdateOAuth2Application(ctx, UpdateOAuth2ApplicationParams{
-		Name: "App2", RedirectUris: []string{"https://example.com/cb2"}, Scopes: []string{"read", "write"},
-		Confidential: false, ID: app.ID, OwnerID: userID,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "App2", updated.Name)
-
 	// Access tokens.
 	atHash := "at-" + randSlug(t)
 	_, err = q.CreateOAuth2AccessToken(ctx, CreateOAuth2AccessTokenParams{
@@ -107,8 +92,4 @@ func TestFCov_OAuth2_RoundTrip(t *testing.T) {
 	require.NoError(t, q.DeleteExpiredOAuth2AuthorizationCodes(ctx))
 	require.NoError(t, q.DeleteExpiredOAuth2RefreshTokens(ctx))
 
-	// Delete application.
-	deletedApp, err := q.DeleteOAuth2Application(ctx, DeleteOAuth2ApplicationParams{ID: app.ID, OwnerID: userID})
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), deletedApp)
 }

@@ -34,9 +34,6 @@ func (p workflowCacheHBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Cont
 func (p workflowCacheHBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return p.storageErr
 }
-func (p workflowCacheHBillingPolicy) AuthorizePairing(context.Context, int64) error {
-	return nil
-}
 
 func workflowCacheHRun() db.WorkflowRun {
 	return db.WorkflowRun{TriggerEvent: "push", ID: 5, RepositoryID: 7, TriggerRef: "refs/heads/main"}

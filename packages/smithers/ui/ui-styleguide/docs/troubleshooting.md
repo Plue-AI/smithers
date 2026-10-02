@@ -8,17 +8,12 @@ description: "The errors this package throws, what each one means, and the themi
 ### `RangeError: unknown palette "dracula"`
 
 ```text
-RangeError: unknown palette "dracula"; registered: night-owl, fucory, one,
-github, catppuccin, solarized, gruvbox, rose-pine
+RangeError: unknown palette "dracula"; registered: paper
 ```
 
 `themeCss({ palettes })` names a key the registry does not have. The message
-lists the eight that exist. Note that the registry keys are hyphenated
-(`night-owl`, `rose-pine`), not camel case, and they are not the file names in
-`src/themes/`.
-
-`themeCss` validates the whole request before emitting anything, so a typo in a
-list of eight fails rather than silently dropping one palette.
+lists the retained `paper` key. The whole request is validated before emission,
+so an unknown key fails rather than silently dropping it.
 
 ### `TypeError: expected a hex color`
 
@@ -88,7 +83,7 @@ fine: the descriptors come from the target.
 Spread a registry variant to build a partial override and you cannot hit this:
 
 ```ts
-const variant = { ...themeRegistry["night-owl"].light, brand: "#ff3366" }
+const variant = { ...themeRegistry["paper"].light, brand: "#ff3366" }
 ```
 
 ### `TypeError: theme token --bg is not a color, RGB channel triple, or shadow recipe`

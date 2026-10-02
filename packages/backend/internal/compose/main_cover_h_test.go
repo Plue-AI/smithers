@@ -167,7 +167,6 @@ func sseIdentityRouterForTest() http.Handler {
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil,                       // notificationHandler
-		nil,                       // adminRunnerHandler
 		nil,                       // adminUserHandler
 		nil,                       // adminOrgHandler
 		nil,                       // adminSystemMetricsHandler
@@ -243,7 +242,6 @@ func featureGateRouterForTest(cfg *config.Config) http.Handler {
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil,                                // notificationHandler
-		nil,                                // adminRunnerHandler
 		nil,                                // adminUserHandler
 		nil,                                // adminOrgHandler
 		nil,                                // adminSystemMetricsHandler

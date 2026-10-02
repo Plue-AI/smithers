@@ -37,7 +37,7 @@ describe("node ESM resolution", () => {
       "const names = Object.keys(m).sort().join(',');",
       "if (typeof m.workflowUiThemeCss !== 'string') throw new Error('workflowUiThemeCss is not a string');",
       "if (typeof m.standaloneThemeCss() !== 'string') throw new Error('standaloneThemeCss() is not a string');",
-      "if (Object.keys(m.themeRegistry).length !== 8) throw new Error('registry is not the eight palettes');",
+      "if (Object.keys(m.themeRegistry).length !== 1) throw new Error('registry is not Paper');",
       "process.stdout.write(names);",
     ].join("\n");
     const result = spawnSync(nodeExecutable, ["--experimental-strip-types", "--input-type=module", "-e", program], {

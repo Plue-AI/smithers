@@ -31,9 +31,6 @@ func (p workflowCacheCovBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Co
 func (p workflowCacheCovBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return p.storageErr
 }
-func (p workflowCacheCovBillingPolicy) AuthorizePairing(context.Context, int64) error {
-	return nil
-}
 
 func TestWorkflowCache_Cov_RestoreDeletesMissingArchive(t *testing.T) {
 	deleted := false

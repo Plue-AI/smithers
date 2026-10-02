@@ -52,9 +52,7 @@ type isolationTenant struct {
 	definition    db.WorkflowDefinition
 	workspace     db.Workspace
 	agentSession  db.AgentSession
-	pairSession   db.PairSession
 	timeline      db.AppTimeline
-	listing       db.ShareListing
 	notification  db.Notification
 	sshKey        db.SshKey
 	tokenRow      db.AccessToken
@@ -213,12 +211,7 @@ func seedIsolationTenant(t *testing.T, pool *pgxpool.Pool, name string, transfer
 	require.NoError(t, err)
 	tenant.agentSession, err = q.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: uuid.NewString(), RepositoryID: tenant.repo.ID, UserID: tenant.user.ID, Title: mark("agent-session"), Status: "active", Metadata: []byte(`{}`)})
 	require.NoError(t, err)
-	tenant.pairSession, err = q.CreatePairSession(ctx, db.CreatePairSessionParams{ID: uuid.NewString(), OwnerUserID: tenant.user.ID, SourceWorkspaceID: tenant.workspace.ID, AccessMode: "restricted"})
-	require.NoError(t, err)
 	tenant.timeline, err = q.CreateAppTimeline(ctx, db.CreateAppTimelineParams{OwnerUserID: tenant.user.ID, ClientKey: mark("timeline")})
-	require.NoError(t, err)
-	tenant.listing, err = q.CreateShareListing(ctx, db.CreateShareListingParams{Kind: "workflow", Name: mark("listing"), Slug: name + "-listing", Description: mark("listing-description"),
-		OwnerUserID: tenant.user.ID, SourceRepoOwner: name, SourceRepoName: tenant.repo.Name, SourcePath: "flows/x/flow.ts", ContentSnapshot: mark("listing-content")})
 	require.NoError(t, err)
 	tenant.notification, err = q.CreateNotification(ctx, db.CreateNotificationParams{SourceType: "issue", SourceID: pgtype.Int8{Int64: tenant.issue.ID, Valid: true}, Subject: mark("notification"), Body: mark("notification-body"), UserID: tenant.user.ID})
 	require.NoError(t, err)
@@ -318,9 +311,6 @@ func isolationValues(tenant isolationTenant, owner, repo string, missing bool) f
 			}
 			return pick(fmt.Sprint(tenant.issue.Number), "987654")
 		case "slug":
-			if segment == "by-link" {
-				return pick(tenant.pairSession.ID, "missing-link")
-			}
 			return pick(tenant.wiki.Slug, "missing-page")
 		case "name":
 			switch segment {
@@ -337,8 +327,6 @@ func isolationValues(tenant isolationTenant, owner, repo string, missing bool) f
 			return "artifact"
 		case "transfer_id":
 			return pick(fmt.Sprint(tenant.transfer.ID), "987654")
-		case "listingId":
-			return pick(tenant.listing.ID, uuid.Nil.String())
 		case "hostID":
 			return "isolation-host"
 		case "path":
@@ -353,8 +341,6 @@ func isolationValues(tenant isolationTenant, owner, repo string, missing bool) f
 				return pick(fmt.Sprint(tenant.run.ID), "987654")
 			case "agent-sessions":
 				return pick(tenant.agentSession.ID, uuid.Nil.String())
-			case "pair-sessions":
-				return pick(tenant.pairSession.ID, uuid.Nil.String())
 			case "app-timelines":
 				return pick(tenant.timeline.ID, uuid.Nil.String())
 			case "hooks":
@@ -420,7 +406,7 @@ func leaksCanary(body string) bool {
 var (
 	isolationStreamPath     = regexp.MustCompile(`/(stream|events|logs|terminal)(/|$)|/sse`)
 	isolationCredentialPath = regexp.MustCompile(`/(secrets|variables|keys|tokens|provider-connections|connections|emails|sessions|oauth2|credential|hooks|github-access|installations)(/|$)`)
-	isolationJobPath        = regexp.MustCompile(`/(runs|workflows|workflow|repository-jobs|agent|agent-sessions|workspaces|workspace|workspace-snapshots|pair-sessions|repository-setup|import|sync|gateways|command-runs|operations|mythical|app-timelines|changesets|approvals)(/|$)`)
+	isolationJobPath        = regexp.MustCompile(`/(runs|workflows|workflow|repository-jobs|agent|agent-sessions|workspaces|workspace|workspace-snapshots|repository-setup|import|sync|gateways|command-runs|operations|mythical|app-timelines|changesets|approvals)(/|$)`)
 )
 
 // isolationFamily names the acceptance family a route belongs to.
@@ -434,14 +420,6 @@ func isolationFamily(path string) string {
 		return "jobs"
 	}
 	return "repositories"
-}
-
-// isolationPublicRoutes serve data to anyone by design; bob may read them.
-var isolationPublicRoutes = map[string]string{
-	// A published share listing is the public catalog entry its owner chose
-	// to publish, so it is not a private resource.
-	"get /api/share/listings/{listingId}": "published share listings are a public catalog",
-	"get /api/share/listings":             "published share listings are a public catalog",
 }
 
 // isolationGlobalID reports whether a path parameter names a row across all
@@ -503,9 +481,6 @@ func TestAccountIsolationAcrossEveryRouteFamilyPostgres(t *testing.T) {
 	var violations []string
 	swept := map[string]int{}
 	check := func(sweep, key string, probe, baseline isolationResponse) {
-		if _, public := isolationPublicRoutes[key]; public {
-			return
-		}
 		if leaksCanary(probe.body) {
 			violations = append(violations, fmt.Sprintf("%s %s: bob read alice's data (status %d): %.300s", sweep, key, probe.status, probe.body))
 			return
@@ -587,9 +562,6 @@ func TestAccountIsolationAcrossEveryRouteFamilyPostgres(t *testing.T) {
 	for _, key := range keys {
 		route := served[key]
 		if route.method != "get" || strings.Contains(route.path, "{") {
-			continue
-		}
-		if _, public := isolationPublicRoutes[key]; public {
 			continue
 		}
 		path := route.path + "?q=" + isolationCanary + "&query=" + isolationCanary

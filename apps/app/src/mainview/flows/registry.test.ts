@@ -4,7 +4,6 @@ import { describe,expect,test } from "bun:test"
 
 import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
-import { PALETTES } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
 import { agentToolSpecs,executeAgentToolCall } from "./agentTools"
 import { visibleItems } from "./Commands"
@@ -229,7 +228,7 @@ describe("command registry pure model", () => {
     const commands = [
       { name: "chat", summary: "" },
       { name: "tab.terminal", summary: "" },
-      { name: "appearance.theme", summary: "" },
+      { name: "appearance.dark-mode", summary: "" },
       { name: "appearance.dark-mode", summary: "" },
       { name: "toast.dismiss", summary: "", hidden: true },
       { name: "zeta.one", summary: "" }
@@ -248,7 +247,7 @@ describe("command registry pure model", () => {
       { name: "wiki", summary: "Wiki" },
       { name: "chat", summary: "Chat" },
       { name: "appearance.dark-mode", summary: "Toggle" },
-      { name: "appearance.theme", summary: "Theme" },
+      { name: "appearance.dark-mode", summary: "Theme" },
       { name: "tab.terminal", summary: "Terminal" },
       { name: "chat.clear", summary: "Clear" }
     ]
@@ -279,7 +278,7 @@ describe("command registry pure model", () => {
     const partial = slashTree(chatState, "app", commands)
     expect(partial[0]).toEqual({
       kind: "namespace",
-      namespace: { id: "appearance", label: "Appearance", summary: "Theme and colors" },
+      namespace: { id: "appearance", label: "Appearance", summary: "Light or dark mode" },
       count: 1
     })
     // A name known by heart still leads, exactly as the flat filter ranks it.
@@ -610,71 +609,13 @@ describe("command registry bindings", () => {
     // Every listed flow is a tool call (flows/invocable.test.ts pins the invariant).
     const theme = await executeAgentToolCall(controller.commands, {
       name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "appearance.theme" })
+      arguments: JSON.stringify({ action: "execute", name: "appearance.dark-mode" })
     })
-    expect(theme).toBe("executed /appearance.theme")
+    expect(theme).toBe("executed /appearance.dark-mode")
 
     // The user-only guard never leaks into the user path: the human's own
     // invocation still executes.
-    expect((await controller.commands.run("appearance.theme")).status).toBe("executed")
-  })
-
-  /*
-   * Two commands, two axes: /theme wears a color palette and /dark-mode
-   * flips light and dark. Neither is the other's alias — the toggle used to
-   * hide behind /theme, and repurposing the name without promoting the
-   * toggle would have left the light/dark control unreachable by name.
-   */
-  test("the color theme and the light/dark toggle are independent commands", async () => {
-    const { store, controller } = await freshController()
-    const toggle = controller.commands.find("appearance.dark-mode")
-    expect(toggle?.metadata.hidden).toBeUndefined()
-    // Listed, so the human can find the toggle in the slash menu.
-    expect(controller.slashItems("dark-mode").map((item) => item.flow.name)).toContain("appearance.dark-mode")
-    // The argument hint documents the input accepted by `/appearance.theme`.
-    expect(controller.commands.find("appearance.theme")?.metadata.args).toBeDefined()
-
-    // The default palette is night-owl, and every key round-trips.
-    expect(store.session().palette).toBe("night-owl")
-    for (const palette of PALETTES) {
-      expect((await controller.commands.run("appearance.theme", palette)).status).toBe("executed")
-      expect(store.session().palette).toBe(palette)
-    }
-    const last = PALETTES[PALETTES.length - 1]
-    expect(store.session().palette).toBe(last)
-
-    // An unknown key never rounds to the nearest palette: it fails honestly,
-    // opens the picker (the list of valid answers IS the interface), and
-    // leaves the current palette alone.
-    const unknown = await controller.commands.run("appearance.theme", "dracula")
-    expect(unknown.status).toBe("failed")
-    if (unknown.status === "failed") expect(unknown.error).toContain("night-owl")
-    expect(store.session().palette).toBe(last)
-    const picker = () => store.collections.cards.get("theme-picker")
-    expect(picker()?.kind).toBe("theme-picker")
-    if (picker()?.kind === "theme-picker") {
-      expect(picker()?.payload).toEqual({ selected: last })
-    }
-
-    // Bare /theme surfaces the picker card with the current palette marked.
-    expect((await controller.commands.run("appearance.theme")).status).toBe("executed")
-    expect(picker()?.kind).toBe("theme-picker")
-    if (picker()?.kind === "theme-picker") {
-      expect(picker()?.payload).toEqual({ selected: last })
-    }
-
-    // Choosing from the picker keeps its "current" mark honest.
-    expect((await controller.commands.run("appearance.theme", PALETTES[0] ?? "night-owl")).status).toBe("executed")
-    if (picker()?.kind === "theme-picker") {
-      expect(picker()?.payload).toEqual({ selected: PALETTES[0] })
-    }
-    expect((await controller.commands.run("appearance.theme", last ?? "night-owl")).status).toBe("executed")
-
-    // The axes never touch: the toggle flips the theme and nothing else.
-    const before = store.session().theme
     expect((await controller.commands.run("appearance.dark-mode")).status).toBe("executed")
-    expect(store.session().theme).not.toBe(before)
-    expect(store.session().palette).toBe(last)
   })
 
   test("a bare /name typed into the composer runs the command, not a prompt", async () => {
@@ -785,13 +726,12 @@ describe("command registry bindings", () => {
 
 test("Library is absent by default from commands, recommendations and agent tools", async () => {
   const { store, controller } = await freshController()
-  expect(controller.features.pluginLibrary).toBe(false)
+  expect(Object.keys(controller.features)).not.toContain("pluginLibrary")
   for (const name of ["plugins", "plugins.list", "plugins.install", "plugins.remove"]) {
     expect(controller.commands.find(name)).toBeUndefined()
     expect((await controller.commands.run(name, "librarian")).status).not.toBe("executed")
   }
-  expect(recommendedNames({ ...chatState, plugins: [] })).not.toContain("plugins")
-  expect(recommendedNames({ ...chatState, plugins: [], pluginLibrary: true })).toContain("plugins")
+  expect(recommendedNames(chatState)).not.toContain("plugins")
   expect(controller.commands.callable().map(entry => entry.binding.descriptor.name)).not.toContain("plugins.install")
   expect(store.session().plugins ?? []).toEqual([])
   await controller.dispose()

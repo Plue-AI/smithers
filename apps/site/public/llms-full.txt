@@ -2623,7 +2623,6 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | Command | Action | Details |
 | --- | --- | --- |
 | `/model [query]` | Pick a model. | [Guide](/docs/learn/models/) |
-| `/theme` | Pick a theme. | [Guide](/docs/tui/views/) |
 | `/new` | Start a new conversation. | [Guide](/docs/learn/chat/) |
 | `/resume` | Resume a conversation. | [Guide](/docs/learn/chat/) |
 | `/conversation` | Show the conversation file and tokens. | [Guide](/docs/learn/chat/) |
@@ -2642,6 +2641,8 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/flow <name> [json\|key=value\|prompt]` | Run a flow or agent. | [Guide](/docs/learn/run-a-flow/) |
 | `/quit` | Quit. | [Guide](/docs/tui/cli/) |
 | `/exit` | Alias for `/quit`. | [Guide](/docs/tui/cli/) |
+
+Repository flows also appear in the menu. `/model` and `/flow` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
 
 ---
 
@@ -2941,7 +2942,7 @@ Worker completions and monitors require a connected ChatGPT subscription, direct
 | `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
 | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | Native helper for flows. |
 
-The theme is saved in `~/.smithers/tui/theme`.
+The TUI uses the app's Paper palette. `NO_COLOR` and ANSI terminals retain their native color limits.
 
 ## Instruction files
 
@@ -2976,7 +2977,7 @@ The TUI with a scripted test model.
 
 ## Theme
 
-`/theme` picks purple, blue, green, or orange.
+The TUI uses Paper with the same teal accent as the browser app.
 
 ---
 

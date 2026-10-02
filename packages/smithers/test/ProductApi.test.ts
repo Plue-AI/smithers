@@ -88,7 +88,13 @@ describe("the generated product API client", () => {
     const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name)
       .sort()
     expect(exported).toEqual(expected)
-    expect(expected.length).toBeGreaterThan(500)
+    // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
+    // third-party OAuth application operations. Exact equality above remains
+    // independent of this count and every retained operation is exercised below.
+    expect(expected).toHaveLength(496)
+    for (const path of Object.keys(spec.paths)) {
+      expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
+    }
   })
 
   it.each(operations.filter(({ operation }) => operation.requestBody === undefined || jsonBody(operation)))(

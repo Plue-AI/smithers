@@ -12,10 +12,10 @@ composition, not several.
 
 | You are building                                  | Embed                          | You get                                                        |
 | ------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
-| A workflow UI shell with the `.workflow-*` grid    | `workflowUiStyles`             | Tokens, primitive rules, and layout rules. 35 KB.               |
-| A page that uses the primitives with its own layout | `workflowUiThemeCss`           | Tokens and primitive rules. 33 KB.                              |
-| A report, landing page, or plain HTML document     | `standaloneThemeCss()`         | Tokens and base element rules for `body`, `a`, `code`, `pre`, `table`, `hr`. 26 KB. |
-| A page whose CSS you write yourself                | `themeCss()`                   | Tokens only, no rules. 25 KB.                                   |
+| A workflow UI shell with the `.workflow-*` grid    | `workflowUiStyles`             | Tokens, primitive rules, and layout rules..               |
+| A page that uses the primitives with its own layout | `workflowUiThemeCss`           | Tokens and primitive rules..                              |
+| A report, landing page, or plain HTML document     | `standaloneThemeCss()`         | Tokens and base element rules for `body`, `a`, `code`, `pre`, `table`, `hr`.. |
+| A page whose CSS you write yourself                | `themeCss()`                   | Tokens only, no rules..                                   |
 
 `workflowUiLayoutCss` (2 KB) is the layout half on its own, for a host that has
 already embedded `workflowUiThemeCss` elsewhere. `reducedMotionCss` is the
@@ -88,21 +88,17 @@ once, near the root. A host whose page already inlines the theme leaves
 
 ## Stamp the selection
 
-With no attributes, the sheet applies Night Owl light by default and switches
-to Night Owl dark when `prefers-color-scheme: dark` matches. Use `data-palette`
-and `data-theme` as optional overrides:
+With no attributes, the sheet applies Paper light by default and switches
+to Paper dark when `prefers-color-scheme: dark` matches. Use `data-theme` for optional overrides:
 
 ```ts
-document.documentElement.dataset.palette = "gruvbox"   // one of the eight keys
 document.documentElement.dataset.theme = "dark"        // or "light", or absent
 ```
 
 Leave `data-theme` absent to follow `prefers-color-scheme`, which is the usual
-choice. An unregistered `data-palette` value matches no rule, so the default
-palette stands; validate it with `findTheme` if you want to know.
+choice. Legacy unregistered palette values leave Paper active.
 
 ## Next
 
 - [Override a token](./override-a-token.md) once the sheet is in place.
-- [Pin a palette](./pin-a-palette.md) if 25 KB of tokens for eight palettes is
-  more than you need.
+- [Paper stylesheet](./pin-a-palette.md) describes the retained palette.

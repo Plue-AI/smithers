@@ -409,8 +409,8 @@ func TestBilling_Cov_PlanHelpersCheckoutAndFormatting(t *testing.T) {
 	svc.registerPlan(billingPlanDefinition{AllowedOwner: "lab", Key: "", Interval: BillingIntervalMonthly, PriceID: "price_incomplete"})
 	assert.NotContains(t, svc.checkoutPlans["lab"], ":monthly")
 
-	assert.Equal(t, 0, pairingPlanRank(" free "))
-	assert.Equal(t, 5, pairingPlanRank("custom"))
+	assert.Equal(t, 0, billingPlanRank(" free "))
+	assert.Equal(t, 5, billingPlanRank("custom"))
 	assert.Equal(t, "custom", svc.planFromPrice(BillingOwnerTypeOrg, "missing", "year").Key)
 	assert.Equal(t, BillingIntervalAnnual, svc.planFromPrice(BillingOwnerTypeOrg, "missing", "year").Interval)
 	assert.Equal(t, BillingPlanFree, svc.defaultPlan("unknown").Key)

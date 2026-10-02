@@ -15,7 +15,7 @@ import type { Tab } from "./workspace.ts"
 /** `queued` waits for a free seat. */
 export type Status = Tab["status"]
 
-/** Palette keys, read at draw time so a theme change reaches them. */
+/** Semantic palette keys used by the terminal views. */
 const tones = {
   running: "info",
   waiting: "warning",

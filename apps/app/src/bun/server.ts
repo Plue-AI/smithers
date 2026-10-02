@@ -802,7 +802,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
 
   /**
-   * The explainer seat (R6): a turn that names a model is answered by THAT
+   * The configured model (R6): a turn that names a model is answered by THAT
    * model through its decoded Route, or refused. It never reaches the agent
    * below, so no failure here can fall back to the default upstream.
    */

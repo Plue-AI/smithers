@@ -53,7 +53,7 @@ describe("theme + layout mapping", () => {
   test("mode and palette map onto registry Shiki themes", () => {
     expect(diffsThemeForMode("light")).toBe("night-owl-light");
     expect(diffsThemeForMode("dark")).toBe("night-owl");
-    expect(diffsThemeForMode("dark", "catppuccin")).toBe("catppuccin-mocha");
+    expect(diffsThemeForMode("dark", "paper")).toBe("night-owl");
   });
 
   test("layout maps onto CodeView diffStyle (split=side-by-side, inline=unified)", () => {

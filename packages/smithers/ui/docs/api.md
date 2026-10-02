@@ -69,7 +69,7 @@ it internally, and it is not a consumer styling API.
 ```ts
 const tokens: SmithersUiTokens
 const themeRegistry: DeepReadonly<Record<ResolvedPalette, SmithersTheme>>
-const DEFAULT_THEME_KEY: "night-owl"
+const DEFAULT_THEME_KEY: "paper"
 
 function resolveTheme(root?: ThemeRoot | null, media?: ThemeMedia | null): ResolvedTheme
 function subscribeTheme(onChange: () => void): () => void
@@ -90,7 +90,7 @@ type SmithersUiTokens = typeof tokens
 | `resolvePalette`     | Reads `data-palette` on `<html>`, accepting only registered keys and falling back to `DEFAULT_THEME_KEY`.                                |
 | `subscribePalette`   | Fires on a `data-palette` mutation. Returns an unsubscribe function.                                                                     |
 | `useResolvedPalette` | The hook form of `resolvePalette`, re-rendering on change.                                                                               |
-| `themeRegistry`      | The eight palettes, re-exported from [`@smthrs/ui-styleguide`](https://github.com/smithersai/smithers/tree/main/packages/smithers/ui/ui-styleguide).                                                      |
+| `themeRegistry`      | Paper light/dark, re-exported from [`@smthrs/ui-styleguide`](https://github.com/smithersai/smithers/tree/main/packages/smithers/ui/ui-styleguide).                                                      |
 
 Both `resolveTheme` and `resolvePalette` take optional injectable roots, which
 is how the package tests them without a document.
@@ -599,11 +599,11 @@ spellings of a name.
 Syntax token colors follow the resolved `mode` and `palette`, which default to
 the document's theme and palette. `diffsThemeForMode` selects
 `themeRegistry[palette].syntax.shikiLight` or `shikiDark` for light or dark mode.
-Calling the helper without a palette uses `"night-owl"`. Override a registered
+Calling the helper without a palette uses `"paper"`. Override a registered
 palette on the component when a surface needs different syntax colors:
 
 ```tsx
-<PierreDiffView patch={patch} palette="catppuccin" />
+<PierreDiffView patch={patch} palette="paper" />
 ```
 
 Registered palettes select bundled Shiki themes. The adapter exposes no

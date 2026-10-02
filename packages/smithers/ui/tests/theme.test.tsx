@@ -21,15 +21,15 @@ afterEach(async () => {
 });
 
 describe("palette resolution", () => {
-  test("defaults invalid and absent values to Night Owl", () => {
-    expect(resolvePalette({ getAttribute: () => null })).toBe("night-owl");
-    expect(resolvePalette({ getAttribute: () => "unknown" })).toBe("night-owl");
-    expect(resolvePalette({ getAttribute: () => "toString" })).toBe("night-owl");
-    expect(resolvePalette({ getAttribute: () => "__proto__" })).toBe("night-owl");
-    expect(resolvePalette({ getAttribute: () => "gruvbox" })).toBe("gruvbox");
+  test("defaults invalid and absent values to Paper", () => {
+    expect(resolvePalette({ getAttribute: () => null })).toBe("paper");
+    expect(resolvePalette({ getAttribute: () => "unknown" })).toBe("paper");
+    expect(resolvePalette({ getAttribute: () => "toString" })).toBe("paper");
+    expect(resolvePalette({ getAttribute: () => "__proto__" })).toBe("paper");
+    expect(resolvePalette({ getAttribute: () => "gruvbox" })).toBe("paper");
   });
 
-  test("updates when data-palette changes", async () => {
+  test("keeps Paper when historical data-palette changes", async () => {
     const seen: ResolvedPalette[] = [];
     function Probe() {
       const palette = useResolvedPalette();
@@ -41,12 +41,12 @@ describe("palette resolution", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => root?.render(<Probe />));
-    expect(container.querySelector("output")?.getAttribute("data-palette")).toBe("one");
+    expect(container.querySelector("output")?.getAttribute("data-palette")).toBe("paper");
     await act(async () => {
       document.documentElement.setAttribute("data-palette", "solarized");
       await Promise.resolve();
     });
-    expect(seen).toContain("solarized");
+    expect(new Set(seen)).toEqual(new Set(["paper"]));
   });
 });
 

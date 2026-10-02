@@ -654,21 +654,6 @@ func TestBuildForkBookmarkSwitchCommand_InitializesMissingJjRepo(t *testing.T) {
 	assert.Less(t, strings.Index(command, initCommand), strings.Index(command, fetchCommand))
 }
 
-// VerifyPairSourceWorkspace must reject a malformed (non-UUID) workspace id with
-// a uniform NotFound BEFORE touching the DB — otherwise the UUID-typed column
-// makes Postgres raise 22P02 and loadOwnedWorkspace leaks that driver text as a
-// raw 500.
-func TestWorkspaceService_VerifyPairSourceWorkspace_RejectsMalformedID(t *testing.T) {
-	t.Parallel()
-
-	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
-	err := svc.VerifyPairSourceWorkspace(context.Background(), "not-a-uuid", 1, 2)
-	require.Error(t, err)
-	apiErr, ok := err.(*pkgerrors.APIError)
-	require.True(t, ok, "want APIError, got %T", err)
-	assert.Equal(t, 404, apiErr.Status, "malformed source workspace id must be a uniform NotFound, not a 500")
-}
-
 func TestBuildWorkspaceClaudeBootstrapScript_InstallRendersAsSingleRunnableLine(t *testing.T) {
 	t.Parallel()
 

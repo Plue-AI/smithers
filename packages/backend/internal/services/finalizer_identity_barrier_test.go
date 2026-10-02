@@ -35,7 +35,6 @@ func (*finalizerBarrierBilling) AuthorizeAgentRunCommitted(ctx context.Context, 
 func (*finalizerBarrierBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (*finalizerBarrierBilling) AuthorizePairing(context.Context, int64) error { return nil }
 
 func (p *finalizerBarrierBilling) AuthorizeStorageIncreaseCommittedDynamic(
 	ctx context.Context,

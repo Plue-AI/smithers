@@ -1,12 +1,12 @@
 ---
 title: "Audit a color pair"
-description: "Score a new foreground and background pair across all sixteen shipped variants with the package's own contrast math, and record it so the suite keeps checking it."
+description: "Score a new foreground and background pair across both shipped variants with the package's own contrast math, and record it so the suite keeps checking it."
 sidebar:
   order: 5
 ---
 
 You added a rule that paints a color on a background. Before it ships, it has to
-clear 4.5:1 in eight palettes times two modes. Here is how to find out, and how
+clear 4.5:1 in both Paper modes. Here is how to find out, and how
 to make the check permanent.
 
 ## Score one pair
@@ -55,26 +55,11 @@ for (const [key, theme] of Object.entries(themeRegistry)) {
 ```
 
 ```text
-pass night-owl/light info on info-soft 4.7626
-pass night-owl/dark info on info-soft 5.9676
-pass fucory/light info on info-soft 4.8992
-pass fucory/dark info on info-soft 6.3054
-pass one/light info on info-soft 4.6941
-pass one/dark info on info-soft 4.5648
-pass github/light info on info-soft 4.6519
-pass github/dark info on info-soft 4.7536
-pass catppuccin/light info on info-soft 4.6607
-pass catppuccin/dark info on info-soft 5.6439
-pass solarized/light info on info-soft 4.6579
-pass solarized/dark info on info-soft 4.5776
-pass gruvbox/light info on info-soft 4.5290
-pass gruvbox/dark info on info-soft 4.7829
-pass rose-pine/light info on info-soft 4.7197
-pass rose-pine/dark info on info-soft 7.3470
+pass paper/light info on info-soft 5.2547
+pass paper/dark info on info-soft 5.8572
 ```
 
-Margins of 0.03 are the point. Read `one` dark at 4.5648 and `gruvbox` light at
-4.5290 and you can see why the tint ceiling is 10 percent and not 11.
+Keep the audited 10 percent tint recipe and check any new host colors.
 
 ## Score the fill you actually paint
 

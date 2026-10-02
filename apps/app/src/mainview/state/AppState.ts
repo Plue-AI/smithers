@@ -721,35 +721,13 @@ export const RecommendationSchema = z.object({
 })
 export type Recommendation = z.infer<typeof RecommendationSchema>
 
-/*
- * The color themes (/theme), the axis ORTHOGONAL to light/dark (/dark-mode):
- * a palette names a set of semantic color values, and each one ships both a
- * light and a dark variant in styles/tokens.css. This table is the one typed
- * authority for the keys and labels — the store's validation, the command's
- * argument spec, the /theme picker's swatch list, and the contrast gate all
- * derive from it, so adding a palette is one entry here plus its two CSS
- * blocks (and its swatch preview in cards/ThemePickerCard.tsx).
- */
-export const PALETTE_METADATA = [
-  { key: "night-owl", label: "Night Owl" },
-  { key: "paper", label: "Paper" },
-  { key: "fucory", label: "Fucory" },
-  { key: "one", label: "One" },
-  { key: "github", label: "GitHub" },
-  { key: "catppuccin", label: "Catppuccin" },
-  { key: "solarized", label: "Solarized" },
-  { key: "gruvbox", label: "Gruvbox" },
-  { key: "rose-pine", label: "Rosé Pine" }
-] as const
-export type Palette = (typeof PALETTE_METADATA)[number]["key"]
-export const PALETTES = PALETTE_METADATA.map((entry) => entry.key) as unknown as readonly [
-  Palette,
-  ...Array<Palette>
-]
-/** The palette a session that has never chosen one gets (and the CSS default). */
-export const DEFAULT_PALETTE: Palette = "night-owl"
-
-export const isPalette = (value: string): value is Palette => (PALETTES as ReadonlyArray<string>).includes(value)
+/** Historical theme ids remain a wire contract for journal and snapshot recovery. */
+export const HISTORICAL_PALETTES = ["night-owl", "paper", "fucory", "one", "github", "catppuccin", "solarized", "gruvbox", "rose-pine"] as const
+export type Palette = (typeof HISTORICAL_PALETTES)[number]
+/** The sole brand palette. Light and dark remain separate appearance modes. */
+export const DEFAULT_PALETTE = "paper" as const
+/** The contrast and graph checks exercise the retained brand palette. */
+export const PALETTES = [DEFAULT_PALETTE] as const
 
 export const RepositoryEntrySchema = z.object({
   requestId: z.string(),
@@ -840,7 +818,7 @@ export const SessionSchema = z.object({
    * would fork the schema's input and output types and break collection
    * inference.
    */
-  palette: z.enum(PALETTES).optional(),
+  palette: z.enum(HISTORICAL_PALETTES).optional(),
   composerOwner: z.enum(["user", "smithers"]),
   /* The pane the chat shell has open beside the conversation ("flows": will, ask 5, 2026-09-02; "subagents": the ctrl+s overview, #2190). */
   surface: z.enum(["chat", "world", "connectors", "flows", "plugins", "subagents"]),
@@ -1288,7 +1266,7 @@ export type AppTransition =
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */
-  | { type: "palette.changed"; actor: "user"; palette: Palette }
+  | { type: "palette.changed"; actor: "user" | "system"; palette: Palette }
   | {
     /* Maximize/minimize an embedded card — a presentation transition, user-only. */
     type: "card.maximized"
@@ -1824,7 +1802,8 @@ export const initialSession = (theme: Session["theme"]): Session => ({
   draft: "",
   phase: "idle",
   theme,
-  palette: DEFAULT_PALETTE,
+  // Immutable historical boot seed; AppStore journals the current palette after replay.
+  palette: "night-owl",
   composerOwner: "user",
   surface: "chat",
   selectedWorldDocumentId: null,

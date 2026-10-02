@@ -1,30 +1,5 @@
-/*
- * The token contract on TWO independent axes:
- *
- *  - `data-theme` (light | dark) — the light/dark toggle (/dark-mode),
- *  - `data-palette` (nine keys)  — the color theme (/theme <key>).
- *
- * :root carries `night-owl`, the default palette, in its light variant, plus
- * every palette-INVARIANT section: the type scale, the geometry, and the
- * @smthrs/ui bridge. Bridge values derive from the semantic tokens through
- * var()/color-mix, and custom properties resolve against the element they
- * land on (:root for all of these), so a palette that overrides only the
- * semantic values below re-derives the whole bridge for free.
- *
- * Each non-default palette K overrides exactly the semantic values in
- * `:root[data-palette="K"]` (light) and `:root[data-palette="K"][data-theme="dark"]`
- * (dark). Both blocks declare the FULL semantic set: the light block and
- * `:root[data-theme="dark"]` have equal specificity, so a value missing from
- * a palette's dark block would leak its light value into dark.
- *
- * Palette values are static. The six editor palettes were derived once from
- * their upstream VS Code theme JSONs — background/foreground from the editor
- * colors, the surface ramp and borders stepped the way the house palettes
- * step them, brand from the theme's signature accent — and the light
- * variants' success/warning/danger were darkened until small text on their
- * soft tint (--*-soft below) reaches 4.5:1. Nothing here reads those JSONs at
- * runtime or at build time.
- */
+/* Paper is the retained palette. Light/dark semantic tokens feed shared
+ * typography, geometry and the @smthrs/ui bridge below. */
 
 :root {
 	color-scheme: light;
@@ -36,7 +11,7 @@
 	--lane-5: #a24f6b;
 	--g-accent: #3a756b;
 
-	/* ── Paper raw scale (the `paper` palette's source; still named directly by a few surfaces) ── */
+	/* ── Paper raw scale (the brand palette's source; still named directly by a few surfaces) ── */
 	--paper-0: #fffefa;
 	--paper-1: #f7f4ee;
 	--paper-2: #efeae0;
@@ -74,55 +49,55 @@
 	--dur: 180ms;
 	--dur-slow: 260ms;
 
-	/* ── night-owl · light (the default palette, Night Owl Light) ── */
-	--bg: #fbfbfb;
-	--text: #403f53;
-	--text-muted: #5c5b71;
-	--text-faint: #6f6e85;
-	--text-placeholder: #6f6e85;
-	--surface: #ffffff;
-	--surface-2: #f0f0f0;
-	--surface-3: #ffffff;
-	--surface-glass: rgb(255 255 255 / 72%);
-	--surface-glass-strong: rgb(255 255 255 / 85%);
-	--border: rgb(64 63 83 / 8%);
-	--border-strong: rgb(64 63 83 / 14%);
-	--border-solid: #d9d9d9;
-	--hover: #e0e0e0;
-	--hover-subtle: rgb(64 63 83 / 3%);
-	--inverse-bg: #403f53;
-	--inverse-text: #fbfbfb;
-	--brand: #994cc3;
-	--action-primary: #7f3fa2;
-	--success: #207770;
-	--warning: #826601;
-	--danger: #ba3f3b;
-	--info: #4876d6;
-	--code-bg: #f0f0f0;
-	--code-text: #403f53;
-	--inline-code-bg: rgb(64 63 83 / 6%);
-	--shadow-rgb: 64 63 83;
+	/* ── paper · light (the retained brand palette) ── */
+	--bg: var(--paper-1);
+	--text: var(--ink-900);
+	--text-muted: #665f54;
+	--text-faint: #6c655a;
+	--text-placeholder: #6d665b;
+	--surface: var(--paper-0);
+	--surface-2: var(--paper-2);
+	--surface-3: var(--paper-0);
+	--surface-glass: rgb(255 254 250 / 72%);
+	--surface-glass-strong: rgb(255 254 250 / 85%);
+	--border: rgb(33 29 24 / 8%);
+	--border-strong: rgb(33 29 24 / 14%);
+	--border-solid: var(--paper-3);
+	--hover: var(--paper-2);
+	--hover-subtle: rgb(33 29 24 / 3%);
+	--inverse-bg: var(--ink-900);
+	--inverse-text: var(--paper-1);
+	--brand: var(--water-500);
+	--action-primary: #0d6760;
+	--success: var(--water-600);
+	--warning: var(--sediment-600);
+	--danger: var(--ember-600);
+	--info: var(--slate-600);
+	--code-bg: var(--paper-2);
+	--code-text: var(--ink-900);
+	--inline-code-bg: rgb(33 29 24 / 6%);
+	--shadow-rgb: 33 29 24;
 
 	/* Action colors are audited against tinted/solid controls, separately from decoration. */
 	--on-action-primary: var(--inverse-text);
-	--on-confluence: var(--inverse-text);
+	--on-confluence: var(--ink-900);
 
 	/* ── Focus (derived from the palette's brand) ────────────── */
 	--ring: color-mix(in srgb, var(--brand) 45%, transparent);
-	--ring-border: color-mix(in srgb, var(--brand) 72%, var(--surface));
+	--ring-border: var(--water-400);
 
 	/* ── Chat bubbles (light) — recipes over the semantic tokens ── */
-	--bubble-incoming: var(--surface);
-	--bubble-outgoing: color-mix(in srgb, var(--brand) 14%, var(--surface));
-	--bubble-outgoing-text: var(--text);
-	--bubble-meta: var(--text-muted);
+	--bubble-incoming: #fff;
+	--bubble-outgoing: #d9fdd3;
+	--bubble-outgoing-text: #172217;
+	--bubble-meta: #748476;
 
 	/* ── Confluence (light) — the gold axis, over the warning hue ── */
-	--confluence: var(--warning);
-	--confluence-hover: color-mix(in srgb, var(--warning) 82%, var(--text));
-	--confluence-text: var(--warning);
-	--confluence-wash: color-mix(in srgb, var(--warning) 16%, transparent);
-	--golden-border: color-mix(in srgb, var(--warning) 45%, var(--surface));
+	--confluence: var(--sediment-400);
+	--confluence-hover: var(--sediment-500);
+	--confluence-text: var(--sediment-600);
+	--confluence-wash: rgb(232 163 61 / 16%);
+	--golden-border: var(--sediment-300);
 
 	/* ── Smithers' own choice (light): violet, reserved for answers the workflow chose ── */
 	--ai: #6a5ce0;
@@ -212,6 +187,7 @@
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
+
 }
 
 :root[data-theme="dark"] {
@@ -224,118 +200,12 @@
 	--lane-5: #e5a1b8;
 	--g-accent: #9bd5c6;
 
-	/* ── night-owl · dark (the default palette, Night Owl) ───── */
-	--bg: #011627;
-	--text: #d6deeb;
-	--text-muted: #8badc1;
-	--text-faint: #748fa5;
-	--text-placeholder: #748fa5;
-	--surface: #0b253a;
-	--surface-2: #1d3b53;
-	--surface-3: #234d70;
-	--surface-glass: rgb(11 37 58 / 72%);
-	--surface-glass-strong: rgb(11 37 58 / 85%);
-	--border: rgb(214 222 235 / 10%);
-	--border-strong: rgb(214 222 235 / 18%);
-	--border-solid: #122d42;
-	--hover: #1d3b53;
-	--hover-subtle: rgb(214 222 235 / 5%);
-	--inverse-bg: #d6deeb;
-	--inverse-text: #011627;
-	--brand: #c792ea;
-	--action-primary: #cd9dec;
-	--success: #addb67;
-	--warning: #ecc48d;
-	--danger: #ef5350;
-	--info: #82aaff;
-	--code-bg: #011627;
-	--code-text: #d6deeb;
-	--inline-code-bg: rgb(214 222 235 / 8%);
-	--shadow-rgb: 0 0 0;
-
-	/* ── Focus (dark): the ring border lifts toward the text ─── */
-	--ring-border: color-mix(in srgb, var(--brand) 78%, var(--text));
-
-	/*
-	 * Chat bubbles (dark): incoming rides the palette's hover/selection step
-	 * — for night-owl that is Night Owl's own #1d3b53 selection blue.
-	 */
-	--bubble-incoming: var(--hover);
-	--bubble-outgoing: color-mix(in srgb, var(--brand) 24%, var(--surface));
-	--bubble-outgoing-text: var(--text);
-	--bubble-meta: var(--text-muted);
-
-	/* ── Confluence (dark) ───────────────────────────────────── */
-	--confluence: var(--warning);
-	--confluence-hover: color-mix(in srgb, var(--warning) 78%, var(--text));
-	--confluence-text: var(--warning);
-	--confluence-wash: color-mix(in srgb, var(--warning) 14%, transparent);
-	--golden-border: color-mix(in srgb, var(--warning) 55%, var(--surface));
-
-	/* ── Smithers' own choice (dark) ─────────────────────────── */
-	--ai: #a99ff7;
-	--ai-text: #c9c2ff;
-	--ai-wash: color-mix(in srgb, #8a7cf0 22%, transparent);
-	--ai-ring: color-mix(in srgb, #8a7cf0 30%, transparent);
-	--ai-border: #8a7cf0;
-
-	/* ── Elevation (dark) ────────────────────────────────────── */
-	--shadow-1: 0 1px 2px rgb(var(--shadow-rgb) / 24%), 0 1px 3px rgb(var(--shadow-rgb) / 32%);
-	--shadow-2: 0 1px 2px rgb(var(--shadow-rgb) / 24%), 0 12px 32px rgb(var(--shadow-rgb) / 40%);
-	--shadow-3: 0 4px 12px rgb(var(--shadow-rgb) / 45%), 0 16px 48px rgb(var(--shadow-rgb) / 50%);
-}
-
-/*
- * paper — the original Smithers look, kept verbatim (bubbles and confluence
- * included, which is why this palette overrides the recipes above).
- */
-:root[data-palette="paper"] {
-	--on-confluence: var(--ink-900);
-	--bg: var(--paper-1);
-	--text: var(--ink-900);
-	--text-muted: var(--ink-500);
-	--text-faint: #716a5e;
-	--text-placeholder: #716a5e;
-	--surface: var(--paper-0);
-	--surface-2: var(--paper-2);
-	--surface-3: var(--paper-0);
-	--surface-glass: rgb(255 254 250 / 72%);
-	--surface-glass-strong: rgb(255 254 250 / 85%);
-	--border: rgb(33 29 24 / 8%);
-	--border-strong: rgb(33 29 24 / 14%);
-	--border-solid: var(--paper-3);
-	--hover: var(--paper-2);
-	--hover-subtle: rgb(33 29 24 / 3%);
-	--inverse-bg: var(--ink-900);
-	--inverse-text: var(--paper-1);
-	--brand: var(--water-500);
-	--action-primary: #0d6760;
-	--success: var(--water-600);
-	--warning: var(--sediment-600);
-	--danger: var(--ember-600);
-	--info: var(--slate-600);
-	--code-bg: var(--paper-2);
-	--code-text: var(--ink-900);
-	--inline-code-bg: rgb(33 29 24 / 6%);
-	--shadow-rgb: 33 29 24;
-	--ring-border: var(--water-400);
-	--bubble-incoming: #fff;
-	--bubble-outgoing: #d9fdd3;
-	--bubble-outgoing-text: #172217;
-	--bubble-meta: #748476;
-	--confluence: var(--sediment-400);
-	--confluence-hover: var(--sediment-500);
-	--confluence-text: var(--sediment-600);
-	--confluence-wash: rgb(232 163 61 / 16%);
-	--golden-border: var(--sediment-300);
-}
-
-:root[data-palette="paper"][data-theme="dark"] {
+	/* ── Paper · dark ───── */
 	--bg: #0d1514;
 	--text: #ece7db;
 	--text-muted: #a8a193;
-	--text-faint: #8b8578;
-	--text-placeholder: #8b8578;
+	--text-faint: #969083;
+	--text-placeholder: #958f82;
 	--surface: #131b1a;
 	--surface-2: #1a2422;
 	--surface-3: #202b29;
@@ -358,462 +228,48 @@
 	--code-text: #ece7db;
 	--inline-code-bg: rgb(236 231 219 / 8%);
 	--shadow-rgb: 0 0 0;
+
+	/* ── Focus (dark): the ring border lifts toward the text ─── */
 	--ring-border: var(--water-300);
+
+	/*
+	 * Paper chat bubbles (dark).
+	 */
 	--bubble-incoming: #182321;
 	--bubble-outgoing: #0f5f58;
 	--bubble-outgoing-text: #f0f8f5;
 	--bubble-meta: #a3b4af;
+
+	/* ── Confluence (dark) ───────────────────────────────────── */
 	--confluence: var(--sediment-400);
 	--confluence-hover: var(--sediment-300);
 	--confluence-text: var(--sediment-300);
 	--confluence-wash: rgb(232 163 61 / 14%);
 	--golden-border: var(--sediment-600);
+
+	/* ── Smithers' own choice (dark) ─────────────────────────── */
+	--ai: #a99ff7;
+	--ai-text: #c9c2ff;
+	--ai-wash: color-mix(in srgb, #8a7cf0 22%, transparent);
+	--ai-ring: color-mix(in srgb, #8a7cf0 30%, transparent);
+	--ai-border: #8a7cf0;
+
+	/* ── Elevation (dark) ────────────────────────────────────── */
+	--shadow-1: 0 1px 2px rgb(var(--shadow-rgb) / 24%), 0 1px 3px rgb(var(--shadow-rgb) / 32%);
+	--shadow-2: 0 1px 2px rgb(var(--shadow-rgb) / 24%), 0 12px 32px rgb(var(--shadow-rgb) / 40%);
+	--shadow-3: 0 4px 12px rgb(var(--shadow-rgb) / 45%), 0 16px 48px rgb(var(--shadow-rgb) / 50%);
+
 }
 
-/* fucory — the smithers zinc house palette. */
-:root[data-palette="fucory"] {
-	--bg: #fafafa;
-	--text: #18181b;
-	--text-muted: #52525b;
-	--text-faint: #6d6d75;
-	--text-placeholder: #717179;
-	--surface: #ffffff;
-	--surface-2: #f4f4f5;
-	--surface-3: #ffffff;
-	--surface-glass: rgb(255 255 255 / 72%);
-	--surface-glass-strong: rgb(255 255 255 / 85%);
-	--border: rgb(24 24 27 / 8%);
-	--border-strong: rgb(24 24 27 / 14%);
-	--border-solid: #e4e4e7;
-	--hover: #f4f4f5;
-	--hover-subtle: rgb(24 24 27 / 4%);
-	--inverse-bg: #18181b;
-	--inverse-text: #fafafa;
-	--brand: #6d56d8;
-	--action-primary: #5e4aba;
-	--success: #087461;
-	--warning: #916000;
-	--danger: #c5343f;
-	--info: #2a63c9;
-	--code-bg: #18181b;
-	--code-text: #f4f4f5;
-	--inline-code-bg: rgb(24 24 27 / 6%);
-	--shadow-rgb: 24 24 27;
-}
 
-:root[data-palette="fucory"][data-theme="dark"] {
-	--bg: #09090b;
-	--text: #f4f4f5;
-	--text-muted: #a1a1aa;
-	--text-faint: #8c8c95;
-	--text-placeholder: #7f7f87;
-	--surface: #141417;
-	--surface-2: #1b1b20;
-	--surface-3: #232329;
-	--surface-glass: rgb(20 20 23 / 72%);
-	--surface-glass-strong: rgb(20 20 23 / 85%);
-	--border: rgb(255 255 255 / 9%);
-	--border-strong: rgb(255 255 255 / 16%);
-	--border-solid: #2a2a30;
-	--hover: #1f1f24;
-	--hover-subtle: rgb(255 255 255 / 5%);
-	--inverse-bg: #f4f4f5;
-	--inverse-text: #18181b;
-	--brand: #8b78e6;
-	--action-primary: #a192eb;
-	--success: #2ec9a8;
-	--warning: #e0a23a;
-	--danger: #f2555a;
-	--info: #6aa5f8;
-	--code-bg: #0c0c0e;
-	--code-text: #e4e4e7;
-	--inline-code-bg: rgb(255 255 255 / 8%);
-	--shadow-rgb: 0 0 0;
-}
 
-/* one — One Dark Pro / One Light. */
-:root[data-palette="one"] {
-	--bg: #fafafa;
-	--text: #383a42;
-	--text-muted: #6a6b6f;
-	--text-faint: #707175;
-	--text-placeholder: #707175;
-	--surface: #ffffff;
-	--surface-2: #eaeaeb;
-	--surface-3: #ffffff;
-	--surface-glass: rgb(255 255 255 / 72%);
-	--surface-glass-strong: rgb(255 255 255 / 85%);
-	--border: rgb(56 58 66 / 8%);
-	--border-strong: rgb(56 58 66 / 14%);
-	--border-solid: #dbdbdc;
-	--hover: #e5e5e6;
-	--hover-subtle: rgb(56 58 66 / 3%);
-	--inverse-bg: #383a42;
-	--inverse-text: #fafafa;
-	--brand: #a626a4;
-	--action-primary: #9a2399;
-	--success: #3c763b;
-	--warning: #8e6201;
-	--danger: #b8473b;
-	--info: #4078f2;
-	--code-bg: #eaeaeb;
-	--code-text: #383a42;
-	--inline-code-bg: rgb(56 58 66 / 6%);
-	--shadow-rgb: 56 58 66;
-}
 
-:root[data-palette="one"][data-theme="dark"] {
-	--bg: #282c34;
-	--text: #abb2bf;
-	--text-muted: #9da1aa;
-	--text-faint: #969aa3;
-	--text-placeholder: #969aa3;
-	--surface: #2c313c;
-	--surface-2: #333842;
-	--surface-3: #3a404c;
-	--surface-glass: rgb(44 49 60 / 72%);
-	--surface-glass-strong: rgb(44 49 60 / 85%);
-	--border: rgb(171 178 191 / 10%);
-	--border-strong: rgb(171 178 191 / 18%);
-	--border-solid: #3e4452;
-	--hover: #333842;
-	--hover-subtle: rgb(171 178 191 / 5%);
-	--inverse-bg: #abb2bf;
-	--inverse-text: #282c34;
-	--brand: #c678dd;
-	--action-primary: #e3bdee;
-	--success: #98c379;
-	--warning: #d19a66;
-	--danger: #e06c75;
-	--info: #61afef;
-	--code-bg: #21252b;
-	--code-text: #abb2bf;
-	--inline-code-bg: rgb(171 178 191 / 8%);
-	--shadow-rgb: 0 0 0;
-}
 
-/* github — GitHub Dark / GitHub Light. */
-:root[data-palette="github"] {
-	--bg: #f6f8fa;
-	--text: #24292e;
-	--text-muted: #57606a;
-	--text-faint: #68717b;
-	--text-placeholder: #68717b;
-	--surface: #ffffff;
-	--surface-2: #eaeef2;
-	--surface-3: #ffffff;
-	--surface-glass: rgb(255 255 255 / 72%);
-	--surface-glass-strong: rgb(255 255 255 / 85%);
-	--border: rgb(36 41 46 / 8%);
-	--border-strong: rgb(36 41 46 / 14%);
-	--border-solid: #d0d7de;
-	--hover: #ebf0f4;
-	--hover-subtle: rgb(36 41 46 / 3%);
-	--inverse-bg: #24292e;
-	--inverse-text: #f6f8fa;
-	--brand: #0366d6;
-	--action-primary: #0358b8;
-	--success: #1e7b31;
-	--warning: #836609;
-	--danger: #c53443;
-	--info: #1b7c83;
-	--code-bg: #eaeef2;
-	--code-text: #24292e;
-	--inline-code-bg: rgb(36 41 46 / 6%);
-	--shadow-rgb: 36 41 46;
-}
 
-:root[data-palette="github"][data-theme="dark"] {
-	--bg: #24292e;
-	--text: #e1e4e8;
-	--text-muted: #98a0a8;
-	--text-faint: #95999c;
-	--text-placeholder: #95999c;
-	--surface: #2b3036;
-	--surface-2: #32383e;
-	--surface-3: #39414a;
-	--surface-glass: rgb(43 48 54 / 72%);
-	--surface-glass-strong: rgb(43 48 54 / 85%);
-	--border: rgb(225 228 232 / 10%);
-	--border-strong: rgb(225 228 232 / 18%);
-	--border-solid: #444d56;
-	--hover: #32383e;
-	--hover-subtle: rgb(225 228 232 / 5%);
-	--inverse-bg: #e1e4e8;
-	--inverse-text: #24292e;
-	--brand: #58a6ff;
-	--action-primary: #9ecbff;
-	--success: #34d058;
-	--warning: #e3b341;
-	--danger: #f97583;
-	--info: #39c5cf;
-	--code-bg: #1f2428;
-	--code-text: #e1e4e8;
-	--inline-code-bg: rgb(225 228 232 / 8%);
-	--shadow-rgb: 0 0 0;
-}
 
-/* catppuccin — Mocha / Latte. */
-:root[data-palette="catppuccin"] {
-	--bg: #eff1f5;
-	--text: #4c4f69;
-	--text-muted: #626579;
-	--text-faint: #696b79;
-	--text-placeholder: #696b79;
-	--surface: #ffffff;
-	--surface-2: #e6e9ef;
-	--surface-3: #ffffff;
-	--surface-glass: rgb(255 255 255 / 72%);
-	--surface-glass-strong: rgb(255 255 255 / 85%);
-	--border: rgb(76 79 105 / 8%);
-	--border-strong: rgb(76 79 105 / 14%);
-	--border-solid: #ccd0da;
-	--hover: #dce0e8;
-	--hover-subtle: rgb(76 79 105 / 3%);
-	--inverse-bg: #4c4f69;
-	--inverse-text: #eff1f5;
-	--brand: #8839ef;
-	--action-primary: #7531ce;
-	--success: #307a22;
-	--warning: #925d10;
-	--danger: #d20f39;
-	--info: #1e66f5;
-	--code-bg: #e6e9ef;
-	--code-text: #4c4f69;
-	--inline-code-bg: rgb(76 79 105 / 6%);
-	--shadow-rgb: 76 79 105;
-}
 
-:root[data-palette="catppuccin"][data-theme="dark"] {
-	--bg: #1e1e2e;
-	--text: #cdd6f4;
-	--text-muted: #a6adc8;
-	--text-faint: #888da3;
-	--text-placeholder: #888da3;
-	--surface: #232336;
-	--surface-2: #313244;
-	--surface-3: #45475a;
-	--surface-glass: rgb(35 35 54 / 72%);
-	--surface-glass-strong: rgb(35 35 54 / 85%);
-	--border: rgb(205 214 244 / 10%);
-	--border-strong: rgb(205 214 244 / 18%);
-	--border-solid: #45475a;
-	--hover: #313244;
-	--hover-subtle: rgb(205 214 244 / 5%);
-	--inverse-bg: #cdd6f4;
-	--inverse-text: #1e1e2e;
-	--brand: #cba6f7;
-	--action-primary: var(--brand);
-	--success: #a6e3a1;
-	--warning: #f9e2af;
-	--danger: #f38ba8;
-	--info: #89b4fa;
-	--code-bg: #181825;
-	--code-text: #cdd6f4;
-	--inline-code-bg: rgb(205 214 244 / 8%);
-	--shadow-rgb: 0 0 0;
-}
 
-/* solarized — Solarized Dark / Solarized Light. */
-:root[data-palette="solarized"] {
-	--bg: #fdf6e3;
-	--text: #586e75;
-	--text-muted: #596d74;
-	--text-faint: #627277;
-	--text-placeholder: #627277;
-	--surface: #fffbf0;
-	--surface-2: #eee8d5;
-	--surface-3: #fffbf0;
-	--surface-glass: rgb(255 251 240 / 72%);
-	--surface-glass-strong: rgb(255 251 240 / 85%);
-	--border: rgb(88 110 117 / 8%);
-	--border-strong: rgb(88 110 117 / 14%);
-	--border-solid: #ddd6c1;
-	--hover: #eee8d5;
-	--hover-subtle: rgb(88 110 117 / 3%);
-	--inverse-bg: #586e75;
-	--inverse-text: #fdf6e3;
-	--brand: #2aa198;
-	--action-primary: #1a6560;
-	--success: #5f6e00;
-	--warning: #826200;
-	--danger: #c32e2b;
-	--info: #268bd2;
-	--code-bg: #eee8d5;
-	--code-text: #586e75;
-	--inline-code-bg: rgb(88 110 117 / 6%);
-	--shadow-rgb: 88 110 117;
-}
 
-:root[data-palette="solarized"][data-theme="dark"] {
-	--bg: #002b36;
-	--text: #93a1a1;
-	--text-muted: #96a4a6;
-	--text-faint: #8d9da3;
-	--text-placeholder: #8d9da3;
-	--surface: #073642;
-	--surface-2: #0d4552;
-	--surface-3: #14515f;
-	--surface-glass: rgb(7 54 66 / 72%);
-	--surface-glass-strong: rgb(7 54 66 / 85%);
-	--border: rgb(147 161 161 / 10%);
-	--border-strong: rgb(147 161 161 / 18%);
-	--border-solid: #274642;
-	--hover: #0d4552;
-	--hover-subtle: rgb(147 161 161 / 5%);
-	--inverse-bg: #93a1a1;
-	--inverse-text: #002b36;
-	--brand: #2aa198;
-	--action-primary: #9dd4d0;
-	--success: #859900;
-	--warning: #b58900;
-	--danger: #dc322f;
-	--info: #268bd2;
-	--code-bg: #00212b;
-	--code-text: #93a1a1;
-	--inline-code-bg: rgb(147 161 161 / 8%);
-	--shadow-rgb: 0 0 0;
-}
-
-/* gruvbox — Gruvbox Dark Medium / Gruvbox Light Medium. */
-:root[data-palette="gruvbox"] {
-	--bg: #fbf1c7;
-	--text: #3c3836;
-	--text-muted: #665c54;
-	--text-faint: #76695f;
-	--text-placeholder: #76695f;
-	--surface: #f9f5d7;
-	--surface-2: #f2e5bc;
-	--surface-3: #f9f5d7;
-	--surface-glass: rgb(249 245 215 / 72%);
-	--surface-glass-strong: rgb(249 245 215 / 85%);
-	--border: rgb(60 56 54 / 8%);
-	--border-strong: rgb(60 56 54 / 14%);
-	--border-solid: #d5c4a1;
-	--hover: #ebdbb2;
-	--hover-subtle: rgb(60 56 54 / 3%);
-	--inverse-bg: #3c3836;
-	--inverse-text: #fbf1c7;
-	--brand: #b57614;
-	--action-primary: #774e0d;
-	--success: #6b680e;
-	--warning: #af3a03;
-	--danger: #9d0006;
-	--info: #076678;
-	--code-bg: #f2e5bc;
-	--code-text: #3c3836;
-	--inline-code-bg: rgb(60 56 54 / 6%);
-	--shadow-rgb: 60 56 54;
-}
-
-:root[data-palette="gruvbox"][data-theme="dark"] {
-	--bg: #282828;
-	--text: #ebdbb2;
-	--text-muted: #bdae93;
-	--text-faint: #a89984;
-	--text-placeholder: #a89984;
-	--surface: #32302f;
-	--surface-2: #3c3836;
-	--surface-3: #504945;
-	--surface-glass: rgb(50 48 47 / 72%);
-	--surface-glass-strong: rgb(50 48 47 / 85%);
-	--border: rgb(235 219 178 / 10%);
-	--border-strong: rgb(235 219 178 / 18%);
-	--border-solid: #504945;
-	--hover: #3c3836;
-	--hover-subtle: rgb(235 219 178 / 5%);
-	--inverse-bg: #ebdbb2;
-	--inverse-text: #282828;
-	--brand: #fabd2f;
-	--action-primary: #fabe31;
-	--success: #b8bb26;
-	--warning: #fe8019;
-	--danger: #fb4934;
-	--info: #83a598;
-	--code-bg: #1d2021;
-	--code-text: #ebdbb2;
-	--inline-code-bg: rgb(235 219 178 / 8%);
-	--shadow-rgb: 0 0 0;
-}
-
-/* rose-pine — Rosé Pine / Rosé Pine Dawn. */
-:root[data-palette="rose-pine"] {
-	--bg: #faf4ed;
-	--text: #575279;
-	--text-muted: #69657f;
-	--text-faint: #706d7a;
-	--text-placeholder: #706d7a;
-	--surface: #fffaf3;
-	--surface-2: #f2e9e1;
-	--surface-3: #fffaf3;
-	--surface-glass: rgb(255 250 243 / 72%);
-	--surface-glass-strong: rgb(255 250 243 / 85%);
-	--border: rgb(87 82 121 / 8%);
-	--border-strong: rgb(87 82 121 / 14%);
-	--border-solid: #dfdad9;
-	--hover: #f2e9e1;
-	--hover-subtle: rgb(87 82 121 / 3%);
-	--inverse-bg: #575279;
-	--inverse-text: #faf4ed;
-	--brand: #907aa9;
-	--action-primary: #655576;
-	--success: #416e75;
-	--warning: #8c5e22;
-	--danger: #9b5469;
-	--info: #286983;
-	--code-bg: #f2e9e1;
-	--code-text: #575279;
-	--inline-code-bg: rgb(87 82 121 / 6%);
-	--shadow-rgb: 87 82 121;
-}
-
-:root[data-palette="rose-pine"][data-theme="dark"] {
-	--bg: #191724;
-	--text: #e0def4;
-	--text-muted: #908caa;
-	--text-faint: #88859c;
-	--text-placeholder: #88859c;
-	--surface: #1f1d2e;
-	--surface-2: #26233a;
-	--surface-3: #2f2b45;
-	--surface-glass: rgb(31 29 46 / 72%);
-	--surface-glass-strong: rgb(31 29 46 / 85%);
-	--border: rgb(224 222 244 / 10%);
-	--border-strong: rgb(224 222 244 / 18%);
-	--border-solid: #403d52;
-	--hover: #26233a;
-	--hover-subtle: rgb(224 222 244 / 5%);
-	--inverse-bg: #e0def4;
-	--inverse-text: #191724;
-	--brand: #c4a7e7;
-	--action-primary: var(--brand);
-	--success: #9ccfd8;
-	--warning: #f6c177;
-	--danger: #eb6f92;
-	--info: #6e99b2;
-	--code-bg: #1f1d2e;
-	--code-text: #e0def4;
-	--inline-code-bg: rgb(224 222 244 / 8%);
-	--shadow-rgb: 0 0 0;
-}
-
-/*
- * Library aliases.
- *
- * `@smthrs/ui` resolves some values under shadcn's names rather than this
- * app's. Every house token a consumed component reads must be defined here in
- * both themes, or the component's own fallback paints and the brand leaks —
- * the violet/zinc default this bridge exists to prevent (DESIGN.md §2).
- *
- * These two were consumed by `.composer-menu-list` and the card meta rows
- * while defined nowhere, so their hardcoded fallbacks painted, including in
- * dark where the value is simply the wrong colour. The a11y suite's E13.4 row
- * caught it.
- *
- * They are aliases, not new values: pointing them at the semantic tokens every
- * palette already defines means all nine palettes and both themes follow
- * automatically, and a new palette cannot forget them.
- */
 :root {
 	--muted-foreground: var(--text-muted);
 	--popover: var(--surface);

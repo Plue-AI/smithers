@@ -35,7 +35,7 @@ import type { CloudTerminalClient } from "./CloudTerminalClient"
 import { createCloudTerminalClient,pageCloudSocketUrl } from "./CloudTerminalClient"
 import { selectFirstRunRepository } from "./FirstRunRepository"
 import type { InputMode } from "./InputMode"
-import { knowledgeCardAvailable } from "./KnowledgeFeatures"
+import { cardAvailable } from "./CardAvailability"
 import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
@@ -62,8 +62,6 @@ import { createControllerContext } from "./controller/context"
 import type { ControlFocusController } from "./controller/controlFocus"
 import { createControlFocus } from "./controller/controlFocus"
 import { createDictation } from "./controller/dictation"
-import type { ExplainConfig,ExplainController } from "./controller/explain"
-import { createExplainController } from "./controller/explain"
 import { createFailureController,humanCommandText } from "./controller/failures"
 import type { FormFocusHandoff, FormsController } from "./controller/forms"
 import { createFormsController } from "./controller/forms"
@@ -75,7 +73,6 @@ import { createRepositorySetupController, type RepositorySetupController } from 
 import type { OnboardingController } from "./controller/onboarding"
 import { createOnboardingController } from "./controller/onboarding"
 import { createRegistrationController, type RegistrationController } from "./controller/registration"
-import { createPluginsController } from "./controller/plugins"
 import { createPresentationController } from "./controller/presentation"
 import type { RecommenderConfig } from "./controller/recommend"
 import type { CommandSelector } from "./CommandSelection"
@@ -210,10 +207,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** The ctrl+s overview of every subagent beside the chat (#2190). */
   readonly showSubagents: () => void
   /** The Library: the plugin shelf this workspace browses and installs from. */
-  readonly showPlugins: () => void
-  readonly installPlugin: (id: string) => string | void
-  readonly removePlugin: (id: string) => string | void
-  readonly listPlugins: () => { readonly value: string }
   readonly askReset: () => void
   readonly cancelReset: () => void
   readonly submitCommand: (submission: FlowSubmission) => Promise<import("../flows/Commands").CommandOutcome>
@@ -271,8 +264,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly retryLastTurn: () => string | void
   /** Light or dark mode (/appearance.dark-mode): the named one, or the other one when none is named. */
   readonly setTheme: (theme?: "light" | "dark") => void
-  /** Wear a color theme (/theme) — the axis orthogonal to light/dark. */
-  readonly setPalette: (args: string) => string | void
   /** Archive locally and start fresh; model-generated notes are opt-in. */
   readonly clearConversation: (options?: { readonly summarize?: boolean }) => Promise<string | void>
   /* The browser tool + surface (§2d/§2d′). */
@@ -471,8 +462,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly requestFlowConfirmation: (name: string, args: string | null, label: string, question?: string) => void
   /** The `recommend` flow: regenerate the next-step pills for the current state (Recommend.ts). */
   readonly recommend: () => Promise<void>
-  /** The `explain` flow: one side turn on the explainer role, answered as an embedded card (controller/explain.ts). */
-  readonly explain: ExplainController["explain"]
   /** Render the full visible-flow catalog into the chat (the /chat.commands answer). */
   readonly showCommandCatalog: () => void
   /** Render the sign-in step into the chat (auth.prompt — the agent's door to login). */
@@ -730,8 +719,6 @@ export interface AppServices {
    * POST /api/recommend at all (off by default) and its debounce.
    */
   readonly recommender?: RecommenderConfig
-  /** The explainer side turn's timeout (controller/explain.ts). */
-  readonly explainer?: ExplainConfig
   /**
    * Feature flags. `suggestionPills`: the next-action pills under the
    * composer and the recommender's POST /api/recommend requests behind them.
@@ -745,7 +732,6 @@ export interface AppServices {
 }
 
 export interface AppFeatures {
-  readonly pluginLibrary?: boolean
   readonly suggestionPills?: boolean
 }
 
@@ -774,11 +760,7 @@ export const createAppController = (
   ctx.onDispose(ctx.onAccountChange(wikiAttachments.clear))
   ctx.onDispose(wikiAttachments.dispose)
   const features: Required<AppFeatures> = {
-    pluginLibrary: services.features?.pluginLibrary ?? false,
     suggestionPills: services.features?.suggestionPills ?? services.bootstrap?.host === "cloud"
-  }
-  if (!features.pluginLibrary && store.session().surface === "plugins") {
-    store.dispatch({ type: "surface.changed", actor: "system", surface: "chat" })
   }
   /*
    * A Vite dev build unlocks the admin plugin (devtools, debug reads) without
@@ -794,7 +776,7 @@ export const createAppController = (
   const reconcileUnavailableCards = (): void => {
     const restored = store.session()
     const restoredCardAvailable = (kind: string): boolean =>
-      knowledgeCardAvailable(kind, features)
+      cardAvailable(kind)
     const maximized = restored.maximizedCardId === null ? undefined : store.collections.cards.get(restored.maximizedCardId)
     if (maximized && !restoredCardAvailable(maximized.kind)) store.dispatch({ type: "frame.navigated", actor: "system",
       workspaceId: restored.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID, branchId: restored.activeBranchId ?? DEFAULT_BRANCH_ID,
@@ -995,7 +977,6 @@ export const createAppController = (
     localAuth = createLocalAuthController(services.localIdentity, loadSession, services.localBootstrapToken)
     ctx.onDispose(localAuth.dispose)
   }
-  const { showPlugins, installPlugin, removePlugin, listPlugins } = actors.pair(ctx, createPluginsController)
   const { introduce } = actors.pair(ctx, (context) => createAppShellController(context))
   const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
 
@@ -1023,7 +1004,6 @@ export const createAppController = (
     debugSeams,
     openBrowser,
     setTheme,
-    setPalette
   } = actors.pair(ctx, (context, select) => createPresentationController(context, select(adminHealth)))
 
   const conversationHistory = createConversationHistoryController(ctx)
@@ -1305,7 +1285,6 @@ export const createAppController = (
     config: { ...services.recommender, enabled: (services.recommender?.enabled ?? false) && features.suggestionPills }
   })
   const recommend = recommender.recommend
-  const { explain } = createExplainController(ctx, services.explainer ?? {})
 
   /*
    * auth.prompt: the agent cannot navigate the user to OAuth (auth.sign-in
@@ -1606,10 +1585,6 @@ export const createAppController = (
     },
     showConnectors,
     showSubagents,
-    showPlugins,
-    installPlugin,
-    removePlugin,
-    listPlugins,
     makeConnectorReadOnly,
     askConnectorRemoval,
     cancelConnectorRemoval,
@@ -1732,7 +1707,6 @@ export const createAppController = (
     netTapEntries,
     debugSeams,
     setTheme,
-    setPalette,
     adoptSession,
     loadSession,
     signIn,
@@ -1748,7 +1722,6 @@ export const createAppController = (
     traceFlow,
     requestFlowConfirmation,
     recommend,
-    explain,
     showCommandCatalog,
     promptSignIn,
     promptCloudSignIn,
@@ -1911,9 +1884,7 @@ export const createAppController = (
       )
       return {
         repositoryReadiness,
-        pluginLibrary: features.pluginLibrary,
         surface: store.session().surface,
-        plugins: store.session().plugins ?? [],
         typing: store.session().phase === "responding",
         // Sign-in IS the GitHub connector (§2a′): a valid session means
         // work IS connected, so "connect" stops leading the next actions.

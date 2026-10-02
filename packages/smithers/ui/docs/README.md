@@ -95,7 +95,7 @@ for the components that put them on a screen.
 `@smthrs/ui` sits one level below the CLI, alongside the other pieces the
 Smithers applications are assembled from. It consumes
 [`@smthrs/ui-styleguide`](https://github.com/smithersai/smithers/tree/main/packages/smithers/ui/ui-styleguide), which owns the theme token block
-and the eight palettes, rather than restating them.
+and Paper light/dark, rather than restating them.
 
 ## Where to go next
 

@@ -547,32 +547,31 @@ func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 		&routes.IssueHandler{},
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil,                          // notificationHandler
-		&routes.PairSessionHandler{}, // adminRunnerHandler
-		nil,                          // adminUserHandler
-		nil,                          // adminOrgHandler
-		nil,                          // adminSystemMetricsHandler
-		nil,                          // adminGitHubAppHandler
-		nil,                          // adminAuditHandler
-		nil,                          // webhookHandler
-		nil,                          // secretHandler
-		nil,                          // providerConnectionHandler
-		nil,                          // variableHandler
-		nil,                          // billingHandler
-		nil,                          // protectedBookmarkHandler
-		nil,                          // commitStatusHandler
-		nil,                          // lfsHandler
-		nil,                          // jjVCSHandler
-		nil,                          // agentInternalHandler
-		nil,                          // agentSessionHandler
-		nil,                          // agentSessionStreamHandler
-		nil,                          // approvalsHandler
-		nil,                          // branchLockHandler
-		nil,                          // canaryReportHandler
-		nil,                          // workflowHandler
-		nil,                          // workflowCacheHandler
-		nil,                          // workflowArtifactHandler
-		nil,                          // issueEventHandler
+		nil, // notificationHandler
+		nil, // adminUserHandler
+		nil, // adminOrgHandler
+		nil, // adminSystemMetricsHandler
+		nil, // adminGitHubAppHandler
+		nil, // adminAuditHandler
+		nil, // webhookHandler
+		nil, // secretHandler
+		nil, // providerConnectionHandler
+		nil, // variableHandler
+		nil, // billingHandler
+		nil, // protectedBookmarkHandler
+		nil, // commitStatusHandler
+		nil, // lfsHandler
+		nil, // jjVCSHandler
+		nil, // agentInternalHandler
+		nil, // agentSessionHandler
+		nil, // agentSessionStreamHandler
+		nil, // approvalsHandler
+		nil, // branchLockHandler
+		nil, // canaryReportHandler
+		nil, // workflowHandler
+		nil, // workflowCacheHandler
+		nil, // workflowArtifactHandler
+		nil, // issueEventHandler
 		&routes.WorkspaceHandler{},
 		nil, // workspaceInternalHandler
 		&routes.RepositoryJobHandler{},
@@ -614,32 +613,31 @@ func buildCacheCSRFCoverageRouter() http.Handler {
 		&routes.IssueHandler{},
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil,                          // notificationHandler
-		&routes.PairSessionHandler{}, // adminRunnerHandler
-		nil,                          // adminUserHandler
-		nil,                          // adminOrgHandler
-		nil,                          // adminSystemMetricsHandler
-		nil,                          // adminGitHubAppHandler
-		nil,                          // adminAuditHandler
-		nil,                          // webhookHandler
-		nil,                          // secretHandler
-		nil,                          // providerConnectionHandler
-		nil,                          // variableHandler
-		nil,                          // billingHandler
-		nil,                          // protectedBookmarkHandler
-		nil,                          // commitStatusHandler
-		nil,                          // lfsHandler
-		nil,                          // jjVCSHandler
-		nil,                          // agentInternalHandler
-		nil,                          // agentSessionHandler
-		nil,                          // agentSessionStreamHandler
-		nil,                          // approvalsHandler
-		nil,                          // branchLockHandler
-		nil,                          // canaryReportHandler
-		nil,                          // workflowHandler
-		nil,                          // workflowCacheHandler
-		nil,                          // workflowArtifactHandler
-		nil,                          // issueEventHandler
+		nil, // notificationHandler
+		nil, // adminUserHandler
+		nil, // adminOrgHandler
+		nil, // adminSystemMetricsHandler
+		nil, // adminGitHubAppHandler
+		nil, // adminAuditHandler
+		nil, // webhookHandler
+		nil, // secretHandler
+		nil, // providerConnectionHandler
+		nil, // variableHandler
+		nil, // billingHandler
+		nil, // protectedBookmarkHandler
+		nil, // commitStatusHandler
+		nil, // lfsHandler
+		nil, // jjVCSHandler
+		nil, // agentInternalHandler
+		nil, // agentSessionHandler
+		nil, // agentSessionStreamHandler
+		nil, // approvalsHandler
+		nil, // branchLockHandler
+		nil, // canaryReportHandler
+		nil, // workflowHandler
+		nil, // workflowCacheHandler
+		nil, // workflowArtifactHandler
+		nil, // issueEventHandler
 		&routes.WorkspaceHandler{},
 		nil, // workspaceInternalHandler
 		&routes.RepositoryJobHandler{},
@@ -1097,18 +1095,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 			path:   "/api/repos/alice/demo/workspace/sessions",
 			body:   `{"cols":80,"rows":24}`,
 		},
-		{
-			name:   "pair session create",
-			method: http.MethodPost,
-			path:   "/api/pair-sessions",
-			body:   `{"repositoryId":1,"sourceWorkspaceId":"ws1"}`,
-		},
-		{
-			name:   "pair session draft",
-			method: http.MethodPut,
-			path:   "/api/pair-sessions/sess1/draft",
-			body:   `{"content":"hello","version":1}`,
-		},
 	}
 
 	for _, tc := range sessionWrites {
@@ -1142,13 +1128,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 			body:   `{}`,
 			scope:  middleware.ScopeWriteRepository,
 		},
-		{
-			name:   "pair session create",
-			method: http.MethodPost,
-			path:   "/api/pair-sessions",
-			body:   `{"repositoryId":1,"sourceWorkspaceId":"ws1"}`,
-			scope:  middleware.ScopeWriteUser,
-		},
 	}
 
 	for _, tc := range tokenWrites {
@@ -1167,46 +1146,6 @@ func TestServerRouter_LongTimeoutJSONGroupsCSRFBehavior(t *testing.T) {
 		})
 	}
 
-	// Pair-session discovery GETs keep RequireCSRF as defense in depth for
-	// session-authenticated browsers even though previews are side-effect-free.
-	discoveryGets := []string{
-		"/api/pair-sessions/sess1",
-	}
-
-	for _, path := range discoveryGets {
-		path := path
-		t.Run("session discovery get requires csrf "+path, func(t *testing.T) {
-			t.Parallel()
-
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req = sessionContext(req)
-			rec := httptest.NewRecorder()
-
-			router.ServeHTTP(rec, req)
-
-			require.Equal(t, http.StatusForbidden, rec.Code)
-			assert.Contains(t, rec.Body.String(), "csrf token missing")
-		})
-	}
-
-	safeGets := []string{
-		"/api/pair-sessions/sess1/members",
-	}
-
-	for _, path := range safeGets {
-		path := path
-		t.Run("safe get bypasses csrf "+path, func(t *testing.T) {
-			t.Parallel()
-
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req = sessionContext(req)
-			rec := httptest.NewRecorder()
-
-			router.ServeHTTP(rec, req)
-
-			assert.NotEqual(t, http.StatusForbidden, rec.Code)
-		})
-	}
 }
 
 func TestServerRouter_FeatureFlagGatesWorkspaceRoutes(t *testing.T) {

@@ -38,7 +38,7 @@ const freshController = async (bootstrap?: AppBootstrap) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   return {
     store,
-    controller: createAppController(store, unavailableAgent, { bootstrap, features: { pluginLibrary: true } })
+    controller: createAppController(store, unavailableAgent, { bootstrap, features: {} })
   }
 }
 
@@ -94,9 +94,8 @@ describe("every listed flow is a tool call", () => {
     const outcome = await controller.commands.runForAgent("appearance.dark-mode")
     expect(outcome.status).toBe("executed")
     expect(store.session().theme).not.toBe(before)
-    // And the palette flow takes its argument through the same door.
     const palette = await controller.commands.runForAgent("appearance.theme", "paper")
-    expect(palette.status).toBe("executed")
+    expect(palette.status).not.toBe("executed")
     expect(store.session().palette).toBe("paper")
   })
 

@@ -27,8 +27,8 @@ export const UNAVAILABLE: Readonly<Record<string, string>> = {
   "cloud.sign-out": "local host only (host-held Cloud session)"
 }
 
-const inert = (flags: { readonly pluginLibrary: boolean }): CommandActions =>
-  new Proxy({}, { get: (_, key) => key === "snapshot" ? () => flags : () => undefined }) as CommandActions
+const inert = (): CommandActions =>
+  new Proxy({}, { get: (_, key) => key === "snapshot" ? () => ({}) : () => undefined }) as CommandActions
 
 const registered = (actions: CommandActions) =>
   [...baseFlows(actions), ...adminFlows(actions), ...guideFlows(actions)]
@@ -47,15 +47,13 @@ const unavailableReason = (name: string): string | undefined =>
 
 /** Every declared flow, with the default build's release flags deciding what is off. */
 export const flowCatalog = (): ReadonlyArray<CatalogFlow> => {
-  const defaults = new Set(registered(inert({ pluginLibrary: false })).map(nameOf))
   const seen = new Set<string>()
   const rows: Array<CatalogFlow> = []
-  for (const entry of registered(inert({ pluginLibrary: true }))) {
+  for (const entry of registered(inert())) {
     const name = nameOf(entry)
     if (seen.has(name)) continue
     seen.add(name)
-    const off = defaults.has(name) ? undefined : "off in the default build (release flag)"
-    const reason = off ?? unavailableReason(name)
+    const reason = unavailableReason(name)
     rows.push({
       name,
       namespace: name.split(".")[0]!,

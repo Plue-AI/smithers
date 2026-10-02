@@ -101,7 +101,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
 		{"/api/app-timelines", `{"client_key":"discarded"}`},
-		{"/api/share/listings", `{"name":"discarded"}`},
 		{path + "/issues", `{"title":"discarded"}`},
 		{path + "/variables", `{"name":"DISCARDED","value":"value"}`},
 		{path + "/secrets", `{"name":"DISCARDED","value":"scratch"}`},
@@ -109,6 +108,12 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	} {
 		for _, suffix := range []string{" {}", " null", " broken"} {
 			request("POST", tc.route, tc.body+suffix, 400, nil)
+		}
+	}
+
+	for _, retired := range []string{"/api/share/listings", "/api/pair-sessions", "/api/oauth2/applications"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+			request(method, retired, `{"name":"discarded"}`, http.StatusNotFound, nil)
 		}
 	}
 	for _, suffix := range []string{" {}", " null", " broken"} {

@@ -240,11 +240,11 @@ for (const entry of ENTRY_POINTS) {
 
 describe("subset sheets", () => {
   test("resolves the pinned palette and falls back to the default for the rest", () => {
-    const pinned = themeCss({ palettes: ["one"] });
+    const pinned = themeCss({ palettes: ["paper"] });
     for (const palette of PALETTES) {
       for (const state of statesFor(palette)) expectSelectedVariant(pinned, state);
     }
-    expect(tokenRules(pinned)).toHaveLength(6);
+    expect(tokenRules(pinned)).toHaveLength(3);
   });
 
   test("keeps the default palette answering every selection when no palette is requested", () => {

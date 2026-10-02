@@ -16,51 +16,11 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-func TestWorkspace_H_VerifyPairSourceAndGetWorkspaceBranches(t *testing.T) {
+func TestWorkspace_H_GetWorkspaceBranches(t *testing.T) {
 	ctx := context.Background()
 	workspaceID := "11111111-1111-1111-1111-111111111111"
 
-	err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).VerifyPairSourceWorkspace(ctx, "not-a-uuid", 101, 1)
-	require.Error(t, err)
-	assert.Equal(t, 404, apiStatus(t, err))
-
-	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-	}).VerifyPairSourceWorkspace(ctx, workspaceID, 101, 1)
-	require.Error(t, err)
-	assert.Equal(t, 404, apiStatus(t, err))
-
-	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			ws := sampleDBWorkspace(workspaceID)
-			ws.UserID = 1
-			return ws, nil
-		},
-		getWorkspaceShareFn: func(context.Context, db.GetWorkspaceShareParams) (db.WorkspaceShare, error) {
-			return db.WorkspaceShare{}, pgx.ErrNoRows
-		},
-	}).VerifyPairSourceWorkspace(ctx, workspaceID, 101, 2)
-	require.Error(t, err)
-	assert.Equal(t, 404, apiStatus(t, err))
-
-	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("load failed")
-		},
-	}).VerifyPairSourceWorkspace(ctx, workspaceID, 101, 1)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			return sampleDBWorkspace(workspaceID), nil
-		},
-	}).VerifyPairSourceWorkspace(ctx, workspaceID, 101, 1)
-	require.NoError(t, err)
-
-	_, err = NewWorkspaceService(nil).GetWorkspace(ctx, workspaceID, 101, 1)
+	_, err := NewWorkspaceService(nil).GetWorkspace(ctx, workspaceID, 101, 1)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 

@@ -85,9 +85,8 @@ cannot drift from the brand.
 
 Place the bridge after the house sheet. The dark media rule reaches (0,2,0)
 even when `data-theme` is absent, so the bridge covers the default palette in
-both modes. Pinning a non-default palette also requires overrides at or above
-that palette's dark selectors, (0,3,0). Use the previous recipe for a pinned
-non-default palette or a palette picker.
+both modes. Custom token sets remain available through `serializeThemeVariant`; audit your
+own foreground/background pairs.
 
 ## Override the seed, not the derivation
 
@@ -123,8 +122,8 @@ To add a palette rather than patch one, build the rule from your own
 import { serializeThemeVariant, themeRegistry, workflowUiStyles } from "@smthrs/ui-styleguide"
 import type { ThemeVariantTokens } from "@smthrs/ui-styleguide"
 
-const light: ThemeVariantTokens = { ...themeRegistry["night-owl"].light, brand: "#ff3366" }
-const dark: ThemeVariantTokens = { ...themeRegistry["night-owl"].dark, brand: "#ff85a1" }
+const light: ThemeVariantTokens = { ...themeRegistry["paper"].light, brand: "#ff3366" }
+const dark: ThemeVariantTokens = { ...themeRegistry["paper"].dark, brand: "#ff85a1" }
 
 const houseTheme = [
   workflowUiStyles,

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -942,33 +941,6 @@ func (s *WorkspaceService) loadWorkspaceWithAccess(ctx context.Context, workspac
 	return workspace, nil
 }
 
-// VerifyPairSourceWorkspace confirms userID owns (or has write access to) the
-// workspace within repositoryID, collapsing both "missing" and
-// "exists-but-foreign" into a single NotFound. The pair-session create path
-// calls this BEFORE inserting a session row so a client-supplied source
-// workspace id cannot (a) oracle a victim's live-session state via the
-// unique-violation 409, (b) briefly occupy the victim's live-per-source slot,
-// or (c) 500 with a raw driver error on a non-UUID id. Genuine internal errors
-// pass through unchanged.
-func (s *WorkspaceService) VerifyPairSourceWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
-	// workspaces.id is UUID-typed, so a malformed id would make Postgres raise
-	// "invalid input syntax for type uuid" (SQLSTATE 22P02). loadOwnedWorkspace
-	// stringifies that into an opaque Internal error, leaking driver text as a
-	// 500. Reject it up front as the same uniform NotFound as a missing/foreign
-	// workspace — a garbage id is, definitionally, not a workspace the caller owns.
-	if !isValidUUID(strings.TrimSpace(workspaceID)) {
-		return pkgerrors.NotFound("source workspace not found")
-	}
-	if _, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID); err != nil {
-		var apiErr *pkgerrors.APIError
-		if errors.As(err, &apiErr) && (apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusForbidden) {
-			return pkgerrors.NotFound("source workspace not found")
-		}
-		return err
-	}
-	return nil
-}
-
 // loadOwnedWorkspaceSnapshot loads a snapshot by ID + repo, then enforces
 // ownership/share. Snapshots are write-only operations (you take or delete
 // them), so we require write-level access to the owning workspace.
@@ -1046,7 +1018,7 @@ func (s *WorkspaceService) loadWorkspaceSessionWithAccess(ctx context.Context, s
 }
 
 // GetWorkspace returns a first-class workspace by ID. Viewing status is a
-// read-level operation, so a read share (e.g. a pair viewer) is sufficient.
+// read-level operation, so a read share  is sufficient.
 func (s *WorkspaceService) GetWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) (WorkspaceResponse, error) {
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")

@@ -34,8 +34,8 @@ type AppTimelineRouteService interface {
 
 // AppTimelineHandler serves the REST write path of the realtime-synchronized
 // app-machine timelines (/api/app-timelines*). Every route is mounted behind
-// AuthLoader + RequireAuth + RequireScope(ScopeReadUser) (cmd/server/router.go,
-// same chain as pair sessions); mutations additionally require ScopeWriteUser.
+// AuthLoader + RequireAuth + RequireScope(ScopeReadUser); mutations
+// additionally require ScopeWriteUser.
 // Reads use the same membership model as writes.
 type AppTimelineHandler struct {
 	Service AppTimelineRouteService

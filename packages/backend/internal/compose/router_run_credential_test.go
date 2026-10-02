@@ -105,8 +105,7 @@ func TestServerRouter_RepositoryJobPauseRequiresPerson(t *testing.T) {
 				&routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{},
 				nil, nil, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 				nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-				nil, nil, // notifications, pair sessions
-				nil, nil, nil, nil, nil, // admin routes
+				nil, nil, nil, nil, nil, nil, // admin routes
 				nil, nil, nil, nil, nil, nil, nil, nil, // webhook through LFS
 				nil, // JJVCS
 				&routes.AgentInternalHandler{}, nil, nil, nil, nil, nil,

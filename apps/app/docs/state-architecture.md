@@ -139,7 +139,7 @@ Billing plan catalogs, the current plan and sandbox usage enter `billingAccounts
 |---|---|
 | Tutorial coordinator/executor | SQLite facts derive tutorial run/checkpoint views; execution claims guard external work. Finished data has a short retention horizon. A claimed operation interrupted before its result needs reconciliation. |
 | Review CLI/GitHub action | Durable execution and action results live in `.smithers-review/review.db`; the HTML walkthrough derives from those results. Publication is a separate external effect. |
-| Bug/onboarding Worker | KV owns reports, answers, nominations and subscription state. A repository Durable Object owns first completion and mirrors it into KV. Nomination counters/leaderboards remain a useful future event-projection candidate. |
+| Bug intake/delivery | Persists bug reports and delivery receipts; rate limits remain durable. |
 | Native terminal | The OS owns the process and PTY. A bounded output tail and observed lifecycle can drive a view, but replaying output cannot recreate the original live process. |
 | Static status/site/docs | Committed artifacts and build/deployment versions own the published content. The main app island uses the frontend store described above. |
 | Plue Observe/admin/status | Observe composes telemetry and infrastructure APIs, with ephemeral sessions/caches; admin is an API client; status renders polled snapshots. They do not share the app's browser journal. |

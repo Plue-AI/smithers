@@ -63,17 +63,7 @@ func CSRF(next http.Handler) http.Handler {
 	})
 }
 
-// RequireCSRF enforces the double-submit check on session-authenticated
-// requests regardless of HTTP method. It exists for the rare GET route with
-// side effects — e.g. the pair-session resolve endpoints, whose auto-join
-// materializes membership — where CSRF's RFC-7231 safe-method bypass would let
-// an attacker-forced top-level navigation ride the victim's session cookie.
-// Token-authenticated and anonymous requests pass through, same as CSRF.
-func RequireCSRF(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		enforceCSRF(w, r, next)
-	})
-}
+
 
 // enforceCSRF validates the double-submit token for session-authenticated
 // requests and forwards to next; anonymous and token-authenticated requests

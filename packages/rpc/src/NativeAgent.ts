@@ -96,16 +96,16 @@ export interface StartAgentTurnRequest {
   readonly purpose?: "conversation" | "recommend" | "explain" | "librarian" | "flows"
   /**
    * The named role this turn asks to be answered by (AgentRoles.ts): the
-   * conversation's own turns are the orchestrator's; `explain` asks for the
-   * explainer. A cloud role (`librarian`, `flows`) is answered by the app
+   * conversation's own turns are the orchestrator's. Historical `explain`
+   * requests remain decodable. A cloud role (`librarian`, `flows`) is answered by the app
    * Worker itself on Cerebras and admits no tools. Otherwise a hint like
    * `tier`: the serving side maps it to a model or ignores it, and the
    * client never claims a model it was not told about.
    */
   readonly role?: AgentRoleId | CloudRoleId
   /**
-   * The generation model a SEALED side turn asks to be answered on (seat
-   * `explainer`, ConfiguredModel.ts). Unlike `tier` and `role` this is not a
+   * The generation model a bounded turn asks to be answered on.
+   * Unlike `tier` and `role` this is not a
    * hint: a serving side that cannot serve the binding refuses the turn, and
    * a turn carrying it plus tools is `tools_not_supported`. Never a fallback.
    */

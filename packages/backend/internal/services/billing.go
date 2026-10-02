@@ -67,13 +67,6 @@ type BillingPolicy interface {
 	AuthorizeWorkflowDispatchCommitted(ctx context.Context, repositoryID int64, commit func(context.Context, pgx.Tx) error) error
 	AuthorizeAgentRunCommitted(ctx context.Context, repositoryID int64, commit func(context.Context, db.DBTX) error) error
 	AuthorizeStorageIncrease(ctx context.Context, repositoryID int64, additionalBytes int64) error
-	// AuthorizePairing gates a user's participation in a Smithers Pair session
-	// at create and join/invite-accept ONLY (amendment B: live members are
-	// grandfathered for the session's lifetime — no enqueue re-check, no
-	// mid-session degradation). Paid ⇔ the user's live subscription resolves to
-	// a Hobby ('personal', $40) plan or above; trialing counts as paid
-	// (decisions #1/#6). Free or lapsed users are Forbidden.
-	AuthorizePairing(ctx context.Context, userID int64) error
 }
 
 type BillingQuerier interface {
@@ -1094,9 +1087,9 @@ func planLimitReached(plan billingPlanDefinition, metric string, limit int64, us
 	return err
 }
 
-// pairingPlanRank orders plan keys so pairing can require Hobby ('personal')
-// or above. Free/unknown rank 0; the paid floor is BillingPlanPersonal.
-func pairingPlanRank(planKey string) int {
+// billingPlanRank orders plan keys for paid admission checks.
+// Free/unknown rank 0; the paid floor is BillingPlanPersonal.
+func billingPlanRank(planKey string) int {
 	switch strings.ToLower(strings.TrimSpace(planKey)) {
 	case BillingPlanPersonal:
 		return 1
@@ -1114,28 +1107,9 @@ func pairingPlanRank(planKey string) int {
 	}
 }
 
-func (s *BillingService) AuthorizePairing(ctx context.Context, userID int64) error {
-	owner := billingOwnerRef{OwnerType: BillingOwnerTypeUser, OwnerID: userID}
-	// Pairing only needs the effective PLAN, so use the lightweight plan-only
-	// resolver rather than resolveLocalState. The latter also recomputes and
-	// PERSISTS the full usage counters (~11 queries + 5 upserts) whose result we
-	// discard here — and any transient failure in that write path would wrongly
-	// DENY a legitimately-paid user's pair create/join. resolvePlan ignores
-	// non-live subscription rows, so a lapsed Hobby user resolves to 'free' here
-	// and is denied.
-	plan, err := s.resolvePlan(ctx, owner)
-	if err != nil {
-		return err
-	}
-	if pairingPlanRank(plan.Key) < pairingPlanRank(BillingPlanPersonal) {
-		return pkgerrors.Forbidden("pairing requires a paid plan (Hobby or above)")
-	}
-	return nil
-}
-
 // AuthorizeBranchLockJoin gates asking to JOIN a branch another user holds.
 // Joining an occupied branch is multiplayer participation, so it uses the
-// same paid floor as pairing (Hobby/'personal' or above; trialing counts).
+// paid floor (Hobby/'personal' or above; trialing counts).
 // Free or lapsed users are Forbidden — the client turns that into the
 // request-upgrade path.
 func (s *BillingService) AuthorizeBranchLockJoin(ctx context.Context, userID int64) error {
@@ -1144,7 +1118,7 @@ func (s *BillingService) AuthorizeBranchLockJoin(ctx context.Context, userID int
 	if err != nil {
 		return err
 	}
-	if pairingPlanRank(plan.Key) < pairingPlanRank(BillingPlanPersonal) {
+	if billingPlanRank(plan.Key) < billingPlanRank(BillingPlanPersonal) {
 		return pkgerrors.Forbidden("joining an occupied branch requires a paid plan (Hobby or above)")
 	}
 	return nil
@@ -1153,7 +1127,7 @@ func (s *BillingService) AuthorizeBranchLockJoin(ctx context.Context, userID int
 // resolvePlan resolves ONLY the effective plan for an owner (account -> latest
 // live subscription -> plan tier/key), skipping the usage recompute+persist that
 // resolveLocalState performs. Trialing counts as paid. Used by plan-gate checks
-// (e.g. pairing) that need the tier but not the usage counters, so a transient
+// that need the tier but not the usage counters, so a transient
 // usage-write failure cannot deny a paid user.
 func (s *BillingService) resolvePlan(ctx context.Context, owner billingOwnerRef) (billingPlanDefinition, error) {
 	account, err := s.findBillingAccountByOwner(ctx, owner.OwnerType, owner.OwnerID)

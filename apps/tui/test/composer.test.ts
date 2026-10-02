@@ -23,7 +23,6 @@ describe("unknown commands", () => {
     ["flwo", "Unknown command /flwo. Try /flow."],
     ["modle", "Unknown command /modle. Try /model."],
     ["resme", "Unknown command /resme. Try /resume."],
-    ["THEME", "Unknown command /THEME. Try /theme."],
     ["summry", "Unknown command /summry. Try /summary."]
   ])("suggests the nearest listed command for /%s", (typed, sentence) => {
     expect(Editor.unknown(typed)).toBe(sentence)
@@ -41,6 +40,7 @@ describe("unknown commands", () => {
     expect(Editor.nearest("nwe")?.name).toBe("new")
     expect(Editor.nearest("copi")?.name).toBe("copy")
     expect(Editor.nearest("reusme")?.name).toBe("resume")
+    expect(Editor.nearest("fork")).toBeUndefined()
   })
 
   it("knows the listed commands and the unlisted wrapped workers and alias, and nothing removed", () => {
@@ -56,7 +56,7 @@ describe("unknown commands", () => {
 
   it("no longer lists the removed commands", () => {
     const names = Editor.commands.map((command) => command.name)
-    for (const removed of ["hotkeys", "tabs", "claude", "codex", "stop", "ui"]) {
+    for (const removed of ["hotkeys", "tabs", "claude", "codex", "stop", "ui", "theme"]) {
       expect(names).not.toContain(removed)
     }
   })

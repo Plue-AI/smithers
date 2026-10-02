@@ -10,14 +10,12 @@ import { App } from "../src/app.tsx"
 import { FlowError, type Port, type Settled } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // Component units: native App rendering and real storage over controlled public
 // Host/FlowPort boundaries. Debounce and clock timers run without replacement.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let launch: ReturnType<typeof Promise.withResolvers<string>>
 let remote: ReturnType<typeof Promise.withResolvers<Settled>>
@@ -48,7 +46,6 @@ beforeEach(async () => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   launch = Promise.withResolvers<string>()
   remote = Promise.withResolvers<Settled>()
@@ -116,7 +113,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })

@@ -3,7 +3,6 @@ package compose
 import (
 	"bytes"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
@@ -119,8 +120,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 	router := buildRouter(cfg, queries, nil,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
-		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.PairSessionHandler{},
-		&routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
+		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
 		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, &routes.BillingHandler{},
 		&routes.ProtectedBookmarkHandler{}, &routes.CommitStatusHandler{}, &routes.LFSHandler{}, &routes.JJVCSHandler{}, &routes.AgentInternalHandler{},
 		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.BranchLockHandler{}, &routes.InternalPushHookHandler{},
@@ -322,9 +322,9 @@ func TestAppendOpenAPISkeletonsWritesTagSources(t *testing.T) {
 	files := appendOpenAPISkeletons(t, sources, mappingValue(bundled.Content[0], "paths"), []servedRoute{
 		{method: "delete", path: "/api/admin/users/{id}", authed: true},
 		{method: "head", path: "/api/admin/users"},
-		{method: "get", path: "/api/pair_sessions"},
+		{method: "get", path: "/api/resource_events"},
 	})
-	require.Equal(t, []string{"admin.yaml", "pair-sessions.yaml"}, files)
+	require.Equal(t, []string{"admin.yaml", "resource-events.yaml"}, files)
 
 	adminOut, err := os.ReadFile(filepath.Join(sources, "admin.yaml"))
 	require.NoError(t, err)
@@ -340,10 +340,10 @@ func TestAppendOpenAPISkeletonsWritesTagSources(t *testing.T) {
 	}, documentedOperations(adminPaths))
 	require.NotNil(t, mappingValue(mappingValue(mappingValue(adminPaths, "/api/admin/users/{id}"), "delete"), "security"))
 
-	created, err := os.ReadFile(filepath.Join(sources, "pair-sessions.yaml"))
+	created, err := os.ReadFile(filepath.Join(sources, "resource-events.yaml"))
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(string(created), "paths:\n  /api/pair_sessions:\n    get:\n"), string(created))
-	require.Contains(t, string(created), "      tags:\n        - Pair Sessions\n")
+	require.True(t, strings.HasPrefix(string(created), "paths:\n  /api/resource_events:\n    get:\n"), string(created))
+	require.Contains(t, string(created), "      tags:\n        - Resource Events\n")
 }
 
 func appendOpenAPIOperation(t *testing.T, paths *yaml.Node, route servedRoute, tag string) {

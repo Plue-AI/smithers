@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -31,12 +30,7 @@ const (
 
 // OAuth2Querier defines the database operations needed by OAuth2Service.
 type OAuth2Querier interface {
-	CreateOAuth2Application(ctx context.Context, arg db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error)
-	GetOAuth2ApplicationByID(ctx context.Context, id int64) (db.Oauth2Application, error)
 	GetOAuth2ApplicationByClientID(ctx context.Context, clientID string) (db.Oauth2Application, error)
-	ListOAuth2ApplicationsByOwner(ctx context.Context, ownerID int64) ([]db.Oauth2Application, error)
-	UpdateOAuth2Application(ctx context.Context, arg db.UpdateOAuth2ApplicationParams) (db.Oauth2Application, error)
-	DeleteOAuth2Application(ctx context.Context, arg db.DeleteOAuth2ApplicationParams) (int64, error)
 
 	CreateOAuth2AuthorizationCode(ctx context.Context, arg db.CreateOAuth2AuthorizationCodeParams) error
 	GetOAuth2AuthorizationCodeByHash(ctx context.Context, codeHash string) (db.Oauth2AuthorizationCode, error)
@@ -77,12 +71,6 @@ type OAuth2ApplicationResponse struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// CreateOAuth2ApplicationResult includes the plaintext client_secret (shown only on creation).
-type CreateOAuth2ApplicationResult struct {
-	OAuth2ApplicationResponse
-	ClientSecret string `json:"client_secret"`
-}
-
 // OAuth2TokenResponse is the standard OAuth2 token endpoint response.
 type OAuth2TokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -96,14 +84,6 @@ type OAuth2TokenResponse struct {
 type OAuth2AuthorizeResult struct {
 	Code        string `json:"code"`
 	RedirectURI string `json:"redirect_uri"`
-}
-
-// CreateOAuth2ApplicationRequest is the request body for creating an OAuth2 application.
-type CreateOAuth2ApplicationRequest struct {
-	Name         string   `json:"name"`
-	RedirectURIs []string `json:"redirect_uris"`
-	Scopes       []string `json:"scopes"`
-	Confidential *bool    `json:"confidential"`
 }
 
 // OAuth2Service handles OAuth2 provider operations.
@@ -157,108 +137,6 @@ func (s *OAuth2Service) transact(ctx context.Context, fn func(q OAuth2Querier) e
 	return s.inTx(ctx, fn)
 }
 
-// CreateApplication registers a new OAuth2 application.
-func (s *OAuth2Service) CreateApplication(ctx context.Context, ownerID int64, req CreateOAuth2ApplicationRequest) (CreateOAuth2ApplicationResult, error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return CreateOAuth2ApplicationResult{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-			Resource: "OAuth2Application",
-			Field:    "name",
-			Code:     "missing_field",
-		})
-	}
-	if len(name) > 255 {
-		return CreateOAuth2ApplicationResult{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-			Resource: "OAuth2Application",
-			Field:    "name",
-			Code:     "invalid",
-		})
-	}
-
-	if len(req.RedirectURIs) == 0 {
-		return CreateOAuth2ApplicationResult{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-			Resource: "OAuth2Application",
-			Field:    "redirect_uris",
-			Code:     "missing_field",
-		})
-	}
-	for i, uri := range req.RedirectURIs {
-		parsed, err := url.Parse(uri)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return CreateOAuth2ApplicationResult{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-				Resource: "OAuth2Application",
-				Field:    fmt.Sprintf("redirect_uris[%d]", i),
-				Code:     "invalid",
-			})
-		}
-	}
-
-	if req.Confidential == nil {
-		return CreateOAuth2ApplicationResult{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-			Resource: "OAuth2Application",
-			Field:    "confidential",
-			Code:     "missing_field",
-		})
-	}
-	confidential := *req.Confidential
-
-	clientID := generateOAuth2ClientID()
-	clientSecret := generateOAuth2ClientSecret()
-	secretHash := hashOAuth2Secret(clientSecret)
-
-	scopes := req.Scopes
-	if scopes == nil {
-		scopes = []string{}
-	}
-
-	app, err := s.queries.CreateOAuth2Application(ctx, db.CreateOAuth2ApplicationParams{
-		ClientID:         clientID,
-		ClientSecretHash: secretHash,
-		Name:             name,
-		RedirectUris:     req.RedirectURIs,
-		Scopes:           scopes,
-		OwnerID:          ownerID,
-		Confidential:     confidential,
-	})
-	if err != nil {
-		return CreateOAuth2ApplicationResult{}, pkgerrors.Internal("failed to create oauth2 application").WithCause(err)
-	}
-
-	return CreateOAuth2ApplicationResult{
-		OAuth2ApplicationResponse: toOAuth2ApplicationResponse(app),
-		ClientSecret:              clientSecret,
-	}, nil
-}
-
-// ListApplications returns all OAuth2 applications owned by the given user.
-func (s *OAuth2Service) ListApplications(ctx context.Context, ownerID int64) ([]OAuth2ApplicationResponse, error) {
-	apps, err := s.queries.ListOAuth2ApplicationsByOwner(ctx, ownerID)
-	if err != nil {
-		return nil, pkgerrors.Internal("failed to list oauth2 applications").WithCause(err)
-	}
-
-	result := make([]OAuth2ApplicationResponse, 0, len(apps))
-	for _, app := range apps {
-		result = append(result, toOAuth2ApplicationResponse(app))
-	}
-	return result, nil
-}
-
-// GetApplication returns a single OAuth2 application by ID, ensuring ownership.
-func (s *OAuth2Service) GetApplication(ctx context.Context, appID, ownerID int64) (OAuth2ApplicationResponse, error) {
-	app, err := s.queries.GetOAuth2ApplicationByID(ctx, appID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return OAuth2ApplicationResponse{}, pkgerrors.NotFound("oauth2 application not found")
-		}
-		return OAuth2ApplicationResponse{}, pkgerrors.Internal("failed to get oauth2 application").WithCause(err)
-	}
-	if app.OwnerID != ownerID {
-		return OAuth2ApplicationResponse{}, pkgerrors.NotFound("oauth2 application not found")
-	}
-	return toOAuth2ApplicationResponse(app), nil
-}
-
 // GetApplicationByClientID returns the public-safe OAuth2 application for a
 // given client_id. Used by the browser-native authorize handler to resolve
 // the client (including its registered redirect URIs and scopes) WITHOUT
@@ -289,21 +167,6 @@ func (s *OAuth2Service) IsValidRegisteredRedirectURI(ctx context.Context, client
 		return false, pkgerrors.Internal("failed to get oauth2 application").WithCause(err)
 	}
 	return isValidRedirectURI(app.RedirectUris, redirectURI), nil
-}
-
-// DeleteApplication removes an OAuth2 application and all its tokens.
-func (s *OAuth2Service) DeleteApplication(ctx context.Context, appID, ownerID int64) error {
-	rows, err := s.queries.DeleteOAuth2Application(ctx, db.DeleteOAuth2ApplicationParams{
-		ID:      appID,
-		OwnerID: ownerID,
-	})
-	if err != nil {
-		return pkgerrors.Internal("failed to delete oauth2 application").WithCause(err)
-	}
-	if rows == 0 {
-		return pkgerrors.NotFound("oauth2 application not found")
-	}
-	return nil
 }
 
 // Authorize generates an authorization code for the given OAuth2 application.
@@ -395,6 +258,9 @@ func (s *OAuth2Service) resolveGrantSource(ctx context.Context, q OAuth2Querier,
 func (s *OAuth2Service) AuthorizeGrant(ctx context.Context, in OAuth2AuthorizeInput) (OAuth2AuthorizeResult, error) {
 	userID, clientID, redirectURI, scope := in.UserID, in.ClientID, in.RedirectURI, in.Scope
 	codeChallenge, codeChallengeMethod, callerScopes := in.CodeChallenge, in.CodeChallengeMethod, in.CallerScopes
+	if clientID != FirstPartyClientID {
+		return OAuth2AuthorizeResult{}, pkgerrors.Unauthorized("invalid client_id")
+	}
 	app, err := s.queries.GetOAuth2ApplicationByClientID(ctx, clientID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -518,6 +384,9 @@ func (s *OAuth2Service) AuthorizeGrant(ctx context.Context, in OAuth2AuthorizeIn
 
 // ExchangeCode exchanges an authorization code for an access token and refresh token.
 func (s *OAuth2Service) ExchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI, codeVerifier string) (OAuth2TokenResponse, error) {
+	if clientID != FirstPartyClientID {
+		return OAuth2TokenResponse{}, pkgerrors.Unauthorized("invalid client_id")
+	}
 	// Validate client credentials.
 	app, err := s.queries.GetOAuth2ApplicationByClientID(ctx, clientID)
 	if err != nil {
@@ -606,6 +475,9 @@ func (s *OAuth2Service) ExchangeCode(ctx context.Context, clientID, clientSecret
 
 // RefreshToken exchanges a refresh token for a new access token and refresh token pair.
 func (s *OAuth2Service) RefreshToken(ctx context.Context, clientID, clientSecret, refreshToken string) (OAuth2TokenResponse, error) {
+	if clientID != FirstPartyClientID {
+		return OAuth2TokenResponse{}, pkgerrors.Unauthorized("invalid client_id")
+	}
 	// Validate client credentials.
 	app, err := s.queries.GetOAuth2ApplicationByClientID(ctx, clientID)
 	if err != nil {
@@ -972,16 +844,6 @@ func verifyPKCE(challenge, method, verifier string) bool {
 	hash := sha256.Sum256([]byte(verifier))
 	computed := base64.RawURLEncoding.EncodeToString(hash[:])
 	return subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) == 1
-}
-
-// generateOAuth2ClientID generates a unique client ID.
-func generateOAuth2ClientID() string {
-	return randomHex(20)
-}
-
-// generateOAuth2ClientSecret generates a client secret.
-func generateOAuth2ClientSecret() string {
-	return "smithers_oas_" + randomHex(32)
 }
 
 // generateOAuth2Code generates an authorization code.

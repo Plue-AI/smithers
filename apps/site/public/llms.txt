@@ -52,7 +52,7 @@
 - [Keys](https://smithers.sh/docs/tui/keys/): Every TUI shortcut, grouped by where it works.
 - [Command line](https://smithers.sh/docs/tui/cli/): Start the TUI interactive, continued, or for one answer.
 - [Configuration](https://smithers.sh/docs/tui/configuration/): Providers, TUI settings, instruction files, and where conversations are stored.
-- [Views and filters](https://smithers.sh/docs/tui/views/): Tabs, transcript filters, and themes in the TUI.
+- [Views and filters](https://smithers.sh/docs/tui/views/): Tabs and transcript filters in the TUI.
 - [Extend the TUI](https://smithers.sh/docs/tui/extend/): Publish views and cards, add keys and status items, and watch results with monitors.
 
 ## The app

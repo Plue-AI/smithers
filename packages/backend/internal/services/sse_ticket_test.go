@@ -98,7 +98,7 @@ func (m *mockSSETicketQuerier) GetAuthInfoByTokenHash(ctx context.Context, token
 	return db.GetAuthInfoByTokenHashRow{}, pgx.ErrNoRows
 }
 
-func (m *mockSSETicketQuerier) GetOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error) {
+func (m *mockSSETicketQuerier) GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (db.Oauth2AccessToken, error) {
 	if m.getOAuth2AccessTokenByHashFn != nil {
 		return m.getOAuth2AccessTokenByHashFn(ctx, tokenHash)
 	}

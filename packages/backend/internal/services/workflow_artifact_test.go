@@ -474,7 +474,7 @@ func (b *confirmCommitTrackingBilling) AuthorizeAgentRunCommitted(ctx context.Co
 func (b *confirmCommitTrackingBilling) AuthorizeStorageIncrease(context.Context, int64, int64) error {
 	return nil
 }
-func (b *confirmCommitTrackingBilling) AuthorizePairing(context.Context, int64) error { return nil }
+
 func (b *confirmCommitTrackingBilling) AuthorizeStorageIncreaseCommitted(ctx context.Context, _, additionalBytes int64, commit func(ctx context.Context) error) error {
 	if err := commit(ctx); err != nil {
 		return err

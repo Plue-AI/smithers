@@ -23,9 +23,9 @@ describe("agentic response CSS", () => {
 
   test("resolves response and code colors through the dark theme token surface", () => {
     const darkBlock = workflowUiThemeCss.match(/:root\[data-theme='dark'\] \{ ([^}]*) \}/)?.[1] ?? "";
-    expect(darkBlock).toContain("--text-muted:#94a0ae");
-    expect(darkBlock).toContain("--code-bg:#011627");
-    expect(darkBlock).toContain("--code-text:#d6deeb");
+    expect(darkBlock).toContain("--text-muted:#a8a193");
+    expect(darkBlock).toContain("--code-bg:#101917");
+    expect(darkBlock).toContain("--code-text:#ece7db");
     expect(agenticResponseCss).toContain("background:var(--text-muted, #676676)");
     expect(agenticResponseCss).toContain("background:var(--code-bg, #FBFBFB)");
     expect(agenticResponseCss).toContain("color:var(--code-text, #403f53)");

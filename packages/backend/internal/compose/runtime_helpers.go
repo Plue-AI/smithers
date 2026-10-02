@@ -293,13 +293,6 @@ func sandboxPlanAdmission(policy services.BillingPolicy) middleware.SandboxPlanA
 // larger cap.
 const appTimelineMaxRequestBodySize int64 = 6 << 20
 
-// shareListingMaxRequestBodySize bounds publish bodies on /api/share/*. The
-// snapshot itself is capped at 256 KiB by the service
-// (services.ShareListingMaxSnapshotBytes); this leaves generous room for JSON
-// escaping and the surrounding metadata without letting the public sharing
-// surface become an upload endpoint.
-const shareListingMaxRequestBodySize int64 = 1 << 20
-
 // joinedBackgroundWorker gives shutdown a concrete completion boundary for a
 // worker that must finish cancellation cleanup before shared dependencies (in
 // particular the database pool) are closed.

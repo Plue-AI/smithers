@@ -452,7 +452,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "setup.retry": args => required("cardId", args, "Choose the setup to retry"),
   "setup.discard": args => required("cardId", args, "Choose the setup whose draft to discard"),
   "setup.discard.confirm": args => required("cardId", args, "Choose the setup whose draft to discard"),
-  "appearance.theme": (args) => ok({ palette: args ?? "" }),
   "appearance.dark-mode": (args) => {
     const mode = trimmed(args).toLowerCase()
     return mode === "" ? NONE : mode === "light" || mode === "dark" ? ok({ mode }) : no("dark-mode takes light or dark")
@@ -767,8 +766,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "world.delete": (args) => required("documentId", args, "world.delete needs the document id"),
   "toast.dismiss": (args) => required("toastId", args, "toast.dismiss needs the toast id"),
   /* The Library's two acts: one plugin id, the one the shelf lists. */
-  "plugins.install": (args) => required("plugin", args, "plugins.install needs a plugin id — /plugins lists them"),
-  "plugins.remove": (args) => required("plugin", args, "plugins.remove needs a plugin id — /plugins lists what is installed"),
   /* The flow the card names as absent; blank renders the generic "That is not in the web app". */
   "repos.import": (args) => repoOnly("repos.import", args),
   /* One freeform repository link; without it the form asks for one. */
@@ -1306,7 +1303,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "admin.grant.confirm": (args) => required("cardId", args, "admin.grant.confirm needs the card id"),
   "admin.grant.cancel": (args) => required("cardId", args, "admin.grant.cancel needs the card id"),
   /* `[cwd]`: an OPEN working copy by path, id, name, or key; blank means the active one (the server never takes a bare path). */
-  "agent.explain": (args) => required("what", args, "agent.explain needs something to explain: /agent.explain <what>"),
   /* THE FORM LAW: the generic form card's acts. `form.set`'s value is the rest of the line (blank clears). */
   "form.set": (args) => {
     const [cardId, field, ...rest] = tokensOf(args)

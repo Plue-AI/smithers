@@ -35,7 +35,6 @@ func allFlagsRouterForTest() http.Handler {
 		nil, // wikiService
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, // notificationHandler
-		nil, // hosted composition marker
 		nil, // adminUserHandler
 		nil, // adminOrgHandler
 		nil, // adminSystemMetricsHandler

@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { DEFAULT_THEME_KEY } from "@smthrs/ui-styleguide";
 import { useMemo, type ReactNode } from "react";
 import { processPatch, type CodeViewItem, type DiffsThemeNames, type FileDiffMetadata } from "@pierre/diffs";
 import { CodeView } from "@pierre/diffs/react";
@@ -32,7 +33,7 @@ export type PierreDiffLayout = "split" | "inline";
  * Map the theme `mode` onto the Shiki-bundled `DiffsThemeNames` value CodeView
  * expects. Replaces Multi's coupling to the app `Theme` store.
  */
-export function diffsThemeForMode(mode: PierreDiffMode, palette: ResolvedPalette = "night-owl"): DiffsThemeNames {
+export function diffsThemeForMode(mode: PierreDiffMode, palette: ResolvedPalette = DEFAULT_THEME_KEY): DiffsThemeNames {
   const syntax = themeRegistry[palette].syntax;
   return mode === "dark" ? syntax.shikiDark : syntax.shikiLight;
 }

@@ -1,5 +1,5 @@
 /*
- * The sealed turn the local host serves for the explainer seat, and the one
+ * The bounded configured-model turn the local host serves, and the one
  * line a card shows for a model failure. Planning, credentials, the catalog,
  * the redirect-refusing transport and the failure mapping live in
  * @smthrs/model-host/LocalModel.
@@ -16,7 +16,7 @@ import { toModel } from "@smthrs/model-host/ConfiguredModelRoute"
 import { manualRedirects, modelFailureOf } from "@smthrs/model-host/LocalModel"
 import type { LocalPlanned } from "@smthrs/model-host/LocalModel"
 
-/** The most an explainer answer may run to. */
+/** The most a configured-model answer may run to. */
 const SEALED_TURN_MAX_TOKENS = 1024
 const SEALED_TURN_MAX_CHARS = 64 * 1024
 
@@ -62,7 +62,7 @@ export interface SealedTurn {
 }
 
 /**
- * The explainer seat's turn through the planned model: one bounded answer,
+ * The configured model's turn through the planned model: one bounded answer,
  * then one `done`. A provider failure ends the turn with its typed
  * line; it never falls back to another model. Interrupting the fiber cancels
  * the request and publishes nothing. Text is the only thing published, and

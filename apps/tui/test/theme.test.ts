@@ -1,25 +1,29 @@
-import { afterEach, describe, expect, it } from "bun:test"
-import { activeTheme, color, isTheme, setTheme, themes } from "../src/theme.ts"
+import { expect, test } from "bun:test"
+import { rgbOf, variant } from "../../app/src/mainview/styles/paletteTokens"
+import { color } from "../src/theme.ts"
 import * as View from "../src/view.tsx"
 
-afterEach(() => setTheme("purple"))
+const hex = (token: string): string => {
+  const rgb = rgbOf(variant("paper", "dark"), token)
+  return "#" + [rgb.r, rgb.g, rgb.b].map((channel) => channel.toString(16).padStart(2, "0")).join("")
+}
 
-describe("TUI themes", () => {
-  it("offers purple, blue, green, and orange", () => {
-    expect(Object.keys(themes)).toEqual(["purple", "blue", "green", "orange"])
-    expect(isTheme("unknown")).toBe(false)
-  })
+test("terminal semantic colors match the retained browser Paper dark palette", () => {
+  for (
+    const [name, token] of [
+      ["page", "--bg"],
+      ["surface", "--surface"],
+      ["element", "--surface-2"],
+      ["text", "--text"],
+      ["muted", "--text-muted"],
+      ["faint", "--text-faint"],
+      ["brand", "--brand"]
+    ] as const
+  ) {
+    expect(color[name]).toBe(hex(token))
+  }
+})
 
-  it("updates the accent and user bubble when selected", () => {
-    const oldBubble = color.bubble
-    setTheme("blue")
-    expect(activeTheme()).toBe("blue")
-    expect(color.brand).toBe(themes.blue)
-    expect(color.bubble).not.toBe(oldBubble)
-  })
-
-  it("paints a writing cell in the accent chosen after load", () => {
-    setTheme("green")
-    expect(View.statusColor("writing")).toBe(themes.green)
-  })
+test("writing status uses the retained brand accent", () => {
+  expect(View.statusColor("writing")).toBe(color.brand)
 })

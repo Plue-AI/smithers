@@ -82,10 +82,6 @@ export const factory = S.Factory({
     },
     "schedule:0 9 * * 1-5": { flow: "review", description: "Weekday morning review of main" },
     "schedule:0 2 * * *": { flow: "security-audit", description: "Audit security nightly" },
-    "nomination": {
-      flow: "factory.bootstrap",
-      description: "Fork, claim, generate PACKAGE.ts from CI, bootstrap the mythical history"
-    },
     "box.session.ended": {
       flow: "improve.mine",
       description: "Mine every landing and box session for a better factory"

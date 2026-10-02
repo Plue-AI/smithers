@@ -206,7 +206,6 @@ var allEnvKeys = []string{
 	"SMITHERS_CHAT_CONCURRENCY",
 	"SMITHERS_CHAT_QUEUE_SIZE",
 	"SMITHERS_CHAT_LEASE_SECONDS",
-	"SMITHERS_RATE_LIMIT_SHARE_LISTING_EVENT_PER_MIN",
 }
 
 // clearConfigEnv unsets all SMITHERS_ env vars that config.Load() reads,
@@ -815,12 +814,11 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			Secrets:              true,
 		},
 		RateLimit: RateLimitConfig{
-			TerminalOpenPerMin:      20,
-			TerminalActiveMax:       5,
-			ApprovalDecidePerMin:    30,
-			AppTimelineWritePerMin:  240,
-			ShareListingEventPerMin: 30,
-			BuildCachePerMinute:     1200,
+			TerminalOpenPerMin:     20,
+			TerminalActiveMax:      5,
+			ApprovalDecidePerMin:   30,
+			AppTimelineWritePerMin: 240,
+			BuildCachePerMinute:    1200,
 		},
 	}
 	assert.Equal(t, expected, cfg)

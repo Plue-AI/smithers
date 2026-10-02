@@ -361,25 +361,6 @@ func (q *Queries) DeleteOAuth2AccessTokensByAppAndUser(ctx context.Context, arg 
 	return err
 }
 
-const deleteOAuth2Application = `-- name: DeleteOAuth2Application :execrows
-DELETE FROM oauth2_applications
-WHERE id = $1
-  AND owner_id = $2
-`
-
-type DeleteOAuth2ApplicationParams struct {
-	ID      int64 `json:"id"`
-	OwnerID int64 `json:"owner_id"`
-}
-
-func (q *Queries) DeleteOAuth2Application(ctx context.Context, arg DeleteOAuth2ApplicationParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteOAuth2Application, arg.ID, arg.OwnerID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const deleteOAuth2RefreshTokenByHash = `-- name: DeleteOAuth2RefreshTokenByHash :execrows
 DELETE FROM oauth2_refresh_tokens
 WHERE token_hash = $1
@@ -407,6 +388,33 @@ type DeleteOAuth2RefreshTokensByAppAndUserParams struct {
 func (q *Queries) DeleteOAuth2RefreshTokensByAppAndUser(ctx context.Context, arg DeleteOAuth2RefreshTokensByAppAndUserParams) error {
 	_, err := q.db.Exec(ctx, deleteOAuth2RefreshTokensByAppAndUser, arg.AppID, arg.UserID)
 	return err
+}
+
+const getFirstPartyOAuth2AccessTokenByHash = `-- name: GetFirstPartyOAuth2AccessTokenByHash :one
+SELECT t.id, t.token_hash, t.app_id, t.user_id, t.scopes, t.expires_at, t.created_at, t.source_access_token_id
+FROM oauth2_access_tokens t
+JOIN oauth2_applications a ON a.id = t.app_id
+WHERE t.token_hash = $1
+  AND t.expires_at > NOW()
+  AND a.client_id = 'smithers_first_party_apps'
+`
+
+// Existing hosted-application tokens remain stored and revocable, but only
+// the deployment's first-party client authenticates product requests.
+func (q *Queries) GetFirstPartyOAuth2AccessTokenByHash(ctx context.Context, tokenHash string) (Oauth2AccessToken, error) {
+	row := q.db.QueryRow(ctx, getFirstPartyOAuth2AccessTokenByHash, tokenHash)
+	var i Oauth2AccessToken
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.AppID,
+		&i.UserID,
+		&i.Scopes,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.SourceAccessTokenID,
+	)
+	return i, err
 }
 
 const getOAuth2AccessTokenByHash = `-- name: GetOAuth2AccessTokenByHash :one
@@ -440,30 +448,6 @@ WHERE client_id = $1
 
 func (q *Queries) GetOAuth2ApplicationByClientID(ctx context.Context, clientID string) (Oauth2Application, error) {
 	row := q.db.QueryRow(ctx, getOAuth2ApplicationByClientID, clientID)
-	var i Oauth2Application
-	err := row.Scan(
-		&i.ID,
-		&i.ClientID,
-		&i.ClientSecretHash,
-		&i.Name,
-		&i.RedirectUris,
-		&i.Scopes,
-		&i.OwnerID,
-		&i.Confidential,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getOAuth2ApplicationByID = `-- name: GetOAuth2ApplicationByID :one
-SELECT id, client_id, client_secret_hash, name, redirect_uris, scopes, owner_id, confidential, created_at, updated_at
-FROM oauth2_applications
-WHERE id = $1
-`
-
-func (q *Queries) GetOAuth2ApplicationByID(ctx context.Context, id int64) (Oauth2Application, error) {
-	row := q.db.QueryRow(ctx, getOAuth2ApplicationByID, id)
 	var i Oauth2Application
 	err := row.Scan(
 		&i.ID,
@@ -580,88 +564,4 @@ func (q *Queries) ListOAuth2AccessTokensByUser(ctx context.Context, userID int64
 		return nil, err
 	}
 	return items, nil
-}
-
-const listOAuth2ApplicationsByOwner = `-- name: ListOAuth2ApplicationsByOwner :many
-SELECT id, client_id, client_secret_hash, name, redirect_uris, scopes, owner_id, confidential, created_at, updated_at
-FROM oauth2_applications
-WHERE owner_id = $1
-ORDER BY created_at DESC
-`
-
-func (q *Queries) ListOAuth2ApplicationsByOwner(ctx context.Context, ownerID int64) ([]Oauth2Application, error) {
-	rows, err := q.db.Query(ctx, listOAuth2ApplicationsByOwner, ownerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Oauth2Application{}
-	for rows.Next() {
-		var i Oauth2Application
-		if err := rows.Scan(
-			&i.ID,
-			&i.ClientID,
-			&i.ClientSecretHash,
-			&i.Name,
-			&i.RedirectUris,
-			&i.Scopes,
-			&i.OwnerID,
-			&i.Confidential,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateOAuth2Application = `-- name: UpdateOAuth2Application :one
-UPDATE oauth2_applications
-SET name = $1,
-    redirect_uris = $2,
-    scopes = $3,
-    confidential = $4,
-    updated_at = NOW()
-WHERE id = $5
-  AND owner_id = $6
-RETURNING id, client_id, client_secret_hash, name, redirect_uris, scopes, owner_id, confidential, created_at, updated_at
-`
-
-type UpdateOAuth2ApplicationParams struct {
-	Name         string   `json:"name"`
-	RedirectUris []string `json:"redirect_uris"`
-	Scopes       []string `json:"scopes"`
-	Confidential bool     `json:"confidential"`
-	ID           int64    `json:"id"`
-	OwnerID      int64    `json:"owner_id"`
-}
-
-func (q *Queries) UpdateOAuth2Application(ctx context.Context, arg UpdateOAuth2ApplicationParams) (Oauth2Application, error) {
-	row := q.db.QueryRow(ctx, updateOAuth2Application,
-		arg.Name,
-		arg.RedirectUris,
-		arg.Scopes,
-		arg.Confidential,
-		arg.ID,
-		arg.OwnerID,
-	)
-	var i Oauth2Application
-	err := row.Scan(
-		&i.ID,
-		&i.ClientID,
-		&i.ClientSecretHash,
-		&i.Name,
-		&i.RedirectUris,
-		&i.Scopes,
-		&i.OwnerID,
-		&i.Confidential,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }

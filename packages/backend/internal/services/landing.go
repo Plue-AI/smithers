@@ -687,7 +687,7 @@ func WithLandingAgentTurnDispatcher(dispatcher LandingAgentTurnDispatcher) Landi
 }
 
 // SetAgentTurnDispatcher completes production wiring after AgentService is
-// constructed. LandingService is created earlier because pair sessions use it.
+// constructed.
 func (s *LandingService) SetAgentTurnDispatcher(dispatcher LandingAgentTurnDispatcher) {
 	s.agentTurn = dispatcher
 }

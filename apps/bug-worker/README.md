@@ -3,12 +3,6 @@
 Cloudflare Worker behind `https://bug.smithers.sh` that receives bug reports
 from `smithers bug` (and anyone else) and stores them in KV.
 
-## Community repositories
-
-The home page also uses this Worker for public repository requests, smithering
-status, and completion emails. See [REPO-REQUESTS.md](./REPO-REQUESTS.md) for
-the app handoff, API, notification configuration, and deployment requirements.
-
 ## The payload
 
 The current and 0.x CLI envelopes are accepted and stored without conversion.
@@ -100,8 +94,7 @@ TTL semantics (`tests/helpers/memoryKv.ts`); no route mocking.
 ## Deploy
 
 Not run by CI. Set `CLOUDFLARE_API_TOKEN`, `ALCHEMY_PASSWORD`,
-`BUG_ADMIN_TOKEN`, `RESEND_API_KEY`, `NOTIFICATION_FROM`, and
-`GITHUB_FORK_TOKEN` through your usual secret mechanism (a gitignored `.env`,
+`BUG_ADMIN_TOKEN` through your usual secret mechanism (a gitignored `.env`,
 or the runner's secret store); never type them on the command line, where
 shell history keeps them in plaintext. A deploy without one fails rather than
 removing the live binding.

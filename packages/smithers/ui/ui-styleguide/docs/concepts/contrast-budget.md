@@ -1,6 +1,6 @@
 ---
 title: "The contrast budget"
-description: "Every foreground and background pair the shipped rules paint is required to meet WCAG AA across all eight palettes in both modes."
+description: "Every foreground and background pair the shipped rules paint is required to meet WCAG AA across all Paper light/dark variants in both modes."
 sidebar:
   order: 1
 ---
@@ -90,9 +90,8 @@ browser no longer paints, so the suite pins the two together.
 ## What the budget forbids
 
 **No `::selection` rule.** A brand wash leaves the foreground inherited, which
-puts it under all nine foregrounds this sheet paints. Measured across the eight
-palettes, even an 8 percent wash misses 4.5:1 in 29 (foreground, palette, mode)
-combinations, and the 0.x sheet used 24 percent. Pinning a foreground instead is
+puts it under all nine foregrounds this sheet paints. The inherited foreground may be a semantic status color; a wash can reduce
+its contrast. Pinning a foreground instead is
 worse, because `::selection` is global and a downstream sheet that overrides
 only the selection background inherits the pinned color, which `@smthrs/ui`'s
 markdown editor does. The user agent's own selection colors are contrast

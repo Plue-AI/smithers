@@ -57,9 +57,9 @@ test("the card lists the built-in roles, then the repository's flows that declar
     flow("product-release", "openai:gpt-6-sol", "Ships a release.")
   ])
   await t.agents.listAgents()
-  expect(t.rows().map((row) => row.id)).toEqual([...AGENT_ROLES.map((role) => role.id), "review", "assistant", "product-release"])
+  expect(t.rows().map((row) => row.id)).toEqual([...AGENT_ROLES.filter(role => role.id !== "explainer").map((role) => role.id), "review", "assistant", "product-release"])
   // The label is the flow id (no declaration names a flow); a known model shows the built-ins' display name, an unknown one its id.
-  expect(t.rows().slice(AGENT_ROLES.length)).toEqual([
+  expect(t.rows().slice(AGENT_ROLES.filter(role => role.id !== "explainer").length)).toEqual([
     { id: "review", label: "review", purpose: "Reviews the working-copy change.", model: { provider: "", id: "sol", label: "sol" },
       builtin: false, available: false, reason: "", account: "" },
     { id: "assistant", label: "assistant", purpose: "Answers questions and routes work.", model: { provider: "openai", id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
@@ -75,14 +75,14 @@ test("the card lists the built-in roles, then the repository's flows that declar
 test("without a loaded repository the card lists the built-in roles alone", async () => {
   const t = await setup()
   await t.agents.listAgents()
-  expect(t.rows().map((row) => row.id)).toEqual(AGENT_ROLES.map((role) => role.id))
+  expect(t.rows().map((row) => row.id)).toEqual(AGENT_ROLES.filter(role => role.id !== "explainer").map((role) => role.id))
 })
 
 test("an open card follows the repository: flows that load after it was asked for appear in place, at the same ordinal", async () => {
   const t = await setup()
   await t.agents.listAgents()
   const before = t.card()!
-  expect(t.rows()).toHaveLength(AGENT_ROLES.length)
+  expect(t.rows()).toHaveLength(AGENT_ROLES.filter(role => role.id !== "explainer").length)
   await loadRepository(t.store, [flow("triage", "luna")])
   await settled()
   expect(t.rows().map((row) => row.id)).toContain("triage")

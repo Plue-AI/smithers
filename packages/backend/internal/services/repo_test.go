@@ -2467,7 +2467,6 @@ func (s *stubBillingPolicy) AuthorizeAgentRunCommitted(ctx context.Context, _ in
 	return commit(ctx, nil)
 }
 func (s *stubBillingPolicy) AuthorizeStorageIncrease(context.Context, int64, int64) error { return nil }
-func (s *stubBillingPolicy) AuthorizePairing(context.Context, int64) error                { return nil }
 
 func TestRepoService_UpdateRepo_PrivateFlipEnforcesBilling(t *testing.T) {
 	tests := []struct {

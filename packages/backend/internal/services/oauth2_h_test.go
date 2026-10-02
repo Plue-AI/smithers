@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,11 +14,7 @@ import (
 )
 
 type oauth2HQuerier struct {
-	createApplicationFn               func(context.Context, db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error)
-	getApplicationByIDFn              func(context.Context, int64) (db.Oauth2Application, error)
 	getApplicationByClientIDFn        func(context.Context, string) (db.Oauth2Application, error)
-	listApplicationsByOwnerFn         func(context.Context, int64) ([]db.Oauth2Application, error)
-	deleteApplicationFn               func(context.Context, db.DeleteOAuth2ApplicationParams) (int64, error)
 	createAuthorizationCodeFn         func(context.Context, db.CreateOAuth2AuthorizationCodeParams) error
 	getAuthorizationCodeByHashFn      func(context.Context, string) (db.Oauth2AuthorizationCode, error)
 	consumeAuthorizationCodeFn        func(context.Context, string) (db.Oauth2AuthorizationCode, error)
@@ -35,43 +30,11 @@ type oauth2HQuerier struct {
 	getUserByIDFn                     func(context.Context, int64) (db.User, error)
 }
 
-func (q *oauth2HQuerier) CreateOAuth2Application(ctx context.Context, arg db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-	if q.createApplicationFn != nil {
-		return q.createApplicationFn(ctx, arg)
-	}
-	return db.Oauth2Application{ID: 1, ClientID: arg.ClientID, ClientSecretHash: arg.ClientSecretHash, Name: arg.Name, RedirectUris: arg.RedirectUris, Scopes: arg.Scopes, OwnerID: arg.OwnerID, Confidential: arg.Confidential}, nil
-}
-
-func (q *oauth2HQuerier) GetOAuth2ApplicationByID(ctx context.Context, id int64) (db.Oauth2Application, error) {
-	if q.getApplicationByIDFn != nil {
-		return q.getApplicationByIDFn(ctx, id)
-	}
-	return testOAuth2Application(true), nil
-}
-
 func (q *oauth2HQuerier) GetOAuth2ApplicationByClientID(ctx context.Context, clientID string) (db.Oauth2Application, error) {
 	if q.getApplicationByClientIDFn != nil {
 		return q.getApplicationByClientIDFn(ctx, clientID)
 	}
 	return testOAuth2Application(true), nil
-}
-
-func (q *oauth2HQuerier) ListOAuth2ApplicationsByOwner(ctx context.Context, ownerID int64) ([]db.Oauth2Application, error) {
-	if q.listApplicationsByOwnerFn != nil {
-		return q.listApplicationsByOwnerFn(ctx, ownerID)
-	}
-	return []db.Oauth2Application{testOAuth2Application(true)}, nil
-}
-
-func (q *oauth2HQuerier) UpdateOAuth2Application(context.Context, db.UpdateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-	return db.Oauth2Application{}, assert.AnError
-}
-
-func (q *oauth2HQuerier) DeleteOAuth2Application(ctx context.Context, arg db.DeleteOAuth2ApplicationParams) (int64, error) {
-	if q.deleteApplicationFn != nil {
-		return q.deleteApplicationFn(ctx, arg)
-	}
-	return 1, nil
 }
 
 func (q *oauth2HQuerier) CreateOAuth2AuthorizationCode(ctx context.Context, arg db.CreateOAuth2AuthorizationCodeParams) error {
@@ -177,65 +140,10 @@ func oauth2HStatus(t *testing.T, err error) int {
 	return apiErr.Status
 }
 
-func TestOAuth2_H_CreateApplicationValidationDBAndRandomErrors(t *testing.T) {
-	ctx := context.Background()
-	confidential := true
-	svc := NewOAuth2Service(&oauth2HQuerier{})
-
-	for _, tc := range []struct {
-		name string
-		req  CreateOAuth2ApplicationRequest
-	}{
-		{"missing name", CreateOAuth2ApplicationRequest{RedirectURIs: []string{"https://app.example/callback"}, Confidential: &confidential}},
-		{"long name", CreateOAuth2ApplicationRequest{Name: strings.Repeat("x", 256), RedirectURIs: []string{"https://app.example/callback"}, Confidential: &confidential}},
-		{"missing redirect", CreateOAuth2ApplicationRequest{Name: "app", Confidential: &confidential}},
-		{"bad redirect", CreateOAuth2ApplicationRequest{Name: "app", RedirectURIs: []string{"https://"}, Confidential: &confidential}},
-		{"missing confidential", CreateOAuth2ApplicationRequest{Name: "app", RedirectURIs: []string{"https://app.example/callback"}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.CreateApplication(ctx, 9, tc.req)
-			require.Equal(t, 422, oauth2HStatus(t, err))
-		})
-	}
-
-	created, err := svc.CreateApplication(ctx, 9, CreateOAuth2ApplicationRequest{Name: " app ", RedirectURIs: []string{"https://app.example/callback"}, Confidential: &confidential})
-	require.NoError(t, err)
-	assert.Equal(t, "app", created.Name)
-	assert.Empty(t, created.Scopes)
-
-	_, err = NewOAuth2Service(&oauth2HQuerier{
-		createApplicationFn: func(context.Context, db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-			return db.Oauth2Application{}, assert.AnError
-		},
-	}).CreateApplication(ctx, 9, CreateOAuth2ApplicationRequest{Name: "app", RedirectURIs: []string{"https://app.example/callback"}, Confidential: &confidential})
-	require.Equal(t, 500, oauth2HStatus(t, err))
-}
-
-func TestOAuth2_H_ApplicationLookupAndDeleteErrors(t *testing.T) {
+func TestOAuth2_H_ApplicationLookupErrors(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := NewOAuth2Service(&oauth2HQuerier{
-		listApplicationsByOwnerFn: func(context.Context, int64) ([]db.Oauth2Application, error) { return nil, assert.AnError },
-	}).ListApplications(ctx, 9)
-	require.Equal(t, 500, oauth2HStatus(t, err))
-
-	_, err = NewOAuth2Service(&oauth2HQuerier{
-		getApplicationByIDFn: func(context.Context, int64) (db.Oauth2Application, error) {
-			return db.Oauth2Application{}, assert.AnError
-		},
-	}).GetApplication(ctx, 41, 9)
-	require.Equal(t, 500, oauth2HStatus(t, err))
-
-	_, err = NewOAuth2Service(&oauth2HQuerier{
-		getApplicationByIDFn: func(context.Context, int64) (db.Oauth2Application, error) {
-			app := testOAuth2Application(true)
-			app.OwnerID = 99
-			return app, nil
-		},
-	}).GetApplication(ctx, 41, 9)
-	require.Equal(t, 404, oauth2HStatus(t, err))
-
-	_, err = NewOAuth2Service(&oauth2HQuerier{
 		getApplicationByClientIDFn: func(context.Context, string) (db.Oauth2Application, error) {
 			return db.Oauth2Application{}, assert.AnError
 		},
@@ -264,10 +172,6 @@ func TestOAuth2_H_ApplicationLookupAndDeleteErrors(t *testing.T) {
 	}).IsValidRegisteredRedirectURI(ctx, "client", "https://app.example/callback")
 	require.Equal(t, 500, oauth2HStatus(t, err))
 
-	err = NewOAuth2Service(&oauth2HQuerier{
-		deleteApplicationFn: func(context.Context, db.DeleteOAuth2ApplicationParams) (int64, error) { return 0, assert.AnError },
-	}).DeleteApplication(ctx, 41, 9)
-	require.Equal(t, 500, oauth2HStatus(t, err))
 }
 
 func TestOAuth2_H_AuthorizeEdgeScopesAndErrors(t *testing.T) {
@@ -278,33 +182,33 @@ func TestOAuth2_H_AuthorizeEdgeScopesAndErrors(t *testing.T) {
 		getApplicationByClientIDFn: func(context.Context, string) (db.Oauth2Application, error) { return baseApp, nil },
 	})
 
-	res, err := svc.Authorize(ctx, 7, "client-123", "https://app.example/callback", "read:user read:user", "challenge", "S256", []string{"", "read:user"})
+	res, err := svc.Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "read:user read:user", "challenge", "S256", []string{"", "read:user"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.Code)
 
-	_, err = svc.Authorize(ctx, 7, "client-123", "https://evil.example/callback", "read:user", "challenge", "S256", nil)
+	_, err = svc.Authorize(ctx, 7, FirstPartyClientID, "https://evil.example/callback", "read:user", "challenge", "S256", nil)
 	require.Equal(t, 400, oauth2HStatus(t, err))
 
-	_, err = svc.Authorize(ctx, 7, "client-123", "https://app.example/callback", "notascope", "challenge", "S256", nil)
+	_, err = svc.Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "notascope", "challenge", "S256", nil)
 	require.Equal(t, 400, oauth2HStatus(t, err))
 
-	_, err = svc.Authorize(ctx, 7, "client-123", "https://app.example/callback", "write:user", "challenge", "S256", []string{"read:user"})
+	_, err = svc.Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "write:user", "challenge", "S256", []string{"read:user"})
 	require.Equal(t, 400, oauth2HStatus(t, err))
 
-	_, err = svc.Authorize(ctx, 7, "client-123", "https://app.example/callback", "read:user", "", "S256", nil)
+	_, err = svc.Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "read:user", "", "S256", nil)
 	require.Equal(t, 400, oauth2HStatus(t, err))
 
 	_, err = NewOAuth2Service(&oauth2HQuerier{
 		getApplicationByClientIDFn: func(context.Context, string) (db.Oauth2Application, error) {
 			return db.Oauth2Application{}, assert.AnError
 		},
-	}).Authorize(ctx, 7, "client-123", "https://app.example/callback", "read:user", "challenge", "S256", nil)
+	}).Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "read:user", "challenge", "S256", nil)
 	require.Equal(t, 500, oauth2HStatus(t, err))
 
 	_, err = NewOAuth2Service(&oauth2HQuerier{
 		getApplicationByClientIDFn: func(context.Context, string) (db.Oauth2Application, error) { return baseApp, nil },
 		createAuthorizationCodeFn:  func(context.Context, db.CreateOAuth2AuthorizationCodeParams) error { return assert.AnError },
-	}).Authorize(ctx, 7, "client-123", "https://app.example/callback", "read:user", "challenge", "S256", nil)
+	}).Authorize(ctx, 7, FirstPartyClientID, "https://app.example/callback", "read:user", "challenge", "S256", nil)
 	require.Equal(t, 500, oauth2HStatus(t, err))
 }
 
@@ -354,7 +258,7 @@ func TestOAuth2_H_ExchangeCodeErrors(t *testing.T) {
 			if tc.name == "bad verifier" {
 				verifier = "wrong"
 			}
-			_, err := NewOAuth2Service(tc.q).ExchangeCode(ctx, "client-123", secret, "code", "https://app.example/callback", verifier)
+			_, err := NewOAuth2Service(tc.q).ExchangeCode(ctx, FirstPartyClientID, secret, "code", "https://app.example/callback", verifier)
 			require.Equal(t, tc.want, oauth2HStatus(t, err))
 		})
 	}
@@ -404,7 +308,7 @@ func TestOAuth2_H_RefreshTokenErrorsAndScopeNarrowing(t *testing.T) {
 			if tc.name == "bad secret" {
 				secret = "wrong"
 			}
-			_, err := NewOAuth2Service(tc.q).RefreshToken(ctx, "client-123", secret, "refresh")
+			_, err := NewOAuth2Service(tc.q).RefreshToken(ctx, FirstPartyClientID, secret, "refresh")
 			require.Equal(t, tc.want, oauth2HStatus(t, err))
 		})
 	}
@@ -426,7 +330,7 @@ func TestOAuth2_H_RefreshTokenErrorsAndScopeNarrowing(t *testing.T) {
 			refreshScopes = arg.Scopes
 			return db.Oauth2RefreshToken{}, nil
 		},
-	}).RefreshToken(ctx, "client-123", "secret-123", "refresh")
+	}).RefreshToken(ctx, FirstPartyClientID, "secret-123", "refresh")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"read:user"}, accessScopes)
 	assert.Equal(t, []string{"read:user"}, refreshScopes)
@@ -473,7 +377,7 @@ func TestOAuth2_H_RevokeTokenBranches(t *testing.T) {
 			if tc.name == "bad secret" {
 				secret = "wrong"
 			}
-			err := NewOAuth2Service(tc.q).RevokeToken(ctx, "client-123", secret, "token")
+			err := NewOAuth2Service(tc.q).RevokeToken(ctx, FirstPartyClientID, secret, "token")
 			require.Equal(t, tc.want, oauth2HStatus(t, err))
 		})
 	}
@@ -483,7 +387,7 @@ func TestOAuth2_H_RevokeTokenBranches(t *testing.T) {
 		getAccessTokenByHashFn: func(context.Context, string) (db.Oauth2AccessToken, error) {
 			return db.Oauth2AccessToken{AppID: app.ID + 1}, nil
 		},
-	}).RevokeToken(ctx, "client-123", "secret-123", "token")
+	}).RevokeToken(ctx, FirstPartyClientID, "secret-123", "token")
 	require.NoError(t, err)
 
 	err = NewOAuth2Service(&oauth2HQuerier{
@@ -494,7 +398,7 @@ func TestOAuth2_H_RevokeTokenBranches(t *testing.T) {
 		getRefreshTokenByHashFn: func(context.Context, string) (db.Oauth2RefreshToken, error) {
 			return db.Oauth2RefreshToken{AppID: app.ID + 1}, nil
 		},
-	}).RevokeToken(ctx, "client-123", "secret-123", "token")
+	}).RevokeToken(ctx, FirstPartyClientID, "secret-123", "token")
 	require.NoError(t, err)
 }
 
@@ -558,30 +462,6 @@ func TestOAuth2_H_IssueTokenPairUsesServiceClock(t *testing.T) {
 	assert.Equal(t, now.Add(oauth2AccessTokenTTL), accessExpires)
 	assert.Equal(t, now.Add(oauth2RefreshTokenTTL), refreshExpires)
 	assert.Empty(t, resp.Scope)
-}
-
-// A failed insert reaches the route as a 500 whose sentence is human and whose
-// cause is the driver error, so the request log names the SQLSTATE.
-func TestOAuth2CreateApplicationAttachesTheDriverError(t *testing.T) {
-	driverErr := &stubDriverError{"ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)"}
-	svc := NewOAuth2Service(&oauth2HQuerier{
-		createApplicationFn: func(context.Context, db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-			return db.Oauth2Application{}, driverErr
-		},
-	})
-	confidential := true
-
-	_, err := svc.CreateApplication(context.Background(), 1, CreateOAuth2ApplicationRequest{
-		Name:         "app",
-		RedirectURIs: []string{"https://example.com/cb"},
-		Confidential: &confidential,
-	})
-
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, pkgerrors.CodeInternal, apiErr.Code)
-	assert.Equal(t, "failed to create oauth2 application", apiErr.Message)
-	assert.Same(t, driverErr, apiErr.Cause())
 }
 
 type stubDriverError struct{ msg string }

@@ -39,7 +39,6 @@ func TestMissingTableDegradesToFeatureNotEnabled(t *testing.T) {
 	undefinedTable := &pgconn.PgError{Code: "42P01", Message: "relation does not exist"}
 
 	for name, write := range map[string]func(http.ResponseWriter, error){
-		"share listings":    shareListingErr,
 		"app timeline sync": appTimelineErr,
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -737,7 +737,7 @@ WHERE workspace_id = sqlc.arg(workspace_id)::uuid
 -- Grants (or updates the level of) a workspace share so a grantee passes
 -- requireWorkspaceAccess on a shared workspace. Idempotent on
 -- (workspace_id, grantee_user_id) — re-granting only adjusts the level, which is
--- how a pair-session member's read/write access tracks their viewer/editor role.
+-- how persisted read/write grants track member roles.
 INSERT INTO workspace_shares (workspace_id, owner_user_id, grantee_user_id, level)
 VALUES (
     sqlc.arg(workspace_id)::uuid,

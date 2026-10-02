@@ -117,16 +117,16 @@ describe("the appearance bootstrap stamps the document before first paint", () =
     for (const prefersDark of [false, true]) test(`the saved ${theme} choice overrides OS dark=${prefersDark}`, () => {
       const root = runBootstrap({ stored: { [THEME_MIRROR_KEY]: theme }, prefersDark })
       expect(root.attributes.get("data-theme")).toBe(theme)
-      expect(root.attributes.has("data-palette")).toBe(false)
+      expect(root.attributes.get("data-palette")).toBe("paper")
     })
   }
 
-  test("the mirrored theme and palette are stamped from storage", () => {
+  test("the mirrored light/dark choice is preserved while a legacy palette normalizes", () => {
     const root = runBootstrap({
       stored: { [THEME_MIRROR_KEY]: "dark", [PALETTE_MIRROR_KEY]: "rose-pine" }
     })
     expect(root.attributes.get("data-theme")).toBe("dark")
-    expect(root.attributes.get("data-palette")).toBe("rose-pine")
+    expect(root.attributes.get("data-palette")).toBe("paper")
   })
 
   test("a first run with no mirror follows the operating system preference", () => {
@@ -140,14 +140,14 @@ describe("the appearance bootstrap stamps the document before first paint", () =
       prefersDark: true
     })
     expect(root.attributes.get("data-theme")).toBe("dark")
-    expect(root.attributes.has("data-palette")).toBe(false)
+    expect(root.attributes.get("data-palette")).toBe("paper")
   })
 
   test("a browser that refuses storage still paints a theme", () => {
     expect(runBootstrap({ storageThrows: true }).attributes.get("data-theme")).toBe("light")
   })
 
-  test("what the store applies is what the next boot reads", async () => {
+  test("the next boot reads light/dark and paints Paper despite a legacy palette mirror", async () => {
     // The mirror is written by AppStore's own apply step, so the value the
     // bootstrap finds is by construction the value the app last painted.
     const written = new Map<string, string>()
@@ -168,7 +168,7 @@ describe("the appearance bootstrap stamps the document before first paint", () =
         stored: Object.fromEntries(written)
       })
       expect(root.attributes.get("data-theme")).toBe("dark")
-      expect(root.attributes.get("data-palette")).toBe("solarized")
+      expect(root.attributes.get("data-palette")).toBe("paper")
     } finally {
       try { if (store) await closeStore(store) } finally { restoreStorage(prior) }
     }

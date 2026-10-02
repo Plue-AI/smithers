@@ -19,12 +19,8 @@ function themeDeclarations(css: string, theme: "light" | "dark"): Map<string, st
 const PALETTE_COUNT = Object.keys(themeRegistry).length;
 const INITIAL_STANDALONE_THEME_CSS = standaloneThemeCss();
 
-/**
- * Roughly 2.9 KB of CSS per palette, plus the shared token block and the
- * primitive rules. Derived rather than pinned at a bare 32_768, which the tenth
- * palette would have tripped with no hint of what the number meant.
- */
-const SIZE_BUDGET_PER_PALETTE = 3_600;
+/** Preserve the original eight-palette byte cap after removing the collection. */
+const SIZE_BUDGET = 8 * 3_600;
 
 describe("standaloneThemeCss", () => {
   test("returns the same value on repeat calls", () => {
@@ -49,7 +45,7 @@ describe("standaloneThemeCss", () => {
 
   test("ships both dark-mode strategies and keeps color values in token declarations", () => {
     const css = standaloneThemeCss();
-    expect(css.length, `${PALETTE_COUNT} palettes`).toBeLessThan(PALETTE_COUNT * SIZE_BUDGET_PER_PALETTE);
+    expect(css.length, `${PALETTE_COUNT} palettes`).toBeLessThan(SIZE_BUDGET);
     expect(css).toContain('@media (prefers-color-scheme: dark) { :root:not([data-theme="light"])');
     expect(css).toContain(':root[data-theme="dark"]');
     const declarations = css.match(/--[\w-]+:[^;}]+/g) ?? [];
@@ -90,8 +86,8 @@ describe("standaloneThemeCss", () => {
 
   test("uses the corrected dark secondary tokens in both dark selectors", () => {
     const css = standaloneThemeCss();
-    expect(css.match(/--text-faint:#909caa/g)).toHaveLength(2);
-    expect(css.match(/--text-placeholder:#8b98a6/g)).toHaveLength(2);
+    expect(css.match(/--text-faint:#969083/g)).toHaveLength(2);
+    expect(css.match(/--text-placeholder:#958f82/g)).toHaveLength(2);
   });
 
   test("declares every workflow theme token in light and dark mode", () => {

@@ -127,7 +127,7 @@ func (s OwnerModels) Catalog(w http.ResponseWriter, r *http.Request) {
 		modelJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "storage_failed"})
 		return
 	}
-	modelJSON(w, http.StatusOK, map[string]any{"models": []any{}, "credentials": credentials, "seats": []string{"chat", "explainer"}, "enrollment": map[string]bool{"available": true}})
+	modelJSON(w, http.StatusOK, map[string]any{"models": []any{}, "credentials": credentials, "seats": []string{"chat"}, "enrollment": map[string]bool{"available": true}})
 }
 
 type credentialRequest struct {

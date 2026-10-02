@@ -38,12 +38,6 @@ function findCycle(): string[] | null {
 }
 
 describe("worker module graph", () => {
-  test("route handlers are imported only by the entry point", () => {
-    for (const handler of ["repoClaims.ts", "repoRequests.ts"]) {
-      expect({ handler, importers: importers(handler) }).toEqual({ handler, importers: ["worker.ts"] });
-    }
-  });
-
   test("no module imports the entry point back", () => {
     expect(importers("worker.ts")).toEqual([]);
   });

@@ -16,7 +16,6 @@ import (
 
 type mockOAuth2Querier struct {
 	getApplicationByClientIDFn        func(ctx context.Context, clientID string) (db.Oauth2Application, error)
-	deleteApplicationFn               func(ctx context.Context, arg db.DeleteOAuth2ApplicationParams) (int64, error)
 	createAuthorizationCodeFn         func(ctx context.Context, arg db.CreateOAuth2AuthorizationCodeParams) error
 	getAuthorizationCodeByHashFn      func(ctx context.Context, codeHash string) (db.Oauth2AuthorizationCode, error)
 	consumeAuthorizationCodeFn        func(ctx context.Context, codeHash string) (db.Oauth2AuthorizationCode, error)
@@ -30,34 +29,11 @@ type mockOAuth2Querier struct {
 	getUserByIDFn                     func(ctx context.Context, id int64) (db.User, error)
 }
 
-func (m *mockOAuth2Querier) CreateOAuth2Application(context.Context, db.CreateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-	return db.Oauth2Application{}, assert.AnError
-}
-
-func (m *mockOAuth2Querier) GetOAuth2ApplicationByID(context.Context, int64) (db.Oauth2Application, error) {
-	return db.Oauth2Application{}, assert.AnError
-}
-
 func (m *mockOAuth2Querier) GetOAuth2ApplicationByClientID(ctx context.Context, clientID string) (db.Oauth2Application, error) {
 	if m.getApplicationByClientIDFn != nil {
 		return m.getApplicationByClientIDFn(ctx, clientID)
 	}
 	return db.Oauth2Application{}, pgx.ErrNoRows
-}
-
-func (m *mockOAuth2Querier) ListOAuth2ApplicationsByOwner(context.Context, int64) ([]db.Oauth2Application, error) {
-	return nil, assert.AnError
-}
-
-func (m *mockOAuth2Querier) UpdateOAuth2Application(context.Context, db.UpdateOAuth2ApplicationParams) (db.Oauth2Application, error) {
-	return db.Oauth2Application{}, assert.AnError
-}
-
-func (m *mockOAuth2Querier) DeleteOAuth2Application(ctx context.Context, arg db.DeleteOAuth2ApplicationParams) (int64, error) {
-	if m.deleteApplicationFn != nil {
-		return m.deleteApplicationFn(ctx, arg)
-	}
-	return 0, assert.AnError
 }
 
 func (m *mockOAuth2Querier) CreateOAuth2AuthorizationCode(ctx context.Context, arg db.CreateOAuth2AuthorizationCodeParams) error {
@@ -153,7 +129,7 @@ func (m *mockOAuth2Querier) GetUserByID(ctx context.Context, id int64) (db.User,
 func testOAuth2Application(confidential bool) db.Oauth2Application {
 	return db.Oauth2Application{
 		ID:               41,
-		ClientID:         "client-123",
+		ClientID:         FirstPartyClientID,
 		ClientSecretHash: hashOAuth2Secret("secret-123"),
 		Name:             "Test App",
 		RedirectUris:     []string{"https://app.example/callback"},
@@ -177,7 +153,7 @@ func TestOAuth2Service_Authorize_EnforcesPKCEForPublicClients(t *testing.T) {
 		createCalls := 0
 		svc := NewOAuth2Service(&mockOAuth2Querier{
 			getApplicationByClientIDFn: func(_ context.Context, clientID string) (db.Oauth2Application, error) {
-				assert.Equal(t, "client-123", clientID)
+				assert.Equal(t, FirstPartyClientID, clientID)
 				return testOAuth2Application(false), nil
 			},
 			createAuthorizationCodeFn: func(_ context.Context, _ db.CreateOAuth2AuthorizationCodeParams) error {
@@ -186,7 +162,7 @@ func TestOAuth2Service_Authorize_EnforcesPKCEForPublicClients(t *testing.T) {
 			},
 		})
 
-		_, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "", "", "", nil)
+		_, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "", "", "", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "code_challenge is required for public clients")
 		assert.Equal(t, 0, createCalls)
@@ -201,7 +177,7 @@ func TestOAuth2Service_Authorize_EnforcesPKCEForPublicClients(t *testing.T) {
 			},
 		})
 
-		_, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "", "challenge", "plain", nil)
+		_, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "", "challenge", "plain", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "code_challenge_method must be S256")
 	})
@@ -220,7 +196,7 @@ func TestOAuth2Service_Authorize_EnforcesPKCEForPublicClients(t *testing.T) {
 			},
 		})
 
-		result, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "", "challenge", "S256", nil)
+		result, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "", "challenge", "S256", nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result.Code)
 		assert.Equal(t, "challenge", created.CodeChallenge)
@@ -291,7 +267,7 @@ func TestOAuth2Service_ExchangeCode_PublicClientsRequireS256PKCE(t *testing.T) {
 			})
 			svc.now = func() time.Time { return time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC) }
 
-			_, err := svc.ExchangeCode(context.Background(), "client-123", "", "auth-code-123", "https://app.example/callback", tc.verifier)
+			_, err := svc.ExchangeCode(context.Background(), FirstPartyClientID, "", "auth-code-123", "https://app.example/callback", tc.verifier)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantError)
 			assert.Equal(t, 0, createAccessCalls)
@@ -347,7 +323,7 @@ func TestOAuth2Service_ExchangeCode_PublicClientAcceptsValidS256PKCE(t *testing.
 	})
 	svc.now = func() time.Time { return time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC) }
 
-	result, err := svc.ExchangeCode(context.Background(), "client-123", "", "auth-code-123", "https://app.example/callback", verifier)
+	result, err := svc.ExchangeCode(context.Background(), FirstPartyClientID, "", "auth-code-123", "https://app.example/callback", verifier)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
 	assert.NotEmpty(t, result.RefreshToken)
@@ -420,7 +396,7 @@ func TestOAuth2Service_RefreshToken_PreservesGrantedScopes(t *testing.T) {
 	})
 	svc.now = func() time.Time { return time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC) }
 
-	result, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	result, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
 	assert.NotEmpty(t, result.RefreshToken)
@@ -469,7 +445,7 @@ func TestOAuth2Service_RefreshToken_RejectsLegacyTokenWithoutStoredScopes(t *tes
 		},
 	})
 
-	_, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	_, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refresh token must be reauthorized")
 	assert.Equal(t, 0, accessCreated)
@@ -508,7 +484,7 @@ func TestOAuth2Service_RefreshToken_RejectsReplayedToken(t *testing.T) {
 		},
 	})
 
-	_, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	_, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid or expired refresh token")
 	assert.Equal(t, 0, accessCreated)
@@ -546,7 +522,7 @@ func TestOAuth2Service_RefreshToken_RejectsWrongClientWithoutConsumingToken(t *t
 		},
 	})
 
-	_, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	_, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refresh token does not belong to this application")
 }
@@ -570,7 +546,7 @@ func TestOAuth2_ScopeBoundedToAppRegistration(t *testing.T) {
 			},
 		})
 
-		result, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "read:user", "", "", nil)
+		result, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "read:user", "", "", nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result.Code)
 		assert.Equal(t, []string{"read:user"}, created.Scopes)
@@ -596,7 +572,7 @@ func TestOAuth2_ScopeBoundedToAppRegistration(t *testing.T) {
 		result, err := svc.Authorize(
 			context.Background(),
 			7,
-			"client-123",
+			FirstPartyClientID,
 			"smithers://oauth2/callback",
 			"read:user read:repo write:workspace write:approval write:agent",
 			"challenge",
@@ -623,7 +599,7 @@ func TestOAuth2_ScopeBoundedToAppRegistration(t *testing.T) {
 			},
 		})
 
-		_, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "read:user write:user", "", "", nil)
+		_, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "read:user write:user", "", "", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requested scope exceeds application registered scopes")
 	})
@@ -643,7 +619,7 @@ func TestOAuth2_ScopeBoundedToAppRegistration(t *testing.T) {
 			},
 		})
 
-		_, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "unknown:scope", "", "", nil)
+		_, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "unknown:scope", "", "", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requested scope exceeds application registered scopes")
 	})
@@ -664,7 +640,7 @@ func TestOAuth2_ScopeBoundedToAppRegistration(t *testing.T) {
 			},
 		})
 
-		result, err := svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "", "", "", nil)
+		result, err := svc.Authorize(context.Background(), 7, FirstPartyClientID, "https://app.example/callback", "", "", "", nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result.Code)
 		assert.Equal(t, []string{"read:user", "write:user"}, created.Scopes)
@@ -737,70 +713,17 @@ func TestOAuth2_RefreshTokenRotation(t *testing.T) {
 		},
 	})
 
-	firstResult, err := svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	firstResult, err := svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.NoError(t, err)
 	assert.NotEmpty(t, firstResult.AccessToken)
 	assert.NotEmpty(t, firstResult.RefreshToken)
 	assert.Equal(t, hashOAuth2Secret("refresh-123"), consumedTokenHash)
 
-	_, err = svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
+	_, err = svc.RefreshToken(context.Background(), FirstPartyClientID, "secret-123", "refresh-123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid or expired refresh token")
 	assert.Equal(t, 1, accessCreated)
 	assert.Equal(t, 1, refreshCreated)
-}
-
-func TestOAuth2_RevokedAppRejectsAllTokens(t *testing.T) {
-	t.Parallel()
-
-	appDeleted := false
-	svc := NewOAuth2Service(&mockOAuth2Querier{
-		getApplicationByClientIDFn: func(_ context.Context, _ string) (db.Oauth2Application, error) {
-			if appDeleted {
-				return db.Oauth2Application{}, pgx.ErrNoRows
-			}
-			return testOAuth2Application(true), nil
-		},
-		deleteApplicationFn: func(_ context.Context, arg db.DeleteOAuth2ApplicationParams) (int64, error) {
-			appDeleted = true
-			return 1, nil
-		},
-		consumeAuthorizationCodeFn: func(_ context.Context, _ string) (db.Oauth2AuthorizationCode, error) {
-			t.Fatal("authorization codes must not be consumed after app deletion")
-			return db.Oauth2AuthorizationCode{}, nil
-		},
-		getRefreshTokenByHashFn: func(_ context.Context, _ string) (db.Oauth2RefreshToken, error) {
-			t.Fatal("refresh tokens must not be loaded after app deletion")
-			return db.Oauth2RefreshToken{}, nil
-		},
-		createAccessTokenFn: func(_ context.Context, _ db.CreateOAuth2AccessTokenParams) (db.Oauth2AccessToken, error) {
-			t.Fatal("access tokens must not be created after app deletion")
-			return db.Oauth2AccessToken{}, nil
-		},
-		createRefreshTokenFn: func(_ context.Context, _ db.CreateOAuth2RefreshTokenParams) (db.Oauth2RefreshToken, error) {
-			t.Fatal("refresh tokens must not be created after app deletion")
-			return db.Oauth2RefreshToken{}, nil
-		},
-		createAuthorizationCodeFn: func(_ context.Context, _ db.CreateOAuth2AuthorizationCodeParams) error {
-			t.Fatal("authorization codes must not be created after app deletion")
-			return nil
-		},
-	})
-
-	err := svc.DeleteApplication(context.Background(), 41, 9)
-	require.NoError(t, err)
-
-	_, err = svc.ExchangeCode(context.Background(), "client-123", "secret-123", "auth-code-123", "https://app.example/callback", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid client_id")
-
-	_, err = svc.RefreshToken(context.Background(), "client-123", "secret-123", "refresh-123")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid client_id")
-
-	_, err = svc.Authorize(context.Background(), 7, "client-123", "https://app.example/callback", "read:user", "", "", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "oauth2 application not found")
 }
 
 func TestOAuth2Service_RevokeAllByAppAndUser(t *testing.T) {

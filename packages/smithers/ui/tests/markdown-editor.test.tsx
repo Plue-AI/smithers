@@ -197,8 +197,8 @@ describe("MarkdownEditor scrollToLine (fallback path)", () => {
 });
 
 describe("MarkdownEditor styling", () => {
-  test("keeps generated Crepe fallbacks synchronized with Night Owl", () => {
-    const variants = [themeRegistry["night-owl"].light, themeRegistry["night-owl"].dark];
+  test("keeps generated Crepe fallbacks synchronized with Paper", () => {
+    const variants = [themeRegistry["paper"].light, themeRegistry["paper"].dark];
     const mappings = {
       bg: "bg",
       text: "text",
@@ -229,14 +229,14 @@ describe("MarkdownEditor styling", () => {
     expect(markdownEditorCss).toContain("prefers-color-scheme: dark");
     expect(markdownEditorCss).toContain(":root:not([data-theme='light']) .milkdown");
     expect(markdownEditorCss).toContain(":root[data-theme='dark'] .milkdown");
-    expect(markdownEditorCss).toContain("--crepe-color-primary:var(--brand,#9449bc)");
+    expect(markdownEditorCss).toContain("--crepe-color-primary:var(--brand,#0f766e)");
     expect(markdownEditorCss).toContain("--crepe-font-default:var(--font-sans");
     expect(markdownEditorCss).toContain("--crepe-font-code:var(--font-mono");
     expect(markdownEditorCss).toContain(".milkdown :focus-visible{outline:2px solid var(--ring-border");
     expect(markdownEditorCss).toContain("transparent))!important;outline-offset:2px}");
     expect(markdownEditorCss).toContain("@media (prefers-reduced-motion: reduce)");
     expect(markdownEditorCss).toContain("animation-duration:0.001ms!important");
-    expect(markdownEditorCss).toContain("--crepe-color-outline:var(--text-faint,#909caa)");
+    expect(markdownEditorCss).toContain("--crepe-color-outline:var(--text-faint,#969083)");
   });
 
   test("ships no external resource references", () => {
@@ -251,16 +251,16 @@ describe("MarkdownEditor styling", () => {
     document.body.appendChild(milkdown);
 
     document.documentElement.setAttribute("data-theme", "light");
-    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-background")).toContain("#FBFBFB");
-    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-primary")).toContain("#9449bc");
+    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-background")).toContain("#f7f4ee");
+    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-primary")).toContain("#0f766e");
 
     document.documentElement.setAttribute("data-theme", "dark");
     // happy-dom caches computed custom properties until the node reconnects;
     // browsers invalidate this automatically when the root attribute changes.
     milkdown.remove();
     document.body.appendChild(milkdown);
-    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-background")).toContain("#011627");
-    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-primary")).toContain("#c792ea");
+    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-background")).toContain("#0d1514");
+    expect(getComputedStyle(milkdown).getPropertyValue("--crepe-color-primary")).toContain("#45c4b2");
     milkdown.remove();
     document.documentElement.removeAttribute("data-theme");
   });

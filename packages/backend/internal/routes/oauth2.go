@@ -6,23 +6,16 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// OAuth2Service defines the interface for OAuth2 application operations.
+// OAuth2Service defines the interface for first-party OAuth2 authentication operations.
 type OAuth2Service interface {
-	CreateApplication(ctx context.Context, ownerID int64, req services.CreateOAuth2ApplicationRequest) (services.CreateOAuth2ApplicationResult, error)
-	ListApplications(ctx context.Context, ownerID int64) ([]services.OAuth2ApplicationResponse, error)
-	GetApplication(ctx context.Context, appID, ownerID int64) (services.OAuth2ApplicationResponse, error)
-	DeleteApplication(ctx context.Context, appID, ownerID int64) error
 	AuthorizeGrant(ctx context.Context, in services.OAuth2AuthorizeInput) (services.OAuth2AuthorizeResult, error)
 	ExchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI, codeVerifier string) (services.OAuth2TokenResponse, error)
 	RefreshToken(ctx context.Context, clientID, clientSecret, refreshToken string) (services.OAuth2TokenResponse, error)
@@ -32,7 +25,7 @@ type OAuth2Service interface {
 	RevokeAllByAppAndUser(ctx context.Context, appID, userID int64) error
 }
 
-// OAuth2Handler handles OAuth2 application management and authorization endpoints.
+// OAuth2Handler handles first-party OAuth2 authorization endpoints.
 type OAuth2Handler struct {
 	Service      OAuth2Service
 	AuditService *services.AuditService
@@ -46,121 +39,6 @@ type OAuth2Handler struct {
 	// unauthenticated caller hits /api/oauth2/authorize. If empty, defaults
 	// to /api/auth/github.
 	UpstreamAuthorizePath string
-}
-
-// PostApplication registers a new OAuth2 application.
-// POST /api/oauth2/applications
-func (h *OAuth2Handler) PostApplication(w http.ResponseWriter, r *http.Request) {
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		errors.WriteError(w, errors.Unauthorized("authentication required"))
-		return
-	}
-
-	var req services.CreateOAuth2ApplicationRequest
-	if !decodeJSONBody(w, r, &req) {
-		return
-	}
-
-	result, err := h.Service.CreateApplication(r.Context(), user.ID, req)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	if h.AuditService != nil {
-		h.AuditService.Log(r.Context(), services.AuditEvent{
-			EventType:  "oauth2.application.create",
-			ActorID:    &user.ID,
-			ActorName:  user.Username,
-			TargetType: "oauth2_application",
-			TargetID:   &result.ID,
-			TargetName: result.Name,
-			Action:     "create",
-			IPAddress:  r.RemoteAddr,
-		})
-	}
-
-	errors.WriteJSON(w, http.StatusCreated, result)
-}
-
-// GetApplications lists all OAuth2 applications owned by the authenticated user.
-// GET /api/oauth2/applications
-func (h *OAuth2Handler) GetApplications(w http.ResponseWriter, r *http.Request) {
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		errors.WriteError(w, errors.Unauthorized("authentication required"))
-		return
-	}
-
-	apps, err := h.Service.ListApplications(r.Context(), user.ID)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	errors.WriteJSON(w, http.StatusOK, apps)
-}
-
-// GetApplication returns a single OAuth2 application by ID.
-// GET /api/oauth2/applications/{id}
-func (h *OAuth2Handler) GetApplication(w http.ResponseWriter, r *http.Request) {
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		errors.WriteError(w, errors.Unauthorized("authentication required"))
-		return
-	}
-
-	idStr := chi.URLParam(r, "id")
-	appID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid application id"))
-		return
-	}
-
-	app, err := h.Service.GetApplication(r.Context(), appID, user.ID)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	errors.WriteJSON(w, http.StatusOK, app)
-}
-
-// DeleteApplication removes an OAuth2 application.
-// DELETE /api/oauth2/applications/{id}
-func (h *OAuth2Handler) DeleteApplication(w http.ResponseWriter, r *http.Request) {
-	user := middleware.UserFromContext(r.Context())
-	if user == nil {
-		errors.WriteError(w, errors.Unauthorized("authentication required"))
-		return
-	}
-
-	idStr := chi.URLParam(r, "id")
-	appID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		errors.WriteError(w, errors.BadRequest("invalid application id"))
-		return
-	}
-
-	if err := h.Service.DeleteApplication(r.Context(), appID, user.ID); err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	if h.AuditService != nil {
-		h.AuditService.Log(r.Context(), services.AuditEvent{
-			EventType:  "oauth2.application.delete",
-			ActorID:    &user.ID,
-			ActorName:  user.Username,
-			TargetType: "oauth2_application",
-			TargetID:   &appID,
-			Action:     "delete",
-			IPAddress:  r.RemoteAddr,
-		})
-	}
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // authorizeRequest is the expected query parameters for the authorize endpoint.
@@ -432,13 +310,9 @@ func (h *OAuth2Handler) validateAuthorizeRequest(w http.ResponseWriter, r *http.
 		return false
 	}
 
-	// === Consent gate (forced-authorization / consent-phishing defense).
-	// Only the well-known first-party client (the gui/iOS app seeded by
-	// migration 000037) may be authorized at all today. Every other client
-	// is user-registered (POST /api/oauth2/applications, random client_id)
-	// and stays refused until a per-client consent + scope review UI exists.
+	// Only the deployment-provisioned first-party client can authorize.
 	if !isFirstPartyClient(req.ClientID) {
-		errors.WriteError(w, errors.Forbidden("interactive consent is required to authorize this application"))
+		errors.WriteError(w, errors.Forbidden("application hosting is unavailable"))
 		return false
 	}
 	return true

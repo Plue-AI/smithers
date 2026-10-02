@@ -60,7 +60,6 @@ func TestFCov_ManyErrorBranches(t *testing.T) {
 			return err
 		}},
 		{"ListOAuth2AccessTokensByUser", func(q *Queries) error { _, err := q.ListOAuth2AccessTokensByUser(ctx, 1); return err }},
-		{"ListOAuth2ApplicationsByOwner", func(q *Queries) error { _, err := q.ListOAuth2ApplicationsByOwner(ctx, 1); return err }},
 		{"ListOrgRepos", func(q *Queries) error { _, err := q.ListOrgRepos(ctx, ListOrgReposParams{}); return err }},
 		{"ListProtectedBookmarksByRepo", func(q *Queries) error {
 			_, err := q.ListProtectedBookmarksByRepo(ctx, ListProtectedBookmarksByRepoParams{})
@@ -119,7 +118,6 @@ func TestFCov_ExecRowsErrorBranches(t *testing.T) {
 		}},
 		{"DeleteExpiredAccessTokens", func() error { _, err := q.DeleteExpiredAccessTokens(ctx); return err }},
 		{"DeleteOAuth2AccessTokenByHash", func() error { _, err := q.DeleteOAuth2AccessTokenByHash(ctx, "h"); return err }},
-		{"DeleteOAuth2Application", func() error { _, err := q.DeleteOAuth2Application(ctx, DeleteOAuth2ApplicationParams{}); return err }},
 		{"DeleteOAuth2RefreshTokenByHash", func() error { _, err := q.DeleteOAuth2RefreshTokenByHash(ctx, "h"); return err }},
 		{"DeleteProtectedBookmarkByPattern", func() error {
 			_, err := q.DeleteProtectedBookmarkByPattern(ctx, DeleteProtectedBookmarkByPatternParams{})

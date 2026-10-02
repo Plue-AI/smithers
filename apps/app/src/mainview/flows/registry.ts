@@ -53,7 +53,6 @@ import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
 import * as notifications from "./entries/notifications"
 import * as palette from "./entries/palette"
-import * as plugins from "./entries/plugins"
 import * as prs from "./entries/prs"
 import * as repo from "./entries/repo"
 import * as repos from "./entries/repos"
@@ -266,8 +265,6 @@ export interface CommandState {
   readonly typing: boolean
   readonly hasConnectors: boolean
   /** The plugins installed on this workspace (the session's shelf); optional so state fixtures stay minimal. */
-  readonly pluginLibrary?: boolean
-  readonly plugins?: ReadonlyArray<string>
   /** The validated session carries admin:true; the admin plugin registers only then. */
   readonly admin: boolean
   /** No validated session: the one next step is sign-in. */
@@ -325,7 +322,6 @@ export const recommendations: ReadonlyArray<Recommendation> = [
   ...auth.recommendations,
   ...wiki.recommendations,
   ...connector.recommendations,
-  ...plugins.recommendations
 ]
 
 /**
@@ -353,7 +349,7 @@ export const recommendedNames = (state: CommandState): ReadonlyArray<string> => 
  */
 
 /** The surface switches: the one legitimate top-level leaves. */
-export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "connect", "flows", "plugins", "subagents"]
+export const SURFACE_FLOWS: ReadonlyArray<string> = ["chat", "wiki", "connect", "flows", "subagents"]
 
 export interface Namespace {
   readonly id: string
@@ -392,7 +388,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   files.namespace,
   search.namespace,
   palette.namespace,
-  plugins.namespace,
   sync.namespace,
   branches.namespace,
   commits.namespace,

@@ -95,7 +95,7 @@ scoped sheet would leave every dialog, tooltip, and select popover unstyled.
 
 The styleguide already defines page-global `--primary`, `--accent`, and
 `--muted` aliases, and their meanings are not shadcn's. In the styleguide,
-`--accent` is the brand violet; in shadcn's vocabulary, `accent` is the hover
+`--accent` is the brand teal; in shadcn's vocabulary, `accent` is the hover
 fill. Redefining shadcn's canonical token names at the document root would
 silently recolor every legacy `.pill`, `.badge`, and `.button` sharing the page.
 

@@ -1189,7 +1189,7 @@ describe("the live store's authoritative event path", () => {
     } } as const
     await first.dispatch(transition).isPersisted.promise
     const history = await first.eventHistory()
-    expect(decodeEventValue(history.events[0]!.input)).toEqual(transition)
+    expect(decodeEventValue(history.events.find(event => event.type === "card.upsert")!.input)).toEqual(transition)
     const diagnostic = [...first.collections.transitions.values()].at(-1)!
     expect(new TextEncoder().encode(diagnostic.payload).byteLength).toBeLessThanOrEqual(MAX_TRANSITION_PAYLOAD_BYTES)
     expect(diagnostic.payload).not.toContain(content)
@@ -1233,8 +1233,8 @@ describe("the live store's authoritative event path", () => {
     expect(one).toBe(two)
     await one.isPersisted.promise
     const history = await store.eventHistory()
-    expect(history.events).toHaveLength(1)
-    expect(decodeEventValue(history.events[0]!.input)).toEqual({ type: "composer.changed", actor: "user", draft: "abc" })
+    expect(history.events.map(event => event.type)).toEqual(["palette.changed", "composer.changed"])
+    expect(decodeEventValue(history.events[1]!.input)).toEqual({ type: "composer.changed", actor: "user", draft: "abc" })
     expect((await store.verifyState()).valid).toBe(true)
   })
 
@@ -1247,8 +1247,9 @@ describe("the live store's authoritative event path", () => {
     const store = await open(storage)
     const migrated = await store.eventHistory()
     expect(migrated.checkpoint.reason).toBe("legacy-baseline")
-    expect(migrated.head.sequence).toBe(0)
-    expect(migrated.events).toHaveLength(0)
+    expect(migrated.checkpoint.sequence).toBe(0)
+    expect(migrated.head.sequence).toBe(1)
+    expect(migrated.events.map(event => event.type)).toEqual(["palette.changed"])
     await store.dispatch({ type: "theme.changed", actor: "user", theme: "light" }).isPersisted.promise
     const next = await store.eventHistory()
     expect(next.events[0]?.sequence).toBe(1)
@@ -1319,7 +1320,7 @@ describe("the live store's authoritative event path", () => {
     const proofs = await Promise.all([before, during, after])
     await Promise.all([accepted, next])
     expect(proofs.every(proof => proof.valid)).toBe(true)
-    expect(proofs[2]?.sequence).toBe(2)
+    expect(proofs[2]?.sequence).toBe(3)
   })
 
   test("failed commits reject their events and every optimistic dependent", async () => {

@@ -384,7 +384,7 @@ type ListLiveAppTimelineMemberProfilesRow struct {
 }
 
 // Members with their public identity for the members list (public profile
-// fields only — mirrors ListLivePairSessionMemberProfiles).
+// fields only).
 func (q *Queries) ListLiveAppTimelineMemberProfiles(ctx context.Context, timelineID string) ([]ListLiveAppTimelineMemberProfilesRow, error) {
 	rows, err := q.db.Query(ctx, listLiveAppTimelineMemberProfiles, timelineID)
 	if err != nil {
@@ -540,10 +540,10 @@ type UpsertAppTimelineMemberParams struct {
 	Role       string `json:"role"`
 }
 
-// ---- Members (pair_session_members pattern) ----
+// ---- Members ----
 // Never resurrect a removed (revoked) member: re-adding a revoked user is an
 // explicit owner action (ReAddAppTimelineMember), mirroring
-// UpsertPairSessionMember's contract.
+// the persisted membership contract.
 func (q *Queries) UpsertAppTimelineMember(ctx context.Context, arg UpsertAppTimelineMemberParams) (AppTimelineMember, error) {
 	row := q.db.QueryRow(ctx, upsertAppTimelineMember, arg.TimelineID, arg.UserID, arg.Role)
 	var i AppTimelineMember

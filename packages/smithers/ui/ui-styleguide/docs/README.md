@@ -1,54 +1,32 @@
 ---
 title: "@smthrs/ui-styleguide"
-description: "The Smithers house stylesheet: eight color palettes in light and dark, emitted as CSS custom properties, with the base element and component rules that consume them."
+description: "The Smithers house stylesheet: one Paper palette in light and dark, emitted as CSS custom properties, with the base element and component rules that consume them."
 ---
 
-`@smthrs/ui-styleguide` is a stylesheet you import as a string. It carries eight
-color palettes, each with a light and a dark variant, as CSS custom properties,
-along with the element and component rules that paint with them. There is no
-build step, no runtime dependency, and no framework binding: put the string in a
-`<style>` element and every rule below it themes.
+`@smthrs/ui-styleguide` supplies Paper light/dark CSS tokens, element rules,
+flow layouts, and syntax/terminal colors. Import the string into a `<style>`
+element. The sheet follows the system preference; `data-theme="light"` or
+`data-theme="dark"` overrides it.
 
-## What it solves
-
-Any product with a palette picker has to answer two questions about every color
-it paints, and answer them the same way on every screen.
-
-**What does this color mean?** `--brand` is action or active, `--success` is
-done, `--warning` needs attention, `--danger` failed, `--info` is a neutral
-highlight. A rule names the role and never a hex value, so changing the palette
-is one attribute on `<html>` instead of a sweep through your CSS.
-
-**Is the color legible?** Eight palettes times two modes is 16 token sets, and
-someone who picks Solarized is not opting out of readable text. Every
-(foreground, background) pair the shipped rules paint is measured against WCAG
-AA in all 16 sets, the tint percentages are chosen by what survives that
-measurement, and the pairs that still fail are listed by name with the ratio
-each one scores. See [The contrast budget](./concepts/contrast-budget.md).
-
-## The shortest real example
+Semantic roles keep color meaning consistent. Every foreground/background
+pair painted by the shipped rules is checked against WCAG AA in both modes.
+See [The contrast budget](./concepts/contrast-budget.md).
 
 ```ts
 import { workflowUiStyles } from "@smthrs/ui-styleguide"
-
-document.head.append(
-  Object.assign(document.createElement("style"), { textContent: workflowUiStyles })
-)
-document.documentElement.dataset.palette = "gruvbox"
+document.head.append(Object.assign(document.createElement("style"), {
+  textContent: workflowUiStyles
+}))
 ```
-
-The document now follows the operating system light and dark preference, and
-`data-palette` picks which of the eight palettes it follows it in. Nothing else
-is required.
 
 ## What is in the box
 
 | Piece                    | What it gives you                                                                                     |
 | ------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Theme tokens             | 29 per-variant color properties plus `color-scheme`, over 63 theme-invariant ones, for eight palettes in two modes. |
+| Theme tokens             | 29 per-variant color properties plus `color-scheme`, over 63 theme-invariant ones, for Paper light/dark variants in two modes. |
 | Primitive rules          | Base element styling and the `.button`, `.input`, `.badge`, `.card`, `.table`, `.code` families.        |
 | Layout rules             | The `.workflow-*` shell, dashboard, and run-row grid.                                                   |
-| The palette registry     | The eight themes as data, including their Shiki syntax ids and xterm terminal palettes.                 |
+| The palette registry     | Paper as data, including its Shiki syntax ids and xterm terminal palettes.                 |
 | Contrast math            | `contrastRatio`, `mixColors`, and the unrounded-channel pair the audit is written against.              |
 
 ## How this fits with @smthrs/ui
@@ -73,14 +51,11 @@ built for.
 
 - [Installation](./installation.md): where the package comes from, the import
   forms, and the three runtimes it loads under.
-- [Quickstart](./quickstart.md): a themed page with a working palette and mode
-  switcher, start to finish.
-- [Theming](./theming.md): the two selection axes and why the cascade order is
-  load bearing. Read this before you override anything.
+- [Quickstart](./quickstart.md): a themed page with light/dark support.
+- [Theming](./theming.md): light/dark selection and host overrides.
 - Guides: [embed a stylesheet](./guides/embed-a-stylesheet.md),
   [override a token](./guides/override-a-token.md),
   [pin a palette](./guides/pin-a-palette.md),
-  [build a palette picker](./guides/build-a-palette-picker.md), and
   [audit a color pair](./guides/audit-a-color-pair.md).
 - Concepts: [the contrast budget](./concepts/contrast-budget.md) and
   [where the palettes come from](./concepts/palette-sources.md).

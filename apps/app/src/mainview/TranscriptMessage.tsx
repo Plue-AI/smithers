@@ -1,6 +1,6 @@
 import { dynamicFlowAction, flowAction, flowProps } from "./flows/FlowAction"
 import { Button, ChatMessage, Markdown, Marker, Reasoning } from "@smthrs/ui"
-import { CheckCircle2, Copy, HelpCircle, RotateCcw } from "lucide-react"
+import { CheckCircle2, Copy, RotateCcw } from "lucide-react"
 import { useRef, useState } from "react"
 import { useController } from "./ControllerContext"
 import { INIT_GREETING, INIT_TITLE, type InitMessage } from "./Onboarding"
@@ -164,21 +164,6 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
               {...flowAction(controller.runCommand, "chat.retry")}
             >
               <RotateCcw size={12} />
-            </Button>
-          ) :
-          null}
-        {/* The Explainer (AgentRoles.ts) on a failed turn: an embedded answer, only where the explain flow registers. */}
-        {entry.message.status === "failed" && controller.commands.find("agent.explain") !== undefined ?
-          (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="message-action"
-              aria-label="Explain this"
-              title="Explain this"
-              {...flowAction(controller.runCommand, "agent.explain", `This turn failed: ${systemNoteLabel(entry.message)}. ${entry.message.text}`.trim())}
-            >
-              <HelpCircle size={12} />
             </Button>
           ) :
           null}

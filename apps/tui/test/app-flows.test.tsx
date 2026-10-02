@@ -10,14 +10,12 @@ import { App } from "../src/app.tsx"
 import { FlowError, type Listed, type Loaded, type Port } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 
 // The App over real session storage and a typed flow Port double: the catalog, the home
 // screen and a flow added after the host loaded, through the keys a person presses.
 let root = ""
 let cwd = ""
 let previousRoot: string | undefined
-let previousTheme = Theme.activeTheme()
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let listed: ReadonlyArray<Listed> = []
 let loaded: Loaded | undefined
@@ -105,7 +103,6 @@ beforeEach(() => {
   cwd = join(root, "workspace")
   mkdirSync(cwd)
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
-  previousTheme = Theme.activeTheme()
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   starts = 0
   listed = [
@@ -125,7 +122,6 @@ afterEach(async () => {
     })
   } finally {
     setup = undefined
-    Theme.setTheme(previousTheme)
     if (previousRoot === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previousRoot
     rmSync(root, { recursive: true, force: true })
