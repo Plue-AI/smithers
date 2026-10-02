@@ -24,7 +24,19 @@ A viewer who can read a repository but not its private space gets 403 with code 
 Existing list/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions, document, updates and SSE routes remain. Page DTO:
 
 ```json
-{"id":7,"slug":"home","title":"Home","body":"# Home\n[[Guides/Start#Install|start]]","revision":2,"visibility":"private","path":"Home.md","content_digest":"<64 lowercase hex>","author":{"id":1,"login":"owner"},"created_at":"...","updated_at":"..."}
+{
+  "id": 7,
+  "slug": "home",
+  "title": "Home",
+  "body": "# Home\n[[Guides/Start#Install|start]]",
+  "revision": 2,
+  "visibility": "private",
+  "path": "Home.md",
+  "content_digest": "<64 lowercase hex>",
+  "author": { "id": 1, "login": "owner" },
+  "created_at": "...",
+  "updated_at": "..."
+}
 ```
 
 Create accepts `{title, slug?, body, path?}`; default path is `<slug>.md`. PATCH accepts `{title?, slug?, body?, path?, expected_revision?}`. Supply `expected_revision` to protect against stale saves; it is mandatory after collaborative editing starts. Markdown paths are case-preserving relative `.md` filenames and unique case-insensitively within scope. Slug is the independent route key; a path rename does not rewrite incoming Markdown. Page ID survives renames. Exact body bytes, including YAML frontmatter, are preserved. Markdown is limited to 1 MiB.
@@ -47,7 +59,20 @@ Markdown and attachments use the existing backend blob adapter, namespaced by re
 `GET /wiki/history/events?after=0&visibility=private` returns up to 100 events ordered by a commit-ordered, per-repository/per-visibility `sequence`:
 
 ```json
-{"version":1,"sequence":1,"page_id":7,"revision":1,"visibility":"private","slug":"home","path":"Home.md","title":"Home","content_digest":"<sha256>","deleted":false,"author":{"id":1,"login":"owner"},"at":"..."}
+{
+  "version": 1,
+  "sequence": 1,
+  "page_id": 7,
+  "revision": 1,
+  "visibility": "private",
+  "slug": "home",
+  "path": "Home.md",
+  "title": "Home",
+  "content_digest": "<sha256>",
+  "deleted": false,
+  "author": { "id": 1, "login": "owner" },
+  "at": "..."
+}
 ```
 
 Attachment events also include attachment metadata. No body: read the event's revision/content endpoint. Persist the projection and final sequence atomically; request after that sequence until a short page. Replay from zero for a new projection. A delete removes the page from the fold, retaining its history. Sequence never mixes public/private scopes; persist repository identity and visibility with the cursor. Duplicate deliveries are harmless; gaps and unknown versions fail the fold. The SQL projection has an explicit transaction-fenced rebuild helper, not a second write API. Existing page-level SSE continues to use page revisions and rechecks authorization. Revocation watching begins before the first authorization read and covers subscription and replay. A retained token revocation, narrowed token scope, or suspended account refuses admission with 403; revocation after admission terminates the stream with `revoked` before further private revision metadata is emitted. An account enabled again can open a fresh stream; a revoked token remains invalid. Watchers are released when the request ends, including failed admission.
@@ -74,22 +99,21 @@ wiki_sync:
 
 `NewObsidianSync(folder)` opens an explicitly supplied local folder. Close it after use. The adapter preserves Markdown bytes, frontmatter, wiki links and attachments. It detects local renames by filesystem identity (path fallback on systems without an inode), compares content digests before overwriting, and refuses symlinks, hardlinks, traversal, case-fold collisions and oversized files. Hidden directories, including `.obsidian` and `.git`, are excluded. When the folder is inside a git work tree, an imported revision records `source_commit`: HEAD, when the imported bytes equal the blob HEAD holds at that path (replacement objects ignored). Uncommitted, untracked or filtered (LFS, line-ending) bytes, folders outside a work tree and hosts without git record none; committing bytes already imported adds no revision. Like `history_commit_id`, provenance is a receipt recorded once just after the revision is written: page history returns it, the event stream does not, and an interrupted pass can leave it empty but never wrong. The folder must be trusted: another local process can still change a file between the final comparison and a filesystem operation.
 
-`NewNotionSync(credential, parentPageID, client)` requires explicitly supplied connection credentials. It reads child pages of that parent using the provider's [Markdown API](https://developers.notion.com/reference/retrieve-page-markdown), and creates, updates, renames and archives pages through the same reconciliation port. It refuses attachments, frontmatter, wiki links, embeds, tables, enhanced blocks, truncated pages and unknown blocks. A conversion that fails exact read-back verification remains an unknown outcome. Notion offers no atomic revision compare-and-set here; its last-edited version and digest are checked before writes. This adapter has fixture receipts only; live provider acceptance requires supplied credentials and actual receipts.
+The built-in Notion adapter was retired from the MVP under [#3385](https://github.com/smithersai/smithers/issues/3385). Notion host scheduling and live provider acceptance are out of MVP scope. Existing provider identifiers and delivery receipts retain compatibility.
 
 Migration 0058 extends the existing `issue_sync_channels` and `issue_sync_deliveries`; it adds no queue, worker or page table. Chat and documents call the same `ClaimSyncDelivery` and `SettleSyncDelivery` operations. A document delivery carries its immutable wiki page identity/revision, desired path/digest and expected external identity/version. Deletion is a nil desired document; a rename changes the path while retaining wiki identity. Repository/owner foreign keys remove document deliveries with their scope. Claims are ordered within the connection and receipts are token-fenced.
 
-The channel stores the existing `WikiProjection`, external baselines and commit-ordered cursor together. Every invocation holds a database advisory lock for that owner/repository/visibility/provider connection. Writes use existing WikiService revision checks and content reads. If both copies changed since the baseline, reconciliation returns a conflict without overwriting them. Equal copies acknowledge replay. A file write whose receipt was lost reuses its immutable intent and acknowledges the exact desired bytes. An interrupted or ambiguous Notion write blocks; it is never automatically repeated.
+The channel stores the existing `WikiProjection`, external baselines and commit-ordered cursor together. Every invocation holds a database advisory lock for that owner/repository/visibility/provider connection. Writes use existing WikiService revision checks and content reads. If both copies changed since the baseline, reconciliation returns a conflict without overwriting them. Equal copies acknowledge replay. A file write whose receipt was lost reuses its immutable intent and acknowledges the exact desired bytes. Retained Notion delivery compatibility keeps an interrupted or ambiguous write blocked until owner resolution; it is never automatically repeated.
 
 The host reads unknown receipts with `WikiSyncDeliveries` and invokes `ResolveWikiSyncDelivery` with the expected claim token, action (`sent`, `skip`, `retry`) and evidence. Only the connection owner with current write access can resolve. Resolutions retain an audit array on the existing delivery; a retry accepts duplicate risk and uses a new claim token. Skipping one version permits later deliveries. These are host ports; the app has no connection or resolution controls yet.
 
-Local acceptance uses isolated PostgreSQL and temporary folders only. Smithers-Ops is untouched. #2122 remains open for app resolution controls, git provenance and credentialed Notion acceptance.
+Local acceptance uses isolated PostgreSQL and temporary folders only. Host scheduling and Git provenance are implemented; remaining app connection/resolution controls and deployed Obsidian acceptance are tracked in [#1922](https://github.com/smithersai/smithers/issues/1922) and [#2122](https://github.com/smithersai/smithers/issues/2122).
 
 UI acceptance after connection: public/private same-path isolation; folder/tag/search navigation; wikilink aliases/headings and embeds; edit, rename, historical download, delete; visible save conflicts; instant background acknowledgment and completion-driven toast. Existing Cloud refresh receipts, freshness and failures stay in the Stack wiki row.
 
-
 ## Verification
 
-Use a disposable local PostgreSQL server with permission to create databases. The test fixture creates and drops isolated databases and applies the actual product migrations. Set `SMITHERS_REQUIRE_DATABASE_TESTS=1` so unavailable PostgreSQL is a failure rather than a skip. `SMITHERS_WIKI_TEST_FFI` must point to a built `libsmithers_ffi` to exercise real native Yjs and history; without it those two native integration cases skip.
+Use a disposable local PostgreSQL server with permission to create databases. The test fixture creates and drops isolated databases and applies the actual product migrations. Set `SMITHERS_REQUIRE_DATABASE_TESTS=1` so unavailable PostgreSQL is a failure rather than a skip. Native Yjs and history integration cases opt in through `SMITHERS_WIKI_TEST_FFI`, which must point to a built `libsmithers_ffi`; without it those cases skip. The `//:backendGo` target supplies this value from its Linux native build (`libsmithers_ffi.so`).
 
 ```bash
 cd packages/backend
@@ -102,7 +126,7 @@ go test -race ./internal/services -run 'WikiProduct|WikiCollaboration_Postgres' 
 
 The suites cover same-path public/private isolation, collaborator permissions, private webhooks/history-sidecar exclusion, links/backlinks and rename history, digest verification, attachment versions after deletion, filesystem restart, pure event folding, SQL rebuild including Yjs state, commit-ordered cursors and permission revocation during blob reads. The assembled HTTP router test exercises real tokens, binary uploads, collection-route/page-slug coexistence and untrusted download headers. These are local backend receipts, not Cloud publication or browser acceptance.
 
-The importer plan is [wiki-import.md](./wiki-import.md). Shared sync acceptance remains [#2122](https://github.com/smithersai/smithers/issues/2122), app connection [#1922](https://github.com/smithersai/smithers/issues/1922), deployed refresh [#1923](https://github.com/smithersai/smithers/issues/1923), review reuse [#1971](https://github.com/smithersai/smithers/issues/1971).
+The importer plan is [wiki-import.md](./wiki-import.md). App connection and shared sync acceptance remain tracked in [#1922](https://github.com/smithersai/smithers/issues/1922) and [#2122](https://github.com/smithersai/smithers/issues/2122); deployed refresh is tracked in [#1923](https://github.com/smithersai/smithers/issues/1923), review reuse in [#1971](https://github.com/smithersai/smithers/issues/1971).
 
 Local verification on 2026-09-26 used Go 1.26.8 (Darwin arm64), PostgreSQL 18.6, and native `libsmithers_ffi` with SHA-256 `fc8a178ce0906ea58e46104e8de9af1f695254ac34a3f96dbd0ea536113ce98f`. The focused suite passed 108 test/subtest cases across five packages; the full product migration suite passed 38; the race-enabled subset passed 9. None skipped. The native artifact was already built locally; these receipts do not establish a clean native rebuild.
 

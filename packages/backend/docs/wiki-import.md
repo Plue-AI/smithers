@@ -7,7 +7,7 @@ description: "A staged migration plan that preserves Markdown, attachments, priv
 
 This is a future importer plan, not an executed migration. No existing vault has been read or modified. The wiki is the Smithers product; an Obsidian vault is an import source, not a second product wiki. The owner explicitly chooses the source, destination repository, private/public wiki scope and approved source revision or snapshot before migration.
 
-The backend shared document sync port is `WikiService.SyncWiki` ([contract](./wiki.md)); its initial reconciliation imports an explicitly configured folder. Wait for the wiki UI connection and deployed host receipts before an operational migration ([#1922](https://github.com/smithersai/smithers/issues/1922), [#2122](https://github.com/smithersai/smithers/issues/2122)). Do not introduce another worker, mapping database, catalog or generator. Notion requires explicit connection credentials and a review of provider conversion losses before writes.
+The backend shared document sync port is `WikiService.SyncWiki` ([contract](./wiki.md)); its initial reconciliation imports an explicitly configured Obsidian folder. Host scheduling and verified Git source-commit provenance are implemented. Wait for the wiki UI connection and deployed host receipts before an operational migration ([#1922](https://github.com/smithersai/smithers/issues/1922), [#2122](https://github.com/smithersai/smithers/issues/2122)). Do not introduce another worker, mapping database, catalog or generator.
 
 ## Preview without mutation
 
@@ -29,4 +29,4 @@ Re-read the index, page content and attachment revisions through the API. Compar
 
 Use a temporary synthetic vault first: nested folders, duplicate basenames, frontmatter aliases/tags, heading links, Unicode/CRLF, code fences, binary attachments and private material. Demonstrate source-to-Smithers and Smithers-to-source edits, renames and deletions with the shared sync, including restart, duplicate delivery and concurrent conflicts. Check anonymous/outsider/private-member reads and attachment history after deletion.
 
-For the real vault, keep the original backup intact, compare the approved manifest with the completion receipt, then explicitly select the source of truth/mirror policy. Continuous sync begins only after that receipt. A rollback stops the mapping and reverts imported pages through ordinary versioned edits/deletes; it never erases history or modifies the source backup. Smithers-Ops remains untouched until this later, explicitly authorized migration.
+For the real vault, keep the original backup intact, compare the approved manifest with the completion receipt, then explicitly select the source of truth/mirror policy. Continuous sync begins only after that receipt. A rollback stops the mapping and reverts imported pages through ordinary versioned edits/deletes; it never erases history or modifies the source backup.
