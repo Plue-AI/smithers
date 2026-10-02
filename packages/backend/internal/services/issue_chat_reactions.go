@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	api "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -36,7 +35,7 @@ func (s *IssueService) IssueReactions(ctx context.Context, actor *db.User, owner
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT r.emoji,COALESCE(e.actor,'user:'||r.user_id::text) FROM reactions r LEFT JOIN issue_external_reactions e ON e.reaction_id=r.id WHERE r.target_type='issue_comment' AND r.target_id=$1 ORDER BY r.id`, commentID)
+	rows, err := tx.Query(ctx, `SELECT r.emoji,COALESCE(e.actor,u.username) FROM reactions r LEFT JOIN users u ON u.id=r.user_id LEFT JOIN issue_external_reactions e ON e.reaction_id=r.id WHERE r.target_type='issue_comment' AND r.target_id=$1 ORDER BY r.id`, commentID)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +89,7 @@ func (s *IssueService) SetIssueReaction(ctx context.Context, actor *db.User, own
 		return nil, err
 	}
 	if changed {
-		err = recordReaction(ctx, tx, i.ID, commentID, actor.ID, in.Name, fmt.Sprintf("user:%d", actor.ID), in.Active, true)
+		err = recordReaction(ctx, tx, i.ID, commentID, actor.ID, in.Name, actor.Username, in.Active, true)
 		if err != nil {
 			return nil, err
 		}
