@@ -5757,6 +5757,9 @@ importers:
 
   packages/smithers/flows/sandbox:
     dependencies:
+      '@smthrs/jj':
+        specifier: 1.0.0-rc.1
+        version: link:../jj
       '@smthrs/kernel':
         specifier: 1.0.0-rc.1
         version: link:../kernel

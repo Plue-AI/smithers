@@ -4,6 +4,7 @@
  * @since 1.0.0
  */
 
+import type * as NodeJj from "@smthrs/jj/node/NodeJj"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -86,12 +87,17 @@ export const output = (
 export const make = (path: string): Effect.Effect<Repository, never, ChildProcessSpawner> =>
   Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
+    // Host-only loading keeps provider/browser imports independent of Node.
+    const adapter = "@smthrs/jj/node/NodeJj"
+    const { retryGitIndexLock } = yield* Effect.promise(() => import(adapter) as Promise<typeof NodeJj>)
     return {
       path,
       jj: (args) =>
         // From the repository's root, so the paths jj prints are repository-relative.
-        output(spawner, "jj", ["-R", path, "--ignore-working-copy", "--no-pager", "--color=never", ...args], {
-          cwd: path
-        })
+        retryGitIndexLock(
+          output(spawner, "jj", ["-R", path, "--ignore-working-copy", "--no-pager", "--color=never", ...args], {
+            cwd: path
+          })
+        )
     }
   })

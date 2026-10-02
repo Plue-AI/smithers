@@ -270,6 +270,17 @@ const outcome = yield* SandboxMerge.apply(work, {
 
 `apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
 
+Host import and rebase share the Node/Bun jj workspace and store fences. Their
+default 120-second deadline includes permit waits, commands and retries of
+confirmed shared Git `index.lock` acquisition failures. Cancellation and
+timeout preserve captured work and any pending imported change for the next
+call. An active Git lock is never removed; permanent VCS failures, private
+index errors and source conflicts retain their existing behavior.
+
+Conflict strategies run after the import/rebase fence is released, so a
+resolver can use ordinary fenced jj operations without nested acquisition.
+The core mutation deadline does not bound a custom resolver's effects.
+
 | `MergeError.reason`   | Cause                                                                     |
 | --------------------- | ------------------------------------------------------------------------- |
 | `base_not_found`      | the work's base is not in the repository, even after the configured fetch |

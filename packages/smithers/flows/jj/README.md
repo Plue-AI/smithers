@@ -118,8 +118,9 @@ Node and Bun snapshots disable jj's default new-file size limit with
 included. Any command that still warns `Refused to snapshot some files` fails
 with `JjError.code = "snapshot_refused"`, even when jj exits successfully.
 
-Every Node and Bun command also passes `--config signing.behavior=keep` and
-`--config fsmonitor.backend=none`. Anything running in the checkout can write
+Every Node and Bun command also passes `--config signing.behavior=drop`,
+`--config fsmonitor.backend=none`, and disables the signing backend programs.
+A rewritten commit comes out unsigned. Anything running in the checkout can write
 `.jj/`, and jj migrates a planted `.jj/repo/config.toml` into its secure
 config once `.jj/repo/config-id` is gone, so a signing program or fsmonitor
 backend named there would otherwise run with the host's privileges on the next
@@ -138,10 +139,19 @@ killed and the operation fails with `unknown` rather than filling a buffer
 nobody will read. Both Node layers apply the same ceiling, since routing jj
 through the host's spawner must not change what a caller observes.
 
-`snapshot`, `restore`, and `diff` are serialized per repository. Fibers share a
-single-permit semaphore, while separate Node or Bun processes coordinate through
-an exclusive `.jj/smithers.lock` owner directory. A later caller reclaims a lock whose
-owner process has exited, so a killed host does not strand the repository.
+Node and Bun operations hold workspace and shared-store permits, including
+`status`, which can snapshot. Processes coordinate through `.jj/smithers.lock`
+and the store's `smithers.lock`; `root(from)` fences the directory it actually
+queries. The default 120-second deadline includes permit waits and execution.
+Cancellation releases both permits. A caller reclaims only a same-host lock
+whose owner process has exited.
+
+`NodeJj.withRepositoryMutation` lets host adoption share these permits;
+`RepositoryMutationTimeoutMs` overrides its deadline. The protected effect must
+not call another fenced operation on the same store. `retryGitIndexLock`
+retries only confirmed shared `index.lock` acquisition failures, at most 1,200
+times with 100 ms waits, preserving the final error. It never removes Git's
+lock; use it inside the mutation deadline to bound the whole operation.
 
 ## Failures are six codes
 

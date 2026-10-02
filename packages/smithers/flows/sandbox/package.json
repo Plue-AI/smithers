@@ -311,6 +311,7 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@smthrs/jj": "1.0.0-rc.1",
     "@smthrs/kernel": "1.0.0-rc.1"
   },
   "devDependencies": {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Effect, FileSystem } from "effect"
+import { RepositoryMutationTimeoutMs } from "@smthrs/jj/node/NodeJj"
+import { Effect, Fiber, FileSystem } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll } from "vitest"
 import * as Sandbox from "../src/Sandbox/index.ts"
@@ -125,6 +126,116 @@ describe("SandboxMerge.apply", slow, () => {
       // The temporary import bookmark is gone, and no working copy moved.
       expect(bookmarks(repo.path)).not.toContain("smithers-sandbox/")
       expect(host(repo.path, "jj log --no-graph -r @ -T 'empty'")).toBe("true")
+    }))
+
+  it.live("recovers the same imported change after an active shared Git index lock is released", () =>
+    Effect.gen(function*() {
+      const repo = hostRepository(fresh(), { "a.txt": "a\n", "b.txt": "b\n" })
+      const work = yield* workOn(repo.path, { "a.txt": "captured\n" })
+      const main = advanceMain(repo.path, { "b.txt": "host\n" })
+      const change = yield* SandboxMerge.changeIdOf(`${work.session}\0${work.base}\0${work.patch}`)
+      crashAfterImport(repo.path, work, change)
+      const checkout = jj(repo.path, "log --no-graph -r @ -T commit_id")
+      writeFileSync(join(repo.path, "untracked.txt"), "unrelated host contents\n")
+      const indexLock = join(gitDirOf(repo.path), "index.lock")
+      writeFileSync(indexLock, "active writer", { flag: "wx" })
+      const bin = join(fresh(), "bin")
+      mkdirSync(bin, { recursive: true })
+      const saved = process.env.PATH
+      const real = host(bin, "command -v jj").trim()
+      const failed = join(bin, "failed")
+      const calls = join(bin, "calls")
+      writeFileSync(
+        join(bin, "jj"),
+        `#!/bin/sh
+case " $* " in
+  *" rebase "*) echo attempt >> ${quote(calls)} ;;
+esac
+# Delegation must not resolve this recording shim again.
+PATH=${quote(saved ?? "/usr/bin:/bin")} ${quote(real)} "$@"
+code=$?
+if [ "$code" != 0 ]; then echo failed > ${quote(failed)}; fi
+exit "$code"
+`
+      )
+      chmodSync(join(bin, "jj"), 0o755)
+      process.env.PATH = `${bin}:${saved}`
+      const [outcome, duplicate] = yield* Effect.acquireUseRelease(
+        Effect.forkChild(Effect.all([
+          apply(work, { repository: repo.path }),
+          apply(work, { repository: repo.path })
+        ], { concurrency: 2 })),
+        (applying) =>
+          Effect.gen(function*() {
+            yield* Effect.promise(async (signal) => {
+              const deadline = Date.now() + 10_000
+              while (!existsSync(failed)) {
+                signal.throwIfAborted()
+                if (Date.now() >= deadline) throw new Error("jj did not encounter the active index lock")
+                await new Promise((resolve) => setTimeout(resolve, 10))
+              }
+            })
+            expect(readFileSync(indexLock, "utf8")).toBe("active writer")
+            unlinkSync(indexLock)
+            return yield* Fiber.join(applying)
+          }),
+        (applying) =>
+          Fiber.interrupt(applying).pipe(Effect.andThen(Effect.sync(() => {
+            process.env.PATH = saved
+            if (existsSync(indexLock)) unlinkSync(indexLock)
+          })))
+      )
+      expect(outcome._tag).toBe("Merged")
+      const merged = outcome as SandboxMerge.Merged
+      expect((duplicate as SandboxMerge.Merged).commit).toBe(merged.commit)
+      expect(merged.change).toBe(change)
+      expect(merged.onto).toBe(main)
+      expect(commitsOf(repo.path, change)).toEqual([merged.commit])
+      expect(fileAt(repo.path, merged.commit, "a.txt")).toBe("captured\n")
+      expect(fileAt(repo.path, merged.commit, "b.txt")).toBe("host\n")
+      expect(bookmarks(repo.path)).not.toContain("smithers-sandbox/")
+      expect(readFileSync(join(repo.path, "untracked.txt"), "utf8")).toBe("unrelated host contents\n")
+      expect(jj(repo.path, "log --no-graph -r @ -T commit_id")).toBe(checkout)
+      const attempts = readFileSync(calls, "utf8").trim().split("\n").length
+      expect(attempts).toBeGreaterThan(1)
+      expect(attempts).toBeLessThan(5)
+      expect(((yield* apply(work, { repository: repo.path })) as SandboxMerge.Merged).commit).toBe(merged.commit)
+    }))
+
+  it.live("bounds and cancels contention without discarding captured work or deleting an active lock", () =>
+    Effect.gen(function*() {
+      const repo = hostRepository(fresh(), { "a.txt": "a\n" })
+      const work = yield* workOn(repo.path, { "a.txt": "captured\n" })
+      const change = yield* SandboxMerge.changeIdOf(`${work.session}\0${work.base}\0${work.patch}`)
+      const captured = crashAfterImport(repo.path, work, change)
+      const indexLock = join(gitDirOf(repo.path), "index.lock")
+      writeFileSync(indexLock, "active writer", { flag: "wx" })
+      yield* Effect.ensuring(
+        Effect.gen(function*() {
+          const error = yield* Effect.flip(
+            apply(work, { repository: repo.path }).pipe(
+              Effect.provideService(RepositoryMutationTimeoutMs, 150)
+            )
+          )
+          expect(error.reason).toBe("vcs_failed")
+          expect(error.message).toContain("timed out")
+          expect(readFileSync(indexLock, "utf8")).toBe("active writer")
+          const applying = yield* Effect.forkChild(apply(work, { repository: repo.path }))
+          yield* Effect.sleep(150)
+          yield* Fiber.interrupt(applying)
+          expect(readFileSync(indexLock, "utf8")).toBe("active writer")
+          expect(commitsOf(repo.path, change)).toEqual([captured])
+          expect(bookmarks(repo.path)).toContain(`smithers-sandbox/${change}`)
+          unlinkSync(indexLock)
+          const outcome = yield* apply(work, { repository: repo.path })
+          expect(outcome._tag).toBe("Merged")
+          expect((outcome as SandboxMerge.Merged).change).toBe(change)
+          expect(commitsOf(repo.path, change)).toEqual([(outcome as SandboxMerge.Merged).commit])
+        }),
+        Effect.sync(() => {
+          if (existsSync(indexLock)) unlinkSync(indexLock)
+        })
+      )
     }))
 
   it.effect("records an overlapping edit as a jj conflict with repository-relative paths by default", () =>

@@ -472,8 +472,8 @@ const withRepositoryLock = <A, E, R>(
   })
 
 /**
- * Every workspace of one repository shares a permit for changes to which
- * workspaces exist. Taken only while the workspace permit is held, so the two
+ * Every workspace of one repository shares a permit for repository mutations.
+ * Taken only while the workspace permit is held, so the two
  * are always acquired in the same order.
  */
 const withStoreLock = <A, E, R>(
@@ -488,6 +488,73 @@ const withStoreLock = <A, E, R>(
       Effect.try({ try: () => repositoryStoreOf(root), catch: (cause) => lockFailure(method, cause) }),
       (store) => withLock(method, `store:${store}`, join(store, lockName), effect)
     )
+  })
+
+/**
+ * The total bound for a coordinated host repository mutation, including permit waits.
+ *
+ * @category configuration
+ * @since 1.0.0
+ */
+export const RepositoryMutationTimeoutMs = Context.Reference<number>("@smthrs/jj/RepositoryMutationTimeoutMs", {
+  defaultValue: () => lockAcquireWithinMs
+})
+
+/**
+ * Share the workspace/store fences with host application of captured work.
+ * The deadline bounds acquisition and execution; interruption releases both fences.
+ *
+ * @category utils
+ * @since 1.0.0
+ */
+export const withRepositoryMutation = <A, E, R>(
+  method: string,
+  from: string,
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | JjError, R> =>
+  Effect.flatMap(
+    RepositoryMutationTimeoutMs,
+    (duration) =>
+      withRepositoryLock(method, from, withStoreLock(method, from, effect)).pipe(
+        Effect.timeoutOrElse({
+          duration,
+          orElse: () =>
+            Effect.fail(lockFailure(
+              method,
+              new JjInternalFault({
+                code: "lock_timeout",
+                message: "timed out waiting for a host repository mutation"
+              })
+            ))
+        })
+      )
+  )
+
+/**
+ * Retry only Git's shared index acquisition failure, within the surrounding
+ * mutation deadline. Source conflicts, private index errors and other VCS
+ * failures retain their original error. Never reclaim Git's active lock.
+ *
+ * @category utils
+ * @since 1.0.0
+ */
+export const retryGitIndexLock = <A, E extends { readonly message: string }, R>(
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E, R> =>
+  Effect.suspend(() => {
+    let attempts = 0
+    const attempt: Effect.Effect<A, E, R> = Effect.suspend(() =>
+      effect.pipe(
+        Effect.catch((error) =>
+          attempts++ < 1_200 && /Could not acquire lock for index file/i.test(error.message)
+            && /could not be obtained immediately after \d+ attempt\(s\)/i.test(error.message)
+            && /(?:[/\\])index\.lock['" ]/.test(error.message)
+            ? Effect.sleep("100 millis").pipe(Effect.andThen(attempt))
+            : Effect.fail(error)
+        )
+      )
+    )
+    return attempt
   })
 
 /**
@@ -551,11 +618,7 @@ const unmigratedConfig = (directory: string): string | undefined => {
       }
       let repository = join(dotJj, "repo")
       if (isFile(repository)) {
-        try {
-          repository = resolve(dotJj, stripLineEnding(readFileSync(repository, "utf8")))
-        } catch {
-          return undefined
-        }
+        repository = resolve(dotJj, stripLineEnding(readFileSync(repository, "utf8")))
       }
       return isFile(join(repository, "config.toml")) && !isFile(join(repository, "config-id"))
         ? join(repository, "config.toml")
@@ -577,9 +640,19 @@ const refuseUnmigratedConfig = (
   args: ReadonlyArray<string>,
   cwd: string | undefined
 ): Effect.Effect<void, JjError> =>
-  Effect.suspend(() => {
-    const planted = unmigratedConfig(cwd ?? process.cwd())
-    return planted === undefined ? Effect.void : Effect.fail(
+  Effect.try({
+    try: () => unmigratedConfig(cwd ?? process.cwd()),
+    catch: (cause) =>
+      new JjError({
+        code: "unknown",
+        module: MODULE,
+        method,
+        command: commandOf(args),
+        message: `jj ${method}: could not inspect repository configuration`,
+        cause: jjErrorCause(cause)
+      })
+  }).pipe(Effect.flatMap((planted) =>
+    planted === undefined ? Effect.void : Effect.fail(
       new JjError({
         code: "unknown",
         module: MODULE,
@@ -589,7 +662,7 @@ const refuseUnmigratedConfig = (
           + "jj would import it from the checkout. Review it, then run any jj command yourself to migrate it"
       })
     )
-  })
+  ))
 
 /** How one `jj` invocation reaches the operating system. */
 type Run = (method: string, args: ReadonlyArray<string>, cwd?: string) => Effect.Effect<string, JjError>
@@ -769,20 +842,13 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
     )
   }
   /**
-   * Fences one working-copy operation on the workspace it runs in.
+   * Fences each operation on its workspace and shared repository store.
    *
    * The bound root is the workspace when there is one; an unbound layer runs
    * jj in the caller's working directory, so that is where the fence looks.
    */
   const repositoryCritical = <A, E, R>(method: string, effect: Effect.Effect<A, E, R>) =>
-    Effect.suspend(() => withRepositoryLock(method, repositoryRoot ?? process.cwd(), effect))
-
-  /**
-   * Fences a change to which workspaces exist, or a restore that would drop
-   * one, against the same change from any workspace of the repository.
-   */
-  const registrationCritical = <A, E, R>(method: string, effect: Effect.Effect<A, E, R>) =>
-    repositoryCritical(method, Effect.suspend(() => withStoreLock(method, repositoryRoot ?? process.cwd(), effect)))
+    Effect.suspend(() => withRepositoryMutation(method, repositoryRoot ?? process.cwd(), effect))
 
   /**
    * Capture the working copy without closing a change.
@@ -874,7 +940,7 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
   const forgetWorkspace = (name: string) =>
     Effect.asVoid(inRepository("workspaceForget", ["workspace", "forget", "--", name]))
 
-  const workspaceForget = (name: string) => registrationCritical("workspaceForget", forgetWorkspace(name))
+  const workspaceForget = (name: string) => repositoryCritical("workspaceForget", forgetWorkspace(name))
 
   /**
    * `--name=` and the `--` terminator are what make the claim "a workspace name
@@ -891,14 +957,14 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
   const workspaceAdd = (name: string, path: string, revision?: string) =>
     Effect.asVoid(
       revision === undefined
-        ? registrationCritical(
+        ? repositoryCritical(
           "workspaceAdd",
           inRepository("workspaceAdd", ["workspace", "add", `--name=${name}`, "--", path])
         )
         : Effect.flatMap(requireRevision("workspaceAdd", "jj workspace add", revision), (pinned) =>
           // The commands remain cancellable; only the handoff from a completed
           // add to the pin's cleanup finalizer is protected from interruption.
-          registrationCritical(
+          repositoryCritical(
             "workspaceAdd",
             Effect.uninterruptibleMask((restore) =>
               restore(inRepository("workspaceAdd", [
@@ -941,7 +1007,7 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
           ))
     )
 
-  const status = () => inRepository("status", ["status"])
+  const status = () => repositoryCritical("status", inRepository("status", ["status"]))
 
   /**
    * `jj root` prints the workspace root for whatever directory it runs in,
@@ -961,7 +1027,12 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
   const root = (from: string) =>
     Effect.flatMap(
       Effect.sync(() => directoryOf(from)),
-      (directory) => Effect.map(run("root", ["root", "--color=never", ...HOST_ONLY_CONFIG], directory), stripLineEnding)
+      (directory) =>
+        withRepositoryMutation(
+          "root",
+          directory,
+          Effect.map(run("root", ["root", "--color=never", ...HOST_ONLY_CONFIG], directory), stripLineEnding)
+        )
     )
 
   /**
@@ -1004,7 +1075,7 @@ const operations = (spawn: Run, repositoryRoot?: string) => {
    */
   const opRestore = (operationId: string) =>
     /^[0-9a-f]+$/.test(operationId)
-      ? registrationCritical(
+      ? repositoryCritical(
         "opRestore",
         Effect.gen(function*() {
           // `jj op restore` resets every workspace's working-copy commit and

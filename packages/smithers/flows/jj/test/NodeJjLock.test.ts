@@ -4,7 +4,7 @@ import * as Fiber from "effect/Fiber"
 import * as Schedule from "effect/Schedule"
 import * as TestClock from "effect/testing/TestClock"
 import { execFileSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, open, readdir, readFile, rename, rm, rmdir, unlink, writeFile } from "node:fs/promises"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -25,6 +25,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }
 })
 const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+// Inject only a guard read failure after the real store pointer was resolved;
+// the filesystem locks remain real and the CLI shim must never be invoked.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>()
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+})
+const actualSyncFs = await vi.importActual<typeof import("node:fs")>("node:fs")
 afterEach(() => {
   vi.resetAllMocks()
   vi.restoreAllMocks()
@@ -35,7 +42,7 @@ const fixture = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
     Effect.promise(async () => {
       const root = await mkdtemp(join(tmpdir(), "flows-jj-lock-"))
-      await mkdir(join(root, ".jj"))
+      await mkdir(join(root, ".jj", "repo"), { recursive: true })
       await mkdir(join(root, "nested"))
       const binary = join(root, "jj-shim")
       await writeFile(
@@ -129,6 +136,166 @@ fi
       )
     ))
 
+  it.live("coordinates different workspaces sharing a store and bounds permit waits through cancellation", () =>
+    fixture((root) =>
+      Effect.gen(function*() {
+        const secondary = join(root, "secondary")
+        yield* Effect.promise(async () => {
+          await mkdir(join(secondary, ".jj"), { recursive: true })
+          await writeFile(join(secondary, ".jj", "repo"), join(root, ".jj", "repo"))
+        })
+        let started = false
+        const first = yield* Effect.forkChild(NodeJj.withRepositoryMutation(
+          "apply",
+          root,
+          Effect.sync(() => {
+            started = true
+          }).pipe(Effect.andThen(Effect.never))
+        ))
+        yield* until(async () => started)
+        const failure = yield* Effect.flip(
+          NodeJj.withRepositoryMutation("apply", secondary, Effect.void).pipe(
+            Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30)
+          )
+        )
+        expect(failure.cause?.code).toBe("lock_timeout")
+        yield* Fiber.interrupt(first)
+        yield* NodeJj.withRepositoryMutation("apply", secondary, Effect.void)
+        expect(existsSync(join(root, ".jj", "smithers.lock"))).toBe(false)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(false)
+      })
+    ))
+
+  it.effect("retries only a shared Git index acquisition error, preserving permanent errors", () =>
+    Effect.gen(function*() {
+      for (
+        const message of [
+          "source conflict in index.lock",
+          "Could not acquire lock for index file: /git/private.index.lock",
+          "Could not acquire lock for index file: could not be obtained immediately after 1 attempt(s). '/git/private.index.lock'",
+          "Could not acquire lock for index file: '/git/index.lock': permission denied",
+          "invalid revision"
+        ]
+      ) {
+        let calls = 0
+        const failure = { message }
+        const answer = yield* Effect.flip(NodeJj.retryGitIndexLock(Effect.suspend(() => {
+          calls++
+          return Effect.fail(failure)
+        })))
+        expect(answer).toBe(failure)
+        expect(calls).toBe(1)
+      }
+    }))
+
+  for (const method of ["status", "root"] as const) {
+    it.live(`bounds public ${method} before spawn and releases its waiting fence on cancellation`, () =>
+      fixture((root) =>
+        Effect.gen(function*() {
+          const secondary = join(root, "secondary")
+          yield* Effect.promise(async () => {
+            await mkdir(join(secondary, ".jj"), { recursive: true })
+            await writeFile(join(secondary, ".jj", "repo"), join(root, ".jj", "repo"))
+          })
+          let started = false
+          const holder = yield* Effect.forkChild(NodeJj.withRepositoryMutation(
+            "apply",
+            root,
+            Effect.sync(() => {
+              started = true
+            }).pipe(Effect.andThen(Effect.never))
+          ))
+          yield* until(async () => started)
+          const jj = yield* Effect.provide(Jj, NodeJj.layerAt(secondary))
+          const operation = method === "status" ? jj.status() : jj.root!(secondary)
+          const failure = yield* Effect.flip(operation.pipe(
+            Effect.provideService(NodeJj.RepositoryMutationTimeoutMs, 30)
+          ))
+          expect(failure).toMatchObject({ method, cause: { code: "lock_timeout" } })
+          expect(existsSync(join(secondary, "started"))).toBe(false)
+          const waiting = yield* Effect.forkChild(operation)
+          yield* until(async () => existsSync(join(secondary, ".jj", "smithers.lock")))
+          yield* Fiber.interrupt(waiting)
+          expect(existsSync(join(secondary, ".jj", "smithers.lock"))).toBe(false)
+          expect(existsSync(join(secondary, "started"))).toBe(false)
+          expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(true)
+          yield* Fiber.interrupt(holder)
+          yield* operation
+          expect(existsSync(join(secondary, "started"))).toBe(true)
+          expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(false)
+        })
+      ))
+  }
+
+  it.live("fences root on its actual directory independently of the bound workspace", () =>
+    fixture((root) =>
+      Effect.gen(function*() {
+        const other = join(root, "other")
+        yield* Effect.promise(() => mkdir(join(other, ".jj", "repo"), { recursive: true }))
+        let held = false
+        const holder = yield* Effect.forkChild(NodeJj.withRepositoryMutation(
+          "apply",
+          root,
+          Effect.sync(() => {
+            held = true
+          }).pipe(Effect.andThen(Effect.never))
+        ))
+        yield* until(async () => held)
+        const jj = yield* Effect.provide(Jj, NodeJj.layerAt(root))
+        yield* jj.root!(other)
+        expect(existsSync(join(other, "started"))).toBe(true)
+        expect(existsSync(join(root, "started"))).toBe(false)
+        expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(true)
+        expect(existsSync(join(other, ".jj", "repo", "smithers.lock"))).toBe(false)
+        yield* Fiber.interrupt(holder)
+      })
+    ))
+
+  for (const code of ["EACCES", "ENOENT"]) {
+    it.live(`refuses a ${code} store-pointer inspection failure before CLI spawn and releases both fences`, () =>
+      fixture((root) =>
+        Effect.gen(function*() {
+          const secondary = join(root, "secondary")
+          const pointer = join(secondary, ".jj", "repo")
+          yield* Effect.promise(async () => {
+            await mkdir(join(secondary, ".jj"), { recursive: true })
+            await writeFile(pointer, join(root, ".jj", "repo"))
+          })
+          const jj = yield* Effect.provide(Jj, NodeJj.layerAt(secondary))
+          vi.mocked(readFileSync).mockClear()
+          vi.mocked(readFileSync).mockImplementationOnce(actualSyncFs.readFileSync).mockImplementationOnce(() => {
+            throw errno(code)
+          })
+          const failure = yield* Effect.flip(jj.status())
+          expect(failure).toMatchObject({ code: "unknown", method: "status", cause: { code, message: code } })
+          expect(failure.message).toContain("could not inspect repository configuration")
+          expect(vi.mocked(readFileSync).mock.calls.map(([path]) => path)).toEqual([pointer, pointer])
+          expect(existsSync(join(secondary, "started"))).toBe(false)
+          expect(existsSync(join(secondary, ".jj", "smithers.lock"))).toBe(false)
+          expect(existsSync(join(root, ".jj", "repo", "smithers.lock"))).toBe(false)
+        })
+      ))
+  }
+
+  it.effect("exhausts a finite retry budget independently for each execution", () =>
+    Effect.gen(function*() {
+      let calls = 0
+      const failure = {
+        message:
+          "Could not acquire lock for index file: could not be obtained immediately after 1 attempt(s). '/git/index.lock'"
+      }
+      const retrying = NodeJj.retryGitIndexLock(Effect.suspend(() => {
+        calls++
+        return Effect.fail(failure)
+      }))
+      for (let run = 0; run < 2; run++) {
+        const pending = yield* Effect.forkChild(Effect.flip(retrying))
+        yield* TestClock.adjust(120_000)
+        expect(yield* Fiber.join(pending)).toBe(failure)
+        expect(calls).toBe(1_201 * (run + 1))
+      }
+    }))
+
   it.live("leaves the CLI to report operations outside a workspace", () =>
     fixture((root) =>
       Effect.gen(function*() {
@@ -156,7 +323,7 @@ fi
           const error = yield* Effect.flip(jj.snapshot())
           expect(error).toMatchObject({ code: "unknown", module: "NodeJj", method: "snapshot" })
           expect(error.message).toContain("repository lock failed")
-          expect(yield* Effect.promise(() => readdir(join(root, ".jj")))).toEqual([])
+          expect(yield* Effect.promise(() => readdir(join(root, ".jj")))).toEqual(["repo"])
         })
       ))
   }
@@ -315,7 +482,7 @@ fi
         yield* until(async () => (await readdir(join(root, ".jj"))).some((name) => name.startsWith(".smithers-lock-")))
         yield* Fiber.interrupt(pending)
         expect((yield* Effect.promise(() => readdir(lock))).sort()).toEqual([`${hostname()}-${process.pid}-other`])
-        expect(yield* Effect.promise(() => readdir(join(root, ".jj")))).toEqual(["smithers.lock"])
+        expect(yield* Effect.promise(() => readdir(join(root, ".jj")))).toEqual(["repo", "smithers.lock"])
         expect(existsSync(join(root, "started"))).toBe(false)
       })
     ))

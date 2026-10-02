@@ -8,7 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sandbox/docs/api.md) · [package docs](https://sandbox.smithers.sh)
 
-> **Related APIs:** [`@smthrs/kernel`](/docs/reference/api/kernel/)
+> **Related APIs:** [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/kernel`](/docs/reference/api/kernel/)
 
 `@smthrs/sandbox` adapts a provider a caller hands it onto Effect's host
 services. The smallest composition adapts a spawn-only provider onto
@@ -275,6 +275,17 @@ const outcome = yield* SandboxMerge.apply(work, {
 `Outcome` is `Merged { change, commit, onto }`, `Conflicted { change, commit, onto, paths }`, or the work's own `Unchanged`, which applies as nothing. `change` is the jj change id; `commit` and `onto` are commit ids. A `Conflicted` change exists and records jj conflicts in `paths`, as `jj rebase` would.
 
 `apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
+
+Host import and rebase share the Node/Bun jj workspace and store fences. Their
+default 120-second deadline includes permit waits, commands and retries of
+confirmed shared Git `index.lock` acquisition failures. Cancellation and
+timeout preserve captured work and any pending imported change for the next
+call. An active Git lock is never removed; permanent VCS failures, private
+index errors and source conflicts retain their existing behavior.
+
+Conflict strategies run after the import/rebase fence is released, so a
+resolver can use ordinary fenced jj operations without nested acquisition.
+The core mutation deadline does not bound a custom resolver's effects.
 
 | `MergeError.reason`   | Cause                                                                     |
 | --------------------- | ------------------------------------------------------------------------- |
