@@ -19,7 +19,7 @@ Automation: `packages/backend/microsandbox/real_users_test.go` (new) · Runs in:
 5. As `ben`: `touch /workspace/b.txt`. As `alice`: append to it. As `agent`: append to it. `stat` it.
 6. As `ben` and `alice`: run `jj st` and `git status` in `/workspace`, alternately, 10 times each.
 7. Ask the daemon's session primitive (`open_session`, §9.1.2) for a session as `root`. Connect through the SSH gateway with a key that belongs to no member. In Ben's SSH session, run `id -u`.
-8. Ben opens a terminal on branch B (wakes it). `cat ~/.config/gh/hosts.yml`.
+8. Ben writes an untracked `~/.marker` on A. After T-MCH-15 lands, Ben opens a terminal on B (wakes it), inspects the home, reads `~/.config/gh/hosts.yml`, and checks that the marker is absent.
 
 ## Pass when
 
@@ -30,7 +30,7 @@ Automation: `packages/backend/microsandbox/real_users_test.go` (new) · Runs in:
 - Step 5: all three appends succeed, and the file's group is `team` with mode `664`.
 - Step 6: 0 permission or `safe.directory` errors.
 - Step 7: the root session and the unknown key are refused; Ben's session reports 20001. No `sshd` process runs in the guest (§8.10.3).
-- Step 8: the file is present with Ben's content (shared-home layout), or absent and documented (per-machine fallback chosen in T-MCH-02).
+- Step 8: B has its own `/home/ben`, owned by Ben, mode 0700, with `hosts.yml` seeded from his credential store at mode 0600 and equal to his latest login content (§8.7.3, C-MCH-10). An untracked marker written in A’s home is absent on B; shared homes and absent propagated credentials fail. Run this assertion after T-MCH-15 lands; the user-isolation assertions independently gate T-MCH-11.
 
 ## Fail when
 

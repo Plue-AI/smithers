@@ -30,6 +30,8 @@ Out:
 
 ## Tests
 
+- C-MCH-05 has two required suites: policy decisions with a runtime fake, and real-microVM recovery after removal of a dropped TODO’s disk past 24 h. Reopen must reconstruct from retained host objects and reproduce every recorded byte.
+
 - unit (`machine_cleanup_test.go`, new): a decision table over {TODO merged, dropped, in_review, working; scratch archived or not} × {capture ok, failed, ref ≠ capture} × {terminal open, SSH open, service running, none} × {23 h 59 m, 24 h}. Only the all-pass rows delete.
 - integration (real PostgreSQL, real jj, fake runtime): a merged and captured machine is deleted after 24 h. Its activity rows, attempts and branch head ref still read back, and `git cat-file -e` of the captured commit succeeds. This is C-MCH-05.
 - integration: write a file after the capture (ref ≠ capture). The job refuses, and the next sleep's capture makes it eligible.

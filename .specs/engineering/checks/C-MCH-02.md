@@ -27,7 +27,7 @@ Automation: `packages/backend/internal/services/machine_admission_integration_te
 - Step 4: A is released (safe-idle), and the grant goes to Alice within 2 s.
 - Step 5: the request is `cancelled` and D sleeps again within 2 s.
 - Step 6: grant order is Alice, Ben, T5, T6, learning. Every grant is followed by a projection delta before the next grant. T5 and T6 each show `starting` on grant and `working` only after their run's first step starts (§4.1).
-- Step 7: same order, and no slot is granted twice (`awake + waking ≤ 1` at every sample).
+- Step 7: same order, and no slot is granted twice (`held ≤ 1` at every sample, counting provisioning, waking, awake and releasing machines, §8.3.2).
 
 ## Fail when
 

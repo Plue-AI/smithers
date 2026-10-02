@@ -13,7 +13,7 @@ In:
 - `member_credentials` (§3): one row per member and file, sealed under the install key (§17.4).
 - The five tracked files (§8.7.3): `~/.claude/.credentials.json`; the account fields of `~/.claude.json` (`oauthAccount`, `userID`, `primaryApiKey` when present), merged into the file and never replacing it whole; `~/.codex/auth.json`; `~/.config/gh/hosts.yml`; `~/.gitconfig`.
 - Seeding: `seed_credentials(member, files[])` on the daemon's control RPC (§9.1.2). The daemon writes each file as the member with mode 0600, at the member's first session after each wake and whenever the store changes. The host pushes a change to every awake machine where the member has a home.
-- Return path: the daemon watches the five paths with inotify, apart from the working-copy watcher and never as bursts. A changed file (content differs from the last seeded copy) is sent as `credential_changed{member, file, content, written_at}`. The host keeps the newest `written_at`; a tie goes to the later arrival. Then it seeds every other awake machine.
+- Return path: the daemon watches the five paths with inotify, apart from the working-copy watcher and never as bursts. A changed file (content differs from the last seeded copy) is sent as `credential_changed{member, file, content, written_at}`. The host keeps the newest `written_at`; a tie goes to the later arrival. Then it seeds every other awake machine. A deleted tracked file sends `content: null`; the host deletes its store row and every other machine deletes the file at once or before its first session after wake (§8.7.3, C-MCH-10 step 9).
 - Revocation (§5.6): removing or suspending a member deletes their rows, and every awake machine deletes the seeded files within 5 s. A sleeping machine does it at wake, in `wake_reconcile` before any session starts.
 - No read path: no flow, API, card or CLI command returns a credential value (§8.7.2).
 
@@ -25,12 +25,14 @@ Out:
 
 - `packages/backend/db/product/migrations/<next>_member_credentials.sql` (new), its queries and sqlc output.
 - `packages/backend/internal/services/member_credentials.go` (new): seal and unseal with the install key, newest-wins merge, fan-out to awake machines, revocation.
-- `crates/smithers-machined/src/credentials.rs` (new): write as the member (0600), merge `~/.claude.json` account fields with `serde_json` preserving every other field, watch the five paths, debounce 500 ms, send `credential_changed`.
+- `crates/smithers-machined/src/credentials.rs` (new), in the root broker: every read and write runs in a child dropped to the member's uid and gids, opening with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` from the home's descriptor, regular files up to 1 MiB only (§9.5.1–§9.5.2, C-COL-04 step 3); write as the member (0600), merge `~/.claude.json` account fields with `serde_json` preserving every other field, watch the five paths, debounce 500 ms, send `credential_changed` through the outbox (§9.1.4, C-COL-05).
 - `crates/smithers-machined/src/rpc.rs`: `seed_credentials`; `wake_reconcile` applies pending deletions before sessions start.
 - `packages/backend/internal/services/members.go`: removal and suspension call the revocation path.
 - `packages/backend/docs/machined.md` and `packages/backend/docs/members.md`: the store, the five files and the merge rule; docs gates.
 
 ## Tests
+- integration: a logout on one machine (Codex deletes `~/.codex/auth.json`; `gh` rewrites `hosts.yml`) reaches every other machine within 5 s, and no later seed restores the old login (C-MCH-10 step 9).
+
 
 - unit (`credentials.rs`): merging account fields into a `~/.claude.json` with 40 other keys changes only those fields, byte-stable for the rest; a file equal to the last seeded copy sends nothing; a write burst within 500 ms sends one change.
 - unit (`member_credentials_test.go`): newest `written_at` wins, ties go to the later arrival; a stale change is dropped and logged; ciphertext never equals plaintext and no query returns plaintext outside the service.
@@ -38,6 +40,8 @@ Out:
 - integration: suspending Ben deletes his rows and removes the five files from an awake machine within 5 s and from a sleeping one before its first session after wake.
 
 ## Acceptance
+- [C-COL-04](../checks/C-COL-04.md): step 3: credential reads and writes cannot follow symlinks or escape the member's home.
+
 
 - [C-MCH-10](../checks/C-MCH-10.md): log in once, use everywhere; refreshed tokens flow back; history stays local; revocation removes credentials.
 - [C-REL-05](../checks/C-REL-05.md): 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt

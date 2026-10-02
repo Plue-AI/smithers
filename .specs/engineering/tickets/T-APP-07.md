@@ -21,6 +21,7 @@ In:
   - Otherwise it writes once per state change, and nothing in between.
   - The host learns "on screen" from a `timeline_visible` lease each client sets in its view state on `view:<member>:<branch>` (T-APP-16) while its timeline is visible, refreshed every 10 s and expiring after 30 s.
   - A failure keeps the last summary and `summary_rev`. It runs off the run's path (its own job queue, no machine, no call back into the runtime).
+  - The same job writes the monitor's phase summaries and cell explanations into `run_summaries` (§3, §11.6.3, §14.5.3), only for runs with a `run:<id>` subscriber: one call per phase fills the missing ones when the monitor opens, a live phase refreshes 5 s after its last event and at least every 30 s, a failed call retries every 30 s while the monitor stays open, and a failure leaves the deterministic title or label alone with no error state. T-FLW-07 renders them.
 - The rail (client):
   - desktop: the timeline, one line per entry (glyph, title, summary; a prompt shows its author through T-APP-09); live entries pulse, attention is gold, failed is ember; a band marks the entries on screen; a click scrolls to the entry; live entries above the band pin to the top edge, and live or new entries below pin to the bottom edge;
   - each pinned or listed entry carries the viewer's action inline, which runs the catalog command;
@@ -48,6 +49,7 @@ Out:
 - Unit (Go, `conversation_entries_test.go`): tone and state for every TODO state, Starting included; two members' reads of one entry are byte-identical; the action exists only in the client.
 - Unit (Go, `conversation_summaries_test.go`, fake clock): with a `timeline_visible` lease held and events every 1 s from 0 to 60 s, no event waits more than 30 s for a refresh and the event at 60 s is summarized by 65 s; one event gives one refresh at 5 s. With no lease, the same run makes exactly one model call per state change. A lease that expires mid-run stops periodic refreshes within 30 s. A model error leaves summary and `summary_rev` unchanged; no refresh after the terminal one.
 - Integration (real PostgreSQL): with the model endpoint failing for 60 s, a run's steps finish with the same outcomes and the summarizer creates no `machine_requests` row.
+- Unit (Go, fake clock): a run with no `run:<id>` subscriber gets no phase or cell call; opening the monitor fills each finished phase with one call; a model error leaves `run_summaries` unchanged.
 - Unit (`Timeline.test.tsx`): pinning above and below the band, the pill counts, and an action button running its command with its args.
 - Unit (`ToastStack.test.tsx`, existing): a member who hides toasts gets none while the timeline entry still appears; "+N more" past three.
 - Integration: no toast settles before its terminal event (the C-UI-05 rule, run by T-APP-08).
@@ -55,6 +57,7 @@ Out:
 
 ## Acceptance
 - [C-UI-04](../checks/C-UI-04.md): shared tones, states and summaries; per-viewer actions; summaries refresh within the 5 s / 30 s rule while the timeline is on screen and once per state change otherwise; a summarizer failure keeps the last summary and does not slow the run; toasts hide per member.
+- [C-J11-01](../checks/C-J11-01.md) steps 8–9: phase titles stand alone while the summarizer is blocked, summaries arrive once it returns, and an uninspected run gets no summary call.
 
 ## Risks and notes
 - Resolved: the timeline shows at widths of 1,180 px and up, matching the mock, until design changes it.

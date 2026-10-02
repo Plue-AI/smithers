@@ -4,11 +4,11 @@ Proves: mvp.md §6.1 Reaching the install, M-28 · spec.md §1.4, §7.1, §16.3.
 Automation: `apps/app/e2e/real/install-origins.spec.ts` (new) and the listener probe `apps/app/e2e/real/support/listeners.ts` (new) · Runs in: reference host plus a second Mac on the same network
 
 ## Setup
-- Install at commit X from the T-INS-01 bundle (stage R: the tap), owner claimed, setup through Source ready, a scratch repository from `smithers-mvp-canary/<date>`.
+- Install at commit X from the T-INS-01 bundle with `smthrs host start --bundle` (T-INS-08; stage R: the tap), owner claimed, setup through Source ready, a scratch repository from `smithers-mvp-canary/<date>`.
 - Three origins:
   - L = `http://localhost:4000` on the Mac;
   - P = `http://<mac-lan-name>:4000`, after the owner sets bind `0.0.0.0` and adds P in Settings;
-  - S = `https://<proxy-host>`, a Caddy reverse proxy on the second Mac B forwarding to P with a certificate B trusts, added as an origin.
+  - S = `https://<proxy-host>`, a Caddy reverse proxy on the second Mac B forwarding to P with a certificate B trusts and Caddy's default `Host` pass-through, added as an origin.
 - Browsers: Playwright Chromium and WebKit on the Mac for L, on B for P and S. Clipboard permissions are not granted on P (insecure context).
 
 ## Steps

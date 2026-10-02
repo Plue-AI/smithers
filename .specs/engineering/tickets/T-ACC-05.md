@@ -10,9 +10,9 @@ Every delegated credential follows one rule set (§15.1.5): a command whose cata
 In:
 - Dispatch by the catalog's `agent` field (T-CAT-01) for every delegated credential: the app agent's host turns, external agents through the CLI or skill, and terminal sessions (§15.1.5, Appendix B.6).
   - `run`: reads, UI-only flows on the prompter's own screen, steer, answer, stop, resume, retry, rebase, fork, run a flow, wiki writes. Executes with `Authorize` (T-ACC-03).
-  - `confirm`: commit or drop a TODO, add to stack, delete a wiki page, propose a flow or agent edit. Creates a `one_click` row and returns `202 {confirmation: id, state: "requested"}` (§6.2.2).
+  - `confirm`: commit, amend or drop a TODO, add to stack, Bring in or Discard a foreign push, delete a wiki page, propose a flow or agent edit, and `/review`; use the descriptor’s minimum role. Create a `one_click` row and return `202 {confirmation: id, state: "requested"}` (§5.2.1).
   - Merge: `confirm` with kind `review_merge`. Created only when the member's role may merge (owner or maintainer), approved only from that member's session.
-  - `never`: members, secrets, settings, and approvals that gate a merge. Refused with a plain `permission` error; no row is created, and the commands are absent from the agent's tools.
+  - `never`: members, secrets, settings and merge-gating approvals. Return 403 `never` after role and scope eligibility; insufficient role or scope returns 403 `permission`. Create no row. These commands are absent from agent tools.
 - The `person_confirmations` table (§3) with `kind ∈ {one_click, review_merge}` and its state machine: `pending → approved | denied | expired`. Expiry after 24 h or when the subject's revision changes (§5.4).
 - Approve and deny with the same member's `session` only. On approve, run the action with that session against `revision`.
 - Each confirmation is a Confirm card entry private to its member (`audience_member_id`, §14.5.1), published on that member's `confirmations:<member>` topic (§7.2.2). Shared topics never carry it.
@@ -29,7 +29,7 @@ Out:
   - `Create(cred, kind, action, subject, revision, payload)`, `Approve(session, id)`, `Deny(session, id)`, `ListMine(cred)`, and an expiry sweep at 24 h;
   - `Approve` re-reads the subject's current revision (PR head sha for merge) in the same transaction;
   - each state change writes a projection event (§3.1) on `confirmations:<member>`.
-- `packages/backend/internal/services/command_dispatch.go` (new): for a `delegated` credential, look up the command's catalog row and apply `run`, `confirm` or `never` before the handler runs. A `permission` error from `Authorize` with `fix.confirmation = review_merge` creates the `review_merge` row the same way.
+- `packages/backend/internal/services/command_dispatch.go`: call the catalog authorizer once before dispatch; execute `run`, reject typed `never` or `permission`, or consume its internal confirmation-required decision by creating a row and returning 202 with `confirmation` and `state`. No confirmation decision is exposed as a 403 fix. C-ACC-01 covers every dispatch door.
 - `packages/backend/internal/routes/confirmations.go` (new), per §6.3:
   - `GET /api/confirmations`: full rows for a session; `{id, state}` only for any other kind;
   - `POST /api/confirmations {action, subject, revision}` from any credential, for `confirm` commands only;
@@ -42,7 +42,7 @@ Out:
 
 ## Tests
 - Integration, real PostgreSQL plus a GitHub fake: `compose/confirmations_integration_test.go` (new). Cases:
-  - a Maintainer's delegated merge request creates a pending `review_merge` row, and the response body has only `id` and `state`;
+  - a Maintainer's delegated merge request creates a pending `review_merge` row, and the dispatch returns 202 with only `confirmation` and `state`;
   - approve is refused for a delegated, run or machine credential, and for another member's session;
   - approve with the maintainer's session calls the fake GitHub merge once, with `sha = revision`;
   - when the PR head moves before approve, the row becomes `expired` with `409 conflict`, and GitHub gets no merge call;

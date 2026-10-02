@@ -8,7 +8,7 @@ Every TODO PR shows its GitHub checks by name, a blocked merge shows GitHub's ow
 
 ## Scope
 In:
-- Checks on every TODO PR head, not only on the automerge path. The checks stream (T-GH-02) feeds `{name, status, conclusion, required}` into the latest attempt's evidence, the `todo:<n>` PR `checks` and the home `merge_block`.
+- Checks on every TODO PR head, not only on the automerge path. The `pr-state` stream (T-GH-02) feeds `{name, status, conclusion, required}` into the latest attempt's evidence, the `todo:<n>` PR `checks` and the home `merge_block`.
 - Required checks come from `main`'s branch protection and rulesets, read with `administration: read` (§12.1.2). A failed required check holds Merge and names itself (§12.3). Other failures show in evidence but don't block.
 - GitHub's refusal text, built (delta.md §7): `landingGitHubStatusError` (`landing_github_pull.go:446-465`) discards the response body today and returns generic sentences. Keep the body's `message` and `errors[].message` on every non-2xx response, so a blocked merge shows GitHub's sentence, for example "1 approving review required on GitHub" (§10.6.2).
 - PR merged on GitHub → `merged` once `main` contains the commit (§4.1). The linked issue closes, with a comment linking the change, only when `fixes_issue` is true. Later items are force-updated (§10.6.3).
@@ -22,7 +22,7 @@ Out: the merge command and its session and role guards (T-STK-04); rebase execut
 - `packages/backend/internal/services/github_inbound_pulls.go` (new) → the T-GH-02 consumer for PR state and checks of TODO PRs, reading the `github_synced_*` store (§3.0).
 - `packages/backend/internal/services/mythical_items.go:2163-2221` (`follow`) → read PR state from the synced store; replace `rejected` (`:2196-2197`) with `dropped` plus actor; add the reopen and out-of-order cases. Out of order finds the earlier items contained in the merged commit from the stack order, marks each merged with the note in `todo_events` and activity, and opens `stack_attention` through T-STK-07's API.
 - `mythical_items.go:85` (`mythicalSettledStates`) → keep GitHub-closed TODOs followed for 7 days.
-- `packages/backend/internal/services/mythical_github.go:611` (`HeadChecks`) → return named results with `required`, from branch protection and rulesets; call it from the checks consumer, not only from `merge` (`mythical_items.go:2435`).
+- `packages/backend/internal/services/mythical_github.go:611` (`HeadChecks`) → build named results with `required` from the `pr-state` contexts (`isRequired`), with branch protection and rulesets naming the required set; delete its per-head REST reads; call it from the checks consumer, not only from `merge` (`mythical_items.go:2435`).
 - `packages/backend/internal/services/landing_github_pull.go:446-465` (`landingGitHubStatusError`) → parse the response body and carry `message` and `errors[].message` verbatim in the typed error (§6.2.3 class `github`).
 - `mythical_items.go:2455` ("CI failed on the approved head") and `:2532` ("GitHub refused the merge") → the named failing checks and GitHub's sentence.
 - `mythical_items.go:3168-3255` (`complete`, `completionBody`) → close the issue only when `todos.fixes_issue`.

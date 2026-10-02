@@ -1,6 +1,6 @@
 # T-REL-03 Alpha scorecard instrumentation (mvp.md §10)
 
-Stage S1, S3 · Size M · Depends on T-STK-01, T-COL-04, T-FLW-06, T-INS-06, T-COL-06 · Unblocks — · Issue: to file
+Stage S1, S2, S3 · Size M · Depends on S1: T-STK-01, T-INS-06 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 · Unblocks — · Issue: to file
 Spec: spec.md §20.4 (scorecard definitions), §6.3 (`GET /api/install/scorecard`), §3 (`todos`, `todo_events`, `todo_attempts`, `activity`, `burst_files`, `conversation_entries`, `flow_activations`, `proposals`, `install_settings`), §3.0 (GitHub synced store), §20.3 · Delta: none (new) · Product: mvp.md §10 Success and kill criteria, §12.2 dogfood, M-22, M-31
 
 ## Goal
@@ -36,5 +36,4 @@ Out:
 
 ## Risks and notes
 - Stage split: the TODO-based measures pass at stage 1; terminal edits and core value need bursts (T-COL-04, stage 2); multiplayer needs `presence_sessions` (T-COL-06, stage 2); self-improvement needs proposals (T-FLW-06, stage 3). Until then those measures return `source_missing`.
-- The header's dependencies omit T-COL-06, which writes `presence_sessions`. The multiplayer measure returns `source_missing` until it lands, so this ticket doesn't wait for it.
 - M-31 moves Smithers' own development onto the stack after J1 and J2 pass; the dogfood measure is only meaningful from that date. The scorecard takes any window, so the owner picks it.

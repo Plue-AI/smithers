@@ -12,7 +12,7 @@ In:
 - `PATCH /api/todos/{n}` (amend prompt and acceptance) and `POST /api/todos/{n} {move: up|down}`.
 - The removal primitive Drop calls: take an item out of the order and mark later items for rebase (§10.2.3).
 - Items advance in stack order instead of issue order.
-- Catalog commands `/todo.amend Tn` and `/stack.move Tn up|down`, and the `place` field of `/todo.new`. Both are `agent: confirm` in the catalog (A✓): the app agent posts a one-click confirmation that the prompt's author presses (§15.1.5).
+- Catalog policy: `/todo.amend` and committed `/todo.new` are `confirm`; `/stack.move` is `run`. Draft placement is private form state until commit. Agents post a one-click confirmation for amend or commit, and move immediately (§5.2.1). Check: C-ACC-01.
 
 Out:
 - The Drop command itself: confirm, cancel, PR close, archive (T-STK-05).

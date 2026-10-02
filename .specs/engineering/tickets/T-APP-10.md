@@ -24,7 +24,7 @@ In:
   - a steer field on item branches (`/todo.steer Tn`);
   - actions: New terminal (`/terminal`), SSH, which copies `ssh -p 2222 <branch>@<host>` with the host name of the install's first public origin, or `localhost` when none is set (§8.10.5, `/ssh <branch>`), and Fork (`/branch.fork`). A closed branch offers Fork only.
 - `/branches`: the branch list with machine state and presence avatars, and `/branch <name|Tn>` (Appendix A).
-- Agent doors (§15.1.5, mvp.md Appendix B.2): `/branch`, `/branches`, `/branch.fork` and `/branch.rebase` are `agent: run` and run at once with the author's rights. `/branch.add-to-stack`, `/terminal`, Sleep and Wake are `agent: confirm`: the app agent posts a one-click Confirm card (T-APP-04) that the prompt's author presses, and the command runs from that session.
+- Agent doors use the catalog policy (§5.2.1): branch reads, fork, rebase, `/terminal`, Sleep and Wake are `run`; Add to stack is `confirm` and returns 202 with a confirmation id. No Container adds a confirmation to a `run` action. Check: C-ACC-01.
 - The browser's presence heartbeat (§7.3.1): every 10 s and on every move, with where `{branch}`, `{path, line}`, `{terminal}` or `{run step}`.
 - The model follows §14.3 Branch. Activity rows carry the §3 `activity` columns (kind, actor, summary, files, github); terminal rows carry the §3 `terminals` title plus §14.3 Terminal's owner, watchers and running command.
 

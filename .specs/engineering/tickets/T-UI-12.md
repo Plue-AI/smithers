@@ -14,7 +14,7 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-FLW-07 and revi
 ## Scope
 
 In:
-- `RunView`: graph, step I/O, waits with since, tokens, time and cost, the collapsed Engine row, the scrubber; Inspect is the maximized Run card.
+- `RunView`: graph, step I/O, waits with since, tokens, time and cost, the collapsed Engine row, the scrubber; Inspect is the maximized Run card. Phases show their deterministic title and cells their deterministic label. A phase summary or a cell explanation renders marked as a model summary; when it is absent, the title or label stands alone with no placeholder, spinner or error.
 - Props exactly as `ui-components.md` § T-UI-12 until T-APP-19 lands, then the zod type from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
@@ -24,7 +24,7 @@ Out:
 ## Changes
 
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
-- Fixtures in `apps/app/src/mainview/cards/fixtures/` (shared with T-APP-19).
+- Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # T-TRM-02 Terminal auto sign-in and the Smithers skill on machines
 
-Stage S1 · Size S · Depends on T-ACC-04, T-CAT-02 · Unblocks — · Issue: to file
+Stage S1, S2 · Size S · Depends on S1: T-ACC-04, T-CAT-02 · S2: T-MCH-11, T-TRM-01, T-ACC-05 · Unblocks — · Issue: to file
 Spec: spec.md §5.3, §5.3.2, §6.4, §8.11.1, §15.3, §17.2 · Delta: delta.md §5 (terminal auto sign-in row) · Product: mvp.md J6.1–J6.3, §6.13 CLI and Attribution, M-18, M-21
 
 ## Goal
@@ -48,7 +48,7 @@ Out:
 
 ## Acceptance
 
-- [C-J6-01](../checks/C-J6-01.md): Claude Code in a branch terminal is signed in with the skill, and its actions show "Ben via Claude Code".
+- [C-J6-01](../checks/C-J6-01.md): S1 proves append-only scoped calls and typed scope refusals; S2 proves full delegation, after-placement confirmation, Review & merge and per-uid isolation. Each phase completes independently.
 - [C-SEC-05](../checks/C-SEC-05.md): the stage-1 terminal token allows only its scope list; an agent-uid process holding it can't drop, reorder or merge.
 
 ## Risks and notes

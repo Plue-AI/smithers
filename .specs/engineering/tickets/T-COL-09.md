@@ -1,7 +1,7 @@
 # T-COL-09 Wiki co-editing on the live channel; delete POST+SSE
 
 Stage S3 · Size M · Depends on T-COL-08 · Unblocks — · Issue: to file
-Spec: spec.md §2 (Live document), §6.2.4, §7.4.1–7.4.5, §7.6 (row 8), §13.1–13.2 · Delta: delta.md §4 (wiki row, Modify [S3]) · Product: mvp.md J8.2, §6.11 Pages and editing, M-02
+Spec: spec.md §2 (Live document), §6.2.4, §7.4.1–7.4.6, §7.6 (row 8), §13.1–13.2 · Delta: delta.md §4 (wiki row, Modify [S3]) · Product: mvp.md J8.2, §6.11 Pages and editing, M-02
 
 ## Goal
 
@@ -12,10 +12,11 @@ Two members editing one wiki page see each other's keystrokes within 1 s over `/
 In:
 - The host service owns one Yrs document per open page on topic `doc:wiki:<page>` (§7.4.2). It speaks the same sync step 1/2, update and awareness frames as code documents (§7.4.1), and the browser uses the same `LiveDocProvider` (T-COL-08).
 - The text is `Y.Text("markdown")`, unchanged (§7.6 row 8), so existing page state in PostgreSQL loads as is.
-- Persistence: the merged state plus the rendered Markdown are written to `wiki_pages`/`wiki_page_revisions` once per 2 s idle period, not once per update (§7.4.2). Writes keep today's revision check and conflict retry. The revision is attributed to the actors who edited in that period, from `Y.Map("authors")` (§7.4.4).
+- Persistence (§7.4.2): the merged state plus the rendered Markdown are written to `wiki_pages`/`wiki_page_revisions` in one transaction after 2 s without an update, or 10 s after the oldest unpersisted update under continuous typing, not once per update. Writes keep today's revision check and conflict retry. The revision is attributed to the actors who edited in that period, from `Y.Map("authors")` (§7.4.4).
+- Acknowledgment (§7.4.6): only after that commit does the host send `saved{sv}`. The page loads from its stored state after a host restart, never reseeded from Markdown, so reconnecting clients merge without duplication.
 - Limits stay: 1 MiB Markdown, 1 MiB update, 8 MiB state (`crates/smithers-ffi/src/wiki_document.rs:11-13`).
 - Authorization reuses the wiki read/write gates and revocation watch. A revoked member's subscription ends in ≤ 5 s (§5.6).
-- Edits made offline stay in the `worldDocuments` collection and sync on reconnect, so no edit is lost on reload (today's guarantee, kept).
+- Every update that no `saved` covers stays in the client's `worldDocuments` collection and is resent in sync step 2 on reconnect, so no edit is lost on reload or host crash (today's offline guarantee, extended to unacknowledged updates).
 - Old revisions and history stay readable (AGENTS.md: recorded events remain readable).
 
 Out:
@@ -48,8 +49,10 @@ Out:
   - `packages/backend/internal/routes/wiki_collaboration_test.go` and `wiki_collaboration_startup_revocation_test.go` become live-channel tests (subscribe, revoke in ≤ 5 s);
   - `services/wiki_collaboration_integration_test.go` (real PostgreSQL and FFI) asserts one revision per 2 s idle period under 100 updates per second, and a revision attributed to both editors.
 - interop: `crates/smithers-ffi/tests/wiki-yjs-interop.ts` gains sync step 1/2 against `yjs 13.6.32`.
+- fault: C-DUR-04 K8. Kill the host 1 s after the last keystroke with two clients typing; after restart both reconnect and the page holds every keystroke once. Variant: both tabs close after the last `saved`, the host is killed, and a reopened page holds every acknowledged keystroke.
 - unit: `wiki/CloudWiki.test.ts` and `state/controller/cloud-wiki*.test.ts`:
   - an offline edit survives reload and syncs once;
+  - an update leaves `worldDocuments` only when a `saved` state vector covers it;
   - a stale acknowledgement from an earlier socket is ignored.
 - integration: a page stored by the old protocol opens, edits and saves without losing its history.
 - e2e: `apps/app/e2e/playwright/wiki*.spec.ts` updated. C-J8-02 at S3.
@@ -57,10 +60,11 @@ Out:
 
 ## Acceptance
 
+- [C-DUR-04](../checks/C-DUR-04.md) K8: a host kill loses no acknowledged wiki update and duplicates none.
 - [C-J8-02](../checks/C-J8-02.md) (S3 run): two people co-edit a page live in < 1 s p95. The POST and SSE routes return 404 and are absent from OpenAPI, and old revisions stay readable.
 
 ## Risks and notes
 
-- Persisting per idle period means a host crash loses up to 2 s of merged state on the host. Clients still hold the updates and resend them in sync step 2 on reconnect. Confirmed broken if a C-DUR kill of the host during typing leaves the reopened page missing keystrokes that both clients had.
+- A host crash loses up to 10 s of unpersisted merged state on the host, none of it acknowledged. Clients keep those updates in `worldDocuments` and resend them in sync step 2 on reconnect. Confirmed broken if C-DUR-04 K8 leaves the reopened page missing a keystroke a client had, or holding one twice.
 - Several host processes can't each own a page. The install runs one host service (§1.2), so one in-memory owner is correct. Confirmed broken if a test starts two backends against one database and both accept edits for one page.
 - The hosted Cloud (Plue composes this backend) loses the POST+SSE wiki path too. Confirm with the tech lead that no hosted client depends on it before deleting.

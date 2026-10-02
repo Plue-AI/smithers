@@ -1,6 +1,6 @@
 # T-INS-03 Spike: Homebrew ad-hoc signing and Hypervisor.framework from a launchd daemon
 
-Stage W0 · Size S · Depends on — · Unblocks T-INS-05 · Issue: to file
+Stage W0 · Size S · Depends on — · Unblocks T-INS-08, T-INS-05 · Issue: [#3471](https://github.com/smithersai/smithers/issues/3471)
 Spec: spec.md §16.1.1 · Delta: delta.md §1 (Add: formula in a `smithersai/homebrew-tap` repository) · Product: mvp.md §6.1, §12.5, M-10; overview.md E-01
 
 ## Goal
@@ -13,10 +13,10 @@ In:
 - Variant B: a bottle of variant A, built with `brew install --build-bottle` and `brew bottle`, then poured.
 - Both variants on a new macOS 15 user with Homebrew at `/opt/homebrew` and no global npm `microsandbox`.
 - Daemon context: a LaunchDaemon plist in `/Library/LaunchDaemons` with `UserName` = the installing user, `RunAtLoad` and `KeepAlive`, running the passing variant's `msb`. Installing it takes one `sudo`. Reboot to the login window and, with nobody logged in, boot a microVM from the daemon.
-- The decision the answer drives (§16.1.2): if the daemon boots a VM, T-INS-05 ships the LaunchDaemon with its one `sudo` at `smthrs host start`. If not, it ships the fallback, a launchd agent plus macOS automatic login (no `sudo`), documented in the quickstart. The tech lead records the choice before stage 1 ends.
+- The decision the answer drives (§16.1.2): if the daemon boots a VM, T-INS-08 ships the LaunchDaemon with its one `sudo` at `smthrs host start`. If not, it ships the fallback, a launchd agent plus macOS automatic login (no `sudo`), documented in the quickstart. The tech lead records the choice before stage 1 ends.
 
 Out:
-- The real tap, the `smthrs host` lifecycle group and the production plist (T-INS-05).
+- The real tap (T-INS-05), the `smthrs host` lifecycle group and the production plist (T-INS-08).
 - A `.pkg` (rejected in overview.md E-01). Notarization only as the fallback below.
 - Signing any binary other than `msb`: only `msb` calls Hypervisor.framework.
 
@@ -32,7 +32,7 @@ Known before the spike, read on the maintainer's Mac: the upstream `@superradcom
 
 ## Acceptance
 - [C-SPK-06](../checks/C-SPK-06.md): for each variant, the installed `msb` shows the entitlement, boots a VM that runs `echo ok`, and `smithers-backend microvm doctor` reports ready, with no Gatekeeper prompt.
-- The daemon answer and the T-INS-05 path (LaunchDaemon or launchd agent plus automatic login) are recorded on the issue.
+- The daemon answer and the T-INS-08 path (LaunchDaemon or launchd agent plus automatic login) are recorded on the issue.
 
 ## Risks and notes
 - Homebrew rewrites and re-signs Mach-O files during bottle relocation. If that drops entitlements, variant B fails. Observation that confirms the risk: `codesign -d --entitlements -` on the poured `msb` lacks `com.apple.security.hypervisor` and the boot fails with `HV_DENIED`. Fallback: ship variant A only, or re-sign in `post_install`.

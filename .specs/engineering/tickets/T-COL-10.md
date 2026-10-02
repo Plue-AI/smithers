@@ -8,7 +8,8 @@ Every interface that stage 3 co-editing depends on exists and is enforced from s
 
 ## Scope
 In:
-- ADR 0003 "Live code co-editing: daemon-owned documents on one live channel", recording spec §7.6 and the measured numbers from T-COL-01.
+- ADR 0003 "Live code co-editing: one live channel, documents addressed by topic, the daemon as disk authority", recording spec §7.6 and the measured numbers from T-COL-01. The contracts below are topology-neutral: a browser addresses a document only by its topic (`doc:code:<branch>:<path>`) and never learns where its Yrs authority lives (§7.4.2), so this ticket lands in stage 1 under either topology.
+- The topology decision, in ADR 0003, written only after T-COL-01 re-runs on an idle reference host with browsers on a second device. If relay p95 exceeds 20 ms for 4 KiB frames under guest load, or bridge keystroke p95 exceeds 1 s at 30 Hz, ADR 0003 adopts the host-side document mirror for fan-out, with the daemon kept as the disk authority; otherwise documents live in the daemon. The decision is recorded before T-COL-08 starts. Spec §7.4.6 and §9.2 hold under both.
 - `base_digest` and actor on every write to a branch's files, with `409 stale` on mismatch.
 - Reserved live-channel topics (`doc:code:<branch>:<path>`, `doc:wiki:<page>`) and binary frame kinds 1–2. They are accepted and answered `unsupported` until stage 3.
 - A contract test file that pins each §7.6 row.
@@ -44,4 +45,5 @@ Each of those tickets cites this ADR and adds its row to the contract test.
 
 ## Risks and notes
 - Risk: the guest helper (`microsandbox/guest/smithers-guest.py`) can't compare and write atomically in one `msb exec`. Confirmed if the integration test shows a lost update under concurrent writes. In that case the compare-and-write moves into `smithers-machined` (T-COL-03) and the stage-1 window is documented.
-- The CodeMirror choice lives here as a decision and in T-APP-15 as the build. If T-COL-01 shows the relay can't meet the keystroke budget, ADR 0003 records the fallback: a host-side document mirror for fan-out, with the daemon still the disk authority. The tech lead decides.
+- The CodeMirror choice lives here as a decision and in T-APP-15 as the build.
+- The first T-COL-01 run (contended M3 Max, no second device) measured relay 4 KiB busy p95 197 ms and bridge 30 Hz p95 1,738 ms, both over budget. It doesn't decide the topology; the re-run does, by the rule above.

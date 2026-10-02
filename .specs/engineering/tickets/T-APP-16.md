@@ -22,6 +22,9 @@ In:
   - applies the catalog's `agent: run | confirm | never` (§15.1.5): `confirm` posts the author's private Confirm card, `never` commands are absent from the tool list;
   - sends UI-only flows (§14.1.4) to the author's own browser as instructions on `view:<member>:<branch>`; they never write shared state.
 - One turn at a time per conversation, FIFO, queued server-side. A turn survives its author closing the tab. `/stop` stops only the caller's own turn, and queued prompts stay editable by their author until they start.
+- The queue is `agent_turns` (§3, §15.1.4a). The runner mints the author's turn credential only when the turn starts, after checking that the author is still an active member; a removed or suspended author's turn ends `refused` and runs nothing.
+- Revocation (§5.6, §15.1.4a): the runner subscribes to the revocation event and, within 5 s, cancels the member's queued turns and stops their running turn (credential revoked, model stream aborted, no later write).
+- Audience filter (§15.1.2a): every conversation read inside a turn returns shared entries only, leaving out the author's own private entries too, and the turn credential can't subscribe to `view:*` or `confirmations:*`.
 - The branch tree: a branch, its fork parent and its children. `main` sits at the root and opens on the Home card.
 - Legacy per-member conversations become read-only archives that only their member sees, under "Earlier" (§14.1.5).
 
@@ -47,9 +50,12 @@ Out:
 - Unit: view state round-trips per member. Alice's maximize doesn't change Ben's card state.
 - e2e (`apps/app/e2e/playwright/branch-conversation.spec.ts`, new): the C-UI-06 script.
 - Migration test: a legacy per-member transcript opens read-only under "Earlier" for its member only.
+- Integration (real PostgreSQL): removing Alice cancels her queued turn and stops her running turn within 5 s; no command call with her turn credential succeeds after the removal commits; Ben's queued turn then starts.
+- Integration: an author removed between dequeue and start (a test hook pauses the runner between the two) gets `refused`, and no credential is minted.
+- Integration: a turn's `GET /api/conversations/{b}` and its preflight inputs contain no private entry, its author's own included.
 
 ## Acceptance
-- [C-UI-06](../checks/C-UI-06.md): shared entries, per-member state, the author's rights, UI-only flows local, and a turn that completes after its author closes the tab.
+- [C-UI-06](../checks/C-UI-06.md): shared entries, per-member state, the author's rights, UI-only flows local, a turn that completes after its author closes the tab, no private entry in any turn, and a removed author's turns cancelled.
 
 ## Risks and notes
 - Risk: `AppTimelineService` was built for xstate event logs with fork branches. Confirm that its write model fits ordered prompt, answer and card entries without fork semantics, using the evaluation's two-member integration test. If it doesn't fit, build the §3 tables and leave app timelines unchanged.

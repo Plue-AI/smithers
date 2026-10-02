@@ -1,6 +1,6 @@
 # T-MCH-01 Measure VM memory on 24 and 32 GB; capacity formula
 
-Stage W0, S2 · Size M · Depends on — · Unblocks T-MCH-06 · Issue: to file
+Stage W0, S2 · Size M · Depends on — · Unblocks T-MCH-06 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
 Spec: spec.md §8.2.1, §8.2.2, §8.6.1, §10.3.1, §14.3 (Settings), §18, §20.2 · Delta: delta.md §1 (host profile row), §3 (capacity row) · Product: mvp.md §6.7 Capacity and queue, §9, M-06
 
 ## Goal
@@ -16,14 +16,14 @@ In:
   ```
   machine_mem  = 8, or 6 when host memory < 24
   machine_cpus = clamp(perf_cores / 2, 2, 4)
-  capacity     = max(1, min(floor((mem − reserve) / machine_mem),
-                            floor(perf_cores / 2),
-                            floor((free_disk − 40) / 32)))      reserve = 8
+  capacity     = min(floor((mem − reserve) / machine_mem),
+                    floor(perf_cores / 2),
+                    floor((free_disk − 40) / 32))      reserve = 8; may be 0
   layer_budget = min(48, 25 % of free_disk)
   ```
 
   The disk term's 32 GiB per machine and 40 GiB floor are the per-machine disk size and the free-space floor the runtime uses. The spec's three example profiles give capacity 2, 3 and 6.
-- A layer-prepare VM counts as one machine against capacity while it runs (§8.2.2).
+- Capacity 0 (§8.2.1a): `Sizing` returns the limiting term (memory, cores or disk) with the capacity. The host service refuses to start a fresh install (no owner) at capacity 0 and names the term and its fix with the amount missing; an install with an owner starts, grants nothing, and Settings and `smthrs host status` show the term and fix. Slots, the per-grant disk re-check and preparation inside a grant are T-MCH-06's (§8.2.1b, §8.2.2).
 - Owner setting: the owner may lower capacity and may not raise it above the formula (§8.2.1). The clamp applies on every read, so a smaller host after a restore lowers it.
 - The profile and the resulting limits appear in Settings (§14.3) and `smthrs host status` (§20.2), and `machines {in_use, capacity}` appears in the `home` topic (§7.2).
 - W0 calibration: C-SPK-05 runs on two hosts with different memory sizes (24 and 32 GB are the expected examples). It calibrates the reserve and the per-machine memory, never the formula's shape, and adds no host-specific rule (§8.2.1).
@@ -45,6 +45,7 @@ Out:
 
 - unit (`packages/backend/microsandbox/hostprofile_test.go`, new): a table over synthetic profiles, not Mac models, that includes the three §8.2.1 example columns and every edge: memory on both sides of 24 GiB, performance cores from 2 to 16, free disk on both sides of the disk term and of the 25 % layer budget. Every output equals the formula. This is C-MCH-04.
 - unit: `Clamp` keeps lower owner values, reduces higher ones, and refuses 0 and negatives.
+- unit: profiles just below one machine (13.9 GiB memory; 1 performance core; 71.9 GiB free) give capacity 0 with the matching limiting term. A start without an owner refuses with that term's fix; a start with an owner proceeds at capacity 0.
 - unit (`apps/backend/isolation_test.go`): `microVMConfig` uses an injected profile. A detection error refuses start with a typed message and never falls back to a constant.
 - integration (real PostgreSQL, `packages/backend/internal/services/install_capacity_integration_test.go`, new): the owner lowers capacity; a non-owner is refused (§5.2); a stored value above a smaller host's formula reads back clamped.
 - spike (two hosts): C-SPK-05.
@@ -58,5 +59,5 @@ Out:
 
 - One reserve doesn't fit both hosts: the smaller host needs a larger reserve. Confirmed if C-SPK-05's effective reserve differs by more than 2 GiB between hosts. The tech lead then records new constants in spec.md §8.2.1; the formula's shape stays, and a third host size checks the result.
 - Resolved (tech lead): the layer-prepare VM is sized like one machine (§8.2.2). If a layer build fails out of memory, the run reports it and T-MCH-01's calibration revisits the machine memory, not this exception.
-- Asleep machines keep their disks (§8.4.3), and disk use grows with branches, not with capacity. The 32 GiB per-machine disk is a ceiling, so N retained disks can exceed free disk. Confirmed by summing allocated disk bytes after 20 merged TODOs within 24 h. Cleanup (T-MCH-09) is the only limit.
+- Asleep machines keep their disks (§8.4.3), and disk use grows with branches, not with capacity. The 32 GiB per-machine disk is a ceiling, so N retained disks can exceed free disk. Confirmed by summing allocated disk bytes after 20 merged TODOs within 24 h. The per-grant disk re-check (§8.2.1b, T-MCH-06) stops new grants before retained disks reach the 40 GiB floor, and cleanup (T-MCH-09) frees the space.
 - Every perf and spike artifact records the host profile, because the reference host is the team's Mac mini, whatever its size.

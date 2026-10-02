@@ -10,7 +10,7 @@ One Mac runs a Go host service with PostgreSQL. Each awake branch gets one share
 
 Most of the MVP already exists as parts: the durable flow engine, the Mythical stack worker with PRs based on `main`, microVMs, the wiki's Yjs merge, terminals, secrets, GitHub App access and the card-based app. The engineering work turns those parts into one shared, multi-member product. The current pieces are built for one owner, one workspace per person and an issue-keyed queue. Four new mechanisms carry the product:
 - **One live branch.** A branch has exactly one machine. Everyone joins it, and an admission queue decides who gets a machine when capacity is full.
-- **The machine daemon.** `smithers-machined` watches every write (inotify), attributes it exactly when it came through Smithers and otherwise to the only active session on the branch, groups writes into bursts with a jj snapshot each, and in stage 3 hosts the live Yjs documents for code files.
+- **The machine daemon.** `smithers-machined` watches every write (inotify), attributes it exactly when it came through Smithers and otherwise to the only active session on the branch, groups writes into bursts with a per-file versions commit each (C-COL-05), and in stage 3 hosts the live Yjs documents for code files.
 - **The live channel.** One WebSocket per tab carries projection deltas, presence, terminals and, in stage 3, Yjs documents.
 - **The TODO object.** A first-class TODO with its own state machine, placement, stacked PRs and a person-only merge bound to the reviewed revision.
 
@@ -34,7 +34,7 @@ Most of the MVP already exists as parts: the durable flow engine, the Mythical s
                                                    │ working copy (jj) · coding host (pinned flow) │
                                                    │ daemon sessions: member uids, no sudo · agent │
                                                    └───────────────────────────────────────────────┘
- GitHub ◀── App: git + conditional REST polls every 30–120 s; webhooks optional ──▶ host service
+ GitHub ◀── App: git + conditional REST and one GraphQL poll, every 30–120 s; webhooks optional ──▶ host service
  PRs are based on main: each is the verified candidate for its item; Smithers enforces merge order
 ```
 
@@ -45,7 +45,7 @@ Most of the MVP already exists as parts: the durable flow engine, the Mythical s
 | Members, TODOs, stack order, states, activity, approvals, flow versions, sync state | PostgreSQL | Backups (`smthrs host backup`) |
 | Run steps, waits, outputs | Flow runtime journal on the executing host or machine | Runtime replay; PostgreSQL holds the projection |
 | Working copy bytes while awake | `smithers-machined` on the machine | Last capture in the host repo store |
-| Live code documents | `smithers-machined` (in memory; disk is truth) | The file on disk |
+| Live code documents | `smithers-machined`: the file plus a Yrs state record saved before each acknowledgment (spec §9.2.2, C-DUR-04 K7); ADR 0003 may add a host mirror for fan-out | The state record and the file |
 | Live wiki documents | Host service (Yrs, persisted per idle period) | `wiki_page_revisions` |
 | `main`, issues, PRs, reviews, checks | GitHub | Polling |
 | Presence | Host memory, 30 s leases | Heartbeats |
@@ -57,14 +57,14 @@ Most of the MVP already exists as parts: the durable flow engine, the Mythical s
 | E-01 | A Homebrew tap installs a launchd-supervised host service, bundled PostgreSQL and `msb`/libkrun, assembled by the restored `build-native.ts` stages. No Electrobun app and no Docker. | Browsers are the product surface (M-28). Ad-hoc signing with the hypervisor entitlement works from a formula (to be confirmed by spike T-INS-03). | Notarized `.pkg`: an installer outside Homebrew and slower releases. Developer ID notarization inside the formula is T-INS-03's fallback (the identity exists). Docker: no microVMs on macOS. | Yes |
 | E-02 | Repository code runs only in machines. Overridable flows (todo, learning, review, repository flows) run in the branch's coding host or an ephemeral background machine. | M-29 and M-30. An agent steered by issue text must not reach host secrets. | `trusted_process` on the host (ADR 0001): unsafe once the maintainer release admits outside text. | No: a security boundary |
 | E-03 | One branch has one machine, keyed by branch. Members and the agent join it, and branch locks are deleted. | M-17; "feels like a CRDT". | Grants on per-user workspaces: still two working copies. | Hard |
-| E-04 | A Rust daemon, `smithers-machined`, inside each VM owns sessions, the write watcher (inotify; exact attribution for writes through Smithers, session-based otherwise; fanotify deferred by product v2.5), bursts with a jj snapshot each, moved-off detection and capture [S2], and live code documents [S3]. | Attribution needs the pid of each write, which only the guest kernel has. Keystroke-rate writes can't afford a `msb exec` per write. Yrs is already in the stack. | Host-side documents with `PUT /files/content`: no attribution, and a process spawn per write. | Medium |
+| E-04 | A Rust daemon, `smithers-machined`, inside each VM owns sessions, the write watcher (inotify; exact attribution for writes through Smithers, session-based otherwise; fanotify deferred by product v2.5), bursts with a per-file versions commit each, the mutation lock and outbox, moved-off detection and capture [S2], as a root broker beside an unprivileged daemon (spec §9.5–§9.6; C-COL-03..05), and live code documents [S3]. | Attribution needs the pid of each write, which only the guest kernel has. Keystroke-rate writes can't afford a `msb exec` per write. Yrs is already in the stack. | Host-side documents with `PUT /files/content`: no attribution, and a process spawn per write. | Medium |
 | E-05 | One WebSocket per tab (`/api/live`) carries projections [S1], presence and terminals [S2], and Yjs [S3]. The wiki moves onto it with code co-editing, and the POST+SSE wiki path is deleted then. | Under 1 s keystrokes; one co-editing implementation; no per-resource SSE connection limit. | Keep SSE for projections plus new WebSockets for documents: three transports. | Medium |
 | E-06 | PostgreSQL is the only read model. Every card-visible mutation writes a `projection_events` row in the same transaction. | Honest state (mvp.md §2 rule 5) and gap-free reconnects. | Client-side reconstruction from events: drifts. | Medium |
-| E-07 | A TODO is its own table with an explicit state machine and an event log. `mythical_items` stays the engine's work record, 1:1 with a TODO. | M-16. The 15 internal states project onto the 8 product states. | Keep issues as TODOs: contradicts M-16. | Hard after data exists |
-| E-08 | GitHub uses an App made by the manifest flow during install. Repo-wide conditional polls cost about 500 REST calls/h. Webhooks only speed things up. | M-03: no public address. 304 responses are free. | Per-PR polling: about 4,300 calls/h. Webhook relay service: needs our infrastructure. | Yes |
+| E-07 | A TODO is its own table with an explicit state machine and an event log. `mythical_items` stays the engine's work record, 1:1 with a TODO. | M-16. The 15 internal states project onto the 9 product states. | Keep issues as TODOs: contradicts M-16. | Hard after data exists |
+| E-08 | GitHub uses an App made by the manifest flow during install. Repo-wide conditional REST polls plus one GraphQL query for all TODO PRs cost at most 392 requests/h with ten TODO PRs (spec §12.2.2, C-GH-08). Webhooks only trigger a fetch and never stretch a cadence (C-GH-07). | M-03: no public address. 304 responses are free. | Per-PR REST polling: 1,200 check requests/h alone for ten pending PRs. Webhook relay service: needs our infrastructure. | Yes |
 | E-09 | Only a browser `session` credential can approve or merge. `smthrs login`, terminal sign-in and the app agent get `delegated` credentials with `via`. Every delegated catalog row is `run`, `confirm` (a one-click card the person presses) or `never` (spec §15.1.5). | §6.13 and M-21. The CLI can't know whether an agent holds its token. | Person PATs with an "agent" flag: trusts the client. | Hard |
 | E-10 | Each member has a stable unix uid on every machine and a per-machine home on that machine's disk; a host credential store syncs only five tool credential files (newest write wins). No sudo, for anyone. | M-18 and M-29. Spike T-MCH-02: two VMs writing one virtiofs home lost data. | Shared `developer` user: shared logins. One host home mounted into every machine: lost data. | Medium |
-| E-11 | One admission queue with priority person > TODO > background. Capacity comes from host memory. No preemption of a working agent. | M-06 and M-13. | Hard refusal at the cap (today). | Yes |
+| E-11 | One admission queue with priority person > TODO > background. Capacity comes from the detected host (memory, cores, and free disk re-read before every grant), and every VM holds a slot from grant to confirmed stop (C-MCH-11). No preemption of a working agent. | M-06 and M-13. | Hard refusal at the cap (today). | Yes |
 | E-12 | A run pins the flow digest. Activation happens after a background `flow-load` run on the new `main`, and a failed load keeps the previous version. | J5 and §6.12. A per-machine coding host makes #3377 unnecessary. | Load in the host: violates E-02. | Yes |
 | E-13 | Origin-agnostic: loopback by default; the owner sets the bind address and public origins. The app works in secure and insecure contexts: no `crypto.randomUUID`, `crypto.subtle` or clipboard dependency. HTTPS comes from any proxy the team uses. | Will (2026-10-02): Tailscale isn't part of the product. Removing the secure-context dependency makes every exposure work. | Tailscale-only (`tailscale serve`): ties the product to one vendor. Install CA plus `smthrs connect`: certificate work for every teammate. | Yes |
 | E-14 | One command catalog source feeds the app registry, the CLI, the skill and `catalog.mvp.json`, with an allowlist test against mvp.md Appendices A, B and C. | §2 rule 1 and M-21. Today there are two catalogs. | Hand-sync two catalogs: drifts. | Medium |
@@ -80,7 +80,7 @@ ADRs: 0002 records E-01, E-02, E-03 and E-09 and supersedes ADR 0001 for the Mac
 
 ## Build plan
 
-The stages are mvp.md §11's, and launch needs all three. Each stage ends with its checks passing on the reference host: the team's Mac mini, whatever its size, since every limit derives from the detected host (E-17). The first days of stage 1 build one thin end-to-end path, and everything else in the stage widens it.
+The stages are mvp.md §11's, and launch needs all three. Each stage ends with its checks passing on the reference host, a 32 GB Apple Silicon Mac mini (mvp.md §9), where the performance budgets are measured. Limits are separate: every install derives them from its detected host (E-17), and every artifact records the host profile. The first days of stage 1 build one thin end-to-end path, and everything else in the stage widens it.
 
 ```
  W0 (days 1–3)   Spikes, in parallel. Each is a yes/no answer with a fallback:
@@ -88,11 +88,14 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                  T-COL-01 relay + Yjs keystroke latency + jj snapshot latency
                  T-INS-03 signing + Hypervisor from a launchd daemon   T-GH-01 manifest from a LAN laptop
 
- Stage 1         Thin path first: T-INS-01 → T-INS-02 → T-ACC-01 (App credentials from env) → T-STK-01 → T-STK-04
- skeleton        (M+M+M+L+M ≈ 3–5 agent-weeks serial; about 2 calendar weeks with three lanes:
- (J1 J2 J4 J5    install, access, stack). It runs on today's four-run worker; T-FLW-11 replaces that path
-  J6.1–3 J7      inside stage 1 and deletes it in the same change.
-  J11.1)         Then widen, in parallel:
+ Stage 1         Thin path first, in three lanes; it passes C-J1-04 with stage-1 tickets only:
+ skeleton          install  T-INS-01 → T-INS-02 → T-INS-08 (launchd service, smthrs host start)
+ (J1 J2 J4 J5      access   T-ACC-01 (App credentials from env) → T-ACC-02 → T-ACC-03 → T-STK-04
+  J6.1–3 J7        stack    T-STK-01 → T-STK-12 → T-STK-04, and T-STK-01 → T-ACC-02 (projection writer)
+  J11.1)         The longest chain is T-STK-01 → T-ACC-02 → T-ACC-03 → T-STK-04 (L + 2M + L, about 3–6
+                 calendar weeks). It runs on today's four-run worker; T-MCH-14 → T-FLW-11 replaces that
+                 path inside stage 1 and deletes it in the same change.
+                 Then widen, in parallel:
                    access: roster, roles, delegated creds, run/confirm/never, revocation (first ticket)
                    TODO: object, states incl. Starting, placement, steer, stop/resume/retry, needs-you,
                          Make TODO, one todo run per attempt (T-FLW-11), long-lived workspaces (T-MCH-14)
@@ -115,20 +118,21 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                  presence-aware rebase, browser notifications, Obsidian folder sync
  Stage 3         Live code co-editing (daemon documents, outside-save merge and Compare, wiki moves to
  (J3.5, J8)      the live channel), learning flow + proposals + lessons, plan citations of wiki revisions
- Release         Homebrew tap, smthrs host upgrade/backup/restore, quickstart + flows reference, perf
+ Release         Homebrew tap, quiesced smthrs host upgrade/backup/restore, quickstart + flows reference, perf
                  budgets, journey recordings (J1–J8, J10, J11, both themes), fault suite
  Dogfood         Once stage 1 passes J1 and J2 (M-31): Smithers' own development moves onto the stack on
                  Will's Mac mini, and issue-sweep stops pushing to main (target 50 merged in two weeks)
 ```
 
-Critical path: W0 spikes → T-MCH-04 ‖ T-MCH-11 → T-COL-03 → T-COL-04 (stage 2 watcher) → T-COL-08 (stage 3 documents) → T-APP-14 → C-J3-04, with T-COL-01 → T-COL-10 fixing the contracts in stage 1. Will confirmed co-editing for the MVP on 2026-10-02. The second path is T-STK-01 → T-MCH-14 → T-FLW-11 → T-STK-06 → T-GH-04 → C-J10-02. Product v2.5 deferred exact kernel attribution, so the fanotify spike is off the critical path. The UI port is on the stage-1 path: T-UI-01 → T-UI-02 → T-APP-03 → C-J1-02 gates J1, and T-UI-03/04/05 → T-APP-02/04 gate J2.
+Critical path: W0 spikes → T-MCH-04 ‖ T-MCH-11 → T-COL-03 → T-TRM-07 → T-COL-04 (stage 2 watcher) → T-COL-08 (stage 3 documents) → T-APP-14 → C-J3-04, with T-COL-01 → T-COL-10 fixing the contracts in stage 1. Will confirmed co-editing for the MVP on 2026-10-02. The second path, stage 1's stateful path, is T-STK-01 → T-MCH-14 → T-FLW-11 → T-STK-06 → T-GH-04 → C-J10-02. The skeleton path is the thin path above, which ends at C-J1-04. Product v2.5 deferred exact kernel attribution, so the fanotify spike is off the critical path. The UI port is on the stage-1 path: T-UI-01 → T-UI-02 → T-APP-03 → C-J1-02 gates J1, and T-UI-03/04/05 → T-APP-02/04 gate J2.
 
 ## Top risks
 
 | Risk | Falsified by | If it holds |
 | --- | --- | --- |
 | T-FLW-11 (one `todo` run replacing four launches) is bigger than an L and blocks J5, J10.2 and stop/resume | A first pass that runs one TODO end to end as one run id with the regression list green | Land it before T-STK-05, T-STK-06 and T-FLW-03..05, and give it two lanes |
-| Keystroke p95 over browser → host → relay → VM exceeds 1 s | T-COL-01: two browsers on a second device, 1,000 keystrokes | Host-side document mirror for fan-out; the VM stays the disk authority |
+| **Showing.** Keystroke p95 over browser → host → relay → VM exceeds 1 s. T-COL-01 measured relay busy 4 KiB p95 197 ms (target 20 ms) and bridge 30 Hz p95 1,738 ms (target 1 s), on a contended M3 Max with no second device | T-COL-01 re-run on an idle reference host with a second device (the first, contended run failed both budgets); C-SPK-07 | ADR 0003 adopts the host-side mirror for fan-out by T-COL-10's rule before T-COL-08; the VM stays the disk authority |
+| Daemon sessions cannot carry VS Code Remote or 5 s revocation without sshd | T-TRM-06 (C-SPK-08) | Escalate before T-COL-03 starts; no per-member sshd (M-29) |
 | Session-based attribution reads "changed outside Smithers" too often to be useful in J3 | C-J3-03 on the reference host, with two members each running a formatter | Product revisits fanotify (parked, `tickets/deferred/T-MCH-03.md`) |
 | One catalog from Appendices B and C breaks the 116 Playwright specs, or deletes too much | T-CAT-01 runs both suites; T-CUT-01 lists ambiguous rows for product | Migrate group by group behind the allowlist test (T-CUT-01's first run was discarded for deleting too much) |
 | Hypervisor.framework fails from a launchd daemon | T-INS-03 spike | Launchd agent plus automatic login, no sudo (spec §16.1.2) |
@@ -140,7 +144,7 @@ Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so hom
 | Question | Owner | Blocks |
 | --- | --- | --- |
 | Default `parallel` when capacity is 2 (mvp.md §13); spec §10.3.1 defaults it to 1 until T-MCH-01's measurement | Product, after T-MCH-01 | T-STK-03 |
-| Which Mac mini is the reference host, and a second LAN laptop for T-GH-01 and C-J1 runs. No Mac mini is on this LAN by Bonjour; this machine is a MacBook Pro M3 Max 64 GB. | Ops (smithers-2f), asking Will | T-MCH-01, the W0 spikes' recorded answers, R checks |
+| Which 32 GB Mac mini is the reference host (mvp.md §9), and a second LAN laptop for T-GH-01 and C-J1 runs. No Mac mini is on this LAN by Bonjour; this machine is a MacBook Pro M3 Max 64 GB. | Ops (smithers-2f), asking Will | T-MCH-01, the W0 spikes' recorded answers, R checks |
 
 Settled 2026-10-02 and recorded in spec.md: co-editing in the MVP (Will), Tailscale out of the product (Will), sizing from the detected host (Will), branch-shared conversations (Will), Return to Tn / Keep for now (product), the Docker image deleted (tech lead), billing and multi-repository hidden with code kept (product), #3377 not needed (tech lead).
 

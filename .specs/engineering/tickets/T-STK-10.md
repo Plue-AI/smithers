@@ -8,7 +8,7 @@ Every attempt of a TODO keeps its own evidence (diff stat, checks run on the mac
 
 ## Scope
 In:
-- `todo_attempts.evidence` with one schema: `{diff_stat, checks[{name, outcome, duration_ms, log_blob}], review_summary, github_checks[{name, conclusion, required}], tokens, time_ms, flow{name, digest}, model_access}`.
+- `todo_attempts.evidence` with one schema: `{diff_stat, checks[{name, outcome, duration_ms, log_blob}], review_summary, github_checks[{name, conclusion, required}], tokens, time_ms, flow{name, digest}, model_access}`. Each part carries the candidate `generation` it describes (§10.4.3), and the PR body and the card show the accepted generation's parts.
 - Writers: the attempt's one `todo` run (T-FLW-11) for machine checks, review and usage; the GitHub sync for checks on the attempt's PR head.
 - Check logs stored once in the blob store and referenced by digest.
 - The `todo:<n>` projection's evidence per attempt.

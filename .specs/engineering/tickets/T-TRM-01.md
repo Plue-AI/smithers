@@ -1,6 +1,6 @@
 # T-TRM-01 Terminals run as their owner; only the owner types
 
-Stage S2 · Size S · Depends on T-MCH-11, T-COL-03 · Unblocks T-TRM-05, T-APP-12 · Issue: to file
+Stage S2 · Size S · Depends on T-MCH-11, T-COL-03, T-TRM-07 · Unblocks T-TRM-05, T-APP-12 · Issue: to file
 Spec: spec.md §2 (Terminal), §3 (`terminals`), §7.1, §7.5, §8.11, §8.4.1, §9.1.2 (`open_session`), §5.6 · Delta: delta.md §3 (per-member users row), §5 (terminal sessions row) · Product: mvp.md J3.3, J6.5, §6.8 Terminals, M-18
 
 ## Goal
@@ -10,7 +10,7 @@ A member's terminal runs as that member's unix user in the working copy and stre
 ## Scope
 
 In:
-- `POST /api/terminals open{branch}` makes a `person` admission request (T-MCH-06). Once the machine is awake, the host's terminal manager calls `smithers-machined` `open_session(member, pty)` (§9.1.2). The daemon starts the PTY as the owner's uid, in a new session cgroup, in `/workspace`, with `umask 002` and the T-TRM-02 sign-in (§8.11.1). Machines run no sshd.
+- `POST /api/terminals open{branch}` makes a `person` admission request (T-MCH-06). Once the machine is awake, the host's terminal manager calls `smithers-machined` `open_session(member, pty)` (§9.1.2, §9.6, built by T-TRM-07). The broker starts the PTY as the owner's uid, in a new session cgroup, in `/workspace`, with `umask 002` and the T-TRM-02 sign-in (§8.11.1). Machines run no sshd.
 - Live-channel transport (§7.5): a terminal subscription on `/api/live` carries binary kind 3 (output), 4 (input) and 5 (control: resize, exit). The per-session terminal WebSocket is deleted in the same change.
 - Owner-only input: kind 4 frames from any subscriber who isn't the owner are dropped and counted (`smithers_terminal_input_dropped_total`, §7.5). Resize from watchers is ignored.
 - Watchers: any member allowed `branch.join` (T-ACC-03) subscribes read-only and gets the 512 KiB ring replay (§8.11.3). Backpressure drops a terminal to ring replay (§7.1.1).
@@ -48,5 +48,5 @@ Out:
 ## Risks and notes
 
 - Risk: the daemon hop adds keystroke echo latency. Falsified if p95 echo through `open_session` exceeds today's `msb exec -t` path by more than 50 ms on the reference host.
-- Dependency gap: `open_session` is `smithers-machined`'s RPC (T-COL-03), which the index doesn't list as a dependency of this ticket.
+- Session lifecycle (exit, resize, close, kill, reconnect within 30 s, end on daemon restart) is T-TRM-07's protocol (§9.6). This ticket maps the terminal manager onto it: kind 5 resize → `resize`, the shell's `exit` → kind 5 exit, Close → `close_session`, removal → `kill_sessions`.
 - Spec gap: `terminals.shared` (§3) has no meaning in §8.11, where any member may always watch. This ticket omits the column (owner: tech lead).

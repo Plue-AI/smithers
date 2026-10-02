@@ -38,7 +38,9 @@ Out:
 
 ## Acceptance
 - [C-COL-01](../checks/C-COL-01.md): the File card renders with CodeMirror 6, and `adapters/code-view` has no consumer.
+- [C-UI-11](../checks/C-UI-11.md): hover, definition and diagnostics work on an awake branch's File card, on the S1 build and again on the release build; the webpage reader card still works.
 
 ## Risks and notes
 - Risk: CodeMirror's Lezer highlighting looks different from today's Shiki output. Confirmed by a screenshot diff on five languages. If it fails the design review, use a Shiki-backed CodeMirror highlighter; the decision belongs to the design agent.
 - Risk: the LSP gesture payloads assume Pierre token positions (`CodeTokenPosition`). Confirmed by the hover unit test. Convert at the adapter boundary, not in the flows.
+- Risk: stage 2 replaces today's workspace session path (`CloudLspClient`, `workspace/sessions` kind `lsp`) with daemon sessions and per-member users (§9.1.2, §5.5). Confirmed if C-UI-11 passes on the S1 build and fails on the release build. T-APP-11 moves the language server onto the daemon; C-UI-11's release run is the gate.

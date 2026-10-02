@@ -41,6 +41,8 @@ Out:
 - e2e: [C-J1-06](../checks/C-J1-06.md).
 
 ## Acceptance
+- [C-J8-06](../checks/C-J8-06.md): on a repository with no declarations, a merge refreshes the package's generated page as a background run.
+
 - [C-J1-06](../checks/C-J1-06.md): a repository with no Smithers files runs a TODO whose evidence lists the detected checks, with no commit to `.smithers/` or `flows/`.
 
 ## Risks and notes

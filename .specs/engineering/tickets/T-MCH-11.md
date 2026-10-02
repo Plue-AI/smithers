@@ -10,7 +10,7 @@ On every machine, each member is their own unix user with a private home on that
 ## Scope
 
 In:
-- Users (§5.5.1): each member gets `members.unix_uid` (from 20000, never reused) and login = GitHub login sanitized to `[a-z0-9_-]{1,32}`. A sanitized login that collides gets a numeric suffix (`ben`, `ben2`), fixed at first assignment (§5.5.2). `agent` is uid 19999. `smithers-machined` is the only root process.
+- Users (§5.5.1): each member gets `members.unix_uid` (from 20000, never reused) and login = GitHub login sanitized to `[a-z0-9_-]{1,32}`. A sanitized login that collides gets a numeric suffix (`ben`, `ben2`), fixed at first assignment (§5.5.2). `agent` is uid 19999. The `smithers-machined` broker is the only root process; the base image creates `machined` (uid 19998, groups `{team}`) for its daemon (§9.5.1, C-COL-04).
 - Users exist on every machine: active members are created at boot, and a member added later is created at their first session start.
 - `team` group, gid 20000 (§5.5.3). The working copy `/workspace` is owned `root:team`, directories are setgid, mode is `g+rwX`, and every session runs with `umask 002`. Members and `agent` are in `team` and in no other supplementary group.
 - No privilege (§5.5.2): the image has no `sudo`, no `su`, no setuid or setgid file, and no file with capabilities. The `root` SSH user that `packages/backend/internal/services/workspace_ssh.go:24-38` offers is deleted, and so is the `developer` default for members (`packages/backend/internal/services/workspace.go:33-37`).
@@ -47,6 +47,8 @@ Out:
 - unit (`packages/backend/internal/services/workspace_ssh_test.go`): `root` is refused with `CodeWorkspaceSSHUserInvalid`.
 
 ## Acceptance
+- [C-COL-04](../checks/C-COL-04.md): the daemon runs unprivileged beside the root broker.
+
 
 - [C-MCH-06](../checks/C-MCH-06.md): no sudo or setuid; homes are 0700; `agent` and other members can't read a home.
 - [C-MCH-09](../checks/C-MCH-09.md): homes are per machine, created at first session, never shared, kept across sleep.

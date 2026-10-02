@@ -15,7 +15,8 @@ Ben on branches A and B, both awake. Fixture files for the five tracked paths. B
 6. Wake branch C for the first time and open Ben's terminal there.
 7. Query every API route and CLI command that lists members, secrets or settings for credential content.
 8. Restart the host service, then read the store and the five files on A and B.
-9. Suspend Ben.
+9. On A, Ben logs out of Codex (the tool deletes `~/.codex/auth.json`) and of `gh` (it rewrites `~/.config/gh/hosts.yml` without the host). Then sleep B and wake it.
+10. Suspend Ben.
 
 ## Pass when
 - Step 2: B has all five files, byte-equal except `~/.claude.json`, where only the account fields changed and the 40 keys and `projects` are untouched. Mode 0600, Ben's uid.
@@ -25,12 +26,14 @@ Ben on branches A and B, both awake. Fixture files for the five tracked paths. B
 - Step 6: C has the five files before the terminal's first prompt.
 - Step 7: no response contains any credential byte; the PostgreSQL rows hold only ciphertext.
 - Step 8: the store and all five files on A and B are unchanged after the host restart.
-- Step 9: the store rows are gone and the five files are gone from A and B within 5 s.
+- Step 9: within 5 s of the logout, the store has no Codex row, B has no `~/.codex/auth.json`, and B's `hosts.yml` equals A's. After B wakes, neither login is seeded back.
+- Step 10: the store rows are gone and the five files are gone from A and B within 5 s.
 
 ## Fail when
 - `~/.claude.json` is replaced whole or loses a non-account key.
 - A machine keeps a superseded token after step 4.
 - Any history, cache or database file crosses machines.
+- A logout on one machine is undone by a later seed.
 
 ## Evidence
 `.artifacts/checks/C-MCH-10/<ts>/`: per-step file hashes per machine, the store rows (ciphertext only), timings, the test log and the commit.

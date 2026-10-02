@@ -1,4 +1,4 @@
-# C-CAT-03 The Smithers skill lists exactly the Appendix A catalog
+# C-CAT-03 The Smithers skill lists exactly the Appendix A rows open to external agents
 
 Proves: mvp.md §6.13 "Smithers skill", §8 (CLI and skill: Keep; other groups left out of MVP docs), J6.3, M-21, Appendix A, Appendix B.5 · spec.md §6.1.2, §6.1.3, §14.6b, §15.3 · Layer: unit · Stage: S1 · Tickets: T-CAT-02
 Automation: `packages/smithers/test/CatalogSkill.test.ts` (new) · Runs in: CI
@@ -17,7 +17,7 @@ Automation: `packages/smithers/test/CatalogSkill.test.ts` (new) · Runs in: CI
 
 ## Pass when
 - Step 1: no diff.
-- Step 2: the set of CLI paths in the section equals the non-null `cli` values of the `core` and `advanced` rows in `catalog.mvp.json`, with no extra rows and none missing. Person-only rows (`/merge`) say they open a confirmation in the app.
+- Step 2: the set of CLI paths in the section equals the external-agent action paths of the `core` and `advanced` rows in `catalog.mvp.json`, with no extra rows and none missing. Person card doors for secrets, members and settings are excluded; search and GitHub status are included as read-only commands. `confirm` rows, such as `/merge` and `/todo.amend`, say they open a confirmation in the app.
 - Step 3: the installed skills name no command from step 4. The Smithers skill is present and contains the section from step 1.
 - The section contains none of the §14.6b banned terms (workflow, thread, task, lane, box, workspace, mythical, sandbox, VM, seat, profile), read from the C-UI-02 list rather than a second copy.
 

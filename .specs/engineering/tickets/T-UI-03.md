@@ -14,7 +14,7 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-APP-02 and revi
 ## Scope
 
 In:
-- `DraftView`: text, the linked issue, the place picker and Commit; private until committed.
+- `DraftView`, the §14.3 Draft model: title, prompt, acceptance, the linked issue with its fixes toggle, the place picker (Append, Before Tn, Amend Tn), a read-only seed, Commit and Discard; a private marker until Commit, then the committed receipt.
 - Props exactly as `ui-components.md` § T-UI-03 until T-APP-19 lands, then the zod type from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
@@ -24,7 +24,7 @@ Out:
 ## Changes
 
 - `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
-- Fixtures in `apps/app/src/mainview/cards/fixtures/` (shared with T-APP-19).
+- Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
 ## Tests
 

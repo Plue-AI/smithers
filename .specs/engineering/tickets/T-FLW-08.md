@@ -1,6 +1,6 @@
 # T-FLW-08 Agent card and owner model configuration restored from `5b77095672`
 
-Stage S1 · Size M · Depends on T-INS-06, T-ACC-03, T-UI-13, T-APP-19 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-INS-06, T-ACC-03, T-UI-13, T-APP-19 · Unblocks — · Issue: [#3454](https://github.com/smithersai/smithers/issues/3454)
 Spec: spec.md §3 (`flow_config`), §5.2 (install settings row), §6.1.2, §6.3 `/api/agents`, §7.2 `agents`, §11.5, §11.5a, §14.3, §14.5.3, §15.1, §15.1.4, §15.2, §16.2 step 4 · Delta: delta.md §1 (Restore model configuration row) · Product: mvp.md J11.4, §6.14 Configure an agent, §6.5 Models, M-23, Appendix A `/agents`, `/agent <name>`, Appendix B.2 (`agent.list`, `model.*`)
 
 ## Goal

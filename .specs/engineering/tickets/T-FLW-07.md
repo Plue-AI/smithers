@@ -22,7 +22,7 @@ In:
 - The `interrupted` run state (§19.1) in the list and the trace, with Retry. The engine reports it today; T-FLW-09 (S2) adds the reconcile cases that produce it for push, GitHub write and shell steps.
 - Delete the user-facing `forks` trace filter. Old journals with fork spans still decode and render.
 - All monitor data arrives on the `run:<id>` topic of the live channel.
-- Phases and cells (§11.6.3): group events per step instance into phases titled and summarized by `agent:fast` (non-blocking, last summary kept on failure); map agent actions to cell kinds by their B.3 / Appendix C row; per-attempt graphs; the `held` state for the trailing wait for merge.
+- Phases and cells (§11.6.3): group events per step instance into phases with deterministic titles (the step's Appendix C label plus its recorded outcome, "Ran checks · 2 failed") and give each cell its deterministic label ("Read retry.ts"); map agent actions to cell kinds by their B.3 / Appendix C row; per-attempt graphs; the `held` state for the trailing wait for merge. Phase summaries and cell explanations come from T-APP-07's summarizer through `run_summaries`; the monitor renders them as model summaries and shows the title or label alone while they are absent. Check: C-J11-01.
 - The thrashing detector (§11.6.4): deterministic host code over run events (failing-check signature, file edits), projected to the phase tone and the `todo:<n>` indicator. C-J11-04.
 
 Out:
@@ -43,6 +43,8 @@ Out:
 - Docs: gateway `docs/` updated; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/smithers/gateway:docs`.
 
 ## Tests
+- Unit, `packages/smithers/gateway/test/RunTrace.test.ts` (extend): phase titles and cell labels are a pure function of the event sequence. A journal replayed twice gives identical strings with no model call; a check phase with 2 failures is titled "Ran checks · 2 failed". Check: C-J11-01.
+
 - Unit, `packages/backend/internal/services/run_thrash_test.go` (new, beside `run_thrash.go`): a table over event sequences. The same test id failing 3× with no edit gives thrash; an edit to a named file between failures resets the count; 3 different test ids give none; error signatures differing only in paths or line numbers count as the same; 3 failures split across two attempts give none; a passing run clears the indicator. A property test asserts the detector is a pure function of the event sequence. (C-J11-04)
 - Unit, `packages/smithers/gateway/test/RunTrace.test.ts` (extend): no `forks` in `TRACE_FILTER_IDS` or `traceFiltersFor`; a journal with a fork span still folds; waits fold with `since` and settler from fixture events.
 - Unit, same file: a fixture `todo` journal titles `coding/edit-atom` "Edited the files" and `coding/check-command` "Ran checks"; `<seal-step>`, `<boundary:name>` and `agent/trace/checkpoint` appear only inside one Engine group.
@@ -52,6 +54,8 @@ Out:
 - e2e, `apps/app/e2e/real/run-inspection.spec.ts` (extend), for [C-J11-01](../checks/C-J11-01.md).
 
 ## Acceptance
+- [C-J11-02](../checks/C-J11-02.md): a flow's custom view and a draft-version run's graph live in the monitor.
+
 - [C-J11-01](../checks/C-J11-01.md): Inspect shows the graph with Appendix C labels and one Engine row, step I/O, transcript, retries, waits with since, and tokens, time and cost per step, with no fork filter.
 - [C-J11-04](../checks/C-J11-04.md): Thrashing: the same failing check 3× in one attempt with no edit in between shows on the TODO card and the Inspect phase; an edit clears it
 

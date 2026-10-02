@@ -15,7 +15,7 @@ In:
 - A preflight step at the start of every app-agent turn, inside T-APP-16's host turn runner (§15.1.4). The turn, including preflight, runs on the host, outside every machine, and survives its author closing the tab.
 - Inputs (§15.1.2): the prompt, the author, the branch, the titles and summaries of the conversation's recent entries, and the branch's state. Candidates: files, wiki pages, TODOs and runs.
 - Output `context[] = {kind, ref, revision?, reason}` within a token budget (default 24k tokens, an owner setting), stored on the answer entry.
-- Only the selected items, the prompt and the last 3 entries' text enter the answer step.
+- Only the selected items, the prompt and the last 3 shared entries' text enter the answer step. Every conversation read in preflight and the answer step applies the audience filter (§15.1.2a): shared entries only, the author's own private entries excluded too.
 - Model: one call on the install's fast model (`agent:fast`, §11.5a), recorded like any step. Without a fast-model key it falls back to the coding model, and the step records which model it used.
 - File candidates are read from the host repository store at the branch's last captured head, so preflight never wakes a machine (§8.4.4).
 - A compact "Context" line on answers, one chip per item, each opening its card.
@@ -41,11 +41,12 @@ Out:
 - Integration: without a fast-model key, preflight runs on the coding model and records it.
 - Unit: the budget cap drops the lowest-ranked items first. The stored `context[]` equals what entered the answer step.
 - Unit: `SelectContext` with `kinds = [wiki]` returns only wiki pages with `{slug, revision}`.
+- Integration: with Alice's private Draft as the newest entry and Ben's own private Draft before it, Ben's turn's preflight input, last-3 window and `context[]` contain neither (C-UI-07).
 - e2e: J9 "where do we retry webhooks?" shows a Context line with at least one file. Clicking a chip opens its card, and Inspect shows preflight first.
 - Perf hook: preflight time is recorded per turn, so C-PERF-01 (T-REL-01) measures the first-token budget with preflight included, the clock starting at submit.
 
 ## Acceptance
-- [C-UI-07](../checks/C-UI-07.md): stored context, Context line, preflight first in Inspect, only selected context reaches the answer.
+- [C-UI-07](../checks/C-UI-07.md): stored context, Context line, preflight first in Inspect, only selected context and shared entries reach the answer.
 
 ## Risks and notes
 - Risk: preflight adds a model round trip that breaks the 1.5 s first-token target. Confirmed by C-PERF-01. Mitigation: a faster preflight model or a smaller candidate list. Escalate to the tech lead before relaxing the target.

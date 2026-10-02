@@ -1,6 +1,6 @@
 # C-UI-01 Every P0 journey completes keyboard-only
 
-Proves: mvp.md §9 Keyboard, §6.4 Input and theme · spec.md §14.7 · Layer: e2e · Stage: R · Tickets: T-REL-02
+Proves: mvp.md §9 Keyboard, §6.4 Input and theme, §5 (P0: J1–J5, J6 steps 1–3, J7, J8, J10, J11) · spec.md §14.7 · Layer: e2e · Stage: R · Tickets: T-REL-02
 Automation: `apps/app/e2e/real/keyboard-journeys.spec.ts` (new), with a guard in `apps/app/e2e/real/support/keyboardOnly.ts` (new); `apps/app/e2e/playwright/browser-keyboard.spec.ts` (existing) stays as the unit-level keyboard test · Runs in: reference host plus a second Mac on the same network
 
 ## Setup
@@ -10,7 +10,7 @@ Automation: `apps/app/e2e/real/keyboard-journeys.spec.ts` (new), with a guard in
 
 ## Steps
 1. Install the guard: on any page served by the install, a call to `click`, `dblclick`, `hover`, `tap`, `dragTo`, `check`, `setChecked`, `fill`, `selectOption` or `mouse.*` fails the test. Allowed input: `keyboard.press`, `keyboard.type`, `keyboard.down`, `keyboard.up`, `locator.press`, `locator.pressSequentially`.
-2. Open the setup URL that `smthrs host start` printed, then run J1 steps 1 to 8 (claim, setup, Settings address fields, first TODO, merge, members, secrets), J2 steps 1 to 6, J3 steps 1 to 6, J4 steps 1 to 3, J5 steps 1 to 5 and J10 steps 1 to 6 on the app's surfaces.
+2. Open the setup URL that `smthrs host start` printed, then run J1 steps 1 to 8 (claim, setup, Settings address fields, first TODO, merge, members, secrets), J2 steps 1 to 6, J3 steps 1 to 6, J4 steps 1 to 3, J5 steps 1 to 5, J6 steps 1 to 3 (typing in the Terminal card), J7 steps 1 to 4, J8 steps 1 to 3, J10 steps 1 to 6 and J11 steps 1 to 4 on the app's surfaces.
 3. After each app action, read `document.activeElement` and its computed `outline` under `:focus-visible`.
 4. In every overlay (palette, form card, Confirm card, maximized card), press Escape; then cycle Tab through the page.
 

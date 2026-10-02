@@ -1,6 +1,6 @@
 # T-GH-08 Follow `main` by default; sync health and Retry
 
-Stage S1 · Size S · Depends on T-GH-02, T-UI-06, T-APP-19 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-GH-02, T-UI-06, T-APP-19 · Unblocks — · Issue: [#3453](https://github.com/smithersai/smithers/issues/3453)
 Spec: spec.md §4.4, §6.3 (`/api/github/sync`), §7.2 (`home`), §7.2.1, §12.2.3, §12.3 (`main` moved row), §12.6, §14.3 (Home `main`) · Delta: delta.md §7 "`mirror: pull` is the default…", "Health model…" · Product: mvp.md J10.4, J10.6, §6.3 "`main` moves", "Sync status", Appendix A `/github`, Appendix B.2 (`github.app`, `github.reconcile`)
 
 ## Goal
@@ -9,7 +9,7 @@ The install's repository follows GitHub's `main` with no declaration, and the Ho
 ## Scope
 In:
 - The install always follows `main`: only `mirror: pull` is supported for the install's repository (§12.2.3). A repository with no `.smithers/factory.json`, or one that declares no or another `github.mirror` value, is followed.
-- Health per §4.4 and §12.2.3, over the required streams (refs, pulls, checks) against a 60 s target: `fresh` while the oldest one's `last_success_at` is within 2 × target; `stale` past it (gold); `refused` on a permission or not-installed error, naming the cause and linking the Settings card; `limited` on a rate limit, with `retry_at`. When several hold, `refused` > `limited` > `stale` > `fresh`.
+- Health per §4.4 and §12.2.3, over the required streams (refs, pulls, `pr-state`) against a 60 s target: `fresh` while the oldest one's `last_success_at` is within 2 × target; `stale` past it (gold); `refused` on a permission or not-installed error, naming the cause and linking the Settings card; `limited` on a rate limit, with `retry_at`. When several hold, `refused` > `limited` > `stale` > `fresh`.
 - The stale transition is published when its time arrives, not at the next poll.
 - `GET /api/github/sync` → `{state, last_success_at, cause?, retry_at?}` (§12.6). The client computes "synced N s ago" from `last_success_at`, so no delta is sent each second.
 - `POST /api/github/sync` → Retry, which forces every stream now (§12.6) through the T-GH-02 hook. Any member may press it, and it is `agent: run` (§12.6, §15.1.5).

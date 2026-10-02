@@ -45,9 +45,9 @@ Today (`research/install-runtime.md`):
 | Action | Change | Spec |
 | --- | --- | --- |
 | Restore→rewrite | Recover the bundling stages of `apps/app/scripts/build-native.ts` from parent `5b77095672`: node, git, jj, smithers-ffi, hosts, `bundlePostgres`, packaged smoke tests. Drop Electrobun, CEF, `NativeRendererServer.ts` and `DeepLink.ts`. Emit a Homebrew bottle layout plus `msb`/libkrun and the guest rootfs. | §16.1 |
-| Add | `smthrs host start|stop|status|upgrade|backup|restore` commands (`up` and `status` already mean other things, `packages/smithers/src/Verb.ts:87`); launchd plist; formula in a `smithersai/homebrew-tap` repository. | §16 |
+| Add [S1, R] | `smthrs host start|stop|status` [S1] (T-INS-08, C-INS-06) and `smthrs host upgrade|backup|restore` [R] (T-INS-07, C-REL-03, C-REL-06); `up` and `status` already mean other things (`packages/smithers/src/Verb.ts:87`). T-INS-08 owns the launchd plist; T-INS-05 owns the formula in a `smithersai/homebrew-tap` repository. | §16 |
 | Modify [S1] | `NativeBackendProcess.ts`: pass `SMITHERS_WORKSPACE_ISOLATION=microvm`, `SMITHERS_MICROSANDBOX_BIN` and the bind/public-origin settings from owner config, not the shell. GitHub App credentials are not launcher settings: they live sealed in PostgreSQL (`github_app`, spec §3) (today's allowlist at `:62-72` drops them). Loopback binding is unchanged. Extend the `backend-child-env` security entry in `apps/app/PACKAGE.ts:259-266` and its tests for the new variables. | §1.3, §16.3 |
-| Modify [S1] | Origin-agnostic serving: loopback by default; owner-set bind address and public origins (Settings, applied live) feed `SMITHERS_SERVER_ADDR`, `SMITHERS_PUBLIC_URL` and `SMITHERS_SERVER_ALLOWED_ORIGINS` (`B/config/config.go:244-251`, `:470`). `localOrigin()` (`NativeBackendProcess.ts:74`) accepts the configured bind; update its `PACKAGE.ts:259-266` security entry so a non-loopback bind is allowed only from owner config. Cookies `Secure` only on https origins. No TLS code and no Tailscale code. | §1.4, §16.3, M-28 |
+| Modify [S1] | Origin-agnostic serving: loopback by default; owner-set bind address and public origins (Settings, applied live) feed `SMITHERS_SERVER_ADDR`, `SMITHERS_PUBLIC_URL` and `SMITHERS_SERVER_ALLOWED_ORIGINS` (`B/config/config.go:244-251`, `:470`). `localOrigin()` (`NativeBackendProcess.ts:74`) accepts the configured bind; update its `PACKAGE.ts:259-266` security entry so a non-loopback bind is allowed only from owner config. One effective origin per request sets cookies, Origin checks and the OAuth callback (spec §16.3.3, C-INS-03). No TLS code and no Tailscale code. | §1.4, §16.3, M-28 |
 | Modify [S1] | Insecure-context support: one `getRandomValues` UUID helper replaces `crypto.randomUUID()` in 34 app files, with a lint ban; replace the single `crypto.subtle` use; clipboard `execCommand` fallback. | §16.3.2 |
 | Add [S1] | Host profile (`hw.memsize`, performance cores, free disk) drives capacity, VM memory, vCPUs and layer budget (`apps/backend/isolation.go:microVMConfig`, `microsandbox/runtime.go:222-240`, `layers.go:92-100`). | §8.2.1 |
 | Modify | `apps/backend/isolation.go`: microvm is the only mode on the Mac install; `process` remains for tests only. Refuse to start without msb. | §1.3 |
@@ -71,7 +71,7 @@ Today (`research/identity-access.md`):
 
 | Action | Change | Spec |
 | --- | --- | --- |
-| Delete | `self_host_owners` singleton semantics, `SingleOwnerBoundary` and the `/api/orgs*` 404 middleware for self-host; the local password owner path (`/api/auth/local/*`, `local_credentials`, the bootstrap token gate) once GitHub sign-in owns first boot. The owner is created by the first GitHub sign-in that carries the one-time setup token printed by `smthrs host start` (spec §5.1.0). | §5.1, M-17 |
+| Delete | `self_host_owners` singleton semantics, `SingleOwnerBoundary` and the `/api/orgs*` 404 middleware for self-host; the local password owner path (`/api/auth/local/*`, `local_credentials`, the bootstrap token gate) once GitHub sign-in owns first boot. The owner is created by the first GitHub sign-in from a setup session opened with the one-time setup token printed by `smthrs host start`, and stays provisional until GitHub confirms push (spec §5.1.0, C-SEC-04). | §5.1, M-17 |
 | Add | `members` table and service (§3); `/api/members`; sign-in check (roster ∧ GitHub push permission via `GET /collaborators/{login}/permission`, reuse the `/collaborators/{login}/permission` call at `B/services/github_issue_text_writer.go:161`); hourly re-check job; role seeding. | §5.1 |
 | Modify | `repo_permissions.go` → one `Authorize(credential, action, subject)` over the §5.2 matrix. Owner = installer, Maintainer = admin, Member = write. Gate secrets, merge, triggers and settings. | §5.2 |
 | Add | Credential kind `delegated` with a `via` field (migration on `access_tokens`), `TokenCredentialKind` mapping (`run_credential.go:66`), `RequirePerson` refusing it. `/api/auth/github/cli` mints `delegated(via=cli|<agent>)`. | §5.3 |
@@ -103,7 +103,7 @@ Today (`research/workspaces-machines.md`):
 | Modify | Fork: from a captured revision; never stop the source (`workspace_runtime.go:547-560` stop-snapshot-resume is replaced by "capture, then create from revision"). | §8.5 |
 | Modify | Cleanup: delete only when the TODO is settled, captured and quiet for 24 h; replace `kind=agent` 24 h reclaim. | §8.12 |
 | Add | Toolchain detector (port `packages/smithers/src/suggest/Checklist.ts:174-226` logic to Go) emitting a recipe that `dependencyRecipe` (`layers.go:914`) consumes when no target index exists; `.smithers/machine.json` `packages[]`. | §8.6 |
-| Add [S1] | Fork, Add to stack and Rebase now as stage-1 system flows over today's workspaces (fork from `main` or an item's last verified head; Add to stack renames the scratch branch into the item branch). Stage 2 adds capture-first forks from any branch. | §8.5 |
+| Add [S1] | Fork, Add to stack and Rebase now as stage-1 system flows over today's workspaces (fork from `main` or an item's last verified head; Add to stack renames the scratch branch into the item branch and seeds the TODO with the forked item's change plus the scratch edits, which a drop of that item keeps). Stage 2 adds capture-first forks from any branch. | §8.5 |
 | Add [S2] | Per-member unix users (`smithers-guest.py setup USER UID` and `EnsureUser` exist, unused), `team` group, no sudo in the image, per-machine homes on the machine's disk with no virtiofs (spike T-MCH-02: shared homes lost data), and a per-member credential store synced by `smithers-machined` (T-MCH-15). Terminals and SSH sessions move from `msb exec -t` as the guest's single user (uid 1500, `microsandbox/runtime.go:50-51`) to daemon-owned sessions as each member's uid; the guest runs no sshd. | §5.5, §8.7, §8.10.3, §8.11 |
 | Modify [S2] | Secrets reach machines: all-branches secrets → `/run/smithers/env`, rewritten on change. Confirm today's gap: unbound repo secrets don't reach workspace machines (`workspace_provisioning.go:389-480`). | §8.8 |
 | Hide | `box.facet`, `box.services`, `box.egress`, `box.images` (the Machine view is deferred, spec §0 [D]); the backend facets stay for Plue. | §0 |
@@ -118,20 +118,20 @@ Today (`research/collab-terminals-wiki.md`):
 
 | Action | Change | Spec |
 | --- | --- | --- |
-| Add [S2] | `crates/smithers-machined`: Rust, static linux-arm64. [S2] inotify watcher with session-based attribution (spec §9.3.1; fanotify deferred), burst grouping, jj snapshot per burst, capture, moved-off detection, the host connection. [S3] Yrs code documents (reuse `yrs =0.27.4` from `crates/smithers-ffi`). Installed into the guest rootfs and started by init before sshd. No blob cache, Undo or merge3 in the MVP. | §9 |
+| Add [S2] | `crates/smithers-machined`: Rust, static linux-arm64, a root broker plus an unprivileged daemon (spec §9.5). [S2] inotify watcher with session-based attribution (spec §9.3.1; fanotify deferred) and separate metadata watches, bursts with per-file versions commits, the mutation lock, the durable outbox, capture, moved-off detection and the host connection. [S3] Yrs code documents with a state record saved before each acknowledgment (reuse `yrs =0.27.4` from `crates/smithers-ffi`). Installed into the guest rootfs and started by init before any session. No blob cache or per-entry Undo in the MVP. The MVP's one three-way merge is an outside save into an open live document (spec §9.2.3, S3); the merge3 rule for replaced-edit flags (§9.3.7) stays deferred. | §9 |
 | Add | Host relay: one authenticated multiplexed connection per machine, carried over the existing relay (`microsandbox` `relay` to a guest loopback port, per README "relay carries a byte stream to a guest loopback port"). | §9.1 |
 | Add [S1] | Live channel `/api/live` (WebSocket) in the Go host: topics on the existing broker (`Broker.Subscribe`), projection snapshot+delta with cursors (`projection_events`). [S2] presence map and terminal frames. [S3] Yjs relay. | §7 |
 | Modify [S3] | Wiki co-editing moves onto §7.4 together with code co-editing: the host-owned Yrs doc speaks the Yjs sync protocol over the live channel. Delete `POST .../updates`, the per-page SSE refetch stream and the client's POST queue (the `/updates` POST queue at `MV/wiki/CloudWiki.ts:288`). | §7.4.3 |
 | Add [S1] | ADR 0003 and the §7.6 contracts. The File card moves from the read-only Pierre file view (`@smthrs/ui/adapters/code-view`, `@pierre/diffs` `File`) to CodeMirror 6. Code-intelligence gestures (`code.hover`/`definition`/`diagnostics`, `MV/cards/CodeSurface.tsx`) are re-hosted as CodeMirror extensions. `PUT /workspaces/{id}/files/content` gains `base_digest` and actor. | §7.6 |
 | Add [S1] | `activity` table and the `branch:<id>:activity` topic (steers, answers, agent steps and GitHub comments arrive in S1). | §3, §7.2 |
-| Add [S2] | `burst_files`; the `:files` topic; `file_written` and burst events; snapshot commits pushed to the host; File and Diff cards reload on change. | §3, §9.3.4 |
+| Add [S2] | `burst_files` with per-file `before` and `after` versions; the `:files` topic; `file_written` and burst events; one versions commit per burst, pushed to the host through the outbox; File and Diff cards reload on change. | §3, §9.1.4, §9.3.4 |
 | Delete | `workspace_head.go` bash loop and its install path once `smithers-machined` captures heads. | §9 |
 | Reference | `packages/smithers/flows/sync/src/BranchPresence.ts` (lease-table presence, kept as a library). The product presence map lives in the Go host with the same lease semantics (30 s TTL). | §7.3 |
 
 ## 5. Terminals and SSH
 
 Today:
-- `B/routes/terminal_session_manager.go` gives one PTY per session through guest sshd, many viewers and a 512 KiB ring.
+- `B/routes/terminal_session_manager.go` gives one PTY per session, many viewers and a 512 KiB ring. The PTY comes from guest sshd on hosted workspaces, and from `msb exec -t` as the guest's single user on the Mac runtime (`B/routes/workspace_terminal.go:406-429`).
 - Any viewer's input reaches stdin (`workspace_terminal.go:659`).
 - The guest user is `developer` or `root` (`B/services/workspace_ssh.go:29`).
 - The SSH server (`packages/backend/ssh/ssh.go`, `B/ssh/server.go`, gliderlabs, `:2222`) is never constructed by `apps/backend`. Keys come only from `ssh_keys`.
@@ -140,7 +140,8 @@ Today:
 | --- | --- | --- |
 | Modify [S2] | Terminal sessions run as the owner's unix user; owner-only input (drop binary frames from other sinks in `terminal_session_manager.go`); read-only for others. | §8.11 |
 | Add | Terminal auto sign-in: mint `delegated(via=terminal)` at session start, write `/run/smithers/<uid>/token`, set `SMITHERS_TOKEN_FILE`/`SMITHERS_URL`; `Session.ts` gains a `SMITHERS_TOKEN_FILE` reader (none exists today; T-TRM-02). | §5.3.2 |
-| Add [S2] | Construct the SSH server in `apps/backend` on the install's bind address, port 2222 (loopback by default), with a `WorkspaceBridge` for the microVM runtime. Username = branch name. Admission request class `person`; per-member guest user; sftp, exec and `direct-tcpip`. | §8.10 |
+| Add [S2] | Construct the SSH server in `apps/backend` on the install's bind address, port 2222 (loopback by default), with a `WorkspaceBridge` for the microVM runtime. Username = branch name. Admission request class `person`; per-member guest user; sftp, exec and `direct-tcpip`, with channel requests mapped onto the daemon session protocol (spec §9.6.2). | §8.10 |
+| Add [S2] | Session supervisor in the `smithers-machined` broker: pty, exec, sftp and tcp sessions with exit status, signals, resize, half-close, flow control, lingering processes and cgroup kill; spike T-TRM-06 first, then T-TRM-07. Port the guest helper's `cgroup_kill` (`microsandbox/guest/smithers-guest.py:56-85`) and `drop_to` (`:93`) to Rust. The terminal manager's `WindowChange`, `Wait` and `Close` (`B/routes/terminal_session_manager.go:39-49`) map onto `resize`, `exit` and `close_session`. | §9.5, §9.6 |
 | Add | GitHub key import (`GET /users/{login}/keys`) at sign-in and hourly into `ssh_keys` with source=github. | §8.10.2 |
 | Delete | `developer`/`root` grant variants for members (`root` stays for nothing: no member or agent root, M-29). | §5.5.2 |
 
@@ -149,7 +150,7 @@ Today:
 Today (`research/stack-todos.md`):
 - `mythical_items` is keyed by issue number. Its prompt is the pinned `issue_body`.
 - It has one 15-value state enum.
-- Order is the issue number (`mythical_items.go:1113`).
+- Order is chat items first, then issue number (`mythical_items.go:1107-1116`).
 - The PR base is `main` (`:2095`), and the branch is `smithers/issue-N`.
 - Merge happens through the automerge label plus the Land record (`mythical_land_todo.go`).
 - There are no Before/Amend/Move/Drop/Pause operations.
@@ -159,12 +160,13 @@ Today (`research/stack-todos.md`):
 | Action | Change | Spec |
 | --- | --- | --- |
 | Add [S1] | `todos`, `todo_revisions`, `todo_events`, `todo_attempts`, `todo_approvals`, `branches` (item branches exist from S1; `machines` arrives in S2), `stack_attention` (§3). `mythical_items.todo_id` (1:1); relax `mythical_items_issue_idx` (an issue link is optional). The TODO state machine (§4.1) is computed in one Go package (`B/services/todo_state.go`) with unit tests over every transition. | §4.1, M-16 |
-| Modify | Admission from GitHub: `ObserveIssue` (`mythical_items.go:165`) freezes text at the label event (revision 1), never "until started" (`:236-262`). `FileTodo` no longer creates a GitHub issue; chat TODOs have no issue. | §10.2.1 |
+| Modify | Admission from GitHub: `ObserveIssue` (`mythical_items.go:165`) freezes revision 1 at the first issue read after the label event, never "until started" (`:236-262`). Today's trust gate stays (`approvesIssueText`, `github_issue_trust.go:158`): outsider text becomes a TODO only by a maintainer's label or Make TODO, and a non-member's edit after the label reverts it. `FileTodo` no longer creates a GitHub issue; chat TODOs have no issue. | §10.2.1 |
 | Add | Placement (`stack_position` dense key) and operations append/before/amend/move/drop; routes under `/api/todos`; items advance in stack order, not today's order (chat items first, then issue number, `mythical_items.go:1110-1116`). | §10.2 |
-| Modify [S1] | Merge: only the first unmerged item; `POST /api/todos/{n}/merge` (session + role + head sha) replaces the `automerge` label and Land path; GitHub merge with `sha` and squash (kept from `mythical_github.go:324`); setup refuses repositories without squash merging. Delete `LandTodo`'s label-application path and the `automerge` label semantics. | §10.6 |
+| Modify [S1] | Merge: only the first unmerged item; `POST /api/todos/{n}/merge` (session + role + `MergeReady` and the merge fence, §10.6.2a–§10.6.2b; C-STK-07) replaces the `automerge` label and Land path; GitHub merge with `sha` and squash (kept from `mythical_github.go:324`); setup refuses repositories without squash merging. Delete `LandTodo`'s label-application path and the `automerge` label semantics. | §10.6 |
+| Add [S1] | Candidate generations: `stack.candidate` and `stack.propose` capture the working copy before checks and again at propose, and accept only equal trees on the current prefix. Today's separate verify lane gives that equality by construction (`mythical_items.go:1895-1905`); the one-run design keeps it. Check: C-STK-06. | §10.4.4 |
 | Modify [S1] | PRs stay based on `main` as verified candidates (today's design). Change: head `smithers/<slug>` instead of `smithers/issue-N` (`mythicalBranch` `:2115`); PR body with prompt, evidence, included earlier items and "Requested by" (`proposal()` `:2126`); the PR card diffs against the previous item's candidate. | §12.5 |
 | Add | Stop/Resume (state `paused`), Retry with attempt rows, Drop with PR close. | §10.7 |
-| Modify [S1] | One `todo` run per attempt (T-FLW-11): the worker's four launches (`mythical_items.go:1681,1775,1905` request, vibe, verify, plus review via the `mythicalReviewFlow` constant at `:2277`) become one run of the pinned `todo` flow, which ends with `stack.propose`. Integration, re-verification, PR and merge stay in the stack engine. The built-in `todo` flow becomes a composition file over step flows exported from `flows/coding/`. | §10.4.1 |
+| Modify [S1] | One `todo` run per attempt (T-FLW-11): the worker's four launches (`mythical_items.go:1681,1775,1905` request, vibe, verify, plus review via the `mythicalReviewFlow` constant at `:2277`) become one run of the pinned `todo` flow, with the candidate handshake (`stack.candidate`, then `stack.propose`, C-STK-06) and the post-propose wait, which waits durably for rebase, steer, changes-requested, merge and drop signals until the TODO merges or is dropped. Integration, re-verification, PR and merge stay in the stack engine. The four registered entry points (`coding/Request`, `coding/Vibe`, `coding/Verify`, `review/change`) are deleted; Appendix C marks them Replaced, and their steps keep running inside the one run. The built-in `todo` flow becomes a composition file over step flows exported from `flows/coding/`. | §10.4.1 |
 | Add [S1] | Later items' PRs open as GitHub drafts and become ready when first (GraphQL `markPullRequestReadyForReview` / `convertPullRequestToDraft`), with a "[waits for Tn]" fallback where drafts are unavailable. An out-of-order merge marks the earlier items merged and closes their PRs as "Merged via". | §12.5.1, §10.6.4 |
 | Add [S1] | Retry with the current flow; Needs you → Queued after a machine release; a planner that declines with questions becomes a question wait (today's `declined` ends the item). | §4.1, §10.8.1a |
 | Add [S1] | Keep TODO workspaces until the TODO settles: no 5-min agent idle stop while a run waits (`defaultAgentIdleTimeout`, `B/services/agent_dispatch.go:1128`), no 24 h disk reclaim for unmerged TODOs (`workspace_disk_reclaim.go:20`), and wake before delivering a signal to a sleeping run (T-MCH-14). | §8.4, §10.4.1 |
@@ -186,10 +188,11 @@ Today (`research/github-sync.md`):
 | Action | Change | Spec |
 | --- | --- | --- |
 | Add | App manifest flow and sealed App credentials in PostgreSQL; remove the hard-coded slug (`repo_connection_github_app.go:96`, `github_access_diagnosis.go:59`). | §12.1 |
-| Modify | Poll scheduler: one `github_sync` row per stream; conditional requests; cached installation tokens; shared budget (`github_budget.go`) on every call including the stack's `landingGitHubAPI.request`. Constants → §12.2 cadences. | §12.2 |
+| Modify | Poll scheduler: one `github_sync` row per stream; conditional requests; cached installation tokens; one raw and charged budget (`github_budget.go`) on every call including the stack's `landingGitHubAPI.request`. Constants → §12.2 cadences. One GraphQL `pr-state` query replaces the per-PR `GET /pulls/{n}` follow (`mythical_items.go:2179`) and per-head check reads (`HeadChecks`, `mythical_github.go:611`). Label events come from the repository issue-events list with a cursor, not per-issue `labelHistory` (`mythical_github.go:398`). | §12.2 |
+| Modify [S1] | Outbound writes: the proposal's `PendingOp` record and recovery (`mythical_items.go:1978-2063`) become `outbound_writes` with keys per action revision, per-target order, supersession and reconcile by kind, for every GitHub writer (T-GH-09). | §12.4 |
 | Modify | `mirror: pull` is the default for the install's repository (policy check at `github_main_pull.go:578-581`). | §12.3 |
 | Add [S1] | Inbound reviews, review comments and conversation comments → activity + steer + `in_review → working` (`ObserveGitHubEvent` `mythical_items.go:2827` + poll fallback). | §12.3 |
-| Modify [S1] | Foreign push to `smithers/<slug>`: today's freeze (`mythical_items.go:2197-2206`) becomes `needs_you{foreign_push}` with the commit link; the next verified push replaces it. | §12.3 |
+| Modify [S1] | Foreign push to `smithers/<slug>`: today's freeze (`mythical_items.go:2197-2206`) becomes `needs_you{foreign_push}` with the commit link. Bring in and Discard are decisions bound to the sha the card shows. After Discard, the next verified push leases against that sha; a newer push makes the lease fail and reopens the Needs you. | §12.3, §12.5.2 |
 | Modify | PR closed → `dropped` with actor; reopen restores (`mythicalSettledStates` `:85`). Checks name the failing required check (`HeadChecks` `mythical_github.go:611`) and run outside automerge. Build GitHub's refusal message: `landingGitHubStatusError` (`landing_github_pull.go:446-465`) discards the response body today, so the verbatim reason ("1 approving review required") is new work in T-GH-05. | §12.3 |
 | Add | Force-push to `main` → owner Needs you → confirm → reset mirror and rebase (non-fast-forward detection at `github_main_pull.go:585-590`). | §12.3 |
 | Add | Health model + `GET/POST /api/github/sync`; the home `main` row reads it. Remove the unused per-route statuses once the home card reads the new one. | §12.6 |
@@ -197,7 +200,7 @@ Today (`research/github-sync.md`):
 ## 8. Flows, versions, triggers, learning
 
 Today (`research/flows-engine.md`):
-- The engine, journal, replay and fault suite are built. A run pins `executionDigest` (`ExecutionSnapshot.ts:45`).
+- The engine, journal, replay and fault suite are built. A run pins `executionDigest`: the closure manifest records module and lockfile digests (`ExecutionSnapshot.ts:59-65`), and restore refuses a changed digest or lockfile (`:138-142`).
 - Repository flows beat built-ins (`F/repository/registry.ts:333-411`).
 - No Active/Merged state exists, and a failed refresh drops the previous entry (`Executable.ts:2036`).
 - The registrar is UTC-only (`F/repository/schema.ts:278`).
@@ -207,7 +210,7 @@ Today (`research/flows-engine.md`):
 | Action | Change | Spec |
 | --- | --- | --- |
 | Modify | Overridable flows run only in machines. The host never loads repository flows. Default self-host `trusted_process` launch of the coding host is replaced by the machine's coding host. | §1.3, §11.1 |
-| Add | `flow-load` background run + `flow_versions`/`flow_activations`; Active / merged-syncing / merged-failed / proposed projection; keep the previous executable on refusal (fix `Executable.ts:2036`, test "edit breaks existing flow"). | §11.3 |
+| Add | `flow-load` background run on every `main` move, coalesced to the newest commit, + `flow_versions`/`flow_activations`; closures carry every repository module they import and their dependency environment; Active / merged-syncing / merged-failed / proposed projection; keep the previous executable on refusal (fix `Executable.ts:2036`, test "edit breaks existing flow"). | §11.3, §11.4 |
 | Modify | Coding host loads the pinned closure by digest for TODO runs; never the branch's `flows/`. Because hosts are per machine, #3377 (do-not-implement) is not needed. | §11.4 |
 | Add | `/flow.edit`: built-in source copy + patch → TODO with `seed_patch`. | §11.5 |
 | Add | Install-stored default config (checks, wiki pages, seats) with field-wise precedence for repo `.smithers/*` (`F/coding/project-config.ts`). | §11.2 |
@@ -226,7 +229,7 @@ Today (`research/app-shell.md`, `research/cli-api-cuts.md`):
 
 | Action | Change | Spec |
 | --- | --- | --- |
-| Add | One catalog source: command descriptors (payload schema, slash, CLI path, visibility, person-only) in `packages/rpc/src/catalog/`, consumed by the app registry, the CLI mount (`packages/smithers/src/internal/backend/Commands.ts`) and the skill generator; `catalog.mvp.json`; parity tests C-CAT-01..03. | §6.1 |
+| Add | One catalog source: command descriptors (payload schema, slash, CLI path, visibility, actor eligibility, minimum role, `agent` policy) in `packages/rpc/src/catalog/`, consumed by the app registry, the CLI mount (`packages/smithers/src/internal/backend/Commands.ts`) and the skill generator; `catalog.mvp.json`; parity tests C-CAT-01..03. | §6.1 |
 | Hide/Delete | Every command not in Appendix A: hidden or deleted per mvp.md §8 (about 200 ids). | §6.1.3 |
 | Modify | `StackCard.tsx` → Home card on the `home` topic: `main` row with sync health, counts as filters over TODO states, machines/capacity, background runs, shared placement. | §14.3 |
 | Add | Cards: [S1] TODO, Draft, Settings/Setup, Confirm, Flow versions, Agent (model), Members, Secrets. [S2] Branch (presence, activity), File reload-on-change with gone states, Terminal ownership. [S3] File live co-edit on `@smthrs/ui` CodeSurface + Yjs binding with gutter flags; Proposal. | §14.3 |
@@ -234,7 +237,7 @@ Today (`research/app-shell.md`, `research/cli-api-cuts.md`):
 | Add [S1] | Context preflight as the first step of every app-agent turn; `context[]` stored on the answer entry; "Context" line; Inspect shows preflight first. | §15.1.2 |
 | Modify [S1] | App-agent turns move from browser-side tool execution to a host turn runner that dispatches through the CLI's command→API mapping, with a host-minted delegated credential. The browser receives only UI-only instructions. | §15.1.4 |
 | Add [S2] | Browser notifications on secure origins (`notifications.allow`); Obsidian folder sync as a Settings control reading `install_settings` (`B/config/wiki_sync.go:15`, `B/services/wiki_sync_obsidian.go`). | §14.6, §13.3 |
-| Add [S1] | The allowlist test reads mvp.md Appendices A, B (B.1, B.2, B.4, B.6) and C (`.specs/product/actions.md`). | §6.1.2 |
+| Add [S1] | The allowlist test reads mvp.md Appendices A, B (B.1, B.2, B.4, B.6) and C (`.specs/product/actions.md`), and asserts each tag's runtime placement and the Replaced rows. | §6.1.2 |
 | Add [S1] | Left-edge toast map + timeline from `conversation_entries`; event toasts with per-member hiding; retire `ChatRunTimeline`. | §14.4, §14.5 |
 | Modify | Seams move from per-resource SSE (`/mythical/events`, `/workspaces/{id}/stream`, wiki stream) to live-channel topics. Delete each SSE route when its last consumer moves. | §7 |
 | Modify | Actor rendering with `via` badges ("Ben via Smithers"). | §2 |

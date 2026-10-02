@@ -12,7 +12,7 @@ In:
 - Default `parallel = max(1, capacity − 1)` (§10.3.1): 1 at capacity 1 or 2, 2 at capacity 3, 5 at capacity 6. The spare machine serves `person` and `background` requests (§8.3.1), so learning, `flow-load` and wiki refresh don't wait behind working TODOs.
 - Queued TODOs file `machine_requests` of class `todo` (§8.3.1) in stack order; at most the effective `parallel` TODOs hold machines.
 - What counts (§10.3.1): `starting` and `working` TODOs, plus `paused`, `needs_you` and `in_review` TODOs until their machine is released at safe-idle (§8.4.2).
-- `todos.queue = {reason: "waiting for a machine", position}` from the scheduler's ordered waiting set (§4.1.1, §8.3.2).
+- `todos.queue = {reason: machine, position}` from the scheduler's ordered waiting set (§4.1.1, §8.3.2).
 - The setting on `/api/install` and the Settings card's field (owner only, `agent: never`, §15.1.5).
 
 Out:

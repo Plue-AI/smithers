@@ -8,7 +8,7 @@ A member's GitHub review, line comment or PR conversation comment on a TODO's PR
 
 ## Scope
 In:
-- Sources, all from T-GH-02 streams: reviews (`GET /pulls/{n}/reviews` for TODO PRs whose `updated_at` changed), review comments (`GET /pulls/comments?since=…`) and conversation comments (`GET /issues/comments?since=…`) whose PR is a TODO PR.
+- Sources, all from T-GH-02 streams: reviews (the `pr-state` query's last 20 reviews per TODO PR), review comments (`GET /pulls/comments?since=…`) and conversation comments (`GET /issues/comments?since=…`) whose PR is a TODO PR.
 - Mapping (§12.3):
   - A review with "changes requested", a review comment (a line comment or a commented review's body) or a conversation comment → one `activity` entry (kind `github`) with the GitHub mark, attributed to the member whose GitHub login wrote it.
   - From a member: one steer per review submission (its body plus its line comments batched, each anchored `path:line` with the commit it was made on) or per standalone comment, through T-STK-06's steer path; `in_review → working`, and approvals for the old head are void (§4.1).

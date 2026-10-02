@@ -21,8 +21,8 @@ In:
   - evidence of the current attempt (§10.4.3): PR link ("#pr on GitHub ↗"), diff stat, machine checks with duration, GitHub passed/total, review summary, the earlier items the PR includes ("Includes T3, T4 until they merge", §12.5.1), "approval cleared by rebase";
   - Merge control: Merge (`/merge Tn` with the head sha shown) only for the first item and a viewer who may merge; otherwise "Merges after Tn", "Checks running", the failing check's name, or GitHub's refusal text verbatim (§10.6.2);
   - actions while live or paused: Open branch (`/branch Tn`), Inspect (`/run.inspect <id>`), Stop or Resume, Drop (confirm). Stop parks the run in a durable pause wait; Resume continues the same run from its last finished step; Retry starts a new attempt from step 1 and keeps the earlier attempt and its evidence (§4.1, §10.4.1).
-- `draft` card: Title, Prompt, Place (Append, Before Tn, Amend Tn over unmerged items), "Closes #i when merged" when drafted from an issue, Discard (`card.dismiss`) and Commit. The draft lives in the card payload through `form.set` (AGENTS.md form law). Until Commit the entry is private to its author (`audience_member_id`, §14.5.1); after Commit it is shared and shows "Committed <title>" linking the TODO. Commit sends one `Idempotency-Key`, so a double press makes one TODO (§6.2.1).
-- Commands for the Appendix A TODO group: `/todo.new`, `/todo Tn`, `/todo.answer`, `/todo.steer`, `/todo.amend`, `/todo.stop`, `/todo.resume`, `/todo.retry`, `/todo.drop`. Each has three doors and a typed payload; a missing input renders a form card (§6.1.4). Those marked A✓ in mvp.md Appendix B (commit, amend, steer, stop, retry, drop) never run directly from the app agent: it posts a one-click Confirm card that the prompt's author presses (§15.1.5, T-APP-04).
+- `draft` card, the §14.3 Draft model: Title, Prompt, Acceptance, Place (Append, Before Tn, Amend Tn over unmerged items), "Closes #i when merged" when drafted from an issue, a read-only seed patch when one exists, Discard (`card.dismiss`) and Commit. The draft lives in the private entry's `card` column through `form.set` (AGENTS.md form law, §3). Until Commit the entry is private to its author (`audience_member_id`, §14.5.1). Commit clears the audience in the transaction that creates the TODO, so from then on the entry is shared and shows "Committed <title>" (or "+1" on Tn for an amendment) linking the TODO. Commit sends one `Idempotency-Key`, so a double press makes one TODO (§6.2.1).
+- Commands for the Appendix A TODO group: `/todo.new`, `/todo Tn`, `/todo.answer`, `/todo.steer`, `/todo.amend`, `/todo.stop`, `/todo.resume`, `/todo.retry`, `/todo.drop`. Each has three doors and a typed payload; a missing input renders a form card (§6.1.4). Those marked A✓ in mvp.md Appendix B.2 (commit, amend, drop) never run directly from the app agent: it posts a one-click Confirm card that the prompt's author presses (§15.1.5, T-APP-04).
 - J9 answer doors: an answer offers **Make TODO** (drafted from the conversation into a Draft card) and **Save to wiki** (`/wiki.save`, a thin command over the shared `wiki.create` operation, `packages/smithers/ui/src/app-operations/wiki.ts:53`).
 
 Out:
@@ -31,7 +31,7 @@ Out:
 
 ## Changes
 - `apps/app/src/mainview/cards/TodoCard.tsx`, `DraftCard.tsx` (new) with tests; spread both families into `cards/CardRenderers.tsx`.
-- `packages/rpc/src/Cards.ts`: kinds `todo {n}` and `draft {title, prompt, place, issue?, fixes, committed?}`.
+- `packages/rpc/src/Cards.ts`: kinds `todo {n}` and `draft`, whose payload is the §14.3 Draft model (`DraftCard.ts`, T-APP-19).
 - `packages/rpc/src/Todo.ts` (new): the TODO card model, with a golden fixture shared with T-STK-01's projection test.
 - `apps/app/src/mainview/state/seams/TodoSeam.ts` (new): command handlers over `/api/todos` (§6.3) with `Idempotency-Key`; responses settle toasts only through `todo:<n>` events (§6.2.2).
 - `apps/app/src/mainview/flows/entries/history.ts`: replace `history.view` (`:38`), `history.todo` (`:87`) and `history.retry` (`:102`) with the `/todo*` entries; delete them, not alias them. Delete `fileTodo` from `state/seams/StackSeam.ts` (`:77`) and its `POST /mythical/todos` client path.
@@ -54,7 +54,7 @@ Out:
 
 ## Risks and notes
 - Spec gap: §14.3 TODO does not list `failure`, the issue link with `fixes_issue`, or the branch, though `todos` stores them (§3). The tech lead adds them to the model; the card reads them from it.
-- Spec gap: `POST /api/todos` (§6.3) takes no `acceptance`, though `todo_revisions.acceptance` exists and §10.4.2 sends it to the agent. The Draft card has no Acceptance field until the tech lead adds it to the create payload.
+- Resolved: `POST /api/todos` (§6.3) takes `acceptance`, and the Draft model carries it (§14.3 Draft).
 - PRs are based on `main` (§12.5.1, E-15), so the evidence row says "into main" and lists the included items; the mock's "stacked on #n" (`Todo.tsx:80`) is wrong.
 - Evidence is per attempt (§14.3): the card shows the current attempt; earlier attempts stay in the model and open through Inspect.
 - Risk: the mock shows no editable Queued prompt (mvp.md §6.6) and no Make TODO or Save to wiki on answers (J9.3). Design places them before the e2e can pass.

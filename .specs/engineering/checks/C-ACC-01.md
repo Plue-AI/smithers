@@ -12,32 +12,21 @@ Automation: `packages/backend/internal/compose/access_matrix_integration_test.go
   - a delegated token (`via=cli`) for each of O, M and E;
   - one run token for the `todo` run of T1 (branch b1);
   - one machine token for branch b1.
-- Fixture data: T1 (first in order, `in_review`, PR head `h1`, branch b1) and T2 (`needs_you{kind: conflict}`, the run token's own wait), plus secret `S`.
+- Fixture data: T1 (`needs_you{kind: conflict}`, branch b1, the run token’s own conflict), T2 (`in_review`, PR head `h2`, branch b2, first merge candidate), an unrelated question wait and secret `S`. Merge requests use T2 at `h2`; run conflict answers use T1.
 
 ## Steps
-1. Load the expected table from the test file. It is a literal transcription of spec §5.2: 7 rows (merge and approve tested separately) × 8 credential columns (session-O, session-M, session-E, delegated-O, delegated-M, delegated-E, run, machine). It is not derived from `access/` code.
-2. Map each row to one representative served route:
-
-   | Row | Route |
-   | --- | --- |
-   | install settings | `PUT /api/install` setting, `PUT /api/agents/implementer/model` |
-   | merge | `POST /api/todos/1/merge {reviewed_head_sha: h1}` |
-   | approve | approval of T1 at `h1` |
-   | members, roles, secrets write | `POST /api/members`, `PUT` secret `S` |
-   | flow merge | merge of a TODO touching `flows/` |
-   | TODO ops | `POST /api/todos`, and answer on T2 |
-   | join or run | `POST /api/terminals {branch: b1}`, `POST /api/flows` run |
-   | read secret values | every secrets route |
-
+1. Load the literal `catalog.mvp.json` artifact, whose equality with product Appendices B and C is proved by C-CAT-01. Read actor eligibility, minimum role and agent policy for every retained command and in-card action. Never parse spec Markdown at runtime.
+2. Exercise every catalog command through its served route and dispatch doors for session-O/M/E, delegated-O/M/E, run and machine. Give each command a valid subject and payload; do not collapse commands into one representative per §5.2 row. Record unimplemented commands as pending with their owner ticket.
 3. For each cell, send the request once with a fresh `Idempotency-Key` and record status, `class` and `fix`.
 4. For the run column, also send the scoped cases:
-   - answer on T2 (its own conflict) vs answer on a `question` wait;
+   - answer T1’s own conflict versus T2 or an unrelated question wait;
    - a join on b1 vs on another branch b2.
 5. Compose the install router and list every served `/api` route with its declared action.
 
 ## Pass when
-- Every cell matches the expected table: an allowed cell returns 2xx, and a refused cell returns 403 with `class: "permission"`.
-  - A delegated token on a person-only row its member's role allows (install settings for O; merge, approve, members and secrets write for O and M) returns 403 with `fix.kind = "confirmation"`; delegated-E gets 403 with no `fix`.
+- `main.reset-to-github` succeeds only from the Owner's session; maintainer, member and every delegated credential are refused and post no confirmation. GitHub App changes require the Owner's session.
+- Every cell follows §5.2.1: insufficient role or credential scope returns 403 `permission`; an eligible delegated `never` returns 403 `never`; eligible `run` executes; eligible `confirm` returns `202 {confirmation: id, state: "requested"}` without executing the command.
+  - Explicit cases: `todo.amend` posts a one-click confirmation; `todo.steer`, move, stop, retry, terminal open, sleep and wake execute with no row. Member-delegated Discard returns 403 `permission` and posts nothing; maintainer-delegated Discard posts a confirmation approved only by that maintainer’s session. Settings, approvals, members and secrets never create confirmations.
 - `run` succeeds only on the two scoped cases, its own conflict and its own branch.
 - `machine` is refused on every row (§5.2: it has no row).
 - No refused cell causes a side effect. The fake GitHub has zero merge calls from refused cells, and no row changed in `members`, `secrets` or `todos`.
@@ -51,7 +40,7 @@ Automation: `packages/backend/internal/compose/access_matrix_integration_test.go
 - A cell is allowed because the UI hides the button, and the server never checks.
 - A new route ships without an action.
 - The run token acts on another TODO's branch.
-- A refusal comes back as 404 or 500 instead of a typed 403.
+- A refusal has the wrong status or class, or a confirmable request returns 403 with a confirmation fix instead of 202 with an id.
 
 ## Evidence
 Written to `.artifacts/checks/C-ACC-01/<UTC timestamp>/`:

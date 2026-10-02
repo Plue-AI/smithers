@@ -1,7 +1,7 @@
 # T-MCH-14 Keep TODO workspaces until settled; wake before delivering a signal
 
 Stage S1 · Size S · Depends on T-STK-01 · Unblocks T-FLW-11 · Issue: to file
-Spec: spec.md §8.4, §10.4.1, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
+Spec: spec.md §8.4, §10.4.1, §10.7.4, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
 
 ## Goal
 A TODO's working copy and its waiting `todo` run survive days in review, so a GitHub review steer resumes the same run on the same files.
@@ -10,6 +10,7 @@ A TODO's working copy and its waiting `todo` run survive days in review, so a Gi
 In:
 - Workspaces bound to an unmerged TODO are exempt from the 5-minute agent idle stop while their run waits on a durable signal, and from the 24 h stopped-disk reclaim.
 - They may still be suspended with the disk kept.
+- A reopened TODO (§10.7.4) whose workspace cleanup removed gets a new one from the branch's final capture when its first input needs the run.
 - Before the stack engine delivers a signal (steer, review comment, rebase, resume) to a run whose workspace is suspended, it wakes the workspace and waits for the coding host.
 
 Out:
@@ -24,11 +25,12 @@ Out:
 
 ## Tests
 - Integration (real microVM): a TODO in review suspends after idle. A steer delivered 25 h later (simulated clock) wakes it, the same run id resumes, and the working copy holds the files from before.
-- Integration: the reclaim sweep skips an unmerged TODO's workspace and reclaims a dropped one.
+- Integration: the reclaim sweep skips an unmerged TODO's workspace and reclaims a dropped one. After that TODO's PR is reopened, a review steer provisions a workspace whose working copy equals the branch's final capture.
 - Fault: kill the host while a wake for a signal is in progress. On restart the signal is delivered exactly once.
 
 ## Acceptance
 - [C-STK-05](../checks/C-STK-05.md)
+- [C-J10-08](../checks/C-J10-08.md): the reclaimed-then-reopened step.
 
 ## Risks and notes
 - Risk: many waiting TODOs keep suspended disks. Confirm disk use with 20 suspended TODO workspaces on the reference host. The 32 GiB disk per machine is sparse (APFS clone), and the layer budget (§8.2.1) bounds the rest.

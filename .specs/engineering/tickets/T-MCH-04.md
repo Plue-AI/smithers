@@ -18,7 +18,7 @@ In:
 - `enforce_workspace_user_quota` (`0001_product_baseline.sql:264`) stops counting branch machines.
 - The agent attaches its run's session to the branch's machine instead of inserting a `kind=agent` row.
 - Branch access comes from `Authorize(credential, "branch.join", branch)` (§5.2, T-ACC-03), not from the owner-or-share check.
-- Machine states of §4.2 are stored in `machines.state` and published on `branch:<id>` (§7.2).
+- Machine states of §4.2 are stored in `machines.state` and published on `branch:<id>` (§7.2). `releasing` lasts until the runtime confirms the VM stopped, because the VM holds its slot until then (§8.3.2, T-MCH-06).
 
 Out:
 - Admission, positions, release and sleep timers (T-MCH-06). Final capture and sleep reads (T-MCH-07). Keeping S1 TODO workspaces until settled (T-MCH-14).

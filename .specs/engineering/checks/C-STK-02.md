@@ -17,7 +17,7 @@ Automation: `packages/backend/internal/services/todo_admission_db_test.go` (new)
 6. Read `todos.queue` positions after each step.
 
 ## Pass when
-- Step 1: exactly T1 and T2 pass through `starting` to `working`; T3, T4 and T5 are `queued` with reason "waiting for a machine" and positions 1, 2 and 3.
+- Step 1: exactly T1 and T2 pass through `starting` to `working`; T3, T4 and T5 are `queued` with reason `machine` and positions 1, 2 and 3.
 - Step 2: T1 holds its slot while `in_review` until its machine is released; the next TODO admitted after that is T6, not T3.
 - Step 3: the stored value is 8; the effective value reported on `home` is 3; a third TODO admits in stack order.
 - Step 4: the effective value drops to 2; no working agent is stopped (both runs keep running to their next step).

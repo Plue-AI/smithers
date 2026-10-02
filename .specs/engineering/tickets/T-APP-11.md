@@ -22,6 +22,7 @@ In:
   - **Follow** (`file.follow-rename`) on "Renamed to <path> by <actor>": moves the same card to the new path.
 - Diff card on `branch:<id>:files` (`@pierre/diffs`): an item branch's hunks against the previous item's candidate (§12.5.1); a scratch branch's against its fork revision (§8.5.3). It reloads on change events and shows per-file last writers (§7.2). The mock's per-hunk authors (`Code.tsx:106-110`) aren't in the model and aren't built.
 - A sleeping branch's File and Diff read the captured snapshot and never wake it (§8.4.4).
+- Code intelligence survives stage 2: the File card's language server runs on the branch machine as a daemon `exec` session owned by the member who asked (§9.1.2), replacing the `workspace/sessions` kind `lsp` path in `state/CloudLspClient.ts`. A sleeping branch starts none, and the gestures bind nothing there (§8.4.4).
 - Commands: `/file <path>` (`files.read`), `/files` (`files.list`), `/diff` (`change.diff`), branch-scoped.
 
 Out:
@@ -47,6 +48,7 @@ Out:
 ## Acceptance
 - [C-J3-08](../checks/C-J3-08.md): a file deleted or renamed while open says so, and Restore and Follow work.
 - [C-PERF-04](../checks/C-PERF-04.md): an outside disk write reaches an open File card in under 1 s p95.
+- [C-UI-11](../checks/C-UI-11.md) (release run): hover, definition and diagnostics still work on an awake branch, and a sleeping branch stays asleep.
 
 ## Risks and notes
 - The stage-2 surface is T-APP-15's CodeMirror 6 `EditorView`; stage 3 adds `y-codemirror.next`'s sync extension to that same view (§7.6). Reloads here are plain transactions; in S3 they arrive as Yjs updates, and `replaceContent` stays only for read-only files over 1 MiB (§9.2.1).

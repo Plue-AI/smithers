@@ -2,7 +2,7 @@
 
 Version 0.3 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
 
-Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn their callbacks into catalog commands. This page lists the components in order of need and gives each one its props. The props are spec.md §14.3 in TypeScript. T-APP-19 transcribes them into zod schemas in `packages/rpc/src/<Card>Card.ts` with fixtures in `apps/app/src/mainview/cards/fixtures/<Card>.ts`. Until it lands, design builds against this page with local fixtures.
+Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn their callbacks into catalog commands. This page lists the components in order of need and gives each one its props. The props are spec.md §14.3 in TypeScript. T-APP-19 transcribes them into zod schemas in `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts`. Until it lands, design builds against this page with local fixtures.
 
 ```
   packages/rpc/src/<Card>Card.ts        zod schema + type   (engineering, T-APP-19)
@@ -49,7 +49,7 @@ Stage 1 is on the critical path. Within a stage, the order is the order a fresh 
 | 19 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3, J8 |
 | 20 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
 
-Kept as built, with no new design work unless design changes them: the Issue card (wired by T-GH-02), the Review card, the Wiki card and the flow Form card.
+Kept as built, with no new design work unless design changes them: the Issue card (wired by T-GH-02), the PR card, the Review findings card, the Wiki cards, the flow Form card and the other retained cards spec §14.3.0 names. They keep their existing schemas, and C-UI-08 pins them. A field change to one of them is a spec change that first adds its §14.3 row.
 
 ## Shared types
 
@@ -117,11 +117,16 @@ type SettingsModel = SetupModel & { capacity: number; parallel: number; laptop_l
 ### T-UI-03 Draft
 
 ```ts
-type DraftModel = {
-  text: string
-  issue?: { number: number; title: string; url: string }
-  place: { after?: number; before?: number; options: { n: number; title: string }[] }
-  private: true                       // only the author sees it until committed
+type DraftModel = {                  // spec §14.3 Draft
+  title: string
+  prompt: string
+  acceptance: string[]
+  place: { mode: "append" | "before" | "amend"; n?: number        // n with before and amend
+           options: { n: number; title: string; state: TodoState }[] }   // unmerged items only
+  issue?: { number: number; title: string; url: string; fixes: boolean }   // "Closes #i when merged"
+  seed?: { files: string[] }         // a seed patch, shown read-only
+  committed?: { n: number; rev: number }   // rev 1: "Committed <title>"; rev > 1: "+1" on Tn
+  private: boolean                   // true until Commit: only the author sees it
 }
 // buttons: Commit ("Commit puts it on the stack as T12"), Discard. Make TODO is the Issue card's button that opens a Draft.
 ```
@@ -131,7 +136,7 @@ type DraftModel = {
 ```ts
 type TodoModel = {
   n: number; title: string; state: TodoState; owner: PersonRef
-  place: number; queue?: { reason: "waiting for a machine" | "merges after Tn" | "rebase pending"; position: number }
+  place: number; queue?: { reason: "machine" | "merge_order" | "rebase"; after?: number; position: number }  // View renders the copy (spec §4.1.1)
   step?: string                                   // current flow step
   prompt_revisions: { text: string; by: Actor; at: string }[]
   acceptance: string[]
@@ -174,7 +179,6 @@ type ConfirmModel = {
   place?: number
   checks_line?: string
   asked_by: Actor                                 // "Ben via Claude Code"
-  waiting_for?: PersonRef                         // "Waiting for Ben"
   receipt?: { by: PersonRef; result: "done" | "cancelled" | "stale"; at: string }
 }
 // buttons: the verb (one_click) or Review & merge, and Cancel
@@ -198,7 +202,7 @@ type HomeModel = {
   merged_since_last_look: number[]
   machines: { in_use: number; capacity: number }
   parallel?: number                               // owner only
-  background_runs: { id: string; title: string; state: "running" | "failed"; detail: string }[]
+  background_runs: { id: string; title: string; state: "queued" | "running" | "waiting" | "failed"; detail: string }[]
 }
 // buttons: Retry (main sync), Retry and Dismiss (background runs), Move (reorder), plus each row's one action
 ```
@@ -275,11 +279,18 @@ type RunModel = {
               graph: { id: string; label: string; state: string; deps: string[] }[] }[]
   steps: { id: string; label: string; state: string; started_at?: string; ended_at?: string
            input?: unknown; output?: unknown; agent?: string }[]
-  phases: { step: string; title: string; summary: string; took_s: number
-            tone: PhaseTone; indicator?: string }[]       // titled by agent:fast (mvp.md §6 Monitor)
+  phases: { step: string
+            title: string                         // deterministic: the step plus its recorded output,
+                                                  // e.g. "Ran checks · 2 failed" (spec §11.6.3)
+            summary?: string                      // agent:fast one-liner, rendered as a model summary;
+                                                  // absent while pending or failed: the View shows the title alone
+            took_s: number; tone: PhaseTone; indicator?: string }[]
   cells: { phase: number
            kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "reviewer" | "rebase"
-           explain: string; code?: string; output?: string; quote?: string
+           label: string                          // deterministic, e.g. "Read retry.ts", "Ran pnpm test · 1 failed"
+           explain?: string                       // agent:fast explanation of an agent-written cell, rendered as a
+                                                  // model summary; absent: the label stands alone
+           code?: string; output?: string; quote?: string
            tone?: PhaseTone; took_s?: number; tokens?: number; actor?: Actor }[]
   waits: { id: string; label: string; since: string }[]
   tokens: number; time_s: number; cost_usd: number

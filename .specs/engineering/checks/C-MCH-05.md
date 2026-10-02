@@ -1,7 +1,7 @@
 # C-MCH-05 Cleanup never deletes uncaptured work or a machine with an active session
 
 Proves: mvp.md §6.7 Cleanup · spec.md §8.12, §4.1 (dropped → in_review within 7 days) · Layer: integration · Stage: S2 · Tickets: T-MCH-09
-Automation: `packages/backend/internal/services/machine_cleanup_integration_test.go` (new) · Runs in: CI (real PostgreSQL, real jj, runtime fake, injected clock)
+Automation: `packages/backend/internal/services/machine_cleanup_integration_test.go` (policy, runtime fake, CI), `packages/backend/microsandbox/real_cleanup_reopen_test.go` (destructive recovery, real microVM, reference host); both use real PostgreSQL and an injected clock.
 
 ## Setup
 
@@ -24,14 +24,14 @@ Automation: `packages/backend/internal/services/machine_cleanup_integration_test
 1. Run the cleanup job once at the case's age.
 2. For each case, record whether the VM and disk were removed and `machines.state`.
 3. For case a: read activity, attempts and evidence for the TODO; `git cat-file -e <captured commit>` in the host store; read the branch head ref.
-4. Case g, at 7 days minus 1 h: reopen the PR on the fake GitHub server. Read files of the branch.
+4. In the policy suite advance case g past 24 h and run cleanup before testing reopen. In the real-microVM suite create a dropped TODO with distinct tracked and untracked files plus a binary file, capture it, record each path’s bytes and digest, and settle it with no sessions. Advance the clock to 24 h plus 1 min, run the production cleanup job, and verify the original runtime and disk path are absent. Verify captured commit, tree, blobs, branch head, activity, attempts and evidence remain in the host store. At 7 days minus 1 h reopen through the normal PR-reopen path, admit a fresh real microVM reconstructed from the captured head, and compare every recorded path byte for byte. Never reuse the old disk or preseed the new working copy.
 5. Kill the host process between marking case i `archived` and removing its disk. Restart and run the job.
 
 ## Pass when
 
 - Step 2: only a and i are removed. b, c, d, e, f, g and h keep their VM and disk.
 - Step 3: every row is present, the commit exists and the ref resolves.
-- Step 4: the branch reads from its captured head, with content equal to the capture.
+- Step 4: cleanup removes g’s original disk after retention. Reopen creates a fresh real machine from retained objects, and all recorded tracked, untracked and binary bytes match the capture. A missing object or use of the original disk fails the check.
 - Step 5: case i's disk is removed exactly once, and no other machine changes.
 
 ## Fail when

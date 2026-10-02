@@ -8,7 +8,7 @@ Members Ben and Alice. Branches A and B, both awake.
 
 ## Steps
 1. On A, Ben and Alice each open a terminal. `stat` both homes. As Alice and as `agent`, read a file in Ben's home.
-2. On A, Ben writes `~/.marker`. On B, Ben opens a terminal and looks for it.
+2. On A, Ben creates a fresh `~/.marker` using a regular file create mode 0666 under session umask 002, writes known bytes, and records its uid and mode 0664. On B, Ben opens a terminal and looks for it.
 3. `mount` on A and B.
 4. Sleep A, wake it, and `stat` Ben's `~/.marker`.
 5. A maintainer adds Carol while A is awake. Carol opens a terminal on A.
@@ -19,7 +19,7 @@ Members Ben and Alice. Branches A and B, both awake.
 - Each home is `/home/<login>`, owned by its member's uid and gid, mode 0700; Alice and `agent` get `EACCES`.
 - `~/.marker` is absent on B.
 - No virtiofs mount is under `/home` on either machine.
-- After the wake, `~/.marker` is present with Ben's uid and 0700.
+- After wake, `/home/ben` remains owned by Ben with mode 0700; `~/.marker` retains Ben’s uid, mode 0664 and its exact recorded bytes. The directory and file modes are separate assertions.
 - Carol's terminal opens in `/home/carol` with her uid and 0700, without restarting A.
 - Step 6: on each machine, zero missing or corrupt append records, every atomic read parses (no ENOENT), zero SQLite errors or rollbacks, zero lost acknowledged WAL rows, and `PRAGMA integrity_check` is `ok`. The spike's shared-home run lost all of these (C-SPK-02).
 - Step 7: every home, owner, mode and `~/.marker` is unchanged after the host restart.

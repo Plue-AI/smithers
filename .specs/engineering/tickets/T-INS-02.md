@@ -1,6 +1,6 @@
 # T-INS-02 Launcher passes isolation, GitHub, model and public-URL settings; microVM-only
 
-Stage S1 · Size M · Depends on T-INS-01 · Unblocks T-INS-04, T-GH-01 · Issue: to file
+Stage S1 · Size M · Depends on T-INS-01 · Unblocks T-INS-04, T-INS-08, T-GH-01 · Issue: to file
 Spec: spec.md §1.1–§1.4, §3 (`install_settings`), §5.1.0, §8.2.1, §12.1.1, §17.3, §17.4 · Delta: delta.md §1 (Modify [S1] `NativeBackendProcess.ts`; Modify `isolation.go`) · Product: mvp.md §6.1, §9 Isolation, M-28, M-29, M-30
 
 ## Goal
@@ -10,7 +10,7 @@ The bundled launcher starts the backend in microVM isolation with no setting tak
 In:
 - The launcher sets, never from the shell: `SMITHERS_WORKSPACE_ISOLATION=microvm`; `SMITHERS_MICROSANDBOX_BIN=<bundle>/bin/msb`; a fixed `SMITHERS_EGRESS_RELAY_PORT`; the loopback listeners `SMITHERS_SERVER_ADDR=127.0.0.1:4000` and `SMITHERS_SSH_ADDR=127.0.0.1:2222` (the config default `:2222` binds every interface, `packages/backend/internal/config/config.go:506`).
 - Every other install setting lives in PostgreSQL `install_settings` (spec §3: bind, origins, setup token digest, budgets), GitHub App credentials in `github_app` (T-GH-01), model keys in sealed owner secrets (T-INS-06). The launcher passes none of them, and the backend reads them after PostgreSQL starts.
-- On a start with no owner, the launcher prints the one-time setup URL for each listener, for example `http://localhost:4000/setup?token=…` (spec §5.1.0). T-ACC-01 owns the token and the claim; `smthrs host start` repeats the URLs (T-INS-05).
+- On a start with no owner, the launcher prints the one-time setup URL for `http://localhost:4000` and each configured public origin, for example `http://localhost:4000/setup?token=…` (spec §5.1.0). T-ACC-01 owns the token and the claim; `smthrs host start` repeats the URLs (T-INS-08).
 - `$STATE` is `~/Library/Application Support/Smithers` (spec §1.1), not the `…/headless` subdirectory `apps/app/src/bun/serve.ts:6-8` uses today.
 - The launcher passes no machine sizing (`SMITHERS_MICROVM_*`); every limit derives from the detected host (spec §8.2.1, T-MCH-01).
 - The backend refuses `process` isolation in native mode. `process` stays available only to tests that set it explicitly.

@@ -1,6 +1,6 @@
 # T-STK-06 Steers at every boundary of the TODO flow
 
-Stage S1 · Size M · Depends on T-STK-01, T-FLW-11 · Unblocks T-STK-02, T-GH-04 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-STK-04 · Unblocks T-STK-02, T-GH-04 · Issue: to file
 Spec: spec.md §2, §3 (`activity`), §4.1 (`in_review → working`), §5.2, §6.4, §7.2 (`branch:<id>:activity`), §10.4.1, §10.4.2, §10.7.3, §11.6.1, §15.1.5 · Delta: delta.md §6 (Add steer route; accept steers between implement turns), §4 (`activity` table [S1]) · Product: mvp.md §6.6 Steer, J3.6, J4.2, J6.3, M-21, Appendix B.2
 
 ## Goal
@@ -21,7 +21,7 @@ Out:
 - Burst and change entries in the activity (S2, T-COL-04).
 
 ## Changes
-- `packages/backend/internal/services/todo_steer.go` (new) → authorize `steer` (§5.2: members and delegated-as-person, never the run credential); append `todo_events(kind='steer')` and the `activity` row in one transaction; resolve the active run from `todo_attempts`; deliver with `flowdispatch.Service.Signal` (`packages/backend/flowdispatch/service.go:94`) named `steer`, `RequestID` = the idempotency key. Steers to a TODO with no live run wait in `todo_events` and are delivered at run start or resume.
+- `packages/backend/internal/services/todo_steer.go` (new) → authorize `steer` (§5.2: members and delegated-as-person, never the run credential); append `todo_events(kind='steer')` and the `activity` row in one transaction; resolve the active run from `todo_attempts`; deliver with `flowdispatch.Service.Signal` (`packages/backend/flowdispatch/service.go:94`) named `steer`, `RequestID` = the idempotency key. Steers to a TODO with no live run wait in `todo_events` and are delivered at run start or resume. An `in_review` TODO with no live run (reopened, §10.7.4) starts a new attempt through T-STK-05's reopen path with the steer first. While a merge fence is set (§10.6.2b), a steer commits and is held: it is delivered if the fence clears without a merge and stays undelivered if the TODO merges.
 - `flows/coding/steering.ts` → admit Message steers for the `todo` root and its step flows instead of only `coding/request` (`:15`, `:41-58`). Replace the boundary list (`after-poc`, `before-implementation`, `after-correction`, `:91`) with every step boundary of the `todo` composition.
 - `flows/coding/implementation/flow.ts` → receive pending steers between atoms, and give the `EditAtom` agent queued steers between its model turns (≤ one model turn of latency).
 - `flows/coding/request/flow.ts` → keep the existing `ReceiveFeedback` calls (`:112`, `:130`) on the shared boundary list.
@@ -38,6 +38,7 @@ Out:
 
 ## Acceptance
 - [C-J3-05](../checks/C-J3-05.md): a steer appears with its author and the agent continues on the same working copy.
+- [C-STK-07](../checks/C-STK-07.md) steps 2-4: a steer before the fence refuses Merge; one during it is held and delivered only if the merge fails.
 
 ## Risks and notes
 - Risk: a `flowdispatch` signal doesn't reach the coding host's notification queue, because today's steers go through the workspace gateway (`controller/runs.ts:650`). Observation: the integration test's steer never appears in the run transcript. Then the backend calls the gateway `steer` with a durable job instead.

@@ -17,7 +17,7 @@ In:
 - Watcher: the card shows "Watching", never takes keyboard focus for input, and sends no input frames. The server drops any that arrive anyway (§7.5).
 - The coding agent's terminal (T-TRM-05) renders with owner "Agent" and is read-only for every member (§8.11.2a): one Terminal card, whoever runs the command (mvp.md §3.1).
 - Transport: the card reads and writes through T-TRM-01's live-channel terminal client (binary kinds 3–5, §7.5). This ticket opens no socket of its own.
-- `/terminal [branch]` opens the member's own terminal on the branch (`POST /api/terminals`). From the app agent it is A✓: the agent posts a one-click Confirm card that the prompt's author presses, and the terminal opens from that session (§15.1.5, Appendix B.2).
+- `/terminal [branch]` opens the requesting member’s own terminal with `agent: run`; the agent never types in it. The Container follows the catalog descriptor without posting a Confirm card (§5.2.1, §15.1.5). Check: C-ACC-01.
 
 Out:
 - Unix users, the live-channel transport, owner-only input on the server and the drop counter (T-TRM-01, T-MCH-11); terminal sign-in and the skill (T-TRM-02).

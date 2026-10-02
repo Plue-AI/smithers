@@ -23,7 +23,7 @@ In:
 - Agent permissions (§15.1.5): the app agent runs Move at once (`agent: run`); Drop posts a one-click Confirm card (`agent: confirm`, T-APP-04); Merge opens the person's Review & merge card.
 - Counts as filters over Needs you, Starting, Working, Queued and In review. The filter is the member's own card view state (T-APP-16), so one member's filter never changes another's card.
 - Machines: `in_use/capacity`; the owner sees the `parallel` stepper, which runs the owner setting command.
-- Background runs below the stack (`{id, title, state, detail}`). A failed run keeps **Retry** and **Dismiss**, both in-card catalog rows (§6.1.2).
+- Background runs below the stack (`{id, title, state, detail}`, state queued, running, waiting or failed; a finished run leaves the card). A failed run keeps **Retry** (`background.retry`: a new background run of the same flow, version and input) and **Dismiss** (`background.dismiss`: writes `background_dismissals`, so the run leaves every member's card and its record stays), both in-card catalog rows (§6.1.2, §14.3, §3).
 - **New TODO** runs `/todo.new` with no input, so the form law renders the Draft card (T-APP-02).
 
 Out:
@@ -49,10 +49,12 @@ Out:
 - Unit: last look advances only after 2 s on screen; 1.9 s leaves the merged count unchanged.
 - Unit: a `gap` frame shows the last snapshot and never a guessed state until the new snapshot arrives (§19.3).
 - Unit: the card passes the C-UI-02 product-word and minimal-text lint.
+- Integration (real PostgreSQL): Dismiss writes one `background_dismissals` row and the next `home` snapshot omits the run for every subscriber; Retry creates a new run with the failed run's flow, digest and input.
 - e2e (`apps/app/e2e/real/home.spec.ts`, new): the C-J4-01 script, including a failed background run's Retry and Dismiss.
 
 ## Acceptance
-- [C-J4-01](../checks/C-J4-01.md): counts, filters, merged since last look, sync time and machines against capacity match PostgreSQL for every member.
+- [C-J4-01](../checks/C-J4-01.md): counts, filters, merged since last look, sync time and machines against capacity match PostgreSQL for every member, and a failed background run's Retry and Dismiss act for every member (step 10).
+- [C-J8-06](../checks/C-J8-06.md): a failed wiki refresh shows on the Home card with Retry and Dismiss.
 
 ## Risks and notes
 - The TUI still imports `@smthrs/rpc/StackView` and `StackIssues` (`apps/tui/src/factory.ts`). The app stops importing them; T-CUT-03 defers the TUI but keeps it building.

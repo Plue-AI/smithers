@@ -16,9 +16,9 @@ In:
   - version chips for `active`, `proposed` (with the proposing TODO, `todo?`, §14.3), `merged-syncing` ("Merged · active after sync") and `merged-failed` ("Merged · not active"); `previous` is in the model but has no chip;
   - the selected version's steps; steps added relative to Active are marked;
   - for `merged-failed`, "Load failed" with the error from `flow_versions.load_error` (§11.3.2);
-  - the §14.3 actions: **Edit** on the Active version runs `/flow.edit <name>` without a request, so the form law asks for the request (§11.5); Source (`/flow.source <name>`, the read-only File card in S1), Plan (`/flow.plan <name>`, today's `FlowPlanCard`) and Run (`/flow.run <name>`; on a scratch branch a "draft version" run, §11.4.3);
+  - the §14.3 actions: **Edit** on the Active version runs `/flow.edit <name>` without a request, so the form law asks for the request (§11.5); Source (`/flow.source <name>`, the read-only File card in S1), Plan (`/flow.plan <name>`, today's `FlowPlanCard`; on a scratch branch it shows the working-copy version, loaded in that branch's machine, §11.4.3) and Run (`/flow.run <name>`; on a scratch branch a "draft version" run, §11.4.3);
   - the agent of each step as a chip that opens its Agent card (`/agent <name>`, T-FLW-08). Its model is an owner setting (`flow_config` `agent:<role>`, §11.5a), never a TODO.
-- Source, Plan, Run and the agent chips are one click away, never on the first screen (mvp.md §6.14). When the app agent runs Edit or Run (A✓ in mvp.md Appendix B), it posts a one-click Confirm card instead (§15.1.5, T-APP-04).
+- Source, Plan, Run and the agent chips are one click away, never on the first screen (mvp.md §6.14). When the app agent runs Edit (A✓ in mvp.md Appendix B.2), it posts a one-click Confirm card instead (§15.1.5, T-APP-04). Run is `agent: run`.
 - The selected version is the member's own card view state (`member_conversation_state`, T-APP-16), changed through a hidden `flow.version` control.
 - System flows (§11.1.1, M-30) render read-only with no Edit, Source or Run.
 - `/flow <name>` (new, Appendix A).
@@ -45,6 +45,7 @@ Out:
 
 ## Acceptance
 - [C-J5-01](../checks/C-J5-01.md): flow edit from chat becomes a TODO, merges, and the Flow card shows the new version Active after sync while running TODOs keep theirs.
+- [C-J11-02](../checks/C-J11-02.md): Source opens on the proposing TODO's branch; Plan and a "draft version" Run on a scratch branch show the edited graph; a repository flow runs from its slash command with a form.
 
 ## Risks and notes
 - Spec gap: §14.3 Flow versions carry no source label (built-in or `flows/<name>/flow.ts`), per-step detail or system flag, which the mock shows (`cards/Flow.tsx`, `world.ts:239-248`). The card omits them until the tech lead adds them to the model.

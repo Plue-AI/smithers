@@ -1,6 +1,6 @@
 # C-ACC-02 Only a person's session merges or approves; confirmations are session-only and revision-bound
 
-Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-ACC-05, T-STK-04, T-UI-05
+Proves: mvp.md §2 rule 6, §6.10 "Agents can't merge", §6.13 "CLI", M-05, M-21, Appendix B legend (A✓) · spec.md §5.3, §5.4, §10.6.2, §10.6.2a, §10.6.2c, §15.1.4, §15.1.5 · Layer: integration · Stage: S1 · Tickets: T-ACC-04, T-ACC-05, T-STK-04, T-UI-05
 Automation: `packages/backend/internal/compose/confirmations_integration_test.go` (new) · Runs in: CI
 
 ## Setup
@@ -24,16 +24,18 @@ Automation: `packages/backend/internal/compose/confirmations_integration_test.go
 7. With E-delegated, create a merge confirmation for T1.
 8. Call `GET /api/confirmations` with O-delegated and with O's session.
 9. With O's `via=smithers` bearer, dispatch `/todo.new` (A✓). Press the resulting confirmation with E's session, then with O's session.
+10. Restore T1 to `in_review` at generation g with head `h1`. Create a merge confirmation with O-delegated. Steer T1 with E's session, so T1 turns `working` while its PR head stays `h1`. Approve with O's session. Then let T1's run propose generation g+1 with head `h3`, and approve again with O's session.
 
 ## Pass when
-- Steps 1 and 2 return 403 `class: "permission"` for every credential, and the fake GitHub records 0 merge calls.
-- In step 3, the response body has exactly the keys `id` and `state`, and `state = "pending"`.
+- Step 1: eligible delegated merge requests return 202 with a confirmation id and `state: "requested"`; run and machine return 403 `permission`. Step 2: eligible delegated approval returns 403 `never`; run and machine return 403 `permission`. No request in these steps merges. Cancel the step 1 confirmations before step 3.
+- In step 3, dispatch returns 202 with exactly `confirmation` and `state`, and `state = "requested"`; the stored row is `pending`.
 - In step 4, every credential except O's session gets 403. O's session yields exactly 1 merge call, with `sha = h1` and `merge_method = squash`, and the row becomes `approved`.
 - Step 5 returns 409 `class: "conflict"`, the row becomes `expired`, and no new merge call is made.
 - In step 6, deny gives `denied`, the later approve returns 409, and no merge call is made.
 - Step 7 is refused at create with 403, because a Member's role can't merge.
 - In step 8, the delegated response holds only `{id, state}` per row, and the session response holds full rows.
-- In step 9, the dispatch returns `202 {state: "requested"}` with a `one_click` row and no TODO. E's press gets 403; O's press creates exactly one TODO attributed to O.
+- In step 9, dispatch returns `202 {confirmation: id, state: "requested"}` with a `one_click` row and no TODO. E’s press gets 403 `permission`; O’s press creates exactly one TODO attributed to O.
+- In step 10, the first approve returns 409 `class: "conflict"` with reason `state`, makes no merge call and leaves the row `pending`; after g+1 is accepted the row is `expired`, and the second approve returns 409.
 - Over the whole run, the fake GitHub records exactly 1 merge call.
 
 ## Fail when

@@ -8,8 +8,8 @@ After the host, PostgreSQL or a machine dies mid-run, no completed step runs aga
 
 ## Scope
 In:
-- A per-action `reconcile` hook in the flow engine, consulted before an `intended` irreversible crossing is re-dispatched.
-- The rules of §19.2: a GitHub write is looked up by its key (T-GH-09's lookups); a model call is retried; a shell step re-runs only when it declares itself idempotent, and otherwise fails with "interrupted, retry?"; a push compares the remote ref first.
+- No new engine API (spec §19.2, §21.1). Every action in the `todo` flow with an outside effect declares `tier` and `idempotencyKey` explicitly. On an `intended` irreversible crossing with a key, the engine re-executes the body, and the body checks remote state first and returns what it finds.
+- The rules of §19.2: a GitHub write is looked up by its key (T-GH-09's lookups); a model call is retried; a check command on an immutable source export declares `tier: "sealed"` and simply re-runs; any other keyless irreversible shell step fails with "interrupted, retry?"; a push compares the remote ref first.
 - One product state `interrupted` for an unresolvable crossing, shown on the run and TODO cards with Retry. The TODO moves to `failed{class: interrupted, retryable: true}` (§4.1).
 - Retry of an interrupted TODO is a new attempt from the first step of the pinned version, and the earlier attempt and its evidence stay (§4.1). Re-running finished steps is intended there, unlike recovery.
 
@@ -19,18 +19,19 @@ Out:
 - Capture and burst durability inside the machine (T-COL-03).
 
 ## Changes
-- `packages/smithers/flows/flow/src/Action/make.ts:116-125` → new option `reconcile?: (payload, key) => Effect<Option<Success>, ReconcileError>`, and `idempotent?: true` for shell actions.
-- `packages/smithers/flows/engine-store/src/internal/ActionPersistence.ts:2014-2040` → for `effectCrossing === "intended"`, call `reconcile` when declared. Found: seal the attempt with the found outcome, and the body doesn't run. Not found: re-execute with the key. With no `reconcile`, no key and no `idempotent`, keep the `IrreversibleRetryRequiresIdempotencyKey` refusal and record it as `interrupted`.
-- Shell steps: check commands run on an immutable source export (`flows/coding/checks.ts:71`), so declare them `idempotent`. Every other shell action in the `todo` flow states `idempotent` or `reconcile` explicitly; a lint test lists any that state neither.
+- No change to `packages/smithers/flows/flow/src/Action/make.ts` or `ActionPersistence.ts`: with a key, `ActionPersistence.ts:2028-2040` already re-executes an `intended` crossing; without one, its `IrreversibleRetryRequiresIdempotencyKey` refusal is projected as `interrupted`.
+- GitHub-write actions: `idempotencyKey` = the T-GH-09 operation key derived from the payload; the body first looks the write up by that key (PR by head branch, comment by its hidden marker) and returns the found result, else writes.
+- Shell steps: check commands run on an immutable source export (`flows/coding/checks.ts:71`), so they declare `tier: "sealed"` (or a key derived from the export digest). A lint test fails any shell action in the `todo` flow that doesn't state `tier` and `idempotencyKey` explicitly.
 - Model calls → re-run (no outside effect); confirm their tier isn't `irreversible`.
 - Push: `packages/backend/internal/services/mythical_items.go:2066-2074` (`pushProposal`) → on retry after a crash, `git ls-remote` the branch first. Equal to the intended head means done. Equal to the expected head means push with the existing `--force-with-lease`. Anything else is `needs_you{foreign_push}` (T-GH-06), never a push.
 - Go jobs: `packages/backend/jobs/claims.go:437-450` (`uncertain`) → project as run state `interrupted`, and the TODO moves to `failed{class: interrupted, retryable: true}` from `starting` or `working` (§4.1).
 - `apps/app/src/mainview/cards/RunTraceStatus.ts` → the word "Interrupted" with Retry (`/todo.retry Tn` or `runs.rerun`); the toast settles on this terminal event (§19.3).
 
 ## Tests
-- Unit, `packages/smithers/flows/engine-store/test/ReconcileBeforeRetry.test.ts` (new): reconcile found → body not invoked, attempt sealed with the found value; not found → body invoked once with the same key; no hook and no key → typed refusal and `interrupted`.
+- Unit, `packages/smithers/flows/engine-store/test/KeyedRetryChecksRemote.test.ts` (new): an irreversible keyed action killed after `intended` re-executes once; its body finds the remote result and returns it without a second write, and the journal outcome equals an uninterrupted run's; a keyless irreversible action refuses and projects `interrupted`; a `sealed` check re-runs.
+- Unit (lint): every shell action in the `todo` flow states `tier` and `idempotencyKey`.
 - Unit, `packages/backend/internal/services/mythical_items_test.go` (extend): a push retry with the remote at the intended head pushes nothing; at the expected head pushes once; at a third sha raises `foreign_push`.
-- Fault, `packages/smithers/test/faults/engine/` (new case, beside `case01-kill-engine-mid-action.test.ts`): SIGKILL between `intended` and `succeeded` for a GitHub-write action with a lookup, a shell action with `idempotent`, and one with neither.
+- Fault, `packages/smithers/test/faults/engine/` (new case, beside `case01-kill-engine-mid-action.test.ts`): SIGKILL between `intended` and `succeeded` for a keyed GitHub-write action whose body looks itself up, a `sealed` check command, and a keyless irreversible shell action (refused, `interrupted`).
 - Fault (host and machine, reference host): [C-DUR-01](../checks/C-DUR-01.md) and [C-DUR-02](../checks/C-DUR-02.md).
 
 ## Acceptance

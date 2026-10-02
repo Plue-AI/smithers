@@ -37,6 +37,8 @@ Out:
 - e2e: [C-J5-01](../checks/C-J5-01.md).
 
 ## Acceptance
+- [C-J11-02](../checks/C-J11-02.md): Source opens the flow on the proposing TODO's branch, and a scratch-branch Run is a "draft version" that never proposes.
+
 - [C-J5-01](../checks/C-J5-01.md): "Every TODO must run `pnpm test` and update the changelog" in chat produces a diff, a TODO and a PR that adds `flows/todo/flow.ts`.
 
 ## Risks and notes

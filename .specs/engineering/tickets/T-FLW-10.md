@@ -1,12 +1,14 @@
 # T-FLW-10 Plans cite wiki page revisions
 
-Stage S3 · Size S · Depends on T-FLW-02, T-APP-17 · Unblocks — · Issue: to file
+Stage S3 · Size S · Depends on T-FLW-02, T-APP-17 · Unblocks — · Issue: [#3465](https://github.com/smithersai/smithers/issues/3465)
 Spec: spec.md §10.4.1 (plan cites wiki revisions), §10.4.3, §13.4, §15.1.2 · Delta: delta.md §8 (no row; research/collab-terminals-wiki.md gap "cites page revisions") · Product: mvp.md J8.3, §6.9 Works TODOs, §6.11 One vault for both agents
 
 ## Goal
 A TODO's plan reads authored and generated wiki pages through the API, and its receipt records `{slug, revision, digest}` for every page it cited, so the TODO's evidence links to the exact revision.
 
 ## Scope
+- The plan step treats each cited decision page as a binding constraint: a plan that departs from a cited decision names it and says why in the plan text. Check: C-J8-05.
+
 In:
 - The plan step reads wiki pages through the host API with the run credential: authored pages as well as generated ones.
 - Page selection (§13.4): the same selector as the app agent's preflight (§15.1.2, T-APP-17), restricted to wiki pages, given the TODO's prompt, within the selector's token budget. The plan step calls it through the host API; it is a model call on the `fast` role (§11.5a), recorded as a step of the run. No second selector exists.
@@ -32,6 +34,8 @@ Out:
 - Integration: [C-J8-04](../checks/C-J8-04.md), with the real PostgreSQL wiki store and a real plan step.
 
 ## Acceptance
+- [C-J8-05](../checks/C-J8-05.md): after a decision page is edited, the next related plan cites the new revision and its change follows it.
+
 - [C-J8-04](../checks/C-J8-04.md): the plan receipt records `{slug, revision, digest}` for every cited page, and the digest matches the stored revision.
 
 ## Risks and notes

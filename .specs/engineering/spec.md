@@ -10,7 +10,7 @@ mvp.md §11 builds the MVP in three stages, and every one ships at launch. Will 
 - Each branch has one shared conversation (§14.1).
 - The app agent runs a context preflight before it answers (§15.1).
 
-Each section below is tagged with the stage that first needs it: **[S1]** skeleton (J1, J2, J4, J5, J6.1), **[S2]** multiplayer without co-editing (J3), **[S3]** live code co-editing and learning. **[D]** marks behavior deferred to the first release after the MVP (mvp.md §16). It is specified only so the MVP leaves room for it, and the MVP MUST NOT build it.
+0.1 Each section below is tagged with the stage that first needs it: **[S1]** skeleton (J1, J2, J4, J5, J6.1), **[S2]** multiplayer without co-editing (J3), **[S3]** live code co-editing and learning. **[D]** marks behavior deferred from the MVP (mvp.md §16). No deferred item is promised for a specific release; only the maintainer release (mvp.md §14) has a date. It is specified only so the MVP leaves room for it, and the MVP MUST NOT build it. Check: C-CAT-01 (MVP catalog excludes deferred commands).
 
 | Deferred [D] | Where it would live |
 | --- | --- |
@@ -112,28 +112,32 @@ install_settings(key PK, value jsonb, sealed bool, updated_by, updated_at)   -- 
 github_app(id, slug, owner_login, owner_kind[user|org], client_id, pem_sealed, webhook_secret_sealed,
            client_secret_sealed, installation_id, created_at)
 
-todos(id, number UNIQUE, title, state, state_reason, owner_id, issue_number NULL,
+todos(id, repository_id, number, title, state, state_reason, owner_id, issue_number NULL,
       fixes_issue bool, stack_position, branch_id, pr_number NULL, created_by_actor jsonb,
-      flow_name, flow_digest NULL, needs_you jsonb NULL, failure jsonb NULL, queue jsonb NULL,
+      flow_name, flow_digest NULL, needs_you jsonb NULL, merging jsonb NULL, failure jsonb NULL, queue jsonb NULL,
       current_step NULL, lessons int, merged_at, dropped_at, version)
+      -- UNIQUE (repository_id, number); numbers are allocated per repository under a per-repository advisory lock, so `T<n>` and the `todo:<n>` topic stay per repository (an install serves one; a composed multi-repository backend never shares a sequence across tenants)
 todo_revisions(todo_id, rev, prompt, acceptance, seed_patch_blob NULL, author_actor jsonb,
                reason[create|amend|from-issue], issue_digest NULL, created_at)
 todo_events(id, todo_id, seq, at, actor jsonb, kind, from_state, to_state, payload jsonb)
+todo_waits(wait_id, todo_id, kind, owner[run|branch], payload jsonb, run_wait_id NULL, opened_at, settled_at NULL, settled_by jsonb NULL, outcome NULL)   -- §10.8.0; todos.needs_you holds the primary open wait (§4.1.0a); todos.merging is the merge fence (§10.6.2b); checks C-STK-07, C-STK-08
 todo_attempts(todo_id, attempt, run_id, started_at, ended_at, outcome, evidence jsonb)
-todo_approvals(todo_id, member_id, pr_head_sha, credential_id, at)
+todo_approvals(todo_id, member_id, generation, pr_head_sha, credential_id, at)   -- approval binding (§10.6.2c); check C-ACC-02
 
 branches(id, name UNIQUE, kind[item|scratch], todo_id NULL, forked_from jsonb,
          github_branch NULL, rebase_pending jsonb NULL, moved_off jsonb NULL, created_at, archived_at)
 machines(branch_id PK, workspace_id, state, vm_id NULL, disk_id, image_recipe_digest, last_activity_at,
          sleeping_since, wake_reason, head_change_id, head_commit_id, snapshot_tree_id)
-machine_requests(id, branch_id, class[person|todo|background], requested_by jsonb, reason,
-                 state[waiting|granted|cancelled], created_at, granted_at)
+machine_requests(id, holder, branch_id NULL, class[person|todo|background], requested_by jsonb, reason,
+                 state[waiting|granted|released|cancelled], created_at, granted_at, released_at)   -- holder: branch:<id> | prepare:<recipe digest> | run:<run id> (§8.3.1); a holder holds a slot from grant to confirmed stop (§8.3.2); check C-MCH-02
 
 activity(id, branch_id, seq, at, actor jsonb, asked_by jsonb NULL,
          kind[step|steer|question|answer|edit|change|github|rebase|read|context],
-         summary jsonb, burst_id NULL, snapshot_before NULL, snapshot_after NULL, files int, github bool)
+         summary jsonb, burst_id NULL, versions_commit NULL, files int, github bool)
          -- asked_by: the requester of a stack operation ("Maya asked · Rebased onto T8"); read/context per mvp.md B.3
-burst_files(burst_id, path, change[added|modified|deleted|renamed], renamed_to NULL)
+burst_files(burst_id, path, change[added|modified|deleted|renamed], renamed_to NULL,
+            before_blob NULL, after_blob NULL, after_digest NULL)   -- per-file versions (§9.3.4); check C-COL-05
+machine_event_receipts(branch_id, event_id, seq, committed_at, PRIMARY KEY(branch_id, event_id))   -- outbox dedupe (§9.1.4); check C-DUR-04
 terminals(id, branch_id, owner_id NULL, run_id NULL, title, opened_at, closed_at)
 
 flow_versions(id, flow_name, digest, source_commit, closure_blob, status[loaded|failed],
@@ -145,8 +149,9 @@ flow_config(scope[install|flow:<name>|agent:<role>], key, value jsonb, source[de
             updated_at)   -- install-stored defaults (§11.2) and agent models (§11.5a)
 stack_attention(id, kind[order|force_push], payload jsonb, state[open|settled], created_at,
                 settled_by jsonb NULL)
-outbound_writes(key PK, kind, target jsonb, state[intended|done|unknown], github_ref NULL,
-                created_at, done_at NULL)
+outbound_writes(key PK, seq bigserial, kind, target jsonb, field NULL, desired jsonb,
+                precondition jsonb NULL, state[intended|unknown|done|superseded|conflict], settled_by NULL,
+                github_ref NULL, created_at, done_at NULL)   -- §12.4.1; check C-GH-09
 
 github_sync(stream PK, last_attempt_at, last_success_at, etag, cursor, target_interval_s,
             last_error jsonb NULL)
@@ -157,10 +162,18 @@ member_credentials(member_id, file[claude_credentials|claude_account|codex_auth|
 presence_sessions(id, branch_id, member_id, via, started_at, ended_at)   -- coarse: one row per continuous presence ≥ 2 min, for the scorecard (§20.4)
 conversations(id, branch_id UNIQUE, created_at)
 conversation_entries(conversation_id, entry_id, seq, kind[prompt|answer|card|event], author_actor jsonb,
-                     title, summary, summary_rev, tone, state NULL, action jsonb NULL,
-                     context jsonb NULL, run_id NULL, todo_id NULL, updated_at)
+                     audience_member_id NULL, title, summary, summary_rev, tone, state NULL, action jsonb NULL,
+                     context jsonb NULL, card jsonb NULL, run_id NULL, todo_id NULL, updated_at)
+                     -- audience_member_id: set only on a private entry (§14.5.1)
+                     -- card: {kind, payload} for a card with no topic of its own (a Draft's fields, §14.3)
+agent_turns(id, conversation_id, prompt_entry_id, author_member_id,
+            state[queued|running|done|failed|cancelled|refused], reason NULL, credential_id NULL,
+            queued_at, started_at NULL, ended_at NULL)   -- app-agent turn queue (§15.1.4a)
 member_conversation_state(member_id, conversation_id, scroll_anchor_entry NULL, card_view jsonb,
                           last_seen_seq, toasts_hidden bool, updated_at)
+run_summaries(run_id, attempt, target[phase:<n>|cell:<n>], text, rev, updated_at,
+              PRIMARY KEY(run_id, attempt, target))   -- monitor summaries by agent:fast (§11.6.3, §14.5.3)
+background_dismissals(run_id PK, dismissed_by jsonb, dismissed_at)   -- Home card Dismiss; the run record stays (§14.3)
 projection_events(topic, seq, at, payload jsonb)   -- per-topic monotonic stream (§7.2)
 ```
 
@@ -200,24 +213,28 @@ projection_events(topic, seq, at, payload jsonb)   -- per-topic monotonic stream
 | From → to | Trigger | Guard |
 | --- | --- | --- |
 | queued → starting | Admission grants the branch's machine | Machine `waking` or `awake`; flow version pinned at this moment (or reused on Resume, §11.4.2) |
-| starting → working | The `todo` run's first step starts | Coding host up on the machine |
+| starting → working | The coding host reports the attempt's run attached on the granted machine (`run_attached`): a new run's first step starts, or a resumed or re-admitted run continues its next unfinished step | Coding host up on the machine. Resume, re-admission and a new attempt all leave starting this way, never by waiting for a first step that already ran |
 | starting → failed | The machine or the coding host fails to start | `failure.step = "start"` |
-| working → needs_you | Run raises a durable wait of kind question, approval, conflict or moved-off | `needs_you = {kind, prompt, since, run_wait_id}` |
+| any unmerged → needs_you | A wait opens (§10.8.0): the run raises `question` or `approval` while working; the engine or the sync raises `conflict`, `moved_off` or `foreign_push` in any unmerged state | One `todo_waits` row per wait. The state is needs_you because it ranks above paused, failed and the item phase (§4.1.0a) |
 | needs_you → working | First accepted answer (§10.8) | Answer is from a member, or the coding agent resolves a conflict |
-| working → paused | Stop | A durable pause signal; the run parks in a `paused` wait at its next boundary (it is not cancelled); the machine is released once safe-idle |
-| paused → queued | Resume | Settles the pause wait; the same run continues from its last finished step once a machine is granted |
+| working → paused | Stop | The attempt's run is executing and no `question` or `approval` wait is open. An open branch wait (`conflict`, `moved_off`, `foreign_push`) doesn't refuse Stop; the state stays needs_you until that wait settles (§4.1.0a). A durable pause signal; the run parks in a `paused` wait at its next boundary (it is not cancelled), and `paused_at` is set when that wait opens; the machine is released once safe-idle |
+| paused → queued | Resume | `paused_at` is set. Settles the pause wait and clears `paused_at`; the same run continues from its last finished step once a machine is granted, through starting (`run_attached`) |
 | working → failed | Run terminal `failed` or `uncertain` | `failure = {step, class, message, retryable}` |
 | failed → queued | **Retry** (optionally with a steer) | A new attempt: a new run of the same pinned flow version from its first step; the earlier attempt and its evidence are kept. Re-running finished steps is intended here, unlike Resume (§19.1) |
 | failed → queued | **Retry with the current flow** (`todo.retry-current-flow`, in-card) | As Retry, but the new attempt pins the currently Active flow version; same TODO identity and evidence |
-| working → in_review | PR opened or updated for the verified revision | PR head = verified head |
+| working → in_review | `stack.propose` accepts the candidate (§10.4.4), and the PR is opened or updated | The PR head's tree is the accepted generation's tree |
 | in_review → working | Changes requested, a review comment from a member, or a steer | Approvals for the old head are void |
+| in_review → queued | As `in_review → working`, when the branch's machine was released and admission must grant it again [S2] | The same run continues through starting (`run_attached`) |
+| in_review → in_review | Rebased, or a capture shows edits the accepted generation lacks (§10.4.5) | The run re-enters `candidate`. Merge is held (`rechecking` or `pending_work`, §10.6.2a) until `stack.propose` accepts a new generation |
 | in_review → needs_you | An outside push to the TODO branch, or a rebase conflict the agent can't resolve | PR stays open |
 | needs_you → queued | Answered after the machine was released (safe-idle) | The run resumes when admission grants the machine again |
 | needs_you → working | Bring in (after an outside push) | The run rebases onto the pushed commit at its next checkpoint |
 | needs_you → in_review | Discard (after an outside push), or another answer that needs no new work | The PR head is the verified candidate |
-| in_review, working, needs_you, paused → merged | GitHub reports the PR merged and `main` contains the commit | None: a merge on GitHub counts from any unmerged state (M-22). The same transaction cancels the attempt's run, settles every open wait and clears `needs_you` and `paused_at`. A steer never converts the PR to draft, so a maintainer can still merge it |
+| any unmerged with an open PR (queued, starting, working, needs_you, paused, failed, in_review) → merged | GitHub reports the PR merged and `main` contains the commit | None: a merge on GitHub counts from any unmerged state (M-22). The same transaction cancels the attempt's run, settles every open wait and clears `needs_you`, `paused_at` and `merging` (§10.6.2b). A steer never converts the PR to draft, so a maintainer can still merge it |
 | any unmerged → dropped | Drop, or the PR is closed on GitHub without merge | The PR is closed and later items are rebased. The same transaction cancels the run, settles every open wait and clears `needs_you` and `paused_at` |
-| dropped → in_review | The PR is reopened on GitHub within 7 days | `smithers/<slug>` is recreated from the captured head in the repo store; machine cleanup doesn't matter (§12.3) |
+| dropped → in_review | The PR is reopened on GitHub within 7 days | Once per reopen event. No run starts: the TODO keeps its last accepted generation, and the first input that needs work starts a new attempt (§10.7.4). `smithers/<slug>` is recreated at that generation's `pr_head`; machine cleanup doesn't matter (§12.3) |
+| needs_you → paused | The last open wait settles while `paused_at` is set | §4.1.0a |
+| needs_you → failed | The last open wait settles while the item is `blocked` | §4.1.0a. Retry is accepted throughout |
 
 4.1.0 The stack engine's work record (`mythical_items.state`, 15 values) projects onto the TODO state. `todos.state` is written by the engine in the same transaction as the item change:
 
@@ -226,18 +243,31 @@ The table above is authoritative; the diagram omits some edges.
 | Item state | TODO state |
 | --- | --- |
 | `queued`, `skipped` (not yet admitted) | queued |
-| launched, run not yet reporting its first step | starting |
+| launched or re-admitted, run not yet attached (`run_attached`) | starting |
 | `running`, `delivering`, `integrating`, `verifying`, `proposing`, `waiting`, `retrying` | working (`current_step` names the phase) |
 | `proposed` | in_review (stays in_review while the PR rebuilds after an earlier merge) |
 | `landed` | merged |
 | `blocked` | failed |
 | `cancelled`, `rejected`, `declined` | dropped (`state_reason` keeps the cause) |
-| any non-terminal, with an open `needs_you` | needs_you |
-| any non-terminal, with `paused_at` set | paused |
+| any non-terminal, with an open wait (§10.8.0) | needs_you (§4.1.0a) |
+| any non-terminal, with `paused_at` set and no open wait | paused (§4.1.0a) |
 
 Terminal item states win: `landed` always projects merged, and `cancelled`, `rejected` and `declined` always project dropped, whatever `needs_you` or `paused_at` hold. Check: C-STK-01.
 
-4.1.1 `queued.queue = {reason: "waiting for a machine"|"merges after Tn"|"rebase pending", position}`. The position comes from §8.3.
+4.1.0a **Precedence.** The engine derives the stored state from facts in this order, and the first row that holds wins:
+
+| Rank | State | Holds when |
+| --- | --- | --- |
+| 1 | merged | item `landed` |
+| 2 | dropped | item `cancelled`, `rejected` or `declined` |
+| 3 | needs_you | at least one open wait (§10.8.0) |
+| 4 | paused | `paused_at` is set |
+| 5 | failed | item `blocked` |
+| 6 | in_review, working, starting, queued | the item phase (§4.1.0) |
+
+Open waits are independent: settling one never settles another. A `needs_you → X` row of §4.1 applies only when the settled wait was the last open one, and X is then the first lower rank that holds. With several open waits, the **primary wait** (`todos.needs_you`, whose kind sets the action, §14.5.2) is the first open one in the order `moved_off`, `conflict`, `foreign_push`, `approval`, `question`, then the oldest. Branch waits come first because they block the branch itself, and answering a question doesn't clear them. The TODO card lists every open wait with its own action. Command guards read facts, not the derived state: Stop needs an executing run with no open `question` or `approval`, Resume needs `paused_at`, Retry needs item `blocked`, and an answer needs its own wait open. Checks: C-STK-01 (the table), C-STK-08 (combinations).
+
+4.1.1 `queued.queue = {reason: machine | merge_order | rebase, after?: n, position}` on the wire; `after` is the TODO number for `merge_order`. The card renders the reason as copy: "waiting for a machine #<position>", "merges after T<after>", "rebase pending". The position comes from §8.3.
 
 4.1.2 `working.current_step` is the step id of the run's innermost active flow step. It is projected from runtime events within 1 s.
 
@@ -275,11 +305,17 @@ Machine states shown in the product: awake, asleep, waking, waiting #n (= reques
 
 ### 5.1 Sign-in
 
-5.1.0 First owner. `smthrs host start` prints a one-time setup URL for each listener (for example `http://localhost:4000/setup?token=…`); only the token's digest is stored. Opening it on any listener creates a token-backed setup session, so the owner may run setup from a laptop on the LAN (J1.1). That session can do only the setup steps (§16.2). GitHub sign-in needs the App, so the owner claim completes when the setup session's holder signs in with GitHub through the newly created App. That binds the owner identity and deletes the token. Nobody without the installer's terminal output can claim the install.
+5.1.0 First owner. `smthrs host start` prints a one-time setup URL for `http://localhost:4000` and for each configured public origin (§16.3.3), for example `http://localhost:4000/setup?token=…`. Only the token's digest is stored, in `install_settings`.
+- **Setup sessions.** Opening the URL exchanges the token for a setup session: a random id in an HttpOnly cookie (§16.3.3), stored as a digest under the `install_settings` key `setup.session.<digest>`, which expires after 24 h without a request. The page then removes the token from its address. Any number of setup sessions may exist before the claim, so the owner may run setup from the Mac and from a laptop on the LAN (J1.1). A setup session has no member and no `session` credential. It reaches only `GET /api/install`, the setup steps before the claim (Address, GitHub App, Owner sign-in; §16.2) and the OAuth start and callback. All setup sessions share the durable step state, and starting a step is a compare-and-set from `pending`, `failed` or `blocked` to `running`, so two sessions never run one step twice.
+- **Claim.** Owner sign-in sends the session's holder through GitHub user authorization with the new App. The callback arrives on the same origin with the same setup-session cookie (§16.3.3) and runs one transaction: delete the token's digest, aborting if it is already gone; insert the owner `members` row (one owner, §2); delete every setup session; mint a `session` credential. That completes the claim (mvp.md J1.2). Any other setup session, a second callback and a replayed token get `401 setup_closed`. Nobody without the installer's terminal output can claim the install.
+- **Provisional owner.** The repository isn't bound at the claim, so the §5.1.2 permission check can't run yet. Until it passes, the owner is provisional: `Authorize` (§5.2.1) allows the setup steps and refuses every other action with `{code: "owner_unverified", class: "permission"}`. After the owner installs the App, the host reads the installation with the App's JWT (`GET /repos/{owner}/{repo}/installation`) and never trusts an `installation_id` callback parameter. It records the repository and `github_app.installation_id`, then runs the §5.1.2 check for the owner with the installation token. A pass sets the owner's `last_access_check_at` and ends the provisional phase. A fail blocks the step with "needs access on GitHub ↗"; the owner fixes access on GitHub and retries, or picks another repository.
+- **Restart.** The token digest, setup sessions, step states, the owner row and its provisional state are durable, so setup resumes at the same step after a restart.
+
+Check C-SEC-04 covers every rule in 5.1.0.
 
 5.1.1 People sign in with GitHub through the install's GitHub App user authorization (OAuth web flow). The callback URLs registered on the App are the configured origins plus `http://localhost:4000` (§16.3.3).
 
-5.1.2 On each sign-in the host service checks two things. The person must be the owner or have a `members` row that isn't removed. The person must also have `push` or higher permission on the repository, read with `GET /repos/{o}/{r}/collaborators/{login}/permission` using the installation token. If either fails, sign-in is refused with the reason, for example "needs access on GitHub ↗".
+5.1.2 On each sign-in after the claim, the host service checks two things; a provisional owner's sign-in (§5.1.0) skips them and stays provisional. The person must be the owner or have a `members` row that isn't removed. The person must also have `push` or higher permission on the repository, read with `GET /repos/{o}/{r}/collaborators/{login}/permission` using the installation token. If either fails, sign-in is refused with the reason, for example "needs access on GitHub ↗".
 
 5.1.3 Hourly, and on any 401 or 403 from GitHub for that member, the service re-checks every active member. Losing write access sets `suspended_at` and publishes the revocation event (§5.6). Regaining it clears the suspension on the next check.
 
@@ -293,13 +329,14 @@ Machine states shown in the product: awake, asleep, waking, waiting #n (= reques
 | Merge, approve a revision | ✓ | ✓ | | merge: `confirm` through Review & merge (a maintainer's session approves); approvals that gate a merge: `never` | |
 | Members, roles, secrets write | ✓ | ✓ | | never (no confirmation path: secret values never pass through an agent or a pending confirmation) | |
 | Merge flow/agent changes (same as Merge) | ✓ | ✓ | | `confirm` through Review & merge | |
-| Create, place, amend, steer, answer, stop, resume, retry, drop TODOs | ✓ | ✓ | ✓ | `run`, except commit and drop: `confirm` (§15.1.5) | answer own conflicts only |
+| Create, place, amend, steer, answer, stop, resume, retry, drop TODOs; Bring in a foreign push | ✓ | ✓ | ✓ | `run`, except commit, amend, drop and Bring in: `confirm` (§15.1.5) | answer own conflicts only |
+| Make a TODO from an issue with outsider text (§10.2.1); Discard a foreign push | ✓ | ✓ | | `confirm`: the requesting member must be a maintainer, and only that maintainer approves (§6.1.2b) | |
 | Join branch, terminal, SSH, co-edit, fork, add to stack, run flows | ✓ | ✓ | ✓ | `run`, except add to stack: `confirm` (§15.1.5) | within its own branch |
 | Read secret values | | | | | |
 
 A `machine` credential has no row: it can only report its own branch's events (§9.1) and read what that branch needs.
 
-5.2.1 Every row is enforced in the host service by one authorizer, `Authorize(credential, action, subject)`. UI hiding is presentation only.
+5.2.1 Every served command and in-card action passes through `Authorize(credential, command, subject)`. It reads actor eligibility, minimum role and `agent: run | confirm | never` from the literal `catalog.mvp.json` command-policy table (§6.1.2, §6.1.2b); §5.2 summarizes that table. C-CAT-01 proves its rows match product Appendices B and C. No ticket, Container or check maintains a second policy table. First check the credential scope and the member’s minimum role: failure returns `403 {class: "permission"}` with no confirmation. For an eligible delegated credential, `never` returns `403 {class: "never"}` with no confirmation, `run` executes, and `confirm` returns `202 {confirmation: id, state: "requested"}` after creating the private confirmation. The confirmation id contains no subject or secret data. UI hiding is presentation only. Checks: C-ACC-01, C-ACC-02, C-SEC-05.
 
 ### 5.3 Credentials
 
@@ -312,15 +349,15 @@ A `machine` credential has no row: it can only report its own branch's events (�
 
 5.3.1 `smthrs login` MUST return a `delegated` credential, never a person-equivalent token, because the CLI can't know whether an agent will hold it. The `via` defaults to `cli`; `smthrs login --agent claude-code` sets it.
 
-5.3.2 A branch terminal is signed in automatically. When a member's session starts on a machine, the host mints a `delegated(via=terminal)` credential for that member and branch. It writes the credential to `/run/smithers/<uid>/token` with mode 0600, owned by that uid, and sets `SMITHERS_TOKEN_FILE` and `SMITHERS_URL` in the session environment. A tool inside the terminal, such as Claude Code, inherits it and is attributed "Ben via Claude Code" through the skill's `via` header (§6.4).
+5.3.2 A branch terminal is signed in automatically with `delegated(via=terminal)` for its member and branch. In S1 the token is `/run/smithers/sessions/<session id>/token`, owned by the guest’s single uid, mode 0600, restricted to §8.11.1’s reads, own-TODO answer and steer, and append-only TODO creation; confirmations are outside its scope. In S2 it moves to `/run/smithers/<uid>/token`, owned by the member, mode 0600, and uses the full catalog policy. Both stages set `SMITHERS_TOKEN_FILE` and `SMITHERS_URL` and revoke the token within 5 s of session close. The skill’s `via` header identifies the agent participant acting for the member (§6.4, §14.6a). Checks: C-J6-01, C-SEC-05.
 
 ### 5.4 Person confirmation
 
-A delegated credential whose catalog row is `confirm` (§15.1.5; for example merge, commit or drop a TODO) may create a `person_confirmations` row (`POST /api/confirmations`). The app shows the confirmation to that member only, bound to the exact subject revision. Only a `session` credential can approve it. A confirmation expires after 24 h or when its subject's revision changes. Agents never receive the approve endpoint's response body beyond the row id and state. Pending confirmations publish on that member's `confirmations:<member>` topic (§7.2.2).
+A delegated credential whose catalog row is `confirm` and whose scope and member role allow the command (§5.2.1) creates a `person_confirmations` row and returns `202 {confirmation: id, state: "requested"}`. The app shows it to that member only, bound to the exact subject revision. Only that member’s `session` can approve it, after the authorizer rechecks their current role. It expires after 24 h or when its subject revision changes. A delegated list/read response exposes only `{id, state}`; dispatch exposes only `{confirmation, state}`. Pending confirmations publish on `confirmations:<member>` (§7.2.2). Checks: C-ACC-01, C-ACC-02.
 
 ### 5.5 Unix identity on machines (M-18, M-29)
 
-5.5.1 Each member has a stable `unix_uid` from 20000 upward and a login equal to the GitHub login, sanitized to `[a-z0-9_-]{1,32}`. The coding agent runs as `agent` (uid 19999). `smithers-machined` runs as root, and nothing else does.
+5.5.1 Each member has a stable `unix_uid` from 20000 upward and a login equal to the GitHub login, sanitized to `[a-z0-9_-]{1,32}`. The coding agent runs as `agent` (uid 19999). The `smithers-machined` broker runs as root, and nothing else does; its daemon runs as `machined` (uid 19998, groups `{team}`) (§9.5.1). Check: C-COL-04.
 
 5.5.2 No user on a machine has sudo, setuid helpers, file capabilities or membership in privileged groups. The image MUST NOT contain `sudo`. `su`, setuid/setgid binaries and binaries with file capabilities are removed or stripped. A sanitized login that collides with another gets a numeric suffix (`ben`, `ben2`), fixed at first assignment.
 
@@ -330,7 +367,7 @@ A delegated credential whose catalog row is `confirm` (§15.1.5; for example mer
 
 ### 5.6 Revocation
 
-Removing or suspending a member deletes their sessions, revokes their delegated credentials and SSH grants, and closes their live sockets, terminals and SSH sessions within 5 s. It also deletes their credential store rows and their seeded credential files on every machine (§8.7.3). Their TODOs keep their history; any maintainer can take one over with **Take over**, an in-card control on the TODO card (`todos.owner_id` change, audited).
+5.6.1 Removing or suspending a member deletes their sessions, revokes their delegated credentials and SSH grants, and closes their live sockets, terminals and SSH sessions within 5 s. On machines this is `kill_sessions`, which returns only when none of their processes remains, background ones included (§9.6.3). In the same 5 s it cancels their queued app-agent turns and stops their running one (§15.1.4a). It also deletes their credential store rows and their seeded credential files on every machine (§8.7.3). Their TODOs keep their history; any maintainer can take one over with **Take over**, an in-card control on the TODO card (`todos.owner_id` change, audited). Checks: C-SPK-08, C-UI-06.
 
 ---
 
@@ -340,7 +377,26 @@ Removing or suspending a member deletes their sessions, revokes their delegated 
 
 6.1.1 Every member-facing action is a command with a typed payload schema. The command is the single source for four doors: the app's slash menu, palette and card buttons; the app agent's tool list; the `smthrs` CLI; and the Smithers skill (M-21).
 
-6.1.2 The MVP catalog is a machine-readable file, `catalog.mvp.json`, generated from the command registry. Each row has the slash name, CLI path (`null` for UI-only rows such as ⌘K, `/help`, `/stop` and `/theme`), journey, group, visibility (`core`, `advanced`, `in-card` or `hidden`), `agent: run | confirm | never` (§15.1.5) and a person-only flag. `in-card` commands are controls inside a card: the three doors still apply, but they're absent from `/help` and Appendix A (for example Return to Tn, Keep for now, OK on order attention, Reset to GitHub main, Make TODO from a proposal, Dismiss, Retry a background run). Sign-in and sign-out are never agent-invocable. The CLI hides non-MVP groups from MVP help with an explicit hidden list where incur lacks a flag. A CI check fails when a registered command visible to members is absent from mvp.md Appendix A, or an Appendix A row has no command, CLI path (unless UI-only) or skill entry (check C-CAT-01). mvp.md Appendix B is the registry of every flow and action (app flows, coding-host tools, backend system flows and workers, CLI commands). The allowlist test derives from B.1, B.2, B.4 (in-card controls with stable ids, such as `todo.return-to-item`, `file.restore` and `merge.confirm`) and B.6, plus Appendix C (`.specs/product/actions.md`: every Flow, Action and AgentAction tag in shipped flows and std tools, 386 rows). A tag that is registered but has no Appendix C row, or whose row says Cut, fails the build. A ticket that adds a tag adds its Appendix C row in the same change. The Cut-tag assertion turns on in the change that completes T-CUT-01's deletions, since 87 Cut tags are still registered today.
+6.1.2 The MVP catalog is a machine-readable file, `catalog.mvp.json`, generated from the command descriptors. A command's descriptor is the one authority for it. Each row carries:
+- the slash name, the CLI path, the journey and the group;
+- visibility: `core` or `advanced` (an Appendix A row), `in-card` (a control inside a card: an mvp.md B.4 control or a B.1 card control) or `hidden`;
+- actor eligibility: which of `person`, `app_agent` and `external_agent` may invoke it, read from the row's Appendix B Who column. **A** or **A✓** lists `app_agent`, and **X** lists `external_agent`. A UI-only row (B.1) never lists `external_agent`, since an external agent has no screen;
+- the minimum role, `member`, `maintainer` or `owner`, from the same column (for example "maintainer for Discard" or "Owner only");
+- the confirmation policy for delegated credentials, `agent: run | confirm | never` (§15.1.5). **A✓** gives `confirm`; otherwise **A** or **X** gives `run`; a row with neither gives `never`. A person-only row lists `person` alone and is `never`.
+
+6.1.2a Doors follow from these fields. The slash menu, the palette and `/help` list exactly the `core` and `advanced` rows plus repository flows, and `/help` collapses `advanced`. An `in-card` row is a card button: it has no slash command, palette entry, `/help` row, CLI path or skill entry (for example Return to Tn, Keep for now, Bring in, Discard, OK on order attention, Reset to GitHub main, Make TODO from a proposal, Dismiss, Retry a background run). The app agent's tools are the rows that list `app_agent` and aren't `never`, `in-card` rows included. The skill carries the `core` and `advanced` rows that list `external_agent` (mvp.md B.6). The CLI carries the same rows plus person-facing open-card paths for `/secrets`, `/members` and `/settings`; those paths open the app card for the person, perform no mutation, and expose no external-agent path. Other rows have a `null` CLI path, the UI-only rows ⌘K, `/help`, `/stop` and `/theme` among them. `/terminal` maps to `workspace ssh`, `shell` and `exec` in the CLI. `/search` and `/github` status list `external_agent` and use the same read-only skill as the app agent. GitHub App changes stay owner-only. Sign-in and sign-out are never agent-invocable. The CLI hides non-MVP groups from MVP help with an explicit hidden list where incur lacks a flag. Check: C-CAT-01.
+
+6.1.2b The host authorizer (§5.2.1) enforces the same fields for every credential: the actor kind must be eligible, its member must hold the minimum role, and a delegated credential follows `agent`. For a `confirm` row the authorizer checks the requesting member's role before it posts the confirmation and again when the member presses it, so a Member's agent can't post a maintainer-only Discard. §5.2 summarizes these fields. Check C-ACC-01 tests the authorizer against every `catalog.mvp.json` row, role and credential kind.
+
+6.1.2c The allowlist (check C-CAT-01). mvp.md Appendix B is the registry of every flow and action: app flows, coding-host tools, backend system flows and workers, and CLI commands. Appendix C (`.specs/product/actions.md`, 386 rows) lists every `Flow.make`, `Action.make` and `AgentAction.make` tag in shipped flows and std tools, with where it runs. The build fails when:
+- the `core` and `advanced` rows differ from Appendix A in either direction, or an Appendix A row that lists `external_agent` lacks a CLI path or skill entry;
+- an `in-card` row has no B.4 or B.1 row, or a B.4 control (stable ids such as `todo.return-to-item`, `file.restore` and `merge.confirm`) has no `in-card` row;
+- a row's actor eligibility, minimum role or `agent` differs from its Appendix B Who column;
+- a registered app flow id or backend CLI command has no B.1, B.2, B.4 or B.6 row, or its row says Cut;
+- a registered tag has no Appendix C row, or its row says Cut or Replaced;
+- a tag is registered in a runtime its Appendix C row doesn't name: the host flow runtime registers only Install rows, and the coding host only Machine rows (§1.3, §11.1).
+
+A ticket that adds a tag adds its Appendix C row in the same change. The Cut assertion turns on in the change that completes T-CUT-01's deletions, since 87 Cut tags are still registered today. The Replaced assertion turns on in T-FLW-11's change, which deletes the four separately launched entry points (`coding/Request`, `coding/Vibe`, `coding/Verify` and `review/change`); their steps keep running inside the one `todo` run (§10.4.1).
 
 6.1.3 Commands outside the MVP stay published as libraries or CLI groups but are `hidden`. They are absent from the palette, `/help`, the agent's tools and the MVP docs.
 
@@ -365,18 +421,18 @@ Removing or suspending a member deletes their sessions, revokes their delegated 
 /api/todos/{n}/merge    POST (session only) {reviewed_head_sha}
 /api/stack              GET (home card snapshot)
 /api/branches           GET · POST fork{from: main|Tn|branch, name?}
-/api/branches/{b}       GET · POST {rebase|add-to-stack|sleep|wake|return-to-item|keep-moved|bring-in|discard-foreign} · /files · /diff · /activity
+/api/branches/{b}       GET · POST {rebase|add-to-stack|sleep|wake|return-to-item|keep-moved|bring-in{sha}|discard-foreign{sha}} · /files · /diff · /activity
 /api/branches/{b}/files/{path}  GET · POST {restore|restore-deleted} · GET compare
 /api/conversations/{b}  GET entries · POST prompt · PUT view-state
 /api/terminals          POST open{branch}
 /api/flows              GET catalog with versions · POST edit{name, request} · POST run
-/api/runs               GET · /{id} · /{id}/trace   (sending signals by hand is deferred)
+/api/runs               GET · /{id} · /{id}/trace · POST /{id} {retry|dismiss} (failed background runs, §14.3; check C-J4-01)   (sending signals by hand is deferred)
 /api/proposals          GET · POST {id}/accept · POST {id}/dismiss
 /api/secrets            GET names · PUT · DELETE
 /api/github/sync        GET health · POST retry
 /api/confirmations      GET mine · POST create (any credential) · POST {id}/approve|deny (session only)
 /api/agents             GET (roles, model, runs) · PUT {role}/model (owner)
-/api/install            GET status (with the setup token before an owner exists, owner afterwards) · PUT settings · POST setup/{step} · POST quiesce · GET scorecard (owner)
+/api/install            GET status (with a setup session before the claim, owner afterwards, §5.1.0) · PUT settings · POST setup/{step} · POST quiesce · DELETE quiesce · GET scorecard (owner)
 /api/live               WebSocket (§7)
 /ssh :2222              SSH gateway (§8.10)
 ```
@@ -401,6 +457,7 @@ text   {"t":"delta","id":7,"cursor":1051,"data":{…}}
 text   {"t":"gap","id":7}                                    client must resubscribe without a cursor
 text   {"t":"err","id":7,"code":"unknown_topic|forbidden|unsupported"}   subscription refused; socket stays open
 text   {"t":"presence","id":9,"where":{…}}                   client → server heartbeat
+text   {"t":"saved","id":7,"sv":"<base64>","at":"…"}         server → client: a document is durable through state vector sv (§7.4.6)
 binary [kind u8][sub id u32][payload]   kind: 1 yjs-sync, 2 yjs-awareness, 3 term-out, 4 term-in, 5 term-ctl
 ```
 
@@ -417,7 +474,7 @@ binary [kind u8][sub id u32][payload]   kind: 1 yjs-sync, 2 yjs-awareness, 3 ter
 | `branch:<id>` | Branch card model: machine, presence, item, place, terminals | machines, presence, terminals |
 | `branch:<id>:activity` | Last 200 activity entries | activity |
 | `branch:<id>:files` | Changed files vs the item's base, plus per-file last writer | burst_files, live documents |
-| `run:<id>` | Run summary and steps | runtime events (§11.6) |
+| `run:<id>` | Run summary, steps, phases and cells (§11.6.3) | runtime events (§11.6), `run_summaries` |
 | `members` / `secrets` / `flows` / `proposals` / `agents` | Card models | their tables |
 | `install` | Setup and Settings model (§14.3) | install_settings, github_app, host profile |
 | `confirmations:<member>` | That member's pending confirmations (member-only) | person_confirmations |
@@ -435,25 +492,30 @@ binary [kind u8][sub id u32][payload]   kind: 1 yjs-sync, 2 yjs-awareness, 3 ter
 7.3.1 Presence is in-memory in the host service, keyed `(branch, actor, session)`, with a 30 s TTL refreshed by heartbeats. Heartbeat sources:
 - the browser, every 10 s and on every move, with where = `{path, line}` (§7.6), `{terminal}`, `{run step}` or `{branch}`;
 - `smithers-machined` for SSH, terminal and editor sessions, with where = the file last written by that session (§9.3);
-- the runtime for the coding agent, with where = the current step and the file it last wrote.
+- the runtime for coding and reviewer agents, and the host turn runner for Smithers app agents, heartbeat every 10 s while working with the participant id, acting-for member and current step or file; external-agent skill calls bind an agent participant to their broker session, whose heartbeats keep its terminal/file presence alive until that agent session ends. Check: C-J3-01.
 
 7.3.1a When a person's presence on a branch lasts at least 2 min, the host writes one coarse `presence_sessions` row (start, end) for the scorecard. Presence itself stays in memory.
 
-7.3.2 Presence changes publish to `branch:<id>` as deltas, coalesced to at most 4 per second per branch, and reach subscribers within 1 s. Rows are kept per session and shown per person: one avatar per person, with a person's sessions listed on hover.
+7.3.2 Presence changes publish to `branch:<id>` as deltas, coalesced to at most 4 per second per branch, and reach subscribers within 1 s. Rows stay per session and render per participant: one avatar for each person or agent participant, with its sessions on hover. Smithers app agents, coding agents, external agents and reviewers each have a stable participant id for their active session or run, their own avatar and an acting-for member when present (§14.6a). Never collapse an agent into that member’s avatar. Checks: C-J3-01, C-J6-01.
 
 ### 7.4 Live documents (Yjs) [S3]
 
 7.4.1 One protocol: Yjs sync step 1 and 2, updates, and awareness, carried in binary frames on the live channel. One client provider serves both document kinds.
 
 7.4.2 Two document hosts implement it:
-- **Code files:** `smithers-machined` inside the branch machine owns the document and the file (§9.2). The host service relays frames over its machine connection. It doesn't parse them, but it authenticates each subscriber and tags its updates with the subscriber's actor.
-- **Wiki pages:** the host service owns the document (Yrs). It persists the merged state and the rendered Markdown in PostgreSQL, one revision per idle period (2 s) rather than per update.
+- **Code files:** `smithers-machined` inside the branch machine owns the file and the document's durable state: it alone saves to disk and acknowledges saves (§9.2). Browsers sync with one document per topic and never learn where its Yrs authority lives (§7.6). ADR 0003 places that document by T-COL-10's decision rule: in the daemon, with the host relaying frames unparsed over its machine connection, or in a host-side mirror for fan-out that syncs with the daemon over the same connection. Either way the host authenticates each subscriber and tags its updates with the subscriber's actor, the side browsers sync with rejects an update under another actor's client id (§7.4.4), and §7.4.6 and §9.2 hold unchanged.
+- **Wiki pages:** the host service owns the document (Yrs). It persists the merged state and the rendered Markdown in PostgreSQL, in one transaction and one revision, after 2 s without an update or 10 s after the oldest unpersisted update, whichever comes first, rather than per update. It acknowledges updates only after that commit (§7.4.6).
 
 7.4.3 The wiki moves onto 7.4.1 in stage 3, together with code co-editing, and the earlier POST-update and SSE-refetch protocol is deleted then. There is one co-editing implementation.
 
 7.4.4 Attribution of characters: each subscriber connection gets a Yjs client id that the host records as `client id → actor`. That map is stored in the document's own `Y.Map("authors")` so every host and reader resolves colours identically. Edits applied by `smithers-machined` for an outside writer use a client id allocated to that writer (§9.2.4).
 
 7.4.5 Awareness carries `{actor, colour, line}` only; selections and carets are not shown (mvp.md §6.8 Cut). The card renders a gutter name flag per remote editor line.
+
+7.4.6 **Saves, reconnects and epochs.** Both document kinds follow one acknowledgment and recovery rule (check C-DUR-04, K7 and K8):
+- The authority sends `saved{sv}` (§7.1) once the state with state vector `sv` is durable: for code, after the daemon's file and state record are on disk (§9.2.2); for the wiki, after the host's PostgreSQL commit (§7.4.2). A client's own update with clock c is saved when `sv` maps the client's id to at least c. That alone drives a card's saved state, such as "Saved to the machine" on a File card.
+- A client keeps every update that no `saved` covers and sends it again in sync step 2 after any reconnect. The wiki client keeps them in its local `worldDocuments` store across reloads. The code client keeps them in memory, where at most about 1 s of typing waits for a save (§9.2.2). A host mirror (§7.4.2) is a client of the daemon under this rule and relays `saved` unchanged; after a host restart it rebuilds from the daemon before it answers browsers.
+- An authority recovers a document from its stored state, never by reseeding from text, so reconnecting clients share its item identities and their updates merge without duplication. The snapshot of a `doc:` subscription carries the document's `epoch`, a random 128-bit id. An authority makes a new epoch only when it has no readable stored state and seeds from text. A client whose epoch differs retains its unacknowledged edits in the recovery buffer (§9.2.5a), replaces its local document and syncs fresh, so it never merges two epochs. It shows "N edits weren't saved" with Reapply and Copy instead of dropping those edits silently. Check: C-DUR-04.
 
 ### 7.5 Terminals on the channel
 
@@ -466,7 +528,7 @@ These hold from the first stage-1 commit, so stage 3 adds a document layer witho
 | Contract | From | Why stage 3 needs it |
 | --- | --- | --- |
 | Every write to a branch's files carries an actor (§2) and a `base_digest` precondition; a stale write is refused with `409 stale`, never applied silently | S1: the coding agent's write tool checks it in the machine (T-COL-07); the HTTP route is contract-only until S3, proven by an API test (C-COL-01) | Disk→document reconcile and "no silent overwrite" |
-| Topics `doc:code:<branch>:<path>` and `doc:wiki:<page>` and binary frame kinds 1–2 are reserved on the live channel | S1 | The Yjs sync protocol rides the existing channel (§7.4.1) |
+| Topics `doc:code:<branch>:<path>` and `doc:wiki:<page>` and binary frame kinds 1–2 are reserved on the live channel. A browser addresses a document only by its topic and never learns where its Yrs authority lives | S1 | The Yjs sync protocol rides the existing channel (§7.4.1), and ADR 0003 places code documents in the VM or in a host mirror (§7.4.2) with no browser change |
 | The File card renders with CodeMirror 6, the surface `y-codemirror.next` binds to. Code intelligence (hover, definition, diagnostics) moves from the Pierre file view onto CodeMirror extensions. Diffs stay on `@pierre/diffs` | S1 (T-APP-15 builds it read-only first) | One editor for view and co-edit; no second renderer |
 | Presence `where` uses `{path, line}` in the document's line coordinates, the same shape Yjs awareness carries | S2 | Gutter name flags come from presence before co-editing exists |
 | The daemon's host connection reserves a document stream kind; `capture()` has a flush phase (a no-op until S3) | S2 | Sleep, upgrade and rebase flush documents first (§8.4.3, §9.4) |
@@ -492,22 +554,26 @@ These hold from the first stage-1 commit, so stage 3 adds a document layer witho
 | --- | --- | --- | --- | --- |
 | Machine memory | 8 GiB, or 6 GiB when host memory < 24 GiB | 8 | 8 | 8 |
 | Machine vCPUs | `clamp(perf_cores / 2, 2, 4)` | 4 | 4 | 4 |
-| Capacity | `max(1, min(floor((mem − reserve) / machine_mem), floor(perf_cores / 2), floor((free_disk − 40) / 32)))`, reserve = 8 GiB | 2 | 3 | 6 |
+| Capacity | `min(floor((mem − reserve) / machine_mem), floor(perf_cores / 2), floor((free_disk − 40) / 32))`, reserve = 8 GiB; it may be 0 (§8.2.1a) | 2 | 3 | 6 |
 | Layer budget | `min(48 GiB, 25 % of free disk)` | 48 | 48 | 48 |
 
 The owner may lower capacity but never raise it above the formula. The T-MCH-01 measurements calibrate the reserve and the per-machine memory, not the shape of the formula. Settings shows the detected profile and the resulting limits.
 
-8.2.2 A background layer-prepare VM counts against capacity while it runs.
+8.2.1a Capacity can be 0, for example on a host with less than 14 GiB of memory or less than 72 GiB free. The host service then refuses to start a fresh install (no owner yet), and `smthrs host start` prints the limiting term and its fix, such as "needs 14 GiB of memory" or "free 9 GiB on Macintosh HD". The minimum host therefore runs one machine: memory of at least the reserve plus one machine's memory, 2 performance cores, and 72 GiB free on the `$STATE` volume. An install that already has an owner still starts when its capacity is 0 and serves everything that needs no machine. Its machine requests wait (§8.3), and Settings and `smthrs host status` show the limiting term and its fix (check C-MCH-04).
+
+8.2.1b Free disk is re-read before every grant. The memory and core terms are fixed at start, and the disk term is recomputed from the current free disk on the `$STATE` volume. The scheduler grants only while `held` (§8.3.2) is below each of the memory term, the core term, the owner's capacity setting and `floor((free_disk_now − 40) / 32)`. Sleeping disks, retained history, layers and backups all reduce free disk, so their growth lowers capacity as it happens. A capacity below `held`, whether from disk or from the owner lowering it, stops new grants and never stops a VM that holds a slot (§8.3.3) (check C-MCH-11).
+
+8.2.2 A layer-prepare VM holds a slot like any machine (§8.3.2). When a granted wake needs a layer that isn't built, the prepare VM runs inside that grant's slot, and the slot passes to the branch's VM once the prepare VM has stopped. A cold first boot therefore needs one slot, also at capacity 1. One build runs per recipe digest; a second grant that needs the same layer waits for that build and holds its own slot meanwhile (check C-MCH-11).
 
 ### 8.3 Admission
 
-8.3.1 One queue, `machine_requests`, for every reason a machine must be awake. Classes in priority order: `person` (a member's terminal, SSH, edit, steer or answer that needs the machine), `todo` (a TODO run) and `background` (learning, flow load, wiki refresh).
+8.3.1 One queue, `machine_requests`, for every reason a machine must be awake. Classes in priority order: `person` (a member's terminal, SSH, edit, steer or answer that needs the machine), `todo` (a TODO run) and `background` (learning, flow load, wiki refresh). Each request names its holder: a branch's machine, or one ephemeral machine (a layer prepare or a background run). Demand coalesces per holder. Each actor's request is its own row, so cancelling one (§8.3.4) leaves the others, but a holder takes one slot however many rows it has. A holder ranks by the highest class among its waiting rows, then by its oldest row of that class. A person's request on a branch whose TODO already waits therefore promotes the branch to `person`, ranked by the person's request time (check C-MCH-11).
 
-8.3.2 Scheduler: event-driven, with a 1 s tick. While `awake + waking < capacity`, it grants the oldest request of the highest class. A position is the request's rank within the ordered waiting set, and it is shown as "waiting for a machine #2".
+8.3.2 Scheduler: event-driven, with a 1 s tick. A **slot** is held by every VM from its grant until the runtime confirms that the VM has stopped or been deleted. Machines that are provisioning, waking, awake or releasing hold slots, and so do layer-prepare VMs and ephemeral background machines. The scheduler grants the first holder in rank order while `held` is below capacity (§8.2.1b). A grant takes a transaction-scoped advisory lock (`pg_advisory_xact_lock`), counts held slots and marks every waiting row of the holder `granted`, all in one transaction, so two scheduler instances never grant one slot twice. A request for a holder that already holds a slot is granted at once and takes no new slot. When the runtime confirms the stop, the holder's granted rows become `released`. A release that the runtime hasn't confirmed within 60 s is force-stopped, and its slot stays held until the stop is confirmed. At start, the host reconciles slots with the runtime: a slot whose VM the runtime doesn't have is released, and a VM that holds no slot is stopped. The runtime's own VM cap equals the memory and core terms of §8.2.1 and counts every VM that isn't stopped; the scheduler never reaches it. A position is the holder's rank within the waiting set, shown on each of its requests as "waiting for a machine #2" (check C-MCH-11).
 
 8.3.3 Preemption: none. A working coding agent is never paused to free a machine (M-13). When requests wait and capacity is full, the scheduler releases the longest-idle machine that is safe-idle (§8.4).
 
-8.3.4 A granted request whose actor leaves before the wake finishes is cancelled, and the machine sleeps again if nothing else holds it.
+8.3.4 A granted request whose actor leaves before the wake finishes is cancelled, and the machine sleeps again if nothing else holds it. Its slot stays held until that stop is confirmed (§8.3.2).
 
 ### 8.4 Safe-idle and sleep
 
@@ -519,7 +585,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 8.4.2 Release order: first, waiting requests trigger release of the longest safe-idle machine. Otherwise a machine sleeps after 30 min safe-idle, or after 2 min safe-idle when its TODO is `in_review`, `needs_you` or `paused`.
 
-8.4.3 Sleeping runs a final capture before the VM stops: flush documents, close bursts, jj snapshot, push the head ref to the host. The disk is kept.
+8.4.3 Sleeping runs a final capture before the VM stops: flush documents, close bursts, jj snapshot, push the head ref to the host, and drain the outbox (§9.1.4). The disk is kept. Check: C-DUR-04.
 
 8.4.4 Reading a sleeping branch never wakes it. Files, diff, activity and head come from the last captured snapshot in the host repository store (`refs/smithers/branches/<id>/head`). Only a person's work action or a TODO run wakes it: a terminal, SSH, an edit in a File card, a steer, an answer or a resume.
 
@@ -535,7 +601,11 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 8.5.2b A Rebase now conflict on a scratch branch has no TODO to raise Needs you on. The Branch card shows the conflicted paths with Resolve, and the branch stays on its pre-rebase head until someone presses Done (§10.5.4).
 
-8.5.3 **Add to stack** from a scratch branch creates a new TODO whose seed is the scratch change, placed like any other (default: after the item it was forked from). The scratch branch becomes that TODO's item branch: it is renamed `smithers/<slug>` and keeps its machine, working copy and the people on it. A scratch branch's Diff card compares against its fork revision. [D] **Replace Tn**, which would make the scratch head the new head of item Tn's change, is deferred.
+8.5.3 **Add to stack** from a scratch branch creates a new TODO from the scratch branch's whole change since its seed base, placed like any other (default: directly after the item it was forked from, or appended for a fork of `main`). A fork records `forked_from {kind, ref, commit, base, item?}`. For a fork of `main`, `base` is the `main` tip it started from. For a fork of item Tn, `base` is the revision Tn's own change is measured from in the forked head (the previous item's verified candidate, or `main` for the first item, §12.5.1), and `item` is Tn. The seed therefore holds Tn's work as well as the scratch edits (J7.3). Add to stack takes the scratch head (from stage 2, after a capture of an awake branch, §8.5.1), makes the TODO's change one jj change with parent `base` and the scratch head's tree, and stores its diff as revision 1's `seed_patch_blob`. Placement rebases that change like any other (§10.5). Placed after Tn, the part it shares with Tn merges cleanly when Tn hasn't changed since the fork, so its own diff is the scratch edits; a conflict follows §10.5.4.
+
+8.5.3a Dropping Tn keeps Tn's work in every unmerged TODO forked from it. Before the drop rebases later items (§10.7.2), the stack engine squashes Tn's change into the first TODO after Tn in stack order whose `forked_from.item` is Tn (`jj squash --from <Tn> --into <Tk>`). Tk's tree is unchanged by the drop, and the items between Tn and Tk rebase without Tn's change. A TODO forked from Tn and placed before it already holds Tn's change. Check C-J7-02.
+
+8.5.3b The scratch branch becomes the new TODO's item branch: it is renamed `smithers/<slug>` and keeps its machine, working copy and the people on it. A scratch branch's Diff card compares against its fork revision. [D] **Replace Tn**, which would make the scratch head the new head of item Tn's change, is deferred.
 
 ### 8.6 Images [S1]
 
@@ -570,7 +640,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 - `~/.config/gh/hosts.yml`;
 - `~/.gitconfig`.
 
-`smithers-machined` seeds these files into the member's home at the first session after each wake, and again whenever the store changes (`seed_credentials`, §9.1.2). It watches the five paths with inotify, apart from the working-copy watcher (§9.3.1), and never as bursts. A changed file comes back as `credential_changed{member, file, content, written_at}`, and the host keeps the newest `written_at`. Guest clocks are host-synced; a tie goes to the later arrival. The host then seeds that copy into every other awake machine where the member has a home. Nothing else in a home leaves its machine. Removing or suspending a member deletes their store rows, and every machine deletes their seeded files at once, or at its next wake if asleep (§5.6).
+8.7.3a `smithers-machined` seeds these files into the member's home at the first session after each wake, and again whenever the store changes (`seed_credentials`, §9.1.2). It watches the five paths with inotify, apart from the working-copy watcher (§9.3.1), and never as bursts. A changed file comes back as `credential_changed{member, file, content, written_at}`, and the host keeps the newest `written_at`. A deleted file, such as a tool's logout, comes back with `content: null` and wins the same way: the host deletes that store row, and every machine where the member has a home deletes the file, at once or at its next wake. Guest clocks are host-synced; a tie goes to the later arrival. The host then seeds that copy into every other awake machine where the member has a home. Nothing else in a home leaves its machine. Removing or suspending a member deletes their store rows, and every machine deletes their seeded files at once, or at its next wake if asleep (§5.6). Check: C-MCH-10 step 9.
 
 ### 8.8 Secrets
 
@@ -597,7 +667,7 @@ A machine's egress is open to the internet by default for package installs, thro
 - `subsystem sftp` becomes `sftp-server` as the member;
 - `direct-tcpip` becomes a TCP connect to the guest's loopback port.
 
-That is what VS Code, Cursor and Zed remote need. SSH agent forwarding is not supported in the MVP.
+Exit status, exit signals, window changes, signals, EOF and flow-control windows map one to one onto the session protocol (§9.6.2). That is what VS Code, Cursor and Zed remote need, and spike T-TRM-06 proves it with VS Code before the stage-2 daemon work (C-SPK-08). SSH agent forwarding and remote forwarding (`tcpip-forward`) are refused in the MVP.
 
 8.10.4 Presence shows "Maya via SSH" while the session lives, with where = the file last written by that session.
 
@@ -611,7 +681,7 @@ That is what VS Code, Cursor and Zed remote need. SSH agent forwarding is not su
 
 8.11.2a [S2] The coding agent's `bash` tool runs in the agent's own terminal session on the branch: a daemon PTY owned by `agent`, attributed to the run. Its commands therefore render in the Terminal card like anyone's (one card per flow, whoever runs it), and members can watch it read-only. Command output still returns to the agent as the tool result.
 
-8.11.3 A terminal survives browser reloads through the ring replay (512 KiB). It does not survive a machine sleep or an install restart. A terminal open on a branch prevents safe-idle (§8.4).
+8.11.3 A terminal survives browser reloads through the ring replay (512 KiB). It does not survive a machine sleep, an install restart or a daemon restart (§9.6.4). A terminal open on a branch prevents safe-idle (§8.4).
 
 ### 8.12 Cleanup
 
@@ -621,79 +691,152 @@ A machine's VM and disk are deleted only when four things hold: its TODO is merg
 
 ## 9. The machine daemon (`smithers-machined`) [S2; documents S3]
 
-A static Rust binary (linux-arm64, musl) that runs as root inside every machine and starts before any session. It is the only process that writes the working copy on behalf of live documents. It is the only observer of writes, and it is the machine's single connection to the host.
+A static Rust binary (linux-arm64, musl) that starts inside every machine before any session. It runs as a root broker and an unprivileged daemon (§9.5). It is the only process that writes the working copy on behalf of Smithers, the only observer of writes, the supervisor of every session (§9.6), and the machine's single connection to the host.
 
 ### 9.1 Connection
 
-9.1.1 `smithers-machined` keeps one multiplexed connection to the host over the host-relay port. It authenticates with the boot's `machine` credential and reconnects with backoff. Streams on the connection: control RPC, change events, live-document frames and presence.
+9.1.1 `smithers-machined` keeps one multiplexed connection to the host over the host-relay port. It authenticates with the boot's `machine` credential, and the host authenticates to it (§9.5.3). It reconnects with backoff from 250 ms to 5 s and then resends its outbox (§9.1.4). Streams on the connection: control RPC, change events, live-document frames, presence, and one stream per session (§9.6.2).
 
 9.1.2 Control RPC:
-- `capture()`: flush documents, snapshot, push head and snapshot commits;
+- `capture()`: flush documents, snapshot, push the head and the versions commits named by pending events, drain the outbox (§9.1.4), and return the head commit and its tree (§10.4.4, §10.4.5). Checks: C-DUR-04, C-STK-06;
 - `read_file(path, at?)`;
-- `write_file(path, base_digest | "absent", content, actor)`: the §7.6 compare-and-write;
-- `open_session(member, kind: pty|exec|sftp, argv?)` and `tcp_connect(port)`: §8.10.3, §8.11;
-- `seed_credentials(member, files[])`: §8.7.3; the daemon writes each file as the member, mode 0600, merging `~/.claude.json` account fields;
-- `register_run(run_id, cgroup)`: the coding host calls it at run start, so writes by the agent's processes resolve to that run;
+- `write_file(path, base_digest | "absent", content, actor)`: the §7.6 compare-and-write, run under the mutation lock (§9.4.1);
+- `open_session(user, kind: pty|exec|sftp, argv?, size?)`, `tcp_connect(port)`, `close_session(id)` and `kill_sessions(user | run)`: §8.10.3, §8.11, §9.6. The File card's language server is an `exec` session owned by the member who asked for code intelligence, one per (member, language), closed after 10 min without a request or when the machine sleeps; it doesn't count toward safe-idle (§8.4.1). Check: C-UI-11;
+- `seed_credentials(member, files[])`: §8.7.3; the broker writes each file through a child running as the member (§9.5.1), mode 0600, merging `~/.claude.json` account fields;
+- `register_run(run_id, session)`: the host calls it after it starts a run's coding host with `open_session(agent, exec)`, so writes by that session's processes resolve to the run. Only the host can call it (§9.5.3);
 - `rebase(onto)`: §9.4;
 - `return_to_item()`: §9.3.8;
 - `wake_reconcile()`: runs on every boot before any session starts. It fetches `refs/smithers/branches/<id>/head` from the host. If the host rebased the branch while it slept (§10.5.5), it moves or rebases `@` onto that head and emits "Rebased onto Tk". A conflict becomes `needs_you{conflict}` on wake;
 - `status()`;
 - [S3] `open_doc(path)` and `close_doc(path)`.
 
-9.1.2a Each snapshot is one jj operation. The daemon abandons operations older than 7 days weekly (`jj op abandon`), keeping the ones activity entries reference. T-COL-01 measures snapshot latency on the smithers repository in a VM (target under 500 ms).
+9.1.2a Each capture is one jj operation, as is any jj command a person runs. Nothing outside the machine references a jj operation: activity uses burst versions commits (§9.3.4) and reads use the captured head (§8.4.4), both in the host store. Weekly, the daemon abandons operations older than 7 days (`jj op abandon`) and runs `jj util gc`, so the operation log holds at most 14 days. T-COL-01 measures snapshot latency (target under 500 ms) and the disk growth of 1,000 captures.
 
-9.1.3 The guest's init supervises the daemon and restarts it on exit, with backoff. While a machine is awake, capture runs after every burst (coalesced to one per 5 s) and at least every 5 min.
+9.1.3 The guest's init supervises the broker, and the broker restarts the daemon on exit, with backoff, after ending every session (§9.6.4). While a machine is awake, capture runs after every burst (coalesced to one per 5 s) and at least every 5 min.
+
+9.1.4 **Outbox.** Every event the daemon sends goes through an on-disk outbox (`/var/lib/smithers-machined/outbox`) that survives daemon and VM restarts. Only `file_written` and presence skip it: they are hints, sent directly. Check C-DUR-04.
+1. Before an event enters the outbox, every object it names (a versions commit, a captured head) is durable on the machine disk (`syncfs`) and held by a local ref, `refs/smithers/pending/<event id>`, so `jj util gc` keeps it.
+2. The daemon appends the event with a monotonic `seq` and a unique `event_id`, and `fsync`s the outbox.
+3. In `seq` order, the daemon pushes each event's refs to the host store, several per `git push` (a batch never skips one), then sends the event.
+4. The host confirms that every named object is in its store; otherwise it answers `missing_objects` and the daemon pushes again. In one transaction it applies the event and inserts a receipt `(branch, event_id)`, then acknowledges `seq`. An event whose receipt exists is acknowledged without being applied again.
+5. The daemon deletes acknowledged entries and their pending refs.
+
+After a reconnect, a daemon restart or a VM restart, the daemon resends every unacknowledged entry in order. `capture()` returns only when the outbox is empty, so sleep (§8.4.3) and cleanup (§8.12) never drop an event.
 
 ### 9.2 Live code documents [S3]
 
-Stage 2 has no co-editing. An open File card is read-only to everyone except through SSH, the terminal and the agent, and it reloads within 1 s of a change event (§9.3.4) that touches its path. Stage 3 adds everything below.
+Stage 2 has no co-editing. An open File card is read-only to everyone except through SSH, the terminal and the agent, and it reloads within 1 s of a change event (§9.3.4) that touches its path. Stage 3 adds everything below. It all runs in the daemon under either ADR 0003 topology (§7.4.2): with a host mirror, the daemon keeps its own replica of each document, saves and acknowledges it, and the mirror is one more client (§7.4.6).
 
-9.2.1 A document opens on the first subscriber. `smithers-machined` reads the file and seeds a Yrs document with a single `Y.Text("content")`. Only UTF-8 text files up to 1 MiB are live-editable. Larger or binary files open read-only, with a "too large to co-edit" state.
+9.2.1 A document opens on the first subscriber. `smithers-machined` loads its state record (§9.2.5), or, when it has none, reads the file and seeds a Yrs document with a single `Y.Text("content")`. Only UTF-8 text files up to 1 MiB are live-editable. Larger or binary files open read-only, with a "too large to co-edit" state.
 
-9.2.2 **Document → disk.** After each applied update, it writes the document text to disk 200 ms after the last update, with a 1 s maximum. Each completed save sends `{saved_digest, saved_at}` on the document stream, which drives the card's "Saved to the machine" state. The write goes to a temp file in the same directory, `fsync`, then `rename`, preserving the mode, owner and group of the replaced file. The written content's digest is recorded as `last_disk_digest`. Its own writes are recognized by path and the digest it just wrote (inotify carries no writer pid) and are excluded from watcher bursts. Document edits get their own activity entries instead: one per editor per idle period (2 s), for example "Alice edited retry.ts".
+9.2.2 **Document → disk.** The daemon saves a document 200 ms after its last update, and at least once a second while updates continue. One save:
+1. Writes the *state record* `/var/lib/smithers/docs/<path digest>`: the epoch, the full Yrs state with `Y.Map("authors")`, the text being saved, its digest, and the previous save's digest. Temp file, `fsync`, `rename`, then `fsync` of the directory.
+2. Writes the text to a temp file beside the target, `.smithers-doc-<path digest>-<random>`, and `fsync`s it.
+3. Swaps it into place with `renameat2(RENAME_EXCHANGE)` (`RENAME_NOREPLACE` when the path is absent) and `fsync`s the directory. The temp name now holds the displaced file.
+4. Deletes the displaced file if its digest equals `last_disk_digest`. Otherwise an outside write landed after the daemon last read the path: the daemon keeps the displaced file open, reads it again once it has had no write for 200 ms (at most 2 s), deletes it, and reconciles those bytes as an outside write (§9.2.3). The outside save is kept whichever comes first, the watcher's event or the save.
+5. Sets `last_disk_digest` to the saved digest and the merge base to the saved text, then sends `saved{sv}` (§7.4.6).
 
-9.2.3 **Disk → document** (mvp.md §6.8 save and recovery). When the watcher (§9.3) sees an outside write to an open document's path, it reads the file. It merges three ways, with base = the content it last wrote (`last_disk_digest`), ours = the live document and theirs = the new file:
+Steps 1–3 and 5 run under the mutation lock (§9.4.1); the step 4 wait doesn't hold it. The saved file keeps its mode; its owner becomes `machined`, and its group stays `team` (§9.5.1). A process that holds the file open and writes after step 4 writes into the deleted file, as with any editor's atomic save. The daemon knows its own writes by path and post-write digest and excludes them from watcher bursts. It adds `.smithers-*` to `.git/info/exclude`, so jj and git never track its temp files. Document edits get their own activity entries instead: one per editor per idle period (2 s), for example "Alice edited retry.ts".
+
+9.2.3 **Disk → document** (mvp.md §6.8 save and recovery). The daemon reconciles an open document's path when an outside write to it completes (`IN_CLOSE_WRITE` or `IN_MOVED_TO`, never `IN_MODIFY`) or a save displaces one (§9.2.2 step 4). Under the mutation lock it reads the path's current bytes. If they equal `last_disk_digest`, it does nothing, so late or coalesced events never apply stale content. Otherwise it merges three ways, with base = the text of its last save, ours = the live document and theirs = the bytes read, and the outside burst records those bytes as the path's version (§9.3.4):
 - **No overlap:** the outside changes apply to the document as one transaction attributed to the outside actor (§9.3.1), and card readers see them within 1 s (§18).
-- **Overlap:** the live document wins on disk. The daemon first snapshots the outside version (a jj snapshot commit, so it is recoverable), then applies the non-overlapping outside hunks, rewrites the file from the document, and flags the file "Changed outside Smithers · Compare" (`file.compare` opens the snapshot against the document).
+- **Overlap:** the live document wins on disk. The outside version stays recoverable as its burst's `after` version (§9.3.4). The daemon applies the non-overlapping outside hunks, saves the document, and flags the file "Changed outside Smithers · Compare" (`file.compare` opens that version against the document).
 
-9.2.3a Saved means on disk (fsync'd) within 1 s of the keystroke and surviving a restart of the machine or the install. A restart never loses an acknowledged save.
+9.2.3a Saved means on disk (fsync'd) within 1 s of the keystroke and surviving a restart of the machine or the install. A restart never loses an acknowledged save: one that a `saved` frame covers (§7.4.6).
 
 9.2.4 Attribution of outside edits: each outside actor (a person's session, the coding agent or a terminal tool) gets a stable Yjs client id per document, recorded in `Y.Map("authors")`. The edit is produced in a scratch document with that client id, synced from the live state, and its update is applied to the live document. The cost is O(document size) per outside edit, which the 1 MiB limit bounds.
 
-9.2.5 A document closes 60 s after its last subscriber leaves, after a final flush. Its Yrs state, including per-character authors, persists on the machine disk outside the working copy (`/var/lib/smithers/docs/<path digest>`), so authors survive reopening. It is discarded when the file on disk no longer matches it (an outside rewrite). The file on disk stays the truth.
+9.2.5 A document closes 60 s after its last subscriber leaves, after a final save. Its state record (§9.2.2) stays on the machine disk outside the working copy, so authors survive reopening. When the daemon opens a document, including after its own restart, it loads the record and compares the file on disk:
+- the record's digest: the document is as saved;
+- the record's previous digest: a save stopped before its swap, so the daemon finishes it by writing the record's text;
+- anything else: an outside write while the document was closed or the daemon was down, reconciled as in §9.2.3 with base = the record's text, so existing characters keep their authors.
 
-9.2.6 **Delete and rename while open.** In stage 2 the File card shows the same states from `file_written` and burst events. Restore rewrites the content from the last snapshot before the delete, and Follow opens the new path. In stage 3, a delete marks the document `gone{kind: deleted, by}`, and editing pauses. **Restore** rewrites the last document text. A rename to a new path inside the working copy marks it `gone{kind: renamed, to, by}`, and **Follow** reopens the document at the new path.
+9.2.5a A leftover `.smithers-doc-<path digest>-*` file is either an unswapped save, which matches the record and is deleted, or a displaced outside write (§9.2.2 step 4), which the daemon reconciles the same way and then deletes. Only a missing or unreadable record seeds the document from the file, with a new epoch (§7.4.6). The file on disk stays the truth for what is saved. On reconnect to a recovered document, the client retains every local edit not covered by its last `saved` acknowledgment. If recovery cannot merge those edits, including an epoch change (§7.4.6), the editor shows "N edits weren't saved", where N counts the retained local edit transactions, with **Reapply** and **Copy**. Reapply submits them as new edits attributed to the member in the recovered document; Copy copies their retained text. The client keeps this recovery buffer until Reapply is acknowledged or Copy succeeds. Check: C-DUR-04.
+
+9.2.6 **Delete and rename while open.** In stage 2 the File card shows the same states from `file_written` and burst events. Restore rewrites the delete burst's `before` version (§9.3.4), and Follow opens the new path. In stage 3, a delete marks the document `gone{kind: deleted, by}`, and editing pauses. **Restore** rewrites the last document text. A rename to a new path inside the working copy marks it `gone{kind: renamed, to, by}`, and **Follow** reopens the document at the new path.
 
 ### 9.3 Watching and attribution (M-27) [S2]
 
 9.3.1 `smithers-machined` watches the working copy with inotify (recursive watches, re-armed on directory creation). Writes are attributed as follows (mvp.md §6.8, v2.5):
-- **Writes through Smithers carry their exact author.** These are File card documents, the coding agent's write tool and app commands. Each reports `{path, digest, actor}` to the daemon before writing (§7.6), and the daemon matches the following inotify event by path and digest.
-- **Other writes** (terminal tools, SSH editors, the agent's `bash`, hand-run `git`/`jj`) form bursts, attributed to the actor of the only session active on the branch during the burst. A session is active when any process in its cgroup used CPU during the burst window (`cpu.stat` `usage_usec` grew), so a shell idle at its prompt doesn't count. Sessions are the daemon's PTYs and processes: people's terminals and SSH sessions, and the agent's terminal. When more than one session is active, or none, the burst reads "changed outside Smithers" (actor `{outside: true}`).
+- **Writes through Smithers carry their exact author.** File documents, coding tools and app commands retain the person or agent participant id, agent kind, session/run id and acting-for member (§14.6a). The daemon performs the write (§9.4.1), records that actor with its path and digest, and never attributes its own inotify events to another actor. Activity, line flags and terminal ownership use this same actor; a reviewer write retains the reviewer participant. Checks: C-J3-01, C-J6-01.
+- **Other writes** (terminal tools, SSH editors, the agent's `bash`, hand-run `git`/`jj`) form bursts, attributed to the actor of the only session active on the branch during the burst. A session is active when any process in its cgroup used CPU during the burst window (`cpu.stat` `usage_usec` grew), so a shell idle at its prompt doesn't count. Sessions are the broker's sessions (§9.6): people's terminals and SSH sessions, and the run's coding host and terminal. Processes left running after a session closes still count as that session (§9.6.3). When more than one session is active, or none, the burst reads "changed outside Smithers" (actor `{outside: true}`).
 - [D] Exact per-write kernel attribution (fanotify with writer pids) is deferred.
 
-9.3.2 An inotify queue overflow (`IN_Q_OVERFLOW`) triggers a full jj snapshot, recorded as one burst "changed outside Smithers".
+9.3.2 An inotify queue overflow (`IN_Q_OVERFLOW`) starts a resync under the mutation lock, before any other write runs (check C-COL-05):
+1. Remove and re-add every watch, scanning each directory, so directories created during the overflow are watched.
+2. Take a jj snapshot and compare every tracked path with its recorded version (§9.3.4). Record the differences as one burst "changed outside Smithers" (`{outside: true}`).
+3. Reconcile every open document from disk (§9.2.3), so live documents show the current bytes.
+4. Run the moved-off check (§9.3.8).
 
-9.3.3 **Ignored paths** produce no activity. Ignored means everything `jj` ignores (`.gitignore`, `.jj/`, `.git/` internals except HEAD and refs), plus the dependency and build paths the toolchain detector names (`node_modules/`, `target/`, `.venv/`, `dist/` when gitignored). Ignored directories get no inotify watch, and any other event for an ignored path is dropped in user space.
+Writes queued during the resync run after it.
 
-9.3.4 **Bursts.** Events group into a burst keyed by the attributed actor (§9.3.1). A burst opens on the first event and closes after 1.5 s without events from that key, or 10 s after it opened, or when another key writes a file the burst touched. Two events leave the daemon:
+9.3.3 **Ignored paths** produce no activity. Ignored means everything `jj` ignores (`.gitignore`, `.jj/`, `.git/`), plus the dependency and build paths the toolchain detector names (`node_modules/`, `target/`, `.venv/`, `dist/` when gitignored). Ignored directories get no activity watch, and any other event for an ignored path is dropped in user space. Metadata watches are separate and never produce activity: `.jj/repo/op_heads/heads/`, `.git/` (not recursive, for `HEAD` and `packed-refs`) and `.git/refs/` (recursive). Their events run the moved-off check (§9.3.8) once they stop for 200 ms.
+
+9.3.4 **Bursts.** Writes through Smithers group by their exact actor. All other writes on the branch share one key, so at most one outside burst is open at a time, and its actor is decided at close (§9.3.1). A burst opens on its first write and closes after 1.5 s without a write for its key, 10 s after it opened, or before a write with another key touches a file the burst touched. Writes and closes run under the mutation lock (§9.4.1). Before each write through Smithers, the daemon drains pending inotify events, so outside writes that completed earlier are counted first. Check C-COL-05.
+- **Versions.** Every path has a *recorded version*: a git blob, in the working copy's object store, of its content as last counted. A write through Smithers records the content it writes when it writes it. An outside burst records each touched file at close, except a path with an open document, whose version is the bytes the reconcile read (§9.2.3). A path untouched since the last capture has its blob in that capture. Per file, a burst keeps `before` (the recorded version when the burst first touched it) and `after` (the version it recorded last). A write that touches another key's file closes that burst first, so neither side ever includes another actor's change, even when bursts overlap or two actors write one file in turn.
 - `file_written{path, actor, post_digest}`: sent within 200 ms of each write to a tracked path, so open cards reload in under 1 s (§18).
-- The burst event, on close: the daemon runs a jj snapshot and sends `{burst_id, actor, files[{path, change, renamed_to?, post_digest}], snapshot_before, snapshot_after}`. The snapshot commits are pushed to the host repository store (`refs/smithers/branches/<id>/snapshots/<burst>`, coalesced), so a sleeping branch's activity and diffs never need the machine.
+- The burst event, on close. The daemon builds one *versions commit*, a parentless git commit whose tree holds each file's `before` at `a/<path>` and `after` at `b/<path>` (an absent side is omitted). It sends `{burst_id, actor, files[{path, change, renamed_to?, before_blob, after_blob, post_digest}], versions_commit}` through the outbox (§9.1.4), which pushes the commit to `refs/smithers/branches/<id>/bursts/<burst>`, so a sleeping branch's activity and diffs never need the machine.
 
-The host turns it into one activity entry, for example "Maya via SSH changed 12 files", which opens the diff between the two snapshots, plus one `burst_files` row per file. Open File and Diff cards whose paths changed reload. Every change is therefore recoverable from the branch's jj operation log ("recoverable from snapshots", M-27).
+Document edit entries (§9.2.2) carry versions the same way, from the editor's first save in the period to its last.
 
-9.3.5 **Restore this file** (`file.restore`, in-card on an outside-change diff) writes one file back to its content at the burst's `snapshot_before` (`jj restore --from`). If the file changed again since that burst, it opens Compare instead of overwriting. The write is attributed to the person who pressed it. Each burst's end state is recoverable; states inside a burst are not guaranteed. [D] Per-entry Undo of a whole burst stays deferred.
+The host turns it into one activity entry, for example "Maya via SSH changed 12 files", which opens each file's diff from `before` to `after` and nothing else, plus one `burst_files` row per file. Open File and Diff cards whose paths changed reload. Every burst's end state is therefore recoverable from the host store ("recoverable from snapshots", M-27).
+
+9.3.5 **Restore this file** (`file.restore`, in-card on an outside-change diff) writes one file's `before` version from that burst back through `write_file`, with the burst's `post_digest` for that file as `base_digest`. If the file changed since that burst, the write is stale, and the card opens Compare instead of overwriting. The write is attributed to the person who pressed it. Each burst's end state is recoverable; states inside a burst are not guaranteed. [D] Per-entry Undo of a whole burst stays deferred.
 
 9.3.6 [D] Command names on entries.
 
 9.3.7 [D] Out-of-band stale-save flags ("Ben's save replaced Alice's edit · Restore"). Detection rule, for the record: let B be the content the writing session last opened, P the pre-image and W the new content. Flag when merge3(B, P, W) ≠ W and the merge has no conflict.
 
-9.3.8 **Moved off the item.** After any burst that touches `.git/HEAD`, refs or `.jj/` operation heads, `smithers-machined` checks two conditions. The working-copy commit `@` must still descend from the branch's item change, and that change must still be present. If either fails, it emits `moved_off{by, item}`. The TODO enters `needs_you{kind: moved_off}`, and the coding agent stops writing. **Return to Tn** (`return_to_item`) runs `jj edit` back to the working-copy commit from before the move; anything written afterwards stays in its own commit and is recoverable. **Keep for now** records the move, and the TODO stays in Needs you until the working copy is back on the item. Both are in-card controls (§6.1.2). The coding agent's write tool refuses with `moved_off` while the branch is moved off. The stack keeps the item's last captured change throughout.
+9.3.8 **Moved off the item.** When a metadata watch fires (§9.3.3), and after every overflow resync (§9.3.2), `smithers-machined` checks two conditions, attributing the move like a burst (§9.3.1). The working-copy commit `@` must still descend from the branch's item change, and that change must still be present. If either fails, it emits `moved_off{by, item}`. The TODO enters `needs_you{kind: moved_off}`, and the coding agent stops writing. **Return to Tn** (`return_to_item`) runs `jj edit` back to the working-copy commit from before the move (`@` of the latest operation in `jj op log` whose `@` descends from the item change), under the §9.4.2 sequence; anything written afterwards stays in its own commit and is recoverable. **Keep for now** records the move, and the TODO stays in Needs you until the working copy is back on the item. Both are in-card controls (§6.1.2). The coding agent's write tool refuses with `moved_off` while the branch is moved off. The stack keeps the item's last captured change throughout.
 
 9.3.9 **Agent awareness.** Each change event not caused by the coding agent is appended to the coding agent's transcript as a system note before its next tool call: "Maya via SSH changed `retry.ts`, `deliver.ts`". The agent's file-write tool MUST re-read a file whose digest changed since the agent last read it before writing (`stale_read` refusal otherwise).
 
-### 9.4 Rebase safety
+### 9.4 The mutation lock and rebase safety
 
-9.4.1 Rebases of the branch's change (§10.5) run through `smithers-machined`, which first takes a capture. It then refuses to start while a burst is open or a document flush is pending, and holds new document writes for the rebase's duration (target under 2 s). Open documents reload from disk after the rebase as one transaction attributed to "Rebased onto Tk".
+9.4.1 **One mutation lock.** The daemon makes every working-copy write under one lock per branch, in arrival order: `write_file`, document saves (§9.2.2), burst closes (§9.3.4), `capture()`, `rebase(onto)`, `return_to_item()`, `wake_reconcile()` and the overflow resync (§9.3.2). `write_file` uses the save's swap: a temp file, `renameat2(RENAME_EXCHANGE)` (`RENAME_NOREPLACE` for base `"absent"`), then a digest check of the displaced file. If the displaced file isn't the base, the daemon swaps it back and answers `409 stale`, so a stale write never applies, even when an outside write lands between the check and the swap. A `write_file` to a path with an open document compares `base_digest` with the document's text, not the disk, and applies as one document transaction attributed to its actor (§9.2.4). Check C-COL-03.
+
+9.4.2 **Rewrites stop every writer.** A rebase of the branch's change (§10.5) and `return_to_item()` rewrite files from jj, so they also stop processes outside Smithers. Holding the lock, the daemon:
+1. freezes the parent cgroup of every session (§9.6.1) with `cgroup.freeze` and waits for `frozen 1`, at most 1 s. On timeout it thaws, answers `busy`, and the rebase stays pending;
+2. drains the inotify queue and closes every open burst;
+3. runs `capture()`, so every writer's work is captured first (mvp.md §4.2);
+4. rewrites: `jj rebase -d <onto>` on the item change, or `jj edit`;
+5. reconciles each open document from disk as one transaction attributed to the operation, for example "Rebased onto Tk" (§9.2.3), which keeps unsaved typing;
+6. thaws the sessions and releases the lock.
+
+9.4.2a Browsers keep typing into open documents throughout; only saves wait. Queued `write_file` calls then run against the new content, so a stale `base_digest` gets `409 stale` (§7.6), and the writer re-reads. The lock is held under 2 s at p95 (C-PERF-06). C-COL-03 proves that no writer's write is lost or lands mid-rewrite. During the freeze, everyone sees "Rebasing…" on the branch and on each frozen terminal. After success, activity records "Rebased onto Tn" with the actual target TODO. If step 1 times out, the branch keeps "Rebase pending", the host retries automatically, and the presser sees the blocking writer, for example "Waiting for a write in Ben's terminal". The daemon includes that session in its `busy` response. Checks: C-COL-03, C-PERF-06.
+
+### 9.5 Privilege and confinement [S2]
+
+9.5.1 The binary runs as two processes. The **broker** runs as root and does only what needs root: it creates, freezes and kills session cgroups; starts session processes as their user (§9.6); writes `/run/smithers/env` (§8.8.1); watches the five credential paths (§8.7.3); and reads and writes a member's home and `/run/smithers/<uid>/` through a child that has dropped to that member's uid and gids. The **daemon** runs as the unprivileged user `machined` (uid 19998, groups `{team}`) and does everything else: the host connection, RPC parsing, the watcher, jj and git, documents, and every working-copy read and write. The two talk over a socketpair made at start, and the broker accepts no other caller. A fault in the daemon therefore can't reach a home, a token file, or anything else `team` can't.
+
+9.5.2 **Paths.** Every working-copy path in an RPC is relative. The daemon resolves it with `openat2` from a descriptor for `/workspace`, with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV`, so `..` or a symlink, even one swapped in mid-call, can't leave the working copy. A write opens its parent the same way and creates, renames and swaps inside that parent descriptor; a symlink as the last component is refused. Reads and writes accept only regular files: a directory, FIFO, socket or device is refused after an `O_NONBLOCK` open and `fstat`. The broker's home child opens credential paths with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` from the home's descriptor and accepts only regular files up to 1 MiB. The guest kernel must provide `openat2` (Linux 5.6 or later); the daemon refuses to start without it.
+
+9.5.3 **Identity.** Actors and users come only from authenticated context, never from a field the machine controls:
+- A host RPC carries the actor the host's authorizer resolved (§5.2.1). The daemon accepts RPCs only on its host connection. On `bridge` the daemon dials the host. On `relay`, the host first presents the per-boot connection secret that the runtime writes at boot to a file only `machined` can read (0400), and the daemon closes any other connection to its port.
+- The local socket `/run/smithers/machined.sock` (`root:agent`, 0660) serves only the coding agent: `read_file`, `write_file`, and `open_session(pty)` for the agent's own terminal (§8.11.2a). The daemon takes the caller's uid from `SO_PEERCRED`, requires `agent`, and maps the caller's cgroup to the run the host registered (`register_run`); that run is the actor. A caller outside a registered run is refused.
+- The broker starts sessions only as `agent` (19999) or as a member uid of 20000 or more whose login matches `[a-z0-9_-]{1,32}`. It never starts one as root, and it refuses a login whose uid differs from the one already created on that machine.
+
+Check C-COL-04.
+
+### 9.6 Sessions [S2]
+
+9.6.1 Every process a person or the agent runs on a machine is a session the broker starts: a terminal or SSH shell (`pty`), an SSH exec or the coding host (`exec`), `sftp-server` (`sftp`), or a TCP connection to a guest loopback port (`tcp`). Each session has its own cgroup under one parent, `/sys/fs/cgroup/smithers/sessions/`, which §9.4.2 freezes as a whole. The daemon and the broker live outside it.
+
+9.6.2 **Protocol.** `open_session` returns a session id and opens one stream on the host connection. Frames:
+- `data`: input to the process, and output from it (a pty merges output; exec keeps stdout and stderr apart);
+- `eof`: closes one direction. The host's `eof` closes the process's stdin; the daemon's `eof` follows the process closing its output;
+- `resize{cols, rows}` (pty) and `signal{name}` (pty and exec: `INT`, `TERM`, `HUP`, `KILL`, `QUIT`, `USR1`, `USR2`), delivered to the session's process group;
+- `exit{code}` or `exit{signal, core}`, when the session's first process exits;
+- `window{bytes}`: credit-based flow control. Each direction starts with 256 KiB of credit. A sender with no credit stops reading its source, so a slow reader stalls the process instead of losing bytes or growing memory;
+- `close`, from either side.
+
+The SSH gateway maps these one to one onto SSH channel requests and messages: `exit-status`, `exit-signal`, `window-change`, `signal`, EOF and window adjust.
+
+9.6.3 **Ending.** `close_session` sends `HUP` to a pty's process group, or closes an exec's stdin. Processes that remain keep running in the session's cgroup as that user's, until `kill_sessions` or a machine sleep ends them. They count for attribution (§9.3.1) but not for safe-idle (§8.4.1). `kill_sessions(user | run)` kills every matching cgroup (`cgroup.kill`) and replies once each reports `populated 0`. Revocation (§5.6) and a run's end use it, so a removed member's processes, background ones included, are gone within 5 s.
+
+9.6.4 **Disconnects and restarts.** If the host connection drops, sessions keep running for 30 s, stalled by flow control. A host that reconnects in that time re-attaches their streams by session id; otherwise the daemon closes them. A host restart re-attaches nothing (§8.11.3). Before the broker restarts a daemon that exited, it kills every session cgroup, so no process outlives the daemon that attributes its writes, and the host marks those sessions ended.
+
+9.6.5 Spike T-TRM-06 (check C-SPK-08) proves this contract with a real VS Code Remote session, flow control and 5 s revocation before the stage-2 daemon work starts. T-TRM-07 builds it.
 
 ---
 
@@ -705,7 +848,20 @@ The stack engine is a host service. It is the only writer of stack order, TODO s
 
 ### 10.2 Creation and placement
 
-10.2.1 Doors: chat (`/todo.new`), an issue (`/todo.from-issue #n` for GitHub issue #n, drafted by the app agent from the issue thread and edited by the member before commit), and the `todo` label on GitHub applied by a member (the issue's current title and body at that event become revision 1 and the issue digest is recorded; later issue edits never change the TODO; a repeated delivery of the same label event is idempotent by `(issue, label event id)`). An issue has at most one unmerged TODO; labeling it again while one exists is a no-op. TODOs made from an issue default to `fixes_issue = true`. A label from a non-member is reverted with a comment (§17.5).
+10.2.1 Doors. A TODO comes from chat (`/todo.new`), from an issue by **Make TODO** (`/todo.from-issue #n` for GitHub issue #n), or from the `todo` label on GitHub. Issue text is team text when the issue's author and the last editor of its title and body are members or the install's App, the rule of today's `approvesIssueText` (`github_issue_trust.go:158`). Anything else is outsider text, which is untrusted (§17.1). Who may turn an issue into a TODO:
+
+| Issue text | An owner or maintainer acts | A Member acts | Anyone else labels (non-member, suspended member, another App) |
+| --- | --- | --- | --- |
+| Team text | TODO | TODO | The label is reverted with a comment |
+| Outsider text | TODO | Make TODO is refused with class `permission` before any draft; a label is reverted with "Only a maintainer can make a TODO from this issue" | The label is reverted with a comment |
+
+To act is to commit a Make TODO from one's own session or to apply the label. An agent's Make TODO is a `confirm` request, checked against its member's role before the confirmation is posted (§6.1.2b). The table holds for the app, the CLI and the label (check C-SEC-03).
+
+10.2.1a The admitted snapshot. The admitting action fixes revision 1 and the issue context the run receives:
+- **Make TODO.** The app agent drafts the title, prompt, acceptance and `fixes` from one read of the issue's title, body and comments. The drafting call has no tools and receives the issue as quoted data. The member edits, places and commits the draft. Revision 1 is the committed text, and the read the draft came from is the issue context (`issue_digest`).
+- **Label.** The issue-events stream (§12.2) hands over every `labeled` event for `todo` once, in event-id order, from a durable cursor, so a label removed and reapplied between polls is still seen. Revision 1 is the issue's title and body in the first issue read after the event is consumed. That read's comments are the issue context, and its digest is `issue_digest`. The TODO card shows that text as the admitted text, with the read time. If a non-member renamed or edited the issue after the label event (an issue-events `renamed` event, or GraphQL `Issue.lastEditedAt` later than the event with an `editor` who isn't a member), no TODO is created, and the label is reverted with "Changed after it was labeled. Label it again to make a TODO." A repeated delivery of the same event is idempotent by `(issue, label event id)`.
+
+10.2.1b Later issue edits and comments never change the TODO and never reach its run (§10.4.2). Outsider text in the issue context reaches the agent only as quoted data marked with its author, never as an instruction or a steer (§17.5). An issue has at most one unmerged TODO; labeling it again while one exists is a no-op. TODOs made from an issue default to `fixes_issue = true`. Checks: C-SEC-03 for the doors, issue text and roles; C-J2-02 for the snapshot and the cursor.
 
 10.2.2 Placement: `append` (default), `before Tn` or `amend Tn`. Amend creates no TODO. It appends a `todo_revisions` row to Tn with reason `amend` (revision n+1, shown as "+1"; revision 1 is the original), and if Tn is working, delivers the amendment to the run as a steer.
 
@@ -715,27 +871,44 @@ The stack engine is a host service. It is the only writer of stack order, TODO s
 
 10.3.1 Up to `parallel` TODOs work at once (paused, needs_you and in_review TODOs whose machine is released don't count), each on its own branch and machine. The default is `max(1, capacity − 1)`, which leaves one machine for people and background runs. The owner may set it from 1 to 8, capped by capacity. Queued items admit in stack order.
 
-10.3.2 Item N's work starts from item N−1's last verified head, or `main` for the first item. Its PR shows only its own change (§12.5).
+10.3.2 Item N's work starts from its **prefix**: the verified head (§10.4.4) of the nearest earlier unmerged item that has one, else `main`'s tip. Admission never waits for an earlier item to verify. When an earlier item publishes a verified head, its first or a newer one, or `main` moves, N gets `rebase_pending{onto}` (§10.5.1), and N's next candidate sits on the new prefix. The first unmerged item's prefix is `main`'s tip. Its PR shows only its own change (§12.5). Check: C-STK-06.
 
 ### 10.4 The TODO run
 
 10.4.1 A TODO's work is one run per attempt of the Active `todo` flow version, pinned when the TODO enters Starting (§11.4), executing on the TODO's branch machine. The run lives until the TODO is merged or dropped:
 
 ```
-route → plan (cites wiki revisions) → implement → check → review (the overridable `review` flow)
-      → package one commit → stack.propose ──▶ wait for a stack event:
-            rebased onto a new tip        → check → stack.propose → wait
-            steer / changes requested     → implement → check → review → stack.propose → wait
+route → plan (cites wiki revisions) → implement → candidate → check → review (the overridable `review` flow)
+      → stack.propose ──▶ wait for a stack event:
+            rebased onto a new tip        → candidate → check → stack.propose → wait
+            edited (§10.4.5)              → candidate → check → review → stack.propose → wait
+            steer / changes requested     → implement → candidate → check → review → stack.propose → wait
             merged | dropped              → end
 ```
 
-`stack.propose` is a system operation: the stack engine integrates the candidate on the stack tip, opens or updates the PR, and later merges after a person's approval. None of those are flow steps, so an override can't skip them. This replaces today's four separately launched runs (`coding/request`, `coding/vibe`, `coding/verify` and `review/change`, launched at `mythical_items.go:1681`, `:1775`, `:1905` and through `mythicalReviewFlow`) with one run per attempt (T-FLW-11).
+`stack.candidate` and `stack.propose` are system operations (§10.4.4). With the rebase (§10.5) and the merge (§10.6), they are the stack engine's part: capture the candidate on the item's prefix, accept its evidence, open or update the PR, and later merge after a person's approval. None of those are flow steps, so an override can't skip them. A refused `stack.propose` sends the run back to `candidate`, or to `implement` for `stale_inputs`. This replaces today's four separately launched runs (`coding/request`, `coding/vibe`, `coding/verify` and `review/change`, launched at `mythical_items.go:1681`, `:1775`, `:1905` and through `mythicalReviewFlow`) with one run per attempt (T-FLW-11).
 
 10.4.1a The built-in `todo` flow is a short composition file over step flows published from the coding package. Overriding it (§11.5) copies only that composition into `flows/todo/flow.ts`, which imports the steps it doesn't change.
 
-10.4.2 The prompt the agent receives is revision 1, plus every later revision delivered as a steer, plus the acceptance text, plus the linked issue's discussion when the TODO came from an issue.
+10.4.2 The prompt the agent receives is revision 1, plus every later revision delivered as a steer, plus the acceptance text, plus, when the TODO came from an issue, the issue context admitted with revision 1 (§10.2.1a), as quoted data marked with each author. Later issue comments never reach the run. Check: C-SEC-03.
 
-10.4.3 Evidence recorded per attempt: the diff stat, checks run on the machine (name, outcome, duration, log blob), the agent's review summary, GitHub checks, the token and time totals, and the flow version.
+10.4.3 Evidence recorded per attempt, each entry tagged with the candidate generation it describes (§10.4.4): the diff stat, checks run on the machine (name, outcome, duration, log blob), the agent's review summary, GitHub checks, the token and time totals, and the flow version. The PR body and the TODO card show the accepted generation's entries. A review summary from an earlier generation is shown only when that generation's own diff has the same `git patch-id --stable` as the accepted one, as after a clean rebase.
+
+10.4.4 **Candidate handshake.** A candidate is an immutable commit of the item's working copy, and each one is a new **generation** of the item. The engine keeps the current generation on its work record: today's `mythical_items.generation`, `candidate_base`, `candidate_head`, `candidate_verified` and `pr_head`, plus a new `candidate_inputs_seq`. Recording a generation voids the verification of every earlier one, the invariant today's engine keeps when integration clears `candidate_verified` and re-verifies (`mythical_items.go:1901`). The handshake has three steps:
+1. **Capture.** The run's `candidate` step calls `stack.candidate{inputs_seq}`. `inputs_seq` is the highest `todo_events.seq` of a steer or amendment the run has consumed; a member's review comment counts as a steer. The engine refuses with `rebase_pending` while the item has `rebase_pending`, or when its prefix head (§10.3.2) isn't an ancestor of the working-copy commit, in which case it sets `rebase_pending{onto: prefix head}`; the run then waits for the `rebased` signal (§10.5). Otherwise it captures the working copy (S1: a jj snapshot in the workspace and a push of its commit to the host store; from S2: `capture()`, §9.1.2). It writes one commit C whose tree is the snapshot's tree T and whose parent is the prefix head, pins it (`refs/smithers/keep/<C>`) and records generation g = {base: prefix head, head: C, tree: T, inputs_seq}. C is the item's one commit; the working copy's own history is never rewritten.
+2. **Check and review.** The run's `check` step runs the configured checks in the working copy. The `review` flow reads the candidate's own diff (`base..C`), never the working copy. Every evidence entry carries g.
+3. **Propose.** The run calls `stack.propose{generation: g, evidence}`. The engine captures the working copy again and accepts only when all of these hold:
+   - g is the current generation;
+   - the new capture's tree equals T, so no edit landed during the capture, the checks or the review;
+   - no steer or amendment event has a seq above g's `inputs_seq`;
+   - the item has no `rebase_pending`, and its prefix head is still g's base;
+   - every check entry in the evidence names g.
+
+   On acceptance the engine sets `candidate_verified`, writes the PR head commit (tree T on `main`'s tip, §12.5.1), pushes it and opens or updates the PR. On refusal it records nothing and returns the reason: `stale_generation`, `edited`, `stale_inputs` or `rebase_pending`.
+
+An item's **verified head** is C of its latest accepted generation. Accepted limit: an edit reverted before the propose capture leaves the trees equal and goes unseen. Check: C-STK-06.
+
+10.4.5 **Pending work.** After a generation is accepted, the engine compares the tree of each later capture of the branch (S1: each head the workspace reporter pushes; from S2: each `capture()`) with that generation's tree. A different tree is pending work: the engine signals the run `edited`, the TODO stays in_review, and Merge is held (§10.6.2a) until `stack.propose` accepts a new generation, as after a rebase. A steer or amendment moves the TODO to working instead (§10.7.3). Checks: C-STK-06, C-STK-07.
 
 ### 10.5 Rebase
 
@@ -743,7 +916,7 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 10.5.2 If only the coding agent is present on the branch, the rebase runs at the run's next durable boundary. If people are present, the branch shows "Rebase pending". The rebase then runs when presence drops to the agent alone, or when someone on the branch selects **Rebase now**.
 
-10.5.3 The rebase follows §9.4. Afterwards it posts activity "Rebased onto Tk", clears approvals (the head changed), and re-runs checks.
+10.5.3 The rebase follows §9.4. Afterwards it posts activity "Rebased onto Tk" and signals the run `rebased`. The run captures a new generation and re-runs checks (§10.4.4), and the new generation voids earlier approvals (§10.6.2c).
 
 10.5.4 A conflict goes to the coding agent first. If the agent doesn't resolve it within its policy (one attempt by default), the TODO enters `needs_you{kind: conflict, paths}` with **Resolve**. In stage 1 Resolve opens the TODO card's conflict view (conflicted files, terminal and SSH line); from stage 2 it opens the Branch card. The wait settles when someone presses **Done** and the working copy has no conflict markers in those paths. An engine-raised conflict creates its own durable wait on the TODO.
 
@@ -753,23 +926,58 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 10.6.1 Merge is enabled for exactly the first unmerged item in stack order. Later items show "Merges after Tn". Smithers enforces the order. GitHub doesn't, because every PR is based on `main` (§12.5).
 
-10.6.2 `POST /api/todos/{n}/merge {reviewed_head_sha}` requires a `session` credential with role owner or maintainer. It also requires `reviewed_head_sha` = the current PR head, required GitHub checks passing, and GitHub reporting the PR mergeable. The server records `todo_approvals`, then calls GitHub's merge API with `sha = reviewed_head_sha` and `merge_method = squash`, so each item is one commit on `main`. Setup refuses a repository that disallows squash merging and shows "Enable squash merging on GitHub ↗". A refusal surfaces GitHub's reason text verbatim, for example "1 approving review required on GitHub".
+10.6.2 `POST /api/todos/{n}/merge {reviewed_head_sha}` requires a `session` credential with role owner or maintainer, and `MergeReady` (§10.6.2a) under the merge fence (§10.6.2b). The server records `todo_approvals` with the generation and `reviewed_head_sha`, then calls GitHub's merge API with `sha = reviewed_head_sha` and `merge_method = squash`, so each item is one commit on `main`. Setup refuses a repository that disallows squash merging and shows "Enable squash merging on GitHub ↗". A refusal surfaces GitHub's reason text verbatim, for example "1 approving review required on GitHub".
 
-10.6.3 After the merge, later items rebase onto the new `main` (§10.5), and each open PR is force-updated with its new verified candidate. Its body then stops listing the merged item.
+10.6.2a **One merge predicate.** `MergeReady(todo, reviewed_head_sha)` is the only definition of merge readiness. The Merge control's `merge_block`, the merge route, the approve of a Review & merge confirmation (§5.4) and the recheck before dispatch all call it. It holds when every row holds, and the first row that fails gives the reason:
+
+| # | Condition | Reason |
+| --- | --- | --- |
+| 1 | The TODO is `in_review` (§4.1.0a): no open wait, `paused_at` unset | `state` |
+| 2 | It is the first unmerged item in stack order | `order` |
+| 3 | No `stack_attention` row is open | `attention` |
+| 4 | No merge fence is set (§10.6.2b) | `merging` |
+| 5 | The current generation is accepted (`candidate_verified`), its PR push is settled (`pending_op` empty) and `pr_head` is set | `rechecking` |
+| 6 | No `rebase_pending`, and the generation's base is the mirror's `main` tip | `rechecking` |
+| 7 | No pending work: no steer or amendment event above the generation's `inputs_seq`, and the branch's newest capture has the generation's tree (§10.4.5) | `pending_work` |
+| 8 | `reviewed_head_sha` = `pr_head` = GitHub's current PR head | `stale_head` |
+| 9 | Required GitHub checks pass on that head, and GitHub reports the PR mergeable | `checks`, `github` |
+
+Rows 1-7 read PostgreSQL; rows 8-9 read GitHub, and `merge_block` uses the last synced PR head and checks for them. `merge_block` is `{reason, detail?}`, with Tn for `order`, the check's name for `checks` and GitHub's text for `github`. Check: C-STK-07.
+
+10.6.2b **Merge fence.** A merge runs in three steps:
+1. One transaction locks the stack row (`mythical_stacks`, `FOR UPDATE`), then the TODO row, evaluates rows 1-7 and sets `todos.merging = {generation, head, by, at}`. Every stack mutation takes the same locks in the same order and reads `todos.merging`: place, amend, move, drop, steer, answer, admission, `rebase_pending` writes, `stack.candidate`, `stack.propose` and the fold after a merge.
+2. Before dispatch, outside the transaction, the server rechecks: a fresh capture when the branch's machine is awake (row 7; an asleep branch's captured head is final), `main` by `git ls-remote` (row 6), and the PR head, required checks and mergeable state from GitHub (rows 8-9). A failure clears the fence and returns its reason.
+3. The server records `todo_approvals` and calls GitHub's merge through the outbound path (§12.4.1). A GitHub refusal clears the fence. Success keeps it until the `merged` transaction clears it. On start, the engine reconciles every set fence: one whose PR GitHub reports merged stays until `merged` commits, and any other is cleared.
+
+While a fence is set:
+- A placement that changes the item's position (Before, Move, Drop) and an amend of the item get `409 {code: merging}`.
+- A steer or a member's review comment for the item commits and is held. If the merge completes, it stays recorded and undelivered. If the fence clears without a merge, it is delivered then, with its usual transition (`in_review → working`).
+- `rebase_pending` for the item and `stack.propose` for the item wait until the fence clears.
+- "A merge is in flight" for `smthrs host upgrade` and quiesce (§16.4, §16.5) means a set fence.
+
+Limits: a write to the working copy after step 2's capture isn't in the merge; it stays in the branch's final capture (§8.12). GitHub's merge API has no base precondition, so a `main` move on GitHub after step 2's `ls-remote` lets GitHub squash the reviewed head onto the newer `main`. Check: C-STK-07.
+
+10.6.2c **Approval binding.** A `todo_approvals` row and a Review & merge confirmation's subject revision (§5.4) both bind the generation and the PR head. A new generation voids approvals, and a new generation or a different PR head on GitHub expires a pending confirmation. An approve that `MergeReady` refuses leaves the confirmation pending until it expires. A TODO that returns to working keeps its PR open and ready, so GitHub may still merge its last proposed head (§4.1). Check: C-ACC-02.
+
+10.6.3 After the merge, later items rebase onto the new `main` (§10.5), and each open PR is force-updated with that item's next accepted generation (§10.4.4). Its body then stops listing the merged item.
 
 10.6.4 An out-of-order merge on GitHub happens when someone marks a later draft ready and merges it first. Because each PR is a verified candidate based on `main`, the later item's squash commit contains the earlier items' changes. The engine marks the merged item and every earlier unmerged item it contained as merged. It notes on each earlier one "T3 merged before T2; T2's change is in T3's commit" and closes each earlier item's open PR with the comment "Merged via #<n> (T3)". It then folds `main` and opens `stack_attention{kind: order}` for maintainers with that sentence, settled by **OK** (in-card). Later items rebase as after any merge.
 
 ### 10.7 Stop, resume, retry, drop, steer
 
-10.7.1 Stop: send a durable pause signal; the run parks in a `paused` wait at its next durable boundary (an in-flight model call finishes first, ≤ 60 s), the TODO shows `paused`, and the machine is released when safe-idle. The run is not cancelled. Resume re-admits and continues the same run from its last finished step. Retry starts a new attempt of the pinned flow version (Retry with the current flow pins the Active one, §4.1); an optional steer becomes the first message.
+10.7.1 Stop: send a durable pause signal; the run parks in a `paused` wait at its next durable boundary (an in-flight model call finishes first, ≤ 60 s), the TODO shows `paused`, and the machine is released when safe-idle. The run is not cancelled. Stop is refused while a `question` or `approval` wait is open; an open branch wait doesn't refuse it (§4.1). Resume re-admits and continues the same run from its last finished step, and the TODO turns working when the coding host reports the run attached (§4.1). Retry starts a new attempt of the pinned flow version (Retry with the current flow pins the Active one, §4.1); an optional steer becomes the first message.
 
-10.7.2 Drop: confirm, cancel the run, close the PR with comment "Dropped in Smithers by @x", mark `dropped`, archive the branch, rebase later items.
+10.7.2 Drop: confirm, cancel the run, take a final capture, close the PR with comment "Dropped in Smithers by @x", mark `dropped`, archive the branch, fold the item's change into the first later TODO forked from it (§8.5.3a), and rebase later items. The attempt closes with outcome `dropped`, and its last accepted generation stays on the record for a reopen (§10.7.4). Check: C-J7-02.
 
 10.7.2a The coding agent can ask a person mid-implementation. The `ask` tool is bound for the implementing seats (`coding/edit-atom`, `coding/dispatch-turn`), not only at flow-step boundaries. It raises `needs_you{kind: question}` as a durable wait and continues with the first answer (§10.8.2).
 
 10.7.3 Steer: any member, or an agent acting for one. The text is delivered to the run as a durable signal. Steer is `agent: run`: an agent steers at once for its person, with `via` recorded. A steer never settles an open question: while `needs_you{kind: question}` is open, Answer is the primary action, and the steer reaches the agent at once as context. The agent may replace its question with a better one, but the question stays open until a person answers (mvp.md §4.1). A steer to a queued TODO is held and delivered when its run starts; one to a paused TODO is delivered on resume; one to an in_review TODO moves it to working. The run's flow MUST accept steers at every step boundary, and inside the implement step between agent turns (≤ one model turn of latency). The steer appears in branch activity with its author's avatar.
 
+10.7.4 Reopen (§12.3): a PR reopened on GitHub within 7 days of its TODO's drop returns the TODO to in_review, once per reopen event, with no live run. The attempt the drop closed stays closed, and its last accepted generation is the TODO's candidate again; if it still satisfies `MergeReady`, it merges as is. The first input that needs work starts a new attempt as Retry does (§10.7.1): a new run of the dropped attempt's pinned flow version from its first step, with that input as its first message. Such inputs are a steer, an amendment, a member's review comment, `rebase_pending` and pending work (§10.4.5). The machine wakes from its disk, or from the branch's final capture when cleanup removed the disk (§8.12). Check: C-J10-08.
+
 ### 10.8 Needs you
+
+10.8.0 **Waits.** Each reason a TODO needs a person is its own durable wait: one `todo_waits` row `{wait_id, kind, owner: run|branch, payload, run_wait_id?, opened_at, settled_at?, settled_by?, outcome?}`. Run waits (`question`, `approval`) belong to the attempt's run and expire when that run ends. Branch waits (`conflict`, `moved_off`, `foreign_push`) describe the branch and stay open across attempts, Stop and Resume until resolved. Merge and drop close every open wait in their own transaction (§4.1). Precedence and the primary wait: §4.1.0a. Check: C-STK-08.
 
 10.8.1 TODO kinds: `question` (the agent asked), `approval` (a flow step's human approval), `conflict` (§10.5.4), `moved_off` (§9.3.8), `foreign_push` (§12.3). Stack-level kinds, `order` (§10.6.4) and `force_push` (§12.3), live in `stack_attention` (§4.1.2a).
 
@@ -785,7 +993,7 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 ### 11.1 Catalog
 
-11.1.1 **System flows** are packaged with the install and never overridable: stack operations (including `stack.propose`), merge, members, settings, secrets, sync, admission, setup, `flow-load` and the summarizer (M-30). They run in the host flow runtime or as Go services exposed as commands.
+11.1.1 **System flows** are packaged with the install and never overridable: stack operations (including `stack.propose`), merge, members, settings, secrets, sync, admission, setup, `flow-load` and the summarizer (M-30). They run in the host flow runtime or as Go services exposed as commands, except `flow-load`, which loads repository code and so runs in an ephemeral machine (§11.3.1). Check: C-SEC-02.
 
 11.1.2 **Overridable flows** are `todo`, `learning`, `review`, plus any repository flow at `flows/<name>/flow.ts`. Each has a built-in default version shipped with the install. A repository file of the same name, on `main`, overrides it once Active. Overridable flows always run inside a machine (§1.3).
 
@@ -797,9 +1005,9 @@ The install generates and stores the configuration the default flows need in `fl
 
 ### 11.3 Loading and activation
 
-11.3.0 A flow's closure includes every overridable flow it imports, so a `todo` run's one digest also pins the `review` flow it calls (J5.4).
+11.3.0 A flow's closure is every repository file its entry reaches: relative imports, imports a loader maps to repository files (package.json `imports`, tsconfig `paths`), workspace packages, and every overridable flow it imports. Any import that resolves to a file inside the repository is a closure module, whatever its specifier. So a `todo` run's one digest also pins the `review` flow it calls (J5.4) and every helper it imports from anywhere in the repository. The closure's dependency environment is the installed third-party packages its modules import, identified by the lockfile digest (`ExecutionSnapshot.ts:59-65`). `@smthrs/*` packages come from the coding host the install ships. A version's digest covers the execution digest and that lockfile digest, so a lockfile change makes a new version.
 
-11.3.1 When the GitHub sync sees `main` move and the diff touches `flows/**` or `.smithers/**`, the engine admits a background `flow-load` run in an ephemeral machine at `main`'s new commit. The run loads every overridable flow, typechecks it, computes its execution digest and stores a content-addressed closure blob. It writes one `flow_versions` row per flow with status `loaded` or `failed{error}`.
+11.3.1 Every `main` move admits a background `flow-load` run in an ephemeral machine at `main`'s new commit, whatever paths changed, because a closure can import any repository file and the lockfile. Loads coalesce: at most one runs at a time, and when it ends the next starts at the newest `main` commit not yet loaded, skipping the commits between. The run loads every overridable flow, typechecks it and computes its digest (§11.3.0). For a new digest it stores a content-addressed closure blob that holds the closure modules and the dependency environment's packages, stored per file so versions share unchanged files, and writes one `flow_versions` row with status `loaded` or `failed{error}`. A digest that already has a row writes nothing (check C-J5-02).
 
 11.3.2 Activation: a `loaded` version from a newer `main` commit replaces the Active one in `flow_activations`. A `failed` version leaves the previous Active version in place, and the Flow card shows "Merged · not active" with the error (§4.3).
 
@@ -807,11 +1015,11 @@ The install generates and stores the configuration the default flows need in `fl
 
 ### 11.4 Pinning
 
-11.4.1 A run records `(flow_name, digest)` when its TODO enters Starting. The coding host on the branch machine loads the pinned closure blob by digest. It never loads the branch working copy's `flows/` for a TODO run, so a TODO that edits a flow doesn't run its own edit.
+11.4.1 A run records `(flow_name, digest)` when its TODO enters Starting. The coding host on the branch machine loads the pinned closure blob by digest. It never loads the branch working copy's `flows/` for a TODO run, so a TODO that edits a flow doesn't run its own edit. It never resolves the closure's imports from the working copy either. Closure modules come from the blob, and third-party packages from the blob's dependency environment, unpacked once per machine under `/var/lib/smithers/flow-env/<lockfile digest>`. Restore checks the lockfile digest against that environment, never against the working copy (`ExecutionSnapshot.ts:138-142`). A TODO that edits an imported helper or the lockfile, or rebases onto such a change, still runs its pinned version, and its Retry and Resume restore that version unchanged (check C-J5-01).
 
 11.4.2 Retries and resumes reuse the pinned digest. Two versions of one flow can run at once because each branch machine runs its own coding host.
 
-11.4.3 A scratch branch may **Run** its working-copy version of a flow with a test input (J11.3). That run is labeled "draft version" and can't be a TODO run.
+11.4.3 A scratch branch may **Run** its working-copy version of a flow with a test input (J11.3). That run is labeled "draft version" and can't be a TODO run. **Plan** on a scratch branch loads the working-copy version inside that branch's machine and returns its graph without running a step (§1.3); for the Active version it reads the stored `flow_versions` steps (§11.3.1). A draft-version run of `todo` ends before `stack.propose`: the stack engine refuses a run with no TODO (`not_a_todo_run`), so the run ends there, proposing nothing and writing nothing to GitHub. Check: C-J11-02.
 
 ### 11.5 Changing the factory (J5)
 
@@ -830,11 +1038,11 @@ Without a fast-model key, the app agent and summaries fall back to the coding mo
 
 ### 11.6 Runtime events and the monitor
 
-11.6.1 The flow runtime emits ordered events per run: step started, finished or failed (with input, output and token/time/cost usage), wait opened or settled (kind, since), attempt retried, agent transcript chunks, and steer received. The host projects them into `run:<id>`, `todo:<n>` and conversation-entry summaries.
+11.6.1 The flow runtime emits ordered events per run: step started, finished or failed (with input, output and token/time/cost usage), wait opened or settled (kind, since), run attached (the coding host started or resumed the run on a machine; it moves a TODO from starting to working, §4.1), attempt retried, agent transcript chunks, and steer received. The host projects them into `run:<id>`, `todo:<n>` and conversation-entry summaries. Check: C-STK-03.
 
 11.6.2 The monitor reads the same events. Each step's label comes from its Appendix C row's Inspect rendering (for example "Planned the change", "Edited retry.ts"). Engine bookkeeping tags render under one collapsed "Engine" row per run. It also shows the run's raw event journal, and the flow's declared custom view (the descriptor's `presentation`) when one exists. It shows the graph with live step states, per-step input/output/transcript, timeline with attempts, durable waits with "since", tokens/time/cost per step, and a read-only replay scrubber. It has no fork or rewind control (AGENTS.md).
 
-11.6.3 **Phases and cells.** The monitor groups each attempt's events into phases, one per executed flow step instance, in order. A phase's title and one-line summary are written by `agent:fast` from that step's events (§11.5a), the same way as entry summaries (§14.5.3), and never block the run. Its tone is live, ok, fail, wait (an open durable wait) or thrash (§11.6.4). Each phase holds cells, one per agent action rendered by its mvp.md B.3 / Appendix C row: context, read, edit, run, think, ask, steer, reviewer or rebase. A cell carries a plain explanation, plus the code, output or quote it shows, and its time, tokens and actor. The run's trailing wait for merge (§10.4.1) shows as state `held` with since. Each attempt keeps its own graph.
+11.6.3 **Phases and cells** (product ruling, 2026-10-02; mvp.md §6.14 Monitor). The monitor groups each attempt's events into phases, one per executed flow step instance, in order. Phase boundaries and titles are deterministic host code over run events: a title is the step's Appendix C label plus the outcome its recorded output reports (failed checks, files changed, findings), for example "Ran checks · 2 failed"; a step with no such outcome shows its label alone. Its tone is live, ok, fail, wait (an open durable wait) or thrash (§11.6.4). Each phase holds cells, one per agent action rendered by its mvp.md B.3 / Appendix C row: context, read, edit, run, think, ask, steer, reviewer or rebase. A cell carries a deterministic label ("Read retry.ts", "Ran pnpm test · 1 failed"), plus the code, output or quote it shows, and its time, tokens and actor. Under each phase title, `agent:fast` writes a one-line summary, and it writes an explanation for each cell an agent wrote. Both render marked as model summaries. They come from the timeline summarizer (§14.5.3) at phase and cell granularity and are stored in `run_summaries` (§3): debounced, written only for runs someone inspects, never blocking the run, using no machine. While one is pending or after it fails, the title or label stands alone, with no error state. The run's trailing wait for merge (§10.4.1) shows as state `held` with since. Each attempt keeps its own graph. Check: C-J11-01.
 
 11.6.4 **Thrashing** (product, 2026-10-02; mvp.md §6.14). Within one attempt, a phase is thrashing when the same failing check fails 3 times with no edit in between to the files that failure names. "The same check" means the same test id, or the same error signature after normalizing paths, line numbers and other numbers. The detector is deterministic host code over run events, with no model. It sets the phase tone `thrash` and adds the TODO card indicator "Thrashing: <check> failed 3×". The indicator clears when an edit touches a named file or the check passes. It is information for a person and changes no run behavior. Check: C-J11-04.
 
@@ -883,57 +1091,76 @@ The webhook is created inactive (`hook_attributes.active = false`), because poll
 
 ### 12.2 Polling (M-03)
 
-| Stream | Request | Cadence | Cost/h (one repo) |
+| Stream | Request | Cadence | Requests/h, worst case |
 | --- | --- | --- | --- |
-| refs | `git ls-remote` of `main` and `refs/heads/smithers/*` | 30 s | 0 REST |
-| pulls | `GET /pulls?state=all&sort=updated&direction=desc&per_page=50`, conditional | 60 s | ≤ 60 |
-| review comments | `GET /pulls/comments?sort=updated&direction=desc&since=…`, conditional | 60 s | ≤ 60 |
-| conversation comments | `GET /issues/comments?since=…`, conditional | 60 s | ≤ 60 |
-| reviews | `GET /pulls/{n}/reviews` only for TODO PRs whose `updated_at` changed | on change | ≤ 60 |
-| checks | `GET /commits/{sha}/check-runs` + `/status` for TODO PR heads with pending or changed checks | 60 s while pending | ≤ 240 |
-| issues | `GET /issues?state=all&since=…&sort=updated`, conditional | 120 s | ≤ 30 |
-| issue events | `GET /issues/{n}/events` for issues whose `todo` label appeared since the last poll (who applied it, and the event id for idempotency) | on change | ≤ 1 per changed issue |
-| members' permission | `GET /collaborators/{login}/permission` | hourly | ≤ 8 |
+| refs | `git ls-remote` of `main` and `refs/heads/smithers/*` | 30 s | 120 git, 0 REST |
+| pulls | `GET /pulls?state=all&sort=updated&direction=desc&per_page=50`, conditional | 45 s | 80 |
+| pr-state | One GraphQL query per 50 open TODO PRs: each PR's state, draft flag, head sha, mergeable state, last 20 reviews, and its head's `statusCheckRollup` contexts with name, status, conclusion and `isRequired` | 45 s | 80 per 50 PRs |
+| review comments | `GET /pulls/comments?sort=updated&direction=desc&since=…`, conditional | 45 s | 80 |
+| conversation comments | `GET /issues/comments?since=…`, conditional | 45 s | 80 |
+| issues | `GET /issues?state=all&since=…&sort=updated&per_page=100`, conditional | 120 s | 30 |
+| issue events | `GET /issues/events?per_page=100`, conditional, paged back to the durable event-id cursor (§10.2.1a) | 120 s | 30 |
+| members' permission | `GET /collaborators/{login}/permission` | hourly | 1 per member |
+| installation token | `POST /app/installations/{id}/access_tokens` | 5 min before expiry | 1 per permission set |
 
-12.2.1 Every REST call is conditional (`If-None-Match` with the stored ETag). A 304 does not count against the primary rate limit. Installation tokens are cached until five minutes before expiry.
+12.2.1 Every REST read is conditional (`If-None-Match` with the stored ETag). Each cursor stays at the newest `updated_at` or event id seen, so an unchanged stream repeats its URL and gets 304. A 304 doesn't count against the primary rate limit. GraphQL has no conditional form, so every `pr-state` query counts. A page beyond the first is fetched only when every row of the first page is newer than the cursor, and each page counts as a request. Installation tokens are cached until five minutes before expiry.
 
-12.2.1a After a merge every open PR is force-updated, so all their checks are pending at once. Check-runs then poll every 60 s for the first item in order and every 120 s for the rest.
+12.2.1a `pr-state` covers every open TODO PR in one query, so the checks and reviews of ten pending PRs cost the same 80 queries an hour as one PR, including after a merge force-updates every later PR. Per-head REST reads of check-runs and statuses would cost 120 requests per pending head per hour, 1,200 for ten, and are not used.
 
-12.2.2 Budget: when `X-RateLimit-Remaining` falls below 20 % of the limit, cadences double until the reset. A 403 or 429 with `Retry-After` pauses that stream until `retry_at` and marks health `limited`.
+12.2.2 Budget. The host counts its GitHub requests per rolling hour, writes and Retry included, in two figures. Raw counts every REST and GraphQL request, 304s included. Charged counts REST responses other than 304, every GraphQL query and every write. The budget is at most 1,500 raw and 1,000 charged per hour (check C-GH-08). With ten TODO PRs and ten members, polling costs at most 392 requests an hour even when every response changed: 320 for the four 45 s streams, 60 for the two 120 s streams, 10 permission checks and 2 tokens. That leaves over 600 charged requests for writes, admission reads (at most two per label event, §10.2.1a), extra pages and Retry. When `X-RateLimit-Remaining` for a resource falls below 20 % of its limit, the issues, issue-events and members' permission cadences double until the reset; the other streams keep theirs. A 403 or 429 with `Retry-After` pauses that stream until `retry_at` and marks health `limited`.
 
-12.2.3 Targets: PRs, checks and `main` within 60 s of the change on GitHub; issues within 5 min (§9 of mvp.md). Measured by check C-GH-07. Health (§4.4) uses the required streams (refs, pulls, checks) against a 60 s target. When several states hold, `refused` > `limited` > `stale` > `fresh`. Only `mirror: pull` is supported for the install's repository.
+12.2.3 Targets: PRs (state, reviews and comments), checks and `main` within 60 s of the change on GitHub, in the worst case: the 45 s cadence (30 s for refs) leaves 15 s for the fetch and the projection. Issues within 5 min (§9 of mvp.md). Measured by check C-GH-07. Health (§4.4) uses the required streams (refs, pulls, `pr-state`) against a 60 s target. When several states hold, `refused` > `limited` > `stale` > `fresh`. Only `mirror: pull` is supported for the install's repository.
 
-12.2.4 Webhooks are optional. When the install has a public URL (for example Tailscale Funnel), signed webhook deliveries trigger an immediate fetch of the affected stream, and the polling cadence stretches 5×. Webhook payloads are never trusted as the final state; the fetch is.
+12.2.4 Webhooks are optional. When the install has a public URL, a signed delivery triggers an immediate fetch of its stream. Webhooks never stretch a cadence, so a missed delivery costs no freshness. Webhook payloads are never trusted as the final state; the fetch is.
 
 ### 12.3 Inbound mapping
 
 | GitHub change | Smithers effect |
 | --- | --- |
-| `main` moved (fast-forward) | Mirror updates. The home `main` row updates. Later items get `rebase_pending` (§10.5). Flow load if `flows/**` changed (§11.3). |
-| `main` rewritten (not a fast-forward) | `stack_attention{kind: force_push}` for the owner. **Reset to GitHub main** (in-card) resets the mirror and rebases the stack onto the new `main`. Nothing changes before confirm. |
+| `main` moved (fast-forward) | Mirror updates. The home `main` row updates. Later items get `rebase_pending` (§10.5). A flow load (§11.3.1). |
+| `main` rewritten (not a fast-forward) | `stack_attention{kind: force_push}` for the owner. **Reset to GitHub main** (`main.reset-to-github`, in-card) appears on the Needs you card. Only the owner's session may invoke it; agents cannot invoke it or request delegated confirmation. The owner confirms before it resets the mirror and rebases the stack onto the new `main`. Checks: C-CAT-01, C-ACC-01, C-J10-07. |
 | Issue opened, edited or commented | The synced store updates (§3.0). The issue card updates. |
-| Issue labeled `todo` by a member | TODO created (§10.2.1). Labels by non-members are reverted, with a comment. |
+| Issue labeled `todo` | Admitted or reverted by the §10.2.1 table. An admitted TODO takes the first issue read after the label event as revision 1 (§10.2.1a). |
 | Review with "changes requested", review comment or conversation comment on a TODO PR | Activity entry with the GitHub mark, attributed to the member whose GitHub login wrote it. From a member: delivered to the run as one steer per review submission (its comments batched, anchored to path:line) or per standalone comment; `in_review → working`. From a non-member: shown in activity as `{github: login}` and never delivered as a steer (§17.5). An edited comment updates its entry and is re-delivered only if the run hasn't consumed it; a deleted one hides its entry. |
 | Review "approved" | Recorded on the PR card. Not a Smithers approval (§10.6). |
 | Checks finished on a TODO PR head | Evidence updated. A failed required check names itself on the Merge control. |
 | TODO PR merged | `merged` (§4.1). The linked issue closes with a link if `fixes_issue`. Later items rebase and their PRs are force-updated (§10.6.3). |
-| TODO PR closed unmerged | `dropped` with "closed on GitHub by @x". Reopen within 7 days restores `in_review` at the TODO's previous stack position when it is still free (otherwise appended), with `smithers/<slug>` recreated from the last verified candidate. |
-| Push to `smithers/<slug>` by anyone other than Smithers | `needs_you{kind: foreign_push, by, sha}`, whether the TODO is working or in review: "Alice pushed to `smithers/retry-webhooks` on GitHub", linking the commit. Smithers never overwrites a person's commit (M-33): the agent's next push is held while this is open. The answers are:
-- **Bring in**: fetch the commit and rebase the item onto it at the run's next checkpoint (§9.4); the agent resolves conflicts, and the pushed change becomes part of the item's change, attributed in activity;
-- **Discard**: explicit; the commit is kept in the host repository store (`refs/smithers/kept/<sha>`) and linked from activity, and the next verified push proceeds. [D] Merging such pushes into the working copy is deferred. |
-| A teammate's own branch or PR | `/review` works on any PR: it admits a `background` ephemeral machine at the PR head, which counts against capacity and never holds a TODO's machine. [D] **Open on a machine** is deferred. |
+| TODO PR closed unmerged | `dropped` with "closed on GitHub by @x". Reopen within 7 days restores `in_review` at the TODO's previous stack position when it is still free (otherwise appended), with `smithers/<slug>` recreated at its last accepted generation's PR head and no run; the first input that needs work starts a new attempt (§10.7.4). Check: C-J10-08. |
+| Push to `smithers/<slug>` by anyone other than Smithers | `needs_you{kind: foreign_push, by, sha}`, whether the TODO is working or in review: "Alice pushed to `smithers/retry-webhooks` on GitHub", linking the commit. Smithers never overwrites a person's commit (M-33): the agent's next push is held while this is open. A newer push while it is open updates it to name the newer sha, and every pushed commit is kept. The answers are:
+- **Bring in**: the decision names the sha the card shows and is refused as stale (class `conflict`) once a newer push arrives. The stack engine fetches that commit and rebases the item onto it at the run's next checkpoint (§9.4); the agent resolves conflicts, and the pushed change becomes part of the item's change, attributed in activity;
+- **Discard** (maintainers only, mvp.md B.4): explicit. The decision names the sha the card shows and is refused as stale (class `conflict`) once a newer push arrives. The commit is kept in the host repository store (`refs/smithers/kept/<sha>`) and linked from activity. The next verified push leases against that sha (§12.5.2). If the branch moved again before it, the lease fails, nothing is overwritten, and the Needs you reopens naming the newer sha. [D] Merging such pushes into the working copy is deferred. |
+| A teammate's own branch or PR | `/review` works on any PR a member opened: it admits a `background` ephemeral machine at the PR head, which counts against capacity and never holds a TODO's machine, and it writes nothing to GitHub. A non-member's PR is refused (§17.5; outside-PR review waits for the maintainer release, mvp.md §8). Check: C-J10-09. [D] **Open on a machine** is deferred. |
 
 ### 12.4 Outbound writes
 
-12.4.1 Every outbound write has an idempotency key, recorded in `outbound_writes` before the call: open PR (title = TODO title), update the PR body, merge, close a PR on Drop, close an issue on merge, add a label with the "Committed as Tn" comment, revert a non-member's label, comment and push. After a crash, reconciliation looks the object up on GitHub by key before repeating the write. For a PR the lookup is by head branch, and for a comment it is the marker `<!-- smithers:<key> -->`. This is the §19.2 reconcile rule for GitHub.
+12.4.1 Every outbound GitHub write is recorded in `outbound_writes`, in its own committed transaction, before the call: open PR (title = TODO title), update the PR body, mark a PR ready or draft, push, merge, close a PR on Drop, close an issue on merge, add a label with the "Committed as Tn" comment, revert a label (§10.2.1), and comment. A row holds:
+- `key` = `<kind>:<target>:<revision>`. The revision is the body digest for a body update, the intended head for a push, the reviewed sha for a merge, and otherwise the `todo_events` sequence, attention id or confirmation id of the action that asked for the write. A retry of one decision reuses its key; a new decision, attempt or action gets a new one.
+- `target`, one PR, issue or branch ref, and `field`, the state the write sets: `state` (open or closed), `draft`, `body`, `label:<name>`, `ref` or `merged`. A comment has no field.
+- `desired`, the value the write makes true, and `precondition`, the value Smithers saw when it decided. For a push, `precondition` is the remote head it leases against.
+- `seq`, which orders the writes to one target.
+
+12.4.1a Order and supersession. Writes to one target run one at a time in `seq` order. A write starts only after every earlier write to its target is settled: `done`, `superseded` or `conflict`. A request whose response doesn't arrive (a timeout, a reset or a crash) leaves its row `unknown`, and the next write to that target waits for reconcile. Recording a write for a target and field marks every earlier unsent row for that target and field `superseded`, and a superseded row is never sent. Comments and merges are never superseded.
+
+12.4.1b Reconcile. At boot, and before the next write to a target, every `unknown` row for that target is looked up, never repeated blind (§19.2):
+
+| Kind | Lookup | `done` when | Repeated once when | Otherwise |
+| --- | --- | --- | --- | --- |
+| Open PR | PRs for the head branch (`GET /pulls?head=…&state=all`) | one exists | none exists | |
+| Comment | The marker `<!-- smithers:<key> -->` in the App's comments since the row's `created_at` minus 1 min | it is found | it isn't found | |
+| Body | The PR body's digest | it equals `desired` | it differs and no newer body row waits | `superseded` |
+| Close, ready or draft, label add or remove | The target's events since the row's `created_at` (issue events; the PR timeline for ready and draft), then its current value | an App event set `desired`, whatever followed it, or the value equals `desired` | no App event, and the value equals `precondition` | `conflict`: someone else changed it, §12.3 applies, and Smithers writes nothing |
+| Merge | `GET /pulls/{n}` | it is merged | it is open, its head is the reviewed sha, and §10.6.2 still holds | `superseded`, and Merge returns to the card |
+| Push | `git ls-remote` | the remote head is `desired` | the remote head is `precondition` | `conflict`, and `foreign_push` (§12.3) |
+
+So a newer contrary action on GitHub, such as a person reopening a PR that Smithers closed just before a crash, is never undone by replaying the older write. Every settled row records how it settled (`response`, `event`, `state` or `lookup`), and each reconciled row writes one recovery receipt. Check C-GH-09.
 
 12.4.2 Writes are made as the App and attributed in the body ("Requested by @owner", "by @ben via Smithers").
 
 ### 12.5 Pull requests [S1]
 
-12.5.1 A TODO's PR opens when its run reaches `in_review`. Head: `smithers/<slug>`. Base: `main`. Only the first item's PR is ready for review on GitHub; later items' PRs are opened as **drafts**. When an item merges, the next PR rebases onto the new `main`, holds only its own change and is marked ready (GraphQL `markPullRequestReadyForReview`). When an item stops being first (moved down, or an item placed before it), its PR returns to draft (`convertPullRequestToDraft`). GitHub offers draft PRs only on public repositories and on paid plans. Where drafts are unavailable, later PRs open ready, with the title prefix "[waits for Tn]" and the label `smithers:waiting`, and Smithers enforces the order. The head commit is the verified candidate for the item: `main` plus every earlier unmerged item plus this item. The body has the prompt (latest revision), acceptance, evidence (checks table, diff stat, review summary), the earlier stack items it includes ("Includes T3, T4 until they merge"), a link back and "Requested by @owner". The PR card in Smithers shows only the item's own change: the diff from the previous item's candidate to this one.
+12.5.1 A TODO's PR opens when its run reaches `in_review`. Head: `smithers/<slug>`. Base: `main`. Only the first item's PR is ready for review on GitHub; later items' PRs are opened as **drafts**. When an item merges, the next PR rebases onto the new `main`, holds only its own change and is marked ready (GraphQL `markPullRequestReadyForReview`). When an item stops being first (moved down, or an item placed before it), its PR returns to draft (`convertPullRequestToDraft`). GitHub offers draft PRs only on public repositories and on paid plans. Where drafts are unavailable, later PRs open ready, with the title prefix "[waits for Tn]" and the label `smithers:waiting`, and Smithers enforces the order. The head commit has the tree of the item's accepted generation (§10.4.4) on `main`'s tip: `main` plus the earlier items in its prefix (§10.3.2) plus this item. The body has the prompt (latest revision), acceptance, evidence (checks table, diff stat, review summary), the earlier stack items it includes ("Includes T3, T4 until they merge"), a link back and "Requested by @owner". The PR card in Smithers shows only the item's own change: the diff from the previous item's candidate to this one. Check: C-STK-06.
 
-12.5.2 The branch reaches GitHub when the PR is proposed and on every later verified update (`--force-with-lease` against the recorded head).
+12.5.2 The branch reaches GitHub when the PR is proposed and on every later verified update, with `--force-with-lease` against the remote head Smithers last accepted: its own last push, a brought-in sha, or the sha a Discard named (§12.3). A refused lease is never retried: the push row settles `conflict`, and the observed head raises `foreign_push` (§12.4.1b).
 
 12.5.3 [D] Stacked bases with retargeting, in-app line comments mirrored as review comments, and agent replies in review threads are deferred. In the MVP, the agent's response to a review shows as new commits and in the branch activity.
 
@@ -979,13 +1206,15 @@ Every card renders one live topic (§7.2) or a set of topics, and every card act
 - `<Card>View` in `apps/app/src/mainview/cards/views/`: presentational, props only (the view model plus callbacks), with fixture stories. Every handler calls `onAction(action.tag)` and its control carries `data-flow={action.tag}`. Design owns it.
 - `<Card>Container`: subscribes to the card's topics, maps them to the view model, and builds `actions[]` through one helper that binds `onAction` to `flowAction`, so the three-door and agent-parity rules hold at the Container. `Action.tag` is the catalog's tag type (T-CAT-01). Engineering owns it.
 
-The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent), written from §14.3's field lists (T-APP-19), with fixtures in `apps/app/src/mainview/cards/fixtures/<Card>.ts`. §14.3 is the source of truth for fields, and the TypeScript types are its executable form. A field a view needs but §14.3 lacks is a spec change, raised with the tech lead.
+The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent), written from §14.3's field lists (T-APP-19), with fixtures in `packages/rpc/test/fixtures/<Card>.ts`, exported through per-module subpaths (`@smthrs/rpc/TodoCard`; no barrel), so the app imports them and no package depends on an app. §14.3 is the source of truth for fields, and the TypeScript types are its executable form. A field a view needs but §14.3 lacks is a spec change, raised with the tech lead.
 
 ### 14.3 Card models
 
+14.3.0 **Inventory.** Each row of the table below is a card whose View renders a §14.3 model, and a View in `apps/app/src/mainview/cards/views/` exists only for a row here. A ticket that adds a card adds its row and its ui-components.md props in the same change. The shell parts take their fields from the sections that define them: entry rows and the Context line (§14.5.1, §15.1.2), timeline lines (§14.5.4), toasts (§14.4), branch tree nodes (§14.1.1) and actor chips (§14.6a). Retained cards keep their existing schemas in `packages/rpc/src/Cards.ts`, which are their contract, and have no row here: Issue (`issue`), PR (`pr`, `change`), Review findings (the `change` card's `ChangeReviewSchema` and `ChangeFindingSchema` in `packages/rpc/src/Changes.ts`), Wiki (`world`, `wiki-history`, `wiki-links`, `wiki-graph`), the flow Form (`flow-form`), the webpage reader (`browser`), the plan view (`flow-plan`), the run list (`run-list`), search results (`search-results`) and approvals (`approval`). Any other card that mvp.md Appendix B names and this table lacks is retained the same way. A change to a retained card's fields is a spec change that first adds its row here. Check: C-UI-08.
+
 | Card | Topic | Model fields (all present in the projection) |
 | --- | --- | --- |
-| Home | `home` | `main {sha, title, last_success_at, health, cause?, retry_at?}`; `attention[]` (stack_attention for this viewer); items[] `{n, title, state, owner, place, queue?, step?, needs_you?, merge_block?, pr?, approval_cleared?, amendments, lessons}`; counts by state; merged_since_last_look (per member); machines `{in_use, capacity}`; parallel (owner only); per item also `{branch, present_count, elapsed}`; background_runs[] `{id, title, state, detail}` with Retry and Dismiss (in-card). "Last look" advances when the Home card has been on screen for 2 s |
+| Home | `home` | `main {sha, title, last_success_at, health, cause?, retry_at?}`; `attention[]` (stack_attention for this viewer); items[] `{n, title, state, owner, place, queue?, step?, needs_you?, merge_block?, pr?, approval_cleared?, amendments, lessons}`; counts by state; merged_since_last_look (per member); machines `{in_use, capacity}`; parallel (owner only); per item also `{branch, present_count, elapsed}`; background_runs[] `{id, title, state: queued|running|waiting|failed, detail}` with Retry and Dismiss (in-card): Retry admits a new background run of the same flow, version and input; Dismiss writes `background_dismissals` (§3), so the run leaves every member's card while its record stays. A finished run leaves the card. "Last look" advances when the Home card has been on screen for 2 s |
 | TODO | `todo:<n>` | Above, plus the run's step list with `waiting`/`paused` states and its trailing wait for merge (`held`), the run's indicators (waiting for a person since), `merged_via` ("Merged · in T15's commit", §10.6.4), title, prompt revisions, acceptance, issue link, branch, flow steps with current, question + first answer, failure `{step, class, message, retryable}`, evidence per attempt, PR `{number, head, draft, draft_after ("Draft · merges after T8"), checks, reviews, included_items}`, merge control state |
 | Branch | `branch:<id>` + `:activity` + `:files` | Machine `{state, wait_position?}` with in-card Sleep and Wake, item and place or "scratch", rebase_pending, moved_off, presence[] `{actor, where, watching?}`, terminals[], activity[] `{actor, asked_by?, kind, text, items?, files, github}` (§3), changed files |
 | File | `branch:<id>:files` [S2]; live doc [S3] | [S2] text, last writer, reload on change, gone state, `outside` (the snapshot that Compare reads, §9.2.3). [S3] per-character authors; editors[] `{actor, line}`; saved state |
@@ -995,8 +1224,9 @@ The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.t
 | Members / Secrets | `members` / `secrets` | Login, name, avatar, role, needs_access, suspended; secret name, scope and optional bound hosts (set in Add and Replace; no separate Bind door) |
 | Setup / Settings | `install` | Address `{bind, origins[]}`, per-step `{state, error?: {code, message, fix?}}`, "This Mac" (the detected host and its limits, §8.2.1), GitHub `{signed_in, app_installed, squash_allowed}`, repository, model access flags, source `{state, pct}`, machine `{state, pct}`; Settings adds capacity, parallel and the laptop-agent line `smthrs login <origin>` |
 | Proposal | `proposals` | Title, evidence, refs, state |
-| Review | `run:<id>` | Verdict, findings[] `{severity, path, line, text}` |
-| Run (monitor, Inspect) | `run:<id>` | State incl. `held` for the wait for merge; attempts[] each with its graph; steps with input, output and agent; phases[] `{step, title, summary, took_s, tone}` titled by `agent:fast`; cells[] `{phase, kind: context|read|edit|run|think|ask|steer|reviewer|rebase, explain, code?, output?, quote?, actor?}`; waits with since; tokens, time and cost; Appendix C engine labels |
+| Draft | the author's `view:<member>:<branch>` until Commit, then `conversation:<branch>` (§14.5.1) | title, prompt, acceptance[], place `{mode: append|before|amend, n?, options[] {n, title, state}}` (unmerged items only), issue `{number, title, url, fixes}`?, seed `{files[]}`? (a seed patch, shown read-only), committed `{n, rev}`? (rev 1 is a new TODO, rev > 1 an amendment shown "+1"), private (true until Commit). The fields live in the entry's `card` column (§3). Commit runs `/todo.new` or `/todo.amend Tn` once, with one `Idempotency-Key` (§6.2.1) |
+| Commands | none: `catalog.mvp.json` (§6.1.2), fixed per install version | groups[] `{label, advanced, commands[] {tag, title, agent: run|confirm|never}}`, filtered for the viewer's role |
+| Run (monitor, Inspect) | `run:<id>` | State incl. `held` for the wait for merge; attempts[] each with its graph; steps with input, output and agent; phases[] `{step, title, summary?, took_s, tone}`, where `title` is deterministic (the step's Appendix C label plus its recorded outcome, "Ran checks · 2 failed") and `summary` is an optional `agent:fast` line rendered as a model summary (§11.6.3); cells[] `{phase, kind: context|read|edit|run|think|ask|steer|reviewer|rebase, label, explain?, code?, output?, quote?, actor?}`, where `label` is deterministic ("Read retry.ts", "Ran pnpm test · 1 failed") and `explain` is an optional `agent:fast` explanation of an agent-written cell, rendered as a model summary; waits with since; tokens, time and cost; Appendix C engine labels |
 | Agent | `agents` | Name, instructions path, role, model and the owner's choices, runs it took part in |
 | Confirm | `confirmations:<member>` | Kind (`one_click` or `review_merge`), action, a one-line summary, subject and its revision, place in the stack, checks line |
 
@@ -1012,7 +1242,7 @@ The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.t
 
 ### 14.5 Conversation entries and the timeline
 
-14.5.1 Every entry (a prompt, an answer, a card or an event) is a `conversation_entries` row in its branch's conversation. An entry without a run takes its title from its first line (prompt) or its card title, and has no summary. Entries are append-only; nobody deletes a prompt from a shared conversation. Two kinds are private to one member and carry `audience_member_id`: a Confirm card (§5.4), and a Draft card until its author commits it. Unsent composer text never leaves the author's browser. Each row has the author, title, summary, tone, state, context (§15.1.2) and a derived action.
+14.5.1 Every entry (a prompt, an answer, a card or an event) is a `conversation_entries` row in its branch's conversation. An entry without a run takes its title from its first line (prompt) or its card title, and has no summary. Entries are append-only; nobody deletes a prompt from a shared conversation. Two kinds are private to one member and carry `audience_member_id`: a Confirm card (§5.4), and a Draft card until its author commits it. A private entry publishes only on its member's topics (§7.2.2), has no summary, and never enters an app-agent turn (§15.1.2a). Commit clears `audience_member_id` in the transaction that creates the TODO, so the entry first reaches `conversation:<branch>` already committed. Discard marks the Draft discarded, and it never becomes shared. Unsent composer text never leaves the author's browser. Check: C-UI-06. Each row has the author, title, summary, tone, state, context (§15.1.2) and a derived action.
 
 14.5.2 **Tone** is derived deterministically: live while a run is active, attention for Needs you or In review, failed, done, quiet otherwise. **State** is the TODO state word when the entry is a TODO or its run, else null. **Action** is derived per viewer from state, `needs_you.kind` and the viewer's role, and is never stored per viewer:
 
@@ -1025,7 +1255,7 @@ The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.t
 | in_review, first in order, viewer may merge | Merge → `/merge Tn` |
 | otherwise | none |
 
-14.5.3 **Summary** is one line written by the install's cheap fast model (`agent:fast`, §11.5a) from the entry's run events. It is shared by everyone who sees the entry. While at least one subscriber has the timeline on screen (the client renews a 30 s `timeline_visible_until` lease in its `view:<member>:<branch>` state) and the run is live, it is refreshed 5 s after the last event and at least every 30 s while events keep arriving. Otherwise it is written once per state change. A summarizer failure keeps the last summary. The summarizer never blocks or slows the run, and it uses no machine.
+14.5.3 **Summary** is one line written by the install's cheap fast model (`agent:fast`, §11.5a) from the entry's run events. It is shared by everyone who sees the entry. While at least one subscriber has the timeline on screen (the client renews a 30 s `timeline_visible_until` lease in its `view:<member>:<branch>` state) and the run is live, it is refreshed 5 s after the last event and at least every 30 s while events keep arriving. Otherwise it is written once per state change. A summarizer failure keeps the last summary. The summarizer never blocks or slows the run, and it uses no machine. The same summarizer writes the monitor's phase summaries and cell explanations (§11.6.3) into `run_summaries` (§3), only for runs someone inspects. When a `run:<id>` subscription opens, it fills the missing ones with one call per phase. While that subscription lasts, it refreshes a live phase 5 s after its last event and at least every 30 s, and retries a failed call every 30 s. A pending or failed one leaves the deterministic title or label standing alone, with no error state (check C-J11-01).
 
 14.5.4 The timeline (desktop only) shows one line per entry with its title, summary and tone. A band marks the entries on screen, and clicking a line scrolls to it. On narrow screens each edge collapses to one pill. The timeline replaces `ChatRunTimeline`.
 
@@ -1035,12 +1265,15 @@ When the tab is hidden, a Needs you, In review or Failed toast for that member (
 
 ### 14.6a Actor rendering
 
+14.6a.1 Every working agent is a participant with its own stable id, kind, avatar and session/run id; `for_member` records the person it acts for and is absent when no person delegated the work. Adapt existing `{person, via}` and `{agent: coding, run}` actors into this participant model without changing authorization. Presence, activity, line flags and terminals render the same participant and "for Ben" when present. System events keep the system actor and never impersonate an agent. T-APP-09 owns the actor adapter; T-COL-06 owns participant presence, T-COL-04 activity, T-TRM-05 agent terminals, and T-APP-14 line-flag data. Checks: C-J3-01, C-J6-01.
+
 | Actor | Renders as |
 | --- | --- |
 | A person | "Ben" (avatar) |
-| `via` smithers, claude-code, codex | "Ben via Smithers", "Ben via Claude Code", "Ben via Codex" (avatar with agent badge) |
+| `via` smithers, claude-code, codex | "Smithers, for Ben", "Claude Code, for Ben", "Codex, for Ben" (the agent’s own avatar) |
 | `via` ssh, terminal, cli | "Ben via SSH", "Ben's terminal", "Ben via CLI" |
-| The coding agent | "Agent" (agent avatar, with the TODO when ambiguous) |
+| The coding agent | "Coding agent, for Ben" (its own avatar; TODO when ambiguous) |
+| A reviewer agent | "Reviewer, for Ben" (its own avatar and review/run id) |
 | System | "Smithers" |
 | A non-member GitHub user | "@login" with the GitHub mark |
 
@@ -1060,15 +1293,19 @@ Every P0 journey completes with the keyboard alone (§9 of mvp.md). Normal, Vim 
 
 15.1.1 The app agent answers in a branch's conversation. Each prompt runs as a turn with a `delegated(via=smithers)` credential of the prompt's author, so "Ben via Smithers" has exactly Ben's non-person rights. Turns in one conversation run in order, one at a time per conversation. A member's `/stop` stops only their own turn, and their queued prompts stay editable until they start (the single-user prompt queue AGENTS.md keeps).
 
-15.1.2 **Context preflight.** The conversation is not the context window. Every turn begins with a preflight step that chooses what to add to the model's context. Its inputs are the prompt, the author, the branch, the titles and summaries of the conversation's recent entries, and the branch's state. Its candidates are files, wiki pages, TODOs and runs. Its output is a list `context[] = {kind, ref, revision?, reason}` within a token budget (default 24k tokens, an owner setting). Only the selected items, the prompt and the last 3 entries' text enter the answer step. The list is stored on the answer entry, the answer shows a compact "Context" line, and Inspect shows preflight as the turn's first step. Jev picks the commands the answer may call (existing `POST /api/commands/select`). Preflight selection is a model call on the cheap fast model and is recorded like any step.
+15.1.2 **Context preflight.** The conversation is not the context window. Every turn begins with a preflight step that chooses what to add to the model's context. Its inputs are the prompt, the author, the branch, the titles and summaries of the conversation's recent shared entries, and the branch's state. Its candidates are files, wiki pages, TODOs and runs. Its output is a list `context[] = {kind, ref, revision?, reason}` within a token budget (default 24k tokens, an owner setting). Only the selected items, the prompt and the last 3 shared entries' text enter the answer step. The list is stored on the answer entry, the answer shows a compact "Context" line, and Inspect shows preflight as the turn's first step. Jev picks the commands the answer may call (existing `POST /api/commands/select`). Preflight selection is a model call on the cheap fast model and is recorded like any step.
+
+15.1.2a **Audience filter.** A turn reads only shared entries (`audience_member_id IS NULL`, §14.5.1). The filter covers preflight's inputs and candidates, the last-3 window and every conversation read the turn's credential makes, and it excludes the author's own private entries too. A turn's credential can't subscribe to `view:*` or `confirmations:*` topics. A shared answer, its stored `context[]`, its summary and its Inspect trace therefore hold nothing private, and every viewer sees the same Inspect. Checks: C-UI-06, C-UI-07.
 
 15.1.3 The app agent runs in the host's model host, outside every machine. It cannot run commands or write files on a machine. It may open a terminal for its author (that person's own session, §15.1.5), but it never types in one. "Run the webhook tests on retry-webhooks" becomes a request to that branch's coding agent (a steer, or a run on the branch), shown as "Ben via Smithers asked". It can call UI-only flows only on its author's own screen (§14.1.4). It cannot merge or approve. When asked to, it creates a person confirmation (§5.4) and renders the Confirm card for its author.
 
-15.1.4 App-agent turns run entirely on the host, including command dispatch. Today's browser-side tool execution moves to the host turn runner, which calls each command through the same command→API mapping the CLI uses (§6.1). Its credential is a host-minted `delegated(via=smithers)` credential for the prompt's author, never sent to a browser. UI-only flows (§14.1.4) go to the author's own browser as instructions on the live channel. A turn therefore survives its author closing the tab and can be queued server-side. A `confirm` command from the agent posts a Confirm card (§15.1.5), and `never` commands are absent from the agent's tool list (`agent-parity.test.ts`).
+15.1.4 App-agent turns run entirely on the host, including command dispatch. Today's browser-side tool execution moves to the host turn runner, which calls each command through the same command→API mapping the CLI uses (§6.1). Its credential is a `delegated(via=smithers)` credential for the prompt's author, minted on the host when the turn starts (not when it is queued), revoked when the turn ends, and never sent to a browser. UI-only flows (§14.1.4) go to the author's own browser as instructions on the live channel. A turn therefore survives its author closing the tab and can be queued server-side. A `confirm` command from the agent posts a Confirm card (§15.1.5), and `never` commands are absent from the agent's tool list (`agent-parity.test.ts`).
+
+15.1.4a **Turn queue and the author's access.** Each prompt queues one `agent_turns` row (§3). When a turn reaches the head of its conversation's queue, the runner checks that its author is still an active member (not removed or suspended) and only then mints the turn credential. A failed check ends the turn `refused` with the reason, and nothing runs. Removing or suspending a member (§5.6) cancels their queued turns (`cancelled`, reason `author_revoked`) and stops their running turn within 5 s: the credential is revoked, so every later command call is refused, the model stream is aborted, and the turn writes nothing more. The runner learns of it from the revocation event §5.6 publishes. The conversation's next turn then starts. Check: C-UI-06.
 
 15.1.5 Agent permissions (mvp.md Appendix B legend and B.6). They apply to every delegated credential: the app agent, external agents through the CLI or skill, and terminal sessions. Each catalog row carries one of three values (§6.1.2):
 - **run:** executes immediately with the person's rights. Reads, UI-only flows on the prompter's own screen, steer, answer, stop, resume, retry, rebase, fork, run a flow, wiki writes, open a terminal, and sleep or wake a machine.
-- **confirm:** posts a one-click Confirm card (`person_confirmations`, kind `one_click`) to that person, and runs when they press it from their session. Commit or drop a TODO, add to stack, delete a wiki page, propose a flow or agent edit. The card's primary button is the command's verb (Drop, Commit, Add to stack, Delete page, Propose), with Cancel beside it. Other members see "Waiting for Ben", and once pressed the card becomes its receipt ("Dropped T11"). Merge also lands here, but opens the person's **Review & merge** card (kind `review_merge`) and stays maintainer-only.
+- **confirm:** posts a one-click Confirm card (`person_confirmations`, kind `one_click`) to the requesting person. Commit, amend or drop a TODO, add to stack, Bring in or Discard a foreign push, delete a wiki page, propose a flow or agent edit, and review a PR (`/review`); catalog descriptors hold the full list (§6.1.2). The primary button is the command’s verb, with Cancel beside it. A minimum role above member requires the requester to hold that role; only their session approves (§6.1.2b). Merge opens **Review & merge** (`review_merge`) for the requesting owner or maintainer. The private card becomes a receipt after approval; others see only the action’s shared entry (§14.5.1). Checks: C-ACC-01, C-ACC-02.
 - **never:** refused and absent from agent tools. Members, secrets, settings, and approvals that gate a merge.
 
 ### 15.2 Coding agent
@@ -1089,7 +1326,7 @@ The Smithers skill is generated from `catalog.mvp.json` (§6.1.2). An agent that
 
 16.1.0a Release bottles for macOS arm64 are built by a macOS job added to the existing `.github/workflows/release.yml`, which already builds per-platform artifacts. No Smithers host can build macOS binaries, since machines are Linux. This is a release build, not a factory.
 
-16.1.1 Distribution is a Homebrew tap (`brew install smithersai/tap/smithers`), which installs `smthrs` and the server bundle:
+16.1.1 Distribution is a Homebrew tap (`brew install smithersai/tap/smithers`), built before launch. It installs `smthrs` and the server bundle, at the keg path that `smthrs host start` uses by default (§16.1.2):
 - `smithers-backend` (darwin-arm64);
 - the PostgreSQL 18 bundle;
 - packaged flow hosts;
@@ -1100,15 +1337,15 @@ The Smithers skill is generated from `catalog.mvp.json` (§6.1.2). An agent that
 
 The formula ad-hoc signs binaries with `com.apple.security.hypervisor`. No Smithers account and no network service run by us is needed.
 
-16.1.2 `smthrs host start` installs and starts a launchd daemon that runs as the installing user (`UserName` key), so the install runs before anyone logs in to the Mac. It prints the setup URLs. Installing a LaunchDaemon needs one `sudo` at `smthrs host start`; the quickstart says so. A W0 spike (T-INS-03) confirms Hypervisor.framework works from that daemon. The fallback is a launchd agent plus macOS automatic login (no sudo), documented. The choice is made before stage 1 ends. `smthrs host stop` stops it. `smthrs host status` reports the health of every process.
+16.1.2 [S1] `smthrs host start [--bundle <dir>]` installs and starts a launchd daemon that runs as the installing user (`UserName` key), so the install runs before anyone logs in to the Mac. It runs the server bundle at `--bundle` (in stage 1, the build output of T-INS-01) or, without the flag, the bundle the tap installed beside `smthrs` (§16.1.1). It verifies the bundle's manifest first, records the bundle's absolute path in the plist, and prints the setup URLs. A second run with the same bundle changes nothing and keeps the setup token; a run with another bundle rewrites the plist and restarts the service once. Installing a LaunchDaemon needs one `sudo` at `smthrs host start`; the quickstart says so. A W0 spike (T-INS-03) confirms Hypervisor.framework works from that daemon. The fallback is a launchd agent plus macOS automatic login (no sudo), documented. The choice is made before stage 1 ends. `smthrs host stop` stops it. `smthrs host status` reports the health of every process and the bundle path. Stage 1 ships the service and these three commands; the tap, upgrade, backup and restore come before launch (check C-INS-06).
 
 ### 16.2 Setup (J1)
 
-The setup card runs on whichever listener the owner opened with the setup link (§5.1.0). Steps, in order (mvp.md J1.2):
+The setup card runs on whichever known origin (§16.3.3) the owner opened the setup link on (§5.1.0). Steps, in order (mvp.md J1.2):
 1. **Setup session:** the one-time link opens a token-backed setup session.
 2. **Address:** This Mac only (loopback), or Network plus a public address (§16.3). It comes first because the GitHub App's callback URLs are registered to it.
 3. **GitHub App:** setup asks which account owns the repository, then creates the App through the manifest flow (§12.1).
-4. **Owner sign-in:** GitHub sign-in through the new App completes the owner claim (§5.1.0). Then the owner picks the repository and installs the App on it.
+4. **Owner sign-in:** GitHub sign-in through the new App completes the owner claim (§5.1.0). Then the owner picks the repository and installs the App on it, and the host verifies the owner's access with the installation token. Until it does, the owner can do only setup.
 5. **Model access:** the three roles (§11.5a): a coding-model provider key, a fast-model key (Cerebras by default, optional), the AI Gateway key for Jev, and optionally a ChatGPT sign-in for coding.
 6. **Squash-merge check** on the repository (§10.6.2).
 7. **Mirror:** "Source ready" shows here, and questions work from this point.
@@ -1126,26 +1363,51 @@ Each step is durable and resumable.
 - the clipboard falls back to `document.execCommand("copy")`;
 - service workers and push are not used; browser notifications ride the live channel and need a secure origin (§14.6).
 
-16.3.3 Cookies are `Secure` when the request's origin is https and not otherwise. CORS and WebSocket origin checks accept exactly the configured origins plus `localhost`. GitHub App callback URLs are the configured origins plus `http://localhost:4000` (§12.1.2). GitHub has no API to change an existing App's callback URLs. When the owner adds an origin later, Settings shows the one-line fix: the App settings URL and the exact URL to add.
+16.3.3 **Effective origin.** The host resolves every request on its HTTP listeners to one effective origin, and every origin-dependent rule reads it:
+1. The request host is the `Host` header. When the socket peer is a loopback address and the request carries `X-Forwarded-Host`, the host is that header's first value instead, because a proxy on the Mac, such as `tailscale serve` or Caddy, connects over loopback. The peer is the socket's own address, never one rewritten from `X-Forwarded-For`. No other forwarding header is read, and none is read from a non-loopback peer.
+2. The effective origin is the known origin whose host and port equal the request host. Known origins are the configured public origins and, for a loopback peer only, `http://localhost`, `http://127.0.0.1` and `http://[::1]` on the loopback listener's port (4000). The scheme comes from the known origin, never from a header. Settings refuses two public origins that a browser would send with the same `Host` value, such as `http://box` and `https://box`, so the match is unique.
+3. A request that matches no known origin gets `421` with `{code: "unknown_origin", class: "user"}` before authentication, which also stops DNS rebinding. `/readyz` from a loopback peer is exempt, and so is the host-relay port (§8.9), whose callers carry machine or delegated credentials and no cookie.
 
-16.3.4 HTTPS and remote access come from whatever the team puts in front, such as Tailscale serve or a reverse proxy. The quickstart documents Tailscale serve and Caddy. No code depends on either.
+These rules read the effective origin:
+- Cookies (session, CSRF, OAuth state, setup session) are host-only (no `Domain`), `Path=/` and `SameSite=Lax`, HttpOnly except the CSRF cookie, and `Secure` exactly when the effective origin is https.
+- A request whose `Origin` header differs from its effective origin gets 403. A cookie-authenticated request that changes state needs an `Origin` equal to the effective origin and an `X-CSRF-Token` equal to the CSRF cookie. The live channel upgrades a cookie-authenticated socket only with that `Origin`. Bearer-token requests (CLI, skill) carry no cookie and need neither. The app calls only its own origin, so no response carries CORS allow headers.
+- Sign-in and setup's owner step set `redirect_uri` to `<effective origin>/api/auth/github/callback`. A start on `http://127.0.0.1:4000` or `http://[::1]:4000` first redirects to the same path on `http://localhost:4000`. The OAuth state cookie and `redirect_uri` share one origin, so the callback returns to the browser that started it, and a callback whose `state` doesn't match its cookie is refused. A public origin missing from the App's callback URLs gets the one-line fix below instead of a GitHub error page.
+
+GitHub App callback URLs are the configured origins plus `http://localhost:4000` (§12.1.2). GitHub has no API to change an existing App's callback URLs. When the owner adds an origin later, Settings shows the one-line fix: the App settings URL and the exact URL to add. Check C-INS-03 covers the resolution and every rule above at a loopback origin, a plain-HTTP LAN origin and an https origin behind a loopback proxy.
+
+16.3.4 HTTPS and remote access come from whatever the team puts in front, such as Tailscale serve or a reverse proxy. The quickstart documents Tailscale serve and Caddy. No code depends on either. A proxy on another host must pass the original `Host` header (§16.3.3); Caddy does by default, and the quickstart's examples do.
 
 ### 16.4 Upgrade (M-26)
 
 `smthrs host upgrade`:
-1. Refuse while a burst is open or a merge is in flight.
-2. Capture every awake machine and sleep it.
-3. Back up: `pg_dump` plus an APFS clone of `$STATE` (`cp -c`) into `$STATE/backups/<version>-<ts>/`.
-4. Save the current bundle (the Cellar version) into the backup directory, then `brew upgrade smithers`.
+1. Refuse while a merge fence is set (§10.6.2b) or a burst is open, naming each, before changing anything. Check: C-REL-06.
+2. Quiesce (§16.5.1).
+3. Back up (§16.5.2), adding the current bundle (the Cellar version) to the backup.
+4. Write `$STATE/.upgrade-incomplete`, run `brew upgrade smithers`, and restart the service on the new bundle. While the marker exists, a starting host keeps the freeze.
 5. Start and migrate, forward only. The database refuses an older binary.
-6. Run the health check: every process ready, migrations at head, one machine wakes.
-7. On failure, print the exact restore command.
+6. Run the health check: every process ready, migrations at head, and one machine wakes, the only grant the freeze allows. Then delete the marker and reopen (§16.5.1).
+7. On failure, keep the marker, so a plain start refuses, and print the exact restore command (§16.5.3).
 
-An install made on launch day MUST upgrade to the maintainer release with no data loss (check C-REL-03).
+An install made on launch day MUST upgrade to the maintainer release with no data loss (check C-REL-03, run on the reference host with work in flight).
 
-### 16.5 Backup
+### 16.5 Quiesce, backup and restore
 
-`smthrs host backup` produces the same backup as upgrade step 3. `smthrs host restore <dir>` restores into a stopped install and reinstalls the saved bundle when the backup came from an upgrade. Quiesce is `POST /api/install/quiesce` (owner), which refuses while a burst is open or a merge is in flight.
+16.5.1 Quiesce. `POST /api/install/quiesce` (owner) quiesces the install, and `DELETE /api/install/quiesce` reopens it. Upgrade and backup both use it:
+1. **Freeze.** Write `install_settings.quiesce = {op, by, since, lease_until}`, a 30 s lease that the caller renews every 10 s. While it holds, every mutating request is refused with `{code: "install_quiesced", class: "infra", retry_at}`, and the scheduler grants nothing (§8.3). No run, app-agent turn, terminal or SSH session, live-document or wiki edit, GitHub poll, outbound GitHub write or periodic job starts. Reads keep working.
+2. **Drain**, for at most 60 s. In-flight requests finish, host flow steps and app-agent turns stop at their next durable boundary, and live wiki documents persist. Work still running at 60 s is stopped; after reopening it resumes or shows interrupted with Retry (§19.1).
+3. **Machines.** Each awake machine ends its sessions, stops its coding host, runs the final capture (§8.4.3) and stops its VM with the disk kept. A failed capture aborts the quiesce and names the branch.
+4. **Host.** The host flow runtime stops. Only PostgreSQL and the host service's read paths keep running.
+5. **Reopen.** Clearing `quiesce` resumes admissions, and machines wake on demand. Any failed step reopens. A lapsed lease reopens on its own and is logged, unless `$STATE/.upgrade-incomplete` exists (§16.4).
+
+16.5.2 Backup. `smthrs host backup` refuses like §16.4 step 1, quiesces, writes one backup and reopens. A backup is the directory `$STATE/backups/<version>-<UTC ts>/`, mode 0700 because it holds the install key. It is self-contained and records no absolute path, so it restores on this Mac or on another one (§16.5.3). It holds:
+- a `pg_dump` in custom format, made with the bundled tools. It is the only copy of the database: the live PostgreSQL data directory is never cloned;
+- an APFS clone (`cp -c`) of every other tree under `$STATE` except `backups/` and `logs/`: the install key, the repository and blob stores, machine disks (which hold member homes and the machines' run journals) and the host flow runtime journal. A volume that isn't APFS is refused;
+- for an upgrade, the current bundle;
+- `MANIFEST.json`, written last. It records the version, schema version, PostgreSQL major, the quiesce op and time, the path, size and SHA-256 of every file, and a summary to check a restore against: the stack (each TODO's number, state and place), each branch's captured head and disk file, each credential store row (member, file, `written_at`, ciphertext SHA-256) and each run's last finished step.
+
+The directory is built as `backups/.partial-<ts>/` and renamed after the manifest is synced to disk; a directory without a manifest is not a backup. Before freezing, the command refuses when free disk minus the 40 GiB floor (§8.2.1) is less than the database size plus, for an upgrade, the bundle. The three newest backups are kept, and older ones are deleted after a new one completes.
+
+16.5.3 Restore. `smthrs host restore <dir>` restores onto this Mac or another one. It refuses a running install, a manifest whose file hashes don't verify, and an installed version older than the manifest's. The original install must be stopped first, since two running installs would both act on the repository. Restore moves any live trees and PostgreSQL data directory aside to `backups/pre-restore-<ts>/`, clones the backup's trees into `$STATE`, and loads the dump into a new data directory made by the bundled `initdb` of the manifest's PostgreSQL major. It then starts the install: on the backup's bundle when it holds one (`smthrs host start --bundle <dir>/bundle`, §16.1.2), otherwise on the installed bundle, which migrates forward. Every machine starts asleep, and its wake recreates the VM from its restored disk, so nothing outside `$STATE` is needed. Runs resume or show interrupted (§19.1), GitHub writes reconcile by kind (§12.4.1b, §19.2), and capacity is recomputed for the new host (§8.2.1). The restored bind address and origins name the old host; the owner changes them in Settings (§16.3.1), and `http://localhost:4000` works meanwhile. The command prints the backup's time, since later work isn't in it. Check C-REL-06 restores host A's backup onto a second Mac and compares it with the manifest, and covers quiesce and backup under concurrent work and crashes.
 
 ---
 
@@ -1161,15 +1423,17 @@ An install made on launch day MUST upgrade to the maintainer release with no dat
 
 17.3 The host service never executes repository code and never loads repository flows into its own process.
 
-17.4 Provider keys and the GitHub App PEM stay on the host. The install key lives in `$STATE/config/secrets.json` (mode 0600). Sealed blobs (App PEM, client secret, provider keys) live in PostgreSQL, encrypted under that key.
+17.4 Provider keys and the GitHub App PEM stay on the host. The install key lives in `$STATE/config/secrets.json` (mode 0600). Every backup copies it, so a backup directory is mode 0700, and anyone holding a backup can decrypt its sealed rows (§16.5.2, check C-REL-06). Sealed blobs (App PEM, client secret, provider keys) live in PostgreSQL, encrypted under that key.
 
-17.5 Contributor trust rules are enforced from launch. An issue or PR from a non-member never starts credentialed work. Labels from non-members are reverted (mvp.md §14).
+17.5 Contributor trust rules are enforced from launch (mvp.md §14). Outsider text (an issue, PR, comment, mention or label from a non-member, §10.2.1) never starts credentialed work on its own: no run, proposal, triage or machine request follows from it. An issue with outsider text becomes a TODO only by a maintainer's Make TODO or `todo` label, and only as admitted then (§10.2.1a). After that, its author's comments, like every later issue comment, never reach the run, and a non-member's PR comments show in activity and never steer (§12.3). Labels from non-members are reverted with a comment. Check C-SEC-03.
 
 17.6 A plain-HTTP public origin sends session cookies unencrypted on the network. This is a documented limitation of the team's chosen exposure, not of the install. The quickstart recommends HTTPS in front, and Settings marks an http origin with one word: "unencrypted".
 
+17.6a A request's scheme comes only from the configured origin it matches, and only a loopback peer can set its host through `X-Forwarded-Host` (§16.3.3). A proxy on another host gets no trust: the install reads only the `Host` it passes on (check C-INS-03).
+
 ---
 
-## 18. Performance budgets (reference host: the team's Mac mini; every artifact records the host profile, §8.2.1)
+## 18. Performance budgets (reference host: a 32 GB Apple Silicon Mac mini, mvp.md §9; every artifact records the host profile, §8.2.1)
 
 | Budget | Target (p95) | Measured by |
 | --- | --- | --- |
@@ -1182,7 +1446,7 @@ An install made on launch day MUST upgrade to the maintainer release with no dat
 | GitHub PR/checks/main freshness | < 60 s | C-GH-07 |
 | Rebase with people present (hold on writes) | < 2 s | C-PERF-06 |
 
-Each budget has a benchmark script that runs on the reference host and stores its artifact under `.artifacts/perf/<date>/`.
+18.1 Each budget has a benchmark script that runs on the reference host and stores its artifact under `.artifacts/perf/<date>/`. Budgets are measured on the reference host; limits derive from the detected host on every install (§8.2.1). Checks: C-PERF-01..06, C-GH-07, C-MCH-02.
 
 ---
 
@@ -1190,7 +1454,7 @@ Each budget has a benchmark script that runs on the reference host and stores it
 
 19.1 Killing the host service, PostgreSQL or a machine at any point re-runs no completed flow step. Every run then either resumes or shows as `interrupted` with Retry (C-DUR-01..04).
 
-19.2 Interrupted external actions reconcile before retrying. A GitHub write is looked up by its key (§12.4.1). A model call is retried, since it has no outside effect. A shell step re-runs only when the step declares itself idempotent, and otherwise fails with "interrupted, retry?". A push is checked against the remote ref first.
+19.2 Interrupted external actions reconcile before retrying, with no new engine API (library review, 2026-10-02). Every action with an outside effect declares its `tier` and an `idempotencyKey` explicitly. When an `intended` irreversible crossing has a key, the engine re-executes the body (`ActionPersistence.ts`, the `IrreversibleRetryRequiresIdempotencyKey` gate refuses only a keyless crossing), and the body checks remote state first and returns what it finds: a GitHub write reconciles by kind (§12.4.1b), and a push runs `git ls-remote` and compares the remote ref with the intended and expected heads. A model call is retried, since it has no outside effect. A check command on an immutable source export declares `tier: "sealed"`. A keyless irreversible crossing fails as `interrupted`, with Retry. Check: C-GH-09.
 
 19.3 No state is shown before its event exists. A command's toast stays running until the projection reports terminal.
 
@@ -1231,5 +1495,13 @@ Install, first-answer and first-merge times come from `todo_events` and conversa
 | Fault | Kill points across runs, merges, GitHub writes, bursts, rebases | `packages/smithers/test/faults/`, `packages/backend/...` |
 | Performance | §18 budgets on the reference host | `scripts/perf/` |
 | Journey | J1–J8, J10 and J11 on a fresh Mac mini, in both themes, recorded (mvp.md §12.1). The recording includes a restart mid-run, a duplicate launch, an outside save landing on a file two people are typing in, and a wiki decision edit that the next plan follows | `checks/` C-J* |
+
+21.1 **Library review bar** (smithers-38, packages/ owner, 2026-10-02). Any ticket that changes a public export of a `packages/` TypeScript library meets all of these, and the library owner signs off the public-API diff before it lands:
+- Need: the change names its real caller and shows, with a code sketch, why the existing API or a userland composition can't do it. A new abstraction needs two callers.
+- Surface: no option overlaps an existing one. Each export has JSDoc with `@since` and a page in the package's `docs/`. Errors are typed tagged errors, public types have no `any`, and new code carries no `@slop` tag.
+- Durable formats (journal, engine store, keys, canonical encoding, plan step keys): old records keep decoding. A format change ships a fixture written by the previous version and a decode test.
+- Tests: the package stays at 100% lines, branches, functions and statements. A new `v8-ignore` carries a one-line reason. Unit tests cover the behavior, its errors, interruption and replay. Integration tests use real SQLite, PostgreSQL and jj, never mocks of our own modules.
+- Hot paths (action dispatch in `ActionPersistence`, journal append and replay, canonical encode and hash, step-cache lookup, sync projection): the change adds or extends a counter fixture in `//scripts:benchmarkGate` (`scripts/bench/gate.mjs`, `baseline.json`), which counts SQLite queries and prepares, scheduler dispatches and pages with at most 5% growth, plus output digests. The baseline changes only with the reviewer's sign-off. Counters, not wall time: wall time is noise on a loaded host. The library owner adds fixtures for the paths the gate doesn't cover yet (ledger #3480 item 4).
+- A migration deletes the old path in the same change.
 
 Every check in [checks/](checks/) names its layer and its automation path. Executed coverage, configured thresholds, skipped cases and platform-specific evidence are reported separately (AGENTS.md testing quality).
