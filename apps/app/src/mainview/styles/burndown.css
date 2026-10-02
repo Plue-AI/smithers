@@ -386,8 +386,9 @@
   margin: 0;
 }
 
-/* A failure's reason in full: wrapped, never cut or scrolled inside, and selectable. */
-.burndown .burndown-reason {
+/* A failure's reason or detail in full: wrapped, never cut or scrolled inside, and selectable. */
+.burndown .burndown-reason,
+.burndown .burndown-failure pre {
   max-height: none;
   overflow: visible;
   white-space: pre-wrap;

@@ -251,16 +251,20 @@ describe("a request this card sent", () => {
 })
 
 describe("an issue's failure", () => {
-  test("the row carries its state as a mark and in its name; the detail shows the reason whole", () => {
-    const failedIssue = burndownOf(run3.events).items.find((item) => item.state === "failed" && (item.reason ?? "").length > 200)!
+  test("the row carries its state as a mark and in its name; the detail says it failed and keeps the step's words whole behind Details", () => {
+    const failedIssue = burndownOf(run3.events).items.find((item) => item.state === "failed" && (item.failure ?? "").length > 200)!
     const markup = render(card("running", run3, { burndown: { filter: "failed", item: failedIssue.number } }))
     const row = new RegExp(`<button[^>]*data-issue="${failedIssue.number}"[^>]*>.*?</button>`, "s").exec(markup)![0]
     expect(row).toContain('data-state="failed"')
     expect(row).toContain("burndown-mark")
     expect(row).toMatch(/aria-label="#\d+[^"]*, Failed(?:, [^",]+)*"/)
-    const reason = /<pre[^>]*data-testid="burndown-reason"[^>]*>([^]*?)<\/pre>/.exec(markup)![1]!
-    const text = reason.replace(/&quot;/g, "\"").replace(/&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
-    expect(text).toBe(failedIssue.reason!)
+    const notice = /<div[^>]*data-testid="burndown-failure"[^>]*>([^]*?)<\/div>/.exec(markup)![1]!
+    // The sentence is the product's words; the raw journal text never becomes it.
+    expect(/<p>([^<]*)<\/p>/.exec(notice)![1]).toBe("This issue&#x27;s work failed. Not your fault.")
+    const detail = /<details><summary>Details<\/summary><pre[^>]*aria-label="Failure details"[^>]*>([^]*?)<\/pre><\/details>/.exec(notice)![1]!
+    const text = detail.replace(/&quot;/g, "\"").replace(/&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    expect(text).toBe(failedIssue.failure!)
+    expect(markup).not.toContain('data-testid="burndown-reason"')
   })
 })
 

@@ -48,7 +48,10 @@ export interface BurndownItem {
   readonly patch?: string
   /** The landed commit, from the dispatch row. */
   readonly commit?: string
+  /** Why the item stopped, in the run's own authored words: a dispatch row's detail, or `cancelled`. */
   readonly reason?: string
+  /** The raw words a failed step journaled: a diagnostic, shown only behind Details. */
+  readonly failure?: string
   /** A pull request a dispatch row names. */
   readonly pr?: string
 }
@@ -261,6 +264,12 @@ const failedAccount = (failure: Record<string, unknown> | undefined, message: st
       : LOCAL_FAILED_ACCOUNT.exec(message)?.[1] ?? REMOTE_FAILED_ACCOUNT.exec(message)?.[1] ?? LOGIN_FAILED_ACCOUNT.exec(message)?.[1])
   return account === undefined || NOT_ACCOUNTS.has(account) ? undefined : account
 }
+/*
+ * The words a failed step journaled with its tag (`{ _tag, message }`,
+ * flows/issue-sweep). They are raw diagnostic text: the card shows them only
+ * behind Details (BurndownCard `ISSUE_FAILED`), never as its sentence.
+ */
+const journaledWords = (value: Record<string, unknown> | undefined): string | undefined => str(value?.message)
 /** A landed row: `<commit> by <agent> <account>`. */
 const LANDED = /^(\S+) by (\S+) (\S+)/
 const PULL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/
@@ -417,9 +426,10 @@ export const burndownOf = (
     const remoteAnswer = record(builtOf(remote)?.result)
     const failure = conflicted ? readoptFailure
       : [work, adopt, remote, fix].map(failedOf).find((each) => each !== undefined)
-    const message = str(failure?.message)
+    const message = journaledWords(failure)
     let state: BurndownState
     let reason: string | undefined
+    let failed: string | undefined
     let commit: string | undefined
     let rowAgent: string | undefined, rowAccount: string | undefined
     // A requeued row is an item back in the queue: the next round works it again, and a child still at it says how far it got.
@@ -440,11 +450,12 @@ export const burndownOf = (
     } else if (conflicted) {
       if (readoptFailure !== undefined) {
         state = "failed"
-        reason = message
+        failed = message
       } else state = builtOf(readopted) === undefined ? "adopting" : "landing"
     } else if (child.status === "failed" || child.status === "cancelled" || work?.settled?.outcome === "failed") {
       state = "failed"
-      reason = message ?? (child.status === "cancelled" ? "cancelled" : undefined)
+      if (message !== undefined) failed = message
+      else if (child.status === "cancelled") reason = "cancelled"
     } else if (child.status === "completed" || work?.settled?.outcome === "built") {
       state = "landing"
     } else if (remote?.settled?.outcome === "built" && adopt !== undefined && adopt.settled === undefined) {
@@ -479,6 +490,7 @@ export const burndownOf = (
       ...(patch === undefined || patch === "" ? {} : { patch }),
       ...(commit === undefined ? {} : { commit }),
       ...(reason === undefined ? {} : { reason }),
+      ...(failed === undefined ? {} : { failure: failed }),
       ...(pr === undefined ? {} : { pr })
     }
   })

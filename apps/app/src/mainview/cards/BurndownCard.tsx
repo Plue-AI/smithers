@@ -36,6 +36,8 @@ import {
   BURNDOWN_STATES, burndownAgent, burndownControls, burndownMoves, burndownObserver, burndownOf, burndownStage, PLACEMENT_WORDS,
   type BurndownItem, type BurndownState, type BurndownView
 } from "./Burndown"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { RunCommand } from "./CardFamily"
 import { durationWords } from "./RunTrace"
 import { RUN_PHASE_WORDS } from "./RunTraceSummary"
@@ -174,6 +176,9 @@ interface Seen {
   readonly said: string
 }
 
+/* An issue whose work failed: the journal's words are the detail, never the sentence (RawErrorRender.test.ts). */
+const ISSUE_FAILED: UserFailureCopy = { fault: "factory", sentence: "This issue's work failed. Not your fault.", actions: [] }
+
 /** One issue's detail, the disclosure its row controls: drawn directly under the row, so the two are read together. */
 const Detail = ({ item, id, now }: { readonly item: BurndownItem; readonly id: string; readonly now: number }) => (
   <section className="burndown-detail" id={id} aria-label={`Issue #${item.number}`} data-testid="burndown-detail" data-state={item.state}>
@@ -188,6 +193,9 @@ const Detail = ({ item, id, now }: { readonly item: BurndownItem; readonly id: s
       {item.commit === undefined ? null : <><dt>Commit</dt><dd><code>{item.commit}</code></dd></>}
       {item.pr === undefined ? null : <><dt>Pull request</dt><dd><a href={item.pr} target="_blank" rel="noreferrer">{item.pr.replace(/^https:\/\/github\.com\//, "")}</a></dd></>}
     </dl>
+    {/* A failed step: one sentence, and the step's own words whole behind Details. */}
+    {item.failure === undefined ? null : <FailureNotice role="status" className="burndown-failure" data-testid="burndown-failure"
+      failure={describedFailure("burndown.issue", ISSUE_FAILED, item.failure)} />}
     {/* The reason in full: it wraps, nothing is cut, and it can be selected and copied. */}
     {item.reason === undefined ? null : <pre className="run-trace-code burndown-reason" tabIndex={0} aria-label="Reason" data-testid="burndown-reason">{item.reason}</pre>}
     {item.patch === undefined ? null : item.patch.split(/^(?=diff --git )/m).filter((part) => part.trim() !== "").map((part, index) => (

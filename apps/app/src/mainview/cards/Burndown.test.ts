@@ -121,11 +121,13 @@ describe("the recorded run-3 journal (issue-sweep, placement vm, 32 slots)", () 
     expect(item!.startedAt).toBeLessThan(item!.finishedAt!)
   })
 
-  test("a failed item states the agent's own message and its account parsed from it", () => {
+  test("a failed item carries the agent's own message as its failure detail, and its account parsed from it", () => {
     const item = view.items.find((each) => each.number === 3252)
     expect(item?.state).toBe("failed")
     expect(item?.account).toBe("codex-1")
-    expect(item?.reason).toStartWith("codex-1 on issue-sweep:smithersai/smithers#3252: no change:")
+    // Raw journal words are a diagnostic (RawErrorRender.test.ts), never the authored reason.
+    expect(item?.failure).toStartWith("codex-1 on issue-sweep:smithersai/smithers#3252: no change:")
+    expect(item?.reason).toBeUndefined()
   })
 
   test("every item is titled: from the discovery the preview kept, else from its child's fetched issue", () => {
@@ -204,7 +206,7 @@ describe("synthesized journals for states run-3 lacks", () => {
     expect(view.status).toBe("failed")
     expect(view.failure).toBe(failed.summary.verdict)
     expect(view.items.find((item) => item.number === 3350)).toMatchObject({ state: "failed" })
-    expect(view.items.find((item) => item.number === 3350)?.reason).toContain("No space left on device")
+    expect(view.items.find((item) => item.number === 3350)?.failure).toContain("No space left on device")
     expect(view.items.find((item) => item.number === 3349)?.state).toBe("ours")
     expect(burndownOf(failed.events).status).toBe("failed")
   })
@@ -389,11 +391,12 @@ describe("each state rule", () => {
     expect(burndownOf(later).items[0]).toMatchObject({ state: "failed", reason: "b" })
   })
 
-  test("a failed child is failed with its message; a cancelled one says cancelled", () => {
+  test("a failed child is failed with its message as the failure detail; a cancelled one says cancelled", () => {
     const message = "codex-5 on issue-sweep:o/r#7: no change: tests already pass"
     const failed = [decision(child, "running"), scheduled(child, "issue-sweep/fix"),
       settled(child, "issue-sweep/work", "failed", { _tag: "issue-sweep/AgentFailed", message }), decision(child, "failed")]
-    expect(burndownOf(failed).items[0]).toMatchObject({ state: "failed", reason: message, account: "codex-5" })
+    expect(burndownOf(failed).items[0]).toMatchObject({ state: "failed", failure: message, account: "codex-5" })
+    expect(burndownOf(failed).items[0]?.reason).toBeUndefined()
     expect(burndownOf([decision(child, "running"), decision(child, "cancelled")]).items[0]).toMatchObject({ state: "failed", reason: "cancelled" })
   })
 
@@ -628,7 +631,7 @@ describe("each state rule", () => {
       expect(burndownOf(applied).items[0]).toMatchObject({ state: "landing", diff: { files: 2, insertions: 12, deletions: 4 }, executionId: child })
       const broken = [...conflicted, decision(readopt, "running", { flowName: "issue-sweep/readopt", createdAtMs: 30 }),
         settled(readopt, "issue-sweep/adopt", "failed", { _tag: "issue-sweep/AgentFailed", message: "the vm work: base gone" })]
-      expect(burndownOf(broken).items[0]).toMatchObject({ state: "failed", reason: "the vm work: base gone" })
+      expect(burndownOf(broken).items[0]).toMatchObject({ state: "failed", failure: "the vm work: base gone" })
       const again = [...conflicted, decision(readopt, "running", { flowName: "issue-sweep/readopt", createdAtMs: 30 }),
         settled(readopt, "issue-sweep/adopt", "failed", { _tag: "issue-sweep/AdoptConflicted", message: "still", title: "t", onto: "def" })]
       expect(stateOf(again, 7)).toBe("adopting")

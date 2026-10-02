@@ -368,10 +368,12 @@ test("keyboard only: arrows rove rows, groups and more controls; the detail open
   await expect(row).toHaveAttribute("aria-expanded", "true")
   expect(await row.evaluate(node => node.nextElementSibling?.id)).toBe(await row.getAttribute("aria-controls"))
   await page.keyboard.press(controlTabKey(page))
-  await expect(detail.getByTestId("burndown-reason")).toBeFocused()
+  // A failed step's words sit behind the notice's Details: its summary is the detail's first stop.
+  const failureDetails = detail.getByTestId("burndown-failure").locator("summary")
+  await expect(failureDetails).toBeFocused()
   // Arrows inside the detail are the reader's, not the board's.
   await page.keyboard.press("ArrowDown")
-  await expect(detail.getByTestId("burndown-reason")).toBeFocused()
+  await expect(failureDetails).toBeFocused()
   await page.keyboard.press("Escape")
   await expect(detail).toHaveCount(0)
   await expect(row).toBeFocused()
@@ -654,13 +656,16 @@ test("each settled state: its status, its counts, and only the controls that app
       await expect(card.locator(".burndown-group")).toHaveCount(4)
     }
     if (state.name === "failed") {
-      // The run's failure is said once, under the header, above the counts; the issue's own reason is whole in its detail.
+      // The run's failure is said once, under the header, above the counts; the issue's own words are whole behind its detail's Details.
       const notice = card.getByTestId(`flow-run-failure-${runId}`)
       await expect(notice).toBeVisible()
       await expect(page.getByTestId(`flow-run-failure-${runId}`)).toHaveCount(1)
       expect((await notice.boundingBox())!.y).toBeLessThan((await card.getByTestId("burndown-strip").boundingBox())!.y)
       await card.locator('.burndown-row[data-issue="3350"]').click()
-      const reason = card.getByTestId("burndown-reason")
+      const failure = card.getByTestId("burndown-failure")
+      await expect(failure.locator("p")).toHaveText("This issue's work failed. Not your fault.")
+      await failure.locator("summary").click()
+      const reason = failure.getByRole("region", { name: "Failure details" })
       await expect(reason).toContainText("No space left on device (os error 28)")
       expect(await reason.evaluate(node => node.scrollHeight <= node.clientHeight + 1 && node.scrollWidth <= node.clientWidth + 1)).toBe(true)
       // Selectable by the pointer, the way a person copies it: WebKit computes only -webkit-user-select, so ask the selection, not the style.
@@ -926,10 +931,10 @@ test.describe("screenshots", () => {
         await theme(page, "light")
       }
       if (name === "run-3" || name === "failed") {
-        // An issue's failure: its reason whole in the detail, under its row.
+        // An issue's failure: its notice in the detail, under its row.
         await card.getByTestId("burndown-strip").locator('[data-state="failed"]').click()
         await card.locator('.burndown-group[data-state="failed"] .burndown-row').nth(name === "run-3" ? 1 : 0).click()
-        await expect(card.getByTestId("burndown-reason")).toBeVisible()
+        await expect(card.getByTestId("burndown-failure")).toBeVisible()
         await shoot(page, `${name}-issue-failed`)
       }
     })
