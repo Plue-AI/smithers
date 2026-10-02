@@ -1206,6 +1206,7 @@ export const make = (
     // Startup sweepers may ask before final registration captures the native SQL
     // client. They refuse until that existing final phase installs the reader.
     let admission: ((runId: string) => Effect.Effect<boolean>) | undefined
+    let activationAdmission: ((runId: string) => Effect.Effect<boolean>) | undefined
     const canExecute = (runId: string) => Effect.suspend(() => admission?.(runId) ?? Effect.succeed(false))
     // The control plane the engine records its own wakes against, captured the
     // same way and for the same reason as `admission` above: the engine layer
@@ -1516,11 +1517,11 @@ export const make = (
           catalog
         })
         const releasedChildResume = ReleasedChildResume.make({
+          engineSql,
           engineJournal: yield* Journal.Journal,
           controlJournal,
           engineRuns: yield* RunStore.RunStore,
-          engineState: yield* DurableEngineState.DurableEngineState,
-          claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
+          engineState: yield* DurableEngineState.DurableEngineState
         })
         const controlAffinity = ControlAffinity.make({
           runs: yield* RunStore.RunStore.pipe(Effect.provide(engine.stores)),
@@ -1528,6 +1529,11 @@ export const make = (
           canRetryReleased: releasedChildResume.canRetryReleased,
           claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
         })
+        // Reuse the same ownership/consent policy at the native writer fence.
+        // Catalog/module loading remains in the preflight admission below.
+        // This binding uses only captured local SQL and sameHostPidProbe:
+        // Effect.sync/process.kill(pid, 0), with no external liveness I/O.
+        activationAdmission = controlAffinity
         admission = (runId) =>
           routing.canExecute(workspaceRoot, runId).pipe(
             Effect.flatMap((allowed) => allowed ? controlAffinity(runId) : Effect.succeed(false)),
@@ -1764,6 +1770,7 @@ export const make = (
         // another host is left to the lease, which `RunStore.steal` verifies.
         isAlive: Ownership.sameHostPidProbe,
         canExecute: (row) => canExecute(row.runId),
+        canActivate: (row) => Effect.suspend(() => activationAdmission?.(row.runId) ?? Effect.succeed(false)),
         requestResume,
         // The same revision the plans carry, asked for rather than handed over:
         // the engine drives the modules this host loaded at startup, so the

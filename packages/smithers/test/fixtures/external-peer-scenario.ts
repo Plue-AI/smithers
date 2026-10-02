@@ -285,6 +285,18 @@ if (
           return
         }
         if (mode === "recover" || releasing) {
+          if (releasing) {
+            // Owner death is not consent to repeat this genuinely unkeyed Work.
+            enter("released unkeyed work remains parked without consent")
+            for (let tick = 0; tick < 5; tick++) {
+              yield* control.list({ _tag: "runs", filters: { runId } })
+              assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+              assert.equal(rows(root).find((row) => row.run_id === workerId)?.status, "suspended")
+              yield* Effect.sleep("1 second")
+            }
+            enter("explicit public resume for the unkeyed release")
+            yield* control.resume({ runId, idempotencyKey: "resume-released-unkeyed" })
+          }
           enter("dead-owner replacement")
           yield* Effect.promise(() => poll(async () => (await workers(root)).length === 2, "real dead-owner recovery"))
           yield* Effect.promise(() => writeFile(join(root, "release"), "recover"))

@@ -116,6 +116,7 @@ export const layer = <
     journalSource: `${validated.owner.hostId}-engine`,
     isAlive: validated.isAlive,
     canExecute: validated.canExecute,
+    canActivate: validated.canActivate,
     requestResume: validated.requestResume,
     // What this host says about the tree it read its flows out of; every
     // recorded graph page carries it, and a host that says nothing records
@@ -127,18 +128,18 @@ export const layer = <
   const engine = (validated.privilegedJj === undefined
     ? EngineStore.layer(engineOptions)
     : EngineStore.layerWithPrivilegedJj(engineOptions, validated.privilegedJj)).pipe(
-    Layer.provideMerge(execution),
-    // Under the engine, not beside it: `@smthrs/engine`
-    // `FlowEngine/Dispatch` reads this reference off the context the engine
-    // captures for an action dispatch, and a sibling layer is not in it.
-    // Undeclared it stays absent, which is what every sealed key in this repo
-    // is derived without today.
-    Layer.provideMerge(
-      validated.cacheEnvironment === undefined
-        ? Layer.empty
-        : Action.layerCacheEnvironment(validated.cacheEnvironment)
+      Layer.provideMerge(execution),
+      // Under the engine, not beside it: `@smthrs/engine`
+      // `FlowEngine/Dispatch` reads this reference off the context the engine
+      // captures for an action dispatch, and a sibling layer is not in it.
+      // Undeclared it stays absent, which is what every sealed key in this repo
+      // is derived without today.
+      Layer.provideMerge(
+        validated.cacheEnvironment === undefined
+          ? Layer.empty
+          : Action.layerCacheEnvironment(validated.cacheEnvironment)
+      )
     )
-  )
   // The registry is built BETWEEN the engine and the registration phase, so a
   // registration that reads a catalog off it — `@smthrs/registry`'s
   // `Executable.layer`, which turns every discovered descriptor into a

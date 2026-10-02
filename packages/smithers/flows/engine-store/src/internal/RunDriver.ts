@@ -123,6 +123,7 @@ export interface Dependencies {
    */
   readonly isAlive?: Ownership.LivenessCheck | undefined
   readonly canExecute?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
+  readonly canActivate?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
   /**
    * Records, for a host that keeps one, that this driver has asked a
    * SUSPENDED execution to resume.
@@ -968,6 +969,16 @@ export const make = (
         // with no journal entry saying who took it.
         const activation = yield* transactState(
           Effect.gen(function*() {
+            // Admission can change without changing the ownership snapshot
+            // (a released→running→released ABA, rewind, or consent change).
+            // Recheck its read-only native fence under the writer transaction;
+            // loading modules and probing external hosts remain preflight work.
+            if (
+              dependencies.canActivate !== undefined &&
+              !(yield* dependencies.canActivate(yield* store.get(row.runId).pipe(Effect.orDie)))
+            ) {
+              return { _tag: "SnapshotChanged" as const }
+            }
             // Another owner can quarantine and return to the same suspended
             // snapshot between preflight and claim. Fence that park in the
             // activation transaction too; the rejected claim is abandoned below.

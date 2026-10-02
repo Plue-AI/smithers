@@ -120,6 +120,12 @@ export interface Options {
   /** Host routing, checked before claiming a run (including automatic wakes). */
   readonly canExecute?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
   /**
+   * Read-only host admission fence, rechecked in the native activation transaction.
+   * Use captured native reads and synchronous local probes only; external I/O
+   * and module loading belong in `canExecute`.
+   */
+  readonly canActivate?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
+  /**
    * Records, for a host that keeps one, that this engine has asked a parked
    * execution to resume: a durable clock fired, a durable deferred completed,
    * or a child settled under a parent that parked on it.
@@ -261,6 +267,7 @@ const makeWithEngineJj = (
       journalSource: options.journalSource,
       isAlive: options.isAlive,
       canExecute: options.canExecute,
+      canActivate: options.canActivate,
       requestResume: options.requestResume,
       engine: Deferred.await(engine),
       wakeBus

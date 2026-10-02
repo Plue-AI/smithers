@@ -332,6 +332,9 @@ export interface Dependencies {
 
 const AttemptMeta = Schema.Struct({
   tier: Schema.Literals(["sealed", "compensable", "irreversible"]),
+  // Only a genuine action idempotency key permits automatic released retry.
+  // Old rows without this evidence remain fail-closed (issues #2982/#3409).
+  keyed: Schema.optional(Schema.Literal(true)),
   /**
    * The sealed declaration admits multiple legitimate recorded results under
    * this key. Absence remains the durable determinism claim.
@@ -967,6 +970,7 @@ export const make = (deps: Dependencies) => {
       const cacheDeclaration = CacheAdmission.declaration(input)
       const declarationMeta = {
         tier: input.tier,
+        ...(deps.idempotencyKey === undefined ? {} : { keyed: true as const }),
         ...(input.nondeterministic === undefined ? {} : { nondeterministic: input.nondeterministic })
       } satisfies AttemptMeta
 

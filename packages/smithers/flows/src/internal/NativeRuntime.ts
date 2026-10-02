@@ -46,6 +46,7 @@ export interface HostOptions {
   readonly isAlive?: Ownership.LivenessCheck | undefined
   readonly requestResume?: Runtime.Options["requestResume"]
   readonly canExecute?: Runtime.Options["canExecute"]
+  readonly canActivate?: Runtime.Options["canActivate"]
   readonly cacheEnvironment?: Runtime.Options["cacheEnvironment"]
   readonly sourceRevision?: Runtime.Options["sourceRevision"]
   readonly rules?: GrantStore.MakeOptions["rules"]
@@ -296,6 +297,7 @@ export const makeNative = (platform: NativePlatform) => {
       isAlive: configuredLiveness ?? HostLiveness.isAlive({ hostId }),
       requestResume: options.requestResume,
       canExecute: options.canExecute,
+      canActivate: options.canActivate,
       cacheEnvironment: options.cacheEnvironment,
       sourceRevision: options.sourceRevision
     })
@@ -399,6 +401,7 @@ export const makeNative = (platform: NativePlatform) => {
         journalSource: `${validated.owner.hostId}-engine`,
         isAlive: validated.isAlive,
         canExecute: validated.canExecute,
+        canActivate: validated.canActivate,
         requestResume: validated.requestResume,
         // The same declaration `Runtime.layer` passes: the tree this host
         // read its flows out of, or nothing (D-068).

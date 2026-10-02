@@ -29,6 +29,7 @@ it("reports invalid JavaScript configuration before constructing injected servic
     [{ owner: undefined }, "owner.hostId"],
     [{ isAlive: undefined }, "isAlive"],
     [{ canExecute: "yes" }, "canExecute"],
+    [{ canActivate: "yes" }, "canActivate"],
     [{ requestResume: "yes" }, "requestResume"],
     // Cache key material, so an incomplete declaration is refused where it is
     // written rather than folded into every sealed key this host derives.

@@ -64,6 +64,48 @@ const layer = Layer.mergeAll(TestStores.layer(), StepBoundary.layerTest(), jj)
 const tolerantLayer = Layer.provideMerge(Inconsistency.layerTolerant(owner), layer)
 
 describe("ActionPersistence", () => {
+  for (const tier of ["sealed", "compensable", "irreversible"] as const) {
+    for (const keyed of [false, true]) {
+      for (const outcome of ["succeeded", "failed", "interrupted"] as const) {
+        it.effect(`persists ${keyed ? "keyed" : "unkeyed"} ${tier} evidence before dispatch and after ${outcome}`, () =>
+          Effect.gen(function*() {
+            const runId = `key-evidence-${tier}-${keyed}-${outcome}`
+            const key = `${runId}/action`
+            const id = { runId, stepKeyDigest: sha256(key), attempt: 1 }
+            yield* activate(runId)
+            const attempts = yield* AttemptStore.AttemptStore
+            const execute = ActionPersistence.make({
+              runId,
+              owner,
+              sourceId: "key-evidence",
+              ...(keyed ? { idempotencyKey: "genuine-external-key" } : {}),
+              execute: () =>
+                Effect.gen(function*() {
+                  const running = yield* attempts.get(id)
+                  expect(Option.isSome(running)).toBe(true)
+                  if (Option.isSome(running)) {
+                    expect(running.value.state).toBe("running")
+                    expect(running.value.meta).toMatchObject({ tier, ...(keyed ? { keyed: true } : {}) })
+                    expect((running.value.meta as { keyed?: boolean }).keyed).toBe(keyed ? true : undefined)
+                  }
+                  if (outcome === "failed") return yield* Effect.fail("failed")
+                  if (outcome === "interrupted") return yield* Effect.interrupt
+                  return "result"
+                })
+            })
+            const exit = yield* Effect.exit(execute({ action: {}, attempt: 1, key, tier }))
+            expect(exit._tag).toBe(outcome === "succeeded" ? "Success" : "Failure")
+            const recorded = yield* attempts.get(id)
+            expect(Option.isSome(recorded)).toBe(true)
+            if (Option.isSome(recorded)) {
+              expect(recorded.value.state).toBe(outcome === "succeeded" ? "succeeded" : "failed")
+              expect((recorded.value.meta as { keyed?: boolean }).keyed).toBe(keyed ? true : undefined)
+            }
+          }).pipe(Effect.provide(layer), Effect.scoped, withCrypto))
+      }
+    }
+  }
+
   it.effect("finds the earliest persisted boundary across missing attempt rows", () =>
     Effect.gen(function*() {
       yield* activate("sparse-boundaries")

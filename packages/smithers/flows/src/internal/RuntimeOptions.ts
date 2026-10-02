@@ -4,8 +4,8 @@
 
 import type * as EngineStore from "@smthrs/engine-store/EngineStore"
 import { Action } from "@smthrs/flow"
-import type { Ownership, RunStore } from "@smthrs/run-store"
 import type { Jj } from "@smthrs/jj"
+import type { Ownership, RunStore } from "@smthrs/run-store"
 import type * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
@@ -43,6 +43,12 @@ export interface Options {
   readonly isAlive: Ownership.LivenessCheck
   /** Routes shared-store runs to the host configured for their workspace. */
   readonly canExecute?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
+  /**
+   * Read-only host admission rechecked in the native activation transaction.
+   * Use captured native reads and synchronous local probes only; external I/O
+   * and module loading belong in `canExecute`.
+   */
+  readonly canActivate?: ((row: RunStore.RunRow) => Effect.Effect<boolean>) | undefined
   /**
    * Records, for a host that keeps one, that the engine has asked a parked
    * execution to resume — a durable clock fired, a durable deferred
@@ -179,6 +185,10 @@ export const validate = (options: Options, label = "Runtime"): Options => {
   if (canExecute !== undefined && typeof canExecute !== "function") {
     throw invalidConfiguration("canExecute", `${label} canExecute must be a function when supplied`)
   }
+  const canActivate = options.canActivate
+  if (canActivate !== undefined && typeof canActivate !== "function") {
+    throw invalidConfiguration("canActivate", `${label} canActivate must be a function when supplied`)
+  }
   const requestResume = options.requestResume
   if (requestResume !== undefined && typeof requestResume !== "function") {
     throw invalidConfiguration("requestResume", `${label} requestResume must be a function when supplied`)
@@ -209,6 +219,7 @@ export const validate = (options: Options, label = "Runtime"): Options => {
     owner: Object.freeze({ hostId }),
     isAlive,
     canExecute,
+    canActivate,
     requestResume,
     cacheEnvironment,
     sourceRevision,

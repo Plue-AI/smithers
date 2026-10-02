@@ -1,5 +1,5 @@
 /**
- * Durable permission for one explicit retry of released native children.
+ * Durable permission to retry released native children safely.
  * @since 1.0.0
  */
 
@@ -7,9 +7,9 @@ import type * as DurableEngineState from "@smthrs/engine-store/DurableEngineStat
 import { RunState } from "@smthrs/engine-store/RunState"
 import * as Journal from "@smthrs/journal/Journal"
 import * as JournalEvent from "@smthrs/journal/JournalEvent"
-import { Ownership } from "@smthrs/run-store"
 import type * as RunStore from "@smthrs/run-store/RunStore"
-import { Cause, Clock, Duration, Effect, Option, Schema } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
+import type { SqlClient } from "effect/unstable/sql/SqlClient"
 
 /**
  * Existing native and control durability used to bind retries.
@@ -20,9 +20,9 @@ export interface Options {
   readonly engineJournal: Journal.Service
   readonly controlJournal: Journal.Service
   readonly engineRuns: RunStore.Service
-  readonly claimant?: Ownership.OwnerId | undefined
-  readonly isAlive?: Ownership.LivenessCheck | undefined
   readonly engineState: Pick<DurableEngineState.Service, "runChildren">
+  /** Native attempt storage; absent adapters retain explicit-resume behavior. */
+  readonly engineSql?: SqlClient | undefined
 }
 const eventKind = "control.engine.released-children-resume"
 const failureKind = "control.engine.released-children-resume-failed"
@@ -34,8 +34,11 @@ const Grant = Schema.Struct({
   )
 })
 const decodeGrant = Schema.decodeUnknownEffect(Grant)
-const decodeReleaseOwner = Schema.decodeUnknownOption(Schema.Struct({ owner: Ownership.OwnerId }))
 const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
+const decodeKeyed = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({
+  tier: Schema.Literals(["sealed", "compensable", "irreversible"]),
+  keyed: Schema.Literal(true)
+})))
 
 /**
  * Authorizes the release snapshot once per explicit resume and checks its identity.
@@ -84,9 +87,7 @@ export const make = (options: Options) => {
       )
       return entry === undefined ? undefined : {
         eventId: entry.eventId,
-        generation: before.generation,
-        emittedAtMs: entry.emittedAtMs,
-        owner: Option.getOrUndefined(decodeReleaseOwner(entry.payload))?.owner
+        generation: before.generation
       }
     })
   const grants = (root: string) =>
@@ -126,7 +127,6 @@ export const make = (options: Options) => {
         for (const round of rounds) if (!seen.has(round.runId)) pending.push(round.runId)
         const children = yield* options.engineState.runChildren(executionId)
         for (const child of children) if (!seen.has(child.childId)) pending.push(child.childId)
-        if (executionId === root) continue
         const row = member
         const state = yield* decodeState(row.stateJson)
         if (
@@ -172,8 +172,40 @@ export const make = (options: Options) => {
     ))
   const canRetryReleased = (executionId: string, root: string) =>
     Effect.gen(function*() {
+      const row = yield* options.engineRuns.get(executionId)
+      const state = yield* decodeState(row.stateJson)
+      if (
+        row.status !== "suspended" || state.result !== undefined || row.cancelRequestedAtMs !== null ||
+        state.cancellation !== undefined
+      ) return false
       const release = yield* latestRelease(executionId)
       if (release === undefined) return false
+      if (options.engineSql !== undefined) {
+        const sql = options.engineSql
+        const keyed = yield* sql.withTransaction(Effect.gen(function*() {
+          // Inspect executable metadata, never redacted journal payloads. A
+          // malformed or legacy marker cannot prove repeat safety. The native
+          // claim still fences admission after this read-only eligibility check.
+          const attempts = yield* sql<{ readonly meta: string }>`
+            SELECT meta_json AS "meta" FROM flows_attempts
+            WHERE run_id = ${executionId} AND state = 'running'
+          `
+          const safe = attempts.every((attempt) => Option.isSome(decodeKeyed(attempt.meta)))
+          const current = yield* options.engineRuns.get(executionId)
+          const currentState = yield* decodeState(current.stateJson)
+          if (
+            current.status !== "suspended" || currentState.result !== undefined ||
+            current.cancelRequestedAtMs !== null || currentState.cancellation !== undefined
+          ) return { safe: false, unchanged: false }
+          const currentRelease = yield* latestRelease(executionId)
+          return {
+            safe,
+            unchanged: currentRelease?.eventId === release.eventId && currentRelease.generation === release.generation
+          }
+        }))
+        if (!keyed.unchanged) return false
+        if (keyed.safe) return true
+      }
       if (
         (yield* grants(root)).some((grant) =>
           grant.releases.some((item) =>
@@ -182,17 +214,9 @@ export const make = (options: Options) => {
           )
         )
       ) return true
-      if (
-        options.claimant === undefined || release.owner === undefined ||
-        release.owner.hostId !== options.claimant.hostId
-      ) return false
-      const nowMs = yield* Clock.currentTimeMillis
-      if (release.emittedAtMs >= nowMs - Duration.toMillis(Ownership.heartbeatStaleAfter)) return false
-      return !(yield* (options.isAlive ?? Ownership.sameHostPidProbe)(release.owner, {
-        claimant: options.claimant,
-        heartbeatAtMs: release.emittedAtMs,
-        nowMs
-      }))
+      // Owner death permits native ownership takeover, not repetition of an
+      // unfinished unkeyed effect. Only a matching explicit grant permits it.
+      return false
     })
   return { authorize, canRetryReleased }
 }

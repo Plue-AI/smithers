@@ -199,6 +199,7 @@ const host = (
   options: {
     readonly beforeEngineResume?: (runId: string) => Effect.Effect<void>
     readonly authorizeReleasedChildren?: AgentSession.Options["authorizeReleasedChildren"]
+    readonly canExecute?: AgentSession.Options["canExecute"]
     readonly resumed?: Deferred.Deferred<void>
     readonly onEngineResume?: Effect.Effect<void>
     readonly adoptsAtOnce?: boolean
@@ -208,6 +209,7 @@ const host = (
 ) => {
   const registration = AgentSession.layer({
     authorizeReleasedChildren: options.authorizeReleasedChildren,
+    canExecute: options.canExecute,
     quotaPolicy: Safety.quotaPolicy,
     budget: Safety.budget,
     // A composition that did not park the run may only adopt a standing
@@ -1102,6 +1104,7 @@ describe("explicit resume authorization for released native children", () => {
     const root = makeRoot()
     const calls: Array<{ runId: string; sequence: number }> = []
     const order: Array<string> = []
+    let requireGrant = false
     const resumed = Deferred.makeUnsafe<void>()
     await Effect.runPromise(
       Effect.gen(function*() {
@@ -1123,6 +1126,10 @@ describe("explicit resume authorization for released native children", () => {
         } finally {
           database.close()
         }
+        requireGrant = true
+        // A background uptake cannot satisfy the new root admission fence.
+        expect(yield* executor.resumeRun({ runId: id })).toBe("unknown")
+        expect(calls).toEqual([])
         const control = yield* Control.Control
         const accepted = yield* control.resume({ runId: id, idempotencyKey: "explicit-child-retry" })
         expect(accepted._tag).toBe("Accepted")
@@ -1139,6 +1146,7 @@ describe("explicit resume authorization for released native children", () => {
       }).pipe(
         Effect.provide(host(root, hostOwner, "resume-hook", {
           resumed,
+          canExecute: () => Effect.sync(() => !requireGrant || calls.length > 0),
           onEngineResume: Effect.sync(() => {
             order.push("drive")
           }),

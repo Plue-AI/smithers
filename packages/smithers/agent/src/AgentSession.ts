@@ -3970,7 +3970,11 @@ export const make = (
      * executor's to claim. {@link hostsPark} comes second and is the ownership
      * question proper: an execution this engine can SEE is not one it hosts.
      *
-     * The claim comes third and is what makes the re-driven run WRITABLE.
+     * A hosted operator resume records its release grant before admission;
+     * otherwise the root's admission fence would require its own future grant.
+     * Background uptake checks admission first and records no release grant.
+     *
+     * The claim follows admission and makes the re-driven run WRITABLE.
      * `writeStatus` reaches `claimFence`, which requires `ownedByUs`, which
      * requires a `running` row: a run re-driven without a claim runs to its
      * end and then cannot record that it did.
@@ -3988,10 +3992,12 @@ export const make = (
       uptake: Uptake
     ): Effect.Effect<ControlExecutor.ResumeUptake, never> =>
       Effect.gen(function*() {
-        if (options.canExecute !== undefined && !(yield* options.canExecute(runId))) return "unknown" as const
+        const consent = consentOf(uptake)
+        if (consent === undefined && options.canExecute !== undefined && !(yield* options.canExecute(runId))) {
+          return "unknown" as const
+        }
         const parked = yield* parkedHere(runId, 500)
         if (!parked) return "unknown" as const
-        const consent = consentOf(uptake)
         // A saved clock, deferred, parent, or approval request is background
         // intent. It can predate a later corruption park, so it cannot stand
         // in for the explicit recovery decision the engine requires. This
@@ -4010,6 +4016,13 @@ export const make = (
         }
         const hosted = yield* hostsPark(runId, uptake)
         if (!hosted) return "unknown" as const
+        if (consent !== undefined) {
+          // This persisted operator resume grants its release snapshot before
+          // the native admission check can require that same grant. Hosting
+          // is checked first; the fenced claim still gates the drive below.
+          yield* authorizeReleased(runId, consent)
+          if (options.canExecute !== undefined && !(yield* options.canExecute(runId))) return "unknown" as const
+        }
         const claimed = yield* claimForResume(runId).pipe(
           Effect.as(true),
           // A lost claim is a live peer holding the run, and the delegation
@@ -4020,7 +4033,6 @@ export const make = (
           )
         )
         if (!claimed) return "unknown" as const
-        if (consent !== undefined) yield* authorizeReleased(runId, consent)
         yield* drive(runId, uptake)
         return "resuming" as const
       })

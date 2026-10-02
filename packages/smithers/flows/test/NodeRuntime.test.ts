@@ -1649,4 +1649,44 @@ describe("shared-store execution routing", () => {
         { run_id: "route-to-beta", status: "completed" }
       ])
   }, 60_000)
+
+  it("forwards and snapshots the native activation fence after preflight admission", async () => {
+    const activated: Array<string> = []
+    const before = executedBy.length
+    const options = {
+      ...routingOptions("activation-host", "alpha"),
+      canActivate: (row: RoutedRun) =>
+        Effect.sync(() => {
+          activated.push(row.runId)
+          expect(row.claim).not.toBeNull()
+          return false
+        })
+    }
+    const layer = routingHost(options, "activation-host")
+    // A post-construction change cannot weaken the captured native fence.
+    options.canActivate = () => Effect.succeed(true)
+    const refused = await Effect.runPromise(
+      Effect.gen(function*() {
+        yield* Route.execute({ workspace: "alpha" }, { executionId: "route-activation-refused", discard: true })
+        const runtime = yield* FlowRuntime.FlowRuntime
+        yield* runtime.resume(Route, "route-activation-refused", { poll: true })
+        return yield* (yield* RunStore.RunStore).get("route-activation-refused")
+      }).pipe(Effect.provide(layer), Effect.provide(hostCrypto), Effect.scoped)
+    )
+    expect(activated).toContain("route-activation-refused")
+    expect(refused.status).toBe("pending")
+    expect(refused.owner).toBeNull()
+    expect(refused.claim).toBeNull()
+    expect(executedBy).toHaveLength(before)
+    // Rebuilding with a changed fence admits the same durable run exactly once.
+    const result = await Effect.runPromise(
+      Route.execute({ workspace: "alpha" }, { executionId: "route-activation-refused" }).pipe(
+        Effect.provide(routingHost(options, "activation-host")),
+        Effect.provide(hostCrypto),
+        Effect.scoped
+      )
+    )
+    expect(result).toBe("activation-host:alpha")
+    expect(executedBy.slice(before)).toEqual(["activation-host"])
+  }, 60_000)
 })
