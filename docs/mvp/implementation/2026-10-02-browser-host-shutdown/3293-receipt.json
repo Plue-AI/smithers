@@ -1,0 +1,95 @@
+{
+  "issue": "smithers#3293",
+  "baselineMain": "2753d2e3d24e3489451dfb45df048a91f49bad10",
+  "change": "T1 and showcase send SIGTERM with a 10000ms SIGKILL fallback, allowing real host fixture finalization. Startup deadlines, retries and product behavior are unchanged.",
+  "sourceHashes": {
+    "apps/app/playwright.config.ts": "fa25b2662e21f1900ee7d1775c13b8aaa71cae7955a59f8c6f24ac144e290396",
+    "apps/app/playwright.showcase.config.ts": "7dedee87fcb06435b12370a701877832e1b92b75b53ee755e14c2581a6407b03",
+    "apps/app/e2e/contracts/BrowserHostShutdown.test.ts": "4c4efd3863eb3c137bf9491a28de52283852f7fce3df8733254063e0bb19f957"
+  },
+  "hostSourceHashes": {
+    "apps/app/e2e/playwright/webserver.ts": "8944e4f7e56203e2cb9e17905be50da1d4b613aaf268c7ad8b6ae8b909242beb",
+    "apps/app/scripts/browser-test-host.ts": "4d88d72ccd3aff24595c69baa8b446d61176d830adabd1181d05ada411b5ad9f",
+    "apps/app/src/bun/server.ts": "94c511d16c4ce250315e7488c39227ddfbfcc685d3d85b221ffdcfe3fcb18fb0",
+    "apps/app/src/bun/NativeBackendProcess.ts": "fb8923e6d3c577bdc5857a2b3013ad000f929a03aae614b0433403af5d926dd0"
+  },
+  "command": "nice -n 15 bun test e2e/contracts/BrowserHostShutdown.test.ts",
+  "executedFrom": "apps/app",
+  "runner": "Bun 1.4.0-canary.1; Playwright 1.62.1",
+  "red": {
+    "pass": 0,
+    "fail": 4,
+    "reason": "All actual host PIDs exited but all four owned fixture directories remained after CLI completion.",
+    "configSourceHashes": {
+      "apps/app/playwright.config.ts": "dd3bdf727aa5648fdfdf2074ebd2c60289364cc1e90173e1ea556068168dc738",
+      "apps/app/playwright.showcase.config.ts": "addcf23d27711ca697cb1bb3cdb9e4d14f14c36ebbb0857361578cb8b265030b"
+    }
+  },
+  "green": {
+    "pass": 4,
+    "fail": 0,
+    "durationSeconds": 4.48,
+    "matrix": [
+      "T1 normal CLI exit 0",
+      "T1 deliberate assertion failure CLI exit 1",
+      "showcase normal CLI exit 0",
+      "showcase deliberate assertion failure CLI exit 1"
+    ],
+    "allObservedHostProcessGroupsExited": true,
+    "allOwnedFixtureDirectoriesRemoved": true
+  },
+  "limits": [
+    "These are real HTTP-only Playwright probes, not a graphical browser journey.",
+    "Current browser-test-host calls startLocalServer and launches no native backend/PostgreSQL; no PostgreSQL exit evidence is claimed.",
+    "SPA rebuild skipped because lifecycle proof uses the real host health endpoint.",
+    "Windows is skipped: the installed runner does not support graceful SIGTERM on Windows.",
+    "SIGKILL fallback follows the installed supported runner contract; forced fallback was not exercised."
+  ],
+  "ownership": "Dynamic ports and isolated temporary configs/outputs. Red cleanup removes only an exact owned fixture after all observed process-group members exit; no unrelated process is signaled.",
+  "localLogHashes": {
+    "3293-red.log": "0ceb1ba46bc98890903e108cffc1cacd4e1183624d583a75433d24d34f7210d6",
+    "3293-green.log": "9978f7616b32056e0dbb44756f4b6d8435ad3449666443f36ef8bc998baaeed5",
+    "3293-post-sync-green.log": "8915289527e2ba07748bd8b729e01662ab252ce39e08d801f799d118b4307c67",
+    "3293-target-index-canonical.log": "47fa1e765d70d0c47459dac120407215dd64be0087b64a4d4780b232008ce4c4",
+    "3293-target-index-source.log": "f3b5b54a2250ee346f1f20a48d11464c975eb47793d5eaebb2e5474c03dfa5a5",
+    "3293-scoped-tsc.log": "c6299cac950dce389e7d7417d0a6f8532a330f7372c2bb46aef6719f014cd90d"
+  },
+  "originalQualificationMain": "a73a77de36f04a54f3058170cb950bcdbcc8c76a",
+  "postSyncHostChanges": {
+    "apps/app/src/bun/server.ts": {
+      "before": "57ceff58d7248ce3cde88a24195d63d12f590b71f3978e0a64dac977f2de0395",
+      "after": "94c511d16c4ce250315e7488c39227ddfbfcc685d3d85b221ffdcfe3fcb18fb0"
+    }
+  },
+  "postSyncGreen": {
+    "pass": 4,
+    "fail": 0,
+    "durationSeconds": 3.48,
+    "allObservedHostProcessGroupsExited": true,
+    "allOwnedFixtureDirectoriesRemoved": true
+  },
+  "targetIndex": {
+    "cliCommand": "nice -n 15 pnpm run target-index",
+    "cliResult": "Blocked by preexisting packages/smithers/build/build-cli/src/Cli.ts:1563:2 conflict marker (Unexpected <<).",
+    "sourceCommand": "nice -n 15 pnpm exec tsx /tmp/smithers-3293-canonical-target-index.mjs",
+    "sourcePipeline": "PackageDiscovery/PackageLoader/PackageIndex/TargetIndex.build + TargetIndex.render + GeneratedFile.writeGeneratedFile/checkGeneratedFile",
+    "targets": 1089,
+    "exclusive": 8,
+    "canonicalCheck": "passed",
+    "unchangedFromMain": true,
+    "sha256": "d5f31daada7778e4ac528f2a9ee476248b965b4f12d1319e54c694cd120876cb"
+  },
+  "scopedTypecheck": {
+    "command": "nice -n 15 node /tmp/3293-scoped-tsc.cjs",
+    "executedFrom": "apps/app",
+    "compiler": "TypeScript 5.9.3",
+    "compilerOptions": "Unmodified apps/app/tsconfig.json parsed by TypeScript API",
+    "compilerConfigSha256": "4da03eeb644a7e4797942d044681b83a79cd483136e648b28a0fd375e310c350",
+    "rootFiles": [
+      "apps/app/playwright.config.ts",
+      "apps/app/playwright.showcase.config.ts",
+      "apps/app/e2e/contracts/BrowserHostShutdown.test.ts"
+    ],
+    "diagnostics": 0
+  }
+}

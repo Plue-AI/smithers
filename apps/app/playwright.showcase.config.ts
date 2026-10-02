@@ -24,6 +24,7 @@ export default defineConfig({
     command: "bun e2e/playwright/webserver.ts",
     url: `${BASE_URL}/api/health`,
     reuseExistingServer: false,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     timeout: 240_000,
     env: { SMITHERS_LOCAL_PORT: String(PORT), SMITHERS_CHAT_STUB: "1" }
   }
