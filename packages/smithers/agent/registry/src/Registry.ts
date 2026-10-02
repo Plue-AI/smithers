@@ -394,7 +394,7 @@ const fromRef = (
       name: string,
       expectedExecutionDigest?: string
     ): Effect.fn.Return<FlowBody, RegistryError | DiscoveryError> {
-      const restored = () =>
+      const restored = (verification?: RegistryError) =>
         snapshots === undefined || expectedExecutionDigest === undefined
           ? Effect.fail(
             registryError({
@@ -419,7 +419,9 @@ const fromRef = (
               registryError({
                 code: "execution_changed",
                 method: "loadBody",
-                description: "Approved source snapshot could not be restored",
+                description: `${
+                  verification?.message ?? "Approved source snapshot could not be restored"
+                }; snapshot ${cause.code}: ${cause.message}`,
                 cause
               })
             )
@@ -457,7 +459,7 @@ const fromRef = (
           Effect.catch((error) =>
             snapshots === undefined || expectedExecutionDigest === undefined
               ? Effect.fail(error)
-              : Effect.map(restored(), (source) => source.bytes)
+              : Effect.map(restored(error), (source) => source.bytes)
           )
         ) :
         pinned.bytes

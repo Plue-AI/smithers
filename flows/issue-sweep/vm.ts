@@ -25,7 +25,7 @@
  * Build the snapshot once per Smithers main (about two minutes):
  *   node flows/issue-sweep/test/vm-image.ts
  */
-import { makeDiskGate } from "./disk.ts"
+import { type DiskOptions, makeDiskGate } from "./disk.ts"
 export { statfsFree } from "./disk.ts"
 import { RunStore } from "@smthrs/run-store"
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
@@ -269,7 +269,7 @@ export interface Options {
   readonly freeBytes?: (() => number) | undefined
   /** Optional bounded cleanup seams for disk admission tests. */
   readonly diskInterval?: Duration.Input | undefined
-  readonly diskCleanup?: Pick<import("./disk.ts").DiskOptions, "cleanGo" | "prunePnpm" | "reapSettled"> | undefined
+  readonly diskCleanup?: Pick<DiskOptions, "cleanGo" | "prunePnpm" | "reapSettled"> | undefined
 }
 
 /** Waits, polling every `interval`, while the host has less than `minimum` bytes free. */

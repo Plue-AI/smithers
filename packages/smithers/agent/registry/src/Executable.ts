@@ -914,7 +914,7 @@ const loadMarkdown = (
               code: "body_unavailable",
               flow: descriptor.name,
               path,
-              message: "Approved source snapshot could not be restored",
+              message: `${error.message}; approved source snapshot ${cause.code}: ${cause.message}`,
               cause
             })
           )
@@ -1045,7 +1045,7 @@ const loadModule = (
             code: "body_unavailable",
             flow: descriptor.name,
             path,
-            message: "Approved source snapshot could not be restored",
+            message: `${error.message}; approved source snapshot ${cause.code}: ${cause.message}`,
             cause
           })
         ))

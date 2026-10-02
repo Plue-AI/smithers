@@ -4,11 +4,13 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, FileSystem, Layer, Schema } from "effect"
+import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
 import * as Discovery from "../src/Discovery.ts"
 import * as Executable from "../src/Executable.ts"
+import { fileURLToPath } from "node:url"
+import * as Registry from "../src/Registry.ts"
 import * as Snapshot from "../src/ExecutionSnapshot.ts"
 
 const platform = Layer.mergeAll(NodeCrypto.layer, NodeFileSystem.layer, NodePath.layer)
@@ -52,6 +54,118 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   ) as Effect.Effect<A, E>)
 
 describe("durable execution snapshots", () => {
+  it("verifies the production issue-sweep closure before evaluating any module", async () => {
+    await run(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = fileURLToPath(new URL("../../../../../flows", import.meta.url))
+      // Select this entry and its work child; measure their real transitive closure.
+      const discovery = Discovery.make({
+        ...fs,
+        readDirectory: (directory) => directory === root ? Effect.succeed(["issue-sweep"]) : fs.readDirectory(directory)
+      }, path)
+      const scanned = yield* discovery.scan({ source: "project", root, naming: "path" })
+      const descriptor = scanned.entries.find((entry) => entry.name === "issue-sweep")!
+      expect(descriptor).toBeDefined()
+      const verified = new Error("Verified closure reached evaluation boundary")
+      let loads = 0
+      const failure = yield* Executable.fromDescriptor(descriptor, {
+        delegates: [],
+        load: (_specifier, closure) => {
+          loads++
+          expect(closure!.modules.size).toBe((descriptor.body._tag === "Module" ? descriptor.body.imports!.length : 0) + 1)
+          return Effect.fail(verified)
+        }
+      }).pipe(Effect.flip)
+      expect(loads).toBe(1)
+      expect(failure.cause).toBe(verified)
+    }))
+  })
+
+  it.each(["missing", "corrupt", "lockfile_changed"] as const)(
+    "keeps live verification and snapshot %s diagnostics without evaluating unapproved source",
+    async (mode) => {
+      await run(Effect.gen(function*() {
+        const { fs, root, entry, digest, executable } = yield* fixture
+        const index = `${root}/.flows/executions/${digest}.json`
+        yield* fs.writeFileString(entry, "throw 'UNAPPROVED_SOURCE_MUST_NOT_RUN'")
+        if (mode === "missing") yield* fs.remove(index)
+        if (mode === "corrupt") yield* fs.writeFileString(index, '{"token":"SECRET_SNAPSHOT_CONTENT"}')
+        if (mode === "lockfile_changed") yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: '9.0'")
+        const snapshots = yield* Snapshot.makeFileSystem({ root })
+        let loads = 0
+        const failure = yield* Executable.fromDescriptor(executable.descriptor, {
+          delegates: [], snapshots,
+          load: () => { loads++; return Effect.succeed({ default: flow }) }
+        }).pipe(Effect.flip)
+        expect(loads).toBe(0)
+        expect(failure.message).toContain("changed")
+        expect(failure.message).toContain(`snapshot ${mode}:`)
+        expect(failure.message).not.toContain("SECRET_SNAPSHOT_CONTENT")
+        expect(failure.message).not.toContain("UNAPPROVED_SOURCE_MUST_NOT_RUN")
+        expect(failure.cause).toMatchObject({ code: mode })
+        const registry = yield* Registry.Registry.pipe(Effect.provide(
+          Registry.layerFromDescriptors([executable.descriptor], [], snapshots)
+        ))
+        const refused = yield* registry.loadBody("snapshot", digest).pipe(Effect.flip)
+        expect(refused.message).toContain("changed")
+        expect(refused.message).toContain(`snapshot ${mode}:`)
+        expect(refused.cause).toMatchObject({ code: mode })
+        // An absent approved identity cannot fall through to the current body.
+        const missingApproval = yield* registry.loadBody("snapshot", "0".repeat(64)).pipe(Effect.flip)
+        expect(missingApproval.code).toBe("execution_changed")
+        expect(missingApproval.message).toContain("Approved source snapshot could not be restored; snapshot missing:")
+      }))
+    }
+  )
+
+  it("retains markdown verification diagnostics when its approved snapshot is missing", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root } = yield* fixture
+      const entry = `${root}/flows/prompt/flow.mdx`
+      yield* fs.makeDirectory(`${root}/flows/prompt`, { recursive: true })
+      yield* fs.writeFileString(entry, "---\ndescription: A retained prompt\nflows: [snapshot]\n---\nApproved body")
+      const discovery = yield* Discovery.Discovery
+      const descriptor = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" }))
+        .entries.find((entry) => entry.name === "prompt")!
+      yield* fs.writeFileString(entry, "UNAPPROVED_PROMPT_MUST_NOT_LOAD")
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      const failure = yield* Executable.fromDescriptor(descriptor, { delegates: [flow], snapshots }).pipe(Effect.flip)
+      expect(failure.code).toBe("body_unavailable")
+      expect(failure.message).toContain("changed")
+      expect(failure.message).toContain("snapshot missing: Execution snapshot is unavailable")
+      expect(failure.message).not.toContain("UNAPPROVED_PROMPT_MUST_NOT_LOAD")
+      expect(failure.cause).toMatchObject({ code: "missing" })
+    }))
+  })
+
+  it("retains the unsupported import refusal when a fresh plan has no admitted snapshot", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, entry } = yield* fixture
+      yield* fs.writeFileString(entry, `${source}\nexport type Options = Pick<import("./helper.ts").Options, "name">`)
+      const discovery = yield* Discovery.Discovery
+      const descriptor = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })).entries[0]!
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      let loads = 0
+      const failure = yield* Executable.fromDescriptor(descriptor, {
+        delegates: [], snapshots,
+        load: () => { loads++; return Effect.succeed({ default: flow }) }
+      }).pipe(Effect.flip)
+      expect(loads).toBe(0)
+      expect(failure.message).toContain("runtime module cache")
+      expect(failure.message).toContain("import() or require()")
+      expect(failure.message).toContain("snapshot missing: Execution snapshot is unavailable")
+      expect(failure.cause).toMatchObject({ code: "missing" })
+      yield* fs.writeFileString(entry, `${source}\nimport type { Options } from "./helper.ts"\nexport type Selected = Pick<Options, "name">`)
+      const fresh = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" })).entries[0]!
+      yield* Executable.fromDescriptor(fresh, {
+        delegates: [], snapshots,
+        load: () => { loads++; return Effect.succeed({ default: flow }) }
+      })
+      expect(loads).toBe(1)
+    }))
+  })
+
   it.each(["changed", "deleted"] as const)(
     "restores approved helper and entry in a fresh service after %s live bytes",
     async (mode) => {
