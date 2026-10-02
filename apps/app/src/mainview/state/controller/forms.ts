@@ -618,6 +618,17 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const accountEnded = () => ctx.accountEpoch !== epoch
     const existingBoxes = card.payload.afterBox === undefined ? undefined : new Set(store.collections.cloudWorkspaces.keys())
     const selectedBefore = store.session().activeRepoKey
+    // The submitting receipt can wait while the person navigates. Frame
+    // revisions distinguish later MAX/MIN/ABA gestures from card data writes.
+    const { activeWorkspaceId, activeBranchId, activeFrameId } = store.session()
+    const frameRevision = activeFrameId === undefined ? undefined : collections.frames.get(activeFrameId)?.revision
+    const presentationCurrent = () => {
+      const current = store.session()
+      return current.activeWorkspaceId === activeWorkspaceId && current.activeBranchId === activeBranchId &&
+        current.activeFrameId === activeFrameId &&
+        (current.activeFrameId === undefined ? undefined : collections.frames.get(current.activeFrameId)?.revision) === frameRevision &&
+        gesture?.presentationCurrent?.() !== false
+    }
     await patch(card, { ...card.payload, submitting: true }, "active")
     if (accountEnded()) {
       continuations.delete(cardId)
@@ -631,7 +642,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         name: flow,
         payload,
         actor: asAgent ? "agent" : "user",
-        ...(!asAgent && gesture !== undefined ? { gesture: { ...gesture, name: flow } } : {}),
+        ...(!asAgent ? { gesture: { ...gesture, name: flow, presentationCurrent, release: gesture?.release ?? (() => {}) } } : {}),
         ...(args === "" ? {} : { display: args }),
         ...(asAgent && continuation !== undefined ? { invocation: continuation } : {})
       })

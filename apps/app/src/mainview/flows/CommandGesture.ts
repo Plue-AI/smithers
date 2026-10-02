@@ -12,6 +12,8 @@ export interface CommandGesture {
   readonly openExternal?: (url: string) => Promise<boolean>
   readonly copyText?: (text: string) => Promise<void>
   readonly chatInputCurrent?: () => boolean
+  /** An awaited form continuation may reveal its result only while its frame gesture is current. */
+  readonly presentationCurrent?: () => boolean
   /** Submission owns only the input captured before its command receipt wait. */
   readonly composerDraftCurrent?: () => boolean
   /** The local preference already changed; the binding awaits its save without replaying it. */

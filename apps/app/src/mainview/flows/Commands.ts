@@ -486,7 +486,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     const staysInMaximizedCard = (originCardId !== undefined && originCardId === maximizedCardId) ||
       name === "card.maximize" || name === "card.minimize" || name.startsWith("card.history.") ||
       name.startsWith("frame.") || OVER_MAXIMIZED_CARD.has(name) || transportsCommand
-    if (invoker === "user" && maximizedCardId != null && !staysInMaximizedCard) actions.minimizeCard()
+    if (invoker === "user" && maximizedCardId != null && !staysInMaximizedCard && gesture?.presentationCurrent?.() !== false) actions.minimizeCard()
     // Only the human's local field edit has a synchronous recovery preparation.
     // Agent input waits for capability authorization in settle before dispatch.
     let pendingFieldInput: PendingFieldInput | PendingFormInput | undefined
@@ -674,7 +674,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       actions.deferCommand(nameOf(target), args ?? null, unmet.id)
       // The deferral is its own trace; the fulfilling flow traces itself below.
       if (canPublish()) trace(invoker, name, args, startedAt, "deferred", `waits on ${unmet.id}`)
-      return runAs(invoker, unmet.fulfill, undefined, new Set([...seen, unmet.fulfill]))
+      return runAs(invoker, unmet.fulfill, undefined, new Set([...seen, unmet.fulfill]), undefined, undefined, undefined,
+        gesture?.presentationCurrent === undefined ? undefined : { name: unmet.fulfill, presentationCurrent: gesture.presentationCurrent, release: () => {} })
     }
     // JSON can parse successfully while omitting a required schema field.
     // Let the form collect it before the binding can produce an input error.
@@ -690,7 +691,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
        * fields to ask for (none today).
        */
       // A form is a new transcript card: a maximized card must not hide it.
-      if (invoker === "user" && actions.snapshot().maximizedCardId != null) actions.minimizeCard()
+      if (invoker === "user" && actions.snapshot().maximizedCardId != null && gesture?.presentationCurrent?.() !== false) actions.minimizeCard()
       const rendered = acting.renderFlowForm({
         name: nameOf(target),
         args,
