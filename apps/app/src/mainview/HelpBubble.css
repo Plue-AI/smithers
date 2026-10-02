@@ -99,7 +99,7 @@
 }
 
 .help-bubble-dismiss:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
-.help-bubble-dismiss:focus-visible { outline: 2px solid var(--g-accent, #286447); outline-offset: 2px; }
+.help-bubble-dismiss:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .help-anchor-target { display: flex; justify-content: center; max-width: 100%; }
 
 .help-anchor[data-placement="above"] > .help-bubble {

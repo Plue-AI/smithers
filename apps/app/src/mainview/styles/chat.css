@@ -993,7 +993,7 @@
 .prompt-queue ol { list-style: none; padding: 0; margin: 4px 0 0; }
 .prompt-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-queue button, .composer-queue-action { font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer; }
-.prompt-queue button:focus-visible, .composer-queue-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.prompt-queue button:focus-visible, .composer-queue-action:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .composer-queue-action:disabled { opacity: .5; cursor: default; }
 
 .toast-worker-actions { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -1004,11 +1004,11 @@
 .wiki-space-switch button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 .wiki-tree { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .wiki-tree-search { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); }
-.wiki-tree-search:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.wiki-tree-search:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .wiki-tree-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .wiki-tag { padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface); color: var(--text-muted); font: inherit; font-size: var(--fs-caption); }
 .wiki-tag[aria-pressed="true"] { border-color: var(--brand-border); background: var(--brand-soft); color: var(--text); }
-.wiki-tag:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.wiki-tag:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .wiki-tree-error { margin: 0; color: var(--danger); font-size: var(--fs-caption); }
 .world-document-notice { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--border); color: var(--warning); font-size: var(--fs-small); }
 .world-attachment { display: grid; place-items: center; flex: 1; min-height: 0; padding: 24px; overflow: auto; }

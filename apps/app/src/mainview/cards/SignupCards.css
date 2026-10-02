@@ -1,6 +1,6 @@
 .signup { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .signup button { color: var(--text); font: inherit; }
-.signup button:focus-visible, .signup a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.signup button:focus-visible, .signup a:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 
 /* Hero */
 .signup-hero { text-align: center; padding: 40px 0 8px; }

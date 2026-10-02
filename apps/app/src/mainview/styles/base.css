@@ -55,7 +55,7 @@ textarea {
 }
 
 :focus-visible {
-	outline: 2px solid var(--brand);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
 }
 
@@ -110,7 +110,7 @@ textarea {
 .session-navigation { position: absolute; inset: 0 0 auto; height: var(--session-strip); z-index: 60; background: inherit; }
 .session-identity { position: absolute; right: 12px; top: 0; height: var(--session-strip); display: flex; align-items: center; }
 .session-identity .chrome-action { width: auto; }
-.session-identity .chrome-action:focus-visible { outline: 2px solid var(--g-accent); outline-offset: 2px; }
+.session-identity .chrome-action:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .local-auth-dialog {
 	position: fixed;
 	top: calc(var(--session-strip) + var(--sp-2));

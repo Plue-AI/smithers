@@ -54,7 +54,7 @@
   }
 }
 .guide-button:focus-visible {
-  outline: 2px solid var(--g-accent);
+  outline: 2px solid var(--ring-border);
   outline-offset: 2px;
 }
 .guide-button[data-pressed] {

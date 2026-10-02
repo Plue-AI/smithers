@@ -63,7 +63,7 @@
 	border-radius: 3px;
 }
 .smithers-card-details > summary:focus-visible {
-	outline: 2px solid var(--brand);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 4px;
 }
 .smithers-card-details dl {
@@ -698,7 +698,7 @@
 	opacity: 1;
 }
 .control-focus-release[data-control-focus-release]:focus-visible {
-	outline: 2px solid var(--action-primary);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
 }
 
@@ -981,7 +981,7 @@
 	gap: 2px;
 }
 .workflow-repo-list:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
 	border-radius: 8px;
 }
@@ -1138,7 +1138,7 @@
 	font-size: var(--fs-small);
 }
 .flow-form-row > :is(input:not([type="checkbox"]), textarea, select):focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
 	border-color: var(--ring-border);
 }
@@ -2018,7 +2018,7 @@
 
 .coding-poc { overflow-wrap: anywhere; }
 .coding-poc .run-trace-code { max-height: 10rem; }
-.coding-poc .run-trace-code:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.coding-poc .run-trace-code:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 
 /* The commits list (commit-list) and one commit (commit): GitHub's Commits page
    in the app's tokens, so every palette and dark mode follow. */
@@ -2184,7 +2184,7 @@
 .repo-update-item[data-read="false"] .ghc-row-title-text { font-weight: 650; }
 .repo-update-details { margin-right: auto; color: var(--text-muted); font-size: var(--fs-small); }
 .repo-update-details > summary { cursor: pointer; width: fit-content; border-radius: 3px; }
-.repo-update-details > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+.repo-update-details > summary:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 4px; }
 .repo-update-details dl { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 8px 0 0; }
 .repo-update-details dd { margin: 0; font-variant-numeric: tabular-nums; }
 .repo-update-actions svg { margin-right: 4px; }

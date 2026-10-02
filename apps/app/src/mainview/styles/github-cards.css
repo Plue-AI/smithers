@@ -175,7 +175,7 @@
 	border: 1px solid var(--border-strong); border-radius: var(--r-sm);
 	background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small);
 }
-.ghc-composer-input:focus-visible { outline: 2px solid var(--ring); outline-offset: 0; border-color: var(--ring-border); }
+.ghc-composer-input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 0; border-color: var(--ring-border); }
 .ghc-composer-actions,
 .ghc-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .ghc-actions svg,

@@ -129,6 +129,6 @@
 	font-size: var(--fs-caption);
 }
 .app-chat-controls .guide-button:focus-visible {
-	outline: 2px solid var(--brand);
+	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;
 }

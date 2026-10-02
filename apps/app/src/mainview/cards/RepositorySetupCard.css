@@ -3,7 +3,7 @@
 .repository-setup button { border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; background: var(--surface); color: var(--text); font: inherit; overflow-wrap: anywhere; }
 .repository-setup button:hover:not(:disabled) { background: var(--hover-subtle); }
 .repository-setup button:disabled { color: var(--text-muted); cursor: default; opacity: .6; }
-.repository-setup :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.repository-setup :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 .repository-setup .setup-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; overflow-wrap: anywhere; }
 .repository-setup .setup-tabs { display: flex; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); }
 .repository-setup .setup-tabs button { border: 0; border-radius: 0; background: transparent; padding: 8px 2px; }
