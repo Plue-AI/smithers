@@ -33,7 +33,9 @@ jobs:
     name: apps gates
     runs-on: ubuntu-latest
     # Setup 3 min, UI typecheck 1, unit tests 7, conformance 1, browser suite
-    # ~22 (30m target timeout), TUI ~10, server 4, site 4: ~51 typical, ~59 worst.
+    # ~22 (30m target timeout), server 4, site 4: ~41 typical, ~49 worst.
+    # The TUI suites stay in ci.yml only: smithers.sh doesn't ship the TUI, so
+    # a TUI red can't make a site deploy unsafe (#3483).
     timeout-minutes: 75
     env:
       SMITHERS_CACHE_URL: ${{ secrets.SMITHERS_CACHE_URL }}
@@ -88,10 +90,6 @@ jobs:
         run: pnpm exec smthrs test '//apps/app:conformance' --verbose
       - name: UI browser end-to-end suite
         run: pnpm exec smthrs test '//apps/app:browserE2e' --verbose
-      - name: TUI typecheck and tests
-        run: pnpm exec smthrs ci '//apps/tui/...' --verbose
-      - name: TUI end-to-end suite
-        run: pnpm exec smthrs test '//apps/tui:e2eTests' --verbose
       - name: Server typecheck and tests
         run: pnpm exec smthrs ci '//apps/server/...' --verbose
       - name: Site build and tests

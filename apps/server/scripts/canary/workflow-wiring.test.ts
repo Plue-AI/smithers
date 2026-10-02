@@ -182,7 +182,11 @@ describe("canary probes are wired into a gate", () => {
     const appsE2e = appTargets(ci.jobs["apps-e2e"]!)
     expect(appsE2e.length).toBeGreaterThanOrEqual(4)
     const gate = appTargets(deploy.jobs.gate)
-    expect(appsE2e.filter((target) => !gate.includes(target))).toEqual([])
+    // smithers.sh doesn't ship the TUI, so its suites gate CI, not the site deploy (#3483).
+    const notDeployed = ["//apps/tui/...", "//apps/tui:e2eTests"]
+    for (const target of notDeployed) expect(appsE2e).toContain(target)
+    expect(gate.filter((target) => target.startsWith("//apps/tui"))).toEqual([])
+    expect(appsE2e.filter((target) => !notDeployed.includes(target) && !gate.includes(target))).toEqual([])
     for (const target of ["//apps/server/...", "//apps/site/..."]) expect(gate).toContain(target)
     expect(JSON.stringify(deploy)).not.toContain("continue-on-error")
   })
