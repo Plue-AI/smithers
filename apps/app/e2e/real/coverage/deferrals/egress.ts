@@ -1,3 +1,3 @@
 export const egress = [
-  "egress.session",
+  "egress.allow", "egress.session",
 ] as const

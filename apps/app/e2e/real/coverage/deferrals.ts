@@ -20,6 +20,7 @@ import { flows } from "./deferrals/flows"
 import { github } from "./deferrals/github"
 import { history } from "./deferrals/history"
 import { integrations } from "./deferrals/integrations"
+import { issueSweep } from "./deferrals/issueSweep"
 import { issues } from "./deferrals/issues"
 import { notifications } from "./deferrals/notifications"
 import { plugins } from "./deferrals/plugins"
@@ -75,6 +76,7 @@ export const OWED_ACTIONS_BY_FAMILY = {
   github,
   history,
   integrations,
+  "issue-sweep": issueSweep,
   issues,
   notifications,
   plugins,
@@ -97,7 +99,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "chat", "chat.dictate", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle",
     "chat.queue", "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload", "cloud.prompt", "flow.plan.select",
     "flow.plan.tab", "flow.repo.choose", "input.mode", "palette.actions", "palette.recent",
-    "history.view", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
+    "history.view", "runs.burndown.filter", "runs.burndown.select", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select", "runs.graph.tab",
     "smithers.who", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
     "toast.dismiss", "wiki.pane", "wiki.select", "wiki.view", "workspace.rename.edit"
   ],

@@ -145,12 +145,14 @@ test("agent planning refuses a missing box and change.request waits for human co
 test("Review a PR asks for a box before reading its context, and its agent request only asks for confirmation", async () => {
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
+    // The form carries the review it continues (#3119), so its card is scoped to that act.
+    const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
     expect((await controller.commands.run("prs.triage", `4 ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
-    await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
+    expect(boxForms()).toEqual([expect.objectContaining({ id: expect.stringMatching(/^form-box\.open-prs\.triage-/), payload: expect.objectContaining({ draft: { repo } }) })])
+    await store.dispatch({ type: "card.removed", actor: "user", id: boxForms()[0]!.id }).isPersisted.promise
     const agent = await controller.commands.runForAgent("prs.triage", `4 ${repo}`)
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
-    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(boxForms()).toEqual([])
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })

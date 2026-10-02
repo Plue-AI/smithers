@@ -361,7 +361,7 @@ describe("the local origin", () => {
         for (const method of ["GET", "POST", "DELETE"]) {
           const response = await fetch(`${proxied.origin}${path}`, { method, headers })
           expect(response.status).toBe(404)
-          expect(await response.json()).toMatchObject({ code: "not_found" })
+          expect(await response.json()).toMatchObject({ error: { code: "not_found" }, code: "native_not_found", origin: "local" })
           expect(seen).toHaveLength(8)
         }
       }
