@@ -64,6 +64,7 @@ test-results/
 # Local agent and review scratch
 .gstack/
 .smithers-review/
+.review-tmp/
 .e2e-flakes/
 REVIEW-*.md
 # Review campaign working docs: intermediate evidence and plans, kept on disk, never committed

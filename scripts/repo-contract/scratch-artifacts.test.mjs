@@ -41,10 +41,13 @@ const tracked = (repositoryRoot = root, run = spawnSync) => {
   return result.stdout.split("\n").filter((path) => path.startsWith("apps/"))
 }
 
-/** A captured shell exit code, or anything an enrollment sweep wrote beside it. */
+/**
+ * A captured shell exit code, anything an enrollment sweep wrote beside it, or
+ * a review session's throwaway script under `.review-tmp/`.
+ */
 const isScratch = (path) => {
   const name = basename(path)
-  return name.startsWith(".enrollment-") || name.endsWith(".exit")
+  return name.startsWith(".enrollment-") || name.endsWith(".exit") || path.split("/").includes(".review-tmp")
 }
 
 describe("the apps' tracked files", () => {
@@ -74,14 +77,15 @@ it("reads jj when the checkout has one, Git otherwise, and flags only scratch na
       assert.deepEqual(args, ["file", "list", "--ignore-working-copy", "apps"])
       return {
         status: 0,
-        stdout: "apps/app/.enrollment-e2e.exit\napps/app/.enrollment-sample.txt\napps/server/probe.exit\napps/app/src/exit.ts\napps/app/.gitignore\n",
+        stdout: "apps/app/.enrollment-e2e.exit\napps/app/.enrollment-sample.txt\napps/server/probe.exit\napps/app/src/exit.ts\napps/app/.gitignore\napps/app/.review-tmp/peek.mjs\napps/app/src/review-tmp.ts\n",
         stderr: ""
       }
     })
     assert.deepEqual(files.filter(isScratch), [
       "apps/app/.enrollment-e2e.exit",
       "apps/app/.enrollment-sample.txt",
-      "apps/server/probe.exit"
+      "apps/server/probe.exit",
+      "apps/app/.review-tmp/peek.mjs"
     ])
     assert.throws(() => tracked(fixture, () => ({ status: 1, stdout: "", stderr: "inventory unavailable" })), /inventory unavailable/)
   } finally { rmSync(fixture, { recursive: true, force: true }) }
@@ -123,4 +127,11 @@ it("ignores the registry's module load siblings and none of their originals", ()
     ".smithers/target-index.json"
   ]
   assert.deepEqual(ignoredByRoot([...siblings, ...originals]), siblings)
+})
+
+it("ignores review scratch under .review-tmp/ and nothing named like it", () => {
+  // A review session left nine throwaway scripts in apps/app/.review-tmp/.
+  const scratch = ["apps/app/.review-tmp/peek.mjs", "apps/app/.review-tmp/record-debug.mjs", "flows/review/.review-tmp/notes.md"]
+  const source = ["apps/app/src/review-tmp.ts", "flows/review/flow.ts"]
+  assert.deepEqual(ignoredByRoot([...scratch, ...source]), scratch)
 })
