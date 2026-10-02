@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { operation } from "../src/app-operations"
+import { NoInput, operation } from "../src/app-operations"
+import type { Operation } from "../src/app-operations"
 import { WIKI_DISPLAY_NAME, wikiOperations, wikiSurfaceOperations } from "../src/app-operations/wiki"
+import { formFieldsFor, submissionPayload } from "../src/flow-form"
 
-const all = [...wikiSurfaceOperations, ...wikiOperations]
+const all: ReadonlyArray<Operation> = [...wikiSurfaceOperations, ...wikiOperations]
 const named = (name: string) => {
   const found = all.find((candidate) => candidate.name === name)
   if (found === undefined) throw new Error(`no ${name} operation`)
@@ -65,6 +67,62 @@ describe("wiki operations", () => {
 })
 
 describe("operation", () => {
+  test("NoInput accepts the empty object", () => {
+    const payload: typeof NoInput.Type = {}
+    const encoded: typeof NoInput.Encoded = {}
+    type Rejects<T> = T extends typeof NoInput.Type ? false : true
+    const rejectsProperties: Rejects<{ extra: string }> = true
+    const rejectsNumericProperties: Rejects<{ 0: number }> = true
+    const rejectsArrays: Rejects<[]> = true
+    const rejectsStrings: Rejects<string> = true
+    const rejectsNumbers: Rejects<number> = true
+    const rejectsBooleans: Rejects<boolean> = true
+    const rejectsNull: Rejects<null> = true
+    const rejectsUndefined: Rejects<undefined> = true
+    expect([
+      rejectsProperties, rejectsNumericProperties, rejectsArrays, rejectsStrings,
+      rejectsNumbers, rejectsBooleans, rejectsNull, rejectsUndefined
+    ]).toEqual(Array(8).fill(true))
+    expect(Schema.decodeUnknownSync(NoInput)(payload)).toEqual({})
+    expect(Schema.decodeUnknownSync(NoInput)(encoded)).toEqual({})
+  })
+
+  test.each([
+    ["unknown property", { extra: true }],
+    ["undefined property", { extra: undefined }],
+    ["numeric property", { 0: "value" }],
+    ["empty array", []],
+    ["populated array", [1]],
+    ["empty string", ""],
+    ["string", "input"],
+    ["zero", 0],
+    ["number", 42],
+    ["NaN", NaN],
+    ["infinity", Infinity],
+    ["true", true],
+    ["false", false],
+    ["null", null],
+    ["undefined", undefined]
+  ])("NoInput rejects %s at the public decoder", (_name, value) => {
+    expect(() => Schema.decodeUnknownSync(NoInput)(value)).toThrow()
+  })
+
+  test("NoInput derives a closed object JSON Schema", () => {
+    expect(Schema.toJsonSchemaDocument(NoInput).schema).toEqual({ type: "object", additionalProperties: false })
+  })
+
+  test("no-input consumers retain empty forms and valid submissions", () => {
+    const consumers = all.filter((declared) => declared.input === NoInput)
+    expect(consumers.length).toBeGreaterThan(0)
+    for (const declared of consumers) {
+      const fields = formFieldsFor(declared.input)
+      expect(fields).toEqual([])
+      expect(submissionPayload(declared.input, fields, {}, {})).toEqual({ payload: {} })
+      expect(Schema.decodeUnknownSync(declared.input)({})).toEqual({})
+      expect(() => Schema.decodeUnknownSync(declared.input)({ extra: 1 })).toThrow()
+    }
+  })
+
   test("keeps the declaration's literal shape for host binding", () => {
     const declared = operation({ name: "demo.run", summary: "Run the demo", input: Schema.Struct({ id: Schema.String }), requires: ["signed-in"] })
     expect(declared).toEqual({ name: "demo.run", summary: "Run the demo", input: declared.input, requires: ["signed-in"] })

@@ -123,4 +123,4 @@ export interface Operation<
 export const operation = <const O extends Operation>(declared: O): O => declared
 
 /** The input of an operation that takes nothing. */
-export const NoInput = Schema.Struct({})
+export const NoInput = Schema.Record(Schema.String, Schema.Never)
