@@ -1,6 +1,6 @@
 # Self-hosted distribution
 
-The MVP installs on one Apple Silicon Mac as a launchd service that runs the backend, PostgreSQL 18 and a microVM for each awake branch, served to teammates over Tailscale HTTPS ([MVP spec](../.specs/product/mvp.md) §6.1). That Mac install is being rebuilt in stage 1 (§11) and has no package yet.
+The MVP installs on one Apple Silicon Mac as a launchd service that runs the backend, PostgreSQL 18 and a microVM for each awake branch, reachable at any address the owner sets in Settings (loopback by default, plain HTTP works; HTTPS and remote access are the team's choice, for example `tailscale serve` or a reverse proxy; M-28) ([MVP spec](../.specs/product/mvp.md) §6.1). That Mac install is being rebuilt in stage 1 (§11) and has no package yet.
 
 The Docker image below is not an MVP install path, because it can't host microVMs.
 

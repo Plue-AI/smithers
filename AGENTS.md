@@ -10,7 +10,7 @@ decided one at a time.
 
 - The MVP is a self-hosted, multiplayer coding factory: one install on one Apple
   Silicon Mac, for one team, wrapping one GitHub repository. Members reach it
-  over Tailscale HTTPS. Smithers Cloud, billing and plans come after the MVP (M-09).
+  at the address the owner sets in Settings (M-28). Smithers Cloud, billing and plans come after the MVP (M-09).
 - Everything is a flow. A button, slash command, agent action, CLI command and
   API call run the same typed flow, and the factory's process is a flow in the
   repository.

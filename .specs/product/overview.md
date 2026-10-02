@@ -1,6 +1,6 @@
 # Smithers product overview
 
-Status: draft for Will's sign-off, 2026-10-02. High level only; details follow in separate specs.
+Status: signed off by Will, 2026-10-02. High level only. The details are in [mvp.md](mvp.md), the design in [`.specs/design/`](../design/) and the engineering in [`.specs/engineering/`](../engineering/).
 
 ## In one sentence
 
@@ -61,7 +61,7 @@ One source of truth for the factory's memory, stored as an Obsidian-compatible v
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ chat with the app agent                                 │
+│ the branch's conversation (people prompt the agents)    │
 │   ┌ card: diff ┐ ┌ card: run ┐ ┌ card: terminal ┐       │
 │   └────────────┘ └───────────┘ └────────────────┘       │
 │ background work: every running job, live, steerable     │
@@ -84,14 +84,19 @@ Issues and TODOs connect these: discussion becomes a TODO, and a TODO becomes wo
 
 This overview defines the product. A feature it doesn't name is a candidate to delete or defer, decided one at a time.
 
-## Details to specify next
+## Details
 
-- When a TODO is done: its GitHub pull request merges, or it lands on the forge's main.
-- What happens when two writers on one branch edit the same file at once.
-- GitHub wrapping: what syncs (refs, issues, pull requests) and how GitHub events reach a self-hosted machine.
-- Self-improvement: what the factory learns from, and how changes to its flows are reviewed.
-- Permissions and approvals on a shared branch.
-- Machine sizing: how many branch VMs one host runs.
-- The agent's benchmark results: which suite, which score, which artifacts.
-- Smithers Cloud's role relative to self-hosting.
-- Replacing `docs/mvp/PRODUCT.md` with this spec.
+Every detail this overview left open is decided in [mvp.md](mvp.md):
+
+| Question | Where it is decided |
+| --- | --- |
+| When a TODO is done | M-01: its pull request merges into `main` on GitHub |
+| Two writers editing one file | M-02: live co-editing; edits made outside the app are visible and recoverable (M-27) |
+| What syncs with GitHub | §6.3 and M-22 |
+| Self-improvement | M-04 and §6.12 |
+| Permissions and approvals | M-05 and §6.15: Owner, Maintainer, Member; people merge |
+| Machine sizing | M-06: derived from the detected host |
+| Benchmark claims | M-19: none without a sealed, paired run |
+| Smithers Cloud | M-09: after the MVP |
+| Conversations | M-08: one per branch, shared |
+| The old product spec | M-12: `docs/mvp/PRODUCT.md` is now a pointer |
