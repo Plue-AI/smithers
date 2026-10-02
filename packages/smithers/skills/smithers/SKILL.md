@@ -55,7 +55,7 @@ smthrs flow list
 smthrs flow plan hello --data '{"name":"world"}'
 smthrs flow start hello --data '{"name":"world"}' --json
 smthrs runs show <run-id>
-smthrs runs events <run-id> --follow
+smthrs runs logs <run-id> --follow
 ```
 
 Read the run ID from the receipt. Admission is not completion. Check the run's
