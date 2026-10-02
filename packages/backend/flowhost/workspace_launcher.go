@@ -13,17 +13,25 @@ import (
 )
 
 type workspaceLauncher struct {
-	runtime workspaceapi.WorkspaceRuntime
-	hosts   workspaceapi.WorkspaceManagedHosts
-	source  workspaceapi.WorkspaceSourceRevisionResolver
+	allowTrustedProcessForTests bool
+	runtime                     workspaceapi.WorkspaceRuntime
+	hosts                       workspaceapi.WorkspaceManagedHosts
+	source                      workspaceapi.WorkspaceSourceRevisionResolver
 }
 
 // NewWorkspaceLauncher connects the common durable binding to the runtime's
 // existing managed-service lifecycle. Only the runtime allocates addresses,
 // supplies guest paths, owns processes, and opens isolated control transports.
-func NewWorkspaceLauncher(runtime workspaceapi.WorkspaceRuntime) (Launcher, error) {
+func NewWorkspaceLauncher(runtime workspaceapi.WorkspaceRuntime, configs ...WorkspaceLauncherConfig) (Launcher, error) {
 	if runtime == nil {
 		return nil, errors.New("flow host launcher requires a workspace runtime")
+	}
+	if len(configs) > 1 {
+		return nil, errors.New("flow host launcher accepts at most one configuration")
+	}
+	allowTrustedProcessForTests := len(configs) == 1 && configs[0].AllowTrustedProcessForTests
+	if !allowedIsolation(runtime.Isolation(), allowTrustedProcessForTests) {
+		return nil, failure{code: "isolation_required"}
 	}
 	hosts, ok := runtime.(workspaceapi.WorkspaceManagedHosts)
 	if !ok || !runtime.Capabilities().ManagedHTTPHosts {
@@ -33,10 +41,24 @@ func NewWorkspaceLauncher(runtime workspaceapi.WorkspaceRuntime) (Launcher, erro
 	if !ok || !runtime.Capabilities().SourceRevision {
 		return nil, errors.New("workspace runtime does not resolve source revisions")
 	}
-	return &workspaceLauncher{runtime: runtime, hosts: hosts, source: source}, nil
+	return &workspaceLauncher{runtime: runtime, hosts: hosts, source: source, allowTrustedProcessForTests: allowTrustedProcessForTests}, nil
+}
+
+func (launcher *workspaceLauncher) Isolation() workspaceapi.IsolationLevel {
+	return launcher.runtime.Isolation()
+}
+
+func (launcher *workspaceLauncher) requireIsolation() error {
+	if !allowedIsolation(launcher.Isolation(), launcher.allowTrustedProcessForTests) {
+		return failure{code: "isolation_required"}
+	}
+	return nil
 }
 
 func (launcher *workspaceLauncher) InspectFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
+	if err := launcher.requireIsolation(); err != nil {
+		return Connection{}, err
+	}
 	spec, err := workspaceHostSpec(launch)
 	if err != nil {
 		return Connection{}, err
@@ -52,6 +74,9 @@ func (launcher *workspaceLauncher) InspectFlowHost(ctx context.Context, launch H
 }
 
 func (launcher *workspaceLauncher) StartFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
+	if err := launcher.requireIsolation(); err != nil {
+		return Connection{}, err
+	}
 	if launch.Superseded {
 		return Connection{}, errors.New("a superseded flow host is never started")
 	}
@@ -64,6 +89,9 @@ func (launcher *workspaceLauncher) StartFlowHost(ctx context.Context, launch Hos
 }
 
 func (launcher *workspaceLauncher) ResolveFlowHostSource(ctx context.Context, authority Authority) (string, error) {
+	if err := launcher.requireIsolation(); err != nil {
+		return "", err
+	}
 	if err := validateAuthority(authority.Target, authority); err != nil {
 		return "", err
 	}
@@ -150,6 +178,7 @@ func workspaceHostSpec(launch HostLaunch) (workspaceapi.ManagedHostSpec, error) 
 	}, nil
 }
 
+var _ IsolationLauncher = (*workspaceLauncher)(nil)
 var _ Launcher = (*workspaceLauncher)(nil)
 var _ SourceResolver = (*workspaceLauncher)(nil)
 var _ RetirementStopper = (*workspaceLauncher)(nil)

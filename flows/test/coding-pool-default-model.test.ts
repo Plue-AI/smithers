@@ -7,6 +7,7 @@ import { test, type TestContext } from "node:test"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import * as Host from "../coding/host.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 type Environment = Readonly<Record<string, string | undefined>>
 
@@ -16,6 +17,7 @@ const optionsFromEnv = (environment: Environment) =>
 
 const hostOptions = (implementationModel: string) => ({
   repositoryPath: "/unused",
+  systemFlows,
   gatewayId: "11111111-1111-4111-8111-111111111111",
   credential: "operator-key",
   implementationModel

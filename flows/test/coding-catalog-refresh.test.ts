@@ -1,3 +1,4 @@
+import { systemFlows } from "./fixtures/system-flows.ts"
 /*
  * The repository host's catalog, after one of its own runs writes a flow.
  *
@@ -23,7 +24,7 @@ import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -95,7 +96,7 @@ const host = (repositoryPath: string, stateRoot: string, registered: Array<strin
     const project = yield* Registry.make({
       sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
     }).pipe(Effect.provide(Discovery.layer))
-    const registry = bindRepositoryRegistry(project, builtins.registry, policy)
+    const registry = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows)
     const options = { delegates: [Agent, Project, Reserved] }
     const built = yield* repositoryCatalog(options, builtins.load).pipe(
       Effect.provideService(Registry.Registry, registry)
@@ -177,4 +178,133 @@ test("a reserved job declaration is held fixed against whatever the working tree
       }).pipe(Effect.provide(composed.layer))
     }).pipe(Effect.provide(platform))
   ))
+})
+
+/** Real metadata discovery over a minimal packaged merge and a mutable project. */
+const collisionHost = (repositoryPath: string, stateRoot: string, registered: Array<string>, packaged = true) =>
+  Effect.gen(function*() {
+    const defaults = join(stateRoot, "defaults")
+    yield* Effect.promise(async () => {
+      await mkdir(defaults, { recursive: true })
+      if (packaged) {
+        await mkdir(join(defaults, "merge"), { recursive: true })
+        await writeFile(
+          join(defaults, "merge", "flow.ts"),
+          `
+import { Flow } from "@smthrs/flow"
+import { Schema } from "effect"
+export default Flow.make("merge", { description: "Packaged merge", payload: {}, success: Schema.String })
+`
+        )
+      }
+    })
+    const make = (root: string, source: string) =>
+      Registry.make({ sources: [{ root, source, naming: "path" }] }).pipe(Effect.provide(Discovery.layer))
+    const base = yield* make(join(repositoryPath, "flows"), "project")
+    const defaultsRegistry = yield* make(defaults, "repository-host")
+    // A routine service wrapper must retain collision diagnostics.
+    const registry = Registry.Registry.of({
+      ...bindRepositoryRegistry(base, defaultsRegistry, policy, systemFlows)
+    })
+    const options = { delegates: [] }
+    const built = yield* repositoryCatalog(options, () =>
+      Effect.succeed({
+        default: Flow.make("merge", { payload: {}, success: Schema.String, body: () => Node.succeed("Packaged merge") })
+      })).pipe(Effect.provideService(Registry.Registry, registry))
+    return {
+      built,
+      layer: repositoryRegistration(options, built, Layer.empty).pipe(
+        Layer.provideMerge(Layer.mergeAll(observed(registered), Action.layerImplementations, NodeCrypto.layer)),
+        Layer.provideMerge(Layer.succeed(Registry.Registry, registry))
+      )
+    }
+  })
+
+const writeCollision = async (repositoryPath: string) => {
+  const directory = join(repositoryPath, "flows", "merge")
+  const marker = join(repositoryPath, "merge-imported")
+  await mkdir(directory, { recursive: true })
+  await writeFile(
+    join(directory, "flow.ts"),
+    `
+import { Flow } from "@smthrs/flow"
+import { Schema } from "effect"
+import { writeFileSync } from "node:fs"
+writeFileSync(${JSON.stringify(marker)}, "imported")
+export default Flow.make("merge", { description: "Repository merge", payload: {}, success: Schema.String })
+`
+  )
+  return marker
+}
+
+for (const initiallyPresent of [false, true]) {
+  test(`reserved merge diagnostics reconcile add/remove with a fixed packaged entry (initially ${initiallyPresent})`, async (t) => {
+    const { repositoryPath, stateRoot } = await workspace(t)
+    const registered: Array<string> = []
+    const marker = join(repositoryPath, "merge-imported")
+    if (initiallyPresent) await writeCollision(repositoryPath)
+    await Effect.runPromise(Effect.scoped(
+      Effect.gen(function*() {
+        const composed = yield* collisionHost(repositoryPath, stateRoot, registered)
+        return yield* Effect.gen(function*() {
+          const catalog = yield* Executable.Catalog
+          const refresh = yield* Executable.Refresh
+          const packaged = catalog.executables.find((entry) => entry.descriptor.name === "merge")
+          assert.ok(packaged)
+          const atStartup = [...registered]
+          const expected = [{
+            flow: "merge",
+            code: "reserved_name",
+            path: join(repositoryPath, "flows", "merge", "flow.ts")
+          }]
+          const refusals = () => catalog.refused.map(({ flow, code, path }) => ({ flow, code, path }))
+          assert.deepEqual(refusals(), initiallyPresent ? expected : [])
+          if (!initiallyPresent) yield* Effect.promise(() => writeCollision(repositoryPath))
+          assert.equal((yield* refresh.flow("merge"))._tag, "Fixed")
+          assert.deepEqual(refusals(), expected)
+          // Mixed concurrent refreshes must publish the latest discovery once,
+          // even when another selected name has no descriptor.
+          const repeated = yield* Effect.all([refresh.flow("merge"), refresh.flow("absent")], {
+            concurrency: "unbounded"
+          })
+          assert.deepEqual(repeated.map((result) => result._tag), ["Fixed", "Removed"])
+          assert.deepEqual(refusals(), expected)
+          assert.equal(catalog.executables.find((entry) => entry.descriptor.name === "merge"), packaged)
+          assert.ok(Graph.build(packaged.flow, { input: {} }).nodes.some((node) => node.payload === "Packaged merge"))
+          assert.equal(yield* catalog.load!("merge"), packaged)
+          yield* Effect.promise(() => rm(join(repositoryPath, "flows", "merge"), { recursive: true }))
+          assert.equal((yield* refresh.flow("merge"))._tag, "Fixed")
+          assert.deepEqual(refusals(), [])
+          yield* Effect.all([refresh.flow("absent"), refresh.flow("merge")], { concurrency: "unbounded" })
+          assert.deepEqual(refusals(), [])
+          assert.equal(catalog.executables.find((entry) => entry.descriptor.name === "merge"), packaged)
+          assert.deepEqual(registered, atStartup)
+        }).pipe(Effect.provide(composed.layer))
+      }).pipe(Effect.provide(platform))
+    ))
+    await assert.rejects(access(marker), { code: "ENOENT" })
+  })
+}
+
+test("a live reserved collision without a packaged executable remains a typed refusal", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  await Effect.runPromise(Effect.scoped(
+    Effect.gen(function*() {
+      const composed = yield* collisionHost(repositoryPath, stateRoot, [], false)
+      return yield* Effect.gen(function*() {
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        yield* Effect.promise(() => writeCollision(repositoryPath))
+        assert.equal((yield* refresh.flow("merge"))._tag, "Removed")
+        assert.equal(catalog.refused.find((entry) => entry.flow === "merge")?.code, "reserved_name")
+        const result = yield* Effect.result(catalog.load!("merge"))
+        assert.equal(result._tag, "Failure")
+        if (result._tag === "Failure") assert.equal(result.failure.code, "reserved_name")
+        yield* Effect.promise(() => rm(join(repositoryPath, "flows", "merge"), { recursive: true }))
+        yield* refresh.flow("merge")
+        assert.deepEqual(catalog.refused, [])
+      }).pipe(Effect.provide(composed.layer))
+    }).pipe(Effect.provide(platform))
+  ))
+  await assert.rejects(access(join(repositoryPath, "merge-imported")), { code: "ENOENT" })
 })

@@ -1,3 +1,4 @@
+import { systemFlows } from "./system-flows.ts"
 import { NodeServices } from "@effect/platform-node"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
@@ -13,7 +14,7 @@ const found = await Effect.runPromise(Effect.gen(function*() {
   const project = yield* Registry.make({
     sources: [{ root: join(root, "repository", "flows"), source: "project", naming: "path" }]
   }).pipe(Effect.provide(Discovery.layer))
-  const registry = bindRepositoryRegistry(project, builtins.registry, "a".repeat(64))
+  const registry = bindRepositoryRegistry(project, builtins.registry, "a".repeat(64), systemFlows)
   const descriptor = yield* registry.get("pr-triage")
   const body = yield* registry.loadBody("pr-triage")
   const prompt = yield* registry.runPrompt("pr-triage", input)

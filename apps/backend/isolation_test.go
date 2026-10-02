@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -163,5 +165,39 @@ func TestMicroVMIsolationRefusesWithoutGuestHelper(t *testing.T) {
 	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), bundle)
 	if !errors.Is(err, microsandbox.ErrUnavailable) {
 		t.Fatalf("a Linux helper was refused: %v", err)
+	}
+}
+
+// The trusted runtime remains available to the packaged model host, but cannot
+// bind a coding host that would import repository flows on the install host.
+func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "process")
+	root := t.TempDir()
+	runtimes, err := openExecutionRuntimes(context.Background(), root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtimes.Close()
+	if runtimes.control.Isolation() != workspaceapi.IsolationTrustedProcess {
+		t.Fatal("model host control runtime must remain trusted process")
+	}
+	launcher, err := flowhost.NewWorkspaceLauncher(runtimes.control)
+	if launcher != nil {
+		t.Fatal("coding host acquired the control runtime")
+	}
+	var refusal flowruntime.Failure
+	if !errors.As(err, &refusal) || refusal.FlowRuntimeCode() != "isolation_required" || refusal.FlowRuntimeRetryable() {
+		t.Fatalf("control runtime refusal = %v", err)
+	}
+	var classified interface{ FlowRuntimeClass() string }
+	if !errors.As(err, &classified) || classified.FlowRuntimeClass() != "infra" {
+		t.Fatalf("control runtime refusal lacks infra class: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "workspaces", "workspaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatal("refused coding host allocated an execution workspace")
 	}
 }

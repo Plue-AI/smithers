@@ -66,6 +66,7 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 		return service.runtimeError(lease, err, checkpoint)
 	}
 	checkpoint.FailureCode = ""
+	checkpoint.FailureClass = ""
 	checkpoint.FailureObservedAt = 0
 	checkpoint.Identity = identity
 	marker, err := json.Marshal(checkpoint)
@@ -557,7 +558,7 @@ func (service *Service) fail(lease *jobs.Lease, code string, checkpoint RuntimeC
 	}
 	receipt := terminalReceipt{
 		Kind: "bridge-refused", Runtime: checkpoint.Identity, Receipt: checkpoint.Receipt,
-		Run: checkpoint.Run, Cursor: checkpoint.Cursor, ErrorCode: code, Projection: checkpoint.Projection,
+		Run: checkpoint.Run, Cursor: checkpoint.Cursor, ErrorCode: code, ErrorClass: checkpoint.FailureClass, Projection: checkpoint.Projection,
 	}
 	settleContext, cancel := context.WithTimeout(context.Background(), service.runtimeCallTimeout)
 	defer cancel()
@@ -566,6 +567,7 @@ func (service *Service) fail(lease *jobs.Lease, code string, checkpoint RuntimeC
 
 func (service *Service) runtimeError(lease *jobs.Lease, err error, checkpoint RuntimeCheckpoint) error {
 	code, retryable := preRunRuntimeFailure(err, checkpoint.RunID)
+	checkpoint.FailureClass = runtimeFailureClass(err)
 	if retryable {
 		// Persist a product observation even when resolution failed before a
 		// run exists. Never submit another operation from reconnect or polling.
@@ -725,4 +727,19 @@ func mustJSON(value any) json.RawMessage {
 		panic(fmt.Sprintf("flow dispatch: encode internal receipt: %v", err))
 	}
 	return encoded
+}
+
+// Classes are optional on older runtime failures. Only product-envelope classes
+// are persisted; an unrecognized adapter value never becomes product UI copy.
+func runtimeFailureClass(err error) string {
+	var classified interface{ FlowRuntimeClass() string }
+	if !errors.As(err, &classified) {
+		return ""
+	}
+	switch class := classified.FlowRuntimeClass(); class {
+	case "user", "permission", "capacity", "github", "infra", "conflict":
+		return class
+	default:
+		return ""
+	}
 }

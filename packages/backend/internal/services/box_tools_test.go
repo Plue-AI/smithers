@@ -23,6 +23,10 @@ type toolsRuntime struct {
 	commands  []workspaceapi.Command
 }
 
+func (*toolsRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationTrustedProcess
+}
+
 func (r *toolsRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{Execution: r.execution}
 }

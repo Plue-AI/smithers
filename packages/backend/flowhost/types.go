@@ -12,10 +12,14 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // CatalogCoding is the one packaged host family: the box's coding host.
 const CatalogCoding = "coding"
+
+// SystemFlowsEnv carries the packaged, non-overridable flow names to the host.
+const SystemFlowsEnv = "SMITHERS_SYSTEM_FLOWS"
 
 var ErrHostNotRunning = errors.New("flow host is not running")
 
@@ -43,6 +47,8 @@ type SecretCodec interface {
 // Executable is supplied locally by the distribution; resolving a catalog
 // never downloads an artifact.
 type Catalog struct {
+	// SystemFlows names the install-owned flows repository code cannot override.
+	SystemFlows         []string
 	Key                 string
 	Family              string
 	Executable          string
@@ -206,6 +212,18 @@ type Launcher interface {
 	StartFlowHost(context.Context, HostLaunch) (Connection, error)
 }
 
+// IsolationLauncher reports the execution guarantee of a launcher. Missing or
+// unknown guarantees are refused; decorators must forward the underlying level.
+type IsolationLauncher interface {
+	Isolation() workspaceapi.IsolationLevel
+}
+
+// WorkspaceLauncherConfig allows process lifecycle tests to exercise the real
+// adapter explicitly. Install configuration must never enable this exception.
+type WorkspaceLauncherConfig struct {
+	AllowTrustedProcessForTests bool
+}
+
 // SourceResolver is an optional launcher facet. It captures the authorized
 // workspace's immutable source snapshot; artifact build provenance is unrelated.
 // A missing/dirty/unreadable snapshot must fail, never manufacture a revision.
@@ -257,10 +275,13 @@ func (active ActiveRunsFunc) ActiveFlowRuns(ctx context.Context, host Binding) (
 }
 
 type Config struct {
-	Store    BindingStore
-	Targets  TargetResolver
-	Launcher Launcher
-	Catalogs []Catalog
+	// AllowTrustedProcessForTests permits trusted-process test fixtures only.
+	// It never permits missing or unknown isolation guarantees.
+	AllowTrustedProcessForTests bool
+	Store                       BindingStore
+	Targets                     TargetResolver
+	Launcher                    Launcher
+	Catalogs                    []Catalog
 	// ActiveRuns defers a host upgrade while work depends on the superseded
 	// host. Without it, an upgrade replaces the host at once.
 	ActiveRuns ActiveRuns

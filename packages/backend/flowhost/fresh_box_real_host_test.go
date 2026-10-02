@@ -99,7 +99,7 @@ func TestFreshBoxRealManagedCodingHost(t *testing.T) {
 		require.NoError(t, commandErr)
 		require.Zero(t, result.ExitCode, "%v: %s", args, result.Stderr)
 	}
-	launcher, err := NewWorkspaceLauncher(workspaces)
+	launcher, err := NewWorkspaceLauncher(workspaces, WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
 	require.NoError(t, err)
 	authority := Authority{Target: flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: uuid.NewString(), WorkspaceID: workspace.ID}, RepositoryID: 5, UserID: 9, WorkspaceID: workspace.ID, CatalogKey: CatalogCoding}
 	revision, err := launcher.(SourceResolver).ResolveFlowHostSource(ctx, authority)
@@ -107,7 +107,13 @@ func TestFreshBoxRealManagedCodingHost(t *testing.T) {
 	require.Len(t, revision, 40)
 	t.Logf("fresh JJ source revision=%s", revision)
 	authority.SourceRevision = revision
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: artifact, ArtifactDigest: digest, ServiceName: "coding-host", ReadyTimeout: 120 * time.Second, ImplementationModel: "openai:scripted", Environment: map[string]string{"SMITHERS_CODING_LOCAL_OWNER": "1", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": exporter, "SMITHERS_JJ_PATH": jj}}
+	// Explicit launch-spec fixture; production reads the services catalog.
+	systemFlows := []string{
+		"stack", "stack.move", "stack.propose", "merge", "members", "settings", "secrets", "sync", "admission", "setup", "flow-load", "summarizer",
+		"repository/setup", "repository/trigger", "repository-jobs/issues", "repository-jobs/review", "repository-jobs/ci", "repository-jobs/feature", "repository-jobs/chores",
+		"coding", "coding/dispatch", "coding/implementation", "coding/request", "coding/vibe", "coding/verify", "coding/wiki",
+	}
+	catalog := Catalog{SystemFlows: systemFlows, Key: CatalogCoding, Family: CatalogCoding, Executable: artifact, ArtifactDigest: digest, ServiceName: "coding-host", ReadyTimeout: 120 * time.Second, ImplementationModel: "openai:scripted", Environment: map[string]string{"SMITHERS_CODING_LOCAL_OWNER": "1", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": exporter, "SMITHERS_JJ_PATH": jj}}
 	binding := Binding{ID: uuid.NewString(), TenantID: authority.Target.TenantID, PrincipalID: authority.Target.PrincipalID, BindingKind: authority.Target.BindingKind, BindingID: authority.Target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: workspace.ID, CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: digest, SourceRevision: revision, OwnerGeneration: 1, State: "starting"}
 	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "fresh-box-test-bearer"}
 	_, err = launcher.InspectFlowHost(ctx, launch)

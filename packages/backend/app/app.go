@@ -16,6 +16,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/commerce"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/compose"
 	"github.com/smithersai/smithers/packages/backend/operations"
@@ -65,13 +66,15 @@ type Config struct {
 	RepositoryPlacement    ports.RepositoryPlacement
 	RepositoryProvisioning ports.RepositoryProvisioning
 	// Workspace supplies the common execution boundary. The app closes it after
-	// requests and workers stop. Local deployments supply a trusted process
-	// runtime; hosted deployments supply an isolated runtime.
+	// requests and workers stop. Coding hosts require an isolated runtime;
+	// trusted process coding hosts require explicit test configuration.
 	Workspace ports.WorkspaceRuntime
 	// FlowHostRegistry is the verified set of packaged canonical Flow hosts.
 	// Nil leaves durable Flow admission unavailable for development setups
 	// without a built host bundle.
 	FlowHostRegistry *flowmanifest.Registry
+	// FlowHostConfig is a programmatic process-runtime exception for tests only.
+	FlowHostConfig flowhost.WorkspaceLauncherConfig
 	// FlowHostProductAPIURL is the backend origin reachable from the managed
 	// host's network, which may differ from the browser's public origin.
 	FlowHostProductAPIURL string
@@ -212,6 +215,7 @@ func (cfg Config) options() compose.Options {
 		RepositoryProvisioning: cfg.RepositoryProvisioning,
 		Workspace:              cfg.Workspace,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
+		FlowHostConfig:         cfg.FlowHostConfig,
 		FlowHostProductAPIURL:  cfg.FlowHostProductAPIURL,
 		ChatHost:               cfg.ChatHost,
 		ChatCallbackListener:   cfg.ChatCallbackListener,

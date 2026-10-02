@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import { bindRepositoryRegistry, provisionBuiltins, runningRepositoryPolicy } from "../repository/registry.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 
@@ -41,7 +42,7 @@ test("source repository policy fences an approved job after semantic judge code 
   const base = await Effect.runPromise(
     Registry.make({ sources: [] }).pipe(Effect.provide(Discovery.layer), Effect.provide(platform))
   )
-  const oldHost = bindRepositoryRegistry(base, builtins.registry, original)
+  const oldHost = bindRepositoryRegistry(base, builtins.registry, original, systemFlows)
   const approved = Descriptor.executionDigest(await Effect.runPromise(oldHost.get("repository/setup")))
   assert.ok(approved)
   assert.equal((await Effect.runPromise(oldHost.loadBody("repository/setup", approved)))._tag, "Module")
@@ -49,7 +50,7 @@ test("source repository policy fences an approved job after semantic judge code 
   for (const file of ["jev-checks.ts", "jev-duplicates.ts", "jev-reproduction.ts", "jev-score.ts"]) {
     const changed = await run(measuredPolicy(file))
     assert.notEqual(changed, original, `${file} must change the measured host policy`)
-    const changedHost = bindRepositoryRegistry(base, builtins.registry, changed)
+    const changedHost = bindRepositoryRegistry(base, builtins.registry, changed, systemFlows)
     const current = Descriptor.executionDigest(await Effect.runPromise(changedHost.get("repository/setup")))
     assert.notEqual(current, approved)
     await assert.rejects(

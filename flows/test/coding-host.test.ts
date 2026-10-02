@@ -12,9 +12,11 @@ import { fileURLToPath } from "node:url"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { expandSeat } from "../../packages/smithers/src/Providers.ts"
 import { configuredCodingRoutes, layer, reviewDefault, roleResolver, roleSeats, seatProvider } from "../coding/host.ts"
+import * as CodingHost from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 /** Configuration never calls the adapter; every method refuses if a layer is built. */
 const refused = Effect.die("host configuration must not reach the landing adapter")
@@ -64,6 +66,7 @@ test("the repository default and a landing binding select the coding routes", as
 test("a project lander configures coding/vibe without a backend binding", () => {
   const options = {
     repositoryPath: "/unused",
+    systemFlows,
     gatewayId: "11111111-1111-4111-8111-111111111111",
     implementationModel: "test:model",
     credential: "operator-key",
@@ -75,6 +78,7 @@ test("a project lander configures coding/vibe without a backend binding", () => 
 test("coding deployment requires an explicit model and owning gateway before opening services", () => {
   const options = {
     repositoryPath: "/unused",
+    systemFlows,
     gatewayId: "11111111-1111-4111-8111-111111111111",
     implementationModel: ""
   }
@@ -246,6 +250,7 @@ test("an undeclared or auto flow routes by the graph over the host's seats, and 
   }
   const options = {
     repositoryPath: "/unused",
+    systemFlows,
     gatewayId: "11111111-1111-4111-8111-111111111111",
     implementationModel: "sol",
     planningModel: "luna",
@@ -406,4 +411,39 @@ test("coding/review defaults to a provider different from the effective implemen
   assert.equal(pinned.review.modelId, "openai:gpt-6.1-sol")
   const declared = await resolve("luna", { reviewModel: "sol", seats: { "coding/review": "fable" } })
   assert.equal(declared.review.modelId, "anthropic:claude-fable-5-1")
+})
+
+test("host launch system names require a non-empty JSON string array and preserve exact names", () => {
+  assert.deepEqual(
+    CodingHost.systemFlowsFromEnv({ SMITHERS_SYSTEM_FLOWS: "[\"merge\", \"stack.propose\", \"Merge\"]" }),
+    ["merge", "stack.propose", "Merge"]
+  )
+  for (
+    const text of [
+      undefined,
+      "",
+      "not-json",
+      "null",
+      "{}",
+      "\"merge\"",
+      "[]",
+      "[1]",
+      "[\"\"]",
+      "[\" merge\"]",
+      "[\"merge\", \"merge\"]"
+    ]
+  ) {
+    assert.throws(() => CodingHost.systemFlowsFromEnv({ SMITHERS_SYSTEM_FLOWS: text }), /SMITHERS_SYSTEM_FLOWS/)
+  }
+})
+
+test("direct host composition refuses a missing system policy before opening services", () => {
+  const options = {
+    repositoryPath: "/unused",
+    gatewayId: "11111111-1111-4111-8111-111111111111",
+    implementationModel: "test:model",
+    credential: "operator-key"
+  }
+  assert.throws(() => layer(platform, options as Parameters<typeof layer>[1]), /SMITHERS_SYSTEM_FLOWS/)
+  assert.throws(() => layer(platform, { ...options, systemFlows: [] }), /SMITHERS_SYSTEM_FLOWS/)
 })

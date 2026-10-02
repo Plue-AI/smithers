@@ -1284,6 +1284,7 @@ none, with nothing in the failure to say why.
 class ExecutableError {
   readonly _tag: "flows/registry/ExecutableError"
   readonly code:
+    | "reserved_name"
     | "missing_delegate"
     | "ambiguous_delegate"
     | "load_timeout"
@@ -1302,7 +1303,9 @@ class ExecutableError {
 }
 ```
 
-A descriptor the bridge will not turn into a runnable flow. `delegate` is
+A descriptor the bridge will not turn into a runnable flow. Hosts may also
+report `reserved_name` for a repository entry that collides with a packaged
+system name, before importing its module. `delegate` is
 present whenever the refusal is about one named flow, and `available` lists the
 delegates the host registered. That is the whole point of the type: the
 engine's own unresolved-call defect names nothing, so an operator reading it

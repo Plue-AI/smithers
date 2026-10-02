@@ -14,10 +14,35 @@ import (
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
+func TestBuildProcessSpecPassesAuthoritativeSystemFlowCatalog(t *testing.T) {
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding",
+		SystemFlows: []string{"merge", "flow-load", "stack.propose", "repository/setup"},
+		Environment: map[string]string{"SMITHERS_SYSTEM_FLOWS": `["attacker"]`}}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID,
+		RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: authority.SourceRevision, OwnerGeneration: 7, State: "starting"}
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	var names []string
+	require.NoError(t, json.Unmarshal([]byte(spec.Environment["SMITHERS_SYSTEM_FLOWS"]), &names))
+	require.Equal(t, catalog.SystemFlows, names)
+	launch.Environment = map[string]string{"SMITHERS_SYSTEM_FLOWS": `[]`}
+	_, err = BuildProcessSpec(launch, paths, 4317)
+	require.Error(t, err, "per-start environment cannot replace the system catalog")
+	launch.Environment = nil
+	launch.Catalog.SystemFlows = []string{}
+	empty, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "[]", empty.Environment["SMITHERS_SYSTEM_FLOWS"], "an empty catalog does not inherit untrusted environment names")
+}
+
 func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testing.T) {
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host",
 		ArtifactDigest: strings.Repeat("a", 64),
 		ServiceName:    "smithers-flow-coding", ImplementationModel: "openai:gpt-5"}
 	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID,
@@ -85,7 +110,7 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "workspace-1", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
 	seat, _ := modelproxy.SeatFor(modelproxy.ProviderVercel)
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host",
 		ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding",
 		ModelProxyURL: "https://backend.internal/model-proxy", ModelSeats: []modelproxy.Seat{seat}}
 	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID,
@@ -179,7 +204,7 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 // hands the backend credential to the repository (#2175).
 func TestCatalogRefusesDatabaseCredentials(t *testing.T) {
 	for _, name := range []string{"SMITHERS_POSTGRES_URL", "SMITHERS_POSTGRES_SCHEMA", "DATABASE_URL", "SMITHERS_DATABASE_URL", "SMITHERS_BACKEND"} {
-		catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+		catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host",
 			ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding",
 			Environment: map[string]string{name: "postgres://user:secret@db/smithers"}}
 		_, err := validateCatalog(catalog)
@@ -195,7 +220,7 @@ func TestBuildProcessSpecGivesTheHostOnlyItsWorkspaceJournal(t *testing.T) {
 	workspace := "0f1e2d3c-4b5a-4968-8776-655443322110"
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: workspace, CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host",
 		ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
 	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID,
 		PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID,
@@ -278,7 +303,7 @@ func TestBuildProcessSpecGivesTheHostOnlyItsWorkspaceJournal(t *testing.T) {
 func TestCatalogRefusesProviderCredentials(t *testing.T) {
 	for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_API_KEY", "CEREBRAS_API_KEY",
 		"OPENROUTER_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_CODEX_ACCESS_TOKEN", "HF_API_TOKEN"} {
-		catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+		catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding-host",
 			ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding",
 			Environment: map[string]string{name: "sk-operator-secret"}}
 		_, err := validateCatalog(catalog)

@@ -48,7 +48,7 @@ func hostFixture(t *testing.T, pool *pgxpool.Pool) (Authority, Catalog) {
 	workspace := uuid.NewString()
 	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id) VALUES($1,$2,$3)`, workspace, repo, user)
 	require.NoError(t, err)
-	return Authority{Target: flowruntime.Target{TenantID: "repo:" + suffix, PrincipalID: "user:" + suffix, BindingKind: "agent-session", BindingID: uuid.NewString()}, RepositoryID: repo, UserID: user, WorkspaceID: workspace, CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("a", 40)}, Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding"}
+	return Authority{Target: flowruntime.Target{TenantID: "repo:" + suffix, PrincipalID: "user:" + suffix, BindingKind: "agent-session", BindingID: uuid.NewString()}, RepositoryID: repo, UserID: user, WorkspaceID: workspace, CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("a", 40)}, Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: "/opt/smithers/coding", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding"}
 }
 
 func TestPostgresReadLeaseNeverCreatesBindingOrCredential(t *testing.T) {

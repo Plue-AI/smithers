@@ -82,6 +82,8 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
+  /** Exact system names from the backend's packaged flow catalog. */
+  readonly systemFlows: ReadonlyArray<string>
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
   readonly credential?: string | undefined
   /** Existing authority override, including a narrower operator policy. */
@@ -153,20 +155,6 @@ export const provisionHostBuiltins = (
 ) => provisionBuiltins(stateRoot, policy, configuredCodingRoutes(options).map((route) => route.name))
 
 /**
- * The coding routes a configured host refuses to serve without. They come from
- * the measured host bundle, never from the repository's own `flows/` tree: a
- * repository copy that cannot load on this host (smithersai/smithers ships the
- * source of these routes; older repositories carry stale copies) would
- * otherwise shadow the built-in and stop the host at startup.
- */
-export const hostOwnedCodingRoutes = (options: Pick<Options, "planning" | "landing">): ReadonlyArray<string> => [
-  "coding",
-  "coding/dispatch",
-  "coding/implementation",
-  ...configuredCodingRoutes(options).map((route) => route.name)
-]
-
-/**
  * The executables a configured host refuses to serve without, by name.
  *
  * A module that IS its own flow reports no delegate, so `undefined` is the
@@ -178,7 +166,13 @@ export const missingCodingExecutables = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<string> => {
   const required: ReadonlyArray<readonly [string, string | undefined]> = [
-    ...hostOwnedCodingRoutes(options).map((name) => [name, undefined] as const),
+    ...[
+      "coding",
+      "coding/dispatch",
+      "coding/implementation",
+      ...configuredCodingRoutes(options).map((route) => route.name)
+    ]
+      .map((name) => [name, undefined] as const),
     ["repository/setup", RunSetup._tag],
     ["repository/trigger", RunTrigger._tag],
     ["repository-jobs/issues", RunJob._tag]
@@ -199,7 +193,31 @@ export const optionsFromEnv = (environment: Readonly<Record<string, string | und
     }
   })
 
+const validSystemFlows = (value: unknown): value is ReadonlyArray<string> =>
+  Array.isArray(value) && value.length > 0 &&
+  value.every((name) => typeof name === "string" && name.length > 0 && name.trim() === name) &&
+  new Set(value).size === value.length
+
+/** Missing or malformed launch policy refuses startup before registry imports. */
+export const systemFlowsFromEnv = (
+  environment: Readonly<Record<string, string | undefined>>
+): ReadonlyArray<string> => {
+  let value: unknown
+  try {
+    value = JSON.parse(environment.SMITHERS_SYSTEM_FLOWS ?? "")
+  } catch {
+    throw new Error("SMITHERS_SYSTEM_FLOWS must be a non-empty JSON array of unique system names")
+  }
+  if (!validSystemFlows(value)) {
+    throw new Error("SMITHERS_SYSTEM_FLOWS must be a non-empty JSON array of unique system names")
+  }
+  return value
+}
+
 const configured = (options: Options) => {
+  if (!validSystemFlows(options.systemFlows)) {
+    throw new Error("SMITHERS_SYSTEM_FLOWS must supply the backend's system flow names")
+  }
   if (seatRefusal(options.implementationModel) !== undefined) {
     throw new Error(
       "Set SMITHERS_CODING_IMPLEMENT_MODEL to a seat alias or an explicit provider:model for coding/implement"
@@ -468,7 +486,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
               builtins.registry,
               repositoryPolicy,
-              hostOwnedCodingRoutes(options)
+              options.systemFlows
             ))
         ).pipe(Layer.provide(native.layerRegistry(options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(

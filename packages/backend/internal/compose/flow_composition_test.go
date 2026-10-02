@@ -18,12 +18,10 @@ func TestFlowHostsCarryNoProviderKeyInAnyTopology(t *testing.T) {
 	}
 	apiHelper := "/usr/local/lib/smithers/smithers-jj-export"
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", apiHelper)
+	t.Setenv("SMITHERS_CODING_LOCAL_OWNER", "1")
 	for _, role := range []topology{localTopology, hostedAPITopology, hostedWorkerTopology} {
 		environment := codingHostEnvironment(role)
-		wantHelper := apiHelper
-		if role.hosted() {
-			wantHelper = services.WorkspaceJJExportGuestPath
-		}
+		wantHelper := services.WorkspaceJJExportGuestPath
 		if environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] != wantHelper {
 			t.Errorf("%+v coding host helper = %q, want %q", role, environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"], wantHelper)
 		}
@@ -32,16 +30,12 @@ func TestFlowHostsCarryNoProviderKeyInAnyTopology(t *testing.T) {
 				t.Errorf("%+v coding Flow host environment carries %s", role, name)
 			}
 		}
-	}
-	local := codingHostEnvironment(localTopology)
-	if local["SMITHERS_CODING_LOCAL_OWNER"] != "1" {
-		t.Fatal("local coding host lost its local owner mode")
+		if _, ok := environment["SMITHERS_CODING_LOCAL_OWNER"]; ok {
+			t.Errorf("%+v coding host carries local owner mode", role)
+		}
 	}
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "")
-	if _, ok := codingHostEnvironment(localTopology)["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]; ok {
-		t.Fatal("local coding host invented a helper path")
-	}
-	for _, role := range []topology{hostedAPITopology, hostedWorkerTopology} {
+	for _, role := range []topology{localTopology, hostedAPITopology, hostedWorkerTopology} {
 		if got := codingHostEnvironment(role)["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]; got != services.WorkspaceJJExportGuestPath {
 			t.Errorf("%+v coding host helper without an API path = %q, want guest path", role, got)
 		}

@@ -1,3 +1,4 @@
+import { systemFlows } from "./system-flows.ts"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { Effect, Layer } from "effect"
 import { platform } from "../../../packages/smithers/src/internal/NodeControlHost.ts"
@@ -25,6 +26,7 @@ const request = await Effect.runPromise(
       Host.roleSeats({
         ...options,
         repositoryPath: process.cwd(),
+        systemFlows,
         gatewayId: "11111111-1111-4111-8111-111111111111",
         credential: "fixture-host"
       })(process.env).pipe(Layer.provide(platform.requestExecutor))

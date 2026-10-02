@@ -10,20 +10,25 @@
  * are the functions `flows/coding/host.ts` calls at startup.
  */
 import { NodeServices } from "@effect/platform-node"
+import { Flow, Graph } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
 import * as Discovery from "@smthrs/registry/Discovery"
+import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
-import { hostOwnedCodingRoutes, missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
+import { fileURLToPath } from "node:url"
+import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 const platform = process.versions.bun ? (await import("@effect/platform-bun/BunServices")).layer : NodeServices.layer
 const policy = "a".repeat(64)
@@ -72,7 +77,7 @@ const startup = (repositoryPath: string, stateRoot: string, provision: "host" | 
     const project = yield* Registry.make({
       sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
     }).pipe(Effect.provide(Discovery.layer))
-    const registry = bindRepositoryRegistry(project, builtins.registry, policy, hostOwnedCodingRoutes(options))
+    const registry = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows)
     const built = yield* repositoryCatalog({ delegates: [RunSetup, RunJob, RunTrigger] }, builtins.load).pipe(
       Effect.provideService(Registry.Registry, registry)
     )
@@ -123,3 +128,117 @@ test("a repository's own coding route never replaces the one the host requires",
   assert.deepEqual(started.missing, [])
   assert.equal(started.listed.filter((name) => name === "coding/request").length, 1)
 })
+
+const moduleSource = (name: string, description: string, topLevel = "") => `
+import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+${topLevel}
+export default Flow.make(${JSON.stringify(name)}, {
+  description: ${JSON.stringify(description)}, capabilities: [],
+  payload: {}, success: Schema.String,
+  body: () => Node.succeed(${JSON.stringify(description)})
+})
+`
+
+/** Real discovery/import admission with two minimal packaged flow defaults. */
+const boundary = async (t: TestContext, names: ReadonlyArray<string> = systemFlows) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  await symlink(fileURLToPath(new URL("../node_modules", import.meta.url)), join(repositoryPath, "node_modules"), "dir")
+  const defaults = join(stateRoot, "defaults")
+  for (const name of ["merge", "review"]) {
+    await mkdir(join(defaults, name), { recursive: true })
+    await writeFile(join(defaults, name, "flow.ts"), moduleSource(name, `Packaged ${name}`))
+  }
+  const catalog = () =>
+    Effect.gen(function*() {
+      const make = (root: string, source: string) =>
+        Registry.make({ sources: [{ root, source, naming: "path" }] })
+          .pipe(Effect.provide(Discovery.layer))
+      const base = yield* make(join(repositoryPath, "flows"), "project")
+      const packaged = yield* make(defaults, "repository-host")
+      const registry = bindRepositoryRegistry(base, packaged, policy, names)
+      const built = yield* repositoryCatalog({ delegates: [] }, (file) => {
+        const name = file.includes("/merge/") ? "merge" : "review"
+        return Effect.succeed({
+          default: Flow.make(name, {
+            payload: {},
+            success: Schema.String,
+            body: () => Node.succeed(`Packaged ${name}`)
+          })
+        })
+      }).pipe(Effect.provideService(Registry.Registry, registry))
+      return { built, registry }
+    }).pipe(Effect.provide(platform), Effect.runPromise)
+  const write = async (name: string, topLevel = "") => {
+    await mkdir(join(repositoryPath, "flows", name), { recursive: true })
+    await writeFile(join(repositoryPath, "flows", name, "flow.ts"), moduleSource(name, `Repository ${name}`, topLevel))
+  }
+  return { catalog, write, repositoryPath }
+}
+
+test("a system-name collision is refused before importing its top-level canary and the packaged flow survives", async (t) => {
+  const { catalog, write, repositoryPath } = await boundary(t)
+  const marker = join(repositoryPath, "reserved-imported")
+  await write("merge", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+  const { built, registry } = await catalog()
+  assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{ flow: "merge", code: "reserved_name" }])
+  const executable = built.executables.find((entry) => entry.descriptor.name === "merge")
+  assert.ok(executable)
+  assert.equal(executable.descriptor.provenance.source, "repository-host")
+  assert.ok(Graph.build(executable.flow, { input: {} }).nodes.some((node) => node.payload === "Packaged merge"))
+  const refusal = built.refused[0]!
+  assert.equal(
+    Schema.decodeSync(Executable.ExecutableError)(Schema.encodeSync(Executable.ExecutableError)(refusal)).code,
+    "reserved_name"
+  )
+  assert.equal((await Effect.runPromise(registry.get("merge"))).description, "Packaged merge")
+  await assert.rejects(access(marker), { code: "ENOENT" })
+})
+
+test("a repository review overrides its packaged default and its module is admitted", async (t) => {
+  const { catalog, write, repositoryPath } = await boundary(t)
+  const marker = join(repositoryPath, "review-imported")
+  await write("review", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+  const { built } = await catalog()
+  assert.deepEqual(built.refused, [])
+  assert.equal(built.executables.filter((entry) => entry.descriptor.name === "review").length, 1)
+  const executable = built.executables.find((entry) => entry.descriptor.name === "review")!
+  assert.equal(executable.descriptor.provenance.source, "project")
+  assert.ok(Graph.build(executable.flow, { input: {} }).nodes.some((node) => node.payload === "Repository review"))
+  await access(marker)
+})
+
+test("a system-named repository module is refused even when no packaged default exists", async (t) => {
+  const { catalog, write } = await boundary(t)
+  await write("flow-load", "throw new Error(\"Reserved module must never be imported\")")
+  const { built, registry } = await catalog()
+  assert.equal(built.refused.find((entry) => entry.flow === "flow-load")?.code, "reserved_name")
+  assert.equal(built.executables.some((entry) => entry.descriptor.name === "flow-load"), false)
+  await assert.rejects(Effect.runPromise(registry.get("flow-load")), /not_found/)
+})
+
+test("system name matching is exact and takes its names only from the launch catalog", async (t) => {
+  // Separate trees preserve casing on case-insensitive macOS filesystems.
+  for (const name of ["Merge", "merge/x", "repository/setup", "members.add.more", "secrets.set.more"]) {
+    const { catalog, write } = await boundary(t, ["merge", "members.add", "secrets.set"])
+    await write(name)
+    const { built } = await catalog()
+    assert.deepEqual(built.refused, [])
+    assert.ok(built.executables.some((entry) => entry.descriptor.name === name), name)
+  }
+})
+
+// Compatibility coding routes retain install ownership even when unconfigured.
+for (const name of ["members.add", "secrets.set", "coding/wiki"]) {
+  test(`install-owned ${name} is refused before import without a packaged default`, async (t) => {
+    const { catalog, write, repositoryPath } = await boundary(t)
+    const marker = join(repositoryPath, "reserved-imported")
+    await write(name, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+    const { built, registry } = await catalog()
+    assert.deepEqual(built.refused.map(({ flow, code }) => ({ flow, code })), [{ flow: name, code: "reserved_name" }])
+    assert.equal(built.executables.some((entry) => entry.descriptor.name === name), false)
+    await assert.rejects(Effect.runPromise(registry.get(name)), /not_found/)
+    await assert.rejects(access(marker), { code: "ENOENT" })
+  })
+}

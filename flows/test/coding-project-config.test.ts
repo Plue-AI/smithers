@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 import { loadProject } from "../coding/project-config.ts"
 import { reviewEvidence } from "../wiki/evidence.ts"
 import { sections } from "../wiki/operations.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 const valid = () => ({
   wikiOutput: "../wiki",
@@ -261,7 +262,11 @@ test("configured entry loads explicit project data before host initialization; h
   t.after(() => rm(directory, { recursive: true, force: true }))
   await writeFile(join(directory, "invalid.json"), JSON.stringify({ ...valid(), password: "do-not-print-this-value" }))
   const entry = process.env.SMITHERS_CODING_HOST_BINARY ?? fileURLToPath(new URL("../coding/serve.ts", import.meta.url))
-  const run = (args: string[], projectFilename: string | null = "invalid.json") =>
+  const run = (
+    args: string[],
+    projectFilename: string | null = "invalid.json",
+    systemNames: string | null = JSON.stringify(systemFlows)
+  ) =>
     spawnSync(process.execPath, [
       ...(process.versions.bun ? [] : ["--experimental-strip-types"]),
       entry,
@@ -274,12 +279,19 @@ test("configured entry loads explicit project data before host initialization; h
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
+        ...(systemNames === null ? {} : { SMITHERS_SYSTEM_FLOWS: systemNames }),
         ...(projectFilename === null ? {} : { SMITHERS_CODING_PROJECT: projectFilename })
       }
     })
   const help = run(["--help"])
   assert.equal(help.status, 0, help.stderr)
   assert.match(help.stdout, /SMITHERS_CODING_PROJECT/)
+  for (const systemNames of [null, "malformed", "{}"]) {
+    const policyRefusal = run(["serve", "--root", directory], "invalid.json", systemNames)
+    assert.equal(policyRefusal.status, 1, policyRefusal.stderr)
+    assert.match(policyRefusal.stdout + policyRefusal.stderr, /SMITHERS_SYSTEM_FLOWS/)
+    assert.doesNotMatch(policyRefusal.stdout + policyRefusal.stderr, /Invalid SMITHERS_CODING_PROJECT/)
+  }
   const refusal = run(["serve", "--root", directory])
   assert.equal(refusal.status, 1, refusal.stderr)
   const diagnostic = refusal.stdout + refusal.stderr

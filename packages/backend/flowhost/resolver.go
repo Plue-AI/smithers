@@ -17,14 +17,17 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 var (
 	catalogKeyPattern  = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+	systemFlowPattern  = regexp.MustCompile(`^[a-z][a-z0-9._-]*(/[a-z][a-z0-9._-]*)*$`)
 	serviceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@:-]{1,128}$`)
 )
 
 var reservedEnvironment = map[string]struct{}{
+	SystemFlowsEnv:     {},
 	"SMITHERS_API_KEY": {}, "SMITHERS_GATEWAY_ID": {},
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
@@ -67,12 +70,13 @@ func providerCredentialName(name string) bool {
 }
 
 type Resolver struct {
-	store      BindingStore
-	targets    TargetResolver
-	launcher   Launcher
-	catalogs   map[string]Catalog
-	activeRuns ActiveRuns
-	journals   Journals
+	allowTrustedProcessForTests bool
+	store                       BindingStore
+	targets                     TargetResolver
+	launcher                    Launcher
+	catalogs                    map[string]Catalog
+	activeRuns                  ActiveRuns
+	journals                    Journals
 }
 
 func New(config Config) (*Resolver, error) {
@@ -94,7 +98,7 @@ func New(config Config) (*Resolver, error) {
 		return nil, errors.New("flow host resolver requires at least one catalog")
 	}
 	return &Resolver{store: config.Store, targets: config.Targets, launcher: config.Launcher, catalogs: catalogs,
-		activeRuns: config.ActiveRuns, journals: config.Journals}, nil
+		activeRuns: config.ActiveRuns, journals: config.Journals, allowTrustedProcessForTests: config.AllowTrustedProcessForTests}, nil
 }
 
 func validateCatalog(catalog Catalog) (Catalog, error) {
@@ -117,6 +121,9 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	}
 	if !lowerHex(catalog.ArtifactDigest, 64) {
 		return Catalog{}, fmt.Errorf("flow host catalog %q immutable identity is invalid", catalog.Key)
+	}
+	if len(catalog.SystemFlows) == 0 {
+		return Catalog{}, failure{code: "runtime_catalog_invalid", cause: fmt.Errorf("flow host catalog %q requires system flow names", catalog.Key)}
 	}
 	if catalog.ReadyTimeout <= 0 {
 		catalog.ReadyTimeout = 30 * time.Second
@@ -142,6 +149,17 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	}
 	catalog.Environment = copyEnvironment
 	catalog.ModelSeats = slices.Clone(catalog.ModelSeats)
+	catalog.SystemFlows = slices.Clone(catalog.SystemFlows)
+	names := make(map[string]struct{}, len(catalog.SystemFlows))
+	for _, name := range catalog.SystemFlows {
+		if len(name) > 256 || !systemFlowPattern.MatchString(name) {
+			return Catalog{}, fmt.Errorf("flow host catalog %q system flow name is invalid", catalog.Key)
+		}
+		if _, duplicate := names[name]; duplicate {
+			return Catalog{}, fmt.Errorf("flow host catalog %q system flow name %q is duplicated", catalog.Key, name)
+		}
+		names[name] = struct{}{}
+	}
 	for name, value := range map[string]string{"model proxy": catalog.ModelProxyURL, "account pool": catalog.AccountPoolURL} {
 		if value == "" {
 			continue
@@ -199,6 +217,10 @@ func (resolver *Resolver) ResolveExistingFlowRuntime(ctx context.Context, target
 func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target, existingOnly bool) (flowruntime.Runtime, error) {
 	if resolver == nil || resolver.store == nil || resolver.targets == nil || resolver.launcher == nil {
 		return nil, failure{code: "runtime_resolver_unavailable", retryable: true}
+	}
+	isolation, ok := resolver.launcher.(IsolationLauncher)
+	if !ok || !allowedIsolation(isolation.Isolation(), resolver.allowTrustedProcessForTests) {
+		return nil, failure{code: "isolation_required"}
 	}
 	authority, err := resolver.targets.ResolveFlowHostTarget(ctx, target)
 	if err != nil {
@@ -459,8 +481,14 @@ type failure struct {
 	cause error
 }
 
-func (value failure) Error() string              { return "flow host: " + value.code }
-func (value failure) Unwrap() error              { return value.cause }
+func (value failure) Error() string { return "flow host: " + value.code }
+func (value failure) Unwrap() error { return value.cause }
+func (value failure) FlowRuntimeClass() string {
+	if value.code == "isolation_required" || value.code == "runtime_catalog_invalid" {
+		return "infra"
+	}
+	return ""
+}
 func (value failure) FlowRuntimeCode() string    { return value.code }
 func (value failure) FlowRuntimeRetryable() bool { return value.retryable }
 
@@ -478,3 +506,10 @@ func sanitizeFailure(fallback string, err error) error {
 
 var _ flowruntime.Resolver = (*Resolver)(nil)
 var _ flowruntime.Failure = failure{}
+
+// Test configuration permits only the known process adapter, never an unknown
+// deployment whose isolation contract is absent or incomplete.
+func allowedIsolation(level workspaceapi.IsolationLevel, allowTrustedProcessForTests bool) bool {
+	return level == workspaceapi.IsolationSandboxed ||
+		(allowTrustedProcessForTests && level == workspaceapi.IsolationTrustedProcess)
+}

@@ -13,8 +13,10 @@ import { layer } from "../coding/host.ts"
 import { changedPaths, driftOf, staleRevisionMessage } from "../coding/planning.ts"
 import * as CodingState from "../coding/state.ts"
 import { makeHostJudge } from "./fixtures/scripted-judge.ts"
+import { systemFlows } from "./fixtures/system-flows.ts"
 
 const options = {
+  systemFlows,
   gatewayId: "11111111-1111-4111-8111-111111111111",
   implementationModel: "test:model",
   approvalAuthority: ApprovalAuthority.local

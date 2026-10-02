@@ -84,6 +84,17 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
 	environment["SMITHERS_FLOW_ARTIFACT_SHA256"] = launch.Binding.RuntimeArtifactDigest
 	environment["SMITHERS_SOURCE_REVISION"] = launch.Binding.SourceRevision
+	// The backend owns this catalog. Repository files cannot redefine the
+	// names the guest refuses before importing their modules.
+	names := launch.Catalog.SystemFlows
+	if names == nil {
+		names = []string{}
+	}
+	systemFlows, err := json.Marshal(names)
+	if err != nil {
+		return ProcessSpec{}, err
+	}
+	environment[SystemFlowsEnv] = string(systemFlows)
 	if launch.Catalog.Family != CatalogCoding {
 		return ProcessSpec{}, errors.New("flow host family is unsupported")
 	}

@@ -160,8 +160,17 @@ Raised while making one descriptor runnable, before the flow exists. It carries
 `flow`, the descriptor's name, and `available`, the delegates the host has
 registered. `delegate` is present when the refusal is about one named delegate,
 and `path` when it is about the descriptor's file. This family has no `module`
-or `method`: `flow` is what identifies the refusal, and every one of them is
-raised by the same bridge.
+or `method`: `flow` is what identifies the refusal, and bridge failures are
+raised before registration. A host can report a policy refusal before passing
+a descriptor to the bridge.
+
+### reserved_name
+
+**What happened.** The host refused a repository flow whose exact name belongs
+in its packaged system catalog. The repository module was not imported, and
+any packaged default remains selected.
+
+**What to change.** Give the repository flow a name outside the system catalog.
 
 ### missing_delegate
 

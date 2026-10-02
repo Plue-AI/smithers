@@ -55,9 +55,12 @@ func newFlowDispatchStore(t *testing.T) (*jobs.Store, *pgxpool.Pool) {
 }
 
 type testRuntimeFailure struct {
+	class     string
 	code      string
 	retryable bool
 }
+
+func (failure *testRuntimeFailure) FlowRuntimeClass() string { return failure.class }
 
 func (failure *testRuntimeFailure) Error() string              { return failure.code }
 func (failure *testRuntimeFailure) FlowRuntimeCode() string    { return failure.code }
@@ -491,4 +494,57 @@ func TestParkedLaunchCancellationIsDeliveredToCanonicalRuntime(t *testing.T) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	require.True(t, runtime.denied)
+}
+
+func TestIsolationRefusalPersistsInfrastructureClass(t *testing.T) {
+	store, _ := newFlowDispatchStore(t)
+	projector := &recordingProjector{}
+	service, err := New(Config{Store: store, Projector: projector,
+		Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			return nil, &testRuntimeFailure{code: "isolation_required", class: "infra"}
+		}),
+	})
+	require.NoError(t, err)
+	request := testLaunchRequest("isolation-required", ApprovalManual)
+	receipt, err := service.Admit(context.Background(), request)
+	require.NoError(t, err)
+	startTestWorker(t, service, "isolation-check")
+	operation := waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State == jobs.StateFailed })
+	var terminal map[string]any
+	require.NoError(t, json.Unmarshal(operation.TerminalReceipt, &terminal))
+	require.Equal(t, "isolation_required", terminal["errorCode"])
+	require.Equal(t, "infra", terminal["errorClass"])
+	projector.mu.Lock()
+	defer projector.mu.Unlock()
+	require.NotEmpty(t, projector.updates)
+	projected := mustJSON(projector.updates[len(projector.updates)-1].Checkpoint)
+	var checkpoint map[string]any
+	require.NoError(t, json.Unmarshal(projected, &checkpoint))
+	require.Equal(t, "isolation_required", checkpoint["failureCode"])
+	require.Equal(t, "infra", checkpoint["failureClass"])
+}
+
+func TestOldRuntimeCheckpointRemainsReadableWithoutClass(t *testing.T) {
+	legacy := json.RawMessage(`{"version":1,"failureCode":"runtime_unavailable","failureObservedAt":7}`)
+	checkpoint, err := decodeCheckpoint(legacy)
+	require.NoError(t, err)
+	require.Equal(t, "runtime_unavailable", checkpoint.FailureCode)
+	require.Equal(t, int64(7), checkpoint.FailureObservedAt)
+	require.Empty(t, checkpoint.FailureClass)
+	require.NotContains(t, string(mustJSON(checkpoint)), "failureClass")
+	var receipt terminalReceipt
+	require.NoError(t, json.Unmarshal([]byte(`{"kind":"bridge-refused","errorCode":"runtime_unavailable"}`), &receipt))
+	require.Equal(t, "runtime_unavailable", receipt.ErrorCode)
+	require.Empty(t, receipt.ErrorClass)
+	require.NotContains(t, string(mustJSON(receipt)), "errorClass")
+}
+
+func TestRuntimeFailureClassesRespectTypedProductEnvelope(t *testing.T) {
+	for _, class := range []string{"user", "permission", "capacity", "github", "infra", "conflict"} {
+		err := fmt.Errorf("wrapped: %w", &testRuntimeFailure{code: "typed", class: class})
+		require.Equal(t, class, runtimeFailureClass(err))
+	}
+	require.Empty(t, runtimeFailureClass(fmt.Errorf("unclassified")))
+	require.Empty(t, runtimeFailureClass(&testRuntimeFailure{code: "legacy"}))
+	require.Empty(t, runtimeFailureClass(&testRuntimeFailure{code: "unknown", class: "private-adapter-detail"}))
 }

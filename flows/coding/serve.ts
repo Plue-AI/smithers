@@ -11,7 +11,7 @@ import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
-import { layer, optionsFromEnv } from "./host.ts"
+import { layer, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { loadProject } from "./project-config.ts"
@@ -68,6 +68,7 @@ if (parsed.values.version) {
       "Requires SMITHERS_GATEWAY_ID; set SMITHERS_CODING_IMPLEMENT_MODEL or use a provisioned pool/platform default. SMITHERS_API_KEY authenticates the existing gateway.\n" +
       "Loads <root>/.smithers/coding-project.json when present; SMITHERS_CODING_PROJECT overrides it.\n" +
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
+      "SMITHERS_SYSTEM_FLOWS supplies the backend's packaged system flow names as a JSON array.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
       "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL, SMITHERS_CODING_WIKI_MODEL and SMITHERS_CODING_REVIEW_MODEL select provider:model roles; review defaults to a second provider.\n" +
       "The project's \"seats\" map routes roles to aliases (sol, luna, opus, sonnet, fable, kimi, qwen) or auto (the routing graph); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
@@ -81,6 +82,7 @@ if (parsed.values.version) {
   }
   // Before any repository flow is imported: its effect and @smthrs packages
   // are the host's own instances (#2197).
+  const systemFlows = systemFlowsFromEnv(process.env)
   share()
   const root = resolve(parsed.values.root ?? process.cwd())
   const port = Number(parsed.values.port)
@@ -108,6 +110,7 @@ if (parsed.values.version) {
   const repositoryProcesses = consumeCheckEnvironment(process.env)
   const options = {
     repositoryPath: root,
+    systemFlows,
     stateRoot,
     credential: bind.credential,
     gatewayId: process.env.SMITHERS_GATEWAY_ID ?? "",

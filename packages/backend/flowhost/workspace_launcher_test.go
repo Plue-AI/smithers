@@ -60,6 +60,14 @@ func init() {
 type observedRuntime struct {
 	*process.Runtime
 	operations []workspaceapi.Operation
+	isolation  workspaceapi.IsolationLevel
+}
+
+func (r *observedRuntime) Isolation() workspaceapi.IsolationLevel {
+	if r.isolation != "" {
+		return r.isolation
+	}
+	return r.Runtime.Isolation()
 }
 
 func (r *observedRuntime) observe(ctx context.Context) {
@@ -90,7 +98,7 @@ func TestWorkspaceLauncherUsesRealManagedProcessSourceAndRetirement(t *testing.T
 	require.NoError(t, err)
 	defer runtime.Close()
 	observed := &observedRuntime{Runtime: runtime}
-	launcher, err := NewWorkspaceLauncher(observed)
+	launcher, err := NewWorkspaceLauncher(observed, WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
 	require.NoError(t, err)
 	workspace, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: uuid.NewString()})
 	require.NoError(t, err)
@@ -109,7 +117,7 @@ func TestWorkspaceLauncherUsesRealManagedProcessSourceAndRetirement(t *testing.T
 	executable, err := os.Executable()
 	require.NoError(t, err)
 	marker := filepath.Join(t.TempDir(), "host.json")
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: executable, ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", ReadyTimeout: 3 * time.Second, Environment: map[string]string{"SMITHERS_FLOWHOST_TEST_CHILD": "1", "SMITHERS_FLOWHOST_TEST_MARKER": marker}}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: executable, ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", ReadyTimeout: 3 * time.Second, Environment: map[string]string{"SMITHERS_FLOWHOST_TEST_CHILD": "1", "SMITHERS_FLOWHOST_TEST_MARKER": marker}}
 	binding := Binding{ID: uuid.NewString(), TenantID: authority.Target.TenantID, PrincipalID: authority.Target.PrincipalID, BindingKind: authority.Target.BindingKind, BindingID: authority.Target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: workspace.ID, CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: revision, OwnerGeneration: 1, State: "starting"}
 	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "private-host-bearer"}
 	_, err = launcher.InspectFlowHost(ctx, launch)
@@ -179,4 +187,89 @@ func TestWorkspaceHostIdentityIgnoresAllocatedPortButBindsConfiguration(t *testi
 	launch.Catalog.Environment["CONFIG"] = "one"
 	launch.Credential = "ephemeral"
 	require.Equal(t, initial, hostServiceIdentity(launch))
+}
+
+func TestWorkspaceLauncherRefusesTrustedProcessBeforeStartingHost(t *testing.T) {
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	observed := &observedRuntime{Runtime: runtime}
+	launcher, err := NewWorkspaceLauncher(observed)
+	require.Nil(t, launcher)
+	requireIsolationRequired(t, err)
+	require.Empty(t, observed.operations, "refusal must not inspect or launch repository code")
+}
+
+// Changing a runtime after the launcher is built cannot authorize repository
+// imports through an inspect, a new start, or source capture.
+func TestWorkspaceLauncherRechecksIsolationForEveryExecutableOperation(t *testing.T) {
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	observed := &observedRuntime{Runtime: runtime, isolation: workspaceapi.IsolationSandboxed}
+	launcher, err := NewWorkspaceLauncher(observed)
+	require.NoError(t, err)
+	require.Equal(t, workspaceapi.IsolationSandboxed, launcher.(IsolationLauncher).Isolation())
+	observed.isolation = workspaceapi.IsolationTrustedProcess
+	_, err = launcher.InspectFlowHost(context.Background(), HostLaunch{})
+	requireIsolationRequired(t, err)
+	_, err = launcher.StartFlowHost(context.Background(), HostLaunch{})
+	requireIsolationRequired(t, err)
+	_, err = launcher.(SourceResolver).ResolveFlowHostSource(context.Background(), Authority{})
+	requireIsolationRequired(t, err)
+	require.Empty(t, observed.operations)
+}
+
+func TestWorkspaceLauncherRejectsAmbiguousTestConfiguration(t *testing.T) {
+	runtime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	launcher, err := NewWorkspaceLauncher(runtime, WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}, WorkspaceLauncherConfig{})
+	require.Nil(t, launcher)
+	require.ErrorContains(t, err, "at most one configuration")
+}
+
+type capabilityRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	capabilities workspaceapi.WorkspaceCapabilities
+}
+
+func (*capabilityRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+func (r *capabilityRuntime) Capabilities() workspaceapi.WorkspaceCapabilities { return r.capabilities }
+
+func TestWorkspaceLauncherRequiresCompleteSandboxFacets(t *testing.T) {
+	launcher, err := NewWorkspaceLauncher(nil)
+	require.Nil(t, launcher)
+	require.ErrorContains(t, err, "requires a workspace runtime")
+	managed := &sandboxedManagedRuntime{}
+	for _, test := range []struct {
+		name    string
+		runtime workspaceapi.WorkspaceRuntime
+		error   string
+	}{
+		{"missing managed hosts", &capabilityRuntime{capabilities: workspaceapi.WorkspaceCapabilities{ManagedHTTPHosts: true, SourceRevision: true}}, "does not support managed HTTP hosts"},
+		{"disabled managed hosts", struct {
+			workspaceapi.WorkspaceRuntime
+			workspaceapi.WorkspaceManagedHosts
+			workspaceapi.WorkspaceSourceRevisionResolver
+		}{&capabilityRuntime{capabilities: workspaceapi.WorkspaceCapabilities{SourceRevision: true}}, managed, managed}, "does not support managed HTTP hosts"},
+		{"missing source resolver", struct {
+			workspaceapi.WorkspaceRuntime
+			workspaceapi.WorkspaceManagedHosts
+		}{&capabilityRuntime{capabilities: workspaceapi.WorkspaceCapabilities{ManagedHTTPHosts: true, SourceRevision: true}}, managed}, "does not resolve source revisions"},
+		{"disabled source resolver", struct {
+			workspaceapi.WorkspaceRuntime
+			workspaceapi.WorkspaceManagedHosts
+			workspaceapi.WorkspaceSourceRevisionResolver
+		}{&capabilityRuntime{capabilities: workspaceapi.WorkspaceCapabilities{ManagedHTTPHosts: true}}, managed, managed}, "does not resolve source revisions"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			launcher, err := NewWorkspaceLauncher(test.runtime)
+			require.Nil(t, launcher)
+			require.ErrorContains(t, err, test.error)
+		})
+	}
+	require.Zero(t, managed.starts)
 }

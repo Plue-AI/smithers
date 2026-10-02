@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type memoryBindingStore struct {
@@ -200,6 +201,7 @@ func (transport *identityTransport) RoundTrip(request *http.Request) (*http.Resp
 func intString(value int64) string { return strconv.FormatInt(value, 10) }
 
 type memoryLauncher struct {
+	isolation workspaceapi.IsolationLevel
 	mu        sync.Mutex
 	startErr  error
 	running   bool
@@ -213,6 +215,8 @@ type memoryLauncher struct {
 	// workspace runtime records it at start and compares on inspect.
 	fingerprint string
 }
+
+func (launcher *memoryLauncher) Isolation() workspaceapi.IsolationLevel { return launcher.isolation }
 
 func (launcher *memoryLauncher) StopFlowHost(_ context.Context, binding Binding) error {
 	launcher.mu.Lock()
@@ -273,11 +277,12 @@ func testResolver(t *testing.T) (*Resolver, *memoryBindingStore, *memoryLauncher
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9,
 		WorkspaceID: "22222222-2222-4222-8222-222222222222", CatalogKey: CatalogCoding, SourceRevision: strings.Repeat("b", 40)}
 	store := &memoryBindingStore{}
-	launcher := &memoryLauncher{transport: &identityTransport{}}
+	launcher := &memoryLauncher{transport: &identityTransport{}, isolation: workspaceapi.IsolationSandboxed}
 	resolver, err := New(Config{
 		Store: store, Launcher: launcher,
 		Targets: TargetResolverFunc(func(context.Context, flowruntime.Target) (Authority, error) { return authority, nil }),
 		Catalogs: []Catalog{{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host",
+			SystemFlows:    []string{"merge", "stack.propose", "flow-load", "repository/setup"},
 			ArtifactDigest: strings.Repeat("a", 64),
 			ServiceName:    "smithers-flow-coding", ImplementationModel: "openai:gpt-5"}},
 	})
@@ -357,14 +362,18 @@ func TestResolverRefusesTargetResolverScopeSubstitution(t *testing.T) {
 	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
 	require.Error(t, err)
 	assert.Empty(t, launcher.starts)
+	var classified interface{ FlowRuntimeClass() string }
+	require.ErrorAs(t, err, &classified)
+	require.Empty(t, classified.FlowRuntimeClass(), "scope refusals must not invent an infra class")
 }
 
 func TestCatalogRejectsReservedIdentityEnvironment(t *testing.T) {
 	_, err := validateCatalog(Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/host",
+		SystemFlows:    []string{"merge"},
 		ArtifactDigest: strings.Repeat("a", 64),
 		ServiceName:    "host", ImplementationModel: "openai:gpt-5",
 		Environment: map[string]string{"SMITHERS_API_KEY": "caller-value"}})
-	require.Error(t, err)
+	require.ErrorContains(t, err, "reserved identity SMITHERS_API_KEY")
 }
 
 type snapshotLauncher struct {
@@ -544,7 +553,10 @@ func TestResolverUpgradeWithoutStopperIsTerminal(t *testing.T) {
 	resolver, store, launcher, target := testResolver(t)
 	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
 	require.NoError(t, err)
-	resolver.launcher = struct{ Launcher }{launcher}
+	resolver.launcher = struct {
+		Launcher
+		IsolationLauncher
+	}{launcher, launcher}
 	upgradeCatalog(resolver, strings.Repeat("c", 64))
 
 	_, err = resolver.ResolveFlowRuntime(context.Background(), target)
@@ -840,4 +852,212 @@ func TestResolverGivesEachHostItsWorkspaceJournal(t *testing.T) {
 	_, err = resolver.ResolveFlowRuntime(ctx, target)
 	require.Error(t, err)
 	require.Len(t, launcher.starts, 1)
+}
+
+// Refusal precedes source capture, journals, lease acquisition, inspection and
+// recovery. A retained row or active run never authorizes a host process.
+func TestResolverRequiresIsolationBeforeAnyHostWork(t *testing.T) {
+	for _, mode := range []string{"new", "existing", "recovery", "superseded"} {
+		t.Run(mode, func(t *testing.T) {
+			resolver, store, launcher, target := testResolver(t)
+			if mode == "recovery" || mode == "superseded" {
+				resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+				if mode == "recovery" {
+					launcher.running = false
+				}
+				if mode == "superseded" {
+					runs := &memoryRuns{}
+					runs.set("active", store.binding, "accepted")
+					resolver.activeRuns = runs
+					upgradeCatalog(resolver, strings.Repeat("c", 64))
+				}
+			}
+			captures := &snapshotLauncher{memoryLauncher: launcher, revision: strings.Repeat("d", 40)}
+			resolver.launcher = captures
+			original := resolver.targets
+			resolver.targets = TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (Authority, error) {
+				authority, err := original.ResolveFlowHostTarget(ctx, target)
+				authority.SourceRevision = ""
+				return authority, err
+			})
+			journals := &recordingJournals{journals: &PostgresJournals{address: mustURL(t, "postgres://journal.internal:5432/"), key: journalTestKey}}
+			resolver.journals = journals
+			before, acquires, starts, requests := store.binding, store.acquires, len(launcher.starts), launcher.transport.requests
+			launcher.calls = nil
+			launcher.isolation = workspaceapi.IsolationTrustedProcess
+			resolve := resolver.ResolveFlowRuntime
+			if mode == "existing" {
+				resolve = resolver.ResolveExistingFlowRuntime
+			}
+			runtime, err := resolve(context.Background(), target)
+			require.Nil(t, runtime)
+			requireIsolationRequired(t, err)
+			require.Equal(t, before, store.binding)
+			require.Equal(t, acquires, store.acquires)
+			require.Len(t, launcher.starts, starts)
+			require.Empty(t, launcher.calls)
+			require.Zero(t, captures.captures)
+			require.Equal(t, requests, launcher.transport.requests)
+			require.Empty(t, journals.described)
+			require.Empty(t, journals.provided)
+		})
+	}
+}
+
+func requireIsolationRequired(t *testing.T, err error) {
+	t.Helper()
+	var known flowruntime.Failure
+	require.ErrorAs(t, err, &known)
+	require.Equal(t, "isolation_required", known.FlowRuntimeCode())
+	require.False(t, known.FlowRuntimeRetryable())
+	var classified interface{ FlowRuntimeClass() string }
+	require.ErrorAs(t, err, &classified)
+	require.Equal(t, "infra", classified.FlowRuntimeClass())
+}
+
+func TestResolverFailsClosedForUnreportedIsolation(t *testing.T) {
+	for _, level := range []workspaceapi.IsolationLevel{"", "unknown"} {
+		t.Run(string(level), func(t *testing.T) {
+			resolver, store, launcher, target := testResolver(t)
+			launcher.isolation = level
+			_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+			requireIsolationRequired(t, err)
+			require.Zero(t, store.acquires)
+			require.Empty(t, launcher.calls)
+		})
+	}
+	resolver, store, launcher, target := testResolver(t)
+	resolver.launcher = unreportedLauncher{launcher}
+	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+	requireIsolationRequired(t, err)
+	require.Zero(t, store.acquires)
+	require.Empty(t, launcher.calls)
+}
+
+type unreportedLauncher struct{ delegate Launcher }
+
+func (l unreportedLauncher) InspectFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
+	return l.delegate.InspectFlowHost(ctx, launch)
+}
+func (l unreportedLauncher) StartFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
+	return l.delegate.StartFlowHost(ctx, launch)
+}
+
+func TestResolverTrustedProcessRequiresExplicitTestConfiguration(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	authority, err := resolver.targets.ResolveFlowHostTarget(context.Background(), target)
+	require.NoError(t, err)
+	launcher.isolation = workspaceapi.IsolationTrustedProcess
+	optedIn, err := New(Config{Store: store, Targets: resolver.targets, Launcher: launcher,
+		Catalogs: []Catalog{resolver.catalogs[authority.CatalogKey]}, AllowTrustedProcessForTests: true})
+	require.NoError(t, err)
+	require.NotEmpty(t, resolvedIdentity(t, optedIn.ResolveFlowRuntime, target).Protocol)
+	require.Len(t, launcher.starts, 1)
+	launcher.isolation = "unknown"
+	_, err = optedIn.ResolveFlowRuntime(context.Background(), target)
+	requireIsolationRequired(t, err)
+	require.Len(t, launcher.starts, 1)
+}
+
+func TestCatalogCopiesAndValidatesSystemFlowNames(t *testing.T) {
+	resolver, _, _, _ := testResolver(t)
+	catalog := resolver.catalogs[CatalogCoding]
+	catalog.SystemFlows = []string{"merge", "stack.propose", "repository/setup"}
+	validated, err := validateCatalog(catalog)
+	require.NoError(t, err)
+	catalog.SystemFlows[0] = "changed"
+	require.Equal(t, []string{"merge", "stack.propose", "repository/setup"}, validated.SystemFlows)
+	for _, names := range [][]string{{""}, {" merge"}, {"merge", "merge"}, {"../merge"}, {"merge//x"}, {strings.Repeat("x", 257)}} {
+		catalog.SystemFlows = names
+		_, err := validateCatalog(catalog)
+		require.Error(t, err, "%q", names)
+	}
+	catalog.SystemFlows = []string{"merge"}
+	catalog.Environment = map[string]string{SystemFlowsEnv: "[]"}
+	_, err = validateCatalog(catalog)
+	require.ErrorContains(t, err, "reserved identity")
+}
+
+func TestResolverRejectsMissingSystemFlowsBeforeLaunch(t *testing.T) {
+	for _, names := range [][]string{nil, {}} {
+		t.Run(fmt.Sprintf("nil=%t", names == nil), func(t *testing.T) {
+			resolver, store, launcher, _ := testResolver(t)
+			catalog := resolver.catalogs[CatalogCoding]
+			catalog.SystemFlows = names
+			targetCalls := 0
+			created, err := New(Config{Store: store, Launcher: launcher, Catalogs: []Catalog{catalog},
+				Targets: TargetResolverFunc(func(context.Context, flowruntime.Target) (Authority, error) {
+					targetCalls++
+					return Authority{}, nil
+				})})
+			require.Nil(t, created)
+			var known flowruntime.Failure
+			require.ErrorAs(t, err, &known)
+			require.Equal(t, "runtime_catalog_invalid", known.FlowRuntimeCode())
+			require.False(t, known.FlowRuntimeRetryable())
+			var classified interface{ FlowRuntimeClass() string }
+			require.ErrorAs(t, err, &classified)
+			require.Equal(t, "infra", classified.FlowRuntimeClass())
+			require.Zero(t, targetCalls)
+			require.Zero(t, store.acquires)
+			require.Empty(t, launcher.calls)
+			require.Empty(t, launcher.starts)
+		})
+	}
+}
+
+// Use the actual workspace launcher against a sandboxed managed-host fixture.
+// The transport substitutes the HTTP application only; the launch contract and
+// authentication pass through the same public boundaries as a guest host.
+type sandboxedManagedRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	connection workspaceapi.ManagedHostConnection
+	starts     int
+	commands   []workspaceapi.Command
+}
+
+func (*sandboxedManagedRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+func (*sandboxedManagedRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	return workspaceapi.WorkspaceCapabilities{ManagedHTTPHosts: true, SourceRevision: true}
+}
+func (*sandboxedManagedRuntime) ResolveWorkspaceSourceRevision(context.Context, string) (string, error) {
+	return strings.Repeat("b", 40), nil
+}
+func (r *sandboxedManagedRuntime) InspectManagedHost(context.Context, string, workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+	if r.starts == 0 {
+		return workspaceapi.ManagedHostConnection{}, workspaceapi.ErrManagedHostNotRunning
+	}
+	return r.connection, nil
+}
+func (r *sandboxedManagedRuntime) StartManagedHost(ctx context.Context, id string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+	command, err := spec.Builder.BuildManagedHost(ctx, workspaceapi.ManagedHostPlacement{
+		Workspace: workspaceapi.Workspace{ID: id, Root: "/guest/repository"}, StateDir: "/guest/state", Host: "127.0.0.1", Port: 7331, Address: "127.0.0.1:7331",
+	})
+	if err != nil {
+		return workspaceapi.ManagedHostConnection{}, err
+	}
+	r.commands = append(r.commands, command)
+	r.starts++
+	transport := &identityTransport{credential: command.Environment["SMITHERS_API_KEY"], identity: flowruntime.Identity{
+		Protocol: spec.Expected.Protocol, RuntimeArtifactDigest: spec.Expected.ArtifactDigest,
+		SourceRevision: spec.Expected.SourceRevision, OwnerGeneration: spec.Expected.OwnerGeneration,
+	}}
+	r.connection = workspaceapi.ManagedHostConnection{Endpoint: "http://127.0.0.1:7331", HTTPClient: &http.Client{Transport: transport}}
+	return r.connection, nil
+}
+func TestSandboxedWorkspaceLauncherBindsAndReconnects(t *testing.T) {
+	resolver, store, _, target := testResolver(t)
+	sandbox := &sandboxedManagedRuntime{}
+	launcher, err := NewWorkspaceLauncher(sandbox)
+	require.NoError(t, err)
+	resolver.launcher = launcher
+	identity := resolvedIdentity(t, resolver.ResolveFlowRuntime, target)
+	require.Equal(t, flowruntime.Protocol, identity.Protocol)
+	require.Equal(t, int64(1), identity.OwnerGeneration)
+	require.Equal(t, identity, resolvedIdentity(t, resolver.ResolveExistingFlowRuntime, target))
+	require.Equal(t, 1, sandbox.starts)
+	require.Equal(t, "running", store.binding.State)
+	require.Contains(t, sandbox.commands[0].Args, "/guest/repository")
 }

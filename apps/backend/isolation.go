@@ -18,9 +18,10 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// Workspace isolation modes. `process` is the documented trusted single-owner
-// edition. `microvm` runs every workspace in a local Microsandbox microVM and
-// refuses to start when microVMs are unavailable; it never falls back.
+// Workspace isolation modes. `process` is retained for tests only and cannot
+// bind an overridable flow without explicit test configuration. `microvm`
+// runs every workspace in a local Microsandbox microVM and refuses to start
+// when microVMs are unavailable; it never falls back.
 const (
 	isolationProcess = "process"
 	isolationMicroVM = "microvm"
@@ -150,6 +151,7 @@ func microVMConfig(dataRoot, hostBundle string) (microsandbox.Config, error) {
 		return microsandbox.Config{}, err
 	}
 	config := microsandbox.Config{
+		CodingHelper: strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")),
 		Binary:       strings.TrimSpace(os.Getenv("SMITHERS_MICROSANDBOX_BIN")),
 		Root:         filepath.Join(dataRoot, "microvm"),
 		HostPorts:    []uint16{port},

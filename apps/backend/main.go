@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/app"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/localbootstrap"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
@@ -35,7 +36,16 @@ func main() {
 }
 
 // run returns nil for a clean signal stop and reports every cleanup failure.
-func run(ctx context.Context, args []string) (runErr error) {
+func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.WorkspaceLauncherConfig) (runErr error) {
+	// Only programmatic integration tests supply this configuration. The install
+	// entry point has no environment setting that enables trusted coding hosts.
+	if len(testFlowHostConfigs) > 1 {
+		return fmt.Errorf("at most one Flow host test configuration is allowed")
+	}
+	var testFlowHostConfig flowhost.WorkspaceLauncherConfig
+	if len(testFlowHostConfigs) == 1 {
+		testFlowHostConfig = testFlowHostConfigs[0]
+	}
 	var cleanupErr error
 	defer func() { runErr = stopResult(ctx, runErr, cleanupErr) }()
 	// Schema maintenance is server-free. The native path migrates its owned
@@ -159,6 +169,7 @@ func run(ctx context.Context, args []string) (runErr error) {
 		Repository:       local.Client(),
 		Workspace:        workspaceRuntime,
 		FlowHostRegistry: &registry,
+		FlowHostConfig:   testFlowHostConfig,
 		ChatHost:         chatHost,
 		Recommender:      recommender,
 	}

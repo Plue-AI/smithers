@@ -8,7 +8,7 @@ import * as Executable from "@smthrs/registry/Executable"
 import * as MarkdownFlow from "@smthrs/registry/MarkdownFlow"
 import * as Registry from "@smthrs/registry/Registry"
 import { registryError } from "@smthrs/registry/RegistryError"
-import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { fileURLToPath } from "node:url"
 import {
   FLOW_AUTHORING_ENTRY,
@@ -139,7 +139,8 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
  * The optional coding routes a configured host serves (`configuredCodingRoutes`).
  * They ship as built-ins like `coding/implementation`, so a repository with
  * `.smithers/coding-project.json` and no `flows/coding/` tree still serves them
- * and never vendors coding bundles. A repository's own flow of the same name wins.
+ * and never vendors coding bundles. The backend catalog decides which names
+ * require the packaged implementation.
  */
 const codingRoutes = {
   "coding/request": { flow: Request, description: "Plan and implement one coding request." },
@@ -248,8 +249,7 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
      * `/flow.create` had nothing to launch and why no run could show a person an
      * agent's frames (`AgentSession` runs only a Prompt body through its trace
      * and pump). A repository that writes its own `create-flow` still wins:
-     * `bindRepositoryRegistry` reserves only the repository-job names and the
-     * coding routes the host requires.
+     * `bindRepositoryRegistry` reserves the backend's system names.
      */
     for (const [name, text] of yield* authoringBodies) {
       const directory = path.join(root, name)
@@ -286,9 +286,16 @@ export const repositoryCatalog = (options: Executable.Options, load: NonNullable
     const builtins = yield* Executable.catalog({ ...options, load }).pipe(
       Effect.provideService(Registry.Registry, selected(true))
     )
+    const reserved = yield* reservedRefusals(registry)
+    yield* Effect.forEach(reserved, (failure) =>
+      Effect.logWarning("repository flow name is reserved", {
+        flow: failure.flow,
+        path: failure.path,
+        code: failure.code
+      }))
     return {
       executables: [...project.executables, ...builtins.executables],
-      refused: [...project.refused, ...builtins.refused]
+      refused: [...reserved, ...project.refused, ...builtins.refused]
     }
   })
 
@@ -311,7 +318,44 @@ export const repositoryRegistration = <ROut, E, RIn>(
   leaves: Layer.Layer<ROut, E, RIn>
 ) =>
   Layer.mergeAll(leaves, ...built.executables.map((entry) => entry.layer)).pipe(
-    Layer.provideMerge(Executable.layerRefreshable(built, { ...options, refreshable: refreshableEntry }))
+    Layer.provideMerge(Layer.unwrap(Effect.gen(function*() {
+      const registry = yield* Registry.Registry
+      const services = yield* Layer.build(
+        Executable.layerRefreshable(built, { ...options, refreshable: refreshableEntry })
+      )
+      const catalog = Context.get(services, Executable.Catalog)
+      const refresh = Context.get(services, Executable.Refresh)
+      let reserved = yield* reservedRefusals(registry)
+      // Executable refresh preserves Fixed entries. Reconcile their collision
+      // metadata separately, against the snapshot that refresh just discovered.
+      const flow: Executable.Refresh["flow"] = (name) =>
+        refresh.flow(name).pipe(
+          Effect.tap(() =>
+            reservedRefusals(registry).pipe(Effect.map((next) => {
+              reserved = next
+            }))
+          )
+        )
+      const load: NonNullable<Executable.Catalog["load"]> = (name) =>
+        Effect.suspend(() => {
+          const refusal = reserved.find((entry) => entry.flow === name)
+          return refusal !== undefined && !catalog.executables.some((entry) => entry.descriptor.name === name)
+            ? Effect.fail(refusal)
+            : catalog.load!(name)
+        })
+      return Layer.merge(
+        Layer.succeed(Executable.Catalog, {
+          get executables() {
+            return catalog.executables
+          },
+          get refused() {
+            return [...reserved, ...catalog.refused.filter((entry) => entry.code !== "reserved_name")]
+          },
+          load
+        }),
+        Layer.succeed(Executable.Refresh, { flow })
+      )
+    })))
   )
 
 /**
@@ -327,39 +371,55 @@ export const refreshableEntry = (descriptor: Descriptor.FlowDescriptor): boolean
   descriptor.provenance.source !== "repository-host"
 
 /**
- * Reserved job declarations, and the routes the host names in `hostOwned`,
- * always come from the measured host bundle.
+ * System names supplied by the backend always come from the measured host
+ * bundle. Keep collision metadata separate from executable descriptors so a
+ * reserved repository module is never passed to an import loader.
  */
+const repositoryRefusals = Symbol("repositoryRefusals")
+type RepositoryRegistry = Registry.Registry & {
+  readonly [repositoryRefusals]?: Effect.Effect<ReadonlyArray<Executable.ExecutableError>>
+}
+// Keep the metadata on the service so structural wrappers retain it, rather
+// than depending on the exact object identity a host supplied to the catalog.
+const reservedRefusals = (registry: Registry.Registry) =>
+  (registry as RepositoryRegistry)[repositoryRefusals] ?? Effect.succeed([])
+
 export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
   policy: string,
-  hostOwned: ReadonlyArray<string> = []
+  systemFlows: ReadonlyArray<string>
 ): Registry.Registry => {
-  const reserved = (name: string) =>
-    name === "repository/setup" || name === "repository/trigger" ||
-    /^repository-jobs\/(issues|review|ci|feature|chores)$/.test(name)
-  const bundled = (name: string) => reserved(name) || hostOwned.includes(name)
-  const reservedSchemas = (name: string) =>
-    name === "repository/setup" ?
+  const names = new Set(systemFlows)
+  const bundled = (name: string) => names.has(name)
+  // Legacy packaged delegates retain their codecs and policy fence. These
+  // describe builtin schemas; they do not reserve repository names.
+  const reservedSchemas = (descriptor: Descriptor.FlowDescriptor) =>
+    descriptor.provenance.source !== "repository-host" ?
+      undefined :
+      descriptor.flows.includes("repository/RunSetup") ?
       { input: SetupInput, output: OperationResult }
-      : name === "repository/trigger"
+      : descriptor.flows.includes("repository/RunTrigger")
       ? { input: TriggerRequest, output: TriggerOutcome }
-      : { input: JobInput, output: JobResult }
-  const derived = (descriptor: Descriptor.FlowDescriptor) =>
-    reserved(descriptor.name) ?
+      : descriptor.flows.includes("repository/RunJob")
+      ? { input: JobInput, output: JobResult }
+      : undefined
+  const derived = (descriptor: Descriptor.FlowDescriptor) => {
+    const schemas = reservedSchemas(descriptor)
+    return schemas !== undefined ?
       new Descriptor.FlowDescriptor({
         ...descriptor,
         budget: { tokens: deploymentTokens, milliseconds: deploymentMinutes * 60000 },
         input: new Descriptor.SchemaRefInline({
-          document: JSON.parse(JSON.stringify(Schema.toJsonSchemaDocument(reservedSchemas(descriptor.name).input)))
+          document: JSON.parse(JSON.stringify(Schema.toJsonSchemaDocument(schemas.input)))
         }),
         output: new Descriptor.SchemaRefInline({
-          document: JSON.parse(JSON.stringify(Schema.toJsonSchemaDocument(reservedSchemas(descriptor.name).output)))
+          document: JSON.parse(JSON.stringify(Schema.toJsonSchemaDocument(schemas.output)))
         }),
         frontmatter: { ...descriptor.frontmatter, repositoryHostPolicy: policy }
       }) :
       descriptor
+  }
   const owned = (name: string) =>
     bundled(name)
       ? Effect.succeed(builtins)
@@ -387,7 +447,7 @@ export const bindRepositoryRegistry = (
       }
       return yield* registry.loadBody(name, Descriptor.executionDigest(original))
     })
-  return Registry.Registry.of({
+  const registry = Registry.Registry.of({
     list,
     visible: () => list().pipe(Effect.map((entries) => entries.filter((entry) => entry.modelInvocable))),
     get,
@@ -407,5 +467,20 @@ export const bindRepositoryRegistry = (
       )),
     refresh: () => Effect.all([base.refresh(), builtins.refresh()]).pipe(Effect.asVoid),
     warnings: () => Effect.all([base.warnings(), builtins.warnings()]).pipe(Effect.map((values) => values.flat()))
+  })
+  return Object.assign(registry, {
+    [repositoryRefusals]: base.list().pipe(
+      Effect.map((entries) =>
+        entries.filter((entry) => bundled(entry.name)).map((entry) =>
+          new Executable.ExecutableError({
+            code: "reserved_name",
+            flow: entry.name,
+            path: entry.path,
+            available: [],
+            message: `Repository flow "${entry.name}" uses a reserved system name`
+          })
+        )
+      )
+    )
   })
 }

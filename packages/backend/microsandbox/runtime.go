@@ -59,6 +59,9 @@ const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d
 // Config selects the msb binary, the data root holding adapter metadata, the
 // VM shape, and the backend ports a guest may reach through its bridge.
 type Config struct {
+	// CodingHelper is the packaged Linux arm64 source-publication helper.
+	// The binding installer plants its verified bytes at the fixed guest path.
+	CodingHelper string
 	// Binary is the absolute path of the pinned msb executable.
 	Binary string
 	// Root holds adapter metadata. It is host state, never a guest mount.
@@ -145,6 +148,7 @@ type Runtime struct {
 	semaphore chan struct{}
 
 	environments *environments
+	codingHelper codingHelperCache
 
 	mu         sync.Mutex
 	closed     bool

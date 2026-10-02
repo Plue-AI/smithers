@@ -19,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -27,6 +28,10 @@ import (
 // Only the external launch transport is a test endpoint. It refuses every
 // launch; no fabricated successful host, workflow, identity or receipt exists.
 type refusingHostTransport struct{ url string }
+
+func (refusingHostTransport) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
 
 func (refusingHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
 	return flowhost.Connection{}, flowhost.ErrHostNotRunning

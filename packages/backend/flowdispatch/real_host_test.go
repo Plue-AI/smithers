@@ -29,8 +29,8 @@ import (
 // The project flow the box's coding host serves from the fixture repository.
 // Its one model turn is answered by distribution/fake-coding-provider.mjs, the
 // same scripted provider the image acceptance uses: it writes and reads back
-// flow-proof.txt. The provider also answers the completion judge through the
-// host's Anthropic subscription route, so neither request needs a real model.
+// flow-proof.txt. Its real local HTTP service also answers the gateway
+// evaluator's completion questions, so neither request needs a live model/key.
 const realHostFlow = `import { Action, Flow } from "@smthrs/flow"
 import { Schema } from "effect"
 
@@ -137,11 +137,17 @@ func startCodingHost(t *testing.T, fixture realHostFixture, port int, generation
 		"OPENAI_API_KEY=scripted-provider-key",
 		"SMITHERS_OPENAI_AUTH=api-key",
 		"SMITHERS_ACCOUNT_POOL_URL=",
-		"ANTHROPIC_AUTH_TOKEN=scripted-evaluator-key",
+		// Exercise the real gateway Evaluator transport against the local
+		// scripted dependency, never a live gateway or subscription account.
+		"AI_GATEWAY_API_KEY=scripted-evaluator-key",
+		"SMITHERS_EVALUATOR_BASE_URL="+fixture.provider+"/v4/ai/evaluation-model",
 		"SMITHERS_MODEL_PROXY_URL="+fixture.provider,
 		"SMITHERS_MODEL_PROXY_PROVIDERS=anthropic",
 		"SMITHERS_OPENAI_COMPATIBLE_BASE_URL="+fixture.provider,
 		"SMITHERS_CODING_LOCAL_OWNER=1",
+		// This direct process fixture has no backend launch catalog. Supply the
+		// packaged names explicitly; production BuildProcessSpec owns the policy.
+		`SMITHERS_SYSTEM_FLOWS=["stack","stack.move","stack.propose","history.show","history.view","history.parallel","history.bootstrap","history.backfill","todo.new","todo.from-issue","todo.answer","todo.steer","todo.amend","todo.stop","todo.resume","todo.retry","todo.drop","todo.takeover","history.todo","issue.implement","runs.steer","history.retry","branch.fork","branch.add-to-stack","branch.rebase","merge","history.land","prs.land","change.land","members","members.add","members.role","members.remove","settings","secrets.connect","secrets.connect.codex","secrets.connections","secrets.move","secrets.revoke","secrets","secrets.list","secrets.set","secrets.delete","secrets.scope","secrets.bind","admission","approvals.list","approvals.open","runs.attention","approval.approve","approval.deny","sync","github.reconcile","github.mirror-sync","github.mirror.retry-ref","sync.ops.show-more","setup","github.app","github.app.choose","github.app.open","repos.import","repos.import.retry","flow-load","summarizer","repository/setup","repository/trigger","repository-jobs/issues","repository-jobs/review","repository-jobs/ci","repository-jobs/feature","repository-jobs/chores","coding","coding/dispatch","coding/implementation","coding/request","coding/vibe","coding/verify","coding/wiki"]`,
 		"SMITHERS_OWNER_GENERATION="+strconv.FormatInt(generation, 10),
 		"SMITHERS_SOURCE_REVISION="+fixture.revision,
 		"SMITHERS_FLOW_ARTIFACT_SHA256="+fixture.digest,
@@ -255,9 +261,19 @@ func startScriptedProvider(t *testing.T, node, repositoryRoot string) string {
 	t.Cleanup(func() {
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		if t.Failed() {
-			t.Logf("scripted provider log:\n%s", logs.String())
+		// Retain only the bounded method/path trace on successful runs too, so
+		// acceptance receipts prove both the model and evaluator were called.
+		// Never include request bodies, headers, or credentials in this trace.
+		trace := make([]string, 0, 32)
+		for _, line := range strings.Split(logs.String(), "\n") {
+			if len(trace) == cap(trace) {
+				break
+			}
+			if strings.HasPrefix(line, "provider ") {
+				trace = append(trace, line)
+			}
 		}
+		t.Logf("scripted provider request trace:\n%s", strings.Join(trace, "\n"))
 	})
 	origin := "http://127.0.0.1:" + strconv.Itoa(port)
 	deadline := time.Now().Add(10 * time.Second)

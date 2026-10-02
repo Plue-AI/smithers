@@ -36,7 +36,7 @@ func TestWorkspaceResolverRecoversKilledHostWithoutReplacingBox(t *testing.T) {
 	require.NoError(t, err)
 	box, err = runtime.StartWorkspace(ctx, box.ID)
 	require.NoError(t, err)
-	launcher, err := NewWorkspaceLauncher(runtime)
+	launcher, err := NewWorkspaceLauncher(runtime, WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
 	require.NoError(t, err)
 	catalog.Executable, err = os.Executable()
 	require.NoError(t, err)
@@ -46,7 +46,8 @@ func TestWorkspaceResolverRecoversKilledHostWithoutReplacingBox(t *testing.T) {
 	store, err := NewStore(pool, testCodec{})
 	require.NoError(t, err)
 	resolver, err := New(Config{
-		Store: store, Launcher: launcher, Catalogs: []Catalog{catalog},
+		AllowTrustedProcessForTests: true,
+		Store:                       store, Launcher: launcher, Catalogs: []Catalog{catalog},
 		Targets: TargetResolverFunc(func(context.Context, flowruntime.Target) (Authority, error) { return authority, nil }),
 	})
 	require.NoError(t, err)

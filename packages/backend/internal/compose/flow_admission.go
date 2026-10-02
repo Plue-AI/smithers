@@ -21,6 +21,25 @@ type admittedFlowLauncher struct {
 	policy  admission.Policy
 }
 
+// Preserve the runtime boundary through both admission and box preparation.
+// An adapter without an isolation report is refused by the resolver.
+func launcherIsolation(launcher flowhost.Launcher) workspaceapi.IsolationLevel {
+	if isolated, ok := launcher.(interface {
+		Isolation() workspaceapi.IsolationLevel
+	}); ok {
+		return isolated.Isolation()
+	}
+	return ""
+}
+
+func (l *admittedFlowLauncher) Isolation() workspaceapi.IsolationLevel {
+	return launcherIsolation(l.Launcher)
+}
+
+func (l *boxHostLauncher) Isolation() workspaceapi.IsolationLevel {
+	return launcherIsolation(l.Launcher)
+}
+
 func newAdmittedFlowLauncher(launcher flowhost.Launcher, queries *db.Queries, policy admission.Policy) (*admittedFlowLauncher, error) {
 	source, sourceOK := launcher.(flowhost.SourceResolver)
 	stopper, stopOK := launcher.(flowhost.RetirementStopper)

@@ -230,6 +230,7 @@ export interface Delegate {
  * @since 1.0.0-rc.0
  */
 export const ExecutableErrorCode = Schema.Literals([
+  "reserved_name",
   "missing_delegate",
   "ambiguous_delegate",
   "load_timeout",

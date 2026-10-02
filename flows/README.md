@@ -8,6 +8,22 @@ importing a module or reading a prompt body. Every directory here is a flow
 named by its path, so `flows/create-flow/scaffold/flow.mdx` is the flow
 `create-flow/scaffold`. Run state goes to `.flows/`, never here.
 
+## Factory flow catalog
+
+The install's catalog is `packages/backend/internal/services/flow_catalog.go`.
+System flows cover stack operations (including `stack.propose`), merge, members,
+settings, secrets, sync, admission, setup, `flow-load`, and the summarizer. A
+repository declaration with an exact system name is refused with `reserved_name`
+before its module is imported. The packaged system declaration stays available.
+
+`todo`, `learning`, `review`, and repository flows with other names are
+overridable. Their catalog names the packaged defaults; the TODO composition is
+supplied by T-FLW-11. Every run executes in a branch machine or an ephemeral
+background machine. The host supplies the system names to the coding host in
+its launch specification and never imports repository flow code. A process
+runtime refuses coding hosts with `isolation_required` (fault class `infra`);
+the separate process runtime for the packaged model host remains available.
+
 ## The authoring bodies
 
 `create-flow`, its stages `create-flow/{clarify,provision,design,scaffold,fix,document}`,

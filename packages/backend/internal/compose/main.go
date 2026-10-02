@@ -23,6 +23,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/commerce"
 	"github.com/smithersai/smithers/packages/backend/credits"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
@@ -120,13 +121,15 @@ type Options struct {
 	RepositoryProvisioning services.RepositoryProvisioningStore
 	Workspace              workspace.WorkspaceRuntime
 	FlowHostRegistry       *flowmanifest.Registry
-	FlowHostProductAPIURL  string
-	ChatHost               ports.ChatHost
-	ChatCallbackListener   net.Listener
-	ChatProducerBaseURL    string
-	Recommender            ports.Recommender
-	RecommendationLog      ports.RecommendationLog
-	ModelStreamHost        ports.ModelStreamHost
+	// FlowHostConfig is supplied only by process-runtime integration tests.
+	FlowHostConfig        flowhost.WorkspaceLauncherConfig
+	FlowHostProductAPIURL string
+	ChatHost              ports.ChatHost
+	ChatCallbackListener  net.Listener
+	ChatProducerBaseURL   string
+	Recommender           ports.Recommender
+	RecommendationLog     ports.RecommendationLog
+	ModelStreamHost       ports.ModelStreamHost
 	// MetricsCollectors are deployment collectors exported with the product
 	// registry on this process's /metrics endpoint.
 	MetricsCollectors []prometheus.Collector

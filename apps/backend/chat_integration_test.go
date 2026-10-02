@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
@@ -60,6 +61,15 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	require.NoError(t, err, string(output))
 	codingBytes, err := os.ReadFile(coding)
 	require.NoError(t, err)
+	// Pin the fixture's Node interpreter just as the packaged model host does.
+	// The manifest measures the exact executable bytes, including this banner.
+	newline := bytes.IndexByte(codingBytes, '\n')
+	require.GreaterOrEqual(t, newline, 0)
+	shellQuote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+	// This shell/JavaScript banner also supports an interpreter path with spaces.
+	banner := fmt.Sprintf("#!/bin/sh\n':' //; exec %s \"$0\" \"$@\"\n", shellQuote(node))
+	codingBytes = append([]byte(banner), codingBytes[newline+1:]...)
+	require.NoError(t, os.WriteFile(coding, codingBytes, 0700))
 	codingSum := sha256.Sum256(codingBytes)
 	manifest := map[string]any{"version": 1, "hosts": map[string]any{
 		"coding": map[string]any{"executable": "smithers-coding-host", "sha256": hex.EncodeToString(codingSum[:]), "flows": []string{"coding/dispatch"}},
@@ -107,7 +117,9 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 	serverCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 	done := make(chan error, 1)
-	go func() { done <- run(serverCtx, nil) }()
+	go func() {
+		done <- run(serverCtx, nil, flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
+	}()
 	client := &http.Client{Timeout: 30 * time.Second}
 	ready := false
 	// Fresh product migrations can take longer than ten seconds on a busy

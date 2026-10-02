@@ -162,7 +162,8 @@ describe("native backend ownership", () => {
     expect(env.SMITHERS_FLOW_HOST_MANIFEST).toEndWith("flow-hosts.json")
     expect(env.PATH?.split(delimiter)[0]).toBe(runtime.root)
     expect(env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY).toEndWith(join("linux-arm64", "smithers-jj-export"))
-    expect(env.SMITHERS_CODING_LOCAL_OWNER).toBe("1")
+    expect(env.SMITHERS_CODING_LOCAL_OWNER).toBeUndefined()
+    expect(env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
     expect(env.SMITHERS_JJ_PATH).toEndWith("jj")
     expect(env.GIT_EXEC_PATH).toEndWith(join("libexec", "git-core"))
     expect(env.GIT_TEMPLATE_DIR).toEndWith(join("share", "git-core", "templates"))
@@ -260,7 +261,6 @@ describe("native backend ownership", () => {
       "PATH",
       "SMITHERS_AUTH_BOOTSTRAP_TOKEN",
       "SMITHERS_AUTH_MODE",
-      "SMITHERS_CODING_LOCAL_OWNER",
       "SMITHERS_DATA_ROOT",
       "SMITHERS_FFI_LIBRARY_PATH",
       "SMITHERS_FLOW_HOST_MANIFEST",
@@ -275,6 +275,7 @@ describe("native backend ownership", () => {
       "SMITHERS_WEB_ROOT",
       "SMITHERS_WORKSPACE_CODING_HOST_BINARY",
       "SMITHERS_WORKSPACE_CODING_HOST_SHA256",
+      "SMITHERS_WORKSPACE_ISOLATION",
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY",
       "TMPDIR",
       "no_proxy"
@@ -293,6 +294,14 @@ describe("native backend ownership", () => {
     const env = await ownedEnvironment(runtime, {})
     expect(env.PATH).toBe([runtime.root, "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
   })
+
+  test.each([undefined, "process", "microvm", "invalid", ""])(
+    "owned always selects microVM isolation, ignoring shell override %s", async (value) => {
+      const env = await ownedEnvironment(packagedRuntime(), value === undefined ? {} : {
+        SMITHERS_WORKSPACE_ISOLATION: value
+      })
+      expect(env.SMITHERS_WORKSPACE_ISOLATION).toBe("microvm")
+    })
 
   test("the first-owner token comes from the owned state, never the launcher", async () => {
     const runtime = packagedRuntime()

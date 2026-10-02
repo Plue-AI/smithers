@@ -14,11 +14,16 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   bridge PORT HOST
                   listen on guest 127.0.0.1:PORT and forward to HOST:PORT
   setup USER UID  create the workspace user and adapter directories
+  coding-binding  atomically install the fixed root-owned source binding
+  coding-helper   atomically install the packaged Linux arm64 helper
+  coding-helper-check verify the fixed helper's digest and root ownership
 """
 
+import hashlib
 import json
 import os
 import pwd
+import secrets
 import select
 import signal
 import socket
@@ -32,6 +37,7 @@ EXIT_TRAILER = b"\x00SMITHERS-EXIT %d\x00"
 ENV_FILE = "/opt/smithers/env.json"
 REQUEST_DIR = "/run/smithers/requests"
 TOOL_HOME = "/var/cache/smithers/home"
+ROOT_UID = 0
 
 
 def fail(code, message):
@@ -388,6 +394,142 @@ def setup(user, uid, directories):
         os.chmod(directory, 0o755)
 
 
+def install_coding_binding(config, etc="/etc"):
+    # Only the adapter's privileged msb call can install this file. Ordinary
+    # workspace commands cannot select a destination or impersonate root.
+    if os.geteuid() != ROOT_UID:
+        fail(3, "coding binding requires root")
+    expected = {"version", "workspaceId", "actorId", "repositoryId", "repositorySlug",
+                "apiBaseUrl", "gitUrl", "repositoryPath", "username", "credentialSocket"}
+    if not isinstance(config, dict) or set(config) != expected:
+        fail(3, "coding binding fields are invalid")
+    if (config["version"] != 1 or not isinstance(config["workspaceId"], str)
+            or not valid_id(config["workspaceId"])
+            or type(config["actorId"]) is not int or config["actorId"] <= 0
+            or type(config["repositoryId"]) is not int or config["repositoryId"] <= 0
+            or config["repositoryPath"] != "/workspace" or config["username"] != "agent"
+            or config["credentialSocket"] != "/home/agent/.cache/smithers/git-credential/socket"
+            or not all(isinstance(config[key], str) and "\x00" not in config[key]
+                       for key in ("repositorySlug", "apiBaseUrl", "gitUrl"))):
+        fail(3, "coding binding authority is invalid")
+
+    def directory(parent, name=None):
+        fd = os.open(parent if name is None else name,
+                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                     **({} if name is None else {"dir_fd": parent}))
+        info = os.fstat(fd)
+        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+            os.close(fd)
+            fail(3, "coding binding directory is not root-owned and private")
+        return fd
+
+    etc_fd = directory(etc)
+    parent_fd = None
+    temporary = None
+    try:
+        try:
+            os.mkdir("smithers", 0o755, dir_fd=etc_fd)
+        except FileExistsError:
+            pass
+        parent_fd = directory(etc_fd, "smithers")
+        target = "workspace-coding.json"
+        try:
+            current = os.stat(target, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+                fail(3, "coding binding target is not a root-owned file")
+        except FileNotFoundError:
+            pass
+        temporary = ".workspace-coding-" + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent_fd)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(json.dumps(config, separators=(",", ":")).encode() + b"\n")
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o644)
+            os.fsync(handle.fileno())
+        os.rename(temporary, target, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        temporary = None
+        os.fsync(parent_fd)
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=parent_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+        os.close(etc_fd)
+
+
+def coding_helper_current(digest, directory="/usr/local/bin"):
+    if os.geteuid() != ROOT_UID:
+        fail(3, "coding helper check requires root")
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        fail(3, "coding helper digest is invalid")
+    parent_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(parent_fd)
+        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+            fail(3, "coding helper directory is not root-owned and private")
+        try:
+            current = os.stat("smithers-jj-export", dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+                fail(3, "coding helper target is not a root-owned file")
+            fd = os.open("smithers-jj-export", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return False
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
+                fail(3, "coding helper target is not a root-owned file")
+            if stat.S_IMODE(info.st_mode) != 0o755 or not 64 <= info.st_size <= 64 * 1024 * 1024:
+                return False
+            checksum = hashlib.sha256()
+            remaining = 64 * 1024 * 1024 + 1
+            while remaining:
+                chunk = handle.read(min(65536, remaining))
+                if not chunk:
+                    return checksum.hexdigest() == digest
+                checksum.update(chunk)
+                remaining -= len(chunk)
+            return False
+    finally:
+        os.close(parent_fd)
+
+
+def install_coding_helper(body, directory="/usr/local/bin"):
+    if os.geteuid() != ROOT_UID:
+        fail(3, "coding helper requires root")
+    if (len(body) < 64 or len(body) > 64 * 1024 * 1024 or body[:4] != b"\x7fELF"
+            or body[4:6] != b"\x02\x01" or int.from_bytes(body[18:20], "little") != 183):
+        fail(3, "coding helper is not Linux arm64")
+    parent_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = None
+    try:
+        info = os.fstat(parent_fd)
+        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+            fail(3, "coding helper directory is not root-owned and private")
+        target = "smithers-jj-export"
+        try:
+            current = os.stat(target, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
+                fail(3, "coding helper target is not a root-owned file")
+        except FileNotFoundError:
+            pass
+        temporary = ".smithers-jj-export-" + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent_fd)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o755)
+            os.fsync(handle.fileno())
+        os.rename(temporary, target, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        temporary = None
+        os.fsync(parent_fd)
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=parent_fd)
+        os.close(parent_fd)
+
+
 # Where each tool looks under $HOME when its variable is unset. A process that
 # keeps only PATH and HOME (a Flow host's least-authority tool environment)
 # still finds the layer's caches and offline settings.
@@ -435,6 +577,19 @@ def main(args):
     if not args:
         fail(125, "missing subcommand")
     command = args[0]
+    if command == "coding-helper-check" and len(args) == 1:
+        digest = sys.stdin.buffer.read(65).decode("ascii")
+        print("current" if coding_helper_current(digest) else "replace")
+        return
+    if command == "coding-helper" and len(args) == 1:
+        install_coding_helper(sys.stdin.buffer.read(64 * 1024 * 1024 + 1))
+        return
+    if command == "coding-binding" and len(args) == 1:
+        body = sys.stdin.buffer.read(65537)
+        if len(body) > 65536:
+            fail(3, "coding binding exceeds its limit")
+        install_coding_binding(json.loads(body))
+        return
     if command == "exec":
         if len(args) == 3 and args[1] == "--request" and valid_id(args[2]):
             path = os.path.join(REQUEST_DIR, args[2] + ".json")

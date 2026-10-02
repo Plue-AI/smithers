@@ -86,8 +86,8 @@ var _ boxHostQuerier = (*db.Queries)(nil)
 // root-owned landing binding (/etc/smithers/workspace-coding.json) it needs,
 // plus SMITHERS_CACHE_URL and a read-only SMITHERS_CACHE_TOKEN for the
 // repository's remote target cache, which the host forwards to its checks.
-// A runtime without that binding (a self-host process or microVM runtime)
-// answers none. A box with write shares gets no credential: a guest with the
+// A sandboxed self-host runtime installs the same binding through its narrow
+// provisioning capability. A box with write shares gets no credential: a guest with the
 // owner's UID could read it.
 func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error) {
 	if err := s.verifyBoxTools(ctx, hostID, workspaceID, repositoryID, userID); err != nil {
@@ -99,7 +99,14 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	}
 	base := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	q, ok := s.q.(boxHostQuerier)
-	if s.sandbox == nil || base == "" || !ok {
+	guest := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationSandboxed
+	if s.sandbox == nil && !guest {
+		return environment, nil
+	}
+	if base == "" || !ok {
+		if guest {
+			return nil, pkgerrors.Conflict("workspace coding source binding configuration is unavailable")
+		}
 		return environment, nil
 	}
 	workspace, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
@@ -113,12 +120,18 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if err != nil || shared {
 		return environment, err
 	}
-	if _, err = s.ensureWorkspaceHeadReporter(ctx, workspace); err != nil {
-		return nil, err
-	}
-	// The host runs the box's helper: bring it to this release first (#3111).
-	if err = s.ensureWorkspaceCodingRuntime(ctx, workspace); err != nil {
-		return nil, err
+	if guest && s.sandbox == nil {
+		if err = s.installRuntimeBoxCodingBinding(ctx, workspace); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err = s.ensureWorkspaceHeadReporter(ctx, workspace); err != nil {
+			return nil, err
+		}
+		// The host runs the box's helper: bring it to this release first (#3111).
+		if err = s.ensureWorkspaceCodingRuntime(ctx, workspace); err != nil {
+			return nil, err
+		}
 	}
 	repository, err := q.GetRepoByID(ctx, repositoryID)
 	if err != nil {

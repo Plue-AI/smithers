@@ -18,9 +18,14 @@ generation. The proxy refuses it once the turn is reclaimed, cancelled,
 finished, or its lease lapses, and charges the turn's owner. An explicit
 model keeps its own credential and fails when that credential is missing.
 
-Use `SMITHERS_WORKSPACE_ISOLATION=microvm` for untrusted repositories.
-Trusted-process execution shares the backend owner's permissions and is not
-an isolation boundary: repository commands can read files that owner can read.
+Every repository uses microVM isolation. The owned backend launcher sets
+`SMITHERS_WORKSPACE_ISOLATION=microvm` explicitly and ignores shell overrides.
+For a direct backend launch, set that value explicitly. The process workspace
+runtime is for tests only; binding an overridable flow requires the explicit
+`flowhost.Config.AllowTrustedProcessForTests` option. No install environment
+variable bypasses that refusal. A process shares the backend owner's permissions
+and is not an isolation boundary: repository commands can read files that owner
+can read.
 
 If an older self-hosted installation passed operator keys into coding
 processes, rotate those keys, review provider usage, remove them from the

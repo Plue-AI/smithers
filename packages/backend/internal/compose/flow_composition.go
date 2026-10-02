@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type flowComposition struct {
@@ -37,6 +39,12 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	if options.Workspace == nil {
 		return nil, errors.New("Flow hosts require the shared workspace runtime")
+	}
+	// Refuse before consulting product state or creating a binding. The
+	// control runtime runs packaged model code and never repository flows.
+	launcher, err := flowhost.NewWorkspaceLauncher(options.Workspace, options.FlowHostConfig)
+	if err != nil {
+		return nil, fmt.Errorf("Flow workspace launcher: %w", err)
 	}
 	productAPIURL, err := flowHostProductAPIURL(options, cfg.Server.Addr)
 	if err != nil {
@@ -58,12 +66,28 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if cfg.FeatureFlags.SubscriptionConnections {
 		accountPoolURL = productAPIURL + services.ProviderPoolPath
 	}
+	environment := codingHostEnvironment(options.topology)
+	readyTimeout := time.Duration(0)
+	if options.FlowHostConfig.AllowTrustedProcessForTests && options.Workspace.Isolation() == workspace.IsolationTrustedProcess {
+		// Process integration fixtures own a local source publisher. The install
+		// cannot enable this branch through an environment setting.
+		helper := strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"))
+		if !filepath.IsAbs(helper) {
+			return nil, errors.New("process Flow host tests require an absolute source helper")
+		}
+		environment = map[string]string{"SMITHERS_CODING_LOCAL_OWNER": "1", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": helper}
+		// This bundled Node fixture exceeded 30s readiness under concurrent
+		// database/compiler load. Match the real fresh-box fixture's bound.
+		readyTimeout = 2 * time.Minute
+	}
 	catalogs := []flowhost.Catalog{
 		{
 			Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding,
 			Executable: registry.Coding.Executable, ArtifactDigest: registry.Coding.SHA256,
 			ServiceName: "smithers-coding-host", ImplementationModel: strings.TrimSpace(cfg.Sandbox.WorkspaceCodingDefaultModel),
-			Environment:   codingHostEnvironment(options.topology),
+			ReadyTimeout:  readyTimeout,
+			Environment:   environment,
+			SystemFlows:   services.SystemFlows,
 			ModelProxyURL: modelProxyURL, ModelSeats: modelSeats, AccountPoolURL: accountPoolURL,
 		},
 	}
@@ -95,10 +119,6 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// persisted item and stack.
 		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical))
 		projectors = append(projectors, mythical)
-	}
-	launcher, err := flowhost.NewWorkspaceLauncher(options.Workspace)
-	if err != nil {
-		return nil, fmt.Errorf("Flow workspace launcher: %w", err)
 	}
 	workspaceHosts, ok := launcher.(boxHostBase)
 	if !ok {
@@ -136,7 +156,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		owner.SetFlowJournals(postgres)
 		journals = postgres
 	}
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals})
+	resolver, err := flowhost.New(flowhost.Config{AllowTrustedProcessForTests: options.FlowHostConfig.AllowTrustedProcessForTests, Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals})
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
@@ -151,23 +171,8 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 // any topology: a host shares its workspace (and, in microVM mode, its guest
 // user) with repository commands, so its model seats come only from the
 // catalog's metered proxy with a per-binding credential (#2187).
-func codingHostEnvironment(role topology) map[string]string {
-	environment := make(map[string]string)
-	// The API image carries the helper at a different path from the workspace
-	// guest. Passing its own path to a hosted child makes the child exit before
-	// opening the readiness port. Local hosts still use the operator's path.
-	if role.hosted() {
-		environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = services.WorkspaceJJExportGuestPath
-	} else if value := strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")); value != "" {
-		environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = value
-	}
-	if value := strings.TrimSpace(os.Getenv("SMITHERS_JJ_PATH")); value != "" {
-		environment["SMITHERS_JJ_PATH"] = value
-	}
-	if !role.hosted() {
-		environment["SMITHERS_CODING_LOCAL_OWNER"] = "1"
-	}
-	return environment
+func codingHostEnvironment(_ topology) map[string]string {
+	return map[string]string{"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": services.WorkspaceJJExportGuestPath}
 }
 
 func (flow *flowComposition) recover(ctx context.Context) error {

@@ -77,6 +77,7 @@ type RuntimeCheckpoint struct {
 	RunID               string                          `json:"runId,omitempty"`
 	Cursor              string                          `json:"cursor,omitempty"`
 	Run                 *flowruntime.FlowRuntimeRun     `json:"run,omitempty"`
+	FailureClass        string                          `json:"failureClass,omitempty"`
 	FailureCode         string                          `json:"failureCode,omitempty"`
 	FailureObservedAt   int64                           `json:"failureObservedAt,omitempty"`
 	// IdlePolls counts consecutive polls without progress. It stops growing
@@ -155,6 +156,7 @@ type terminalReceipt struct {
 	Receipt    *flowruntime.FlowRuntimeReceipt `json:"receipt,omitempty"`
 	Run        *flowruntime.FlowRuntimeRun     `json:"run,omitempty"`
 	Cursor     string                          `json:"cursor,omitempty"`
+	ErrorClass string                          `json:"errorClass,omitempty"`
 	ErrorCode  string                          `json:"errorCode,omitempty"`
 	Projection json.RawMessage                 `json:"projection"`
 }

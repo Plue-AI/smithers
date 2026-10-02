@@ -34,9 +34,9 @@ func TestWorkspaceLauncherEarlyExitRetainsOperatorExitStatus(t *testing.T) {
 	digest := strings.Repeat("b", 64)
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: uuid.NewString()}
 	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: workspace.ID, CatalogKey: CatalogCoding, SourceRevision: revision}
-	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: executable, ArtifactDigest: digest, ServiceName: "coding-host", ReadyTimeout: 10 * time.Second}
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, SystemFlows: []string{"merge"}, Executable: executable, ArtifactDigest: digest, ServiceName: "coding-host", ReadyTimeout: 10 * time.Second}
 	binding := Binding{ID: uuid.NewString(), TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: workspace.ID, CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: digest, SourceRevision: revision, OwnerGeneration: 1, State: "starting"}
-	launcher, err := NewWorkspaceLauncher(runtime)
+	launcher, err := NewWorkspaceLauncher(runtime, WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
 	require.NoError(t, err)
 	_, startupErr := launcher.StartFlowHost(ctx, HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "private-bearer"})
 	require.ErrorContains(t, startupErr, "exit status 23")

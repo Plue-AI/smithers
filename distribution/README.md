@@ -2,13 +2,13 @@
 
 The MVP installs on one Apple Silicon Mac as a launchd service that runs the backend, PostgreSQL 18 and a microVM for each awake branch, reachable at any address the owner sets in Settings (loopback by default, plain HTTP works; HTTPS and remote access are the team's choice, for example `tailscale serve` or a reverse proxy; M-28) ([MVP spec](../.specs/product/mvp.md) §6.1). That Mac install is being rebuilt in stage 1 (§11) and has no package yet.
 
-The Docker image below is not an MVP install path, because it can't host microVMs.
+The Docker recipe below is retained as a test fixture until T-INS-05 removes it. It can't host the microVMs required by the MVP.
 
 ## Docker image
 
-Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs run as trusted processes for one owner; the container can't host [microVMs](#microvm-isolation).
+The test fixture uses one unprivileged application container with an external PostgreSQL 18 service and one persistent data volume. The container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Its process workspace runtime cannot bind repository flows unless the test composition explicitly sets `flowhost.Config.AllowTrustedProcessForTests`; no environment variable opts in. Production repository flows require [microVMs](#microvm-isolation).
 
-Only use a version after its [release notes](https://github.com/smithersai/smithers/releases) contain a public image digest. The commands below require that publication receipt. For a source build, follow the [release guide](../packages/backend/docs/distribution-release.md).
+A prebuilt test fixture requires a public image digest in its [release notes](https://github.com/smithersai/smithers/releases). The commands below require that publication receipt. For a source build, follow the [release guide](../packages/backend/docs/distribution-release.md).
 
 ```sh
 export SMITHERS_IMAGE=ghcr.io/smithersai/smithers:1.0.0-rc.1
@@ -29,7 +29,7 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
 
 On Railway, attach PostgreSQL 18 and a volume mounted at `/var/lib/smithers`, set `SMITHERS_AUTH_BOOTSTRAP_TOKEN` to `openssl rand -hex 32`, and use Railway's existing `DATABASE_URL`, `PORT`, and `RAILWAY_PUBLIC_DOMAIN` variables. The entrypoint maps `DATABASE_URL` before startup and the backend derives its public HTTPS origin from `RAILWAY_PUBLIC_DOMAIN`.
 
-The image contains the web build, `apps/backend`, the canonical coding and model TypeScript hosts with exact SHA-256 manifests, embedded product migrations, the Rust 1.98 glibc FFI library and canonical jj WebAssembly artifact (both built with the pinned toolchain), the `jj` 0.44 CLI built from revision `47589ada70c12b3e829b5c98ab32503abad49eac`, checksum-pinned Git 2.50.1, Node 26, and PostgreSQL 18 client tools. Every base image is pinned by digest. Startup verifies the host artifacts and never downloads an executable. The backend listens on port 4000 and owns the process adapter; PostgreSQL is external.
+The image contains the web build, `apps/backend`, the canonical coding and model TypeScript hosts with exact SHA-256 manifests, embedded product migrations, the Rust 1.98 glibc FFI library and canonical jj WebAssembly artifact (both built with the pinned toolchain), the `jj` 0.44 CLI built from revision `47589ada70c12b3e829b5c98ab32503abad49eac`, checksum-pinned Git 2.50.1, Node 26, and PostgreSQL 18 client tools. Every base image is pinned by digest. Startup verifies the host artifacts and never downloads an executable. The fixture backend listens on port 4000 and retains a process adapter for tests; PostgreSQL is external. This adapter provides no production repository-flow execution path.
 
 The image also includes the npm `@smthrs/cli` package as `smithers` (`smthrs` is an alias). Boxes receive its installed dependency tree from `SMITHERS_WORKSPACE_CLI_PACKAGE`, defaulting to `/opt/smithers/cli.tar`; they require Node 26. `distribution/build-cli.mjs` builds and packs the CLI through the existing release tooling. No Go CLI or registry download is needed in a box.
 
@@ -46,7 +46,7 @@ EOF
 echo SMITHERS_PLATFORM_MODEL_KEYS_FILE=/var/lib/smithers/config/platform-model-keys.json >>smithers.env
 ```
 
-Then remove the container and run it again with the same `docker run` command, which reads `smithers.env`; do the same after changing the set of providers. Startup fails if the file is readable by other users, is not a JSON object, names an unknown provider or holds a placeholder. Each call reads its key from the file, so a replaced key applies to the next call without a restart. Keys are never logged or placed in a guest's or Flow host's environment: guests and Flow hosts reach the providers through the backend's metered model proxy with a Smithers credential. This file is the only way Flow hosts get platform models; provider keys such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the backend's environment are never passed to them. Local jobs are trusted processes of the same user, so they are not a boundary against the owner's own code reading the file.
+Then remove the container and run it again with the same `docker run` command, which reads `smithers.env`; do the same after changing the set of providers. Startup fails if the file is readable by other users, is not a JSON object, names an unknown provider or holds a placeholder. Each call reads its key from the file, so a replaced key applies to the next call without a restart. Keys are never logged or placed in a guest's or Flow host's environment: guests and Flow hosts reach the providers through the backend's metered model proxy with a Smithers credential. This file is the only way Flow hosts get platform models; provider keys such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the backend's environment are never passed to them. A process workspace used with explicit test opt-in shares the owner's file permissions and provides no isolation boundary. Production repository flows run inside microVMs.
 
 To send a provider's calls to another origin, such as an inference gateway, set `SMITHERS_MODEL_PROXY_UPSTREAMS` to a JSON object of provider name to HTTP(S) origin, for example `{"openai":"https://gateway.internal"}`. The proxy sends that provider's platform key to the origin, so name only origins you trust.
 
@@ -98,7 +98,7 @@ The native macOS package (`build:native`, `Smithers.app`) was deleted with Elect
 
 ## MicroVM isolation
 
-On a Mac (or Linux with KVM) the backend can run every workspace, command, service, terminal, preview and Flow host in a local [Microsandbox](https://github.com/superradcompany/microsandbox) microVM instead of a trusted process. It is opt-in and never falls back:
+The MVP Mac install runs every workspace, command, service, terminal, preview and coding Flow host in a local [Microsandbox](https://github.com/superradcompany/microsandbox) microVM. The owned backend launcher always selects `microvm` and ignores shell isolation overrides. For a direct backend launch, set it explicitly; it never falls back:
 
 ```sh
 npm install -g microsandbox@0.6.16    # the backend is qualified with msb 0.6.16
@@ -108,6 +108,8 @@ smithers-backend microvm doctor       # read-only: msb, image, owned microVMs an
 ```
 
 With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. They also reach the egress relay on `SMITHERS_EGRESS_RELAY_PORT` (default: the backend port + 1), which swaps bound credentials into requests so a guest never holds them; keep it fixed across restarts. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
+
+The process workspace runtime is for tests only. An overridable Flow host refuses it with `isolation_required`; tests must opt in through `flowhost.Config.AllowTrustedProcessForTests`, never through an install environment variable.
 
 An agent workspace stopped for 24 hours gives back its microVM disk. Resuming it boots a fresh microVM and checks the repository out again; work on its bookmark is kept, anything else in the old disk is not. `microvm doctor` reports the unique bytes stopped microVMs still hold.
 
