@@ -109,7 +109,17 @@ it("raises a capped worker's token cap with a from the overview, and it resumes"
       "cap form"
     )
     await tui.press("\x1b[C") // right: twice the cap
-    await tui.until((screen) => /Cap\s+400/.test(screen), 5_000, "chosen")
+    await tui.until((screen) => /Cap\s+200\s+400/.test(screen), 5_000, "cap choices")
+    // The form shows every option; its chosen option is bold (#3045).
+    const deadline = Date.now() + 5_000
+    let selected = ""
+    while (Date.now() < deadline) {
+      selected = [...(await tui.html()).matchAll(/<span style="[^"]*font-weight:700;[^"]*">([^<]*)<\/span>/g)]
+        .map((match) => match[1]).join("")
+      if (selected.includes(" 400 ")) break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(selected).toContain(" 400 ")
     await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("Done 1") && !screen.includes("Needs you"),

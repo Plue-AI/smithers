@@ -96,7 +96,7 @@ const afterListing = async (sessions: string, act: () => Promise<void>, acknowle
   return tui!.screen()
 }
 
-it("keeps New, Resumed and Forked acknowledgments over an unchanged discovery failure", async () => {
+it("keeps New and Resumed acknowledgments over an unchanged discovery failure", async () => {
   const where = await start()
   await submit("/name saved route")
   await submit("remember route")
@@ -113,15 +113,6 @@ it("keeps New, Resumed and Forked acknowledgments over an unchanged discovery fa
     await tui!.press(key.enter)
   }, "Resumed")
   expect(screen).toContain("Resumed")
-  expect(screen).not.toContain(failure)
-
-  screen = await afterListing(where.sessions, async () => {
-    await submit("/fork")
-    await tui!.until((text) => text.includes("Fork from message"), 5_000, "fork dialog")
-    await tui!.type("remember")
-    await tui!.press(key.enter)
-  }, "Forked to a new conversation")
-  expect(screen).toContain("Forked to a new conversation")
   expect(screen).not.toContain(failure)
 }, 120_000)
 

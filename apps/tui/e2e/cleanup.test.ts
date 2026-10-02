@@ -38,7 +38,7 @@ describe("test-run cleanup", () => {
   it("an e2e case and a unit case leave no folder and no tmux", () => {
     const base = scratch("tui-cleanup-")
     run(base, "./e2e/tui.test.ts", "-t", "names no mode by default")
-    run(base, "./test/estimate.test.ts")
+    run(base, "./test/cap.test.ts")
     expect(readdirSync(base)).toEqual([])
     expect(daemons(base)).toEqual([])
   }, 180_000)
@@ -61,7 +61,7 @@ describe("test-run cleanup", () => {
     expect(daemons(base)).toContain(orphaned[0]!)
     expect(readdirSync(base)).toHaveLength(1)
 
-    run(base, "./test/estimate.test.ts")
+    run(base, "./test/cap.test.ts")
     expect(readdirSync(base)).toEqual([])
     expect(daemons(base)).toEqual([])
   }, 180_000)
