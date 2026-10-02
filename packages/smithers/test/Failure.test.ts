@@ -234,3 +234,17 @@ describe("terminalSafeValue", () => {
     expect(Failure.terminalSafeValue(undefined)).toBeUndefined()
   })
 })
+
+describe("whitespace authorization diagnostics", () => {
+  it.each(
+    ["Authorization", "Proxy-Authorization"].flatMap((header) =>
+      ["Token", "Bearer", "Basic"].map((scheme) => ({ header, scheme }))
+    )
+  )("redacts before short-line bounds for $header $scheme", ({ header, scheme }) => {
+    const secret = "ZqSynthetic7Secret4Value9"
+    const message = `${header} ${scheme} ${secret}${"x".repeat(2048)}`
+    const value = scheme === "Token" ? "[REDACTED]" : `${scheme} [REDACTED_TOKEN]`
+    expect(Failure.causeLine(message)).toBe(`${header} ${value}`)
+    expect(Failure.causeLine(`Error: wrapper\n [cause]: Error: ${message}`)).toBe(`Error: ${header} ${value}`)
+  })
+})

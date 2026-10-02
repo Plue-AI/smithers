@@ -229,10 +229,30 @@ const credentialNames = new RegExp(credentialName + separator("[ \\t]*"), "gi")
 
 const diagnosticNames = new RegExp(credentialName + separator(String.raw`\s*`), "gi")
 
-/** Header names whose whole value is a credential whatever its scheme. */
+/** Case-insensitive authorization names, without making scheme words prose matches. */
+const authorizationName = "(?:proxy-)?authorization".replace(/[a-z]/g, (char) => `[${char}${char.toUpperCase()}]`)
+
+/** Complete header names whose whole value is a credential whatever its scheme. */
+const headerWord = String.raw`${authorizationName}|${
+  "(?:set-)?cookies?".replace(/[a-z]/g, (char) => `[${char}${char.toUpperCase()}]`)
+}`
+
+// Apostrophes and backticks open quoted names only outside a header token.
+const headerName = String
+  .raw`(?<![A-Za-z0-9!#$%&*+.^_|~-])(?<![A-Za-z0-9!#$%&'*+.^_\x60|~-]['\x60])(${headerWord})`
+
 const headerNames = new RegExp(
   String.raw`((?:proxy-)?authorization|(?:set-)?cookies?)${separator(String.raw`\s*`)}`,
   "gi"
+)
+
+/** Whitespace headers require a scheme spelling, so ordinary authorization prose survives. */
+const diagnosticHeaderNames = new RegExp(
+  // A trailing token quote requires an opener; double quotes are never token characters.
+  `${headerName}(?:` +
+    String.raw`(?:(?<=["'\x60](?:${headerWord}))|(?!\\*['\x60]))${separator(String.raw`\s*`)}|` +
+    String.raw`(?<=${authorizationName})\s+(?=(?:Token|TOKEN|[Bb]earer|BEARER|Basic|BASIC)[ \t]+\S))`,
+  "g"
 )
 
 /** Any credential or header name, to stop a bare value before the next pair. */
@@ -872,8 +892,9 @@ export const diagnosticRules: ReadonlyArray<Rule> = [
     // The header value is a credential whatever its scheme (`Token`, a cookie
     // list, `Digest` with quoted parameters), so the value runs to the end of
     // its line or the close of the string it was written in.
-    pattern: headerNames,
-    rewrite: (text) => redactValues(text, headerNames, { header: true, diagnostic: true })
+    // A lookbehind-free superset lets the compiled prefilter skip ordinary prose.
+    pattern: /(?:proxy-)?authorization|(?:set-)?cookies?/gi,
+    rewrite: (text) => redactValues(text, diagnosticHeaderNames, { header: true, diagnostic: true })
   },
   {
     id: "bearer-or-basic",

@@ -2,10 +2,11 @@
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join, parse } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { fieldValueLimit } from "../src/internal/Failure.ts"
 
 const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
 const scriptedHost = fileURLToPath(new URL("./fixtures/scripted-native-host.ts", import.meta.url))
@@ -29,14 +30,31 @@ const count = (cwd: string, file: string, table: string): number => {
   }
 }
 describe("native body CLI refusal", () => {
-  it.each(["default", "legacy verbose", "canonical verbose"])(
-    "preserves the typed helper remedy with %s and no admission",
-    (mode) => {
-      const cwd = realpathSync(mkdtempSync(join(tmpdir(), "smithers-native-body-")))
+  it.each(
+    ["default", "legacy verbose", "canonical verbose"].flatMap((mode) =>
+      ["short", "long"].map((length) => ({ mode, length }))
+    )
+  )(
+    "preserves the typed helper remedy with $mode and $length helper path and no admission",
+    ({ mode, length }) => {
+      const cwd = realpathSync(
+        mkdtempSync(join(process.env.SMITHERS_TEST_SCRATCH ?? tmpdir(), "smithers-native-body-"))
+      )
       try {
         mkdirSync(join(cwd, "flows/native"), { recursive: true })
         writeFileSync(join(cwd, "flows/native/flow.ts"), source)
-        const missing = join(cwd, "sshpass -p synthetic3196 Authorization Token synthetic3196auth")
+        // A compact missing absolute path exposes both credentials before the diagnostic field bound.
+        // The first credential remains visible; nested segments move the second beyond the field bound.
+        const missing = length === "short"
+          ? join(parse(cwd).root, `sshpass -p synthetic3196 Authorization Token synthetic3196auth-${basename(cwd)}`)
+          : join(
+            parse(cwd).root,
+            "sshpass -p synthetic3196",
+            ...Array.from({ length: 8 }, (_, index) => `missing-${index}-${"x".repeat(40)}`),
+            `Authorization Token synthetic3196auth-${basename(cwd)}`
+          )
+        expect(missing.length)[length === "short" ? "toBeLessThan" : "toBeGreaterThan"](fieldValueLimit)
+        expect(existsSync(missing)).toBe(false)
         const result = spawnSync(process.execPath, [
           "--no-warnings",
           "--import",
@@ -68,10 +86,10 @@ describe("native body CLI refusal", () => {
         expect(message).toContain("smithers-jj-export is unusable")
         expect(message).toContain("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=")
         expect(message).not.toContain("body cannot be read")
-        expect(message).toContain("[REDACTED]")
-        expect(result.stdout + result.stderr).not.toContain("synthetic3196")
         expect(count(cwd, "control.db", "control_plans")).toBe(0)
         expect(count(cwd, "engine.db", "flows_runs")).toBe(0)
+        expect(message).toContain("[REDACTED]")
+        expect(result.stdout + result.stderr).not.toContain("synthetic3196")
       } finally {
         rmSync(cwd, { recursive: true, force: true })
       }

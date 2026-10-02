@@ -602,6 +602,10 @@ describe("the scanner's cost", () => {
 
   it.each([
     ["header lines", (n: number) => () => Redaction.redactDiagnostic("Authorization: Token a\n".repeat(n))],
+    [
+      "quoted header boundaries",
+      (n: number) => () => Redaction.redactDiagnostic("'Authorization': 'x'\nx'Authorization': ordinary\n".repeat(n))
+    ],
     ["unclosed brackets in a durable row", (n: number) => () => Redaction.redact("token: {abc\n".repeat(n))],
     [
       "unclosed parentheses in a durable row",
@@ -735,5 +739,191 @@ describe("a credential named inside URL userinfo", () => {
   it("still redacts the rest of a value that has no userinfo end", () => {
     expectRedacted(Redaction.redact(`https://${user}:${secret}/acme/p.git`), secret)
     expectRedacted(Redaction.redact(`https://${user}:${secret}`), secret)
+  })
+})
+
+describe("complete authorization header names", () => {
+  it.each(["Authorization", "Proxy-Authorization", "AUTHORIZATION", "proxy-authorization"])(
+    "redacts whitespace Token credentials for %s only in diagnostics",
+    (name) => {
+      for (const space of [" ", "\t", "\n"]) {
+        const input = `${name}${space}Token ${secret}`
+        expect(Redaction.redactDiagnostic(input)).toBe(`${name}${space}[REDACTED]`)
+        expect(Redaction.redact(input)).toBe(input)
+        expect(Redaction.redactDiagnostic(Redaction.redactDiagnostic(input))).toBe(`${name}${space}[REDACTED]`)
+      }
+      expect(Redaction.redactDiagnostic(`"${name} Token ${secret}" next`)).toBe(`"${name} [REDACTED]" next`)
+    }
+  )
+
+  it.each([" ", "\t", " \t "])("redacts same-line Token value whitespace %j", (space) => {
+    const input = `Authorization Token${space}${secret}`
+    expect(Redaction.redactDiagnostic(input)).toBe(`Authorization [REDACTED]`)
+    expect(Redaction.redact(input)).toBe(input)
+  })
+
+  it.each(["\n", "\r\n", " \n", "\t\r\n"])("preserves Token prose across value line break %j", (space) => {
+    const input = `Authorization Token${space}ordinary prose`
+    expect(Redaction.redactDiagnostic(input)).toBe(input)
+    expect(Redaction.redact(input)).toBe(input)
+  })
+
+  it.each(["Token", "TOKEN", "Bearer", "bearer", "BEARER", "Basic", "BASIC"])(
+    "redacts supported whitespace scheme %s",
+    (scheme) => {
+      for (const space of [" ", "\t", "\n", "\r\n"]) {
+        const input = `Proxy-Authorization${space}${scheme} ${secret}`
+        const value = /token/i.test(scheme) ?
+          "[REDACTED]" :
+          `${scheme.toLowerCase() === "basic" ? "Basic" : "Bearer"} [REDACTED_TOKEN]`
+        const output = `Proxy-Authorization${space}${value}`
+        expect(Redaction.redactDiagnostic(input)).toBe(output)
+        expect(Redaction.redactDiagnostic(output)).toBe(output)
+      }
+    }
+  )
+
+  it.each([
+    "x-authorization",
+    "x.authorization",
+    "x+authorization",
+    "x!authorization",
+    "preauthorization",
+    "authorization-extra",
+    "x-proxy-authorization"
+  ])(
+    "preserves extended header name %s",
+    (name) => {
+      const input = `${name}: ordinary`
+      expect(Redaction.redactDiagnostic(input)).toBe(input)
+    }
+  )
+
+  it.each([
+    "Authorization is required",
+    "Authorization token policy",
+    "Proxy-Authorization header missing",
+    "Token ordinary",
+    "authorization Tokenization example"
+  ])(
+    "preserves ordinary prose %s",
+    (input) => {
+      expect(Redaction.redactDiagnostic(input)).toBe(input)
+      expect(Redaction.redact(input)).toBe(input)
+    }
+  )
+})
+
+describe("diagnostic header quote boundaries", () => {
+  const names = ["Authorization", "Proxy-Authorization", "AUTHORIZATION", "pRoXy-aUtHoRiZaTiOn"]
+  const quotedNames = ["'", "`"].flatMap((quote) => names.map((name) => ({ quote, name })))
+
+  it.each(quotedNames)("preserves $quote inside an extended $name header name", ({ quote, name }) => {
+    for (const previous of ["x", "0", "-", "!", "'", "`"]) {
+      for (const syntax of [": ordinary", "\t:\tordinary", " = ordinary", " => ordinary", "\tToken ordinary"]) {
+        const input = `${previous}${quote}${name}${syntax}`
+        expect(Redaction.redactDiagnostic(input)).toBe(input)
+      }
+    }
+  })
+
+  it.each(quotedNames)("preserves $quote extending the end of $name without a quoted key", ({ quote, name }) => {
+    for (
+      const input of [
+        `${name}${quote}: ordinary`,
+        `${name}${quote}\t:\tordinary`,
+        `${name}${quote}x: ordinary`,
+        `${quote}${name}${quote}x${quote}: ordinary`
+      ]
+    ) {
+      expect(Redaction.redactDiagnostic(input)).toBe(input)
+    }
+  })
+
+  it.each(quotedNames)("redacts standalone $quote-quoted $name keys and strings", ({ quote, name }) => {
+    for (const prefix of ["", " ", "\t", "\n", ":", "=", "(", "[", ","]) {
+      for (const syntax of [": ", "\t:\t", " = ", " => "]) {
+        const key = `${prefix}${quote}${name}${quote}${syntax}`
+        const input = `${key}${secret}`
+        const expected = `${key}${Redaction.placeholder}`
+        expect(Redaction.redactDiagnostic(input)).toBe(expected)
+        expect(Redaction.redactDiagnostic(expected)).toBe(expected)
+      }
+      for (const syntax of [": Token ", "\tToken ", "\r\nTOKEN "]) {
+        const input = `${prefix}${quote}${name}${syntax}${secret}${quote}`
+        const expected = `${prefix}${quote}${name}${
+          syntax.replace(/(?:Token|TOKEN) $/, "")
+        }${Redaction.placeholder}${quote}`
+        expect(Redaction.redactDiagnostic(input)).toBe(expected)
+        expect(Redaction.redactDiagnostic(expected)).toBe(expected)
+        expect(Redaction.redact(input)).toBe(input)
+      }
+    }
+  })
+
+  it.each(names)("redacts inspected and escaped JSON standalone %s names", (name) => {
+    for (
+      const render of [
+        (value: unknown) => inspect(value, { breakLength: Infinity }),
+        (value: unknown) => JSON.stringify(value),
+        (value: unknown) => JSON.stringify(JSON.stringify(value))
+      ]
+    ) {
+      for (
+        const [input, expected] of [
+          [{ [name]: `Token ${secret}`, kept: "ok" }, { [name]: Redaction.placeholder, kept: "ok" }],
+          [{ message: `${name} Token ${secret}`, kept: "ok" }, {
+            message: `${name} ${Redaction.placeholder}`,
+            kept: "ok"
+          }]
+        ]
+      ) {
+        const output = Redaction.redactDiagnostic(render(input))
+        expect(output).toBe(render(expected))
+        expect(String(output)).not.toContain(secret)
+        expect(Redaction.redactDiagnostic(output)).toBe(output)
+      }
+    }
+  })
+
+  it.each(names)("still redacts %s before a double quote without an opener", (name) => {
+    // A double quote is not an HTTP token character; retain the existing diagnostic net.
+    for (const depth of [0, 1, 3]) {
+      const key = `${name}${"\\".repeat(depth)}": `
+      const expected = `${key}${Redaction.placeholder}`
+      expect(Redaction.redactDiagnostic(`${key}Token ${secret}`)).toBe(expected)
+      expect(Redaction.redactDiagnostic(expected)).toBe(expected)
+    }
+  })
+
+  it.each(["Cookie", "Set-Cookie"])("keeps contextual quote boundaries for %s", (name) => {
+    for (const quote of ["'", "`", "\""]) {
+      const key = `${quote}${name}${quote}: `
+      expect(Redaction.redactDiagnostic(`${key}${secret}`)).toBe(`${key}${Redaction.placeholder}`)
+      if (quote !== "\"") {
+        for (const input of [`x${quote}${name}: ordinary`, `${name}${quote}: ordinary`]) {
+          expect(Redaction.redactDiagnostic(input)).toBe(input)
+        }
+      }
+    }
+  })
+
+  it("preserves every HTTP token character extending either end of a header name", () => {
+    for (const char of "!#$%&'*+-.^_`|~AZaz09") {
+      for (const name of names) {
+        for (const input of [`x${char}${name}: ordinary`, `${name}${char}x: ordinary`]) {
+          expect(Redaction.redactDiagnostic(input)).toBe(input)
+        }
+      }
+    }
+  })
+
+  it("keeps extended names beside independently redacted quoted headers", () => {
+    const input =
+      `('Authorization': ${secret})\n\`Proxy-Authorization Token ${secret}\`\nx'Authorization: ordinary\nx\`Proxy-Authorization: ordinary`
+    const expected =
+      `('Authorization': ${Redaction.placeholder})\n\`Proxy-Authorization ${Redaction.placeholder}\`\nx'Authorization: ordinary\nx\`Proxy-Authorization: ordinary`
+    expect(Redaction.redactDiagnostic(input)).toBe(expected)
+    expect(Redaction.redactDiagnostic(expected)).toBe(expected)
   })
 })

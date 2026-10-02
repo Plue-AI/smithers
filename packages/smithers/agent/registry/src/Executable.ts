@@ -896,6 +896,18 @@ const sourceBytes = (
     )
   })
 
+const snapshotFailure = (
+  error: ExecutableError,
+  cause: ExecutionSnapshot.ExecutionSnapshotError
+): ExecutableError =>
+  refuse({
+    code: error.code,
+    flow: error.flow,
+    path: error.path,
+    message: `${error.message}; approved source snapshot ${cause.code}: ${cause.message}`,
+    cause: error.cause ?? cause
+  })
+
 const loadMarkdown = (
   descriptor: Descriptor.FlowDescriptor,
   path: string,
@@ -909,15 +921,7 @@ const loadMarkdown = (
         Effect.fail(error)
         : options.snapshots.restore(approvedDigest).pipe(
           Effect.map((source) => source.bytes),
-          Effect.mapError((cause) =>
-            refuse({
-              code: "body_unavailable",
-              flow: descriptor.name,
-              path,
-              message: `${error.message}; approved source snapshot ${cause.code}: ${cause.message}`,
-              cause
-            })
-          )
+          Effect.mapError((cause) => snapshotFailure(error, cause))
         )
     ))
     const text = new TextDecoder().decode(bytes)
@@ -1040,15 +1044,7 @@ const loadModule = (
     }).pipe(Effect.catch((error) =>
       options.snapshots === undefined || approvedDigest === undefined ?
         Effect.fail(error)
-        : options.snapshots.restore(approvedDigest).pipe(Effect.mapError((cause) =>
-          refuse({
-            code: "body_unavailable",
-            flow: descriptor.name,
-            path,
-            message: `${error.message}; approved source snapshot ${cause.code}: ${cause.message}`,
-            cause
-          })
-        ))
+        : options.snapshots.restore(approvedDigest).pipe(Effect.mapError((cause) => snapshotFailure(error, cause)))
     ))
     const { bytes, modules } = source
     const loadPath = "loadPath" in source ? source.loadPath : source.entry
