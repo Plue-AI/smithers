@@ -2,30 +2,28 @@
 
 Owner brief: 2026-09-21. Epic: https://github.com/smithersai/smithers/issues/1655.
 
-This is an active implementation, not a completion claim. It supersedes the epic's original KVM-only local deployment and root `server/*` layout.
+This ledger tracks implementation and required proof, not completion. [ADR 0002](0002-mac-install.md) supersedes the single-owner container and native-app topology for the Mac install. [ADR 0001](0001-shared-product.md) still governs the shared backend and Plue composition.
 
 ## Required deployment boundary
 
 - Public Smithers owns the common Go product backend under `packages/backend`, app binaries under `apps/backend`, the canonical TypeScript Flow runtime, and the existing UI.
-- Self-hosting is one application Docker container plus PostgreSQL and persistent storage. It has exactly one owner. Code execution shares the instance's operating-system trust boundary; this is not hostile-tenant isolation. No Kubernetes, KVM, Docker socket, private service, or Smithers account is required.
+- The Mac install serves one team and one repository. Homebrew installs the host service, bundled PostgreSQL and microVM runtime. A launchd daemon runs as the installing user. A roster plus live GitHub write access controls membership ([ADR 0002](0002-mac-install.md), M-17).
 - Private Plue imports the common public backend and adds multitenant enterprise deployment, isolated execution, placement, and managed infrastructure. Shared permissions, job receipts, repository rules, and execution contracts must not fork.
-- Native own-backend mode supervises the same backend and a bundled native PostgreSQL process. Remote-backend mode must not start a redundant database/backend. Local browser development supports either backend.
-- Product state, durable admission, and replay semantics are shared. Presentation-specific OS gestures stay native. User code executes in the local process adapter for the single-owner edition and through isolated Plue execution for cloud. A single-owner installation on a Mac or KVM host may instead require local microVM isolation (`SMITHERS_WORKSPACE_ISOLATION=microvm`, `packages/backend/microsandbox`, #2100): it then refuses to start without Microsandbox and never falls back to host processes.
+- Repository code runs only in microVMs, with one shared machine per awake branch and no branch locks. The host runs packaged code only. Startup refuses missing microVM isolation and never falls back to `trusted_process`. Members and agents have no `sudo` ([ADR 0002](0002-mac-install.md), M-17, M-29, M-30).
+- The browser connects to any owner-configured HTTP or HTTPS origin. HTTP and SSH always bind loopback and can also bind the address set by the owner; PostgreSQL stays on loopback. The install has no secure-context dependency, Tailscale requirement or certificate authority. A one-time setup token plus GitHub sign-in claims the install ([ADR 0002](0002-mac-install.md), M-28).
+- Only a person's browser session can approve or merge, subject to role. Delegated agent credentials request person confirmations. Product state, durable admission and replay semantics remain shared with Plue ([ADR 0002](0002-mac-install.md), E-09).
+- The container topology is superseded for the Mac install. T-INS-05 owns deletion of the Docker self-host image; this ledger does not claim that deletion is complete.
 
 ## Mode acceptance matrix
 
 | ID | Presentation | Product backend | Database | Execution | Required proof |
 | --- | --- | --- | --- | --- | --- |
-| web-selfhost | Browser | Public Docker app | External PostgreSQL | Single-owner process | Clean image + persistent volume; complete product loop |
+| mac-install | Browser | Public backend supervised by launchd | Bundled PostgreSQL, loopback | Shared branch microVM, multiple members | Homebrew install; token claim; roster; plain HTTP and configured origins; isolation refusal; restart and recovery; upgrade refusal; cancellation ([ADR 0002](0002-mac-install.md)) |
 | web-plue | Browser | Plue shared-library composition | Managed PostgreSQL | Isolated cloud | Same product contract and authorization suite |
-| local-own | Local browser | Supervised public backend | Local PostgreSQL | Single-owner process, or local microVM | Same product loop and shutdown/restart; microVM refusal, cancellation, crash recovery |
-| local-plue | Local browser | Plue | Remote only | Isolated cloud | No local DB/backend authority; same product loop |
-| native-own | Packaged native WebView | Supervised public backend | Bundled native PostgreSQL | Single-owner process | Packaged app, first boot, restart, upgrade refusal |
-| native-plue | Packaged native WebView | Plue | Remote only | Isolated cloud | Packaged app, auth handoff, shared product loop |
 
-The shared product loop includes real repository creation/import, chat/tool invocation, workspace/terminal, durable job admission, approval, artifact/log observation, review/landing, reload, cancellation, and recovery. Parameterize the harness by origin/auth/execution capability; do not duplicate scenarios by mode. Deterministic protocol tests, real local infrastructure tests, live provider smoke, and production receipts establish different facts and must be reported separately.
+The shared product loop includes repository setup, conversation/tool invocation, branch/terminal, durable admission, approval, artifact/log observation, review/merge, reload, cancellation and recovery. Parameterize the harness by origin/auth/execution capability; do not duplicate scenarios by mode. Deterministic protocol tests, real local infrastructure tests, live provider smoke and production receipts establish different facts and must be reported separately.
 
-Security tests for the shared app must retain Plue cross-tenant authorization. Local single-owner deployment is not an excuse to remove checks from shared services. No false sandbox claim or unsupported success status is permitted.
+Security tests for the shared app must retain Plue cross-tenant authorization and enforce the Mac install's roster, roles and credential kinds. Host-profile detection sets every Mac limit ([ADR 0002](0002-mac-install.md), E-17). No false sandbox claim or unsupported success status is permitted.
 
 ## Owners and sequence
 
@@ -37,14 +35,14 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 | 02 | smithers#1657 | Existing Go product and database extraction |
 | 03 | smithers#1658 | Shared repository and jj engine |
 | 04 | smithers#1659 | Filesystem blob storage |
-| 05 | smithers#1660 | Shared identity and single-owner bootstrap |
+| 05 | smithers#1660 | Shared identity; Mac multi-member bootstrap follows [ADR 0002](0002-mac-install.md) |
 | 06 | smithers#1661 | Durable jobs and event receipts |
 | 07 | smithers#1662 | Canonical Flow execution bridge |
 | 08 | smithers#1663 | Locally hosted chat/model routing |
 | 09 | smithers#1664 | Optional integrations and billing composition |
-| 10 | smithers#1665 | Single-owner process execution adapter |
+| 10 | smithers#1665 | Execution contract; Mac microVM-only execution follows [ADR 0002](0002-mac-install.md) |
 | 11 | smithers#1666 | Shared frontend/CLI/backend selection |
-| 12 | smithers#1667 | Docker and native distribution, DB lifecycle, backup |
+| 12 | smithers#1667 | Mac Homebrew and launchd distribution, DB lifecycle and backup follow [ADR 0002](0002-mac-install.md); T-INS-05 deletes the Docker image |
 | 13 | plue#508 | Shared-library Kubernetes composition |
 | 14 | plue#509 | Cluster storage adapters |
 | 15 | plue#510 | Isolated cluster execution adapter |
@@ -54,9 +52,9 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 ## Integration gates
 
 1. Extract real behavior; a parallel reduced API or scaffold is not completion.
-2. Build the container and run a real PostgreSQL-backed app before claiming local usability.
-3. Exercise both shared app compositions and then native/web presentations.
+2. Install the Homebrew package and run the launchd-supervised host with real PostgreSQL and microVMs before claiming Mac usability.
+3. Exercise the Mac install and Plue browser compositions against their shared contract and each assembly's authorization boundary.
 4. Preserve acknowledged work across restart; uncertain external effects must not be silently repeated.
 5. Prove Plue conformance before deleting its old authority; no unreviewed destructive production reset.
-6. Native PostgreSQL packaging is build-time and version-pinned. Startup never silently downloads binaries, deletes an incompatible data directory, or rewrites a database owned by another process.
+6. Bundled PostgreSQL packaging is build-time and version-pinned. Startup never silently downloads binaries, deletes an incompatible data directory, or rewrites a database owned by another process.
 7. Land scoped changes on main; final evidence reports actual tested revisions, unresolved failures, and deployment state.

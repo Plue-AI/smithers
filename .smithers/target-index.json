@@ -20425,6 +20425,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine-store/src/migrations/0010_pending_cancellation.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine-store/src/test/TestStores.ts"
       },
       {
@@ -23174,6 +23178,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/NativeEquipment.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/NativeExecutionRead.ts"
       },
       {
         "kind": "file",
@@ -54540,6 +54548,51 @@
         "kind": "glob",
         "pattern": "packages/smithers/gateway/test/**/*.ts",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:mvpDocs",
+    "package": "scripts",
+    "name": "mvpDocs",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/mvp-docs.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/mvp-docs.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "AGENTS.md"
+      },
+      {
+        "kind": "file",
+        "path": "docs/architecture/0001-shared-product.md"
+      },
+      {
+        "kind": "file",
+        "path": "docs/architecture/0002-mac-install.md"
+      },
+      {
+        "kind": "file",
+        "path": "docs/architecture/self-host-implementation.md"
+      },
+      {
+        "kind": "file",
+        "path": ".specs/product/mvp.md"
       }
     ],
     "outputs": [],

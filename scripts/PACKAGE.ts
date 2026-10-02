@@ -296,6 +296,26 @@ const docsDrift = Smithers.Shell.Diff({
 })
 
 /**
+ * Checks the proposed Mac install ADR, its supersession links and relative
+ * architecture document links, including target headings.
+ *
+ * @since 0.1.0
+ * @category test
+ */
+const mvpDocs = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/mvp-docs.test.mjs")]),
+  srcs: [
+    Smithers.file("//scripts/mvp-docs.test.mjs"),
+    Smithers.file("//AGENTS.md"),
+    Smithers.file("//docs/architecture/0001-shared-product.md"),
+    Smithers.file("//docs/architecture/0002-mac-install.md"),
+    Smithers.file("//docs/architecture/self-host-implementation.md"),
+    Smithers.file("//.specs/product/mvp.md")
+  ],
+  deps: []
+})
+
+/**
  * Fails on a git or jj conflict marker committed into a tracked text file
  * (#3151). A per-commit drift gate: `git grep` over the tree takes a second.
  * Check mode runs it in a scratch copy with no `.git`, where it searches every
@@ -964,6 +984,7 @@ export const Package = Smithers.Package({
     conformanceCheck,
     repositoryConformance,
     mutationGate,
+    mvpDocs,
     benchmarkGate,
     tierContracts,
     releaseIntegrity,
