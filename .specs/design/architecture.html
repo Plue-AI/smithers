@@ -1,0 +1,1643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smithers design architecture</title>
+<meta name="description" content="Twelve diagrams for the Smithers MVP design: layers, the View/Container seam, the shell, cards, identity, color, TODO states, the durable run, merge readiness, agent permissions, component traceability and file layout.">
+<script>try{var t=localStorage.getItem("smithers-arch-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<style>
+/* Paper palette: hex values copied from apps/app/src/mainview/styles/tokens.css and the mock's PORT tokens (mock.css). */
+:root{
+  color-scheme:light;
+  --bg:#f7f4ee;--surface:#fffefa;--surface-2:#efeae0;--line:#e4ddcf;
+  --border:rgb(33 29 24 / 8%);--border-strong:rgb(33 29 24 / 14%);
+  --text:#211d18;--muted:#665f54;--faint:#6c655a;
+  --brand:#0f766e;--action:#0d6760;--on-action:#f7f4ee;--success:#0b5b57;--ring:#3e9e90;
+  --attention:#d08a1d;--attention-text:#8c5a08;--attention-wash:rgb(232 163 61 / 16%);--attention-border:rgb(208 138 29 / 45%);
+  --danger:#a4442a;
+  --lane-0:#9b4d31;--lane-1:#376f91;--lane-2:#78639a;--lane-3:#82651e;--lane-4:#387667;--lane-5:#a24f6b;
+  --ink-700:#4a443b;--avatar-ink:#fffefa;--violet:#6a5ce0;--code-bg:#efeae0;
+  --scrim:rgb(33 29 24 / 45%);
+  --shadow-1:0 1px 2px rgb(33 29 24 / 4%),0 1px 3px rgb(33 29 24 / 6%);
+  --shadow-2:0 1px 2px rgb(33 29 24 / 4%),0 12px 32px rgb(33 29 24 / 10%);
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0d1514;--surface:#131b1a;--surface-2:#1a2422;--line:#293532;
+    --border:rgb(236 231 219 / 10%);--border-strong:rgb(236 231 219 / 18%);
+    --text:#ece7db;--muted:#a8a193;--faint:#969083;
+    --brand:#45c4b2;--action:#45c4b2;--on-action:#211d18;--success:#7fbfb3;--ring:#7fbfb3;
+    --attention:#f0c169;--attention-text:#f0c169;--attention-wash:rgb(240 193 105 / 14%);--attention-border:rgb(240 193 105 / 40%);
+    --danger:#d97757;
+    --lane-0:#eda381;--lane-1:#8cc5e8;--lane-2:#bea6e6;--lane-3:#d9be70;--lane-4:#8acaba;--lane-5:#e5a1b8;
+    --avatar-ink:#0d1514;--violet:#a99ff7;--code-bg:#101917;
+    --scrim:rgb(0 0 0 / 45%);
+    --shadow-1:0 1px 2px rgb(0 0 0 / 24%),0 1px 3px rgb(0 0 0 / 32%);
+    --shadow-2:0 1px 2px rgb(0 0 0 / 24%),0 12px 32px rgb(0 0 0 / 40%);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0d1514;--surface:#131b1a;--surface-2:#1a2422;--line:#293532;
+  --border:rgb(236 231 219 / 10%);--border-strong:rgb(236 231 219 / 18%);
+  --text:#ece7db;--muted:#a8a193;--faint:#969083;
+  --brand:#45c4b2;--action:#45c4b2;--on-action:#211d18;--success:#7fbfb3;--ring:#7fbfb3;
+  --attention:#f0c169;--attention-text:#f0c169;--attention-wash:rgb(240 193 105 / 14%);--attention-border:rgb(240 193 105 / 40%);
+  --danger:#d97757;
+  --lane-0:#eda381;--lane-1:#8cc5e8;--lane-2:#bea6e6;--lane-3:#d9be70;--lane-4:#8acaba;--lane-5:#e5a1b8;
+  --avatar-ink:#0d1514;--violet:#a99ff7;--code-bg:#101917;
+  --scrim:rgb(0 0 0 / 45%);
+  --shadow-1:0 1px 2px rgb(0 0 0 / 24%),0 1px 3px rgb(0 0 0 / 32%);
+  --shadow-2:0 1px 2px rgb(0 0 0 / 24%),0 12px 32px rgb(0 0 0 / 40%);
+}
+:root{
+  --brand-soft:color-mix(in srgb,var(--brand) 10%,var(--surface));
+  --brand-border:color-mix(in srgb,var(--brand) 40%,transparent);
+  --danger-soft:color-mix(in srgb,var(--danger) 10%,var(--surface));
+  --danger-border:color-mix(in srgb,var(--danger) 40%,transparent);
+  --success-soft:color-mix(in srgb,var(--success) 12%,var(--surface));
+}
+
+/* ── base ── */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--action);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--action) 35%,transparent);text-underline-offset:2px}
+a:hover{text-decoration-color:currentColor}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);padding:.05em .35em;border-radius:4px}
+h1,h2,h3{font-weight:650;letter-spacing:-.005em}
+.i{width:14px;height:14px;flex:none;vertical-align:-2px}
+
+/* ── page ── */
+.page{display:grid;grid-template-columns:212px minmax(0,1fr);grid-template-areas:"toc head" "toc main";column-gap:44px;max-width:1340px;margin:0 auto;padding:28px 32px 96px}
+.top{grid-area:head;display:flex;gap:16px;align-items:flex-start;justify-content:space-between;margin-bottom:22px;max-width:1064px}
+.toc{grid-area:toc;position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;font-size:13.5px}
+main{grid-area:main;min-width:0;max-width:1064px}
+.eyebrow{margin:0 0 4px;font:12px var(--mono);color:var(--faint)}
+h1{margin:0 0 8px;font-size:28px;line-height:1.2}
+.lede{margin:0 0 6px;color:var(--muted);max-width:74ch}
+.meta-line{margin:0;font-size:12.5px;color:var(--faint);max-width:96ch}
+.theme{flex:none;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:500 12.5px var(--sans);cursor:pointer}
+.theme:hover{background:var(--surface-2)}
+.toc-h{margin:0 0 8px;font-size:12px;font-weight:600;color:var(--faint)}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:grid;grid-template-columns:26px 1fr;align-items:baseline;padding:5px 8px;border-radius:7px;color:var(--muted);text-decoration:none}
+.toc a span{font:11px var(--mono);color:var(--faint)}
+.toc a:hover{background:var(--surface-2);color:var(--text)}
+.toc a[aria-current]{background:var(--surface);color:var(--text);box-shadow:inset 2px 0 0 var(--brand),0 0 0 1px var(--border)}
+.toc-foot{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+@media (max-width:1023px){
+  .page{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "toc" "main";padding:18px 16px 72px}
+  .toc{position:static;max-height:none;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:8px}
+  .toc ol{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px 8px}
+  .toc-foot{display:none}
+}
+
+/* ── a diagram section ── */
+.dia{margin-top:34px;padding-top:22px;border-top:1px solid var(--line);scroll-margin-top:8px}
+.dia:first-child{margin-top:0}
+.dia-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+.dia-n{font:12px var(--mono);color:var(--faint)}
+.dia h2{margin:0;font-size:19px;line-height:1.35;flex:1 1 380px;min-width:0}
+.dia-a{font:12px var(--mono);color:var(--faint);text-decoration:none}
+.dia-a:hover{color:var(--action);text-decoration:underline}
+.fig{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-1);padding:18px}
+.fig + .fig{margin-top:12px}
+.sub{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--faint)}
+.rules{margin:14px 0 0;padding-left:20px}
+.rules li{margin:5px 0;max-width:88ch}
+.rules li::marker{color:var(--faint)}
+.src{margin:10px 0 0;font-size:12.5px;line-height:1.6;color:var(--muted);max-width:110ch}
+.src strong{color:var(--text);font-weight:600}
+.src .eng{white-space:nowrap;font-weight:500;margin-left:4px}
+.scroll{overflow-x:auto;overscroll-behavior-x:contain}
+.scroll > svg{display:block;width:100%;height:auto;min-width:var(--min,0px)}
+
+/* ── shared small parts (replicas of the mock's) ── */
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12.5px;line-height:1.6;white-space:nowrap}
+.chip.m{font-family:var(--mono);font-size:11.5px}
+.chip i{display:inline-block;width:10px;height:10px;border-radius:3px;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px 0 7px;border-radius:999px;background:var(--surface-2);color:var(--muted);font-size:12px;font-weight:500;white-space:nowrap;flex:none}
+.pill .i{width:13px;height:13px}
+.pill[data-s="starting"],.pill[data-s="working"]{background:var(--brand-soft);color:var(--action)}
+.pill[data-s="needs"]{background:var(--attention-wash);color:var(--attention-text)}
+.pill[data-s="review"]{background:transparent;box-shadow:inset 0 0 0 1px var(--border-strong);color:var(--text)}
+.pill[data-s="review"] .i{color:var(--muted)}
+.pill[data-s="merged"] .i{color:var(--faint)}
+.pill[data-s="failed"]{background:var(--danger-soft);color:var(--danger)}
+.pill[data-s="dropped"]{background:transparent;color:var(--faint);text-decoration:line-through}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
+.dot[data-s="queued"]{box-shadow:inset 0 0 0 1.5px var(--faint)}
+.dot[data-s="starting"]{box-shadow:inset 0 0 0 2px var(--brand)}
+.dot[data-s="working"]{background:var(--brand)}
+.dot[data-s="needs"]{background:var(--attention);box-shadow:0 0 0 3px var(--attention-wash)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:7px;border:1px solid transparent;color:var(--text);background:transparent;font:500 12.5px/1 var(--sans);white-space:nowrap;flex:none}
+.btn.solid{background:var(--action);color:var(--on-action)}
+.btn.outline{border-color:var(--border-strong);background:var(--surface)}
+.btn.sm{height:24px;padding:0 9px;font-size:12px}
+.kbd{font:10.5px var(--mono);padding:1px 5px;border-radius:4px;background:color-mix(in srgb,currentColor 16%,transparent)}
+.reason{font-size:12.5px;color:var(--muted)}
+.reason.blocked{color:var(--attention-text);font-weight:500}
+.ref{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:5px;background:var(--surface-2);font:500 11.5px var(--mono);color:var(--text);flex:none}
+.bchip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:6px;background:var(--surface-2);font:11.5px var(--mono);color:var(--text)}
+.ind{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;background:var(--attention-wash);color:var(--attention-text);font-size:12px;font-weight:500}
+.ind.past{background:var(--surface-2);color:var(--muted)}
+.spark{color:var(--faint);width:12px;height:12px;margin-right:4px}
+.ctx{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--faint)}
+.nb{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--text);color:var(--surface);font:700 10.5px/1 var(--sans);font-style:normal;flex:none}
+.ok{color:var(--success)} .bad{color:var(--danger)} .run{color:var(--muted)}
+
+/* avatars: people are circles, agents are rounded squares (mock.css PORT) */
+.av{--size:24px;position:relative;display:inline-flex;flex:none;width:var(--size);height:var(--size);align-items:center;justify-content:center;border-radius:50%;background:var(--who,var(--muted));box-shadow:0 0 0 2px var(--surface);color:var(--avatar-ink);font-size:calc(var(--size) * .46);font-weight:600;line-height:1;letter-spacing:.01em}
+.av > svg{width:62%;height:62%}
+.av.agent{border-radius:calc(var(--size) * .3);background:var(--brand)}
+.av.sm{border-radius:6px;background:var(--text);color:var(--surface);font-size:calc(var(--size) * .5);font-weight:700}
+.av.out{border-radius:6px;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--border-strong);color:var(--muted)}
+.av.out > svg{width:58%;height:58%}
+.av .for{position:absolute;right:-4px;bottom:-3px;display:inline-flex;width:calc(var(--size) * .5);height:calc(var(--size) * .5);min-width:11px;min-height:11px;align-items:center;justify-content:center;border-radius:50%;background:var(--who);box-shadow:0 0 0 1.5px var(--surface);color:var(--avatar-ink);font-size:max(7px,calc(var(--size) * .26));font-weight:700}
+.av .badge{position:absolute;right:-4px;bottom:-3px;display:inline-flex;width:calc(var(--size) * .52);height:calc(var(--size) * .52);min-width:11px;min-height:11px;align-items:center;justify-content:center;border-radius:3px;background:var(--brand);box-shadow:0 0 0 1.5px var(--surface);color:var(--avatar-ink)}
+.av .badge.ssh{background:var(--ink-700);color:#fffefa}
+.av .badge svg{width:78%;height:78%}
+.av.s16{--size:16px}.av.s20{--size:20px}.av.s28{--size:28px}
+.gh{display:inline-flex;align-items:center;gap:5px;font-size:13px}
+.gh svg{width:15px;height:15px}
+/* a line flag in the editor gutter (code.css .mvp-code-flag) */
+.flag{display:inline-flex;align-items:center;height:16px;padding:0 9px 0 5px;border-radius:3px 0 0 3px;background:var(--who);color:var(--avatar-ink);font:600 10.5px/16px var(--sans);white-space:nowrap;clip-path:polygon(0 0,calc(100% - 5px) 0,100% 50%,calc(100% - 5px) 100%,0 100%)}
+.span{border-radius:2px;background:color-mix(in srgb,var(--who) 18%,transparent);box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--who) 80%,transparent);font-family:var(--mono);font-size:12px;padding:0 2px}
+
+/* the flow step strip (mock.css .mvp-steps) */
+.strip{display:flex;list-style:none;margin:0;padding:0}
+.strip li{flex:1 1 0;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);text-align:center}
+.strip li::before{content:"";position:absolute;top:6px;left:-50%;right:50%;height:2px;background:var(--line)}
+.strip li:first-child::before{display:none}
+.strip .mk{position:relative;z-index:1;width:14px;height:14px;border-radius:50%;background:var(--surface);box-shadow:inset 0 0 0 2px var(--line);display:flex;align-items:center;justify-content:center}
+.strip .mk svg{width:10px;height:10px;color:var(--on-action)}
+.strip li.done{color:var(--muted)}
+.strip li.done .mk{background:var(--brand);box-shadow:none}
+.strip li.done::before,.strip li.cur::before,.strip li.wait::before{background:var(--brand)}
+.strip li.cur{color:var(--text);font-weight:500}
+.strip li.cur .mk{box-shadow:inset 0 0 0 2px var(--brand)}
+.strip li.wait{color:var(--attention-text);font-weight:500}
+.strip li.wait .mk{background:var(--attention);box-shadow:0 0 0 3px var(--attention-wash)}
+.strip li.mg::before{height:0;background:none;border-top:2px dotted var(--line)}
+.strip li.mg .mk{box-shadow:none;outline:2px dashed var(--line);outline-offset:-2px}
+.strip li.mg.held{color:var(--text);font-weight:500}
+.strip li.mg.held::before{border-top-color:var(--brand)}
+.strip li.mg.held .mk{outline-color:var(--muted)}
+
+/* ── SVG diagrams ── */
+svg.d{font-family:var(--sans)}
+.d text{font-size:12px;fill:var(--text)}
+.d .s{font-size:11px;fill:var(--muted)}
+.d .xs{font-size:10px;fill:var(--muted)}
+.d .b{font-weight:650}
+.d .m{font-family:var(--mono);font-size:11px}
+.d .t13{font-size:13px}
+.d .faint{fill:var(--faint)}
+.d .tx-action{fill:var(--action)} .d .tx-attn{fill:var(--attention-text)} .d .tx-danger{fill:var(--danger)} .d .tx-muted{fill:var(--muted)} .d .tx-brand{fill:var(--brand)} .d .tx-onaction{fill:var(--on-action)} .d .tx-surface{fill:var(--surface)} .d .tx-avatar{fill:var(--avatar-ink)}
+.d .bx{fill:var(--surface);stroke:var(--border-strong);stroke-width:1}
+.d .bx2{fill:var(--surface-2)}
+.d .mask{fill:var(--surface)}
+.d .frame{fill:var(--bg);stroke:var(--border-strong);stroke-width:1.2}
+.d .ed{fill:none;stroke:var(--muted);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.d .dash{stroke-dasharray:4 4}
+.d .ah{fill:var(--muted)}
+.d .region{fill:none;stroke:var(--border-strong);stroke-width:1.2;stroke-dasharray:5 5}
+.d .spine{stroke:var(--line);stroke-width:2}
+.d .p-quiet{fill:var(--surface-2)}
+.d .p-live{fill:var(--brand-soft)}
+.d .p-needs{fill:var(--attention-wash)}
+.d .p-review{fill:var(--surface);stroke:var(--border-strong)}
+.d .p-failed{fill:var(--danger-soft)}
+.d .p-dropped{fill:var(--surface);stroke:var(--border-strong);stroke-dasharray:3 3}
+.d .dt-queued{fill:none;stroke:var(--faint);stroke-width:1.5}
+.d .dt-starting{fill:none;stroke:var(--brand);stroke-width:2}
+.d .dt-working,.d .f-brand{fill:var(--brand)}
+.d .dt-needs,.d .f-attn{fill:var(--attention)}
+.d .dt-halo{fill:var(--attention-wash)}
+.d .f-danger{fill:var(--danger)} .d .f-text{fill:var(--text)} .d .f-line{fill:var(--line)} .d .f-scrim{fill:var(--scrim)}
+.d .f-lane0{fill:var(--lane-0)} .d .f-lane1{fill:var(--lane-1)} .d .f-lane2{fill:var(--lane-2)}
+.d .gl-muted{color:var(--muted)} .d .gl-faint{color:var(--faint)} .d .gl-danger{color:var(--danger)} .d .gl-brand{color:var(--brand)} .d .gl-attn{color:var(--attention)} .d .gl-ok{color:var(--success)} .d .gl-avatar{color:var(--avatar-ink)} .d .gl-onaction{color:var(--on-action)} .d .gl-text{color:var(--text)}
+.d .pin{fill:var(--surface);stroke:var(--border-strong)}
+.d .pin-attn{fill:var(--surface);stroke:var(--attention-border)}
+.d .pin-bad{fill:var(--surface);stroke:var(--danger-border)}
+.d .st-done{fill:var(--brand)} .d .st-ring{fill:var(--surface);stroke:var(--line);stroke-width:2}
+.d .st-cur{fill:var(--surface);stroke:var(--brand);stroke-width:2}
+.d .st-fail{fill:var(--danger)}
+.d .st-wait{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:3 2.4}
+.d .badge{stroke:var(--surface);stroke-width:2}
+.d .badge-w{fill:var(--surface)}
+.d .ln-brand{stroke:var(--brand);stroke-width:2} .d .ln-line{stroke:var(--line);stroke-width:2} .d .ln-dot{stroke:var(--line);stroke-width:2;stroke-dasharray:2 3}
+.d .stepbox{fill:var(--surface);stroke:var(--border-strong)}
+.d .stepbox-fail{fill:var(--surface);stroke:var(--danger-border)}
+.d .stepbox-wait{fill:var(--surface);stroke:var(--muted);stroke-dasharray:5 4}
+.d .nbm circle{fill:var(--text)}
+.d .nbm text{fill:var(--surface);font-size:10.5px;font-weight:700;text-anchor:middle}
+
+/* ── 01 layers ── */
+.lay{display:grid;grid-template-columns:minmax(0,1fr) 196px;column-gap:16px}
+.lay-band{grid-column:1;display:grid;grid-template-columns:186px minmax(0,1fr);gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface)}
+.lay-name b{display:block;font-size:14px}
+.lay-name code{background:none;padding:0;font-size:11.5px;color:var(--faint)}
+.lay-what{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.lay-link{grid-column:1;padding:5px 0 5px 32px;font-size:12px;color:var(--muted);position:relative}
+.lay-link::before{content:"";position:absolute;left:18px;top:0;bottom:0;border-left:1.5px dashed var(--border-strong)}
+.lay-own{grid-column:2;border-left:2px solid var(--text);padding:6px 0 6px 12px;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.lay-own b{font-size:13.5px}
+.lay-own span{font-size:12px;color:var(--muted)}
+.lay-own-sm{display:none;font-size:11.5px;font-weight:600;color:var(--faint)}
+@media (max-width:760px){
+  .lay{grid-template-columns:minmax(0,1fr)}
+  .lay-own{display:none}
+  .lay-band{grid-template-columns:minmax(0,1fr)}
+  .lay-own-sm{display:block}
+}
+
+/* ── 02 seam ── */
+.seam-code{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;margin-top:14px;align-items:start}
+pre.code{margin:0;padding:12px 14px;background:var(--code-bg);border-radius:10px;overflow-x:auto;font:12px/1.55 var(--mono)}
+pre.code code{background:none;padding:0;font-size:inherit}
+.notes{margin:0;display:grid;gap:8px;font-size:13px}
+.notes div{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px}
+.notes dt{color:var(--faint);font-size:12.5px}
+.notes dd{margin:0}
+@media (max-width:760px){.seam-code{grid-template-columns:minmax(0,1fr)}.notes div{grid-template-columns:minmax(0,1fr);gap:0}}
+
+/* ── 03 shell ── */
+.shell-row{display:grid;grid-template-columns:270px 300px minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}
+.shell-minis{display:grid;gap:12px}
+.cap{margin:6px 0 0;font-size:12px;color:var(--faint);text-align:center}
+.legend{list-style:none;margin:0;padding:0;display:grid;gap:7px;font-size:13px}
+.legend li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start}
+.legend li .nb{margin-top:1px}
+.scope{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.scope > div{border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px}
+.scope h3{margin:0 0 6px;font-size:13.5px}
+.scope ul{margin:0;padding-left:18px;font-size:13px}
+.scope li{margin:3px 0}
+@media (max-width:1100px){.shell-row{grid-template-columns:270px minmax(0,1fr)}.shell-row .legend{grid-column:1 / -1}}
+@media (max-width:640px){.shell-row{grid-template-columns:minmax(0,1fr)}.scope{grid-template-columns:minmax(0,1fr)}}
+
+/* ── 04 card anatomy ── */
+.anat{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px;align-items:start}
+.kc{border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);box-shadow:var(--shadow-1);overflow:hidden}
+.kc-h{display:flex;align-items:center;gap:7px;padding:11px 12px 9px;flex-wrap:wrap}
+.kc-t{font-weight:650;font-size:14.5px}
+.kc-end{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;color:var(--muted)}
+.kc-b{padding:2px 12px 10px;display:grid;gap:10px;position:relative}
+.kc-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
+.kc-flags{display:flex;flex-wrap:wrap;gap:6px}
+.kc-ask{display:grid;gap:8px;padding:10px;border-radius:9px;background:var(--surface-2);font-size:13px}
+.kc-ask-line{display:flex;gap:8px;align-items:flex-start}
+.inp{flex:1;display:flex;align-items:center;height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface);color:var(--faint);font-size:12.5px;min-width:0}
+.row{display:flex;gap:6px;align-items:center}
+.kc-a{display:flex;align-items:center;gap:4px;padding:8px 10px;border-top:1px solid var(--border);flex-wrap:wrap}
+.kc-a .end{margin-left:auto;display:inline-flex;gap:4px;align-items:center}
+.tri{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.tri > div{border:1px solid var(--border-strong);border-radius:10px;padding:12px 14px;font-size:13px;display:grid;gap:8px;align-content:start}
+.tri h3{margin:0;font-size:13.5px}
+.wt{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 10px;align-items:center}
+.wt span:nth-child(even){color:var(--muted);font-size:12.5px}
+.wt > .btn,.wt > .reason,.wt > .bchip{justify-self:start}
+.flowmini{display:grid;gap:6px;font-size:12.5px}
+.fm-box{border:1px solid var(--border-strong);border-radius:8px;padding:6px 9px;background:var(--surface)}
+.fm-box.dim{border-style:dashed;color:var(--muted)}
+.fm-arr{color:var(--muted);font-size:12px;padding-left:12px}
+@media (max-width:900px){.anat{grid-template-columns:minmax(0,1fr)}.tri{grid-template-columns:minmax(0,1fr)}}
+
+/* ── responsive tables (05, 11) ── */
+table.rt{width:100%;border-collapse:collapse;font-size:13px}
+.rt th{text-align:left;font-size:12px;font-weight:600;color:var(--faint);padding:0 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:bottom}
+.rt td{padding:9px 10px 9px 0;border-bottom:1px solid var(--border);vertical-align:top}
+.rt tr:last-child td{border-bottom:0}
+.rt td.c{white-space:nowrap}
+.rt .na{color:var(--faint)}
+.rt .mk-cell{display:flex;align-items:center;gap:10px;min-height:28px}
+.rt .cv{display:block;min-width:0}
+@media (max-width:820px){
+  .rt thead{display:none}
+  .rt,.rt tbody,.rt tr,.rt td{display:block;width:100%}
+  .rt tr{border:1px solid var(--border-strong);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:var(--surface)}
+  .rt td{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;padding:4px 0;border:0;white-space:normal}
+  .rt td.c{white-space:normal}
+  .rt td::before{content:attr(data-l);color:var(--faint);font-size:12px}
+}
+
+/* ── 06 color ── */
+.colors{display:grid;gap:14px}
+.crow{display:grid;grid-template-columns:200px minmax(0,1fr) 260px;gap:16px;align-items:start;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.crow:last-child{border-bottom:0;padding-bottom:0}
+.crow h3{margin:0;font-size:14px}
+.crow p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+.sw-set{display:flex;flex-wrap:wrap;gap:10px}
+.sw{display:grid;gap:4px;width:150px}
+.sw-c{display:grid;grid-template-columns:1fr 1fr;height:34px;border-radius:8px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--border-strong)}
+.sw-c span{display:flex;align-items:flex-end;justify-content:flex-start;padding:0 0 3px 5px;font:600 9px var(--mono)}
+.sw-c .l{background:var(--sw-l)} .sw-c .k{background:var(--sw-d)}
+.sw-c .l{color:rgb(33 29 24 / 60%)} .sw-c .k{color:rgb(236 231 219 / 70%)}
+.sw b{font:500 11.5px var(--mono)}
+.sw small{font:10.5px var(--mono);color:var(--faint);line-height:1.35}
+.sw.sw-lane{width:96px}
+.cuse{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+@media (max-width:980px){.crow{grid-template-columns:minmax(0,1fr)}}
+
+/* ── 07 states ── */
+.who{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 18px;margin-top:14px}
+.who > div{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
+.who .pill{justify-self:start}
+@media (max-width:980px){.who{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.who{grid-template-columns:minmax(0,1fr)}}
+
+/* ── 08 run ── */
+.mirror{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:6px}
+.mi{border:1px solid var(--border-strong);border-radius:10px;padding:10px 12px 12px}
+.mi-l{display:block;margin-bottom:10px;font-size:12.5px;color:var(--muted)}
+.ph{display:grid;gap:8px;font-size:13px}
+.ph-step{font-size:12px;font-weight:650;color:var(--muted);padding:4px 0;border-bottom:1px solid var(--border)}
+.ph-row{display:grid;grid-template-columns:24px minmax(0,1fr) 220px;gap:10px;align-items:start}
+.ph-n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--surface-2);font:600 11px var(--mono);color:var(--muted)}
+.ph-main{display:grid;gap:6px;justify-items:start}
+.ph-title{display:flex;gap:10px;align-items:baseline}
+.ph-title b{font-weight:650}
+.ph-took{font-size:12px;color:var(--faint)}
+.ph-sum{color:var(--muted)}
+.cell{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:6px 9px;border-radius:8px;background:var(--surface-2);font-size:12.5px}
+.cell .cl{font-family:var(--mono);font-size:12px}
+.cell .ce{color:var(--muted)}
+.ann{display:grid;gap:6px;font-size:12px;color:var(--faint);padding-top:2px}
+.ann span::before{content:"← ";color:var(--line)}
+@media (max-width:900px){.mirror{grid-template-columns:minmax(0,1fr)}.ph-row{grid-template-columns:24px minmax(0,1fr)}.ann{grid-column:2}}
+
+/* ── 09 merge rule ── */
+.mr{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:20px;align-items:start}
+.mr-in{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 12px;font-size:12.5px;color:var(--muted)}
+.gates{list-style:none;margin:0;padding:0}
+.gate{display:grid;grid-template-columns:104px minmax(0,1fr) 30px minmax(0,1.1fr);gap:8px;align-items:center;padding:5px 0;position:relative}
+.g-k{font-size:11.5px;color:var(--faint);line-height:1.3}
+.g-q{position:relative;padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);font-size:13px}
+.gate + .gate .g-q::before{content:"";position:absolute;left:16px;top:-11px;height:10px;border-left:1.5px solid var(--muted)}
+.g-y{font-size:11px;color:var(--faint);text-align:center;white-space:nowrap}
+.g-y::after{content:" →";color:var(--muted)}
+.g-out{font-size:12.5px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.gate.pass .g-q{border-color:var(--brand-border);background:var(--brand-soft);font-weight:600}
+.gate.pass .g-y::after{content:""}
+.lnk{color:var(--action);font-size:12px;white-space:nowrap}
+.revs{display:grid;gap:8px}
+.rev{border:1px solid var(--border-strong);border-radius:10px;padding:10px 12px;display:grid;gap:5px;font-size:12.5px}
+.rev.old{color:var(--muted);border-style:dashed}
+.rev-h{display:flex;gap:8px;align-items:baseline}
+.rev-h span{font-size:11.5px;color:var(--faint)}
+.rev-arrow{font-size:12px;color:var(--muted);padding-left:14px}
+.warn{color:var(--attention-text);font-weight:500}
+.checks{display:flex;flex-wrap:wrap;gap:4px 10px}
+.checks span{display:inline-flex;gap:4px;align-items:center}
+@media (max-width:900px){.mr{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:560px){.gate{grid-template-columns:minmax(0,1fr) auto}.g-k{grid-column:1 / -1}.g-out{grid-column:1 / -1;padding-left:14px}.g-y::after{content:""}}
+
+/* ── 10 permissions ── */
+.lanes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.lane{border:1px solid var(--border-strong);border-radius:10px;padding:12px;display:grid;gap:10px;align-content:start;font-size:13px}
+.lane h3{margin:0;font-size:14px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.lane h3 small{font:500 11.5px var(--mono);color:var(--faint)}
+.lane ul{margin:0;padding-left:17px}
+.lane li{margin:2px 0}
+.lane .also{font-size:12px;color:var(--muted)}
+.mini{border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);box-shadow:var(--shadow-1);font-size:12px;overflow:hidden}
+.mini-h{padding:8px 10px 4px;font-weight:650;font-size:12.5px}
+.mini-b{padding:0 10px 6px;color:var(--muted);display:grid;gap:4px}
+.mini-a{display:flex;gap:4px;justify-content:flex-end;align-items:center;padding:6px 8px;border-top:1px solid var(--border);flex-wrap:wrap}
+.mini-a .grow{margin-right:auto;color:var(--muted)}
+.b3{margin-top:14px}
+.b3-row{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,260px);gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
+.b3-row code{font-size:11.5px}
+.b3-demo{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px}
+@media (max-width:980px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.lanes{grid-template-columns:minmax(0,1fr)}.b3-row{grid-template-columns:minmax(0,1fr);gap:6px}}
+
+/* ── 11 components ── */
+.steps-links{display:flex;flex-wrap:wrap;gap:4px}
+.steps-links a{display:inline-flex;padding:1px 6px;border-radius:5px;background:var(--surface-2);font:11.5px var(--mono);text-decoration:none;color:var(--action);white-space:nowrap}
+.steps-links a:hover{background:var(--brand-soft)}
+.stage{display:inline-flex;padding:1px 7px;border-radius:999px;font:600 11px var(--mono);box-shadow:inset 0 0 0 1px var(--border-strong);color:var(--muted)}
+.vnote{display:block;font-size:12px;color:var(--faint);margin-top:2px}
+.tk{font:500 12px var(--mono)}
+.tk small{display:block;font:11px var(--mono);color:var(--faint)}
+
+/* ── 12 files ── */
+.trees{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.trees h3{margin:0 0 6px;font-size:13.5px}
+pre.tree{margin:0;padding:12px 14px;background:var(--code-bg);border-radius:10px;overflow-x:auto;font:12px/1.6 var(--mono);color:var(--text)}
+pre.tree .c{color:var(--faint)}
+pre.tree .o{color:var(--action)}
+@media (max-width:900px){.trees{grid-template-columns:minmax(0,1fr)}}
+
+.foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<!-- Icon sprite: lucide paths, as the mock draws them (stroke = currentColor). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<defs>
+<symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+<symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v.5"/><path d="M12 10v4h4"/><path d="m12 14 1.535-1.605a5 5 0 0 1 8 1.5"/><path d="M22 22v-4h-4"/><path d="m22 18-1.535 1.605a5 5 0 0 1-8-1.5"/></symbol>
+<symbol id="i-pr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></symbol>
+<symbol id="i-merge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+<symbol id="i-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></symbol>
+<symbol id="i-min" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol>
+<symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+<symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+<symbol id="i-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5A11.5 11.5 0 0 0 8.36 22.9c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.05.78 2.12v3.14c0 .31.2.67.8.56A11.5 11.5 0 0 0 12 .5z"/></symbol>
+</defs>
+</svg>
+
+<div class="page">
+<header class="top">
+  <div>
+    <p class="eyebrow">Smithers MVP · design</p>
+    <h1>Design architecture</h1>
+    <p class="lede">Twelve diagrams that answer the recurring design questions. Link one by its anchor, for example <code>architecture.html#merge-rule</code>.</p>
+    <p class="meta-line">Read on 2026-10-02 from <code>.specs/product/mvp.md</code> (decisions M-01 to M-36), <code>.specs/engineering/spec.md</code>, <code>.specs/engineering/ui-components.md</code> v0.3, <code>apps/app/AGENTS.md</code>, the design <code>README.md</code> and <code>mock/src/</code>.</p>
+  </div>
+  <button class="theme" type="button" id="theme">Dark</button>
+</header>
+
+<nav class="toc" aria-label="Diagrams">
+  <p class="toc-h">Diagrams</p>
+  <ol>
+    <li><a href="#layers"><span>01</span>Layers</a></li>
+    <li><a href="#seam"><span>02</span>View/Container seam</a></li>
+    <li><a href="#shell"><span>03</span>Shell anatomy</a></li>
+    <li><a href="#card"><span>04</span>Card anatomy</a></li>
+    <li><a href="#identity"><span>05</span>Identity</a></li>
+    <li><a href="#color"><span>06</span>Color</a></li>
+    <li><a href="#states"><span>07</span>TODO lifecycle</a></li>
+    <li><a href="#run"><span>08</span>One attempt, one run</a></li>
+    <li><a href="#merge-rule"><span>09</span>Merge readiness</a></li>
+    <li><a href="#permissions"><span>10</span>App agent permissions</a></li>
+    <li><a href="#components"><span>11</span>Components</a></li>
+    <li><a href="#files"><span>12</span>Where things live</a></li>
+  </ol>
+  <p class="toc-foot">Design lead: smithers-06. Engineering checks each Source line against the spec.</p>
+</nav>
+
+<main>
+
+<!-- ═════════════════ 01 LAYERS ═════════════════ -->
+<section class="dia" id="layers" aria-labelledby="h-layers">
+  <div class="dia-h"><span class="dia-n">01</span><h2 id="h-layers">Layers: Paper tokens up to catalog commands, and who owns each</h2><a class="dia-a" href="#layers">#layers</a></div>
+  <figure class="fig" aria-label="Six layers. Design owns Paper tokens, primitives, card Views and the shell. The frontend lead owns Containers, view state and routing. Engineering owns topics and catalog commands. Props flow up from Containers to Views; catalog tags flow down to commands.">
+    <div class="lay">
+      <div class="lay-band" style="grid-row:1">
+        <div class="lay-name"><b>Paper tokens</b><code>styles/tokens.css</code><span class="lay-own-sm">Design</span></div>
+        <div class="lay-what">
+          <span class="chip m"><i style="background:var(--brand)"></i>--brand</span>
+          <span class="chip m"><i style="background:var(--attention)"></i>--sediment-*</span>
+          <span class="chip m"><i style="background:var(--danger)"></i>--ember-*</span>
+          <span class="chip m"><i style="background:var(--surface);box-shadow:inset 0 0 0 1px var(--border-strong)"></i>--paper-* · --ink-*</span>
+          <span class="chip m"><i style="background:linear-gradient(90deg,var(--lane-0) 0 34%,var(--lane-1) 34% 67%,var(--lane-2) 67%)"></i>--lane-0…5</span>
+        </div>
+      </div>
+      <div class="lay-link" style="grid-row:2">styles every primitive</div>
+      <div class="lay-band" style="grid-row:3">
+        <div class="lay-name"><b>Primitives</b><code>T-UI-01</code><span class="lay-own-sm">Design</span></div>
+        <div class="lay-what">
+          <span class="chip m">ActorChip</span>
+          <span class="av s20" style="--who:var(--lane-1)">AP</span>
+          <span class="av s20 agent"><svg><use href="#i-bot"/></svg></span>
+          <span class="av s20 sm">S</span>
+          <span class="chip m">StateWord</span>
+          <span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span>
+          <span class="chip m">Tone</span>
+          <span class="chip">live · attention · failed · done · quiet</span>
+        </div>
+      </div>
+      <div class="lay-link" style="grid-row:4">composed into</div>
+      <div class="lay-band" style="grid-row:5">
+        <div class="lay-name"><b>Card Views</b><code>cards/views/&lt;Card&gt;View.tsx</code><span class="lay-own-sm">Design</span></div>
+        <div class="lay-what">
+          <span class="chip m">HomeView</span><span class="chip m">TodoView</span><span class="chip m">DraftView</span><span class="chip m">ConfirmView</span><span class="chip m">BranchView</span><span class="chip m">CodeEditorView</span><span class="chip m">DiffView</span><span class="chip m">TerminalView</span><span class="chip m">RunView</span><span class="chip m">FlowView</span><span class="chip m">AgentView</span><span class="chip m">SetupView</span><span class="chip m">SettingsView</span><span class="chip m">MembersView</span><span class="chip m">SecretsView</span><span class="chip m">CommandsView</span><span class="chip m">ProposalView</span>
+        </div>
+      </div>
+      <div class="lay-link" style="grid-row:6">embedded in the conversation; Maximize shows the same View larger</div>
+      <div class="lay-band" style="grid-row:7">
+        <div class="lay-name"><b>Shell</b><code>T-UI-07 · T-UI-08</code><span class="lay-own-sm">Design</span></div>
+        <div class="lay-what">
+          <span class="chip">conversation of cards</span><span class="chip">timeline rail and notices</span><span class="chip">crumbs and branch tree</span><span class="chip">composer ⌘K</span><span class="chip">maximize overlay</span>
+        </div>
+      </div>
+      <div class="lay-link" style="grid-row:8">↑ props: <code>CardProps&lt;M&gt;</code> &nbsp; ↓ <code>onAction(tag)</code> · <code>onView(patch)</code></div>
+      <div class="lay-band" style="grid-row:9">
+        <div class="lay-name"><b>Containers</b><code>&lt;Card&gt;Container · T-APP-nn</code><span class="lay-own-sm">Frontend lead (b8)</span></div>
+        <div class="lay-what">
+          <span class="chip">subscribe to topics</span><span class="chip">map to <code>CardProps&lt;M&gt;</code></span><span class="chip">filter <code>actions[]</code> for the viewer</span><span class="chip m">cardActions → flowAction</span><span class="chip">view state per member</span><span class="chip">frames and URL</span>
+        </div>
+      </div>
+      <div class="lay-link" style="grid-row:10">↑ topic deltas &nbsp; ↓ <code>flowAction</code> runs a catalog command</div>
+      <div class="lay-band" style="grid-row:11">
+        <div class="lay-name"><b>Topics and catalog commands</b><code>spec.md §7.2 · §6.1</code><span class="lay-own-sm">Engineering</span></div>
+        <div class="lay-what">
+          <span class="chip m">home</span><span class="chip m">todo:&lt;n&gt;</span><span class="chip m">branch:&lt;id&gt;</span><span class="chip m">run:&lt;id&gt;</span><span class="chip m">conversation:&lt;branch&gt;</span><span class="chip m">confirmations:&lt;member&gt;</span><span class="chip m">catalog.mvp.json</span><span class="chip m">/todo.answer</span><span class="chip m">/merge</span>
+        </div>
+      </div>
+      <div class="lay-own" style="grid-row:1 / 8"><b>Design</b><span>tokens through shell visuals</span><span>T-UI-01 … T-UI-20</span></div>
+      <div class="lay-own" style="grid-row:9"><b>Frontend lead (b8)</b><span>containers, state, routing</span></div>
+      <div class="lay-own" style="grid-row:11"><b>Engineering</b><span>topics and commands</span></div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>Design builds every visual piece; engineering wires data and actions (Will, 2026-10-02).</li>
+    <li>The seam is one zod view model per card, <code>packages/rpc/src/&lt;Card&gt;Card.ts</code> (T-APP-19). Until it lands, Views build against ui-components.md with local fixtures.</li>
+    <li>A View exists only for a spec.md §14.3 row. Retained cards (Issue, PR, Review findings, Wiki, flow Form) keep their schemas.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> spec.md §14.2.1, §14.3.0, §7.2, §6.1; mvp.md §2 (rules 1 and 4), §6.4; ui-components.md v0.3 (opening diagram, Order of need); <code>apps/app/src/mainview/styles/tokens.css</code>. <a class="eng" href="../engineering/review.html#arch">Engineering view ↗</a></p>
+</section>
+
+<!-- ═════════════════ 02 SEAM ═════════════════ -->
+<section class="dia" id="seam" aria-labelledby="h-seam">
+  <div class="dia-h"><span class="dia-n">02</span><h2 id="h-seam">The View/Container seam: data comes in as props, gestures leave as catalog tags</h2><a class="dia-a" href="#seam">#seam</a></div>
+  <figure class="fig">
+    <div class="scroll" style="--min:720px">
+      <svg class="d" viewBox="0 0 1000 330" role="img" aria-labelledby="seam-t">
+        <title id="seam-t">A live topic feeds a Container, which maps it to props for a View. The View's callbacks return to the Container, which runs a catalog command through flowAction; the command commits state and the topic sends a delta. Only props and callbacks cross the C-UI-08 line.</title>
+        <defs><marker id="ah-seam" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
+        <rect class="bx" x="16" y="24" width="210" height="112" rx="10"/>
+        <text class="b t13" x="32" y="50">Live topic</text>
+        <text class="m" x="32" y="76">todo:&lt;n&gt; · home</text>
+        <text class="m" x="32" y="94">branch:&lt;id&gt; · run:&lt;id&gt;</text>
+        <text class="s" x="32" y="122">engineering · spec.md §7.2</text>
+        <rect class="bx" x="16" y="196" width="210" height="112" rx="10"/>
+        <text class="b t13" x="32" y="222">Catalog command</text>
+        <text class="m" x="32" y="246">/todo.answer T9</text>
+        <text class="s" x="32" y="268">slash, button and agent run it</text>
+        <text class="s" x="32" y="294">engineering · spec.md §6.1</text>
+        <rect class="bx" x="330" y="24" width="280" height="284" rx="10"/>
+        <text class="b m t13" x="348" y="52">&lt;Card&gt;Container</text>
+        <text class="s" x="348" y="72">frontend lead (b8)</text>
+        <text x="348" y="106">subscribes to its topics</text>
+        <text x="348" y="132">maps them to CardProps&lt;M&gt;</text>
+        <text x="348" y="158">filters actions[] for the viewer</text>
+        <text class="m" x="348" y="184">cardActions → flowAction</text>
+        <text x="348" y="210">stores onView state per member</text>
+        <text class="s" x="348" y="294">spec.md §14.2.1, §14.1.2</text>
+        <line class="ed dash" x1="670" y1="10" x2="670" y2="320"/>
+        <rect class="mask" x="614" y="140" width="112" height="46" rx="6"/>
+        <text class="b" x="670" y="159" text-anchor="middle">C-UI-08</text>
+        <text class="s" x="670" y="176" text-anchor="middle">only these cross</text>
+        <rect class="bx" x="730" y="24" width="254" height="284" rx="10"/>
+        <text class="b m t13" x="748" y="52">&lt;Card&gt;View</text>
+        <text class="s" x="748" y="72">design (T-UI-nn)</text>
+        <text x="748" y="106">props only</text>
+        <text x="748" y="132">renders actions[] in order</text>
+        <text class="m" x="748" y="158">onAction(action.tag, input?)</text>
+        <text class="m" x="748" y="184">data-flow={action.tag}</text>
+        <text class="m" x="748" y="210">onView(patch)</text>
+        <text class="s" x="748" y="228">maximize, tab, filter</text>
+        <text class="s m" x="748" y="294">cards/views/&lt;Card&gt;View.tsx</text>
+        <path class="ed" d="M226 80H326" marker-end="url(#ah-seam)"/>
+        <text class="s" x="276" y="72" text-anchor="middle">subscribe</text>
+        <path class="ed" d="M330 262H230" marker-end="url(#ah-seam)"/>
+        <text class="s m" x="280" y="254" text-anchor="middle">flowAction</text>
+        <text class="s" x="280" y="280" text-anchor="middle">tag, input</text>
+        <path class="ed" d="M121 196V140" marker-end="url(#ah-seam)"/>
+        <text class="s" x="131" y="164">state commits;</text>
+        <text class="s" x="131" y="179">delta ≤ 1 s</text>
+        <path class="ed" d="M610 104H726" marker-end="url(#ah-seam)"/>
+        <text class="s" x="640" y="96" text-anchor="middle">props</text>
+        <path class="ed" d="M730 244H614" marker-end="url(#ah-seam)"/>
+        <text class="s" x="700" y="236" text-anchor="middle">callbacks</text>
+      </svg>
+    </div>
+    <div class="seam-code">
+<pre class="code"><code>type Action = {                 // filtered for the viewer by the container
+  tag: CatalogTag               // the catalog's tag type (T-CAT-01), opaque to the View
+  label: string                 // "Answer", "Merge", "Retry"
+  primary?: boolean
+  disabled?: { reason: string } // e.g. "Waiting for T8"
+  input?: FormField[]           // present when the action needs a form
+}
+type CardProps&lt;M&gt; = {
+  model: M
+  actions: Action[]
+  onAction: (tag: CatalogTag, input?: Record&lt;string, string&gt;) =&gt; void
+  view: { maximized: boolean; tab?: string; filter?: string }
+  onView: (patch: Partial&lt;CardProps&lt;M&gt;["view"]&gt;) =&gt; void
+}</code></pre>
+      <dl class="notes">
+        <div><dt><code>disabled.reason</code></dt><dd>Shows as text in place of the button (<a href="#card">#card</a>).</dd></div>
+        <div><dt><code>input</code></dt><dd>A form for exactly the missing fields, never a usage sentence (FORM LAW).</dd></div>
+        <div><dt>Three doors</dt><dd>A slash command, a button and the agent run the same command (THREE-DOOR LAW).</dd></div>
+        <div><dt><code>onView</code></dt><dd>UI-only gestures. They change one person's screen and never shared state.</dd></div>
+      </dl>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>A missing action means no button. The Container filters <code>actions[]</code> for the viewer; the View never decides who may act.</li>
+    <li>Tags are opaque. The View hands back <code>action.tag</code>, and the control carries <code>data-flow={action.tag}</code>.</li>
+    <li>A field the View needs but the props lack is a spec change. Raise it with the tech lead (8a), who updates spec.md §14.3, ui-components.md and T-APP-19 together.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §2 (rule 1), Appendix A (three doors); ui-components.md v0.3 (Rules, Shared types); spec.md §14.2.1, §14.1.2, §14.1.4, §6.1, §6.1.4, §7.2, §7.2.1; check C-UI-08; apps/app/AGENTS.md (THREE-DOOR LAW, FORM LAW); <code>apps/app/src/mainview/cards/CardActions.ts</code> (<code>cardActions</code>), <code>apps/app/src/mainview/flows/FlowAction.ts</code> (<code>flowAction</code>).</p>
+</section>
+
+<!-- ═════════════════ 03 SHELL ═════════════════ -->
+<section class="dia" id="shell" aria-labelledby="h-shell">
+  <div class="dia-h"><span class="dia-n">03</span><h2 id="h-shell">Shell anatomy: one conversation per branch, a timeline rail on desktop, pills on narrow screens</h2><a class="dia-a" href="#shell">#shell</a></div>
+  <figure class="fig">
+    <p class="sub">Desktop (shell 1180 px or wider), Alice's screen in retry-webhooks</p>
+    <div class="scroll" style="--min:760px">
+      <svg class="d" viewBox="0 0 1000 626" role="img" aria-labelledby="sh-d-t">
+        <title id="sh-d-t">Desktop shell. Crumbs and the open branch tree at the top. The timeline rail on the left with a top pinned edge, the band of entries on screen, the list, a bottom pinned edge and docked notices. The conversation of cards in the middle. Chat ⌘K at the bottom right.</title>
+        <rect class="frame" x="0.5" y="0.5" width="999" height="625" rx="12"/>
+        <!-- header -->
+        <text class="m b tx-brand" x="14" y="21">SMITHERS</text>
+        <text class="s" x="103" y="21">acme/api</text>
+        <text class="s faint" x="156" y="21">/</text>
+        <text class="m tx-muted" x="163" y="21">main</text>
+        <text class="s faint" x="197" y="21">/</text>
+        <text class="m b" x="207" y="21">retry-webhooks ▾</text>
+        <!-- rail: top edge -->
+        <rect class="pin-attn" x="8" y="38" width="189" height="22" rx="6"/>
+        <circle class="dt-needs" cx="20" cy="49" r="4"/>
+        <text class="b" x="30" y="53" style="font-size:11px">acme/api</text><text class="s" x="82" y="53">1 needs you</text>
+        <rect class="pin" x="8" y="64" width="189" height="22" rx="6"/>
+        <circle class="dt-working" cx="20" cy="75" r="4"/>
+        <text class="b" x="30" y="79" style="font-size:11px">terminal 1</text><text class="s" x="92" y="79">pnpm dev</text>
+        <text class="xs" x="14" y="100">+1 above</text>
+        <!-- rail: list and band -->
+        <line class="spine" x1="19" y1="110" x2="19" y2="452"/>
+        <rect class="bx" x="10" y="174" width="185" height="96" rx="6"/>
+        <rect class="f-brand" x="10" y="174" width="2.5" height="96"/>
+        <use href="#i-check" x="13" y="113" width="12" height="12" class="gl-ok"/>
+        <text class="s" x="30" y="122">main moved</text><text class="xs" x="30" y="134">#216 merged on GitHub</text>
+        <rect class="bx2" x="13" y="146" width="12" height="12" rx="3"/>
+        <use href="#i-msg" x="14" y="147" width="10" height="10" class="gl-muted"/>
+        <text class="s" x="30" y="156">“Why does T9 wait 30 s?”</text>
+        <circle class="dt-queued" cx="19" cy="186" r="4"/>
+        <text class="s" x="30" y="190">retry.ts</text><text class="xs" x="30" y="202">Lines 4–9 cited</text>
+        <circle class="dt-halo" cx="19" cy="216" r="7"/><circle class="dt-needs" cx="19" cy="216" r="4"/>
+        <text class="b" x="30" y="220" style="font-size:11px">T9 Retry failed webhooks</text><text class="xs tx-attn" x="30" y="232">Asks: backoff or timeout?</text>
+        <circle class="dt-working" cx="19" cy="246" r="4"/>
+        <text class="b" x="30" y="250" style="font-size:11px">retry-webhooks</text><text class="xs" x="30" y="262">Alice: editing retry.ts</text>
+        <circle class="dt-working" cx="19" cy="286" r="4"/>
+        <text class="b" x="30" y="290" style="font-size:11px">terminal 2</text><text class="xs" x="30" y="302">Running pnpm test</text>
+        <use href="#i-pr" x="13" y="310" width="12" height="12" class="gl-muted"/>
+        <text class="s" x="30" y="320">Review</text><text class="xs" x="30" y="332">2 findings</text>
+        <circle class="dt-working" cx="19" cy="346" r="4"/>
+        <text class="b" x="30" y="350" style="font-size:11px">T12 Send one reset email</text><text class="xs" x="30" y="362">Agent: edited mailer.ts</text>
+        <use href="#i-x" x="13" y="370" width="12" height="12" class="gl-danger"/>
+        <text class="b" x="30" y="380" style="font-size:11px">T10 Fix the flaky checkout test</text><text class="xs tx-danger" x="30" y="392">Failed: lint</text>
+        <circle class="dt-queued" cx="19" cy="406" r="4"/>
+        <text class="s" x="30" y="410">T13 Show the currency</text><text class="xs" x="30" y="422">Waiting for a machine</text>
+        <circle class="dt-working" cx="19" cy="436" r="4"/>
+        <text class="b" x="30" y="440" style="font-size:11px">Run · docs flow</text><text class="xs" x="30" y="452">Working</text>
+        <!-- rail: bottom edge -->
+        <rect class="pin-bad" x="8" y="462" width="189" height="22" rx="6"/>
+        <use href="#i-x" x="13" y="467" width="12" height="12" class="gl-danger"/>
+        <text class="b" x="30" y="477" style="font-size:11px">T10</text><text class="s tx-danger" x="54" y="477">Failed: lint</text>
+        <rect class="pin" x="8" y="488" width="189" height="22" rx="6"/>
+        <circle class="dt-working" cx="20" cy="499" r="4"/>
+        <text class="b" x="30" y="503" style="font-size:11px">terminal 2</text><text class="s" x="92" y="503">pnpm test</text>
+        <text class="xs" x="14" y="524">+2 below</text>
+        <!-- rail: docked notice -->
+        <rect class="pin-attn" x="8" y="532" width="189" height="84" rx="8"/>
+        <use href="#i-alert" x="16" y="542" width="13" height="13" class="gl-attn"/>
+        <text class="b" x="34" y="553" style="font-size:11.5px">T9 needs you</text>
+        <text class="xs" x="34" y="569">Asks: backoff or timeout?</text>
+        <rect class="bx" x="34" y="580" width="58" height="22" rx="6"/>
+        <text x="63" y="595" text-anchor="middle" style="font-size:11px">Answer</text>
+        <use href="#i-x" x="178" y="540" width="11" height="11" class="gl-faint"/>
+        <!-- conversation -->
+        <circle class="f-lane0" cx="222" cy="191" r="7"/>
+        <text class="xs b" x="234" y="195">Ben</text>
+        <text x="234" y="213">Why does T9 wait 30 s before each retry?</text>
+        <rect class="f-text" x="215" y="229" width="14" height="14" rx="3"/>
+        <text class="tx-surface b" x="222" y="240" text-anchor="middle" style="font-size:8.5px">S</text>
+        <circle class="f-lane0" cx="229" cy="243" r="3.6"/>
+        <text class="xs b" x="234" y="240">Smithers for Ben</text>
+        <text x="234" y="258">deliver() sleeps a fixed 30 s before each retry.</text>
+        <rect class="bx" x="234" y="266" width="84" height="18" rx="9"/>
+        <use href="#i-layers" x="241" y="269" width="11" height="11" class="gl-faint"/>
+        <text class="xs" x="256" y="279">Context · 3</text>
+        <rect class="bx" x="208" y="294" width="625" height="64" rx="10"/>
+        <text class="m b" x="222" y="313">src/webhooks/retry.ts</text>
+        <rect class="bx2" x="376" y="302" width="36" height="16" rx="4"/>
+        <text class="m xs" x="394" y="314" text-anchor="middle">main</text>
+        <rect class="p-needs" x="218" y="322" width="600" height="14" rx="2"/>
+        <text class="m xs" x="222" y="333">for (let attempt = 1; attempt &lt;= 5; attempt++) {</text>
+        <text class="m xs" x="222" y="349">    await sleep(30_000)</text>
+        <rect class="bx" x="208" y="368" width="625" height="152" rx="10"/>
+        <rect class="bx2" x="222" y="379" width="24" height="16" rx="4"/>
+        <text class="m xs" x="234" y="391" text-anchor="middle" style="fill:var(--text)">T9</text>
+        <text class="b t13" x="254" y="392">Retry failed webhooks</text>
+        <rect class="p-needs" x="410" y="380" width="84" height="18" rx="9"/>
+        <circle class="dt-needs" cx="422" cy="389" r="4"/>
+        <text class="s tx-attn" x="431" y="393">Needs you</text>
+        <circle class="f-lane0" cx="796" cy="388" r="9"/>
+        <text class="tx-avatar b" x="796" y="391.5" text-anchor="middle" style="font-size:8px">BO</text>
+        <use href="#i-max" x="811" y="382" width="12" height="12" class="gl-muted"/>
+        <rect class="bx2" x="222" y="405" width="114" height="18" rx="5"/>
+        <use href="#i-branch" x="227" y="408" width="11" height="11" class="gl-muted"/>
+        <text class="m xs" x="242" y="418" style="fill:var(--text)">retry-webhooks</text>
+        <text class="s" x="346" y="418">2nd in stack · from #212 · Ben</text>
+        <line class="ln-brand" x1="260" y1="442" x2="360" y2="442"/>
+        <line class="ln-line" x1="360" y1="442" x2="660" y2="442"/>
+        <line class="ln-dot" x1="660" y1="442" x2="760" y2="442"/>
+        <circle class="st-done" cx="260" cy="442" r="7"/>
+        <use href="#i-check" x="255" y="437" width="10" height="10" class="gl-onaction"/>
+        <circle class="dt-halo" cx="360" cy="442" r="10"/><circle class="dt-needs" cx="360" cy="442" r="7"/>
+        <circle class="st-ring" cx="460" cy="442" r="6"/><circle class="st-ring" cx="560" cy="442" r="6"/><circle class="st-ring" cx="660" cy="442" r="6"/>
+        <circle class="st-wait" cx="760" cy="442" r="6"/>
+        <text class="xs" x="260" y="463" text-anchor="middle">Plan</text>
+        <text class="xs b tx-attn" x="360" y="463" text-anchor="middle">Implement</text>
+        <text class="xs" x="460" y="463" text-anchor="middle">Verify</text>
+        <text class="xs" x="560" y="463" text-anchor="middle">Review</text>
+        <text class="xs" x="660" y="463" text-anchor="middle">Propose</text>
+        <text class="xs" x="760" y="463" text-anchor="middle">Merge</text>
+        <rect class="f-brand" x="222" y="474" width="14" height="14" rx="4"/>
+        <use href="#i-bot" x="224" y="476" width="10" height="10" class="gl-avatar"/>
+        <text x="244" y="485" style="font-size:11.5px">Each retry waits 30 s, so the retry test times out…</text>
+        <rect class="bx" x="244" y="494" width="474" height="20" rx="6"/>
+        <text class="xs faint" x="252" y="508">Answer</text>
+        <rect class="f-brand" x="726" y="494" width="62" height="20" rx="6" style="fill:var(--action)"/>
+        <text class="tx-onaction" x="757" y="508" text-anchor="middle" style="font-size:11px">Answer</text>
+        <rect class="bx" x="208" y="530" width="625" height="88" rx="10"/>
+        <text class="b t13" x="222" y="551">retry-webhooks</text>
+        <circle class="dt-working" cx="335" cy="547" r="4"/>
+        <text class="s" x="343" y="551">Awake</text>
+        <circle class="f-lane1" cx="230" cy="572" r="8"/>
+        <text class="tx-avatar b" x="230" y="575" text-anchor="middle" style="font-size:7.5px">AP</text>
+        <text class="b" x="244" y="576" style="font-size:11.5px">Alice</text><text class="s" x="280" y="576">editing retry.ts:10</text>
+        <rect class="f-brand" x="222" y="590" width="16" height="16" rx="5"/>
+        <use href="#i-bot" x="224" y="592" width="12" height="12" class="gl-avatar"/>
+        <text class="b" x="244" y="602" style="font-size:11.5px">Coding agent</text><text class="s" x="332" y="602">at Implement</text>
+        <!-- Chat control -->
+        <rect class="bx" x="914" y="592" width="74" height="24" rx="6"/>
+        <text x="951" y="608" text-anchor="middle" style="font-size:11px">Chat ⌘K</text>
+        <!-- tree popover (drawn last: it floats over the conversation) -->
+        <rect class="bx" x="205" y="30" width="250" height="144" rx="8" style="filter:drop-shadow(0 6px 14px rgb(0 0 0 / 12%))"/>
+        <use href="#i-branch" x="217" y="40" width="12" height="12" class="gl-muted"/>
+        <text x="236" y="50">main</text>
+        <use href="#i-pr" x="217" y="62" width="12" height="12" class="gl-muted"/>
+        <text class="m xs" x="236" y="72" style="fill:var(--text)">T8</text><text x="256" y="72">upgrade-stripe</text>
+        <rect class="bx2" x="209" y="81" width="242" height="22" rx="5"/>
+        <circle class="dt-needs" cx="223" cy="92" r="4"/>
+        <text class="m xs" x="236" y="95" style="fill:var(--text)">T9</text><text class="b" x="256" y="95">retry-webhooks</text>
+        <circle class="f-lane1" cx="420" cy="92" r="6"/>
+        <rect class="f-brand" x="430" y="86" width="12" height="12" rx="3.5"/>
+        <use href="#i-branch" x="231" y="106" width="12" height="12" class="gl-muted"/>
+        <text x="250" y="116">ben/retry-try-2</text>
+        <circle class="f-lane0" cx="436" cy="112" r="6"/>
+        <circle class="dt-working" cx="223" cy="136" r="4"/>
+        <text class="m xs" x="236" y="139" style="fill:var(--text)">T10</text><text x="262" y="139">fix-checkout-race</text>
+        <rect class="f-brand" x="430" y="130" width="12" height="12" rx="3.5"/>
+        <circle class="dt-queued" cx="223" cy="158" r="4"/>
+        <text class="m xs" x="236" y="161" style="fill:var(--text)">T11</text><text x="262" y="161">log-retries</text>
+        <!-- markers -->
+        <g class="nbm"><circle cx="332" cy="17" r="9"/><text x="332" y="20.5">1</text></g>
+        <g class="nbm"><circle cx="468" cy="42" r="9"/><text x="468" y="45.5">2</text></g>
+        <g class="nbm"><circle cx="846" cy="214" r="9"/><text x="846" y="217.5">3</text></g>
+        <g class="nbm"><circle cx="203" cy="62" r="9"/><text x="203" y="65.5">4</text></g>
+        <g class="nbm"><circle cx="203" cy="222" r="9"/><text x="203" y="225.5">5</text></g>
+        <g class="nbm"><circle cx="203" cy="330" r="9"/><text x="203" y="333.5">6</text></g>
+        <g class="nbm"><circle cx="203" cy="486" r="9"/><text x="203" y="489.5">7</text></g>
+        <g class="nbm"><circle cx="203" cy="574" r="9"/><text x="203" y="577.5">8</text></g>
+        <g class="nbm"><circle cx="900" cy="582" r="9"/><text x="900" y="585.5">9</text></g>
+      </svg>
+    </div>
+    <div class="shell-row">
+      <div>
+        <svg class="d" viewBox="0 0 270 560" role="img" aria-labelledby="sh-n-t" style="width:100%;height:auto;display:block">
+          <title id="sh-n-t">Narrow shell: no timeline. One pill per edge, in the header and footer rows. Notices float at the bottom left.</title>
+          <rect class="frame" x="10" y="6" width="250" height="548" rx="26"/>
+          <text class="m b tx-brand" x="24" y="33" style="font-size:9px">SMITHERS</text>
+          <text class="xs" x="70" y="33" style="font-size:9.5px">acme/api / main ▾</text>
+          <rect class="pin-attn" x="168" y="22" width="82" height="17" rx="8.5"/>
+          <text class="xs tx-attn" x="209" y="34" text-anchor="middle">↑ 2 live above</text>
+          <rect class="bx" x="20" y="50" width="230" height="150" rx="10"/>
+          <rect class="bx2" x="30" y="60" width="26" height="15" rx="4"/>
+          <text class="m xs" x="43" y="71" text-anchor="middle" style="fill:var(--text)">T12</text>
+          <text class="b" x="62" y="72" style="font-size:11px">Send one reset email</text>
+          <rect class="p-live" x="30" y="82" width="116" height="17" rx="8.5"/>
+          <circle class="dt-working" cx="40" cy="90.5" r="3.5"/>
+          <text class="xs tx-action" x="48" y="94">Working · Implement</text>
+          <line class="ln-brand" x1="42" y1="122" x2="82" y2="122"/>
+          <line class="ln-line" x1="82" y1="122" x2="202" y2="122"/>
+          <line class="ln-dot" x1="202" y1="122" x2="236" y2="122"/>
+          <circle class="st-done" cx="42" cy="122" r="5.5"/><circle class="st-cur" cx="82" cy="122" r="5"/>
+          <circle class="st-ring" cx="122" cy="122" r="5"/><circle class="st-ring" cx="162" cy="122" r="5"/><circle class="st-ring" cx="202" cy="122" r="5"/><circle class="st-wait" cx="236" cy="122" r="5"/>
+          <text class="xs" x="42" y="140" text-anchor="middle" style="font-size:8.5px">Plan</text>
+          <text class="xs" x="82" y="140" text-anchor="middle" style="font-size:8.5px;fill:var(--text)">Implem…</text>
+          <text class="xs" x="122" y="140" text-anchor="middle" style="font-size:8.5px">Verify</text>
+          <text class="xs" x="162" y="140" text-anchor="middle" style="font-size:8.5px">Review</text>
+          <text class="xs" x="202" y="140" text-anchor="middle" style="font-size:8.5px">Propose</text>
+          <text class="xs" x="236" y="140" text-anchor="middle" style="font-size:8.5px">Merge</text>
+          <text class="xs" x="30" y="180" style="fill:var(--text)">Open branch   Inspect</text>
+          <text class="xs" x="240" y="180" text-anchor="end" style="fill:var(--text)">Stop   Drop</text>
+          <rect class="bx" x="20" y="210" width="230" height="130" rx="10"/>
+          <text class="b" x="30" y="232" style="font-size:11px">#235 Show the currency on i…</text>
+          <circle class="f-lane0" cx="37" cy="252" r="7"/>
+          <text class="xs b" x="50" y="256">Ben</text>
+          <rect class="bx2" x="30" y="266" width="210" height="8" rx="3"/>
+          <rect class="bx2" x="30" y="280" width="180" height="8" rx="3"/>
+          <rect class="bx2" x="30" y="294" width="196" height="8" rx="3"/>
+          <rect class="bx2" x="20" y="350" width="230" height="56" rx="10" style="opacity:.6"/>
+          <rect class="pin-attn" x="18" y="418" width="200" height="66" rx="8"/>
+          <use href="#i-alert" x="26" y="427" width="12" height="12" class="gl-attn"/>
+          <text class="b" x="44" y="437" style="font-size:10.5px">T9 needs you</text>
+          <text class="xs" x="44" y="451" style="font-size:9.5px">Asks: backoff or timeout?</text>
+          <rect class="bx" x="44" y="459" width="50" height="18" rx="5"/>
+          <text x="69" y="472" text-anchor="middle" style="font-size:9.5px">Answer</text>
+          <use href="#i-x" x="202" y="425" width="10" height="10" class="gl-faint"/>
+          <rect class="pin" x="18" y="502" width="82" height="17" rx="8.5"/>
+          <text class="xs" x="59" y="514" text-anchor="middle">↓ 1 new below</text>
+          <rect class="bx" x="190" y="502" width="56" height="17" rx="5"/>
+          <text x="218" y="514" text-anchor="middle" style="font-size:9.5px">Chat ⌘K</text>
+          <g class="nbm"><circle cx="160" cy="30" r="7"/><text x="160" y="33.5" style="font-size:9px">12</text></g>
+          <g class="nbm"><circle cx="112" cy="510" r="8"/><text x="112" y="513.5">12</text></g>
+          <g class="nbm"><circle cx="232" cy="430" r="8"/><text x="232" y="433.5">13</text></g>
+        </svg>
+        <p class="cap">Narrow (390 px)</p>
+      </div>
+      <div class="shell-minis">
+        <div>
+          <svg class="d" viewBox="0 0 300 192" role="img" aria-labelledby="sh-c-t" style="width:100%;height:auto;display:block">
+            <title id="sh-c-t">⌘K opens the composer, one floating card at the top of the page over the conversation.</title>
+            <rect class="frame" x="6" y="6" width="288" height="180" rx="10"/>
+            <rect class="bx2" x="12" y="30" width="52" height="7" rx="3"/><rect class="bx2" x="12" y="44" width="46" height="7" rx="3"/><rect class="bx2" x="12" y="58" width="50" height="7" rx="3"/>
+            <rect class="bx" x="80" y="62" width="186" height="46" rx="7" style="opacity:.55"/>
+            <rect class="bx" x="80" y="114" width="186" height="40" rx="7" style="opacity:.55"/>
+            <rect class="bx" x="36" y="14" width="228" height="34" rx="9" style="filter:drop-shadow(0 6px 12px rgb(0 0 0 / 14%))"/>
+            <text class="xs faint" x="46" y="35" style="font-size:9px">Ask Smithers to work on something…</text>
+            <text class="xs" x="256" y="35" text-anchor="end" style="font-size:9px">Queue</text>
+            <rect class="bx" x="232" y="164" width="54" height="16" rx="4"/>
+            <text x="259" y="175.5" text-anchor="middle" style="font-size:8.5px">Chat ⌘K</text>
+            <g class="nbm"><circle cx="276" cy="31" r="8"/><text x="276" y="34.5">10</text></g>
+          </svg>
+          <p class="cap">Composer open</p>
+        </div>
+        <div>
+          <svg class="d" viewBox="0 0 300 192" role="img" aria-labelledby="sh-m-t" style="width:100%;height:auto;display:block">
+            <title id="sh-m-t">Maximize shows the same card larger, over a scrim, with Restore. The chat controls stay visible.</title>
+            <rect class="frame" x="6" y="6" width="288" height="180" rx="10"/>
+            <rect class="bx2" x="12" y="30" width="52" height="7" rx="3"/><rect class="bx2" x="12" y="44" width="46" height="7" rx="3"/>
+            <rect class="bx" x="80" y="40" width="186" height="60" rx="7"/>
+            <rect class="f-scrim" x="6" y="6" width="288" height="180" rx="10"/>
+            <rect class="bx" x="12" y="20" width="276" height="130" rx="8"/>
+            <text class="b" x="22" y="37" style="font-size:10.5px">Retry failed webhooks</text>
+            <rect class="bx" x="228" y="27" width="54" height="16" rx="4"/>
+            <use href="#i-min" x="233" y="30" width="10" height="10" class="gl-muted"/>
+            <text x="246" y="38.5" style="font-size:8.5px">Restore</text>
+            <line class="ln-brand" x1="28" y1="60" x2="188" y2="60"/><line class="ln-dot" x1="188" y1="60" x2="220" y2="60"/>
+            <circle class="st-done" cx="28" cy="60" r="4.5"/><circle class="st-done" cx="68" cy="60" r="4.5"/><circle class="st-done" cx="108" cy="60" r="4.5"/><circle class="st-done" cx="148" cy="60" r="4.5"/><circle class="st-done" cx="188" cy="60" r="4.5"/><circle class="st-wait" cx="220" cy="60" r="4.5"/>
+            <rect class="bx2" x="22" y="76" width="118" height="64" rx="5"/>
+            <rect class="bx2" x="148" y="76" width="130" height="64" rx="5"/>
+            <text class="xs" x="28" y="90" style="font-size:8.5px">Run timeline</text>
+            <text class="xs" x="154" y="90" style="font-size:8.5px">Selected cell</text>
+            <rect class="bx" x="232" y="164" width="54" height="16" rx="4"/>
+            <text x="259" y="175.5" text-anchor="middle" style="font-size:8.5px">Chat ⌘K</text>
+            <g class="nbm"><circle cx="276" cy="160" r="8"/><text x="276" y="163.5">11</text></g>
+          </svg>
+          <p class="cap">A card maximized (here the Run card: Inspect)</p>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><i class="nb">1</i><span><b>Crumbs.</b> Repository / main / branch. A parent crumb goes up; the last opens the tree.</span></li>
+        <li><i class="nb">2</i><span><b>Branch tree.</b> main, each item's branch in stack order, forks under their origin, with presence. ↑ ↓ move, ⏎ opens, ← goes up.</span></li>
+        <li><i class="nb">3</i><span><b>Conversation.</b> The branch's shared entries: prompts with their author, Smithers' answers with Context · n, and cards.</span></li>
+        <li><i class="nb">4</i><span><b>Top edge.</b> Live work above the screen: two pinned rows at most, people-needed first, then “+N above”.</span></li>
+        <li><i class="nb">5</i><span><b>Band.</b> The entries on screen.</span></li>
+        <li><i class="nb">6</i><span><b>List.</b> One line per entry: a title and a fast-model summary. Live entries pulse, Needs you is gold, failures are ember.</span></li>
+        <li><i class="nb">7</i><span><b>Bottom edge.</b> Live work below and anything new: two pinned rows, then “+N below”.</span></li>
+        <li><i class="nb">8</i><span><b>Notices, docked.</b> Three at most. One with an action stays until someone acts or hides it.</span></li>
+        <li><i class="nb">9</i><span><b>Chat ⌘K.</b> Opens the composer in this branch's conversation.</span></li>
+        <li><i class="nb">10</i><span><b>Composer.</b> Floats at the top over the conversation. Esc, a press outside or ⌘K again closes it.</span></li>
+        <li><i class="nb">11</i><span><b>Maximize.</b> The same card, larger, over a scrim, with Restore.</span></li>
+        <li><i class="nb">12</i><span><b>Narrow edges.</b> No timeline. One pill per edge, in the header and footer rows.</span></li>
+        <li><i class="nb">13</i><span><b>Narrow notices.</b> Float at the bottom left.</span></li>
+      </ol>
+    </div>
+    <div class="scope">
+      <div>
+        <h3>Shared by everyone on the branch</h3>
+        <ul>
+          <li>Entries: prompts with their author, answers, events</li>
+          <li>Cards: the same card for everyone</li>
+          <li>Receipts: what an act did, as its own entry</li>
+          <li>Timeline summaries</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Each person's own</h3>
+        <ul>
+          <li>Scroll position and last-seen entry</li>
+          <li>Card view: maximized, tab, filter, an open menu or Context line</li>
+          <li>Theme</li>
+          <li>Hidden notices</li>
+          <li>Drafts: composer text, and a Draft card until Commit</li>
+        </ul>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>Everything embeds in the conversation. Nothing opens full screen unless the person maximizes it (EMBED LAW).</li>
+    <li>The timeline is desktop only. Hiding a notice keeps its timeline entry and its action.</li>
+    <li>UI-only flows (theme, open, maximize, navigate, filters) change only the screen of the person who ran them, even when their app agent ran them.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §6.4 (Home card, Branch conversations, Toasts, Timeline, Browser notifications), M-08, Appendix B.1; spec.md §14.1.1–§14.1.4, §14.4, §14.5.1, §14.5.3, §14.5.4, §7.2.2; apps/app/AGENTS.md (EMBED LAW, onboarding brief on the composer); mock <code>AppFrame.tsx</code>, <code>Rail.tsx</code>, <code>Tree.tsx</code>, <code>mock.css</code> (PORT · the left rail).</p>
+</section>
+
+<!-- ═════════════════ 04 CARD ═════════════════ -->
+<section class="dia" id="card" aria-labelledby="h-card">
+  <div class="dia-h"><span class="dia-n">04</span><h2 id="h-card">Card anatomy: header, body, one actions row, and one card per thing</h2><a class="dia-a" href="#card">#card</a></div>
+  <figure class="fig" aria-label="A TODO card with numbered parts: title, status word, header end slot, maximize, body, actions row.">
+    <div class="anat">
+      <div class="kc" aria-hidden="true">
+        <div class="kc-h">
+          <i class="nb">1</i><span class="ref">T9</span><span class="kc-t">Retry failed webhooks</span>
+          <i class="nb">2</i><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span>
+          <span class="kc-end"><i class="nb">3</i><span class="av" style="--who:var(--lane-0)">BO</span><span class="ib"><svg class="i"><use href="#i-max"/></svg></span><i class="nb">4</i></span>
+        </div>
+        <div class="kc-b">
+          <div class="kc-meta"><i class="nb">5</i><span class="bchip"><svg class="i"><use href="#i-branch"/></svg>retry-webhooks</span><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span><span>2nd in stack</span><span>from #212</span><span>Ben</span></div>
+          <ol class="strip">
+            <li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li>
+            <li class="wait"><span class="mk"></span>Implement</li>
+            <li><span class="mk"></span>Verify</li>
+            <li><span class="mk"></span>Review</li>
+            <li><span class="mk"></span>Propose</li>
+            <li class="mg"><span class="mk"></span>Merge</li>
+          </ol>
+          <div class="kc-flags"><span class="ind"><svg class="i"><use href="#i-repeat"/></svg>Thrashing: TestRetryBackoff failed 3×</span><span class="ind">Waiting for a person since 10:42</span></div>
+          <div class="kc-ask">
+            <div class="kc-ask-line"><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span><span>Each retry waits 30 s, so the retry test times out…</span></div>
+            <div class="row"><span class="inp">Answer</span><span class="btn solid">Answer</span></div>
+          </div>
+        </div>
+        <div class="kc-a"><i class="nb">6</i><span class="btn">Open branch</span><span class="btn">Inspect</span><span class="end"><span class="btn">Stop</span><span class="btn">Drop</span></span></div>
+      </div>
+      <ol class="legend">
+        <li><i class="nb">1</i><span><b>Title.</b> The ref chip and the title.</span></li>
+        <li><i class="nb">2</i><span><b>Status word.</b> One pill per state (<a href="#states">#states</a>).</span></li>
+        <li><i class="nb">3</i><span><b>Header end.</b> Owner, presence or a save state. See the variants below.</span></li>
+        <li><i class="nb">4</i><span><b>Maximize.</b> Becomes Restore when maximized.</span></li>
+        <li><i class="nb">5</i><span><b>Body.</b> Meta line, step strip, run flags, the question, evidence.</span></li>
+        <li><i class="nb">6</i><span><b>Actions row.</b> Ghost acts at the start; the one solid primary or a reason at the end.</span></li>
+      </ol>
+    </div>
+    <div class="tri">
+      <div>
+        <h3>Button weights</h3>
+        <div class="wt">
+          <span class="btn solid">Merge</span><span>One per card: its primary act</span>
+          <span class="btn outline sm">Answer</span><span>A row's one action; a secondary act</span>
+          <span class="btn">Inspect</span><span>Quiet acts: Open branch, Inspect, Stop</span>
+          <span class="reason">Merges after T8</span><span>A reason, in place of the button; never a disabled button</span>
+        </div>
+      </div>
+      <div>
+        <h3>Header end, by card</h3>
+        <div class="wt">
+          <span class="row"><span class="av s20" style="--who:var(--lane-0)">BO</span></span><span>TODO: its owner</span>
+          <span class="row"><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="ok"><svg class="i"><use href="#i-check"/></svg></span></span><span>File: editors, then “Saved to the machine”</span>
+          <span class="row"><span class="av s20" style="--who:var(--lane-0)">BO</span><span class="av s20" style="--who:var(--lane-1)">AP</span><svg class="i run"><use href="#i-eye"/></svg></span><span>Terminal: owner, then watchers</span>
+          <span class="bchip"><svg class="i"><use href="#i-branch"/></svg>maya/todo-flow</span><span>Run with no TODO: its branch</span>
+        </div>
+      </div>
+      <div>
+        <h3>One card per thing</h3>
+        <div class="flowmini">
+          <div class="fm-box dim">A TODO's run: no card of its own</div>
+          <div class="fm-arr">↓ its flags ride the TODO card</div>
+          <div class="fm-box"><span class="ref">T9</span> TODO card</div>
+          <div class="fm-arr">↓ Inspect</div>
+          <div class="fm-box">Run card, maximized: the monitor</div>
+          <div class="fm-arr" style="padding-left:0">A run that is no TODO's (learning, a flow run) has its own Run card. Showing a card again jumps to it.</div>
+        </div>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>One solid button per card, for its primary act. Every other button is outline or ghost.</li>
+    <li>A reason replaces the button it blocks, as text. An <code>Action</code> with <code>disabled.reason</code> renders that way.</li>
+    <li>Card body lines hold 12 words or fewer, in product words only.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §2 (rules 4 and 7), §6.6 (TODO card), §6.14 (Monitor, Inspect); spec.md §14.2, §14.3 (TODO and Run rows), §14.6b, §11.6.4; ui-components.md <code>Action</code>; apps/app/AGENTS.md (EMBED LAW, MINIMAL TEXT); design README (Visual rules); mock <code>parts.tsx</code> (<code>Card</code>), <code>cards/Todo.tsx</code>, <code>cards/Run.tsx</code> (<code>RunFlags</code>), <code>world.ts</code> (<code>showCard</code>).</p>
+</section>
+
+<!-- ═════════════════ 05 IDENTITY ═════════════════ -->
+<section class="dia" id="identity" aria-labelledby="h-identity">
+  <div class="dia-h"><span class="dia-n">05</span><h2 id="h-identity">Identity: every participant has one mark, wherever it appears</h2><a class="dia-a" href="#identity">#identity</a></div>
+  <figure class="fig" aria-label="Actor kinds, their marks, and where each mark appears: presence list, activity rows, line flags, terminal headers and chat authors.">
+    <table class="rt">
+      <thead><tr><th>Mark</th><th>Reads as</th><th>Actor</th><th>Presence</th><th>Activity row</th><th>Line flag</th><th>Terminal header</th><th>Chat author</th></tr></thead>
+      <tbody>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-1)">AP</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Alice</b><span class="vnote">a person: a circle in their lane color</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>person</code></span></td>
+          <td data-l="Presence"><span class="cv">editing retry.ts:10</span></td>
+          <td data-l="Activity row"><span class="cv">steers, answers</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-1)">Alice</span></span></td>
+          <td data-l="Terminal header"><span class="cv">owner, or a watcher with <svg class="i run"><use href="#i-eye"/></svg></span></td>
+          <td data-l="Chat author"><span class="cv">prompt author</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av agent"><svg><use href="#i-bot"/></svg></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Coding agent</b><span class="vnote">the branch's agent: a teal rounded square</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>agent · coding</code></span></td>
+          <td data-l="Presence"><span class="cv">at Verify; breathes while working</span></td>
+          <td data-l="Activity row"><span class="cv">steps, Read, Context, Asks</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--brand)">Agent</span></span></td>
+          <td data-l="Terminal header"><span class="cv">its own session</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">asks through Needs you</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm">S</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Smithers</b><span class="vnote">the app agent and the stack service: one participant</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>system</code></span></td>
+          <td data-l="Presence" class="na"><span class="cv">only when acting for someone</span></td>
+          <td data-l="Activity row"><span class="cv">Rebased onto T8</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--text)">Smithers</span></span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none: never types</span></td>
+          <td data-l="Chat author"><span class="cv">answers you</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av sm">S<span class="for" style="--who:var(--lane-0)">B</span></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Smithers for Ben</b><span class="vnote">acting for Ben: Ben's dot on its corner (M-34)</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>system · for</code></span></td>
+          <td data-l="Presence"><span class="cv">reading, for Ben</span></td>
+          <td data-l="Activity row"><span class="cv">Smithers for Ben asked · Dropped T11</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--text)">Smithers</span></span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none</span></td>
+          <td data-l="Chat author"><span class="cv">answers Ben, as others see it</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-0)">BO<span class="badge"><svg><use href="#i-bot"/></svg></span></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Ben via Claude Code</b><span class="vnote">an external agent: Ben's circle with an agent badge</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>person · via</code></span></td>
+          <td data-l="Presence"><span class="cv">in terminal 1</span></td>
+          <td data-l="Activity row"><span class="cv">Ben via Claude Code asked · Placed T12</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-0)">Ben · Claude Code</span></span></td>
+          <td data-l="Terminal header"><span class="cv">runs inside Ben's session</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none: no screen</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av" style="--who:var(--lane-2)">MC<span class="badge ssh"><svg><use href="#i-term"/></svg></span></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Maya via SSH</b><span class="vnote">a person over SSH: a terminal badge</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>person · via ssh</code></span></td>
+          <td data-l="Presence"><span class="cv">editing retry.ts:2</span></td>
+          <td data-l="Activity row"><span class="cv">Maya via SSH changed 12 files</span></td>
+          <td data-l="Line flag"><span class="cv"><span class="flag" style="--who:var(--lane-2)">Maya · SSH</span></span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none: her own client</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="av out"><svg><use href="#i-folder"/></svg></span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>Changed outside Smithers</b><span class="vnote">no single session can claim it: a neutral square</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>outside</code></span></td>
+          <td data-l="Presence" class="na"><span class="cv">none</span></td>
+          <td data-l="Activity row"><span class="cv">Changed outside Smithers · 3 files</span></td>
+          <td data-l="Line flag" class="na"><span class="cv">none; the File card says “Changed outside Smithers · Compare”</span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
+        </tr>
+        <tr>
+          <td data-l="Mark"><span class="cv"><div class="mk-cell"><span class="gh"><svg><use href="#i-github"/></svg>@login</span></div></span></td>
+          <td data-l="Reads as"><span class="cv"><b>@login</b><span class="vnote">a GitHub user who is not a member</span></span></td>
+          <td data-l="Actor"><span class="cv"><code>github</code></span></td>
+          <td data-l="Presence" class="na"><span class="cv">none</span></td>
+          <td data-l="Activity row"><span class="cv">rows that came from GitHub carry the mark</span></td>
+          <td data-l="Line flag" class="na"><span class="cv">none</span></td>
+          <td data-l="Terminal header" class="na"><span class="cv">none</span></td>
+          <td data-l="Chat author" class="na"><span class="cv">none</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </figure>
+  <ul class="rules">
+    <li>People are circles; agents are rounded squares; Smithers is the ink square.</li>
+    <li>Smithers is one participant, the app agent and the stack service alike. Acting for a person it reads “Smithers for Ben” and wears Ben's dot, never Ben's avatar with a badge.</li>
+    <li>A mark's color is identity: the person's lane, also for agents acting as them; teal for the coding agent; ink for Smithers.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §3.1, §6.8 (Presence, External changes), M-21, M-27, M-32, M-34; spec.md §2 (actor notation), §7.3.2, §14.6a; ui-components.md <code>Actor</code>, T-UI-01; mock <code>parts.tsx</code> (<code>Avatar</code>, <code>actorName</code>, <code>flagName</code>, <code>identityColour</code>), <code>world.ts</code> (<code>isSmithers</code>, <code>forWhom</code>, <code>via</code>), <code>mock.css</code> (PORT · avatars), <code>css/code.css</code> (flags).</p>
+</section>
+
+<!-- ═════════════════ 06 COLOR ═════════════════ -->
+<section class="dia" id="color" aria-labelledby="h-color">
+  <div class="dia-h"><span class="dia-n">06</span><h2 id="h-color">Color semantics: one meaning per color, and actor colors apart from status colors</h2><a class="dia-a" href="#color">#color</a></div>
+  <figure class="fig" aria-label="Swatches with light and dark values: teal means live or act, gold means a person is needed, ember means failed, neutrals for settled or automatic states, lane colors for actors only, violet retired.">
+    <div class="colors">
+      <div class="crow">
+        <div><h3>Teal · live or act</h3><p>Working, Starting, the current step, live timeline rows, the solid button, the focus ring.</p></div>
+        <div class="sw-set">
+          <div class="sw"><div class="sw-c" style="--sw-l:#0f766e;--sw-d:#45c4b2"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--brand</b><small>#0f766e · #45c4b2</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#0d6760;--sw-d:#45c4b2"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--action-primary</b><small>#0d6760 · #45c4b2</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#0b5b57;--sw-d:#7fbfb3"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--success</b><small>#0b5b57 · #7fbfb3 · ✓ marks</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#3e9e90;--sw-d:#7fbfb3"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--ring-border</b><small>#3e9e90 · #7fbfb3</small></div>
+        </div>
+        <div class="cuse"><span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span><span class="btn solid sm">Merge</span></div>
+      </div>
+      <div class="crow">
+        <div><h3>Gold · a person is needed</h3><p>Needs you, a wait for a person, a blocked merge reason, a stale sync, the notification ask.</p></div>
+        <div class="sw-set">
+          <div class="sw"><div class="sw-c" style="--sw-l:#d08a1d;--sw-d:#f0c169"><span class="l">L</span><span class="k" style="color:#0d1514">D</span></div><b>--attention</b><small>#d08a1d · #f0c169</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#8c5a08;--sw-d:#f0c169"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--attention-text</b><small>#8c5a08 · #f0c169</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:rgb(232 163 61 / 16%);--sw-d:rgb(240 193 105 / 14%)"><span class="l">L</span><span class="k" style="background:#131b1a;box-shadow:inset 0 0 0 40px rgb(240 193 105 / 14%)">D</span></div><b>--attention-wash</b><small>e8a33d 16% · f0c169 14%</small></div>
+        </div>
+        <div class="cuse"><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span><span class="ind">Waiting for a person since 10:42</span><span class="reason blocked">synced 6 min ago · Retry</span></div>
+      </div>
+      <div class="crow">
+        <div><h3>Ember · failed</h3><p>Failed, a failed check, a failed background run, “Merged · not active”.</p></div>
+        <div class="sw-set">
+          <div class="sw"><div class="sw-c" style="--sw-l:#a4442a;--sw-d:#d97757"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--danger</b><small>#a4442a · #d97757<br>ember-600 · ember-400</small></div>
+        </div>
+        <div class="cuse"><span class="pill" data-s="failed"><svg class="i"><use href="#i-x"/></svg>Failed</span><span class="checks"><span><svg class="i bad"><use href="#i-x"/></svg>lint</span></span></div>
+      </div>
+      <div class="crow">
+        <div><h3>Neutral · settled or automatic</h3><p>Queued, Paused, In review, Merged, the wait for merge, waiting for a machine, “Merges after T8”.</p></div>
+        <div class="sw-set">
+          <div class="sw"><div class="sw-c" style="--sw-l:#665f54;--sw-d:#a8a193"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--text-muted</b><small>#665f54 · #a8a193</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#efeae0;--sw-d:#1a2422"><span class="l">L</span><span class="k">D</span></div><b>--surface-2</b><small>#efeae0 · #1a2422</small></div>
+          <div class="sw"><div class="sw-c" style="--sw-l:#e4ddcf;--sw-d:#293532"><span class="l">L</span><span class="k">D</span></div><b>--border-solid</b><small>#e4ddcf · #293532</small></div>
+        </div>
+        <div class="cuse"><span class="pill" data-s="queued"><span class="dot" data-s="queued"></span>Queued</span><span class="pill" data-s="paused"><svg class="i"><use href="#i-pause"/></svg>Paused</span><span class="pill" data-s="review"><svg class="i"><use href="#i-pr"/></svg>In review</span><span class="pill" data-s="merged"><svg class="i"><use href="#i-merge"/></svg>Merged</span></div>
+      </div>
+      <div class="crow">
+        <div><h3>Actors · who, never what state</h3><p>Lanes mark people and the agents acting as them. Ink marks Smithers; the teal square marks the coding agent.</p></div>
+        <div class="sw-set">
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#9b4d31;--sw-d:#eda381"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-0</b><small>#9b4d31<br>#eda381 · Ben</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#376f91;--sw-d:#8cc5e8"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-1</b><small>#376f91<br>#8cc5e8 · Alice</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#78639a;--sw-d:#bea6e6"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-2</b><small>#78639a<br>#bea6e6 · Maya</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#82651e;--sw-d:#d9be70"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-3</b><small>#82651e<br>#d9be70</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#387667;--sw-d:#8acaba"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-4</b><small>#387667<br>#8acaba</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#a24f6b;--sw-d:#e5a1b8"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--lane-5</b><small>#a24f6b<br>#e5a1b8</small></div>
+          <div class="sw sw-lane"><div class="sw-c" style="--sw-l:#211d18;--sw-d:#ece7db"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--text</b><small>#211d18<br>#ece7db · Smithers</small></div>
+        </div>
+        <div class="cuse"><span class="av s20" style="--who:var(--lane-0)">BO</span><span class="av s20" style="--who:var(--lane-1)">AP</span><span class="av s20" style="--who:var(--lane-2)">MC</span><span class="av s20 sm">S</span><span class="av s20 agent"><svg><use href="#i-bot"/></svg></span></div>
+      </div>
+      <div class="crow">
+        <div><h3>Retired from the chrome</h3><p>Violet no longer marks anything in the app's chrome.</p></div>
+        <div class="sw-set">
+          <div class="sw"><div class="sw-c" style="--sw-l:#6a5ce0;--sw-d:#a99ff7"><span class="l" style="color:#fffefa">L</span><span class="k" style="color:#0d1514">D</span></div><b>--ai</b><small>#6a5ce0 · #a99ff7</small></div>
+        </div>
+        <div class="cuse"><span class="reason">still defined in tokens.css</span></div>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>One meaning per color: teal live or act, gold a person is needed, ember failed. Everything settled or automatic is neutral.</li>
+    <li>Actor colors say who, never what state, and a status never borrows a lane color.</li>
+    <li>Both themes gate acceptance: every swatch has a light and a dark value.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> design README (Visual rules); mvp.md §6.3 (Sync status), §6.4 (Timeline), §6.12 (Pinned versions), §12; spec.md §4.4, §14.5.2; <code>apps/app/src/mainview/styles/tokens.css</code>; mock <code>mock.css</code> (PORT · identity and state tokens, PORT · TODO state, “Teal means live or act” overrides).</p>
+</section>
+
+<!-- ═════════════════ 07 STATES ═════════════════ -->
+<section class="dia" id="states" aria-labelledby="h-states">
+  <div class="dia-h"><span class="dia-n">07</span><h2 id="h-states">TODO lifecycle: nine states, each with one glyph and one pill</h2><a class="dia-a" href="#states">#states</a></div>
+  <figure class="fig">
+    <div class="scroll" style="--min:820px">
+      <svg class="d" viewBox="0 0 1100 470" role="img" aria-labelledby="st-t">
+        <title id="st-t">TODO states. Main line: Queued, Starting, Working, In review, Merged. Working and Needs you go back and forth. Needs you answered after the machine was released goes to Queued. Stop takes Working to Paused, and Resume takes Paused to Queued. Starting or Working can fail; Retry queues a new attempt. In review goes back to Working on changes requested or a steer, and to Needs you on a rebase conflict or an outside push. Any unmerged state can be Dropped.</title>
+        <defs><marker id="ah-st" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
+        <rect class="region" x="14" y="40" width="854" height="414" rx="14"/>
+        <text class="xs" x="860" y="447" text-anchor="end">any unmerged state</text>
+        <path class="ed" d="M145 210H240" marker-end="url(#ah-st)"/>
+        <text class="s" x="192" y="202" text-anchor="middle">machine granted</text>
+        <path class="ed" d="M356 210H453" marker-end="url(#ah-st)"/>
+        <text class="s" x="404" y="202" text-anchor="middle">agent launched</text>
+        <path class="ed" d="M633 210H737" marker-end="url(#ah-st)"/>
+        <text class="s" x="685" y="202" text-anchor="middle">PR opened</text>
+        <path class="ed" d="M859 210H963" marker-end="url(#ah-st)"/>
+        <text class="s" x="916" y="190" text-anchor="middle">a person</text>
+        <text class="s" x="916" y="202" text-anchor="middle">merges</text>
+        <path class="ed" d="M530 195V89" marker-end="url(#ah-st)"/>
+        <text class="s" x="522" y="140" text-anchor="end">asks, approval,</text>
+        <text class="s" x="522" y="153" text-anchor="end">conflict</text>
+        <path class="ed" d="M560 85V191" marker-end="url(#ah-st)"/>
+        <text class="s" x="568" y="140">first answer</text>
+        <text class="s" x="568" y="153">settles it</text>
+        <path class="ed" d="M483 70H90V191" marker-end="url(#ah-st)"/>
+        <text class="s" x="287" y="62" text-anchor="middle">answered after the machine was released</text>
+        <path class="ed" d="M780 195L611 80" marker-end="url(#ah-st)"/>
+        <text class="s" x="712" y="121">rebase conflict,</text>
+        <text class="s" x="724" y="134">or outside push</text>
+        <path class="ed" d="M790 225C790 285 600 285 600 229" marker-end="url(#ah-st)"/>
+        <text class="s" x="695" y="298" text-anchor="middle">changes requested · steer</text>
+        <path class="ed" d="M545 225V341" marker-end="url(#ah-st)"/>
+        <text class="s" x="537" y="292" text-anchor="end">Stop</text>
+        <path class="ed" d="M545 375V440H60V229" marker-end="url(#ah-st)"/>
+        <text class="s" x="300" y="433" text-anchor="middle">Resume</text>
+        <path class="ed" d="M300 225V341" marker-end="url(#ah-st)"/>
+        <text class="s" x="308" y="292">start fails</text>
+        <path class="ed" d="M470 225L346 343" marker-end="url(#ah-st)"/>
+        <text class="s" x="418" y="292">run error</text>
+        <path class="ed" d="M250 360L121 229" marker-end="url(#ah-st)"/>
+        <text class="s" x="180" y="300" text-anchor="end">Retry:</text>
+        <text class="s" x="180" y="313" text-anchor="end">new attempt</text>
+        <path class="ed" d="M868 420H961" marker-end="url(#ah-st)"/>
+        <text class="s" x="914" y="412" text-anchor="middle">Drop</text>
+        <!-- nodes -->
+        <g transform="translate(35 195)"><rect class="p-quiet" width="110" height="30" rx="15"/><circle class="dt-queued" cx="20" cy="15" r="4.5"/><text class="tx-muted b" x="32" y="19.5">Queued</text></g>
+        <g transform="translate(244 195)"><rect class="p-live" width="112" height="30" rx="15"/><circle class="dt-starting" cx="20" cy="15" r="4.5"/><text class="tx-action b" x="32" y="19.5">Starting</text></g>
+        <g transform="translate(457 195)"><rect class="p-live" width="176" height="30" rx="15"/><circle class="dt-working" cx="20" cy="15" r="5"/><text class="tx-action b" x="32" y="19.5">Working · Implement</text></g>
+        <g transform="translate(741 195)"><rect class="p-review" width="118" height="30" rx="15"/><use href="#i-pr" x="12" y="8" width="14" height="14" class="gl-muted"/><text class="b" x="32" y="19.5">In review</text></g>
+        <g transform="translate(967 195)"><rect class="p-quiet" width="106" height="30" rx="15"/><use href="#i-merge" x="12" y="8" width="14" height="14" class="gl-faint"/><text class="tx-muted b" x="32" y="19.5">Merged</text></g>
+        <text class="xs" x="1020" y="246" text-anchor="middle">done</text>
+        <g transform="translate(483 55)"><rect class="p-needs" width="124" height="30" rx="15"/><circle class="dt-halo" cx="20" cy="15" r="8"/><circle class="dt-needs" cx="20" cy="15" r="5"/><text class="tx-attn b" x="34" y="19.5">Needs you</text></g>
+        <g transform="translate(493 345)"><rect class="p-quiet" width="104" height="30" rx="15"/><use href="#i-pause" x="12" y="8" width="14" height="14" class="gl-muted"/><text class="tx-muted b" x="32" y="19.5">Paused</text></g>
+        <g transform="translate(250 345)"><rect class="p-failed" width="100" height="30" rx="15"/><use href="#i-x" x="12" y="8" width="14" height="14" class="gl-danger"/><text class="tx-danger b" x="32" y="19.5">Failed</text></g>
+        <g transform="translate(965 405)"><rect class="p-dropped" width="110" height="30" rx="15"/><use href="#i-dashed" x="12" y="8" width="14" height="14" class="gl-faint"/><text class="faint b" x="32" y="19.5">Dropped</text><line x1="32" y1="15.5" x2="86" y2="15.5" style="stroke:var(--faint);stroke-width:1"/></g>
+        <text class="xs" x="1020" y="452" text-anchor="middle">or PR closed on GitHub</text>
+      </svg>
+    </div>
+    <div class="who">
+      <div><span class="pill" data-s="queued"><span class="dot" data-s="queued"></span>Queued</span><span>Nobody. Shows its reason: “Waiting for a machine · #2”</span></div>
+      <div><span class="pill" data-s="starting"><span class="dot" data-s="starting"></span>Starting</span><span>Nobody. Its machine is granted; the agent launches</span></div>
+      <div><span class="pill" data-s="working"><span class="dot" data-s="working"></span>Working · Implement</span><span>Anyone on the branch watches or steers</span></div>
+      <div><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span><span>Questions: any member. Approvals that gate a merge: a maintainer</span></div>
+      <div><span class="pill" data-s="paused"><svg class="i"><use href="#i-pause"/></svg>Paused</span><span>Resume or drop</span></div>
+      <div><span class="pill" data-s="failed"><svg class="i"><use href="#i-x"/></svg>Failed</span><span>Retry, steer or drop; evidence is kept</span></div>
+      <div><span class="pill" data-s="review"><svg class="i"><use href="#i-pr"/></svg>In review</span><span>A person reviews and merges</span></div>
+      <div><span class="pill" data-s="merged"><svg class="i"><use href="#i-merge"/></svg>Merged</span><span>Nobody. This is done</span></div>
+      <div><span class="pill" data-s="dropped"><svg class="i"><use href="#i-dashed"/></svg>Dropped</span><span>Nobody. Its PR closes; later items rebase</span></div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>Each state has one glyph and one pill, the same on every card, row and timeline line.</li>
+    <li>Merged is done. Learning is a receipt on the merged card (“2 lessons”), never a state.</li>
+    <li>Drawn from mvp.md §4.1 and spec.md §4.1. spec.md's transition table is authoritative and adds rarer edges: Discard returns to In review, a reopened PR revives a Dropped TODO, and a merge on GitHub counts from any unmerged state.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §4.1, M-15; spec.md §4.1 (with §4.1.0a precedence and §4.1.1 queue copy), §10.7, §10.8; mock <code>parts.tsx</code> (<code>StateGlyph</code>, <code>StatePill</code>, <code>stateLabel</code>), <code>mock.css</code> (PORT · TODO state).</p>
+</section>
+
+<!-- ═════════════════ 08 RUN ═════════════════ -->
+<section class="dia" id="run" aria-labelledby="h-run">
+  <div class="dia-h"><span class="dia-n">08</span><h2 id="h-run">One attempt is one durable run: five steps, then a wait for merge</h2><a class="dia-a" href="#run">#run</a></div>
+  <figure class="fig">
+    <div class="scroll" style="--min:820px">
+      <svg class="d" viewBox="0 0 1100 300" role="img" aria-labelledby="run-t">
+        <title id="run-t">Attempt 1 stopped at Implement when its machine restarted. Retry started attempt 2 as a new run: Plan, Implement, Verify, Review, Propose, then a wait for merge that holds no machine. A steer loops the run back to Implement; a rebase loops it back to Verify. A merge or a drop ends the run.</title>
+        <defs><marker id="ah-run" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs>
+        <!-- attempt 1 -->
+        <g style="opacity:.62">
+          <text class="b" x="20" y="54">Attempt 1</text><text class="s" x="20" y="70">kept, with its evidence</text>
+          <rect class="stepbox" x="150" y="34" width="124" height="48" rx="9"/>
+          <circle class="st-done badge" cx="152" cy="36" r="7.5"/><use href="#i-check" x="147" y="31" width="10" height="10" class="gl-onaction"/>
+          <text class="b t13" x="212" y="56" text-anchor="middle">Plan</text><text class="m xs" x="212" y="71" text-anchor="middle">plan</text>
+          <path class="ed" d="M274 58H306" marker-end="url(#ah-run)"/>
+          <rect class="stepbox-fail" x="310" y="34" width="124" height="48" rx="9"/>
+          <circle class="st-fail badge" cx="312" cy="36" r="7.5"/><use href="#i-x" x="307" y="31" width="10" height="10" class="gl-onaction"/>
+          <text class="b t13" x="372" y="56" text-anchor="middle">Implement</text><text class="m xs" x="372" y="71" text-anchor="middle">implement</text>
+          <text class="s tx-danger" x="448" y="62">Machine restarted</text>
+        </g>
+        <text class="s" x="150" y="112">Retry starts attempt 2: a new run from its first step.</text>
+        <!-- attempt 2 -->
+        <text class="b" x="20" y="166">Attempt 2</text><text class="s" x="20" y="182">proposed, held</text>
+        <rect class="stepbox" x="150" y="146" width="124" height="48" rx="9"/>
+        <circle class="st-done badge" cx="152" cy="148" r="7.5"/><use href="#i-check" x="147" y="143" width="10" height="10" class="gl-onaction"/>
+        <text class="b t13" x="212" y="168" text-anchor="middle">Plan</text><text class="m xs" x="212" y="183" text-anchor="middle">plan</text>
+        <path class="ed" d="M274 170H306" marker-end="url(#ah-run)"/>
+        <rect class="stepbox" x="310" y="146" width="124" height="48" rx="9"/>
+        <circle class="st-done badge" cx="312" cy="148" r="7.5"/><use href="#i-check" x="307" y="143" width="10" height="10" class="gl-onaction"/>
+        <text class="b t13" x="372" y="168" text-anchor="middle">Implement</text><text class="m xs" x="372" y="183" text-anchor="middle">implement</text>
+        <path class="ed" d="M434 170H466" marker-end="url(#ah-run)"/>
+        <rect class="stepbox" x="470" y="146" width="124" height="48" rx="9"/>
+        <circle class="st-done badge" cx="472" cy="148" r="7.5"/><use href="#i-check" x="467" y="143" width="10" height="10" class="gl-onaction"/>
+        <text class="b t13" x="532" y="168" text-anchor="middle">Verify</text><text class="m xs" x="532" y="183" text-anchor="middle">candidate · check</text>
+        <path class="ed" d="M594 170H626" marker-end="url(#ah-run)"/>
+        <rect class="stepbox" x="630" y="146" width="124" height="48" rx="9"/>
+        <circle class="st-done badge" cx="632" cy="148" r="7.5"/><use href="#i-check" x="627" y="143" width="10" height="10" class="gl-onaction"/>
+        <text class="b t13" x="692" y="168" text-anchor="middle">Review</text><text class="m xs" x="692" y="183" text-anchor="middle">review</text>
+        <path class="ed" d="M754 170H786" marker-end="url(#ah-run)"/>
+        <rect class="stepbox" x="790" y="146" width="124" height="48" rx="9"/>
+        <circle class="st-done badge" cx="792" cy="148" r="7.5"/><use href="#i-check" x="787" y="143" width="10" height="10" class="gl-onaction"/>
+        <text class="b t13" x="852" y="168" text-anchor="middle">Propose</text><text class="m xs" x="852" y="183" text-anchor="middle">stack.propose</text>
+        <path class="ed" d="M914 170H946" marker-end="url(#ah-run)"/>
+        <rect class="stepbox-wait" x="950" y="146" width="140" height="48" rx="9"/>
+        <circle class="st-wait badge-w" cx="952" cy="148" r="7.5"/>
+        <text class="b t13" x="1020" y="168" text-anchor="middle">Wait for merge</text><text class="s" x="1020" y="184" text-anchor="middle">holds no machine</text>
+        <!-- loops -->
+        <path class="ed" d="M1000 146V134Q1000 126 992 126H380Q372 126 372 134V142" marker-end="url(#ah-run)"/>
+        <text class="s" x="686" y="120" text-anchor="middle">steer · changes requested</text>
+        <path class="ed" d="M1030 194V222Q1030 230 1022 230H546Q538 230 538 222V198" marker-end="url(#ah-run)"/>
+        <text class="s" x="784" y="246" text-anchor="middle">rebase onto a new tip</text>
+        <path class="ed" d="M1078 194V266" marker-end="url(#ah-run)"/>
+        <text class="s" x="1068" y="286" text-anchor="end">merged or dropped: the run ends</text>
+      </svg>
+    </div>
+    <p class="sub" style="margin-top:14px">The TODO card's step strip mirrors the run</p>
+    <div class="mirror">
+      <div class="mi"><span class="mi-l">Working at Implement</span>
+        <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="cur"><span class="mk"></span>Implement</li><li><span class="mk"></span>Verify</li><li><span class="mk"></span>Review</li><li><span class="mk"></span>Propose</li><li class="mg"><span class="mk"></span>Merge</li></ol></div>
+      <div class="mi"><span class="mi-l">In review: held at the wait for merge</span>
+        <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Implement</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Verify</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Review</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Propose</li><li class="mg held"><span class="mk"></span>Merge</li></ol></div>
+      <div class="mi"><span class="mi-l">A new revision: back at Verify until its checks pass</span>
+        <ol class="strip"><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Plan</li><li class="done"><span class="mk"><svg><use href="#i-check"/></svg></span>Implement</li><li class="cur"><span class="mk"></span>Verify</li><li><span class="mk"></span>Review</li><li><span class="mk"></span>Propose</li><li class="mg"><span class="mk"></span>Merge</li></ol></div>
+    </div>
+    <p class="sub" style="margin-top:18px">Inside a step: phases and cells, as Inspect shows them</p>
+    <div class="ph">
+      <div class="ph-step">Implement</div>
+      <div class="ph-row">
+        <span class="ph-n">3</span>
+        <div class="ph-main">
+          <div class="ph-title"><b>Ran tests · 1 failed ×3</b><span class="ph-took">4 min</span></div>
+          <div class="ph-sum"><svg class="i spark"><use href="#i-sparkles"/></svg>The retry test times out every time.</div>
+          <span class="ind"><svg class="i"><use href="#i-repeat"/></svg>Thrashing: TestRetryBackoff failed 3×</span>
+          <div class="cell"><svg class="i run"><use href="#i-term"/></svg><span class="cl">Ran pnpm test · 1 failed</span><span class="ce"><svg class="i spark"><use href="#i-sparkles"/></svg>Ran the webhook tests. The retry test timed out.</span></div>
+        </div>
+        <div class="ann"><span>title: the step plus its recorded output</span><span>✦ the fast model's one-line summary</span><span>a deterministic rule, no model</span><span>cell: a label, then ✦ its explanation</span></div>
+      </div>
+      <div class="ph-row">
+        <span class="ph-n">4</span>
+        <div class="ph-main">
+          <div class="ph-title"><b>Asked a person</b></div>
+          <div class="ph-sum"><svg class="i spark"><use href="#i-sparkles"/></svg>Asked whether to change the delay or raise the timeout.</div>
+          <span class="ind">Waiting for a person since 10:42</span>
+          <div class="cell"><span class="av s16" style="--who:var(--lane-0)">BO</span><span>Use backoff() from lib/backoff everywhere we sleep before a retry.</span></div>
+        </div>
+        <div class="ann"><span>a durable wait, with since</span><span>a person's own words carry no ✦</span></div>
+      </div>
+      <div class="ph-row">
+        <span class="ph-n">5</span>
+        <div class="ph-main">
+          <div class="ph-title"><b>Edited 2 files</b></div>
+        </div>
+        <div class="ann"><span>summary pending: the title stands alone, with no error state</span></div>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>One attempt is one durable run of its pinned flow version. It lives until the TODO merges or is dropped; Retry starts a new attempt beside the old one.</li>
+    <li>After Propose the run holds at the wait for merge. A rebase loops it back to Verify, a steer or a requested change to Implement.</li>
+    <li>Phase titles and cell labels are deterministic. ✦ marks what the fast model wrote, only for runs someone inspects.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §6.12 (Pinned versions), §6.14 (Monitor), Appendix B.5, J11; spec.md §10.4.1, §10.4.4, §10.7.1, §11.4, §11.6.3, §11.6.4, §14.5.3; ui-components.md T-UI-04 (<code>steps</code>), T-UI-10 (<code>signals</code>), T-UI-12 (<code>RunModel</code>); mock <code>cards/Run.tsx</code>, <code>parts.tsx</code> (<code>StepStrip</code>), <code>cards/Flow.tsx</code>, <code>journeys/run.ts</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
+</section>
+
+<!-- ═════════════════ 09 MERGE RULE ═════════════════ -->
+<section class="dia" id="merge-rule" aria-labelledby="h-merge">
+  <div class="dia-h"><span class="dia-n">09</span><h2 id="h-merge">Merge readiness: one decision, read by every merge surface</h2><a class="dia-a" href="#merge-rule">#merge-rule</a></div>
+  <figure class="fig" aria-label="The merge readiness rule tests, in order: merged already, role, stack order, PR open, a failed check, checks running, review running, GitHub's own rule. The first test that fails gives the reason that replaces Merge.">
+    <div class="mr">
+      <div>
+        <div class="mr-in"><span class="chip">Home row</span><span class="chip">TODO card</span><span class="chip">Review &amp; merge</span><span>all read</span><code>mergeReadiness(world, item, viewer)</code></div>
+        <ol class="gates">
+          <li class="gate"><span class="g-k">Done</span><span class="g-q">Merged already?</span><span class="g-y">yes</span><span class="g-out"><span class="ok"><svg class="i"><use href="#i-check"/></svg> Merged into main</span><span class="reason">no button</span></span></li>
+          <li class="gate"><span class="g-k">Role</span><span class="g-q">Owner or maintainer?</span><span class="g-y">no</span><span class="g-out"><span class="reason blocked">A maintainer merges</span></span></li>
+          <li class="gate"><span class="g-k">Stack order</span><span class="g-q">First open item in the stack?</span><span class="g-y">no</span><span class="g-out"><span class="reason">Merges after T8</span></span></li>
+          <li class="gate"><span class="g-k">PR</span><span class="g-q">In review, with evidence?</span><span class="g-y">no</span><span class="g-out"><span class="reason">No PR yet</span></span></li>
+          <li class="gate"><span class="g-k">Checks, this revision</span><span class="g-q">Did a check fail?</span><span class="g-y">yes</span><span class="g-out"><span class="reason blocked">lint failed</span><span class="lnk">on GitHub ↗</span><span class="reason">when it is GitHub's check</span></span></li>
+          <li class="gate"><span class="g-k"></span><span class="g-q">Checks still running?</span><span class="g-y">yes</span><span class="g-out"><span class="reason">Checks running on 5e7d2b0</span></span></li>
+          <li class="gate"><span class="g-k">Review, this revision</span><span class="g-q">Review still running?</span><span class="g-y">yes</span><span class="g-out"><span class="reason">Review running on 5e7d2b0</span></span></li>
+          <li class="gate"><span class="g-k">GitHub's rule</span><span class="g-q">Does GitHub block it?</span><span class="g-y">yes</span><span class="g-out"><span class="reason blocked">1 approving review required on GitHub</span><span class="lnk">on GitHub ↗</span></span></li>
+          <li class="gate pass"><span class="g-k">Merge</span><span class="g-q">Every test passed</span><span class="g-y"></span><span class="g-out"><span class="btn solid sm">Merge</span><span class="reason">Review &amp; merge adds “Merges as Ben”</span></span></li>
+        </ol>
+        <p class="reason" style="margin:10px 0 0">Gold text: blocked until a person acts. Neutral text: waiting on the system.</p>
+      </div>
+      <div>
+        <p class="sub">Evidence is per revision</p>
+        <div class="revs">
+          <div class="rev old">
+            <div class="rev-h"><code>1b2c3d4</code><span>earlier revision</span></div>
+            <div class="checks"><span><svg class="i ok"><use href="#i-check"/></svg>typecheck</span><span><svg class="i ok"><use href="#i-check"/></svg>test</span><span><svg class="i ok"><use href="#i-check"/></svg>lint</span><span><svg class="i ok"><use href="#i-check"/></svg>GitHub 5/5</span></div>
+            <div>Review: No blocking issues</div>
+            <div>Approved by Ben</div>
+          </div>
+          <div class="rev-arrow">↓ rebased onto T8: a new revision</div>
+          <div class="rev">
+            <div class="rev-h"><code>5e7d2b0</code><span>current revision</span></div>
+            <div class="checks"><span><svg class="i run"><use href="#i-loader"/></svg>typecheck</span><span><svg class="i run"><use href="#i-loader"/></svg>test</span><span><svg class="i run"><use href="#i-loader"/></svg>lint</span><span><svg class="i run"><use href="#i-loader"/></svg>GitHub 0/5</span></div>
+            <div>Review running on 5e7d2b0 <span class="reason">· history: 1b2c3d4 No blocking issues</span></div>
+            <div class="warn">Approval cleared by rebase · checks rerun</div>
+          </div>
+          <div class="rev-arrow">↓ when its checks and review pass</div>
+          <div class="mini">
+            <div class="mini-h">Merge T8 into main?</div>
+            <div class="mini-b"><span class="warn">You approved 1b2c3d4. Review 5e7d2b0.</span></div>
+            <div class="mini-a"><span class="btn sm">Cancel</span><span class="btn solid sm">Review &amp; merge</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>One rule for every merge surface: no card offers a merge another card would refuse.</li>
+    <li>The tests run in the order a person fixes them. The first failing test's reason replaces Merge, as text.</li>
+    <li>A new revision reruns checks and review, keeps the old review as history, and clears an earlier approval.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §4.2 (Rebase, Merging), §6.3 (Checks finish, GitHub branch protection), §6.10, M-05; spec.md §10.6.1, §10.6.2, §10.6.2a, §10.6.2c, §10.5.3; mock <code>world.ts</code> (<code>mergeReadiness</code>, <code>revise</code>, <code>checksPassed</code>), <code>cards/Home.tsx</code>, <code>cards/Todo.tsx</code> (<code>Evidence</code>), <code>cards/Confirm.tsx</code>. <a class="eng" href="../engineering/review.html#plan">Engineering view ↗</a></p>
+</section>
+
+<!-- ═════════════════ 10 PERMISSIONS ═════════════════ -->
+<section class="dia" id="permissions" aria-labelledby="h-perm">
+  <div class="dia-h"><span class="dia-n">10</span><h2 id="h-perm">App agent permissions: runs at once, asks once, opens your merge, or has no path</h2><a class="dia-a" href="#permissions">#permissions</a></div>
+  <figure class="fig" aria-label="Four lanes of app agent permissions, then how the coding agent's actions render in the same cards a person's do.">
+    <div class="lanes">
+      <div class="lane">
+        <h3>Runs at once <small>A · run</small></h3>
+        <ul>
+          <li>Reads: code, branches, runs, the wiki</li>
+          <li>Steer, answer, stop, resume, retry</li>
+          <li>Rebase, fork, run a flow</li>
+          <li>Wiki writes: pages keep history</li>
+          <li>The asker's own screen: theme, open, maximize</li>
+          <li>Open the asker's terminal; never type in it</li>
+        </ul>
+        <div class="mini"><div class="mini-b" style="padding-top:8px"><span class="row"><span class="av s16 sm">S</span><b style="color:var(--text)">Smithers</b></span><span>Stopped T10.</span></div></div>
+        <span class="also">The reply is the receipt.</span>
+      </div>
+      <div class="lane">
+        <h3>One-click confirmation <small>A✓ · confirm</small></h3>
+        <ul>
+          <li>Commit or drop a TODO</li>
+          <li>Add a scratch branch to the stack</li>
+          <li>Delete a wiki page</li>
+          <li>Propose a flow or agent edit</li>
+        </ul>
+        <span class="also">Appendix B.2 rows also mark amend and <code>/review</code> A✓.</span>
+        <div class="mini">
+          <div class="mini-h">Drop T11 log-retries?</div>
+          <div class="mini-a"><span class="btn sm">Cancel</span><span class="btn solid sm">Drop <span class="kbd">⏎</span></span></div>
+        </div>
+        <span class="also">Only the asker can press it. Commit and propose ride the Draft card: its Commit is the confirmation.</span>
+      </div>
+      <div class="lane">
+        <h3>Merge <small>A✓ · review_merge</small></h3>
+        <ul><li>Opens the asker's own Review &amp; merge. A maintainer presses it.</li></ul>
+        <div class="mini">
+          <div class="mini-h">Merge T8 into main?</div>
+          <div class="mini-b"><span>#88 · rev 5e7d2b0</span><span class="checks"><span><svg class="i ok"><use href="#i-check"/></svg>typecheck</span><span><svg class="i ok"><use href="#i-check"/></svg>test</span><span><svg class="i ok"><use href="#i-check"/></svg>GitHub 5/5</span></span></div>
+          <div class="mini-a"><span class="grow">Merges as Ben</span><span class="btn sm">Cancel</span><span class="btn solid sm">Merge</span></div>
+        </div>
+        <span class="also">Agents never approve or merge.</span>
+      </div>
+      <div class="lane">
+        <h3>No agent path <small>– · never</small></h3>
+        <ul>
+          <li>Members and roles</li>
+          <li>Secrets</li>
+          <li>Settings: model access, capacity, GitHub App</li>
+          <li>Approvals that gate a merge</li>
+        </ul>
+        <span class="also">Only by the person's own hand in the app.</span>
+      </div>
+    </div>
+    <div class="b3">
+      <p class="sub">B.3: the coding agent's actions render in the cards a person's do</p>
+      <div class="b3-row"><code>read · ls · glob · grep</code><span>A “Read” line in the branch activity; each file opens the File card</span><span class="b3-demo"><span class="av s16 agent"><svg><use href="#i-bot"/></svg></span><span class="chip">Read</span><span class="chip m">retry.ts</span><span class="chip m">backoff.ts</span></span></div>
+      <div class="b3-row"><code>write · edit · apply_patch</code><span>An attributed edit in the File and Diff cards, with its line flag</span><span class="b3-demo"><span class="flag" style="--who:var(--brand)">Agent</span><span class="span" style="--who:var(--brand)">await sleep(backoff(1))</span></span></div>
+      <div class="b3-row"><code>bash · test</code><span>Its own Terminal session on the branch; anyone can watch</span><span class="b3-demo"><span class="chip"><svg class="i"><use href="#i-term"/></svg>terminal 1</span><span class="av s16 agent"><svg><use href="#i-bot"/></svg></span><span class="av s16" style="--who:var(--lane-0)">BO</span><svg class="i run"><use href="#i-eye"/></svg></span></div>
+      <div class="b3-row"><code>memory · recall</code><span>The Context line; the preflight cell in Inspect</span><span class="b3-demo"><span class="ctx"><svg class="i"><use href="#i-layers"/></svg>Context · 3</span></span></div>
+      <div class="b3-row"><code>ask</code><span>Needs you, with Answer, on the TODO card</span><span class="b3-demo"><span class="pill" data-s="needs"><span class="dot" data-s="needs"></span>Needs you</span></span></div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>The app agent acts with the asker's authority and shows as Smithers for that person. It never merges or approves.</li>
+    <li>External agents through the CLI or skill follow the same run, confirm and never rules.</li>
+    <li>A flow has one card, whoever runs it. Only the actor's glyph tells a person's act from an agent's.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §3.1, Appendix A (closing paragraph), Appendix B (legend, B.1, B.2, B.3, B.6), M-21, M-34; spec.md §5.2, §5.3, §5.4, §6.1.2, §15.1.3, §15.1.5; mock <code>cards/Act.tsx</code>, <code>cards/Confirm.tsx</code>, <code>cards/Draft.tsx</code>, <code>journeys/ask.ts</code>, <code>journeys/agent.ts</code>, <code>world.ts</code> (<code>ask</code>, <code>pressed</code>).</p>
+</section>
+
+<!-- ═════════════════ 11 COMPONENTS ═════════════════ -->
+<section class="dia" id="components" aria-labelledby="h-comp">
+  <div class="dia-h"><span class="dia-n">11</span><h2 id="h-comp">Component traceability: each design ticket, its View, the mock that draws it, and the reel steps that show it</h2><a class="dia-a" href="#components">#components</a></div>
+  <figure class="fig">
+    <table class="rt">
+      <thead><tr><th>Ticket</th><th>View</th><th>Mock source</th><th>Reel steps</th><th>Stage</th></tr></thead>
+      <tbody>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-01<small>T-APP-09</small></span></td><td data-l="View"><span class="cv"><code>ActorChip</code> <code>StateWord</code> <code>Tone</code></span></td><td data-l="Mock source"><span class="cv"><code>parts.tsx</code> <code>Rail.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=states&amp;s=1&amp;still=1">?j=states&amp;s=1</a><a href="mock/dist/index.html?j=j3&amp;s=2&amp;still=1">?j=j3&amp;s=2</a><a href="mock/dist/index.html?j=j3&amp;s=10&amp;still=1">?j=j3&amp;s=10</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-02<small>T-APP-03</small></span></td><td data-l="View"><span class="cv"><code>SetupView</code> <code>SettingsView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Setup.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=3&amp;still=1">?j=j1&amp;s=3</a><a href="mock/dist/index.html?j=j1&amp;s=8&amp;still=1">?j=j1&amp;s=8</a><a href="mock/dist/index.html?j=j1&amp;s=30&amp;still=1">?j=j1&amp;s=30</a><a href="mock/dist/index.html?j=states&amp;s=41&amp;still=1">?j=states&amp;s=41</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-03<small>T-APP-02</small></span></td><td data-l="View"><span class="cv"><code>DraftView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Draft.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=2&amp;still=1">?j=j2&amp;s=2</a><a href="mock/dist/index.html?j=j2&amp;s=5&amp;still=1">?j=j2&amp;s=5</a><a href="mock/dist/index.html?j=j7&amp;s=3&amp;still=1">?j=j7&amp;s=3</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-04<small>T-APP-02 · T-STK-08 · T-MCH-08</small></span></td><td data-l="View"><span class="cv"><code>TodoView</code><span class="vnote">The mock puts Fork and Add to stack on the Branch card.</span></span></td><td data-l="Mock source"><span class="cv"><code>cards/Todo.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=2&amp;still=1">?j=j4&amp;s=2</a><a href="mock/dist/index.html?j=states&amp;s=7&amp;still=1">?j=states&amp;s=7</a><a href="mock/dist/index.html?j=states&amp;s=10&amp;still=1">?j=states&amp;s=10</a><a href="mock/dist/index.html?j=j10&amp;s=11&amp;still=1">?j=j10&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-05<small>T-APP-04</small></span></td><td data-l="View"><span class="cv"><code>ConfirmView</code> (<code>one_click</code>, <code>review_merge</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Act.tsx</code> <code>cards/Confirm.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=agent&amp;s=14&amp;still=1">?j=agent&amp;s=14</a><a href="mock/dist/index.html?j=ask&amp;s=10&amp;still=1">?j=ask&amp;s=10</a><a href="mock/dist/index.html?j=states&amp;s=15&amp;still=1">?j=states&amp;s=15</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-06<small>T-APP-01 · T-GH-08</small></span></td><td data-l="View"><span class="cv"><code>HomeView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Home.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j4&amp;s=1&amp;still=1">?j=j4&amp;s=1</a><a href="mock/dist/index.html?j=states&amp;s=3&amp;still=1">?j=states&amp;s=3</a><a href="mock/dist/index.html?j=j10&amp;s=14&amp;still=1">?j=j10&amp;s=14</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-07<small>T-APP-16 · T-APP-17</small></span></td><td data-l="View"><span class="cv"><code>BranchTree</code> <code>EntryRow</code> <code>ContextLine</code>, Earlier archive<span class="vnote">The mock has no Earlier node.</span></span></td><td data-l="Mock source"><span class="cv"><code>Tree.tsx</code> <code>AppFrame.tsx</code> <code>parts.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j6&amp;s=10&amp;still=1">?j=j6&amp;s=10</a><a href="mock/dist/index.html?j=agent&amp;s=6&amp;still=1">?j=agent&amp;s=6</a><a href="mock/dist/index.html?j=ask&amp;s=6&amp;still=1">?j=ask&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-08<small>T-APP-07 · T-APP-18</small></span></td><td data-l="View"><span class="cv"><code>ToastStack</code> <code>EdgeMap</code> <code>Timeline</code></span></td><td data-l="Mock source"><span class="cv"><code>Rail.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j2&amp;s=10&amp;still=1">?j=j2&amp;s=10</a><a href="mock/dist/index.html?j=j2&amp;s=11&amp;still=1">?j=j2&amp;s=11</a><a href="mock/dist/index.html?j=j4&amp;s=11&amp;still=1">?j=j4&amp;s=11</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-09<small>T-APP-06</small></span></td><td data-l="View"><span class="cv"><code>MembersView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/People.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=24&amp;still=1">?j=j1&amp;s=24</a><a href="mock/dist/index.html?j=j1&amp;s=25&amp;still=1">?j=j1&amp;s=25</a><a href="mock/dist/index.html?j=states&amp;s=38&amp;still=1">?j=states&amp;s=38</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-10<small>T-APP-05</small></span></td><td data-l="View"><span class="cv"><code>FlowView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Flow.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j5&amp;s=6&amp;still=1">?j=j5&amp;s=6</a><a href="mock/dist/index.html?j=j11&amp;s=5&amp;still=1">?j=j11&amp;s=5</a><a href="mock/dist/index.html?j=states&amp;s=35&amp;still=1">?j=states&amp;s=35</a><a href="mock/dist/index.html?j=states&amp;s=36&amp;still=1">?j=states&amp;s=36</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-11<small>T-APP-15</small></span></td><td data-l="View"><span class="cv"><code>CodeEditorView</code> (File, read-only), <code>DiffView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=12&amp;still=1">?j=j1&amp;s=12</a><a href="mock/dist/index.html?j=j1&amp;s=21&amp;still=1">?j=j1&amp;s=21</a><a href="mock/dist/index.html?j=j11&amp;s=6&amp;still=1">?j=j11&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-12<small>T-FLW-07</small></span></td><td data-l="View"><span class="cv"><code>RunView</code> monitor and Inspect</span></td><td data-l="Mock source"><span class="cv"><code>cards/Run.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=run&amp;s=1&amp;still=1">?j=run&amp;s=1</a><a href="mock/dist/index.html?j=run&amp;s=2&amp;still=1">?j=run&amp;s=2</a><a href="mock/dist/index.html?j=run&amp;s=6&amp;still=1">?j=run&amp;s=6</a><a href="mock/dist/index.html?j=j11&amp;s=1&amp;still=1">?j=j11&amp;s=1</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-13<small>T-FLW-08</small></span></td><td data-l="View"><span class="cv"><code>AgentView</code> and model roles</span></td><td data-l="Mock source"><span class="cv"><code>cards/Agent.tsx</code> <code>cards/Setup.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j11&amp;s=13&amp;still=1">?j=j11&amp;s=13</a><a href="mock/dist/index.html?j=j11&amp;s=15&amp;still=1">?j=j11&amp;s=15</a><a href="mock/dist/index.html?j=j1&amp;s=8&amp;still=1">?j=j1&amp;s=8</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-14<small>T-CAT-01</small></span></td><td data-l="View"><span class="cv"><code>CommandsView</code> (<code>/help</code>)</span></td><td data-l="Mock source"><span class="cv"><code>cards/Commands.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=ask&amp;s=1&amp;still=1">?j=ask&amp;s=1</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S1</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-15<small>T-APP-10 · T-COL-05</small></span></td><td data-l="View"><span class="cv"><code>BranchView</code> with moved-off controls</span></td><td data-l="Mock source"><span class="cv"><code>cards/Branch.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=2&amp;still=1">?j=j3&amp;s=2</a><a href="mock/dist/index.html?j=j7&amp;s=6&amp;still=1">?j=j7&amp;s=6</a><a href="mock/dist/index.html?j=states&amp;s=23&amp;still=1">?j=states&amp;s=23</a><a href="mock/dist/index.html?j=states&amp;s=24&amp;still=1">?j=states&amp;s=24</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-16<small>T-APP-11</small></span></td><td data-l="View"><span class="cv">File and Diff states: reload, gone, renamed, Restore, Compare</span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=states&amp;s=25&amp;still=1">?j=states&amp;s=25</a><a href="mock/dist/index.html?j=states&amp;s=26&amp;still=1">?j=states&amp;s=26</a><a href="mock/dist/index.html?j=states&amp;s=28&amp;still=1">?j=states&amp;s=28</a><a href="mock/dist/index.html?j=states&amp;s=29&amp;still=1">?j=states&amp;s=29</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-17<small>T-APP-12</small></span></td><td data-l="View"><span class="cv"><code>TerminalView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Terminal.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=3&amp;still=1">?j=j3&amp;s=3</a><a href="mock/dist/index.html?j=j3&amp;s=5&amp;still=1">?j=j3&amp;s=5</a><a href="mock/dist/index.html?j=agent&amp;s=9&amp;still=1">?j=agent&amp;s=9</a><a href="mock/dist/index.html?j=states&amp;s=37&amp;still=1">?j=states&amp;s=37</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-18<small>T-APP-13</small></span></td><td data-l="View"><span class="cv"><code>SecretsView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/People.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j1&amp;s=27&amp;still=1">?j=j1&amp;s=27</a><a href="mock/dist/index.html?j=j1&amp;s=29&amp;still=1">?j=j1&amp;s=29</a><a href="mock/dist/index.html?j=states&amp;s=39&amp;still=1">?j=states&amp;s=39</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S2</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-19<small>T-APP-14</small></span></td><td data-l="View"><span class="cv">Co-editing visuals on <code>CodeEditorView</code></span></td><td data-l="Mock source"><span class="cv"><code>cards/Code.tsx</code> <code>cards/Wiki.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j3&amp;s=8&amp;still=1">?j=j3&amp;s=8</a><a href="mock/dist/index.html?j=states&amp;s=27&amp;still=1">?j=states&amp;s=27</a><a href="mock/dist/index.html?j=j8&amp;s=6&amp;still=1">?j=j8&amp;s=6</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S3</span></span></td></tr>
+        <tr><td data-l="Ticket" class="tk"><span class="cv">T-UI-20<small>T-FLW-06</small></span></td><td data-l="View"><span class="cv"><code>ProposalView</code> and the lessons receipt</span></td><td data-l="Mock source"><span class="cv"><code>cards/Learning.tsx</code> <code>cards/Todo.tsx</code></span></td><td data-l="Reel steps"><span class="cv"><span class="steps-links"><a href="mock/dist/index.html?j=j5&amp;s=12&amp;still=1">?j=j5&amp;s=12</a><a href="mock/dist/index.html?j=j5&amp;s=13&amp;still=1">?j=j5&amp;s=13</a><a href="mock/dist/index.html?j=j8&amp;s=2&amp;still=1">?j=j8&amp;s=2</a></span></span></td><td data-l="Stage"><span class="cv"><span class="stage">S3</span></span></td></tr>
+      </tbody>
+    </table>
+  </figure>
+  <ul class="rules">
+    <li>Stage 1 comes first. Within a stage, the order is the order a fresh install meets them in J1, then J2.</li>
+    <li>Step links open the built mock (<code>node .specs/design/mock/build.mjs</code>). <code>s=n</code> shows the frame after step n.</li>
+    <li>A change to a retained card's fields first adds its spec.md §14.3 row.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> mvp.md §5 (journeys), §11 (stages 1 to 3); ui-components.md v0.3 (Order of need, Props per component); spec.md §14.3, §14.3.0; tickets T-UI-01 to T-UI-20; mock <code>src/journeys/*.ts</code> (step numbers checked 2026-10-02), <code>src/cards/*.tsx</code>.</p>
+</section>
+
+<!-- ═════════════════ 12 FILES ═════════════════ -->
+<section class="dia" id="files" aria-labelledby="h-files">
+  <div class="dia-h"><span class="dia-n">12</span><h2 id="h-files">Where things live: the mock today, the app's planned card layout</h2><a class="dia-a" href="#files">#files</a></div>
+  <figure class="fig">
+    <div class="trees">
+      <div>
+        <h3>The mock (design)</h3>
+<pre class="tree">.specs/design/
+├─ README.md               <span class="c">decisions the mock embodies</span>
+├─ architecture.html       <span class="c">this page</span>
+└─ mock/
+   ├─ build.mjs            <span class="c">→ dist/index.html, one file</span>
+   ├─ check.mjs            <span class="c">every step renders</span>
+   ├─ copy.mjs             <span class="c">copy lint</span>
+   ├─ shot.mjs             <span class="c">screenshots</span>
+   └─ src/
+      ├─ world.ts          <span class="c">the model; mergeReadiness, revise</span>
+      ├─ parts.tsx         <span class="c">Avatar, actorName, StepStrip, Card</span>
+      ├─ AppFrame.tsx      <span class="c">shell: crumbs, conversation,</span>
+      │                    <span class="c">composer, maximize</span>
+      ├─ Rail.tsx          <span class="c">timeline, edges, notices</span>
+      ├─ Tree.tsx          <span class="c">branch tree</span>
+      ├─ cards/*.tsx       <span class="c">one file per card</span>
+      ├─ journeys/*.ts     <span class="c">15 reels; states.ts shows</span>
+      │                    <span class="c">every card state</span>
+      ├─ mock.css, css/    <span class="c">PORT rules move to the app;</span>
+      │                    <span class="c">MOCK rules stay</span>
+      └─ Player.tsx …      <span class="c">the review harness</span></pre>
+      </div>
+      <div>
+        <h3>The app (planned)</h3>
+<pre class="tree">apps/app/src/mainview/
+├─ styles/tokens.css       <span class="c">Paper tokens</span>
+├─ cards/
+│  ├─ views/               <span class="o">design · props only</span>
+│  │  ├─ HomeView.tsx  TodoView.tsx  DraftView.tsx
+│  │  ├─ ConfirmView.tsx  BranchView.tsx
+│  │  ├─ CodeEditorView.tsx  DiffView.tsx
+│  │  ├─ TerminalView.tsx  RunView.tsx  FlowView.tsx
+│  │  ├─ AgentView.tsx  CommandsView.tsx
+│  │  ├─ SetupView.tsx  SettingsView.tsx
+│  │  ├─ MembersView.tsx  SecretsView.tsx
+│  │  ├─ ProposalView.tsx
+│  │  └─ shell parts: BranchTree, EntryRow, ContextLine,
+│  │     ToastStack, EdgeMap, Timeline
+│  ├─ &lt;Card&gt;Container.tsx   <span class="c">engineering · path not fixed</span>
+│  ├─ CardRenderers.tsx    <span class="c">renders Containers</span>
+│  └─ CardActions.ts       <span class="c">cardActions</span>
+└─ flows/FlowAction.ts     <span class="c">flowAction</span>
+packages/rpc/
+├─ src/&lt;Card&gt;Card.ts       <span class="c">zod view model (T-APP-19)</span>
+└─ test/fixtures/&lt;Card&gt;.ts <span class="c">fixtures for the stories</span>
+packages/smithers/ui/src/  <span class="c">@smthrs/ui: shared primitives</span></pre>
+      </div>
+    </div>
+  </figure>
+  <ul class="rules">
+    <li>Each mock card maps to one View. Its CSS marked PORT moves with it; MOCK CSS stays in the harness.</li>
+    <li><code>world.ts</code> is the design's view of the data, not an API. The props are ui-components.md, then the zod schemas.</li>
+    <li>Each View ships fixture stories for every state its props allow: light and dark, desktop and 390 px.</li>
+  </ul>
+  <p class="src"><strong>Source</strong> design README (Run it, Porting); ui-components.md v0.3 (opening diagram, Rules); spec.md §14.2.1, §14.3.0; delta.md §9; tickets T-UI-01 to T-UI-20 (Scope, Changes); mock <code>build.mjs</code>, <code>check.mjs</code>, <code>copy.mjs</code>, <code>shot.mjs</code>.</p>
+</section>
+
+<p class="foot">Smithers MVP design architecture · smithers-06 · 2026-10-02. Contradictions between sources go to the design lead, not onto this page.</p>
+</main>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement, btn=document.getElementById("theme"), mq=window.matchMedia("(prefers-color-scheme: dark)");
+  function current(){ return root.getAttribute("data-theme") || (mq.matches ? "dark" : "light"); }
+  function paint(){ var dark=current()==="dark"; btn.textContent = dark ? "Light" : "Dark"; btn.setAttribute("aria-label", dark ? "Switch to the light theme" : "Switch to the dark theme"); }
+  btn.addEventListener("click", function(){ var next = current()==="dark" ? "light" : "dark"; root.setAttribute("data-theme", next); try{ localStorage.setItem("smithers-arch-theme", next); }catch(e){} paint(); });
+  if (mq.addEventListener) mq.addEventListener("change", paint);
+  paint();
+  var links=[].slice.call(document.querySelectorAll('.toc a[href^="#"]'));
+  if (!("IntersectionObserver" in window)) return;
+  var byId={}; links.forEach(function(a){ byId[a.getAttribute("href").slice(1)]=a; });
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){ if(!e.isIntersecting) return; links.forEach(function(l){ l.removeAttribute("aria-current"); }); var a=byId[e.target.id]; if(a) a.setAttribute("aria-current","location"); });
+  },{rootMargin:"-15% 0px -75% 0px"});
+  [].slice.call(document.querySelectorAll("section.dia")).forEach(function(s){ io.observe(s); });
+})();
+</script>
+</body>
+</html>

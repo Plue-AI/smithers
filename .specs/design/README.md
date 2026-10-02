@@ -131,6 +131,8 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 
 `mock/src/mock.css` and `mock/src/css/*.css` mark proposed product CSS with **PORT** and the review harness with **MOCK**. Cards are written against the app's own `.smithers-card` anatomy, so each `cards/*.tsx` maps to one app card renderer. `world.ts` lists what each card reads; it is the design's view of the data, not an API.
 
+The port follows [`../engineering/ui-components.md`](../engineering/ui-components.md) in its order of need (T-UI-01..20). Design builds each card as a props-only View in `apps/app/src/mainview/cards/views/*View.tsx` with fixtures in `cards/fixtures/` and styles in `styles/views.css`; the frontend lead's containers feed it `CardProps<M>` and turn `onAction(action.tag)` into catalog commands. A View imports no state, flow or RPC module (C-UI-08). A field a View needs that the model lacks is a spec change raised with the tech lead, never a workaround. Once a View exists, the mock renders that View through an adapter, so later polish lands in the product, not here.
+
 ## Decisions taken with product (2026-10-02)
 
 - The install runs on one Mac: `smthrs host start` prints a one-time setup link, and `smthrs host upgrade` upgrades it. It serves plain HTTP and listens only to this Mac until the owner lets the network in. HTTPS comes from what the team puts in front; the journeys use `https://maya-mini.tail1234.ts.net`. SSH is `ssh -p 2222 <branch>@<that host>`, and laptops connect with `smthrs login <address>`.
