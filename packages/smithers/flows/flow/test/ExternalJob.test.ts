@@ -1,5 +1,5 @@
-import { describe, expect, it } from "@effect/vitest"
-import { ExternalJob, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { describe, expect, expectTypeOf, it } from "@effect/vitest"
+import { ExternalJob, Flow, FlowRuntime, Interpreter, Sleep } from "@smthrs/flow"
 import type { Node } from "@smthrs/plan"
 import { Duration, Effect, Exit, Layer, Option, Schema } from "effect"
 import { TestClock } from "effect/testing"
@@ -95,6 +95,24 @@ const harness = (
 }
 
 describe("ExternalJob", () => {
+  it("preserves provider and lifecycle errors through generic flow composition", () => {
+    type LifecycleError = ExternalJob.ExternalJobLost | ExternalJob.ExternalJobTimedOut | Sleep.SleepRequestInvalid
+    expectTypeOf<typeof Job.errorSchema.Type>().toEqualTypeOf<string | LifecycleError>()
+    const noProviderError = ExternalJob.make("test/external-job-no-provider-error", {
+      payload: Schema.Struct({ count: Schema.Number }),
+      handle: Schema.String,
+      success: Schema.Number,
+      probe: { every: "100 millis", max: "200 millis" },
+      timeout: "1 second"
+    })
+    expectTypeOf<typeof noProviderError.errorSchema.Type>().toEqualTypeOf<LifecycleError>()
+    expectTypeOf<typeof noProviderError.payloadSchema.Type>().toEqualTypeOf<{ readonly count: number }>()
+    expectTypeOf<typeof noProviderError.successSchema.Type>().toEqualTypeOf<number>()
+    expect(Schema.decodeUnknownSync(Job.errorSchema)("provider failed")).toBe("provider failed")
+    const lost = new ExternalJob.ExternalJobLost({ key: "test#g1", message: "lost" })
+    expect(Schema.decodeUnknownSync(noProviderError.errorSchema)(lost)).toEqual(lost)
+  })
+
   it("calls as an ordinary child boundary so parent composition owns a separate job execution", () => {
     const child: Node.Node<string, typeof Job.errorSchema.Type> = Job.call({ value: "x" })
     expect(child.ast).toMatchObject({ _tag: "FlowCall", mode: "boundary" })

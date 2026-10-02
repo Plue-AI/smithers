@@ -241,7 +241,15 @@ export const make = <
         })
       )
     )
-  const launch: Flow.Flow<string, typeof state, A, typeof failure, Action.Requirement<string>> = Flow.make(
+  // Pin the declared union through recursive bodies: cross-package inference
+  // otherwise narrows the error schema to the provider-only generic E.
+  const launch: Flow.Flow<string, typeof state, A, typeof failure, Action.Requirement<string>> = Flow.make<
+    `${Tag}/launch`,
+    typeof state,
+    A,
+    typeof failure,
+    Action.Requirement<string>
+  >(
     `${tag}/launch`,
     {
       payload: state,
@@ -267,7 +275,13 @@ export const make = <
         else: () => Fail.call({ job, timedOut: false })
       }))
     ))
-  const observe: Flow.Flow<string, typeof observed, A, typeof failure, Action.Requirement<string>> = Flow.make(
+  const observe: Flow.Flow<string, typeof observed, A, typeof failure, Action.Requirement<string>> = Flow.make<
+    `${Tag}/observe`,
+    typeof observed,
+    A,
+    typeof failure,
+    Action.Requirement<string>
+  >(
     `${tag}/observe`,
     {
       payload: observed,
@@ -300,7 +314,7 @@ export const make = <
       )
     }
   )
-  const flow = Flow.make(tag, {
+  const flow = Flow.make<Tag, P, A, typeof failure, Action.Requirement<string>>(tag, {
     payload: options.payload,
     success: options.success,
     error: failure,
