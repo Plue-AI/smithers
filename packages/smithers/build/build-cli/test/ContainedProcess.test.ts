@@ -59,4 +59,36 @@ describe("contained process capture", () => {
       cause: expect.any(TypeError)
     })
   })
+
+  it("writes stdin and closes it, and keeps the exit status of a command that never reads it", async () => {
+    let stdout = ""
+    expect(
+      await ContainedProcess.run({
+        command: process.execPath,
+        args: [
+          "-e",
+          "let s='';process.stdin.on('data',(c)=>s+=c).on('end',()=>{process.stdout.write(s);process.exit(4)})"
+        ],
+        cwd: process.cwd(),
+        timeoutMs: 5000,
+        stdin: "{\"revision\":\"é\"}",
+        stdout: (text) => {
+          stdout += text
+        },
+        stderr: () => {}
+      })
+    ).toBe(4)
+    expect(stdout).toBe("{\"revision\":\"é\"}")
+    expect(
+      await ContainedProcess.run({
+        command: process.execPath,
+        args: ["-e", "process.exit(5)"],
+        cwd: process.cwd(),
+        timeoutMs: 5000,
+        stdin: "x".repeat(1024 * 1024),
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).toBe(5)
+  })
 })

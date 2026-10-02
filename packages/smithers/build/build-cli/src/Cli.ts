@@ -1560,6 +1560,9 @@ const makeCommands = (config: RuntimeConfig) =>
         ),
         findingsStore: z.string().optional().describe(
           "Absolute private directory for review runs and findings (default: the Git directory)"
+        ),
+        credentialReceiver: z.string().optional().describe(
+          "Absolute executable that receives credential names and locations as JSON on stdin; a nonzero exit fails the review"
         )
       }),
       alias: { workspace: "w" },
@@ -1573,7 +1576,9 @@ const makeCommands = (config: RuntimeConfig) =>
             patterns: context.args.patterns,
             plan: context.options.plan,
             required: context.options.required,
-            findingsStore: context.options.findingsStore
+            findingsStore: context.options.findingsStore,
+            credentialReceiver: context.options.credentialReceiver,
+            environment: environmentOf(config)
           })
         } catch (cause) {
           return context.error({ code: "review_failed", exitCode: 1, message: Diagnostic.describe(cause) })

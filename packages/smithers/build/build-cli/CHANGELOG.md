@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `review --credential-receiver <absolute executable>` writes each review's
+  credential discoveries (revision, file, line and name, never a value) to the
+  receiver's stdin before inference. A nonzero exit fails the review; the
+  receiver's output is discarded (plue#730).
+
 - `ci` accepts mixed exact labels for different target kinds and runs their
   union once, retaining compatible roots when another label belongs to a
   different verb. An exact label that no CI verb supports still fails (#2482).

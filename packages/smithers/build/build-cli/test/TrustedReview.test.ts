@@ -2,8 +2,10 @@ import * as Input from "@smthrs/targets/Input"
 import * as LlmLint from "@smthrs/targets/LlmLint"
 import * as Target from "@smthrs/targets/Target"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { execFileSync } from "node:child_process"
+import { existsSync } from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
@@ -705,5 +707,174 @@ describe("TrustedReview on another host's immutable source", () => {
 
     const clean = await reviewPrepared(prepared, { root, findingsStore: store, transport: seat(() => "[]", []) })
     expect(clean).toMatchObject({ ok: true, reviews: [{ label: "//:security", status: "completed", findings: [] }] })
+  })
+})
+
+const credential = "Zk9vQmFyQmF6UXV4UXV1eENvcmdlR3JhdWx0"
+const leak = `export const REPOHOST_TOKEN = "${credential}"\n`
+
+/** A receiver that records its argv and stdin, writes detail to both pipes, and exits with `code`. */
+const receiver = async (code: number) => {
+  const directory = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-credential-receiver-")))
+  temporaryDirectories.push(directory)
+  const path = NodePath.join(directory, "receiver.mjs")
+  const record = NodePath.join(directory, "deliveries.jsonl")
+  await Fs.writeFile(
+    path,
+    "#!/usr/bin/env node\nimport { appendFileSync } from \"node:fs\"\nlet stdin = \"\"\n" +
+      "for await (const chunk of process.stdin) stdin += chunk\n" +
+      `appendFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), stdin }) + "\\n")\n` +
+      "process.stdout.write(\"receiver stdout detail\\n\")\nprocess.stderr.write(\"receiver stderr detail\\n\")\n" +
+      `process.exitCode = ${code}\n`
+  )
+  await Fs.chmod(path, 0o755)
+  return {
+    path,
+    record,
+    deliveries: async (): Promise<Array<{ argv: Array<string>; stdin: string }>> =>
+      (await Fs.readFile(record, "utf8").catch(() => "")).split("\n").filter((line) => line !== "").map((line) =>
+        JSON.parse(line)
+      )
+  }
+}
+
+describe("TrustedReview credential receiver", () => {
+  const all = [Label.parse("//...", "")]
+  const base = "a".repeat(40)
+  const head = "b".repeat(40)
+  const leaked = async () => {
+    const { source } = memorySource({ [base]: trustedFiles, [head]: { ...headFiles, "src/service.ts": leak } })
+    const prepared = await prepareSource(source, { policyRevision: base, revision: head, patterns: all })
+    const root = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-receiver-review-")))
+    const store = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-receiver-store-"))
+    temporaryDirectories.push(root, store)
+    return { prepared, root, store }
+  }
+
+  it("delivers the revision and each discovery's name and location on stdin before inference", async () => {
+    const { prepared, root, store } = await leaked()
+    const target = await receiver(0)
+    const deliveredFirst: Array<boolean> = []
+    const result = await reviewPrepared(prepared, {
+      root,
+      findingsStore: store,
+      credentialReceiver: target.path,
+      transport: seat(() => {
+        deliveredFirst.push(existsSync(target.record))
+        return "[]"
+      }, [])
+    })
+    const deliveries = await target.deliveries()
+    expect(deliveries).toHaveLength(1)
+    expect(deliveries[0]!.argv).toEqual([])
+    const document = JSON.parse(deliveries[0]!.stdin) as unknown
+    expect(document).toEqual({
+      revision: head,
+      discoveries: [{ file: "src/service.ts", line: 1, name: "REPOHOST_TOKEN" }]
+    })
+    expect(Schema.decodeUnknownSync(LlmLint.CredentialDelivery)(document, { onExcessProperty: "error" })).toEqual(
+      document
+    )
+    expect(deliveries[0]!.stdin).not.toContain(credential)
+    expect(deliveredFirst.length).toBeGreaterThan(0)
+    expect(deliveredFirst.every(Boolean)).toBe(true)
+    // The discovery is still a blocking finding; delivery does not replace the review.
+    expect(result.reviews[0]).toMatchObject({ label: "//:security", status: "failed" })
+    const receipt = JSON.stringify(result)
+    expect(receipt).not.toContain("Private credential rotation delivery failed")
+    for (const text of [credential, "receiver stdout detail", "receiver stderr detail"]) {
+      expect(receipt).not.toContain(text)
+    }
+  })
+
+  it("fails the review on a nonzero receiver exit before inference, without the receiver's output", async () => {
+    const { prepared, root, store } = await leaked()
+    const target = await receiver(3)
+    const seats: Array<LlmLint.ReviewSeat> = []
+    const result = await reviewPrepared(prepared, {
+      root,
+      findingsStore: store,
+      credentialReceiver: target.path,
+      transport: seat(() => "[]", seats)
+    })
+    expect(await target.deliveries()).toHaveLength(1)
+    expect(seats).toEqual([])
+    expect(result).toMatchObject({
+      ok: false,
+      reviews: [{
+        label: "//:security",
+        status: "failed",
+        error: { phase: "review", message: "Private credential rotation delivery failed" }
+      }]
+    })
+    const receipt = JSON.stringify(result)
+    for (const text of [credential, "receiver stdout detail", "receiver stderr detail", "exited 3"]) {
+      expect(receipt).not.toContain(text)
+    }
+  })
+
+  it("does not start the receiver when the review discovers no credential", async () => {
+    const { source } = memorySource({ [base]: trustedFiles, [head]: headFiles })
+    const prepared = await prepareSource(source, { policyRevision: base, revision: head, patterns: all })
+    const { root, store } = await leaked()
+    const target = await receiver(0)
+    const result = await reviewPrepared(prepared, {
+      root,
+      findingsStore: store,
+      credentialReceiver: target.path,
+      transport: seat(() => "[]", [])
+    })
+    expect(result.ok).toBe(true)
+    expect(await target.deliveries()).toEqual([])
+  })
+
+  it("refuses a receiver that is not an absolute executable file before reviewing", async () => {
+    const { root, trusted } = await fixture()
+    await write(root, "notes.txt", "not executable\n")
+    for (const credentialReceiver of ["receiver.mjs", NodePath.join(root, "notes.txt"), NodePath.join(root, "src")]) {
+      await expect(run({ ...options(root, trusted), plan: false, credentialReceiver })).rejects.toThrow(
+        "--credential-receiver must be an absolute path to an executable file"
+      )
+    }
+  })
+
+  it("serves review --credential-receiver and fails the command when the receiver fails", async () => {
+    const { root, trusted } = await fixture()
+    await write(root, "src/service.ts", leak)
+    git(root, "add", "src/service.ts")
+    git(root, "commit", "-qm", "leak a credential")
+    const candidate = git(root, "rev-parse", "HEAD")
+    const target = await receiver(7)
+    const previousAnthropic = process.env["ANTHROPIC_API_KEY"]
+    let result: Awaited<ReturnType<typeof serve>>
+    try {
+      // No provider key: if delivery did not stop the review, inference would fail instead of calling out.
+      delete process.env["ANTHROPIC_API_KEY"]
+      result = await serve(root, [
+        "review",
+        "//...",
+        "--policy-revision",
+        trusted,
+        "--revision",
+        candidate,
+        "--credential-receiver",
+        target.path
+      ])
+    } finally {
+      if (previousAnthropic === undefined) delete process.env["ANTHROPIC_API_KEY"]
+      else process.env["ANTHROPIC_API_KEY"] = previousAnthropic
+    }
+    const receipt = result.output + result.logs
+    expect(result.exitCode, receipt).toBe(1)
+    expect(receipt).toContain("Private credential rotation delivery failed")
+    expect(receipt).not.toContain("ANTHROPIC_API_KEY")
+    for (const text of [credential, "receiver stdout detail", "receiver stderr detail"]) {
+      expect(receipt).not.toContain(text)
+    }
+    const deliveries = await target.deliveries()
+    expect(deliveries.map(({ argv, stdin }) => ({ argv, document: JSON.parse(stdin) as unknown }))).toEqual([{
+      argv: [],
+      document: { revision: candidate, discoveries: [{ file: "src/service.ts", line: 1, name: "REPOHOST_TOKEN" }] }
+    }])
   })
 })

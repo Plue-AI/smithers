@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Schema from "effect/Schema"
 import { execFileSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import * as Http from "node:http"
@@ -171,4 +172,83 @@ it("does not invoke delivery when no local credential was discovered", async () 
   )
   expect(calls).toBe(0)
   expect(report.findings).toEqual([])
+})
+
+/**
+ * The receiver contract. Receivers in other repositories, such as Plue's
+ * credential rotation receiver, pin this document and schema byte for byte;
+ * changing either is a contract change for them.
+ */
+const contractDocument =
+  `{"revision":"0123456789abcdef0123456789abcdef01234567","discoveries":[{"file":"src/a.ts","line":1,"name":"GITHUB_TOKEN"},{"file":"src/config.ts","line":1,"name":"PLUE_PUSH_CALLBACK_SECRET"},{"file":"src/config.ts","line":2,"name":"stripeSecretKey"},{"file":"src/config.ts","line":3,"name":"url-password"}]}`
+const contractSchema = {
+  dialect: "draft-2020-12",
+  schema: {
+    type: "object",
+    properties: {
+      revision: { type: "string", pattern: "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+      discoveries: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            file: {
+              type: "string",
+              pattern:
+                "^(?!\\.\\.?(?:\\/|$))(?!.*\\/\\.\\.?(?:\\/|$))[^/\\u0000-\\u001f\\u007f]+(?:\\/[^/\\u0000-\\u001f\\u007f]+)*$",
+              maxLength: 16384
+            },
+            line: { type: "integer", minimum: 1 },
+            name: { type: "string", pattern: "^[A-Za-z0-9_:<>-]{1,1024}$" }
+          },
+          required: ["file", "line", "name"],
+          additionalProperties: false
+        },
+        minItems: 1,
+        maxItems: 10000
+      }
+    },
+    required: ["revision", "discoveries"],
+    additionalProperties: false
+  },
+  definitions: {}
+}
+
+it("pins the receiver contract that the scanner's discoveries encode to", async () => {
+  const values = ["c2VjcmV0LXZhbHVlLWZvci1maXh0dXJl", "q8Zr2LmN4pW7xT1v", "hunter2pass"]
+  await Fs.writeFile(
+    Path.join(root, "src/config.ts"),
+    `export const PLUE_PUSH_CALLBACK_SECRET = "${values[0]}"\nexport const stripeSecretKey = "${values[1]}"\n` +
+      `export const dsn = "postgres://admin:${values[2]}@db.internal/app"\n`
+  )
+  const deliveries: Array<ReadonlyArray<LlmLint.CredentialDiscovery>> = []
+  await Effect.runPromise(Effect.flip(LlmLint.review({
+    workspaceRoot: root,
+    executable,
+    onCredentials: (discoveries) => Effect.sync(() => deliveries.push(discoveries))
+  }, payload)))
+  expect(deliveries).toHaveLength(1)
+  const document = Schema.encodeSync(LlmLint.CredentialDelivery)({
+    revision: "0123456789abcdef0123456789abcdef01234567",
+    discoveries: deliveries[0]!
+  })
+  expect(JSON.stringify(document)).toBe(contractDocument)
+  for (const value of [credential, ...values]) expect(contractDocument).not.toContain(value)
+  expect(Schema.toJsonSchemaDocument(LlmLint.CredentialDelivery, { onExcessProperty: "error" })).toEqual(contractSchema)
+  const [first] = document.discoveries
+  for (
+    const refused of [
+      { ...document, value: credential },
+      { ...document, discoveries: [{ ...first, value: credential }] },
+      { ...document, discoveries: [] },
+      { ...document, revision: "HEAD" },
+      { ...document, discoveries: [{ ...first, file: "../outside.ts" }] },
+      { ...document, discoveries: [{ ...first, file: "/etc/passwd" }] },
+      { ...document, discoveries: [{ ...first, line: 0 }] },
+      { ...document, discoveries: [{ ...first, name: "token value" }] }
+    ]
+  ) {
+    expect(() => Schema.decodeUnknownSync(LlmLint.CredentialDelivery)(refused, { onExcessProperty: "error" }))
+      .toThrow()
+  }
 })

@@ -9535,6 +9535,10 @@
               "description": "Absolute private directory for review runs and findings (default: the Git directory)",
               "type": "string"
             },
+            "credentialReceiver": {
+              "description": "Absolute executable that receives credential names and locations as JSON on stdin; a nonzero exit fails the review",
+              "type": "string"
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",

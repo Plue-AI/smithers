@@ -8,6 +8,9 @@ of it.
 
 ### Added
 
+- Added `LlmLint.CredentialDelivery`, the schema of the document a review host
+  writes to a private credential rotation receiver: the reviewed revision and
+  each discovery's file, line and name, with no other fields (plue#730).
 - Added `issueViews` to `Smithers.Factory` and its projection: saved issue
   views (`id`, `title`, optional `state` and `labels`) that the app, TUI, CLI
   and API list and apply to a repository's issue list (#2269).

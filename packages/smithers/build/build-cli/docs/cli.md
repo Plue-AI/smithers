@@ -148,16 +148,16 @@ Each takes one or more patterns and workspace options. Commands other than
 `review` also accept the execution options. Several patterns run their union
 in one plan.
 
-| Command  | Argument        | Own options                                                                              |
-| -------- | --------------- | ---------------------------------------------------------------------------------------- |
-| `build`  | `<patterns...>` |                                                                                          |
-| `test`   | `<patterns...>` |                                                                                          |
-| `lint`   | `<patterns...>` | `--fix`                                                                                  |
-| `docs`   | `<patterns...>` | `--write`                                                                                |
-| `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`, `--required`, `--findings-store` |
-| `ci`     | `<patterns...>` |                                                                                          |
-| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`                                  |
-| `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i`                            |
+| Command  | Argument        | Own options                                                                                                       |
+| -------- | --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `build`  | `<patterns...>` |                                                                                                                   |
+| `test`   | `<patterns...>` |                                                                                                                   |
+| `lint`   | `<patterns...>` | `--fix`                                                                                                           |
+| `docs`   | `<patterns...>` | `--write`                                                                                                         |
+| `review` | `<patterns...>` | `--policy-revision` (required), `--revision`, `--plan`, `--required`, `--findings-store`, `--credential-receiver` |
+| `ci`     | `<patterns...>` |                                                                                                                   |
+| `run`    | `<patterns...>` | `--name, -n`, `--message, -m`, `--sweep`, `--input, -i`                                                           |
+| `target` | `<labels...>`   | `--write`, `--fix`, `--message, -m`, `--sweep`, `--input, -i`                                                     |
 
 ### build, test, lint
 
@@ -220,6 +220,13 @@ absolute private directory that keeps review runs and findings; it defaults to
 `smithers/review-findings` in the repository's Git directory, which is never
 committed. The command prints each finding's disclosable summary; the findings
 themselves stay in the store.
+
+`--credential-receiver` names an absolute executable that receives each review's
+credential discoveries before inference: the reviewed revision and each
+discovery's file, line and credential name as JSON on stdin, never a value. The
+receiver runs without arguments in the workspace root with the command's
+environment, and its output is discarded. A nonzero exit fails that review. The
+Review credentials guide describes the document.
 
 Both engines use tool-free provider requests. Claude requires `ANTHROPIC_API_KEY`;
 Codex requires `OPENAI_API_KEY`. Missing credentials and incomplete reviews fail.

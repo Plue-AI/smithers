@@ -21,6 +21,7 @@ import { IgnoredCensusError, ignoredLimits, OutDirLimitError, PortalCensusError 
 import { KeyMaterialError, UnsupportedVerbError } from "../src/Planner.ts"
 import { ExecutionError } from "../src/RepoResolution.ts"
 import { ClosureError, ResolverConfigError } from "../src/Resolver.ts"
+import { CredentialReceiverError } from "../src/TrustedReview.ts"
 
 /** Fails an Effect with `error` and recovers only through its tag. */
 const routed = <E extends Error & { readonly _tag: string }>(error: E): Promise<string> =>
@@ -86,6 +87,11 @@ const cases: ReadonlyArray<readonly [string, Error & { readonly _tag: string }, 
     "smithers-build/ExecutionError",
     new ExecutionError(resolution, 3, ""),
     "child target @child//pkg:test failed with exit 3"
+  ],
+  [
+    "smithers-build/CredentialReceiverError",
+    new CredentialReceiverError({ code: "nonzero_exit", message: "Credential receiver exited 1" }),
+    "Credential receiver exited 1"
   ],
   [
     "smithers-build/AffectedGitError",

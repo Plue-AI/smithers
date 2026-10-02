@@ -39,7 +39,7 @@ const spawn = (options: ScopedProcess.Options) => {
       env: options.env,
       extendEnv: options.env === undefined,
       detached: false,
-      stdin: "ignore",
+      stdin: options.stdin ?? "ignore",
       stdout: "pipe",
       stderr: "pipe",
       killSignal: "SIGTERM",
@@ -70,6 +70,8 @@ export interface Options {
   readonly timeoutMs?: number | undefined
   readonly maxOutputBytes?: number | undefined
   readonly fatalUtf8?: boolean | undefined
+  /** Written to the command's stdin, which is then closed; without it stdin is ignored. */
+  readonly stdin?: string | undefined
   readonly stdout: (text: string) => void
   readonly stderr: (text: string) => void
 }
@@ -92,7 +94,7 @@ export const runEffect = (options: Omit<Options, "signal">): Effect.Effect<numbe
             args: options.args,
             cwd: options.cwd,
             env: options.environment,
-            stdin: "ignore",
+            stdin: options.stdin === undefined ? "ignore" : "pipe",
             killSignal: "SIGTERM",
             forceKillAfter: graceMs
           })
@@ -137,7 +139,15 @@ export const runEffect = (options: Omit<Options, "signal">): Effect.Effect<numbe
           ? handle.exitCode.pipe(Effect.catch(() => Effect.succeed(1)))
           : ScopedProcess.status(handle).pipe(Effect.map((status) => status.code ?? 1)),
         consume(handle.stdout, options.stdout),
-        consume(handle.stderr, options.stderr)
+        consume(handle.stderr, options.stderr),
+        // A command may exit without reading its input; its exit status, not the broken pipe, is the result.
+        options.stdin === undefined ? Effect.void : Stream.make(new TextEncoder().encode(options.stdin)).pipe(
+          Stream.run(handle.stdin),
+          Effect.catchIf(
+            (error) => (error.cause as NodeJS.ErrnoException | undefined)?.code === "EPIPE",
+            () => Effect.void
+          )
+        )
       ], { concurrency: "unbounded" })
       return code
     })

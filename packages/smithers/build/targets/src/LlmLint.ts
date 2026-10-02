@@ -901,6 +901,38 @@ export interface CredentialDiscovery {
   readonly name: string
 }
 
+/**
+ * The document a review host writes to a trusted private rotation receiver:
+ * the reviewed commit and each discovery's name and location, with no value,
+ * file contents, provider output or diagnostics. `file` is a normalized
+ * workspace path and `name` a credential name or kind, either of which may
+ * carry a `<credential:kind:n>` placeholder where it spelled a detected value.
+ * Receivers in other languages pin its JSON Schema, `Schema.toJsonSchemaDocument`
+ * with `onExcessProperty: "error"`.
+ * @category schemas
+ * @since 1.0.0
+ */
+export const CredentialDelivery = Schema.Struct({
+  revision: Schema.String.check(Schema.isPattern(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/)),
+  discoveries: Schema.Array(Schema.Struct({
+    file: Schema.String.check(
+      Schema.isPattern(
+        /^(?!\.\.?(?:\/|$))(?!.*\/\.\.?(?:\/|$))[^/\u0000-\u001f\u007f]+(?:\/[^/\u0000-\u001f\u007f]+)*$/
+      ),
+      Schema.isMaxLength(maximumPathBytes)
+    ),
+    line: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+    name: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_:<>-]{1,1024}$/))
+  })).check(Schema.isMinLength(1), Schema.isMaxLength(maximumFindings))
+})
+
+/**
+ * The document a review host writes to a trusted private rotation receiver.
+ * @category models
+ * @since 1.0.0
+ */
+export type CredentialDelivery = typeof CredentialDelivery.Type
+
 /** Known credential formats, with the capture group that holds the value when it is not the whole match. */
 const credentialPatterns: ReadonlyArray<readonly [string, RegExp]> = [
   ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g],

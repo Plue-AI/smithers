@@ -9,7 +9,7 @@ import * as Input from "@smthrs/targets/Input"
 import * as LlmLint from "@smthrs/targets/LlmLint"
 import * as SecurityReview from "@smthrs/targets/SecurityReview"
 import * as TargetIndex from "@smthrs/targets/TargetIndex"
-import { Effect, Schema } from "effect"
+import { Data, Effect, Schema } from "effect"
 import { minimatch } from "minimatch"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
@@ -195,6 +195,13 @@ export interface Options {
    * `smithers/review-findings` in the repository's Git directory, which is never committed.
    */
   readonly findingsStore?: string | undefined
+  /**
+   * Absolute executable that receives each review's credential discoveries
+   * before inference; see {@link reviewPrepared}.
+   */
+  readonly credentialReceiver?: string | undefined
+  /** The credential receiver's environment; `process.env` when omitted. */
+  readonly environment?: Readonly<Record<string, string | undefined>> | undefined
 }
 
 /**
@@ -504,11 +511,80 @@ export const restrictFindings = async <A extends Restrictable>(store: string, va
 type Attempts = ReadonlyArray<typeof LlmLint.ReviewAttempt.Type> | undefined
 
 /**
+ * The credential receiver is not an absolute executable file, or it exited
+ * nonzero for a review's discoveries.
+ * @category errors
+ * @since 1.0.0
+ */
+export class CredentialReceiverError extends Data.TaggedError("smithers-build/CredentialReceiverError")<{
+  readonly code: "unusable_receiver" | "nonzero_exit"
+  readonly message: string
+}> {}
+
+/** Longest a credential receiver may take to accept one review's discoveries. */
+const receiverTimeoutMs = 10 * 60_000
+
+/** Refuses a receiver path that is not an absolute executable file, before any review starts. */
+const receiverPath = async (path: string): Promise<string> => {
+  const usable = NodePath.isAbsolute(path) &&
+    await Fs.stat(path).then((stat) => stat.isFile(), () => false) &&
+    await Fs.access(path, Fs.constants.X_OK).then(() => true, () => false)
+  if (!usable) {
+    throw new CredentialReceiverError({
+      code: "unusable_receiver",
+      message: "--credential-receiver must be an absolute path to an executable file"
+    })
+  }
+  return path
+}
+
+/**
+ * Writes one review's discoveries to the receiver's stdin as a
+ * {@link LlmLint.CredentialDelivery} and waits for its exit. The receiver gets
+ * no arguments; its output is discarded, so its diagnostics stay in its own
+ * private records. A nonzero exit fails the delivery.
+ */
+const deliverCredentials = (
+  executable: string,
+  cwd: string,
+  revision: string,
+  environment: Readonly<Record<string, string | undefined>>
+) =>
+(discoveries: ReadonlyArray<LlmLint.CredentialDiscovery>) =>
+  Schema.encodeEffect(LlmLint.CredentialDelivery)({ revision, discoveries }).pipe(
+    Effect.flatMap((document) =>
+      ContainedProcess.runEffect({
+        command: executable,
+        args: [],
+        cwd,
+        environment,
+        stdin: JSON.stringify(document),
+        timeoutMs: receiverTimeoutMs,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ),
+    Effect.flatMap((code) =>
+      code === 0 ? Effect.void : Effect.fail(
+        new CredentialReceiverError({ code: "nonzero_exit", message: `Credential receiver exited ${code}` })
+      )
+    )
+  )
+
+/**
  * Runs every prepared policy against its snapshot. Findings persist in the
  * private `findingsStore`; the result carries only their public summaries.
  * `transport` sends the reviews through a trusted host's model seats instead
  * of tool-free provider requests. Aborting `signal` interrupts the running
  * review, whose completed batches stay in the store, and starts no other.
+ *
+ * With a `credentialReceiver`, a review that discovers credentials first runs
+ * that trusted executable, without arguments, in `root` with `environment`,
+ * and writes the reviewed revision and each discovery's name and location to
+ * its stdin as one {@link LlmLint.CredentialDelivery} JSON document. Its
+ * output is discarded. A nonzero exit fails that review before inference.
+ * Each review delivers its own discoveries; the receiver owns durable
+ * deduplication and retry.
  * @category execution
  * @since 1.0.0
  */
@@ -519,9 +595,17 @@ export const reviewPrepared = async (
     readonly findingsStore: string
     readonly transport?: LlmLint.ReviewTransport | undefined
     readonly signal?: AbortSignal | undefined
+    readonly credentialReceiver?: string | undefined
+    readonly environment?: Readonly<Record<string, string | undefined>> | undefined
   }
 ) => {
   const restricted = <A extends Restrictable>(value: A) => restrictFindings(options.findingsStore, value)
+  const onCredentials = options.credentialReceiver === undefined ? undefined : deliverCredentials(
+    await receiverPath(options.credentialReceiver),
+    options.root,
+    prepared.revision,
+    options.environment ?? process.env
+  )
   const reviews = []
   for (const { label, payload, snapshot } of prepared.policies) {
     options.signal?.throwIfAborted()
@@ -530,6 +614,7 @@ export const reviewPrepared = async (
         LlmLint.review({
           workspaceRoot: options.root,
           ...(options.transport === undefined ? {} : { transport: options.transport }),
+          ...(onCredentials === undefined ? {} : { onCredentials }),
           store: { directory: options.findingsStore, owner: label },
           revisions: { base: prepared.policyRevision, head: prepared.revision },
           snapshot: snapshot ??
@@ -560,6 +645,7 @@ export const reviewPrepared = async (
  * @since 1.0.0
  */
 export const run = async (options: Options) => {
+  if (options.credentialReceiver !== undefined) await receiverPath(options.credentialReceiver)
   const prepared = await prepare(options)
   const findingsStore = options.findingsStore ??
     NodePath.join(
@@ -587,6 +673,11 @@ export const run = async (options: Options) => {
       files: prepared.snapshot.map(({ path }) => LlmLint.redactCredentials(path))
     }
   }
-  const { ok, reviews } = await reviewPrepared(prepared, { root: prepared.root, findingsStore })
+  const { ok, reviews } = await reviewPrepared(prepared, {
+    root: prepared.root,
+    findingsStore,
+    credentialReceiver: options.credentialReceiver,
+    environment: options.environment
+  })
   return { ...receipt, findingsStore, ok, planned: false as const, reviews }
 }
