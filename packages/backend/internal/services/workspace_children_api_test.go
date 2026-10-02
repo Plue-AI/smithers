@@ -43,6 +43,16 @@ type childTokenRow struct {
 	expiresAt time.Time
 }
 
+type childSweepSandbox struct {
+	SandboxVMClient
+	suspended []string
+}
+
+func (p *childSweepSandbox) SuspendSandbox(ctx context.Context, id string) (sandbox.SuspendResult, error) {
+	p.suspended = append(p.suspended, id)
+	return p.SandboxVMClient.SuspendSandbox(ctx, id)
+}
+
 func (f *childFixture) childTokens(t *testing.T, workspaceID string) []childTokenRow {
 	t.Helper()
 	rows, err := f.pool.Query(context.Background(),
@@ -291,6 +301,8 @@ func TestWorkspaceChildrenSpendSandboxHours(t *testing.T) {
 		f := newChildFixture(t, nil)
 		_, err := f.spawn(t, 2, "")
 		require.NoError(t, err)
+		provider := &childSweepSandbox{SandboxVMClient: f.provider}
+		f.svc.sandbox = provider
 		f.svc.billing = sandboxPolicyStub{entitlement: *spent}
 		require.NoError(t, f.svc.CleanupOverQuotaWorkspaces(ctx))
 		require.NoError(t, f.svc.WaitForProvisioning(ctx))
@@ -302,6 +314,35 @@ func TestWorkspaceChildrenSpendSandboxHours(t *testing.T) {
 			require.Equal(t, "parent_stopped", child.StopReason)
 		}
 		require.Equal(t, []string{f.parent.VmID}, f.provider.Live(), "every child machine is deleted; the parent keeps its disk")
+		require.Equal(t, []string{f.parent.VmID}, provider.suspended, "children are never sent to the suspend API")
+	})
+
+	t.Run("a failed child check leaves it running and retries through its parent", func(t *testing.T) {
+		f := newChildFixture(t, nil)
+		_, err := f.spawn(t, 1, "")
+		require.NoError(t, err)
+		childID := f.receipts(t)[0].WorkspaceID
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status = 'suspended' WHERE id = $1`, f.parent.ID)
+		require.NoError(t, err)
+		provider := &childSweepSandbox{SandboxVMClient: f.provider}
+		f.svc.sandbox = provider
+		f.svc.billing = sandboxPolicyStub{entitlement: *spent}
+		faults := f.inject("IsWorkspaceChild")
+		require.ErrorIs(t, f.svc.CleanupOverQuotaWorkspaces(ctx), errChildFault)
+		child, err := f.queries.GetWorkspace(ctx, childID)
+		require.NoError(t, err)
+		require.Equal(t, "running", child.Status)
+		require.Empty(t, provider.suspended)
+		faults.name.Store("")
+		require.NoError(t, f.svc.CleanupOverQuotaWorkspaces(ctx))
+		require.Empty(t, provider.suspended, "a child-only sweep leaves lifecycle authority to its parent")
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status = 'running' WHERE id = $1`, f.parent.ID)
+		require.NoError(t, err)
+		require.NoError(t, f.svc.CleanupOverQuotaWorkspaces(ctx))
+		require.NoError(t, f.svc.WaitForProvisioning(ctx))
+		require.Equal(t, []string{f.parent.VmID}, provider.suspended)
+		require.Equal(t, "stopped", f.receipts(t)[0].Status)
+		require.Equal(t, "parent_stopped", f.receipts(t)[0].StopReason)
 	})
 
 	t.Run("only a child is left to its parent", func(t *testing.T) {

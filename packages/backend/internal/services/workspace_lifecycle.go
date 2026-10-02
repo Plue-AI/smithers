@@ -342,6 +342,14 @@ func (s *WorkspaceService) CleanupOverQuotaWorkspaces(ctx context.Context) error
 		if limit == nil {
 			continue
 		}
+		child, err := s.overQuotaWorkspaceChild(ctx, workspace)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("check over-quota workspace child %s: %w", workspace.ID, err))
+			continue
+		}
+		if child {
+			continue
+		}
 		if err := s.suspendWorkspace(ctx, workspace); err != nil {
 			slog.Warn("over-quota workspace suspend failed", "workspace_id", workspace.ID, "user_id", workspace.UserID, "error", err)
 			errs = append(errs, fmt.Errorf("suspend over-quota workspace %s: %w", workspace.ID, err))
