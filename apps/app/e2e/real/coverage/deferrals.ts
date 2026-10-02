@@ -9,7 +9,6 @@ import { change } from "./deferrals/change"
 import { code } from "./deferrals/code"
 import { commits } from "./deferrals/commits"
 import { connect } from "./deferrals/connect"
-import { desktop } from "./deferrals/desktop"
 import { egress } from "./deferrals/egress"
 import { env } from "./deferrals/env"
 import { feature } from "./deferrals/feature"
@@ -17,9 +16,9 @@ import { files } from "./deferrals/files"
 import { findings } from "./deferrals/findings"
 import { flow } from "./deferrals/flow"
 import { flows } from "./deferrals/flows"
+import { form } from "./deferrals/form"
 import { github } from "./deferrals/github"
 import { history } from "./deferrals/history"
-import { integrations } from "./deferrals/integrations"
 import { issueSweep } from "./deferrals/issueSweep"
 import { issues } from "./deferrals/issues"
 import { notifications } from "./deferrals/notifications"
@@ -65,7 +64,6 @@ export const OWED_ACTIONS_BY_FAMILY = {
   code,
   commits,
   connect,
-  desktop,
   egress,
   env,
   feature,
@@ -73,9 +71,9 @@ export const OWED_ACTIONS_BY_FAMILY = {
   findings,
   flow,
   flows,
+  form,
   github,
   history,
-  integrations,
   "issue-sweep": issueSweep,
   issues,
   notifications,
@@ -106,7 +104,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
   /** Developer tooling, not a user journey. */
   diagnostics: [
     "admin.reset", "debug.backend", "debug.errors", "debug.events", "debug.net",
-    "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose", "model.fixture"
+    "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose"
   ],
   /** Host-backed; a real scenario is owed. */
   owed: Object.values(OWED_ACTIONS_BY_FAMILY).flat()

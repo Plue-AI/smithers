@@ -77,13 +77,9 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   { id: "repository-create", scenarios: [{ id: "repositories.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "local-git-push", scenarios: [{ id: "repositories.local-git-push-file-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "github-import", scenarios: [{ id: "repositories.github-import-direct-readback", capabilities: ["identity", "github"] }], tier: "live-provider" },
-  { id: "chat", scenarios: [
-    { id: "chat.owner-model", capabilities: ["identity", "model.turn"] }
-  ], tier: "local-infrastructure" },
   { id: "workspace", scenarios: [{ id: "workspaces.product-lifecycle", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "terminal", scenarios: [{ id: "workspaces.product-terminal-keyboard-output", capabilities: ["identity", "cloud", "cloud.terminal"] }], tier: "local-infrastructure" },
   { id: "flow", scenarios: [{ id: "flows.product-run", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
-  { id: "setup-inspection", scenarios: [{ id: "setup.inspect-recovery", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "issue", scenarios: [{ id: "issues.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "landing", scenarios: [{ id: "landings.local-change-land", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "reload", scenarios: [{ id: "issues.product-reload-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
@@ -91,7 +87,13 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
     { id: "approvals.product-approve", capabilities: ["identity", "cloud"] },
     { id: "approvals.product-deny", capabilities: ["identity", "cloud"] }
   ], tier: "local-infrastructure" },
-  { id: "duplicate-input", scenarios: [{ id: "issues.owner-resolution-durable-replay", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
+  /*
+   * The issue-resolution replay left with issues.sync.resolve (#3385). Setup
+   * inspection proves the same property on both hosts: a repeated act joins
+   * its durable request and never launches twice. A scenario serves one
+   * obligation, so it carries the setup-inspection proof here as well.
+   */
+  { id: "duplicate-input", scenarios: [{ id: "setup.inspect-recovery", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "error-surfaced", scenarios: [{ id: "flows.product-no-box", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" }
 ]
 
@@ -101,7 +103,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 3
+export const FEATURE_MATRIX_VERSION = 4
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
@@ -115,7 +117,10 @@ const billing = optional("needs the operator's payment provider")
  */
 export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<ProductProvider, FeatureRow>>>> = {
   "agent": { selfhost: optional("needs a configured default agent"), plue: optional("needs a configured default agent") },
-  "model.turn": { selfhost: core, plue: optional("needs a configured model provider") },
+  "model.turn": {
+    // The model laboratory that configured an owner's model is deferred past the MVP (#3387): no product door exercises it.
+    selfhost: optional("needs an operator-configured model provider"), plue: optional("needs a configured model provider")
+  },
   "recommend": { selfhost: optional("needs a recommendation provider"), plue: optional("needs a recommendation provider") },
   "commands.select": { selfhost: optional("needs a recommendation provider"), plue: optional("needs a recommendation provider") },
   "browser.read": { selfhost: optional("needs a pinned HTTPS transport"), plue: optional("needs a pinned HTTPS transport") },

@@ -140,8 +140,6 @@ describe("deployment mode matrix", () => {
     const owed = new Set(DEPLOYMENT_MODES.flatMap((mode) => owedScenarioIds(mode)))
     expect(MATRIX_SCENARIO_IDS.filter((id) => !owed.has(id))).toEqual([])
     expect(owedScenarioIds("web-plue")).toContain("repositories.github-import-direct-readback")
-    expect(owedScenarioIds("web-plue")).not.toContain("chat.owner-model")
-    expect(owedScenarioIds("local-own")).toContain("chat.owner-model")
     expect(owedScenarioIds("local-own")).not.toContain("repositories.github-import-direct-readback")
     for (const mode of DEPLOYMENT_MODES) {
       const rows = scenarioReceipts({ ...missingModeReadiness(mode, "ready"), status: "passed" }, revision, [])
@@ -157,7 +155,7 @@ describe("deployment mode matrix", () => {
     for (const mode of DEPLOYMENT_MODES) {
       expect(owedScenarioIds(mode)).toEqual(expect.arrayContaining([
         "approvals.product-approve", "approvals.product-deny",
-        "issues.owner-resolution-durable-replay", "flows.product-no-box"
+        "setup.inspect-recovery", "flows.product-no-box"
       ]))
     }
   })
@@ -175,7 +173,8 @@ describe("deployment mode matrix", () => {
     const published = [
       "73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4",
       "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68",
-      "609193c0daf3143e80a21a1fa4c28f51e6a7b4a5c8f9cee2e5faf780dbdbd356"
+      "609193c0daf3143e80a21a1fa4c28f51e6a7b4a5c8f9cee2e5faf780dbdbd356",
+      "ceefdbdb4354e207073557c58681c24ee1a1f5aa90bb6797addc44c4f70fc517"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)
@@ -329,14 +328,13 @@ describe("deployment mode matrix", () => {
     const rows = scenarioReceipts(readiness, revision, [])
     expect(rows.every(({ status }) => status === "failed")).toBe(true)
     expect(rows.find(({ obligation }) => obligation === "flow")?.reason).toBe("not launched")
-    expect(rows.find(({ obligation }) => obligation === "chat")?.reason).toBe("not launched")
   })
 
   test("a failed attempt prevents a later pass from satisfying an obligation", () => {
-    const readiness = { mode: "local-own" as const, status: "passed" as const, tier: "local-infrastructure" as const, origin: "https://example.test", endpoint: "https://example.test", capabilities: ["identity", "model.turn"], reasons: [] }
-    const base = { scenarioId: "chat.owner-model", host: "local" as const, mode: "local-own" as const, revision, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }
+    const readiness = { mode: "local-own" as const, status: "passed" as const, tier: "local-infrastructure" as const, origin: "https://example.test", endpoint: "https://example.test", capabilities: ["identity"], reasons: [] }
+    const base = { scenarioId: "repositories.local-git-push-file-readback", host: "local" as const, mode: "local-own" as const, revision, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }
     const rows = scenarioReceipts(readiness, revision, [{ ...base, status: "failed" as const }, { ...base, status: "passed" as const }])
-    expect(rows.find(({ scenarioId }) => scenarioId === "chat.owner-model")?.status).toBe("failed")
+    expect(rows.find(({ scenarioId }) => scenarioId === "repositories.local-git-push-file-readback")?.status).toBe("failed")
   })
 
   test("readiness joins a real execution receipt with health and advertised capabilities", async () => {
@@ -469,7 +467,7 @@ describe("deployment mode matrix", () => {
     const owedCapabilities = (mode: (typeof DEPLOYMENT_MODES)[number]) => [...new Set(MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)
       .filter(({ id }) => owedScenarioIds(mode).includes(id)).flatMap(({ capabilities }) => capabilities))].sort()
     expect(owedCapabilities("web-plue")).toEqual(["cloud", "cloud.terminal", "github", "identity"])
-        expect(owedCapabilities("web-selfhost")).toEqual(["cloud", "cloud.terminal", "identity", "model.turn"])
+    expect(owedCapabilities("web-selfhost")).toEqual(["cloud", "cloud.terminal", "identity"])
   })
 
   test("web-plue readiness certifies the deployed Worker build without a health route or the checkout revision", async () => {

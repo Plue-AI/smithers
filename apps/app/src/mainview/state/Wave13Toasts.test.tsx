@@ -59,10 +59,11 @@ describe("wave 13 B-6 — a notification is a status, never an alert", () => {
     const host = renderToasts([{ ...toast("worker", "running"), sourceCard: "card-run" }], id => dismissed.push(id), {
       cards: [{ id: "card-run", kind: "run-trace", title: "Review", status: "active", ordinal: 1, createdAt: 1,
         payload: { repo: "owner/repo", runId: "run-1", workflow: "review", phase: "running", steps: [], result: null, lastSeq: 0 } }],
-      available: action => action.flow !== "runs.steer",
+      // This host lacks Stop: its button is hidden while Steer still routes its source.
+      available: action => action.flow !== "flow.run.stop",
       onAction: action => actions.push(action)
     })
-    expect(host.querySelector('[data-flow="runs.steer"]')).toBeNull()
+    expect(host.querySelector('[data-flow="flow.run.stop"]')).toBeNull()
     // The worker's line is its subagent card's: the turning glyph, the title, the clock.
     expect(host.querySelector(".toast-icon")?.textContent).toMatch(/^[◐◓◑◒]$/)
     expect(host.querySelector(".toast-title")?.textContent).toMatch(/^Review · \d+[smh]/)

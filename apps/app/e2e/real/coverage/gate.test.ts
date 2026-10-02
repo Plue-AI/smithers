@@ -176,7 +176,8 @@ export const searchFlows = (actions) => [
     expect(hostReport.deferred).toEqual([{ action: "chat.send", reason: "owed" }])
     const aggregate = checkRealE2E(options)
     expect(aggregate.gaps).toContainEqual({ kind: "execution", value: "local", scenarioId: "repo.open.success" })
-    expect(aggregate.gaps).toContainEqual({ kind: "host", value: "native" })
+    // Both remaining real hosts are declared (the native host retired with the desktop app, #3387): declaring is not executing.
+    expect(aggregate.gaps.filter((gap) => gap.kind === "host")).toEqual([])
   })
 
   test("does not let a host-specific receipt hide an unexecuted applicable case", () => {

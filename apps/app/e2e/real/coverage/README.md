@@ -28,8 +28,8 @@ search actions are built-in UI features and receive individual missing-action
 and execution checks, even though they are absent from the static union.
 The one family marker, `action:repository-flow:*`, records runtime repository flow leaves;
 it does not stand in for static actions. Hosts are `local` (production build
-against owned local services), `production` (deployed canary), and `native`
-(packaged app). Critical paths are success, permission, error, persistence,
+against owned local services) and `production` (deployed canary); the
+`native` packaged-app host retired with the desktop app (#3387). Critical paths are success, permission, error, persistence,
 and keyboard. A scenario may declare multiple dimensions and actions.
 
 Success metadata requires an `evidence:*` token describing independent
@@ -61,7 +61,7 @@ The report also lists every uncovered static action and critical-path/host/door
 dimension, so partial suites never display artificial 100% coverage.
 
 Add `./e2e/real/coverage/reporter.ts` to the Playwright reporter list. The run
-must set `SMITHERS_REAL_E2E_HOST` to local, production, or native and
+must set `SMITHERS_REAL_E2E_HOST` to local or production and
 `SMITHERS_REAL_E2E_REVISION` to the tested revision. The reporter refuses to
 write unattributed evidence and defaults to
 `test-results/real-e2e-evidence.json`. The fixture must also emit a
@@ -145,7 +145,8 @@ Plue-backed local modes fail if they started either process.
 
 Readiness reads `/api/bootstrap` for every mode and records its `buildSha`.
 A mode owes each scenario whose capabilities are all core features of its
-provider in the feature matrix below, so a Plue mode never owes `model.turn`.
+provider in the feature matrix below, so no mode owes `model.turn`: the model
+laboratory that configured an owner's model is deferred past the MVP (#3387).
 The report has one row per owed scenario, and every obligation is owed by at
 least one mode.
 
@@ -205,7 +206,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 3. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 4. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one
@@ -220,7 +221,7 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | Capability | selfhost | Plue |
 | --- | --- | --- |
 | `agent` | optional | optional |
-| `model.turn` | core | optional |
+| `model.turn` | optional | optional |
 | `recommend` | optional | optional |
 | `commands.select` | optional | optional |
 | `browser.read` | optional | optional |

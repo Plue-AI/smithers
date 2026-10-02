@@ -366,8 +366,9 @@ describe("§3 the keyboard contract", () => {
     await press(view, "k", { meta: true })
     expect(view.store.session().paletteOpen).toBe(true)
     expect(palette(view.host)?.dataset["mode"]).toBe("all")
-    // Files (both prefix matches, in listing order), then the flows: the one named compose, the ones whose summaries say it, then the run (contains).
-    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", "chat.send", runSearchRef("run-compose", "runs-1")])
+    // Files (both prefix matches, in listing order), then the run (its title contains it), then the flow whose summary says it:
+    // a group ranks by its best match, and no flow is named compose since the MVP cut retired model.compose (#3385).
+    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", runSearchRef("run-compose", "runs-1"), "chat.send"])
     await press(view, "Escape")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(palette(view.host)).toBeNull()
@@ -380,8 +381,12 @@ describe("§3 the keyboard contract", () => {
     await view.act(() => view.controller.changeDraft("Compose"))
     await press(view, "k", { meta: true })
     expect(highlighted(view.host)?.hasAttribute("data-ask")).toBe(true)
+    // Up from the first row wraps to the last.
+    await press(view, "ArrowUp")
+    expect(highlighted(view.host)?.dataset["ref"]).toBe("chat.send")
     await press(view, "ArrowUp")
     expect(highlighted(view.host)?.dataset["ref"]).toBe(runSearchRef("run-compose", "runs-1"))
+    await press(view, "ArrowDown")
     await press(view, "ArrowDown")
     expect(highlighted(view.host)?.hasAttribute("data-ask")).toBe(true)
     await press(view, "ArrowDown")

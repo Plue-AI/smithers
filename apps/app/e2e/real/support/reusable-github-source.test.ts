@@ -8,6 +8,7 @@ test("refuses a source that is not the registered retained fixture", () => {
 })
 
 test("selects the retained source only for Plue matrix modes", () => {
-  for (const mode of ["web-plue", "local-plue", "native-plue"]) expect(isPlueImportMode(mode)).toBe(true)
-  for (const mode of ["web-own", "local-own", "native-own", undefined]) expect(isPlueImportMode(mode)).toBe(false)
+  for (const mode of ["web-plue", "local-plue"]) expect(isPlueImportMode(mode)).toBe(true)
+  // The native modes left the matrix with the desktop app (#3387): no retired mode imports the retained source.
+  for (const mode of ["web-own", "local-own", "native-own", "native-plue", undefined]) expect(isPlueImportMode(mode)).toBe(false)
 })

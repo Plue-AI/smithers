@@ -161,7 +161,7 @@ const press = async (view: Opened, testId: string): Promise<void> => {
 }
 
 describe("a card tab carries every act the transcript's copy carries", () => {
-  test("the tab renders the card, and maximizing it reveals the three frame controls", async () => {
+  test("the tab renders the card, and maximizing it reveals the two frame controls", async () => {
     const view = await openCardTab()
     expect(view.host.querySelector(`.card-tab [data-testid="card-${CARD_ID}"]`)).not.toBeNull()
     // Not maximized: the frame controls are not rendered at all.
@@ -170,9 +170,11 @@ describe("a card tab carries every act the transcript's copy carries", () => {
     await press(view, `card-maximize-${CARD_ID}`)
 
     expect(view.controller.store.session().maximizedCardId).toBe(CARD_ID)
-    for (const control of ["frame-back", "frame-forward", "frame-fork"]) {
+    for (const control of ["frame-back", "frame-forward"]) {
       expect(button(view.host, control)).not.toBeNull()
     }
+    // Forking a frame is a client time-travel control the MVP cut retired (#3385).
+    expect(button(view.host, "frame-fork")).toBeNull()
   })
 
   test("frame back inside the tab walks the session out of the card frame", async () => {
@@ -213,15 +215,4 @@ describe("a card tab carries every act the transcript's copy carries", () => {
     expect(view.controller.store.session().maximizedCardId).toBe(CARD_ID)
   })
 
-  test("forking from the tab's maximized card opens a new branch", async () => {
-    const view = await openCardTab()
-    await press(view, `card-maximize-${CARD_ID}`)
-    const branchBefore = view.controller.store.session().activeBranchId
-    const branchCount = view.controller.store.collections.branches.size
-
-    await press(view, "frame-fork")
-
-    expect(view.controller.store.collections.branches.size).toBe(branchCount + 1)
-    expect(view.controller.store.session().activeBranchId).not.toBe(branchBefore)
-  })
 })

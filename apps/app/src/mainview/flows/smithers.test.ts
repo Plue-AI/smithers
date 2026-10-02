@@ -113,11 +113,13 @@ describe("smithers.who", () => {
     expect(line).not.toContain("no repository is open yet")
   })
 
-  test("the desktop shell reads as the native app", async () => {
+  // The MVP cut retired the native desktop shell (#3385): a local host is the web app too.
+  test("a local host reads as the web app", async () => {
     const { store, controller } = await freshController(NATIVE)
     await controller.commands.run("smithers.who")
     const line = smithersMessages(store).at(-1) ?? ""
-    expect(line).toContain("the concierge of the native Smithers app")
+    expect(line.startsWith("I am Smithers, the concierge of the Smithers web app; no repository is open yet.")).toBe(true)
+    expect(line).not.toContain("native")
     expect(line).not.toContain("harness")
   })
 

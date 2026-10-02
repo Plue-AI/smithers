@@ -466,16 +466,16 @@ workflowTest("an ordinary module run reports recorded step evidence or its pinne
   }
 })
 
-workflowTest("live message, thinking, and tool steering persist as real control events across reconnect", scenario("runs.live-steering-durable-reconnect", {
+workflowTest("a live message steer persists as a real control event across reconnect", scenario("runs.live-steering-durable-reconnect", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:flow.create", "action:runs.steer", "action:runs.thinking", "action:runs.tools",
+    "action:flow.create", "action:runs.steer",
     "host:production", "path:success", "path:persistence", "door:slash",
     "dimension:real-provider", "dimension:live-run", "dimension:durable-reconnect",
-    "dimension:message-steer", "dimension:thinking-steer", "dimension:tools-steer",
+    "dimension:message-steer",
     "evidence:accepted-rpc-and-durable-control-events"
   ],
-  description: "Launch an owned provider run, steer its live engine through three typed UI commands, prove their exact server-authored event ids, then reconnect to the same persisted run."
+  description: "Launch an owned provider run, steer its live engine through a typed UI command, prove its exact server-authored event id, then reconnect to the same persisted run."
 }), async ({ page, request, workflowRepo }, testInfo) => {
   const repo = workflowRepo.repo
   await bootOwnedWorkflow(page, repo, workflowRepo.workspaceId)
@@ -533,13 +533,8 @@ workflowTest("live message, thinking, and tool steering persist as real control 
   const message = await steer(`/runs.steer ${launched.runId} preserve the exact ${marker} flow contract`, {
     runId: launched.runId, kind: "Message", body: `preserve the exact ${marker} flow contract`
   })
-  const thinking = await steer(`/runs.thinking ${launched.runId} low`, {
-    runId: launched.runId, kind: "Thinking", thinking: "low"
-  })
-  const tools = await steer(`/runs.tools ${launched.runId} bash`, {
-    runId: launched.runId, kind: "Tools", toolNames: ["bash"]
-  })
-  const accepted = [message, thinking, tools]
+  // The thinking and tool steers left with the MVP cut (#3385); the message steer remains.
+  const accepted = [message]
 
   let controlEvents: ReadonlyArray<ProjectionRow> = []
   await expect.poll(async () => {

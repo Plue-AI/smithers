@@ -33,7 +33,7 @@ test("box.open's recovery flags parse from the line its form assembles, in any p
     .toEqual({ payload: { bookmark: "feature/work", repo: target, kind: "vm", snapshot: "snap-1", recoveryOf: "ws-1" } })
   expect(payloadFor("box.open", `--recoveryOf ws-1 main ${target}`, undefined, new Set())).toEqual({ payload: { bookmark: "main", repo: target, recoveryOf: "ws-1" } })
   expect(payloadFor("box.open", `${target} --snapshot`, undefined, new Set())).toEqual({ error: "box.open's --snapshot needs an id" })
-  expect(payloadFor("box.open", `${target} --kind`, undefined, new Set())).toEqual({ error: "box.open's kind must be container, vm, or desktop" })
+  expect(payloadFor("box.open", `${target} --kind`, undefined, new Set())).toEqual({ error: "box.open's kind must be container or vm" })
 })
 
 test("a mirror ref and its explicit repository need no inventory", () => {
@@ -53,7 +53,7 @@ test("structured targets retain slash-bearing ids and the originating run card",
 })
 
 test("typed argument objects reject misspelled fields instead of silently choosing an ambient target", () => {
-  for (const name of ["prs.review", "box.open", "box.open", "runs.list", "github.mirror.retry-ref"]) {
+  for (const name of ["prs.review", "box.open", "runs.list", "github.mirror.retry-ref"]) {
     expect(payloadFor(name, JSON.stringify({ reop: target }), undefined, new Set())).toHaveProperty("error")
   }
 })
@@ -70,7 +70,7 @@ test("human review text and lone slash-bearing identifiers retain their existing
 const createAppController = scopedControllers()
 test.each([
   ["prs.review", "button"], ["prs.review", "form"], ["prs.review", "agent"],
-  ["box.open", "button"], ["box.open", "agent"], ["box.open", "button"]
+  ["box.open", "button"], ["box.open", "agent"]
 ] as const)("%s through %s never routes a typed target through the active repository", async (name, door) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ method: string; path: string; body?: unknown }> = []
@@ -97,13 +97,8 @@ test.each([
     }
     await controller.commands.run("form.submit", `form-${name}`)
   } else if (door === "agent") {
+    // box.open carries no confirmation (the desktop doors that minted sessions did; the MVP cut removed them).
     await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name, args }) })
-    if (name === "box.open") {
-      expect(requests.filter(request => request.method === "POST")).toEqual([])
-      const action = [...store.collections.messages.values()].find(message => message.action?.flow === name)?.action
-      expect(action).toBeDefined()
-      await controller.commands.run(name, action!.args)
-    }
   } else await controller.commands.run(name, args)
   expect(requests.filter(request => request.path.includes(`/repos/${ambient}/`) && /\/(landings|workspaces)(\/|$)/.test(request.path))).toEqual([])
   expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review"
