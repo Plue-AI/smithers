@@ -10,10 +10,10 @@ Smithers is a self-hosted, multiplayer coding factory. It wraps your GitHub repo
 
 A flow is a durable workflow. Every action in Smithers is a flow, from a button or a slash command to an agent step or the whole factory. Flows live in the repository. This has four consequences:
 
-- **Customizable.** Users, and the agent on their behalf, reshape the factory by editing its flows.
+- **Customizable.** Users, and the agent on their behalf, reshape the factory by editing its flows. The few system flows that keep "people merge" and stack order safe can't be overridden (mvp.md M-30).
 - **Self-improving.** The factory learns from its own runs and gets better over time.
 - **Durable.** Every run is recorded, survives a restart without redoing finished work, and can be watched, steered, or resumed.
-- **Agent parity.** The agent can do anything a person can, because both call the same flows.
+- **Agent parity.** The agent can run any flow a person can, through the same flows. A few decisions stay with people: merging, approvals, members and secrets.
 
 ## How it is built
 
@@ -50,12 +50,12 @@ A branch is a singleton: exactly one live copy, on one machine (VM). To work sep
 
 ### Agents
 
-- **App agent:** runs in the UI. It is fast, answers questions about the repository, and drives the app on the user's behalf.
+- **App agent:** runs on the install, outside every branch machine, and works in the UI. It is fast, answers questions about the repository, and drives the app on the user's behalf.
 - **Coding agent:** runs on a branch's machine. It is the factory that makes changes to that branch.
 
 ### Wiki
 
-One source of truth for the factory's memory, stored as an Obsidian-compatible vault.
+One source of truth for the factory's memory: a Markdown vault that Smithers keeps and syncs with an Obsidian folder on the install's Mac.
 
 ## The app
 
