@@ -154,6 +154,11 @@ const isCardFrameKind = (literal: ExtractedLiteral, fields: ReadonlySet<string>)
 export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabularies): ReadonlyArray<Violation> => {
   const found: Array<Violation> = []
   const at = { value: literal.value, file: literal.file, line: literal.line }
+  // Suffix provenance is conditional on every enclosing ID head still being
+  // emitted by the product. Unknown heads and direct uses retain full checks.
+  const testOwned = literal.testOwnedContext !== undefined && (literal.productIdPrefixUses === undefined
+    || literal.productIdPrefixUses.every(prefix => vocabularies.cardIdPrefixes.has(prefix)
+      || composedPrefix(prefix, vocabularies.cardIdPrefixes)))
 
   for (const attribute of dataAttributesIn(literal.value)) {
     if (!vocabularies.dataAttributes.has(attribute)) {
@@ -234,7 +239,7 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
    */
   const affix = (literal.leadingArgumentOf !== undefined && AFFIX_CALLS.has(literal.leadingArgumentOf))
     || (literal.form === "template-head"
-      && literal.testOwnedContext === undefined
+      && !testOwned
       && segmentsOf(literal.value).some((segment) => vocabularies.idVocabularySegments.has(segment)))
   if (
     affix && ID_PREFIX.test(literal.value) && !vocabularies.cardIdPrefixes.has(literal.value)
@@ -254,7 +259,7 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
     // Health checker IDs are supplied by pluggable monitors, not app commands.
     // This does not exempt the same literal in a runCommand or data-flow.
     && literal.propertyName !== "checkerId"
-    && literal.testOwnedContext === undefined
+    && !testOwned
     && !vocabularies.dottedIdentifiers.has(literal.value)
     && !composedDotted(literal.value, vocabularies.composedDottedHeads, vocabularies.productStringLiterals)
     && !composedFlowTestId(literal, vocabularies)

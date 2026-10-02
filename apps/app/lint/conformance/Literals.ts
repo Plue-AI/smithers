@@ -108,6 +108,8 @@ export interface ExtractedLiteral {
   readonly kindClaim: boolean
   /** Only import-bound real-runner metadata declarations, never product uses. */
   readonly testOwnedContext?: "scenario-id" | "repository-name" | "comment-body" | "attachment-name" | "input-text" | "protocol-id"
+  /** Product template heads under which this fixture value is only an opaque suffix. */
+  readonly productIdPrefixUses?: ReadonlyArray<string>
 }
 
 /** Where a literal sits in an argument list. */
@@ -492,6 +494,7 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
   // metadata. Follow ordinary local const aliases, without inspecting arbitrary
   // callback bodies (Array.find's predicate is not a flow-name argument).
   const productValues = new Set<ts.Node>()
+  const productIdPrefixUses = new Map<ts.Node, Set<string>>()
   if (fixtureComments.size + fixtureRepositories.size + fixtureAttachments.size + fixtureInputs.size + fixtureProtocols.size > 0) {
     const consumers = new Set(["runCommand", "runFlow", "find", "getByTestId", "locator", "querySelector", "querySelectorAll", "startsWith", "endsWith"])
     const callSites = new Map<string, Array<ts.CallExpression>>()
@@ -507,7 +510,7 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
     // Narrow only a single explicit object return: follow the selected field
     // and its actual parameter dependencies. Unknown/dynamic returns keep the
     // conservative walk through every argument, so wrappers cannot hide IDs.
-    const markReturnedField = (read: ts.PropertyAccessExpression): boolean => {
+    const markReturnedField = (read: ts.PropertyAccessExpression, prefix: string | undefined, composedId: boolean): boolean => {
       let receiver = unwrap(read.expression)
       const seenReceivers = new Set<ts.Node>()
       while (ts.isIdentifier(receiver)) {
@@ -543,38 +546,61 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
       const field = fields[0]!
       const value = ts.isPropertyAssignment(field) ? field.initializer : (field as ts.ShorthandPropertyAssignment).name
       const seen = new Set<ts.Node>()
-      const dependencies = (node: ts.Node): void => {
+      const dependencies = (node: ts.Node, head = prefix): void => {
         if (seen.has(node) || ts.isFunctionLike(node)) return
         seen.add(node)
+        if (composedId && head === undefined && ts.isTemplateExpression(node) && ID_PREFIX.test(node.head.text)) {
+          for (const span of node.templateSpans) dependencies(span.expression, node.head.text)
+          return
+        }
         if (ts.isIdentifier(node)) {
           for (const binding of bindingsOf(node.text, node)) {
-            if (binding.form === "value") dependencies(binding.expression)
+            if (binding.form === "value") dependencies(binding.expression, head)
             else if (binding.callee === name) {
               const argument = call.arguments[binding.index]
-              if (argument) mark(argument)
+              if (argument) mark(argument, head, composedId)
             }
           }
-        } else ts.forEachChild(node, dependencies)
+        } else ts.forEachChild(node, child => dependencies(child, head))
       }
       dependencies(value)
-      mark(value)
+      mark(value, prefix, composedId)
       return true
     }
-    const mark = (node: ts.Node): void => {
-      if (productValues.has(node) || ts.isFunctionLike(node)) return
-      productValues.add(node)
-      if (ts.isPropertyAccessExpression(node) && markReturnedField(node)) return
+    // Each use is visited independently: a direct lookup must revoke fixture
+    // provenance even if the same declaration was first seen as a suffix.
+    const visitedUses = new Map<ts.Node, Set<string>>()
+    const mark = (node: ts.Node, prefix?: string, composedId = false): void => {
+      if (ts.isFunctionLike(node)) return
+      const mode = prefix === undefined ? composedId ? "composed" : "direct" : `suffix:${prefix}`
+      const uses = visitedUses.get(node) ?? new Set<string>()
+      if (uses.has(mode)) return
+      uses.add(mode)
+      visitedUses.set(node, uses)
+      if (prefix === undefined) productValues.add(node)
+      else {
+        const heads = productIdPrefixUses.get(node) ?? new Set<string>()
+        heads.add(prefix)
+        productIdPrefixUses.set(node, heads)
+      }
+      if (ts.isPropertyAccessExpression(node) && markReturnedField(node, prefix, composedId)) return
+      if (composedId && prefix === undefined && ts.isTemplateExpression(node) && ID_PREFIX.test(node.head.text)) {
+        for (const span of node.templateSpans) mark(span.expression, node.head.text, composedId)
+        return
+      }
       if (ts.isIdentifier(node)) {
         for (const binding of bindingsOf(node.text, node)) {
-          if (binding.form === "value") mark(binding.expression)
+          if (binding.form === "value") mark(binding.expression, prefix, composedId)
           else for (const call of callSites.get(binding.callee) ?? []) {
             const argument = call.arguments[binding.index]
-            if (argument) mark(argument)
+            if (argument) mark(argument, prefix, composedId)
           }
         }
-      } else ts.forEachChild(node, mark)
+      } else ts.forEachChild(node, child => mark(child, prefix, composedId))
     }
-    for (const [name, calls] of callSites) if (consumers.has(name)) for (const call of calls) call.arguments.forEach(mark)
+    for (const [name, calls] of callSites) if (consumers.has(name)) for (const call of calls) {
+      for (const argument of call.arguments) mark(argument, undefined, name === "getByTestId")
+    }
   }
   // A metadata constructor cannot hide an explicit enclosing flow, affix or
   // card-object claim. Keep the outer consumer as the literal's rule context.
@@ -609,6 +635,7 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
       ...call,
       ...objectContextOf(consumer),
       testOwnedContext: testOwnedContext(context),
+      productIdPrefixUses: productIdPrefixUses.has(context) ? [...productIdPrefixUses.get(context)!] : undefined,
       kindClaim: call.kindComparison || claimed.has(node) || claimed.has(context)
     })
   }

@@ -540,6 +540,64 @@ test("fixture input provenance follows a local factory's selected return field",
   expect(check(imports + 'const make = () => { const text = input(`missing-card-${nonce}`); return { id: text }; }; const row = make(); page.getByTestId(row.id);').length).toBeGreaterThan(0)
 })
 
+test("canonical card prefixes preserve opaque API repository suffix provenance", () => {
+  const check = (source: string, file = "/app/e2e/real/probe.spec.ts") => extractLiterals(file, source)
+    .flatMap(literal => [...violationsOf(literal, vocabularies)])
+  const imports = 'import { fixtureProtocolId as protocol } from "./support/values";'
+  const repository = 'const name = protocol(`smithers-e2e-secrets-${nonce}`);'
+  expect(vocabularies.cardIdPrefixes.has("card-")).toBe(true)
+  expect(vocabularies.cardIdPrefixes.has("secrets-")).toBe(true)
+  for (const lookup of [
+    'page.getByTestId(`card-secrets-${name}`);',
+    'const repo = `${username}/${name}`; page.getByTestId(`card-secrets-${repo}`);',
+    'const alias = name; const id = `card-secrets-${alias}`; page.getByTestId(id);',
+    'function select(repo) { page.getByTestId(`card-secrets-${repo}`); } select(name);',
+    'const make = (repo) => ({ id: `card-secrets-${repo}` }); const row = make(name); page.getByTestId(row.id);'
+  ]) expect(check(imports + repository + lookup), lookup).toEqual([])
+  expect(check('import { fixtureProtocolId as protocol } from "../support/values";' + repository +
+    'page.getByTestId(`card-secrets-${name}`);', "/app/e2e/real/nested/probe.spec.ts")).toEqual([])
+})
+
+test("opaque suffix provenance requires every composed prefix to be emitted by product source", () => {
+  const source = 'import { fixtureProtocolId as protocol } from "./support/values";' +
+    'const name = protocol(`smithers-e2e-secrets-${nonce}`); page.getByTestId(`card-secrets-${name}`);'
+  const check = (text: string, vocabulary = vocabularies) => extractLiterals("/app/e2e/real/probe.spec.ts", text)
+    .flatMap(literal => [...violationsOf(literal, vocabulary)])
+  for (const head of ["card-missing-", "canary-probe-", "card-secrets-extra-"]) {
+    expect(check(source.replace("card-secrets-${name}", head + "${name}"))
+      .some(violation => violation.value === "smithers-e2e-secrets-" && violation.rule === "card-id-prefix"), head).toBe(true)
+  }
+  for (const removed of ["card-", "secrets-"]) {
+    const prefixes = new Set(vocabularies.cardIdPrefixes)
+    prefixes.delete(removed)
+    expect(check(source, { ...vocabularies, cardIdPrefixes: prefixes })
+      .some(violation => violation.value === "smithers-e2e-secrets-")).toBe(true)
+  }
+  expect(check(source + 'page.getByTestId(`canary-probe-${name}`);')
+    .some(violation => violation.value === "smithers-e2e-secrets-")).toBe(true)
+})
+
+test("direct and mixed product uses cannot inherit a composed suffix exemption", () => {
+  const imports = 'import { fixtureProtocolId as protocol } from "./support/values";'
+  const repository = 'const name = protocol(`smithers-e2e-secrets-${nonce}`);'
+  const composed = 'page.getByTestId(`card-secrets-${name}`);'
+  for (const direct of [
+    'page.getByTestId(name);',
+    'const alias = name; page.getByTestId(alias);',
+    'runCommand(name);',
+    'row.id.startsWith(name);',
+    'row.id.endsWith(name);',
+    'page.locator(name);'
+  ]) for (const uses of [direct, composed + direct, direct + composed]) {
+    const violations = extractLiterals("/app/e2e/real/probe.spec.ts", imports + repository + uses)
+      .flatMap(literal => [...violationsOf(literal, vocabularies)])
+    expect(violations.some(violation => violation.value === "smithers-e2e-secrets-"), uses).toBe(true)
+  }
+  const unbackedImport = imports.replace("./support/values", "./unrelated")
+  expect(extractLiterals("/app/e2e/real/probe.spec.ts", unbackedImport + repository + composed)
+    .flatMap(literal => [...violationsOf(literal, vocabularies)]).length).toBeGreaterThan(0)
+})
+
 test("extracts rendered selectors from JSX attributes and nested components", () => {
   const source = [
     'const controls = <section data-testid="agent-session-header">',
