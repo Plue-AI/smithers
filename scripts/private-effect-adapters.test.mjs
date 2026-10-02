@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import test from "node:test"
 import { pathToFileURL } from "node:url"
@@ -25,7 +26,7 @@ const manifest = () => ({
   devDependencies: Object.fromEntries(adapters.map((name) => [name, version]))
 })
 const fixture = async (body) => {
-  const directory = await mkdtemp("/private/tmp/smithers-private-adapter-test-")
+  const directory = await mkdtemp(join(await realpath(tmpdir()), "smithers-private-adapter-test-"))
   try {
     await body(directory)
   } finally {

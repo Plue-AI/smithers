@@ -35,13 +35,33 @@ test("real HTTP pool discovery permits only served routes and actual TUI startup
       const { questions } = JSON.parse(body.input.find((row: { role: string }) => row.role === "user").content[0].text)
       text = JSON.stringify({
         answers: Object.fromEntries(
-          Object.keys(questions).map((id) => [id, {
-            type: "boolean",
-            probability: ["on_target", "complete"].includes(id) ? 0.99 : 0.01
-          }])
+          Object.entries(questions).map(([id, question]) => {
+            // Route the one-step tool request to the pool's available Luna seat.
+            // Every reply must match the evaluator's requested question type.
+            if ((question as { type: string }).type === "choice") {
+              const choices: Record<string, string> = {
+                phase: "tool",
+                size: "trivial",
+                clarity: "clear",
+                system: "answer"
+              }
+              const choice = choices[id]!
+              expect(choice).toBeDefined()
+              expect((question as { criteria: unknown }).criteria).toHaveProperty(choice)
+              return [id, { type: "choice", choice }]
+            }
+            expect((question as { type: string }).type).toBe("boolean")
+            return [id, {
+              type: "boolean",
+              probability: ["binary", "on_target", "complete"].includes(id) ? 0.99 : 0.01
+            }]
+          })
         )
       })
-    } else modelCalls++
+    } else {
+      expect(body.model).toBe("gpt-6-luna")
+      modelCalls++
+    }
     response.writeHead(200, { "Content-Type": "text/event-stream" })
     response.end(
       [

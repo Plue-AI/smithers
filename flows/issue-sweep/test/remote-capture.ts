@@ -1,7 +1,7 @@
 // Sandbox.run projection/capture helper; agents use the retained RemoteFix job.
 import { Sandbox } from "@smthrs/sandbox"
 import { Effect } from "effect"
-import { AgentFailed, NoChange, Remote } from "../work/flow.ts"
+import { AgentFailed, NoChange, type Remote } from "../work/flow.ts"
 
 /**
  * Runs `body` on one machine from `provider` and answers its answer with the

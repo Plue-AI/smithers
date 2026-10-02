@@ -1,5 +1,5 @@
 /** Reference-counted local machines. Each lease owns a separate checkout and process cgroup. */
-import { RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
+import type { RemoteChildProcessSpawner, Sandbox } from "@smthrs/sandbox"
 import { Deferred, Effect, Exit, Scope, Semaphore } from "effect"
 import { randomUUID } from "node:crypto"
 import { posix } from "node:path"

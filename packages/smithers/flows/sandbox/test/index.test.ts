@@ -38,6 +38,8 @@ describe("@smthrs/sandbox barrel", () => {
     expect(Object.keys(Sandbox.Sandbox).sort()).toEqual([
       "CaptureError",
       "Changed",
+      "JobHandle",
+      "JobResult",
       "Provider",
       "Sandboxed",
       "TestSession",
@@ -48,6 +50,7 @@ describe("@smthrs/sandbox barrel", () => {
       "fanOut",
       "fileSystem",
       "hostContext",
+      "job",
       "layerHost",
       "maxFanOut",
       "resolveBase",

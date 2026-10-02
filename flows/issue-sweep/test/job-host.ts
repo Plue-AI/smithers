@@ -23,8 +23,8 @@ await Effect.runPromise(
           return await api.request(...args)
         } catch (cause) {
           const error = cause as { status?: number; code?: string; detail?: { code?: string } }
-          console.error(
-            JSON.stringify({ method: args[0], status: error.status, code: error.detail?.code ?? error.code })
+          process.stderr.write(
+            `${JSON.stringify({ method: args[0], status: error.status, code: error.detail?.code ?? error.code })}\n`
           )
           // Creation may be admitted before its response fails. Remove only this
           // test's exact stable name; never clean up another run's workspace.

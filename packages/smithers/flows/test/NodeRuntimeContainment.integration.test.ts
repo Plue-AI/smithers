@@ -73,8 +73,8 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }))
  * unique name is the one that has to die: `exec`ing `sleep` would replace the
  * image and the name with it.
  */
-const sleeper = (label: string): string => {
-  const path = join(directory, `flows-run-orphan-${label}`)
+const sleeper = (root: string, label: string): string => {
+  const path = join(root, `flows-run-orphan-${label}`)
   writeFileSync(path, "#!/bin/sh\nwhile true; do sleep 0.2; done\n")
   chmodSync(path, 0o755)
   return path
@@ -181,7 +181,7 @@ const cancelFromAnotherDriver = (options: {
     const root = join(directory, options.label)
     mkdirSync(root, { recursive: true })
     const filename = join(root, "runtime.sqlite")
-    const script = sleeper(options.label)
+    const script = sleeper(root, options.label)
     const pidFile = join(root, "background.pid")
     const executionId = `containment-${options.label}`
     commands.set(executionId, line(script, pidFile, options.prefix))
@@ -194,7 +194,19 @@ const cancelFromAnotherDriver = (options: {
           owner: { hostId },
           signals: [],
           containment: { graceMs: options.graceMs },
-          rules: [allowSpawn]
+          rules: [
+            allowSpawn,
+            // The shell reads its sleeper and writes its pid only inside this
+            // case's workspace; native confinement remains enabled.
+            ...(["fs:read", "fs:write"] as const).map((action) => new Permission.Rule({
+              effect: "allow",
+              pattern: new Capability.CapabilityPattern({ action, resource: `${root}/**` })
+            })),
+            new Permission.Rule({
+              effect: "allow",
+              pattern: new Capability.CapabilityPattern({ action: "fs:write", resource: root })
+            })
+          ]
         },
         flows
       )
