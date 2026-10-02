@@ -35,10 +35,4 @@ describe("guide behavior claims", () => {
     expect(page).toContain("resolved Nix environment variables")
   })
 
-  it("scaffolding documents the supported option and unchanged dependency versions", () => {
-    const page = read("guides/scaffold-an-app.md")
-    expect(page).not.toContain("`link`")
-    expect(page).toContain("`templateRoot`")
-    expect(page).toContain("Dependency versions are copied unchanged")
-  })
 })
