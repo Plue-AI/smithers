@@ -8,7 +8,8 @@ Any member, or an agent acting for one, sends a steer to a TODO and the coding a
 
 ## Scope
 In:
-- `POST /api/todos/{n} {steer: text}` and `/todo.steer Tn`. The command is `agent: confirm` in the catalog (A✓): the app agent posts a one-click confirmation that the prompt's author presses (§15.1.5).
+- `POST /api/todos/{n} {steer: text}` and `/todo.steer Tn`. The command is `agent: run` in the catalog (mvp.md Appendix A `runs.steer` → `/todo.steer`: P, A, X): any member steers, and the app agent or an external agent steers at once for its person, recorded with `via` (§15.1.5; product, 2026-10-02).
+- While a question is open (`needs_you{kind: question}`), Answer is the primary action and a steer never settles the wait; the steer is delivered as context and the question stays open (§10.7.3).
 - Durable delivery to the attempt's `todo` run (T-FLW-11) as a signal, keyed by the request's `Idempotency-Key`.
 - Steer admission at every step boundary of the `todo` flow (route, plan, implement, check, review, package, and the post-propose wait) and between agent turns inside implement (§10.7.3).
 - Delivery by state (§10.7.3): held while `queued` or `starting` and delivered when the run starts; delivered on resume while `paused`; `in_review → working`, with the run's post-propose wait re-entering implement (§10.4.1).
@@ -32,6 +33,7 @@ Out:
 - Unit, `flows/test/coding-steering.test.ts` (existing): a Message to a `todo` run is admitted at each step boundary; a Message to a closed run is refused with `notification_closed`.
 - Unit, `flows/test/coding-implementation-steer.test.ts` (new): a steer queued during atom 2 reaches the agent before its next model call, exactly once.
 - Integration with real PostgreSQL and a real flow host, `todo_steer_db_test.go` (new): the same idempotency key twice yields one signal, one event and one activity row; the run id and working-copy change id are unchanged after delivery.
+- Integration, same file: a steer from a delegated credential (`via=smithers`, `via=claude-code`) is delivered at once with no confirmation row; a steer while a question is open leaves the wait open and the TODO in `needs_you`.
 - Integration, same file: a steer to `in_review` moves it to `working` and the run re-enters implement with the steer first; a steer to `queued` is delivered at run start; a steer from a run credential is refused.
 
 ## Acceptance

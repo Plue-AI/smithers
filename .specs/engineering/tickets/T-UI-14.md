@@ -23,7 +23,7 @@ Out:
 
 ## Changes
 
-- `apps/app/src/mainview/cards/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives (design decides the file layout within these trees).
+- `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
 - Fixtures in `apps/app/src/mainview/cards/fixtures/` (shared with T-APP-19).
 
 ## Tests

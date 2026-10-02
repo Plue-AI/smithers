@@ -8,7 +8,7 @@ A member's terminal card shows whose session it is and who watches it; the owner
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds every visual component and its styles: `TerminalCard` view: owner, watchers, running command, Watching state, temporary-home header. Engineering wires them: the terminal stream client on the live channel and the owner-only input rule. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
+Design (smithers-06) builds every visual component and its styles: `TerminalCard` view: owner, watchers, running command, Watching state. Engineering wires them: the terminal stream client on the live channel and the owner-only input rule. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -16,7 +16,6 @@ In:
 - Owner: the card takes keyboard input and the control-focus spotlight. A session the owner's own agent runs (`via` of the same person) is still the owner's to type into (mock `cards/Terminal.tsx:19-20`).
 - Watcher: the card shows "Watching", never takes keyboard focus for input, and sends no input frames. The server drops any that arrive anyway (§7.5).
 - The coding agent's terminal (T-TRM-05) renders with owner "Agent" and is read-only for every member (§8.11.2a): one Terminal card, whoever runs the command (mvp.md §3.1).
-- Temporary home: when the terminal model's `temporary_home` is true (§14.3, T-MCH-11), the owner's header shows "temporary home until next wake" (mvp.md §6.8). Watchers don't see it.
 - Transport: the card reads and writes through T-TRM-01's live-channel terminal client (binary kinds 3–5, §7.5). This ticket opens no socket of its own.
 - `/terminal [branch]` opens the member's own terminal on the branch (`POST /api/terminals`). From the app agent it is A✓: the agent posts a one-click Confirm card that the prompt's author presses, and the terminal opens from that session (§15.1.5, Appendix B.2).
 

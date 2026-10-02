@@ -18,6 +18,9 @@ In:
 - Field names and enums copied from spec §14.3 in snake_case. Callbacks are typed as `(input) => void` per catalog command the card fires (§6.1), never as RPC clients.
 - Fixtures per card in `apps/app/src/mainview/cards/fixtures/<Card>.ts`: each state §14.3 lists (for Todo: every one of the eight states; for Confirm: both kinds, waiting, receipt).
 - A schema test per card: each fixture parses, and an unknown state fails to parse.
+- `Action` with `tag: CatalogTag` (the tag union exported by T-CAT-01's catalog source; until that lands, a placeholder union of Appendix A tags that T-CAT-01 replaces in the same change).
+- The Container helper `cardActions(…)`: builds `actions[]` from catalog tags and binds `onAction` to `flowAction`, so every View button is a catalog flow with three doors.
+- `flows/parity.test.ts` (with T-CUT-01's parity edit): leave `cards/views/` out of the pinned handler table; add the View-seam rule (every handler is `onAction(<action>.tag)` with `data-flow`) and the Container rule (every `*Container.tsx` builds `actions[]` through `cardActions`).
 
 Out:
 - Views and CSS (design). Containers and topic mapping (each card's own ticket).
@@ -31,7 +34,8 @@ Out:
 ## Tests
 
 - unit (`packages/rpc/src/<Card>Card.test.ts`): fixtures parse; unknown enum values fail; every §14.3 field appears in the schema (a table test generated from §14.3's field lists).
-- unit (`apps/app/src/mainview/Architecture.test.ts`): `*View.tsx` files import nothing from topic, store, controller or command modules (C-UI-08).
+- unit (`apps/app/src/mainview/Architecture.test.ts`): `cards/views/*View.tsx` files import nothing from topic, store, controller or command modules (C-UI-08).
+- unit (`flows/parity.test.ts`): a View with a handler not routed through `onAction(action.tag)`, or without `data-flow`, fails; a Container building `actions[]` without `cardActions` fails.
 
 ## Acceptance
 

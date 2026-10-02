@@ -3,6 +3,10 @@
 Proves: mvp.md M-18, J6.1, J6.5 · spec.md §5.5.4, §8.7.1, §8.7.2 · Layer: spike · Stage: W0 · Tickets: T-MCH-02
 Automation: `scripts/spikes/mch-02-virtiofs-homes/run.sh` (new) · Runs in: reference host
 
+## Result (2026-10-02)
+
+NO. Layout A: owner access fails. Layout B: ownership and isolation pass, but the step 6 interleaved writes lost data (183 of 2,000 shared reads ENOENT; 2,739 missing append records; SQLite errors and lost WAL rows). The spec drops shared homes (§8.7.1).
+
 ## Setup
 
 - The reference host, `msb` 0.6.16, two VMs (VM 1, VM 2) booted from `DefaultImage`, both awake for the whole run.

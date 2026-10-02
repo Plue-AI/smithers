@@ -63,7 +63,7 @@ Most of the MVP already exists as parts: the durable flow engine, the Mythical s
 | E-07 | A TODO is its own table with an explicit state machine and an event log. `mythical_items` stays the engine's work record, 1:1 with a TODO. | M-16. The 15 internal states project onto the 8 product states. | Keep issues as TODOs: contradicts M-16. | Hard after data exists |
 | E-08 | GitHub uses an App made by the manifest flow during install. Repo-wide conditional polls cost about 500 REST calls/h. Webhooks only speed things up. | M-03: no public address. 304 responses are free. | Per-PR polling: about 4,300 calls/h. Webhook relay service: needs our infrastructure. | Yes |
 | E-09 | Only a browser `session` credential can approve or merge. `smthrs login`, terminal sign-in and the app agent get `delegated` credentials with `via`. Every delegated catalog row is `run`, `confirm` (a one-click card the person presses) or `never` (spec §15.1.5). | §6.13 and M-21. The CLI can't know whether an agent holds its token. | Person PATs with an "agent" flag: trusts the client. | Hard |
-| E-10 | Each member has a stable unix uid on every machine and a home persisted on the host and mounted into machines. No sudo, for anyone. | M-18 and M-29. | Shared `developer` user: shared logins. | Medium |
+| E-10 | Each member has a stable unix uid on every machine and a per-machine home on that machine's disk; a host credential store syncs only five tool credential files (newest write wins). No sudo, for anyone. | M-18 and M-29. Spike T-MCH-02: two VMs writing one virtiofs home lost data. | Shared `developer` user: shared logins. One host home mounted into every machine: lost data. | Medium |
 | E-11 | One admission queue with priority person > TODO > background. Capacity comes from host memory. No preemption of a working agent. | M-06 and M-13. | Hard refusal at the cap (today). | Yes |
 | E-12 | A run pins the flow digest. Activation happens after a background `flow-load` run on the new `main`, and a failed load keeps the previous version. | J5 and §6.12. A per-machine coding host makes #3377 unnecessary. | Load in the host: violates E-02. | Yes |
 | E-13 | Origin-agnostic: loopback by default; the owner sets the bind address and public origins. The app works in secure and insecure contexts: no `crypto.randomUUID`, `crypto.subtle` or clipboard dependency. HTTPS comes from any proxy the team uses. | Will (2026-10-02): Tailscale isn't part of the product. Removing the secure-context dependency makes every exposure work. | Tailscale-only (`tailscale serve`): ties the product to one vendor. Install CA plus `smthrs connect`: certificate work for every teammate. | Yes |
@@ -84,7 +84,7 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
 
 ```
  W0 (days 1–3)   Spikes, in parallel. Each is a yes/no answer with a fallback:
-                 T-MCH-02 virtiofs homes (done: layout B passes)   T-MCH-01 VM memory calibration
+                 T-MCH-02 virtiofs homes (done: shared homes lose data → per-machine homes)   T-MCH-01 VM memory calibration
                  T-COL-01 relay + Yjs keystroke latency + jj snapshot latency
                  T-INS-03 signing + Hypervisor from a launchd daemon   T-GH-01 manifest from a LAN laptop
 
@@ -109,7 +109,7 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                    TODO, Confirm, Home, shell, toasts/timeline, Members, Flow, CodeEditor, monitor, Agent, /help.
                    Each T-APP container waits for its T-UI view or wires a fixture stub.
  Stage 2         One live branch (drop user_id from the 0095 key), presence, member unix users + homes
- multiplayer     (layout B), no sudo, owner-only terminals, the agent's own terminal, SSH + GitHub keys,
+ multiplayer     (per machine) + credential store, no sudo, owner-only terminals, the agent's own terminal, SSH + GitHub keys,
  (J3 no co-edit) secrets in machines, smithers-machined watcher + bursts + Restore this file + moved-off,
                  Branch card, File/Diff reload on change, admission queue, sleep reads, fork from scratch,
                  presence-aware rebase, browser notifications, Obsidian folder sync
@@ -133,7 +133,7 @@ Critical path: W0 spikes → T-MCH-04 ‖ T-MCH-11 → T-COL-03 → T-COL-04 (st
 | One catalog from Appendices B and C breaks the 116 Playwright specs, or deletes too much | T-CAT-01 runs both suites; T-CUT-01 lists ambiguous rows for product | Migrate group by group behind the allowlist test (T-CUT-01's first run was discarded for deleting too much) |
 | Hypervisor.framework fails from a launchd daemon | T-INS-03 spike | Launchd agent plus automatic login, no sudo (spec §16.1.2) |
 
-Retired: the virtiofs homes risk (T-MCH-02 passed with layout B, spec §8.7.1). The 24 GB swap risk is now handled by the host-derived capacity formula (§8.2.1), and T-MCH-01 calibrates it.
+Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so homes are per machine and only five credential files sync (spec §8.7.1, §8.7.3, T-MCH-15). The 24 GB swap risk is now handled by the host-derived capacity formula (§8.2.1), and T-MCH-01 calibrates it.
 
 ## Open questions
 

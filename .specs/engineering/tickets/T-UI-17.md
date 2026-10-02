@@ -1,7 +1,7 @@
 # T-UI-17 Terminal view
 
 Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-12 · Issue: to file
-Spec: spec.md §14.2.1, §8.7.1, §14.3 (Terminal) · Delta: delta.md §9 · Product: mvp.md J3.3, J6 · Props: [ui-components.md § T-UI-17](../ui-components.md)
+Spec: spec.md §14.2.1, §14.3 (Terminal) · Delta: delta.md §9 · Product: mvp.md J3.3, J6 · Props: [ui-components.md § T-UI-17](../ui-components.md)
 
 ## Goal
 
@@ -14,7 +14,7 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-APP-12 and revi
 ## Scope
 
 In:
-- `TerminalView`: owner, watchers, running command, Watching state for non-owners, and the temporary-home header.
+- `TerminalView`: owner, watchers, running command, and the Watching state for non-owners.
 - Props exactly as `ui-components.md` § T-UI-17 until T-APP-19 lands, then the zod type from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
@@ -23,7 +23,7 @@ Out:
 
 ## Changes
 
-- `apps/app/src/mainview/cards/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives (design decides the file layout within these trees).
+- `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
 - Fixtures in `apps/app/src/mainview/cards/fixtures/` (shared with T-APP-19).
 
 ## Tests

@@ -95,6 +95,8 @@ Stage tags match [spec.md §0](../spec.md). Deferred behavior has no check.
 | [C-MCH-06](C-MCH-06.md) | No sudo or setuid; homes 0700; `agent` and other members can't read a home | integration | S2 | T-MCH-11 |
 | [C-MCH-07](C-MCH-07.md) | All-branches secrets present in every session and the coding host; values never readable through the API | e2e | S2 | T-MCH-12, T-APP-13, T-UI-18 |
 | [C-MCH-08](C-MCH-08.md) | Fork never stops the source machine and starts from the captured revision | integration | S2 | T-MCH-08 |
+| [C-MCH-09](C-MCH-09.md) | Homes are per machine, created at first session (also for a member added while awake), never shared, kept across sleep | integration | S2 | T-MCH-11 |
+| [C-MCH-10](C-MCH-10.md) | Log in once per install: the five credential files sync with newest-wins, history and caches stay local, revocation removes them | integration | S2 | T-MCH-15 |
 | **Stack** | | | | |
 | [C-STK-01](C-STK-01.md) | The projection (item state × needs_you × paused → TODO state) is exhaustive, and the engine's guards allow only §4.1's transitions, each with an event row | unit | S1 | T-STK-01 |
 | [C-STK-02](C-STK-02.md) | Items admit in stack order up to `parallel`; the parallel setting is clamped by capacity | integration | S2 | T-STK-03 |

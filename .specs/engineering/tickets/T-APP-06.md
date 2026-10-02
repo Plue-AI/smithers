@@ -18,7 +18,7 @@ In:
   - "needs access on GitHub ↗" links to the repository's collaborator settings when the person lacks write access (§5.1.2);
   - a suspended member shows "suspended" from the §14.3 `suspended` field, with the same GitHub link (§5.1.3).
 - An add row: GitHub username and Add. The new row appears only when the `members` topic reports it, with the role seeded from GitHub: admin or maintain becomes Maintainer, write becomes Member (§5.1.4). A person with only read access, or none, can't be added.
-- Commands with three doors: `/members`, `members.add <login>`, `members.role <login> <role>`, `members.remove <login>` (confirm). A delegated actor's role change or removal opens a person confirmation (§5.4), rendered with the T-APP-04 component. The app agent's calls carry its `delegated(via=smithers)` bearer, so they always take that path (§15.1.4).
+- Commands with three doors: `/members`, `members.add <login>`, `members.role <login> <role>`, `members.remove <login>` (the person confirms removal in the card). These are person-only: the catalog row is `agent: never` (mvp.md Appendix B: "Maintainer (P only; agents: never)"; spec §5.2), so a delegated credential, including the app agent's `delegated(via=smithers)` (§15.1.4), gets 403 `never` and no confirmation is created.
 - Non-maintainers see the roster read-only; the server authorizer refuses their writes with the `permission` class (§5.2.1, §6.2.3).
 
 Out:
@@ -36,7 +36,7 @@ Out:
 - Unit (`MembersCard.test.tsx`): rows for owner, maintainer, member, needs-access and suspended; controls present only for a maintainer viewer; the owner row has no role select or Remove.
 - Unit: Add with an empty or malformed login (outside GitHub's `[A-Za-z0-9-]{1,39}`) does not send; a refused add shows the server's reason in place.
 - Unit: the card passes the C-UI-02 product-word and minimal-text lint.
-- Integration (`apps/app/src/mainview/state/seams/MembersSeam.test.ts`, new, real backend with PostgreSQL): a member's `members.role` returns 403 `permission`; a delegated maintainer's `members.remove` returns a confirmation id and changes nothing until a session approves.
+- Integration (`apps/app/src/mainview/state/seams/MembersSeam.test.ts`, new, real backend with PostgreSQL): a member's `members.role` returns 403 `permission`; a delegated maintainer's `members.add`, `members.role` and `members.remove` each return 403 `never`, create no `person_confirmations` row and change nothing.
 - e2e: the C-J1-05 script.
 
 ## Acceptance

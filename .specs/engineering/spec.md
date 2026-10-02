@@ -151,6 +151,8 @@ outbound_writes(key PK, kind, target jsonb, state[intended|done|unknown], github
 github_sync(stream PK, last_attempt_at, last_success_at, etag, cursor, target_interval_s,
             last_error jsonb NULL)
 secrets(name PK, scope, ciphertext, created_by, updated_at)
+member_credentials(member_id, file[claude_credentials|claude_account|codex_auth|gh_hosts|gitconfig],
+                   ciphertext, written_at, from_branch_id NULL, PRIMARY KEY(member_id, file))   -- §8.7.3
 
 presence_sessions(id, branch_id, member_id, via, started_at, ended_at)   -- coarse: one row per continuous presence ≥ 2 min, for the scorecard (§20.4)
 conversations(id, branch_id UNIQUE, created_at)
@@ -322,11 +324,11 @@ A delegated credential whose catalog row is `confirm` (§15.1.5; for example mer
 
 5.5.3 The working copy is owned `root:team` (gid 20000), with setgid directories and mode `g+rwX`. Every session has `umask 002`. Members and `agent` are in `team`.
 
-5.5.4 Each member's home is `/home/<login>`, mode 0700, persisted per member across machines (§8.7) so tool logins carry from branch to branch. A member added while a machine is awake gets a temporary home there until its next wake (§8.7.1). `agent` has no access to member homes.
+5.5.4 Each member's home is `/home/<login>` on each machine, mode 0700, owned by that member's uid. A home belongs to one machine and is never shared between machines (§8.7.1). Tool logins carry from branch to branch through the member's credential store (§8.7.3), not through the home. A member added while a machine is awake gets a home there at their first session. `agent` has no access to member homes.
 
 ### 5.6 Revocation
 
-Removing or suspending a member deletes their sessions, revokes their delegated credentials and SSH grants, and closes their live sockets, terminals and SSH sessions within 5 s. Their TODOs keep their history; any maintainer can take one over with **Take over**, an in-card control on the TODO card (`todos.owner_id` change, audited).
+Removing or suspending a member deletes their sessions, revokes their delegated credentials and SSH grants, and closes their live sockets, terminals and SSH sessions within 5 s. It also deletes their credential store rows and their seeded credential files on every machine (§8.7.3). Their TODOs keep their history; any maintainer can take one over with **Take over**, an in-card control on the TODO card (`todos.owner_id` change, audited).
 
 ---
 
@@ -553,9 +555,20 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 ### 8.7 Homes and logins
 
-8.7.1 Member homes live on the host under `$STATE/homes/<login>/`. Each member's home is a separate virtiofs mount at boot (`--mount-dir <host dir>:/home/<login>:uid=<uid>,gid=<uid>`), owned by that member's uid with mode 0700. This is layout B from spike T-MCH-02 (#3437): uid, gid and 0700 hold across reboot and across VMs, cross-member reads fail EACCES, and changes are visible between VMs at p95 645 ms (max 4.7 s). Members log in to a tool once per install. `msb` can't add a mount to a running VM, so a member added while a branch's machine is awake gets a machine-local home there until the next wake. Logins made in it don't carry over, and that member's terminal header shows "temporary home until next wake" (mvp.md §6.8). Per-person uids stay in every case.
+8.7.1 Member homes are per machine (product, 2026-10-02; mvp.md §6.8 Terminals). Each is `/home/<login>` on the machine's own disk, created by the guest helper at the member's first session on that machine, owned by their uid with mode 0700. The disk is kept across sleep (§8.4.3), so tool history, caches and databases persist per machine. No home is shared between machines. Spike T-MCH-02 (#3437, C-SPK-02, `.artifacts/checks/C-SPK-02/20261002T212556Z/`) showed why. Two awake VMs writing one virtiofs home lost data: 2,739 missing append records, 4,499 SQLite errors, 3,014 acknowledged WAL rows lost, and no cross-VM lock exclusion. One virtiofs mount for several members can't present per-member owners (layout A failed), and `msb` can't add a mount to a running VM. So homes use no virtiofs.
 
-8.7.2 Nothing in a home is readable by `agent`, by other members, or by the host service's flows.
+8.7.1a Disk: homes count against the machine's root disk, which §8.2.1 sizes from the host profile. A machine recreated from a new recipe starts with empty homes, and its credentials are seeded again (§8.7.3).
+
+8.7.2 Nothing in a home is readable by `agent`, by other members, or by the host service's flows. The credential store is read only by the host's credential service and `smithers-machined`; no flow, API or card can read a value back.
+
+8.7.3 **Credential store.** The host keeps each member's tool credential files in `member_credentials`, sealed under the install key (§17.4). Five files are tracked:
+- `~/.claude/.credentials.json` (Claude Code);
+- the account fields of `~/.claude.json` (`oauthAccount`, `userID`, `primaryApiKey` when present), merged into that file, which is never replaced whole;
+- `~/.codex/auth.json`;
+- `~/.config/gh/hosts.yml`;
+- `~/.gitconfig`.
+
+`smithers-machined` seeds these files into the member's home at the first session after each wake, and again whenever the store changes (`seed_credentials`, §9.1.2). It watches the five paths with inotify, apart from the working-copy watcher (§9.3.1), and never as bursts. A changed file comes back as `credential_changed{member, file, content, written_at}`, and the host keeps the newest `written_at`. Guest clocks are host-synced; a tie goes to the later arrival. The host then seeds that copy into every other awake machine where the member has a home. Nothing else in a home leaves its machine. Removing or suspending a member deletes their store rows, and every machine deletes their seeded files at once, or at its next wake if asleep (§5.6).
 
 ### 8.8 Secrets
 
@@ -617,6 +630,7 @@ A static Rust binary (linux-arm64, musl) that runs as root inside every machine 
 - `read_file(path, at?)`;
 - `write_file(path, base_digest | "absent", content, actor)`: the §7.6 compare-and-write;
 - `open_session(member, kind: pty|exec|sftp, argv?)` and `tcp_connect(port)`: §8.10.3, §8.11;
+- `seed_credentials(member, files[])`: §8.7.3; the daemon writes each file as the member, mode 0600, merging `~/.claude.json` account fields;
 - `register_run(run_id, cgroup)`: the coding host calls it at run start, so writes by the agent's processes resolve to that run;
 - `rebase(onto)`: §9.4;
 - `return_to_item()`: §9.3.8;
@@ -751,7 +765,7 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 10.7.2a The coding agent can ask a person mid-implementation. The `ask` tool is bound for the implementing seats (`coding/edit-atom`, `coding/dispatch-turn`), not only at flow-step boundaries. It raises `needs_you{kind: question}` as a durable wait and continues with the first answer (§10.8.2).
 
-10.7.3 Steer: any member, or an agent acting for one. The text is delivered to the run as a durable signal. A steer to a queued TODO is held and delivered when its run starts; one to a paused TODO is delivered on resume; one to an in_review TODO moves it to working. The run's flow MUST accept steers at every step boundary, and inside the implement step between agent turns (≤ one model turn of latency). The steer appears in branch activity with its author's avatar.
+10.7.3 Steer: any member, or an agent acting for one. The text is delivered to the run as a durable signal. Steer is `agent: run`: an agent steers at once for its person, with `via` recorded. A steer never settles an open question: while `needs_you{kind: question}` is open, Answer is the primary action, and the steer reaches the agent at once as context. The agent may replace its question with a better one, but the question stays open until a person answers (mvp.md §4.1). A steer to a queued TODO is held and delivered when its run starts; one to a paused TODO is delivered on resume; one to an in_review TODO moves it to working. The run's flow MUST accept steers at every step boundary, and inside the implement step between agent turns (≤ one model turn of latency). The steer appears in branch activity with its author's avatar.
 
 ### 10.8 Needs you
 
@@ -960,8 +974,8 @@ The webhook is created inactive (`hook_attributes.active = false`), because poll
 Every card renders one live topic (§7.2) or a set of topics, and every card action runs one catalog command (§6.1). Cards hold no business state. The same component renders inline and maximized.
 
 14.2.1 Ownership (Will, 2026-10-02). Design builds every visual component in `apps/app` and `@smthrs/ui`: cards, the shell, the timeline, toasts, the branch tree, forms and CSS. Engineering wires them to data and actions. Each card is split in two:
-- `<Card>View`: presentational, props only (the view model plus callbacks), with fixture stories. Design owns it.
-- `<Card>Container`: subscribes to the card's topics, maps them to the view model, and binds callbacks to catalog commands. Engineering owns it.
+- `<Card>View` in `apps/app/src/mainview/cards/views/`: presentational, props only (the view model plus callbacks), with fixture stories. Every handler calls `onAction(action.tag)` and its control carries `data-flow={action.tag}`. Design owns it.
+- `<Card>Container`: subscribes to the card's topics, maps them to the view model, and builds `actions[]` through one helper that binds `onAction` to `flowAction`, so the three-door and agent-parity rules hold at the Container. `Action.tag` is the catalog's tag type (T-CAT-01). Engineering owns it.
 
 The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent), written from §14.3's field lists (T-APP-19), with fixtures in `apps/app/src/mainview/cards/fixtures/<Card>.ts`. §14.3 is the source of truth for fields, and the TypeScript types are its executable form. A field a view needs but §14.3 lacks is a spec change, raised with the tech lead.
 
@@ -974,7 +988,7 @@ The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.t
 | Branch | `branch:<id>` + `:activity` + `:files` | Machine `{state, wait_position?}` with in-card Sleep and Wake, item and place or "scratch", rebase_pending, moved_off, presence[] `{actor, where, watching?}`, terminals[], activity[] `{actor, asked_by?, kind, text, items?, files, github}` (§3), changed files |
 | File | `branch:<id>:files` [S2]; live doc [S3] | [S2] text, last writer, reload on change, gone state, `outside` (the snapshot that Compare reads, §9.2.3). [S3] per-character authors; editors[] `{actor, line}`; saved state |
 | Diff | `branch:<id>:files` | Hunks vs the previous item's candidate (§12.5.1) |
-| Terminal | terminal stream + `branch:<id>` | Owner, watchers, running command, `temporary_home` (a machine-local home until the next wake, §8.7.1) |
+| Terminal | terminal stream + `branch:<id>` | Owner, watchers, running command |
 | Flow | `flows` | Source label (built-in or `flows/<name>/flow.ts`), versions `{state: active|proposed|merged-syncing|merged-failed|previous, todo?, error?, steps[] {id, label, detail?, agent?}}`, and for the TODO flow the trailing merge wait with its signals (rebase → check, steer → implement); actions Source, Plan, Run, Edit; the agent of each step |
 | Members / Secrets | `members` / `secrets` | Login, name, avatar, role, needs_access, suspended; secret name, scope and optional bound hosts (set in Add and Replace; no separate Bind door) |
 | Setup / Settings | `install` | Address `{bind, origins[]}`, per-step `{state, error?: {code, message, fix?}}`, "This Mac" (the detected host and its limits, §8.2.1), GitHub `{signed_in, app_installed, squash_allowed}`, repository, model access flags, source `{state, pct}`, machine `{state, pct}`; Settings adds capacity, parallel and the laptop-agent line `smthrs login <origin>` |

@@ -1,6 +1,6 @@
 # UI components: design builds, engineering wires
 
-Version 0.2 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
+Version 0.3 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
 
 Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn their callbacks into catalog commands. This page lists the components in order of need and gives each one its props. The props are spec.md §14.3 in TypeScript. T-APP-19 transcribes them into zod schemas in `packages/rpc/src/<Card>Card.ts` with fixtures in `apps/app/src/mainview/cards/fixtures/<Card>.ts`. Until it lands, design builds against this page with local fixtures.
 
@@ -8,7 +8,7 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
   packages/rpc/src/<Card>Card.ts        zod schema + type   (engineering, T-APP-19)
             │                    │
             ▼                    ▼
-  <Card>View.tsx  ◀── props ── <Card>Container.tsx ──▶ live topic (§7.2)
+  cards/views/<Card>View.tsx ◀── props ── <Card>Container.tsx ──▶ live topic (§7.2)
   design: T-UI-nn               engineering: T-APP-nn     catalog command (§6.1)
   fixtures + stories            subscribes, maps, binds
 ```
@@ -17,7 +17,8 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
 
 - A View takes props only. It imports no topic, store, controller, RPC client or command module (C-UI-08).
 - A View never decides who may act. The container passes `actions[]` already filtered for the viewer, and the View renders them in order. A missing action means no button.
-- Every user gesture is `onAction(tag, input?)` with a tag from `actions[]`. Tags are opaque to the View; the lists below name the buttons by label. UI-only gestures (maximize, tab, filter, scroll) are `onView(patch)`, which the container stores in per-member view state (§14.1.2).
+- Every user gesture is `onAction(action.tag, input?)` with an action from `actions[]`, and the control carries `data-flow={action.tag}`. Tags are opaque to the View; the lists below name the buttons by label.
+- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the View-seam rule instead: every handler goes through `onAction(<action>.tag)` with `data-flow`. Parity moves to the Container: every `*Container.tsx` builds `actions[]` through one helper that binds `onAction` to `flowAction`, so the three-door and agent-parity rules still hold (agreed with design, 2026-10-02). UI-only gestures (maximize, tab, filter, scroll) are `onView(patch)`, which the container stores in per-member view state (§14.1.2).
 - A field the View needs but this page lacks is a spec change. Raise it with the tech lead, who updates §14.3, this page and T-APP-19 together.
 - Copy follows §14.6b: product words, card lines of 12 words or fewer, no explanatory sentences.
 
@@ -68,7 +69,7 @@ type Tone = "live" | "attention" | "failed" | "done" | "quiet"      // §14.5.2
 type NeedsYouKind = "question" | "approval" | "conflict" | "moved_off" | "foreign_push"
 
 type Action = {                 // filtered for the viewer by the container
-  tag: string                   // catalog tag, opaque to the View; the container maps it
+  tag: CatalogTag               // the catalog's tag type (T-CAT-01), opaque to the View
   label: string                 // "Answer", "Merge", "Retry"
   primary?: boolean
   disabled?: { reason: string } // e.g. "Waiting for T8"
@@ -79,7 +80,7 @@ type FormField = { name: string; label: string; kind: "text" | "choice" | "secre
 type CardProps<M> = {
   model: M
   actions: Action[]
-  onAction: (tag: string, input?: Record<string, string>) => void
+  onAction: (tag: CatalogTag, input?: Record<string, string>) => void
   view: { maximized: boolean; tab?: string; filter?: string }
   onView: (patch: Partial<CardProps<M>["view"]>) => void
 }
@@ -167,7 +168,7 @@ type TodoModel = {
 ```ts
 type ConfirmModel = {
   kind: "one_click" | "review_merge"
-  action: { tag: string; verb: string }           // the button reads the verb
+  action: { tag: CatalogTag; verb: string }           // the button reads the verb
   summary: string                                 // one line
   subject: { kind: "todo" | "branch" | "flow" | "secret" | "member"; ref: string; revision: string }
   place?: number
@@ -304,7 +305,7 @@ type AgentModel = {
 
 ```ts
 type CommandsModel = { groups: { label: string; advanced: boolean
-                                 commands: { tag: string; title: string; agent: "run" | "confirm" | "never" }[] }[] }
+                                 commands: { tag: CatalogTag; title: string; agent: "run" | "confirm" | "never" }[] }[] }
 ```
 
 ### T-UI-15 Branch (`branch:<id>`, `:activity`, `:files`) [S2]
@@ -340,7 +341,7 @@ type FileState = { reloading: boolean; gone?: { by: Actor }; renamed_to?: string
 
 ```ts
 type TerminalModel = { id: string; owner: Actor; watchers: PersonRef[]; command?: string
-                       temporary_home: boolean; viewer_is_owner: boolean }
+                       viewer_is_owner: boolean }
 // the stream is a separate prop: { write: (bytes) => void; onData: (cb) => void }; input only when viewer_is_owner
 ```
 

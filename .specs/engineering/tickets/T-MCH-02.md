@@ -3,6 +3,10 @@
 Stage W0 · Size S · Depends on — · Unblocks T-MCH-11 · Issue: [#3437](https://github.com/smithersai/smithers/issues/3437)
 Spec: spec.md §5.5.4, §8.7, §21 · Delta: delta.md §3 (per-member users row) · Product: mvp.md J6.1, J6.5, §6.8 Terminals, M-18
 
+## Result (2026-10-02)
+
+Done. C-SPK-02 is NO: layout A gives no per-member owner, and layout B passes ownership but two awake VMs writing one home lost data (`.artifacts/checks/C-SPK-02/20261002T212556Z/REPORT.md`). Product re-ruled homes as per machine with a credential store (mvp.md §6.8; spec §8.7.1, §8.7.3; T-MCH-11, T-MCH-15).
+
 ## Goal
 
 By the end of day 3, a recorded yes or no: a host directory mounted into `msb` 0.6.16 microVMs keeps per-directory guest ownership and mode 0700 across a reboot and across two VMs, so one member's home follows them from branch to branch.
