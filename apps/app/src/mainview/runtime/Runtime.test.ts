@@ -140,6 +140,8 @@ for (const [capabilities, available] of [
   expect(runtime.http).toBe(http)
   expect(runtime.backend.agent?.available).toBe(available)
   expect(Object.keys(runtime.backend)).toEqual(available === undefined ? [] : ["agent"])
+  // Only the shared backend keeps turn journals; a model-only host's turns stream frames.
+  expect(runtime.backend.agent?.journal !== undefined).toBe(available === true)
 })
 
 test("native shell retains and invokes the exact host callback", async () => {

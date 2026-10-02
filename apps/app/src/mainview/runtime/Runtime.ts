@@ -90,9 +90,18 @@ export const createRuntime = (options: {
     bootstrap,
     http,
     backend: {
-      ...(hasCapability(bootstrap, "agent") || hasCapability(bootstrap, "model.turn")
-        ? { agent: { ...createWebAgent({ fetchImpl: http }), available: hasCapability(bootstrap, "agent") } } : {})
+      ...(hasCapability(bootstrap, "agent") ? { agent: createWebAgent({ fetchImpl: http }) }
+        : hasCapability(bootstrap, "model.turn") ? { agent: modelOnlyAgent(http) } : {})
     },
     shell: native
   }
+}
+
+/*
+ * A host that runs configured-model turns but has no agent relays nothing to
+ * the shared backend, so it keeps no turn journal: its turns stream frames.
+ */
+const modelOnlyAgent = (http: FetchLike): AgentPort => {
+  const { journal: _journal, ...agent } = createWebAgent({ fetchImpl: http })
+  return { ...agent, available: false }
 }
