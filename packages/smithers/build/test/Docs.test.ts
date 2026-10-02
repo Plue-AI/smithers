@@ -186,7 +186,8 @@ describe("packages/smithers/build prose", () => {
     it(`qualifies native confinement and host access in ${file}`, () => {
       // Native confinement changed to an allowlist. Keep the prose tied to
       // that implementation, including the runtime and external-read grants.
-      const source = read("targets/src/ExecSandbox.ts")
+      expect(read("targets/src/ExecSandbox.ts")).toContain("ProcessSandbox.plan(lower(request), location, hostFacts)")
+      const source = read("../flows/platform-node/src/ProcessSandbox.ts")
       expect(source).toContain("\"--tmpfs\",\n    \"/\"")
       expect(source).toContain("(deny file-read*)")
       expect(source).toContain("runtimeReads(hostFacts)")

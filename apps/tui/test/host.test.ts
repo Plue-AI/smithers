@@ -1878,7 +1878,7 @@ describe("Host.run with a box", () => {
     const { outcome } = await placedRun(cwd, "ctx.done(\"never\")", {
       name: "rules-exit-box",
       workdir,
-      prefix: () => Promise.resolve(++calls <= 2 ? [] : ["/bin/sh", "-c", "exit 255", "lost"])
+      prefix: () => Promise.resolve(++calls <= 2 ? [] : ["/bin/sh", "-c", "cat >/dev/null; exit 255", "lost"])
     })
     expect(outcome).toMatchObject({ _tag: "failed" })
     expect((outcome as { message: string }).message).toContain("rules-exit-box could not read its rules: exit 255")

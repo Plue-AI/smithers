@@ -107,7 +107,7 @@ describe("cell state and result contracts", () => {
         call: () => Effect.succeed(new Cell.CallResult(results[0]))
       })
       const encoded = Schema.encodeSync(Schema.toCodecJson(Cell.Outcome))(frame.outcome)
-      expect(encoded).toEqual({ _tag: "settled", transition: { _tag: "complete", output: "2" } })
+      expect(encoded).toEqual({ _tag: "settled", transition: { _tag: "complete", output: "2", value: "2" } })
       expect(yield* Cell.decodeOutcome(encoded)).toEqual(frame.outcome)
 
       const invalid = yield* Effect.exit(realm.evaluate({
