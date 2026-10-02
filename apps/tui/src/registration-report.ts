@@ -30,7 +30,12 @@ export const lookup = async (input: Lookup): Promise<CachedReport | undefined> =
     const response = await input.fetch(`${input.baseUrl}/api/workflow/rpc`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo: input.cloudRepo, procedure: "Registration.Report", payload: { repo }, workspaceId: input.workspaceId })
+      body: JSON.stringify({
+        repo: input.cloudRepo,
+        procedure: "Registration.Report",
+        payload: { repo },
+        workspaceId: input.workspaceId
+      })
     })
     if (!response.ok) return undefined
     const body: unknown = await response.json()
