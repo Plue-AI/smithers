@@ -1,12 +1,17 @@
 # Shared workspace bases: prepare once, fork many
 
-Status: proposal, 2026-10-01. Line references are `main` at bfb9b44374.
+> [!CAUTION]
+> **Future planned feature. Do not implement.** Will deferred this design on
+> 2026-10-01. Agents must not plan or build any part of it. Tracking issue
+> #3382 carries the `do-not-implement` label; only Will lifts it.
+
+Status: future planned feature, do not implement (Will, 2026-10-01). Line references are `main` at bfb9b44374.
 Scope: storing each byte once across agent workspaces that share a base
 (source, installed dependencies, build outputs), and starting them fast.
 Non-goals: a general content-addressed layer library; forking a running VM
 from a memory snapshot; virtio-fs DAX; an FSKit filesystem; KSM; lazy fetch on
 first read; Windows; cross-tenant deduplication; replacing git or jj.
-Tracking: #3382. Cloud fleet changes (small guest disks, CPU overcommit, warm
+Tracking: #3382 (do not implement). Cloud fleet changes (small guest disks, CPU overcommit, warm
 pool) are specified in the private deployment repository.
 Review: Codex Astra, three rounds; rev 3 approved with changes, applied here.
 
