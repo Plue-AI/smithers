@@ -91,4 +91,3 @@ export const verify = async (argument: string, history: Pick<RunHistory.Service,
   const exit = await Effect.runPromiseExit(history.verify({ runId: words[0]! }))
   return Exit.isSuccess(exit) ? verifyLines(exit.value).join("\n") : refusal(exit.cause)
 }
-

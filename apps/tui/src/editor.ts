@@ -124,8 +124,7 @@ export const unknown = (name: string): string => {
 }
 
 /** Tab and Enter insert `/name ` for these, so the argument can be typed or completed. */
-export const takesArgument = (command: Command): boolean =>
-  command.args?.startsWith("<") === true
+export const takesArgument = (command: Command): boolean => command.args?.startsWith("<") === true
 
 export { parseCommand } from "@smthrs/ui/command-line"
 

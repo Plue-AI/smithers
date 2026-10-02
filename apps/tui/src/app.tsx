@@ -16,9 +16,8 @@ import * as CloudSession from "@smthrs/cli/CloudSession"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
 import { Schema } from "effect"
-import { existsSync } from "node:fs"
 import { homedir } from "node:os"
-import { basename, join } from "node:path"
+import { basename } from "node:path"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import stringWidth from "string-width"
 import { ActivityView } from "./activity-view.tsx"
@@ -81,7 +80,7 @@ import * as Tree from "./tree.ts"
 import * as Undo from "./undo.ts"
 import * as View from "./view.tsx"
 import * as Watch from "./watch.ts"
-import { seats, type Snapshot, type Tab, Workspace } from "./workspace.ts"
+import { type Snapshot, type Tab, Workspace } from "./workspace.ts"
 
 /** The transcript and composer never grow wider than this, like the app's chat column. */
 const columnWidth = 120
@@ -638,7 +637,7 @@ export function App(props: AppProps) {
     runs: flowRuns,
     plugins: pluginTabs,
     views: uiPanels.filter((panel) => !pluginPanels.includes(panel)),
-    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now),
+    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now)
   })
   const clickTab = (id: string) => {
     flushSync(() => {

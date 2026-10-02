@@ -298,7 +298,6 @@ test("resume keeps saved file identities while clipping only labels", () => {
     { key: "/sessions/a.jsonl", label: "Fix build", detail: "just now", value: "/sessions/a.jsonl" },
     { key: "/sessions/fork.jsonl", label: "Review", detail: "fork · just now", value: "/sessions/fork.jsonl" }
   ])
-
 })
 
 test("palette serializes public target identities without changing their exact paths or worker IDs", () => {

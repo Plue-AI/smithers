@@ -53,7 +53,6 @@ describe("slash completion", () => {
     expect(resume).toMatchObject({ insert: "/resume", submit: true })
     const named = Complete.complete("/nam", 4, sources)!.items[0]!
     expect(named).toMatchObject({ insert: "/name ", submit: false })
-
   })
 
   it("completes /model arguments", () => {

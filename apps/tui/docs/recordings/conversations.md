@@ -37,8 +37,6 @@ Wait for answer "Ready."
 Capture "Continue the original conversation."
 ```
 
-
-
 ```tui-script compact-context
 Use "basic"
 Type "Explain the addition function."

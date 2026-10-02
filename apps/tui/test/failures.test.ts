@@ -131,7 +131,6 @@ describe("tagged failures read as one plain sentence", () => {
 })
 
 describe("unknown failures", () => {
-
   it("a failure the person caused names no details and writes no log", () => {
     const before = logged()
     expect(Failures.line("flow", new FlowError("unknown_flow", "unique-unlogged", { subject: "x" }))).toBe(

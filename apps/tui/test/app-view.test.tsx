@@ -207,7 +207,6 @@ test("completion caps rows and reveals the last selected result", async () => {
       menu={completion("file", choices.map((row) => ({ label: row.label, insert: row.label, submit: false })))}
       selected={19}
       seat="test:model"
-     
       rows={3}
     />
   )

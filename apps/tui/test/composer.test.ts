@@ -40,7 +40,7 @@ describe("unknown commands", () => {
   it("counts a swap of neighbors as one edit and prefers the fewest edits", () => {
     expect(Editor.nearest("nwe")?.name).toBe("new")
     expect(Editor.nearest("copi")?.name).toBe("copy")
-    expect(Editor.nearest("fork")?.name).toBe("fork")
+    expect(Editor.nearest("reusme")?.name).toBe("resume")
   })
 
   it("knows the listed commands and the unlisted wrapped workers and alias, and nothing removed", () => {

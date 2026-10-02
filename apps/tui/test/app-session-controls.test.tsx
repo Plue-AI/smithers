@@ -195,7 +195,8 @@ afterEach(async () => {
 })
 
 const combinations = ["chat", "worker", "flow"].flatMap((work) =>
-  ["new", "resume", "fork"].map((verb) => ({ work, verb }))
+  // /fork left with client time travel in the MVP cut (#3385).
+  ["new", "resume"].map((verb) => ({ work, verb }))
 )
 test.each(combinations)(
   "/$verb refuses unsettled $work without losing session or draft, then accepts real completion",
@@ -277,22 +278,13 @@ test.each(combinations)(
     const admitted = turns.length
     await palette(verb)
     if (verb === "resume") await chooseSaved()
-    if (verb === "fork") {
-      await type("Earlier question")
-      await key("RETURN")
-    }
     expect(turns).toHaveLength(admitted)
     expect(frame()).not.toContain("Stop running work first")
-    if (verb === "fork") {
-      expect(frame()).toContain("Earlier question")
-      await type(" revised")
-    } else {
-      expect(frame()).toContain("Unsent draft")
-      await type(" continued")
-    }
+    expect(frame()).toContain("Unsent draft")
+    await type(" continued")
     await key("RETURN")
     const next = turns.at(-1)!.input
-    expect(next.prompt).toBe(verb === "fork" ? "Earlier question revised" : "Unsent draft continued")
+    expect(next.prompt).toBe("Unsent draft continued")
     expect(next.seat).toBe("replay:chat")
     expect(next.history).toEqual(
       verb === "resume" ? [{ kind: "exchange", user: "Saved question", answer: "Saved answer" }] : []
@@ -361,22 +353,6 @@ test("a saved conversation disappearing after the picker opens refuses without r
   expect(Session.list(cwd).map((session) => session.file)).toEqual([active.file])
   expect(Session.load(active.file).filter((record) => record.type === "user").map((record) => record.text))
     .toEqual(["Earlier question", "Retained draft continued"])
-})
-
-test("inspecting and cancelling a fork selection does not create a conversation or replace the draft", async () => {
-  const original = readFileSync(active.file, "utf8")
-  await type("Original draft")
-  await palette("fork")
-  expect(frame()).toContain("Earlier question")
-  expect(turns).toHaveLength(0)
-  expect(readFileSync(active.file, "utf8")).toBe(original)
-  await key("ESCAPE")
-  await waitFor(() => !frame().includes("Fork from message"))
-  await type(" kept")
-  await key("RETURN")
-  expect(turns[0]!.input.prompt).toBe("Original draft kept")
-  expect(turns[0]!.input.history).toEqual([{ kind: "exchange", user: "Earlier question", answer: "Earlier answer" }])
-  expect(Session.list(cwd)).toHaveLength(2)
 })
 
 test("eleven restored batches fold, keyboard activation expands, and immediate following chat input remains intact (#3033)", async () => {

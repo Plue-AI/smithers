@@ -38,7 +38,7 @@ test("the strip preserves plugin, worker, flow and custom view order, with no tr
     worker: (worker) => {
       calls.push(worker.id)
       return { id: `tab:${worker.id}`, label: worker.title }
-    },
+    }
   })
   expect(strip).toEqual([
     { id: "chat", label: "Chat" },
