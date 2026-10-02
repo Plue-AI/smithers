@@ -45,6 +45,7 @@ const maxLanders = 16
 export const Input = Schema.Struct({
   ...vmFields,
   repo: Schema.String,
+  issue: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   // Local agents only; microVMs additionally obey the sustainable host limit of 24.
   maxAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(32))),
   cloudAgents: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -238,12 +239,33 @@ const reapWorkspaces = (open: ReadonlySet<number>) =>
     yield* Effect.forEach(staleWorkspaces(entries, open), removeWorkspace, { discard: true })
   })
 
-const listIssues = ListIssues.toLayer(({ input }) =>
-  github(openIssues(input.repo)).pipe(
-    Effect.tap((rows) => reapWorkspaces(new Set(rows.map((row) => row.number)))),
-    Effect.map((rows) => rows.map((row) => ({ id: String(row.number), ...row })).toSorted(byPriority))
+/** Discovery reaps against every open issue before narrowing a smoke run. */
+export const makeIssueDiscovery = <E, R>(options: {
+  readonly open: (repo: string) => Effect.Effect<
+    ReadonlyArray<{
+      readonly number: number
+      readonly title: string
+      readonly labels: ReadonlyArray<string>
+      readonly updatedAt?: string | undefined
+    }>,
+    E,
+    R
+  >
+  readonly reap: (open: ReadonlySet<number>) => Effect.Effect<unknown, E, R>
+}) =>
+(input: Pick<typeof Input.Type, "repo" | "issue">) =>
+  github(options.open(input.repo)).pipe(
+    Effect.tap((rows) => github(options.reap(new Set(rows.map((row) => row.number))))),
+    Effect.map((rows) =>
+      rows
+        .filter((row) => input.issue === undefined || row.number === input.issue)
+        .map((row) => ({ id: String(row.number), ...row }))
+        .toSorted(byPriority)
+    )
   )
-)
+
+const discoverIssues = makeIssueDiscovery({ open: openIssues, reap: reapWorkspaces })
+const listIssues = ListIssues.toLayer(({ input }) => discoverIssues(input))
 
 export const maxLocalAgents = 24
 export const minFreeBytes = 25 * 1024 ** 3

@@ -80,6 +80,10 @@ SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$HOME/smithers/target/release/smithers-jj-e
   pnpm exec smthrs flow start issue-sweep --data "$(cat /absolute/path/new-attempt.json)" --detached
 ```
 
+For a one-issue smoke run, add `"issue": 3399` to the payload. The selector
+accepts a positive integer and works only that open issue; a missing or closed
+issue produces no work. Omit `issue` to discover all open issues.
+
 Retain the returned run ID and inspect `smthrs runs show <id>` and
 `smthrs runs logs <id> --follow`. Admission is not completion. VM placement
 requires the disk floor above; Cloud qualification remains blocked on #3379.

@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
@@ -8,6 +8,7 @@ import {
   decide,
   Input,
   localLimit,
+  makeIssueDiscovery,
   makePlacementSlots,
   minFreeBytes,
   parkedFor,
@@ -208,4 +209,43 @@ test("round stats count claimed issues and those whose agent produced a change",
     { claimed: 5, changed: 2, noChange: 2, triaged: 1 }
   )
   assert.deepEqual(roundStats([]), { claimed: 0, changed: 0, noChange: 0, triaged: 0 })
+})
+
+test("issue selector accepts positive integers and rejects invalid input", () => {
+  assert.equal(Schema.decodeUnknownSync(Input)({ repo: "o/r" }).issue, undefined)
+  for (const issue of [1, 3399]) {
+    assert.equal(Schema.decodeUnknownSync(Input)({ repo: "o/r", issue }).issue, issue)
+  }
+  for (const issue of [0, -1, 1.5, "3399", null, Infinity, NaN]) {
+    assert.throws(() => Schema.decodeUnknownSync(Input)({ repo: "o/r", issue }))
+  }
+})
+
+test("discovery narrows selected open issue after preserving all open workspaces", async () => {
+  const rows = [
+    { number: 1, title: "later", labels: [] },
+    { number: 2, title: "urgent", labels: ["priority:p0"] }
+  ]
+  const events: string[] = []
+  const discover = makeIssueDiscovery({
+    open: (repo) =>
+      Effect.sync(() => {
+        events.push(`open:${repo}`)
+        return rows
+      }),
+    reap: (open) =>
+      Effect.sync(() => {
+        events.push(`reap:${[...open].join(",")}`)
+        assert.deepEqual(staleWorkspaces(["issue-1", "issue-2", "issue-3"], open), [3])
+      })
+  })
+  const selected = await Effect.runPromise(discover({ repo: "o/r", issue: 1 }))
+  assert.deepEqual(selected, [{ id: "1", ...rows[0] }])
+  assert.deepEqual(events, ["open:o/r", "reap:1,2"])
+  for (const issue of [3, 999]) {
+    assert.deepEqual(await Effect.runPromise(discover({ repo: "o/r", issue })), [])
+  }
+  const all = await Effect.runPromise(discover({ repo: "o/r" }))
+  assert.deepEqual(all.map((row) => row.number).toSorted(), [1, 2])
+  assert.deepEqual(all, rows.map((row) => ({ id: String(row.number), ...row })).toSorted(byPriority))
 })
