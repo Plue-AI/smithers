@@ -46,3 +46,26 @@ describe("every palette clears WCAG AA for the small text it paints", () => {
     expect(failures).toEqual([])
   })
 })
+
+/*
+ * WCAG 1.4.11: the keyboard focus ring is a non-text indicator, so it needs
+ * 3:1 against every surface it is drawn on (#3427). Light mode's ring was
+ * --water-400 at 2.70:1 on --surface-2; it is now --water-500.
+ */
+const NON_TEXT = 3
+
+describe("the focus ring stays visible on every surface", () => {
+  test("--ring-border clears 3:1 on --bg, --surface and --surface-2 in every palette and mode", () => {
+    const failures: string[] = []
+    for (const palette of PALETTES) {
+      for (const mode of ["light", "dark"] as const) {
+        const declarations = variant(palette, mode)
+        for (const on of ["--bg", "--surface", "--surface-2"] as const) {
+          const ratio = ratioOf(declarations, "--ring-border", on)
+          if (ratio < NON_TEXT) failures.push(`${palette} ${mode}: --ring-border on ${on} is ${ratio}:1`)
+        }
+      }
+    }
+    expect(failures).toEqual([])
+  })
+})

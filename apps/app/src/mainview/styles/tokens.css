@@ -84,7 +84,7 @@
 
 	/* ── Focus (derived from the palette's brand) ────────────── */
 	--ring: color-mix(in srgb, var(--brand) 45%, transparent);
-	--ring-border: var(--water-400);
+	--ring-border: var(--water-500);
 
 	/* ── Chat bubbles (light) — recipes over the semantic tokens ── */
 	--bubble-incoming: #fff;
