@@ -77,6 +77,68 @@ describe("durable command intent at the active shared door", () => {
     }
   }
 
+  test("a held Chat slash admission preserves the card and waits before executing its inner command", async () => {
+    const store = await open()
+    const held = deferred(), entered = deferred()
+    const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
+    const card = { id: "slash-file", kind: "file", title: "File", status: "active", createdAt: 1, ordinal: 10,
+      payload: { repo: "smithersai/smithers", path: "notes.txt", content: "note", truncated: false } } as const
+    store.dispatch({ type: "card.upsert", actor: "smithers", card })
+    store.dispatch({ type: "card.maximized", actor: "user", id: card.id })
+    controller.changeDraft("/input.mode vim")
+    const pending = controller.commands.run("chat.send", "/input.mode vim")
+    await entered.promise
+    expect(store.session().maximizedCardId).toBe(card.id)
+    expect(store.session().inputMode).toBe("normal")
+    expect([...store.collections.commandIntents.values()].some(row => row.name === "input.mode")).toBe(false)
+    controller.changeDraft("a newer draft")
+    held.resolve()
+    await pending
+    await store.settled?.()
+    expect(store.session().inputMode).toBe("vim")
+    expect(store.session().maximizedCardId).toBe(card.id)
+    expect(store.session().draft).toBe("a newer draft")
+  })
+
+  test("cancelling a held Chat slash admission never reaches the inner command", async () => {
+    const store = await open()
+    const held = deferred(), entered = deferred(), abort = new AbortController()
+    const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
+    const card = { id: "cancelled-slash-file", kind: "file", title: "File", status: "active", createdAt: 1, ordinal: 10,
+      payload: { repo: "smithersai/smithers", path: "notes.txt", content: "note", truncated: false } } as const
+    store.dispatch({ type: "card.upsert", actor: "smithers", card })
+    store.dispatch({ type: "card.maximized", actor: "user", id: card.id })
+    const pending = controller.commands.submit({ name: "chat.send", payload: { text: "/input.mode vim" }, actor: "user",
+      invocation: { ...invocation(), signal: abort.signal } })
+    await entered.promise
+    abort.abort()
+    held.resolve()
+    expect(await pending).toMatchObject({ status: "failed", persistenceFailed: true })
+    expect(store.session().maximizedCardId).toBe(card.id)
+    expect(store.session().inputMode).toBe("normal")
+    expect([...store.collections.commandIntents.values()].some(row => row.name === "input.mode")).toBe(false)
+  })
+
+  test("a refused Chat slash admission preserves the card and never executes its inner command", async () => {
+    const bytes = memoryStorage()
+    let fail = false
+    const storage: StorageApi = { ...bytes, setItem: (key, value) => { if (fail) throw new Error("disk failed"); bytes.setItem(key, value) } }
+    const store = await open(storage), controller = controllerFor(store)
+    const card = { id: "slash-file", kind: "file", title: "File", status: "active", createdAt: 1, ordinal: 10,
+      payload: { repo: "smithersai/smithers", path: "notes.txt", content: "note", truncated: false } } as const
+    store.dispatch({ type: "card.upsert", actor: "smithers", card })
+    store.dispatch({ type: "card.maximized", actor: "user", id: card.id })
+    controller.changeDraft("/input.mode vim")
+    await store.settled?.()
+    fail = true
+    expect(await controller.commands.run("chat.send", "/input.mode vim")).toMatchObject({ status: "failed", persistenceFailed: true })
+    expect(store.session().maximizedCardId).toBe(card.id)
+    expect(store.session().inputMode).toBe("normal")
+    expect(store.session().draft).toBe("/input.mode vim")
+    expect([...store.collections.commandIntents.values()].some(row => row.name === "input.mode")).toBe(false)
+    fail = false
+  })
+
   test("a delayed queue submission preserves a freshly retyped identical draft", async () => {
     const store = await open()
     const held = deferred(), entered = deferred()

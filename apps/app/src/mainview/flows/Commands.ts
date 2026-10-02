@@ -41,6 +41,7 @@ import {
   modelInvocable,
   nameOf,
   namespaceOf,
+  parseSubmit,
   recommendedNames,
   slashItems,
   slashTree,
@@ -474,10 +475,17 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     // Commands raised by a maximized card itself keep that presentation until
     // their own frame or card handler decides where to go. Chrome commands
     // render no card: Chat opens over the card and closes back to it.
+    // A recognized slash submission only transports the inner command. Its
+    // own registry invocation decides whether to return to the transcript.
+    const submitted = name === "chat.send" && declared !== undefined
+      ? named === undefined ? payloadFor(name, args, declared.metadata.grammar, actions.knownRepositories()) : { payload: named }
+      : undefined
+    const transportsCommand = submitted !== undefined && !("error" in submitted) &&
+      typeof submitted.payload.text === "string" && parseSubmit(submitted.payload.text, items()).kind === "command"
     const maximizedCardId = actions.snapshot().maximizedCardId
     const staysInMaximizedCard = (originCardId !== undefined && originCardId === maximizedCardId) ||
       name === "card.maximize" || name === "card.minimize" || name.startsWith("card.history.") ||
-      name.startsWith("frame.") || OVER_MAXIMIZED_CARD.has(name)
+      name.startsWith("frame.") || OVER_MAXIMIZED_CARD.has(name) || transportsCommand
     if (invoker === "user" && maximizedCardId != null && !staysInMaximizedCard) actions.minimizeCard()
     // Only the human's local field edit has a synchronous recovery preparation.
     // Agent input waits for capability authorization in settle before dispatch.

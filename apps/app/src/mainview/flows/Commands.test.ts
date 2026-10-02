@@ -95,6 +95,71 @@ describe("commands from a maximized card", () => {
   })
 })
 
+describe("Chat slash presentation transport (#3348)", () => {
+  const settledCommand = async (store: Awaited<ReturnType<typeof freshController>>["store"], name: string, after = 0) => {
+    const deadline = Date.now() + 3000
+    while ([...store.collections.commandIntents.values()].filter(row => row.name === name && row.status === "settled").length <= after) {
+      if (Date.now() >= deadline) throw new Error(`/${name} did not settle`)
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  const maximized = async () => {
+    const fixture = await freshController()
+    await fixture.controller.commands.run("agent.list")
+    const card = [...fixture.store.collections.cards.values()].find(card => card.kind === "agents")!
+    await fixture.controller.commands.run("card.maximize", card.id)
+    return { ...fixture, card }
+  }
+
+  for (const door of ["direct", "composer", "structured", "nested"] as const) {
+    test(`${door} retained input-mode command keeps the maximized card`, async () => {
+      const { store, controller, card } = await maximized()
+      try {
+        const outcome = door === "direct" ? await controller.commands.run("input.mode", "vim")
+          : door === "structured" ? await controller.commands.submit({ name: "chat.send", payload: { text: " /input.mode vim " }, actor: "user" })
+          : await controller.commands.run("chat.send", door === "nested" ? "/chat.send /input.mode vim" : " /input.mode vim ")
+        expect(outcome.status).toBe("executed")
+        await settledCommand(store, "input.mode")
+        expect(store.session().inputMode).toBe("vim")
+        expect(store.session().maximizedCardId).toBe(card.id)
+        expect([...store.collections.messages.values()].filter(row => row.role === "user")).toHaveLength(0)
+      } finally { await controller.dispose() }
+    })
+  }
+
+  for (const initial of ["light", "dark"] as const) for (const door of ["direct", "composer"] as const) {
+    test(`${door} original dark-mode toggle preserves a maximized card from ${initial}`, async () => {
+      const { store, controller, card } = await maximized()
+      try {
+        await controller.commands.run("appearance.dark-mode", initial)
+        const before = [...store.collections.commandIntents.values()].filter(row => row.name === "appearance.dark-mode" && row.status === "settled").length
+        const outcome = door === "direct" ? await controller.commands.run("appearance.dark-mode")
+          : await controller.commands.run("chat.send", "/appearance.dark-mode")
+        expect(outcome.status).toBe("executed")
+        await settledCommand(store, "appearance.dark-mode", before)
+        expect(store.session().theme).toBe(initial === "light" ? "dark" : "light")
+        expect(store.session().maximizedCardId).toBe(card.id)
+      } finally { await controller.dispose() }
+    })
+  }
+
+  for (const line of ["/agent.list", "a plain prompt", "/missing-command", "/INPUT.mode vim", "/input.mode"]) {
+    test(`Chat retains existing transcript behavior for ${line}`, async () => {
+      const { store, controller } = await maximized()
+      try {
+        expect((await controller.commands.run("chat.send", line)).status).toBe("executed")
+        if (line === "/agent.list") await settledCommand(store, "agent.list", 1)
+        if (line === "/input.mode") await settledCommand(store, "input.mode")
+        expect(store.session().maximizedCardId).toBeNull()
+        if (line === "/input.mode") {
+          expect([...store.collections.cards.values()].some(card => card.kind === "flow-form" && card.payload.flow === "input.mode")).toBe(true)
+        }
+        if (line === "/missing-command") expect([...store.collections.commandIntents.values()].some(row => row.name === "missing-command")).toBe(true)
+      } finally { await controller.dispose() }
+    })
+  }
+})
+
 const APP_BUG =
   "Smithers hit a bug of its own, so that didn't finish. Not your fault, and nothing about what you did would have avoided it. Reload the page to see where it got to, then make the change again."
 const SESSION_REFUSAL =
