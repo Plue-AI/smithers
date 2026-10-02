@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/productstore"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -88,6 +89,13 @@ func TestCleanupStoppedAgentWorkspaceDisksReclaimsOnlyLongStoppedAgents(t *testi
 	runtime.fail = map[string]error{oldest: workspaceapi.ErrWorkspaceNotFound}
 	require.NoError(t, svc.CleanupStoppedAgentWorkspaceDisks(ctx))
 	require.Equal(t, []string{old}, runtime.reclaimed)
+
+	// A hosted deployment's store embeds productstore.Product, never
+	// *db.Queries; its sweep reclaims the same disks (smithers#3390).
+	runtime.reclaimed, runtime.fail = nil, nil
+	hosted := NewWorkspaceService(hostedProductStore{Product: productstore.New(pool)}, WithWorkspaceRuntime(runtime))
+	require.NoError(t, hosted.CleanupStoppedAgentWorkspaceDisks(ctx))
+	require.Equal(t, []string{oldest, old}, runtime.reclaimed)
 }
 
 // The row is re-read inside the runtime lock: a resume or delete between the

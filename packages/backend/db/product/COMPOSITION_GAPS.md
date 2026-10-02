@@ -20,6 +20,13 @@ Product queries and models generate into `internal/db` from this directory's
 product SQL. `productstore.ConfigureTypes` registers canonical product codecs
 on deployment-owned PostgreSQL pools.
 
+A store a deployment supplies in `ports.RuntimeStores` embeds
+`productstore.Product`. Services skip a feature when that store lacks a
+capability they type-assert, so `Product` carries every product capability
+asserted on those stores. `TestRuntimeStoreAssertionsAreClassified` in
+`internal/services` fails on an assertion that is neither on `Product` nor
+listed as deployment-owned with a reason.
+
 `CountPrivateReposByOwner` and storage-byte queries measure product allocations.
 Private admission usage (`admission.Usage`) adds its pending infrastructure
 allocations, including reserved but unpublished private repositories. Product code must not query those private tables directly.

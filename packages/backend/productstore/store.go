@@ -14,6 +14,10 @@ type DBTX = db.DBTX
 
 // Product includes the optional capabilities used by workspace and workflow
 // services as well as their base interfaces, so wrapping it cannot erase them.
+// A service skips a feature when its ports.RuntimeStores store lacks the
+// capability it type-asserts, so every product capability asserted on those
+// stores belongs here; TestRuntimeStoreAssertionsAreClassified in
+// internal/services enforces this (smithers#3390).
 type Product interface {
 	SetWorkspaceClientLease(ctx context.Context, arg db.SetWorkspaceClientLeaseParams) (db.Workspace, error)
 	RenewWorkspaceClientLease(ctx context.Context, id string) (db.Workspace, error)
@@ -28,6 +32,7 @@ type Product interface {
 	MarkWorkflowRunSuperseded(ctx context.Context, arg db.MarkWorkflowRunSupersededParams) error
 	ListSupersededWorkflowRuns(ctx context.Context, arg db.ListSupersededWorkflowRunsParams) ([]int64, error)
 	AttachWorkflowArtifactToRelease(ctx context.Context, arg db.AttachWorkflowArtifactToReleaseParams) (db.WorkflowArtifact, error)
+	AuthorizePublicWorkspaceService(ctx context.Context, arg db.AuthorizePublicWorkspaceServiceParams) (bool, error)
 	CancelWorkflowRun(ctx context.Context, id int64) error
 	CancelWorkflowTasks(ctx context.Context, workflowRunID int64) error
 	ClaimAgentSessionForDispatch(ctx context.Context, sessionID string, workflowRunID int64) (bool, error)
@@ -62,6 +67,7 @@ type Product interface {
 	DeleteExpiredLFSUploadReservation(ctx context.Context, arg db.DeleteExpiredLFSUploadReservationParams) (int64, error)
 	DeleteLFSObject(ctx context.Context, arg db.DeleteLFSObjectParams) (int64, error)
 	DeleteLFSUploadReservation(ctx context.Context, arg db.DeleteLFSUploadReservationParams) error
+	DeleteSystemAccessTokensByName(ctx context.Context, arg db.DeleteSystemAccessTokensByNameParams) error
 	DeleteUnissuedLFSUploadReservation(ctx context.Context, arg db.DeleteUnissuedLFSUploadReservationParams) (int64, error)
 	DeleteWorkspaceSnapshot(ctx context.Context, id string) error
 	EnsureWorkflowDefinitionReference(ctx context.Context, arg db.EnsureWorkflowDefinitionReferenceParams) (db.WorkflowDefinition, error)
@@ -81,6 +87,7 @@ type Product interface {
 	GetHighestTeamPermissionForRepoUser(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
 	GetLFSObjectByOID(ctx context.Context, arg db.GetLFSObjectByOIDParams) (db.LfsObject, error)
 	GetLFSUploadReservation(ctx context.Context, arg db.GetLFSUploadReservationParams) (db.LfsUploadReservation, error)
+	GetMythicalStack(ctx context.Context, repositoryID int64) (db.MythicalStack, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
 	GetOrgCredentialOwnerID(ctx context.Context, organizationID int64) (int64, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
@@ -104,6 +111,7 @@ type Product interface {
 	GetWorkspace(ctx context.Context, id string) (db.Workspace, error)
 	GetWorkspaceByRepo(ctx context.Context, arg db.GetWorkspaceByRepoParams) (db.Workspace, error)
 	GetWorkspaceForUserRepo(ctx context.Context, arg db.GetWorkspaceForUserRepoParams) (db.Workspace, error)
+	GetWorkspaceIncludingDeleted(ctx context.Context, id string) (db.Workspace, error)
 	GetWorkspaceSession(ctx context.Context, id string) (db.WorkspaceSession, error)
 	GetWorkspaceSessionByRepo(ctx context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error)
 	GetWorkspaceSessionForUserRepo(ctx context.Context, arg db.GetWorkspaceSessionForUserRepoParams) (db.WorkspaceSession, error)
@@ -122,11 +130,13 @@ type Product interface {
 	ListIdleWorkspaces(ctx context.Context) ([]db.Workspace, error)
 	ListLFSObjects(ctx context.Context, arg db.ListLFSObjectsParams) ([]db.LfsObject, error)
 	ListPrunableWorkflowArtifacts(ctx context.Context, arg db.ListPrunableWorkflowArtifactsParams) ([]db.WorkflowArtifact, error)
+	ListRepositoryGitHubSources(ctx context.Context, id int64) ([]db.ListRepositoryGitHubSourcesRow, error)
 	ListRunningWorkspaces(ctx context.Context) ([]db.Workspace, error)
 	ListRunningWorkspacesForUserRepoBookmark(ctx context.Context, arg db.ListRunningWorkspacesForUserRepoBookmarkParams) ([]db.Workspace, error)
 	ListStaleActiveSessions(ctx context.Context, startedAt pgtype.Timestamptz) ([]db.AgentSession, error)
 	ListStalePendingWorkspaces(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
 	ListStaleStartingWorkspacesWithVM(ctx context.Context, staleAfterSecs int32) ([]db.Workspace, error)
+	ListStoppedAgentWorkspaceIDs(ctx context.Context, stoppedFor time.Duration) ([]string, error)
 	ListTaskStepInfoForRun(ctx context.Context, workflowRunID int64) ([]db.ListTaskStepInfoForRunRow, error)
 	ListUserWorkspacesAcrossRepos(ctx context.Context, arg db.ListUserWorkspacesAcrossReposParams) ([]db.ListUserWorkspacesAcrossReposRow, error)
 	ListWorkflowArtifactsByRun(ctx context.Context, workflowRunID int64) ([]db.WorkflowArtifact, error)
@@ -135,6 +145,7 @@ type Product interface {
 	ListWorkflowCaches(ctx context.Context, arg db.ListWorkflowCachesParams) ([]db.WorkflowCach, error)
 	ListWorkflowCachesForClear(ctx context.Context, arg db.ListWorkflowCachesForClearParams) ([]db.WorkflowCach, error)
 	ListWorkflowDefinitionsByRepo(ctx context.Context, arg db.ListWorkflowDefinitionsByRepoParams) ([]db.WorkflowDefinition, error)
+	ListWorkflowLogsSince(ctx context.Context, arg db.ListWorkflowLogsSinceParams) ([]db.WorkflowLog, error)
 	ListWorkflowStepsByRunID(ctx context.Context, runID int64) ([]db.WorkflowStep, error)
 	ListWorkspaceProvisioningRecovery(ctx context.Context) ([]db.ListWorkspaceProvisioningRecoveryRow, error)
 	ListWorkspaceSessionsByRepo(ctx context.Context, arg db.ListWorkspaceSessionsByRepoParams) ([]db.WorkspaceSession, error)
@@ -161,10 +172,12 @@ type Product interface {
 	ResumeWorkspaceToRunning(ctx context.Context, id string) (db.Workspace, error)
 	RetryWorkflowArtifactDeletion(ctx context.Context, arg db.RetryWorkflowArtifactDeletionParams) (db.WorkflowArtifact, error)
 	RetryWorkflowCacheDeletion(ctx context.Context, arg db.RetryWorkflowCacheDeletionParams) (db.WorkflowCach, error)
+	RevokeWorkflowRunGuestTokens(ctx context.Context, workflowRunID int64) error
 	SetAgentSessionWorkspace(ctx context.Context, arg db.SetAgentSessionWorkspaceParams) error
 	SetWorkspaceEnvironmentImage(ctx context.Context, arg db.SetWorkspaceEnvironmentImageParams) error
 	SetWorkspaceHeadPushTokenID(ctx context.Context, arg db.SetWorkspaceHeadPushTokenIDParams) error
 	SetWorkspaceIdleTimeout(ctx context.Context, arg db.SetWorkspaceIdleTimeoutParams) (db.Workspace, error)
+	SetWorkspaceServicePublic(ctx context.Context, arg db.SetWorkspaceServicePublicParams) error
 	SkipBlockedWorkflowTask(ctx context.Context, id int64) error
 	SoftDeleteWorkspace(ctx context.Context, id string) (db.Workspace, error)
 	StopWorkspaceRetainingRow(ctx context.Context, id string) (db.StopWorkspaceRetainingRowRow, error)
@@ -195,6 +208,7 @@ type Product interface {
 	UpsertAgentWorkflowDefinition(ctx context.Context, repositoryID int64) (db.WorkflowDefinition, error)
 	UpsertLFSUploadReservation(ctx context.Context, arg db.UpsertLFSUploadReservationParams) (db.LfsUploadReservation, error)
 	UpsertPendingWorkflowCache(ctx context.Context, arg db.UpsertPendingWorkflowCacheParams) (db.WorkflowCach, error)
+	WorkspaceServicePublic(ctx context.Context, arg db.WorkspaceServicePublicParams) (bool, error)
 }
 
 // New binds the product queries to the caller's exact connection or transaction.
