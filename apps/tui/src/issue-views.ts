@@ -115,8 +115,13 @@ export interface Cloud {
 
 const detail = (error: unknown): string => Failures.line("command", error)
 
-/** A 401 or 403: the session is gone or may not read the repository. */
-const refused = (error: unknown): boolean => /HTTP 40[13]\b/.test(String(error))
+/** Only an authentication refusal drops the session; other diagnostics may mention HTTP 401/403. */
+const refused = (error: unknown): boolean => {
+  if (record(error) && error._tag === "/cli/Refused") {
+    return error.code === "cloud_request_failed" && error.fault === "user"
+  }
+  return /HTTP 40[13]\b/.test(String(error))
+}
 
 /** The row id of a view; `viewOf` reads it back. */
 export const rowId = (view: string): string => `issue-view:${view}`

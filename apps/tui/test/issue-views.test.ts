@@ -1,11 +1,13 @@
+import { Refused } from "@smthrs/cli/CliError"
 import * as CloudSession from "@smthrs/cli/CloudSession"
 import { afterEach, describe, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as IssueViews from "../src/issue-views.ts"
+import * as Log from "../src/log.ts"
 import * as Panels from "../src/panels.ts"
 
 const views = [
@@ -269,6 +271,47 @@ describe("issue views controller", () => {
     stale.resolve(views)
     expect((await refreshing).phase).toBe("idle")
   })
+
+  it("classifies typed Cloud refusals by their code and fault, not diagnostic text", async () => {
+    for (const selection of [false, true]) {
+      for (
+        const [code, fault, signedOut] of [
+          ["cloud_request_failed", "user", true],
+          ["cloud_request_failed", "infra", false],
+          ["cloud_response_invalid", "infra", false],
+          ["cloud_path_refused", "bug", false],
+          ["other_refusal", "user", false]
+        ] as const
+      ) {
+        let fail = true
+        let signIns = 0
+        const failure = new Refused({
+          code,
+          fault,
+          message: signedOut ? "The session expired" : "HTTP 401: private diagnostic"
+        })
+        const { cloud } = session((path) => {
+          if (fail && (!selection || !path.endsWith("/issue-views"))) throw failure
+          return path.endsWith("/issue-views") ? views : [issue(1)]
+        })
+        const control = IssueViews.controller(async () => (signIns++, cloud), "o/r")
+        await control.refresh()
+        if (selection) await control.select("bugs")
+        expect(control.state().phase).toBe(signedOut ? "signed-out" : selection ? "ready" : "failed")
+        if (!signedOut) {
+          const shown = IssueViews.panel(control.state())
+          valid(shown)
+          expect(shown.rows.at(-1)?.status).toBe("failed")
+          expect(JSON.stringify(shown)).not.toContain("private diagnostic")
+        }
+        fail = false
+        await control.refresh()
+        await control.select("bugs")
+        expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
+        expect(signIns).toBe(signedOut ? 2 : 1)
+      }
+    }
+  })
 })
 
 const servers: Array<() => void> = []
@@ -317,4 +360,151 @@ it("keeps raw Cloud failures out of the issue views panel", async () => {
   await control.refresh()
   expect(control.state().phase).toBe("failed")
   expect(JSON.stringify(IssueViews.panel(control.state()))).not.toContain(raw)
+})
+
+for (const selection of [false, true]) {
+  for (
+    const [name, status, body, diagnostic] of [
+      ["transport", 503, "private backend stack", "HTTP 503"],
+      ["JSON validation", 200, "not JSON", "response is not JSON"],
+      ["payload validation", 200, "{}", "unreadable payload"]
+    ] as const
+  ) {
+    it(`keeps ${selection ? "selection" : "list"} ${name} failures safe, logged and recoverable over HTTP`, async () => {
+      const previous = process.env.SMITHERS_TUI_SESSION_DIR
+      const root = mkdtempSync(join(tmpdir(), "tui-views-failure-"))
+      process.env.SMITHERS_TUI_SESSION_DIR = root
+      let fail = true
+      let signIns = 0
+      const received: string[] = []
+      const server = createServer((request, response) => {
+        const path = request.url ?? ""
+        received.push(path)
+        const list = path.endsWith("/issue-views")
+        const fails = fail && (selection ? !list : list)
+        response.writeHead(fails ? status : 200, { "content-type": "application/json" })
+        response.end(fails ? body : JSON.stringify(list ? views : [issue(5)]))
+      })
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+      servers.push(() => server.close())
+      try {
+        const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        const control = IssueViews.controller(() => {
+          signIns++
+          return CloudSession.signedIn({
+            HOME: root,
+            XDG_CONFIG_HOME: root,
+            SMITHERS_API_ORIGIN: origin,
+            SMITHERS_TOKEN: "tok_views"
+          })
+        }, "o/r")
+        await control.refresh()
+        if (selection) await control.select("bugs")
+        const failed = control.state()
+        expect(failed.phase).toBe(selection ? "ready" : "failed")
+        const shown = IssueViews.panel(failed)
+        valid(shown)
+        expect(shown.rows.at(-1)).toMatchObject({
+          label: "That command could not run. Details: /conversation",
+          status: "failed",
+          details: []
+        })
+        expect(JSON.stringify(failed)).not.toContain(diagnostic)
+        expect(JSON.stringify(shown)).not.toContain(body)
+        const records = readFileSync(Log.path(), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+        expect(records).toHaveLength(1)
+        expect(records[0].tag).toBe("failure.command")
+        expect(records[0].detail).toContain(diagnostic)
+        expect(statSync(Log.path()).mode & 0o777).toBe(0o600)
+        expect(received).toHaveLength(selection ? 2 : 1)
+        expect(control.state()).toEqual(failed)
+        fail = false
+        if (!selection) await control.refresh()
+        await control.select("bugs")
+        expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
+        expect(signIns).toBe(1)
+        expect(received).toHaveLength(3)
+        expect(readFileSync(Log.path(), "utf8").trim().split("\n")).toHaveLength(1)
+      } finally {
+        if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+        else process.env.SMITHERS_TUI_SESSION_DIR = previous
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+}
+
+it("retains nested failure diagnostics only in the private redacted log", async () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-views-diagnostic-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const token = `ghp_${"x".repeat(36)}`
+    const raw = new Error("private transport trace", { cause: new Error(`Authorization: Token ${token}`) })
+    for (const selection of [false, true]) {
+      const { cloud } = session((path) => {
+        if (selection && path.endsWith("/issue-views")) return views
+        throw raw
+      })
+      const control = IssueViews.controller(async () => cloud, "o/r")
+      await control.refresh()
+      if (selection) await control.select("bugs")
+      expect(JSON.stringify(control.state())).not.toContain("private transport trace")
+      expect(JSON.stringify(IssueViews.panel(control.state()))).not.toContain(token)
+    }
+    const saved = readFileSync(Log.path(), "utf8")
+    const records = saved.trim().split("\n").map((line) => JSON.parse(line))
+    expect(records).toHaveLength(2)
+    for (const record of records) {
+      expect(record.tag).toBe("failure.command")
+      expect(record.detail).toContain("Error: private transport trace")
+      expect(record.detail).toContain("Caused by: Error: Authorization: [REDACTED")
+    }
+    expect(saved).not.toContain(token)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("drops and reopens the real Cloud session after list and selection authentication refusals", async () => {
+  for (const selection of [false, true]) {
+    for (const status of [401, 403]) {
+      let fail = true
+      let signIns = 0
+      const root = mkdtempSync(join(tmpdir(), "tui-views-auth-"))
+      const server = createServer((request, response) => {
+        const list = request.url?.endsWith("/issue-views") === true
+        const refuses = fail && (selection ? !list : list)
+        response.writeHead(refuses ? status : 200, { "content-type": "application/json" })
+        response.end(JSON.stringify(refuses ? { message: "private auth diagnostic" } : list ? views : [issue(5)]))
+      })
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+      servers.push(() => server.close())
+      try {
+        const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        const control = IssueViews.controller(() => {
+          signIns++
+          return CloudSession.signedIn({
+            HOME: root,
+            XDG_CONFIG_HOME: root,
+            SMITHERS_API_ORIGIN: origin,
+            SMITHERS_TOKEN: "tok_views"
+          })
+        }, "o/r")
+        await control.refresh()
+        if (selection) await control.select("bugs")
+        expect(control.state()).toEqual({ phase: "signed-out" })
+        expect(IssueViews.panel(control.state()).rows).toEqual([])
+        fail = false
+        await control.refresh()
+        await control.select("bugs")
+        expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
+        expect(signIns).toBe(2)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+  }
 })
