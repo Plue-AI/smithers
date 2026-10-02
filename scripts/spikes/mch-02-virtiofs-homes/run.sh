@@ -2,6 +2,10 @@
 # C-SPK-02: local msb 0.6.16, DefaultImage; no package dependencies.
 set -euo pipefail
 cd "$(dirname "$0")"
+if [[ "${1:-}" == "--concurrent" ]]; then
+  shift
+  exec python3 -B concurrent.py "$@"
+fi
 exec python3 -B - "$@" <<'PY'
 import csv
 import datetime as dt
@@ -22,15 +26,18 @@ from verdict import evaluate
 IMAGE = 'node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d7367a72a9d037c798b'
 stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 out = Path(sys.argv[1] if len(sys.argv) > 1 else
-           f'/Users/williamcory/smithers/.artifacts/checks/C-SPK-02/{stamp}').resolve()
+           Path.cwd().parents[2] / '.artifacts/checks/C-SPK-02' / stamp).resolve()
 out.mkdir(parents=True, exist_ok=True)
 if any(out.iterdir()):
     sys.exit(f'Refusing nonempty evidence directory: {out}')
 binary = Path(os.environ.get('MSB_BIN') or shutil.which('msb') or '/missing-msb').resolve()
 # The npm launcher needs node on PATH; use its native executable as the backend does.
 if binary.suffix == '.cjs':
-    binary = binary.parent.parent / 'node_modules/@superradcompany/microsandbox-darwin-arm64/bin/msb'
-env = {'HOME': str(Path.home()), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
+    machine = {'x86_64': 'x64', 'aarch64': 'arm64'}.get(platform.machine(), platform.machine())
+    native = binary.parent.parent / f'node_modules/@superradcompany/microsandbox-{platform.system().lower()}-{machine}/bin/msb'
+    if native.is_file():
+        binary = native
+env = {'HOME': str(Path.home()), 'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
        'MSB_BACKEND': 'local', 'NO_COLOR': '1'}
 run_id = f'spike-mch02-{stamp.lower()}-{os.getpid()}'
 owned = []
@@ -131,12 +138,14 @@ try:
         raise RuntimeError('Requires local microVMs')
     result['host']['hardware'] = sp.check_output(
         ['sysctl', '-n', 'hw.model', 'machdep.cpu.brand_string', 'hw.memsize'], text=True).strip()
-    result['revision'] = sp.check_output(['jj', 'log', '--no-graph', '-r', '@',
+    result['revision'] = sp.check_output(['jj', '--ignore-working-copy', 'log', '--no-graph', '-r', '@',
         '-T', 'commit_id'], text=True, stderr=sp.DEVNULL).strip()
     result['disk_before'] = sp.check_output(['df', '-h', str(Path.home())], text=True)
     if shutil.disk_usage(Path.home()).free < 8 * 1024**3:
         raise RuntimeError('Less than 8 GiB free; refusing VM disks')
-    scratch = Path(tempfile.mkdtemp(prefix='mch02-', dir=Path.cwd()))
+    temporary = Path.cwd().parents[2] / '.artifacts/spikes'
+    temporary.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(prefix='mch02-', dir=temporary))
     os.chmod(scratch, 0o700)
     for layout in ('A', 'B'):
         print(f'{layout}: booting two owned microVMs; evidence {out}', flush=True)
@@ -237,11 +246,23 @@ finally:
     if scratch is not None and not owned:
         shutil.rmtree(scratch)
     result['disk_after'] = sp.check_output(['df', '-h', str(Path.home())], text=True)
+    # Preserve the matrix independently, then execute mandatory step 6 even if
+    # a measured matrix criterion failed. Execution/cleanup failures stop here.
+    (out / 'matrix-results.json').write_text(json.dumps(result, indent=2) + '\n')
+    if result['completed'] and not result['errors'] and not owned:
+        print('Matrix captured; running concurrent atomic-write step 6.', flush=True)
+        try:
+            execution = sp.run([sys.executable, '-B', 'concurrent.py', str(out / 'concurrent')])
+            result['concurrent_exit_code'] = execution.returncode
+            result['concurrent'] = json.loads((out / 'concurrent/results.json').read_text())
+        except (OSError, ValueError) as e:
+            result['errors'].append(f'Concurrent step 6: {e}')
     result['verdict'] = evaluate(result)
     (out / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
     summary = ', '.join(f'layout {k}: {"YES" if v["passed"] else "NO"}, p95={v["p95_ms"]} ms'
                         for k, v in result['verdict']['layouts'].items())
     print(f'C-SPK-02: {"YES" if result["verdict"]["passed"] else "NO"} ({summary})', flush=True)
     print(f'Evidence: {out}', flush=True)
+    (out / 'check-summary.json').write_text(json.dumps(result['verdict'], indent=2) + '\n')
 sys.exit(0 if result['verdict']['passed'] else 1)
 PY

@@ -2,9 +2,10 @@
 import json
 import math
 import sys
+from concurrent import extension_pass
 
 
-def evaluate(result):
+def evaluate_matrix(result):
     verdicts = {}
     for layout in ('A', 'B'):
         data = result.get('layouts', {}).get(layout, {})
@@ -68,7 +69,26 @@ def evaluate(result):
                     'B requires a mount for every member at VM boot')
         verdicts[layout] = {'passed': not reasons, 'reasons': reasons, 'p95_ms': p95}
     passed = result.get('completed') is True and not result.get('errors') and not result.get('unremoved_vms')
-    return {'passed': passed and any(v['passed'] for v in verdicts.values()), 'layouts': verdicts}
+    return {'passed': passed and verdicts['B']['passed'], 'layouts': verdicts}
+
+
+def evaluate(result):
+    matrix = evaluate_matrix(result)
+    concurrent = result.get('concurrent', {})
+    reasons = []
+    if not matrix['passed']:
+        reasons.append('Layout B ownership/visibility matrix failed or incomplete.')
+    hot_add = result.get('layouts', {}).get('B', {}).get('hot_add', {})
+    if not all(isinstance(hot_add.get(key), dict) and
+               type(hot_add[key].get('exit_code')) is int and hot_add[key].get('command')
+               for key in ('attempt', 'guest_after')):
+        reasons.append('Layout B hot-add probe and guest observation must be recorded.')
+    partial = not isinstance(concurrent, dict) or 'atomic' not in concurrent
+    atomic_passed = extension_pass(concurrent)
+    if not atomic_passed:
+        reasons.append('Concurrent atomic-write step 6 failed or incomplete.')
+    return dict(passed=not reasons, partial=partial, matrix_passed=matrix['passed'],
+                atomic_passed=atomic_passed, layouts=matrix['layouts'], reasons=reasons)
 
 
 if __name__ == '__main__':
