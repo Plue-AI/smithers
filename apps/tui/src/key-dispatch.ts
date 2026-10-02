@@ -504,7 +504,6 @@ export const composerKey = (key: KeyEvent, state: {
   readonly quit: () => void
   readonly submit: (followUp: boolean) => void
   readonly restoreQueued: () => void
-  readonly nextThinking: () => void
   readonly pickModel: () => void
   readonly cycleModel: (step: number) => void
   readonly toggleExpanded: () => void
@@ -532,10 +531,6 @@ export const composerKey = (key: KeyEvent, state: {
   if ((key.meta || key.option) && key.name === "up") {
     key.preventDefault()
     return act.restoreQueued()
-  }
-  if (key.name === "tab" && key.shift) {
-    key.preventDefault()
-    return act.nextThinking()
   }
   if (key.ctrl && key.name === "l") return act.pickModel()
   if (key.ctrl && key.name === "p") return act.cycleModel(key.shift ? -1 : 1)

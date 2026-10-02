@@ -5,7 +5,6 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import type { BrowserContext, BrowserType, Page } from "@playwright/test"
 import { OwnerSessionCookies, withOwnerAuthRetry, type OwnerSessionScope } from "./owner-session"
-import { nativeTarget } from "../native-target"
 import { expect, test as realTest } from "../support/test"
 import { appEntryPath, awaitBoot } from "../support"
 
@@ -326,24 +325,17 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
   trace: "off",
   video: "off",
   profileEnvironment: [undefined, { option: true }],
-  context: async ({ playwright, browser, browserName, context: inheritedContext, profileEnvironment }, use, testInfo) => {
+  context: async ({ playwright, browserName, context: inheritedContext, profileEnvironment }, use, testInfo) => {
     const authKind = realAuthKind()
     const chromiumProfile = authKind === "browser-profile" ||
       (authKind === "application-token" && Boolean(process.env.SMITHERS_E2E_PROFILE?.trim())) ||
       (authKind === "owner-session" && Boolean(process.env.SMITHERS_REAL_OWNER_PROFILE_DIR?.trim()))
-    if (browserName !== "chromium" && (chromiumProfile || process.env.SMITHERS_REAL_NATIVE_CDP_ENDPOINT)) {
-      throw new Error("Persisted Chromium profiles and native CDP targets require Chromium.")
+    if (browserName !== "chromium" && chromiumProfile) {
+      throw new Error("Persisted Chromium profiles require Chromium.")
     }
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
-    if (process.env.SMITHERS_REAL_NATIVE_CDP_ENDPOINT) {
-      const windowUrl = process.env.SMITHERS_REAL_NATIVE_WINDOW_URL
-      const targetId = process.env.SMITHERS_REAL_NATIVE_TARGET_ID
-      if (!windowUrl || !targetId) throw new Error("The packaged Electrobun target requires its window URL and CDP target ID.")
-      const target = await nativeTarget(browser.contexts(), windowUrl, targetId)
-      await use(target.context)
-      return
-    }
+
     if (realAuthKind() === "application-token") {
       const environment = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
       const token = environment ? process.env[environment]?.trim() : undefined
@@ -445,14 +437,7 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
   page: async ({ context, profileEnvironment }, use, testInfo) => {
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
-    const nativeWindowUrl = process.env.SMITHERS_REAL_NATIVE_WINDOW_URL
-    const page = nativeWindowUrl === undefined
-      ? context.pages()[0] ?? await context.newPage()
-      : (await nativeTarget(
-        [context],
-        nativeWindowUrl,
-        process.env.SMITHERS_REAL_NATIVE_TARGET_ID ?? ""
-      )).page
+    const page = context.pages()[0] ?? await context.newPage()
     await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
     const requiredEnvironment = profileEnvironment
     const profileAvailable = requiredEnvironment === undefined || Boolean(process.env[requiredEnvironment]?.trim())

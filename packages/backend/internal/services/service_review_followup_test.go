@@ -13,13 +13,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -202,75 +200,6 @@ func TestReservedSecretMarkerIsRejectedAcrossConfigurationBoundaries(t *testing.
 	_, _, err = injector.RepositoryEnvironmentAndSecrets(context.Background(), 42, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a valid environment variable name")
-}
-
-func TestTransferFinalizesMoveAfterBillingAuthorizerReturns(t *testing.T) {
-	for _, ambiguous := range []bool{false, true} {
-		ambiguous := ambiguous
-		t.Run(fmt.Sprintf("ambiguous_commit_%t", ambiguous), func(t *testing.T) {
-			actor := &db.User{ID: 1, Username: "actor"}
-			repository := testRepo(nil)
-			q := transferQuerierToUser(repository, false)
-			q.transferRepoToUserFn = func(_ context.Context, arg db.TransferRepoToUserParams) (db.Repository, error) {
-				updated := repository
-				updated.UserID = arg.NewUserID
-				updated.OrgID = pgtype.Int8{}
-				return updated, nil
-			}
-
-			var order []string
-			commitAttempted := false
-			if ambiguous {
-				q.getRepoByIDFn = func(context.Context, int64) (db.Repository, error) {
-					require.True(t, commitAttempted)
-					updated := repository
-					updated.UserID = pgtype.Int8{Int64: 77, Valid: true}
-					updated.OrgID = pgtype.Int8{}
-					return updated, nil
-				}
-			}
-			tx := &fakeOwnershipTx{
-				q:         q,
-				getByIDFn: func(context.Context, int64) (db.Repository, error) { return repository, nil },
-				commitFn: func(context.Context) error {
-					commitAttempted = true
-					order = append(order, "ownership-commit")
-					if ambiguous {
-						return stdErrors.New("commit response lost")
-					}
-					return nil
-				},
-			}
-			host := &mockRepoHostClient{
-				stageMoveRepoFn: func(_ context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) (repohost.StagedMove, error) {
-					order = append(order, "storage-moved")
-					return repohost.StagedMove{Token: "move-token", SrcOwner: srcOwner, SrcRepo: srcRepo, DstOwner: dstOwner, DstRepo: dstRepo}, nil
-				},
-				finalizeMoveRepoFn: func(context.Context, repohost.StagedMove) error {
-					order = append(order, "move-finalized")
-					return nil
-				},
-			}
-			policy := &transferCommitBillingPolicy{
-				stubBillingPolicy: &stubBillingPolicy{},
-				authorizeTransferFn: func(ctx context.Context, _ int64, _ string, _ int64, _ bool, commit func(context.Context) error) error {
-					order = append(order, "authorizer-enter")
-					err := commit(ctx)
-					order = append(order, "authorizer-return")
-					return err
-				},
-			}
-			svc := NewRepoService(q, host, "s1", WithRepoBillingPolicy(policy))
-			svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
-
-			_, err := transferToBobSerialized(context.Background(), svc, actor, repository)
-			require.NoError(t, err)
-			assert.Equal(t, []string{
-				"authorizer-enter", "storage-moved", "ownership-commit", "authorizer-return", "move-finalized",
-			}, order)
-			assert.Equal(t, 1, host.finalizeMoveCalls)
-		})
-	}
 }
 
 func TestRepositoryStorageOperationRetryYieldsToUntouchedWork(t *testing.T) {

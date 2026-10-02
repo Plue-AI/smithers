@@ -154,7 +154,6 @@ describe("card bindings are stable for their controller and origin", () => {
         "onMinimize",
         "onFrameBack",
         "onFrameForward",
-        "onForkFrame",
         "onOpenInTab",
         "onConnectGitHub",
         "onRunWorkflow",

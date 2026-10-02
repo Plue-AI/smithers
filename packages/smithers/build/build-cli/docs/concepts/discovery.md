@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-Every command except `create-app` starts by building a target index. The index
+Every workspace command starts by building a target index. The index
 is the only thing a verb resolves labels against, so what discovery admits is
 what the CLI can run.
 

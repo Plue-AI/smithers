@@ -32,8 +32,6 @@ const setup = (): {
   readonly tabBody: HTMLElement
   readonly browserCard: HTMLElement
   readonly browserFrame: HTMLIFrameElement
-  readonly desktopCard: HTMLElement
-  readonly desktopFrame: HTMLIFrameElement
   readonly editorCard: HTMLElement
   readonly editor: HTMLElement
   readonly bubble: HTMLElement
@@ -50,9 +48,6 @@ const setup = (): {
         <section class="smithers-card" data-testid="card-browser-1">
           <button id="card-action">Rotate session</button>
           <iframe data-control-focus-id="browser:card-1" data-control-focus-kind="browser"></iframe>
-        </section>
-        <section class="smithers-card" data-testid="card-desktop-1">
-          <iframe data-control-focus-id="desktop:ws-1" data-control-focus-kind="desktop"></iframe>
         </section>
         <section class="smithers-card" data-testid="card-world-1">
           <div data-slot="markdown-editor"><div class="ProseMirror" contenteditable="true" tabindex="0"></div></div>
@@ -88,8 +83,6 @@ const setup = (): {
     tabBody: doc.querySelector<HTMLElement>(".tab-body")!,
     browserCard: doc.querySelector<HTMLElement>("[data-testid='card-browser-1']")!,
     browserFrame: doc.querySelector<HTMLIFrameElement>("[data-control-focus-id='browser:card-1']")!,
-    desktopCard: doc.querySelector<HTMLElement>("[data-testid='card-desktop-1']")!,
-    desktopFrame: doc.querySelector<HTMLIFrameElement>("[data-control-focus-id='desktop:ws-1']")!,
     editorCard: doc.querySelector<HTMLElement>("[data-testid='card-world-1']")!,
     editor: doc.querySelector<HTMLElement>("[data-slot='markdown-editor']")!,
     bubble: doc.querySelector<HTMLElement>(".guide-dialogue")!,
@@ -176,7 +169,7 @@ test("enter on focusin: the terminal reports control with its surface, and the r
  * is still what takes focus and what names the surface.
  */
 test("the box is the container, never the element that took focus", () => {
-  const { win, doc, textarea, tabBody, editor, editorCard, browserFrame, browserCard, desktopFrame, desktopCard } = setup()
+  const { win, doc, textarea, tabBody, editor, editorCard, browserFrame, browserCard } = setup()
   const dressed = (): Element | null => doc.querySelector("[data-control-focus]")
 
   focusIn(win, textarea)
@@ -185,11 +178,11 @@ test("the box is the container, never the element that took focus", () => {
   expect(dressed()).toBe(editorCard)
   frameFocus(win, browserFrame)
   expect(dressed()).toBe(browserCard)
-  frameFocus(win, desktopFrame)
-  expect(dressed()).toBe(desktopCard)
+  frameFocus(win, browserFrame)
+  expect(dressed()).toBe(browserCard)
   /* And the affordance rides the same box, not the frame it belongs to. */
-  expect(desktopCard.contains(releaseButton(doc)!)).toBe(true)
-  expect(desktopFrame.contains(releaseButton(doc)!)).toBe(false)
+  expect(browserCard.contains(releaseButton(doc)!)).toBe(true)
+  expect(browserFrame.contains(releaseButton(doc)!)).toBe(false)
 })
 
 /* A card opened as its own tab: the innermost box wins, so the card is dressed, not the tab around it. */
@@ -217,18 +210,17 @@ test("enter on focusin: the markdown editor is detected by its adapter root and 
   expect(editorCard.getAttribute("data-control-focus")).toBe("human")
 })
 
-test("enter on window blur + activeElement === iframe: the browser card and the desktop box", () => {
-  const { control, browserFrame, browserCard, desktopFrame, desktopCard } = setup()
+test("enter on window blur + activeElement === iframe: the browser card and browser frame", () => {
+  const { control, browserFrame, browserCard } = setup()
   frameFocus(window, browserFrame)
   expect(control.snapshot()?.kind).toBe("browser")
   expect(control.snapshot()?.surfaceId).toBe("browser:card-1")
   expect(browserCard.getAttribute("data-control-focus")).toBe("human")
-  frameFocus(window, desktopFrame)
-  expect(control.snapshot()?.kind).toBe("desktop")
-  expect(control.snapshot()?.surfaceId).toBe("desktop:ws-1")
-  expect(browserCard.hasAttribute("data-control-focus")).toBe(false)
-  expect(desktopCard.getAttribute("data-control-focus")).toBe("inline")
-  expect(document.querySelector(".control-focus-dim")).toBeNull()
+  frameFocus(window, browserFrame)
+  expect(control.snapshot()?.kind).toBe("browser")
+  expect(control.snapshot()?.surfaceId).toBe("browser:card-1")
+  expect(browserCard.getAttribute("data-control-focus")).toBe("human")
+  expect(document.querySelector(".control-focus-dim")).not.toBeNull()
 })
 
 /*
@@ -513,7 +505,7 @@ test("a synthetic click from the press arbiter is not swallowed", () => {
 })
 
 test("the release chord takes meta or ctrl; plain Escape releases the editor only, never the terminal", () => {
-  const { win, control, textarea, editor, desktopFrame } = setup()
+  const { win, control, textarea, editor, browserFrame } = setup()
   focusIn(win, textarea)
   key(win, { key: "Escape" })
   expect(control.snapshot()?.kind).toBe("terminal")
@@ -530,8 +522,8 @@ test("the release chord takes meta or ctrl; plain Escape releases the editor onl
   key(win, { key: "Escape" })
   expect(control.snapshot()).toBeNull()
 
-  frameFocus(win, desktopFrame)
-  expect(control.snapshot()?.kind).toBe("desktop")
+  frameFocus(win, browserFrame)
+  expect(control.snapshot()?.kind).toBe("browser")
   key(win, { key: "Escape", ctrlKey: true })
   expect(control.snapshot()).toBeNull()
 })
@@ -542,15 +534,15 @@ test("the release chord takes meta or ctrl; plain Escape releases the editor onl
  * control" button so a keyboard-only user can always get out.
  */
 test("the release affordance is reachable by keyboard and releases the box", () => {
-  const { win, doc, control, desktopFrame, desktopCard } = setup()
-  frameFocus(win, desktopFrame)
+  const { win, doc, control, browserFrame, browserCard } = setup()
+  frameFocus(win, browserFrame)
   const button = releaseButton(doc)!
   expect(button).not.toBeNull()
-  expect(desktopCard.contains(button)).toBe(true)
+  expect(browserCard.contains(button)).toBe(true)
   expect(button.tagName).toBe("BUTTON")
   expect(button.textContent).toBe("Release control")
   /* "box", never "computer". */
-  expect(button.getAttribute("aria-label")).toBe("Release control of the box")
+  expect(button.getAttribute("aria-label")).toBe("Release control of the browser")
   expect(button.hasAttribute("disabled")).toBe(false)
   expect(button.getAttribute("tabindex")).toBeNull()
   button.focus()
@@ -558,7 +550,7 @@ test("the release affordance is reachable by keyboard and releases the box", () 
   /* Enter on a button reaches the arbiter, which activates it with element.click(). */
   button.click()
   expect(control.snapshot()).toBeNull()
-  expect(doc.activeElement).toBe(desktopCard)
+  expect(doc.activeElement).toBe(browserCard)
   expect(releaseButton(doc)).toBeNull()
 })
 
@@ -648,17 +640,4 @@ test("dispose releases everything: no listeners, no state, no scoped chrome", ()
   expect(releaseButton(doc)).toBeNull()
   mouseClick(win, outside)
   expect(outsideClicks).toEqual(["pointerup", "click"])
-})
-
-test("desktop focus leaves chat clear and an outside button works on the first click", () => {
-  const { win, doc, control, desktopFrame } = setup()
-  frameFocus(win, desktopFrame)
-  expect(doc.querySelector('.control-focus-dim')).toBeNull()
-  const button = doc.createElement('button')
-  doc.body.append(button)
-  let clicks = 0
-  button.addEventListener('click', () => { clicks++ })
-  mouseClick(win, button)
-  expect(clicks).toBe(1)
-  expect(control.snapshot()).toBeNull()
 })

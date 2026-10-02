@@ -596,12 +596,10 @@ const ci = Smithers.GithubCiGen({
         { name: "SWE-bench offline fixtures", verb: Smithers.Verb.Test, pattern: "//evals/swebench:offline", parallelism: 1 },
         { name: "SWE-bench rig typecheck", verb: Smithers.Verb.Build, pattern: "//evals/swebench:check" },
         { name: "SWE-bench rig lint", verb: Smithers.Verb.Lint, pattern: "//evals/swebench/..." },
-        // The review app, the two Workers, and the seeded-bug eval. Without
-        // these steps the only pipeline that ran them was the 0.x one this
-        // repository replaced: `//packages/...` does not reach `apps/`, and the
-        // apps-e2e job runs the UI's check, unit and browser tiers separately.
+        // Apps and repository flows have separate source roots from packages.
+        // Keep the review flow and its seeded-bug eval in the required gates.
         { name: "Server typecheck and tests", verb: Smithers.Verb.Ci, pattern: "//apps/server/..." },
-        { name: "Review app and workers", verb: Smithers.Verb.Ci, pattern: "//apps/review/..." },
+        { name: "Review flow", verb: Smithers.Verb.Ci, pattern: "//flows/review/..." },
         { name: "Bug worker", verb: Smithers.Verb.Ci, pattern: "//apps/bug-worker/..." },
         { name: "Project copy drift", verb: Smithers.Verb.Lint, pattern: "//:projectCopy" },
         // smithers.sh: the landing page and the Starlight docs. `astro check`
@@ -1085,7 +1083,6 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "SMITHERS_CACHE_WRITE_TOKEN, NPM_TOKEN, CLOUDFLARE_API_TOKEN, IDENTITY_SERVICE_TOKEN, SMITHERS_CLOUD_MIRROR_TOKEN, or CANARY_SESSION_COOKIE referenced by a job that a pull_request or issue_comment event can reach, or by a job without an `environment:` gate.",
         "A pull_request_target or workflow_run trigger that checks out or executes the pull request head.",
-        "pr-review.yml or review.yml granting id-token: write and pull-requests: write on issue_comment while calling a review action at a ref other than main, since only main's apps/review/action gateEvent admits write or admin commenters.",
         "The `ci` declaration in PACKAGE.ts that generates ci.yml putting a write secret or `cache-publish` step on a job whose `if:` admits pull_request."
       ],
       paths: [".github/workflows/*.yml", "PACKAGE.ts"]
@@ -1098,7 +1095,7 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "`${{ github.event.* }}`, `${{ github.head_ref }}`, or `${{ inputs.* }}` interpolated directly inside a `run:` block instead of passed through `env:` and quoted.",
         "release.yml sourceRef, releaseTag, or candidateRunId used before the step that checks it is a full hex SHA, a v<version> tag, or reachable from origin/main.",
-        "A third-party `uses:` pinned to a tag or branch instead of a 40-character commit SHA, other than smithersai's own reusable review workflow."
+        "A third-party `uses:` pinned to a tag or branch instead of a 40-character commit SHA."
       ],
       paths: [".github/workflows/*.yml"]
     },

@@ -7,8 +7,8 @@ export default showcase({
   id: "frames",
   order: 40,
   title: "Frames and tabs",
-  summary: "Every card has an address: maximize, back, forward, fork, open in a tab.",
-  flows: ["card.maximize", "frame.back", "frame.forward", "frame.fork", "tab.card"],
+  summary: "Every card has an address: maximize, back, forward, open in a tab.",
+  flows: ["card.maximize", "frame.back", "frame.forward", "tab.card"],
   run: async ({ page, app }) => {
     await app.open("/")
     await app.slash("/appearance.theme")
@@ -33,10 +33,6 @@ export default showcase({
     await app.slash("/frame.forward")
     await expect(card).toHaveAttribute("data-maximized", "true")
     await app.closeComposer()
-
-    await app.click(page.getByTestId("frame-fork"))
-    await expect.poll(() => path(page.url())).toMatch(/\/b\/branch-(?!main)[^/]+\/f\/frame-card:/)
-    await app.beat(900)
 
     await app.click(page.getByTestId(`card-open-in-tab-${id}`))
     await expect(page.locator(".card-tab .smithers-card")).toBeVisible()

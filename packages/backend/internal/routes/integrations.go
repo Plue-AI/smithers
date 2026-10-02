@@ -41,8 +41,7 @@ func NewIntegrationsHandler(catalog ...IntegrationCatalogItem) *IntegrationsHand
 }
 
 // IntegrationCatalog returns the entries supported by the actual services
-// selected during composition. Notion is intentionally absent until a common
-// Notion service exists.
+// selected during composition. The MVP exposes GitHub only.
 func IntegrationCatalog(capabilities IntegrationCapabilities) []IntegrationCatalogItem {
 	items := make([]IntegrationCatalogItem, 0, 1)
 	if capabilities.GitHubMirror {

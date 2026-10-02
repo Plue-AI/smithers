@@ -192,31 +192,6 @@ describe("THE FORM LAW — the slash door and the button door", () => {
   })
 
   /*
-   * R102c B1c, on the door the same skip rule moved: three words reach Flow,
-   * Name and Schedule, and the card does not then quote the grammar's usage
-   * line at the person about a line the form just read. At `main@origin` the
-   * same line leaves Schedule empty and the card says nothing, so this is the
-   * branch keeping its own sentence count, not adding one.
-   */
-  test("a line whose tokens the read placed over a skipped slot earns no usage sentence", async () => {
-    const { store, controller } = await boot()
-    expect((await controller.commands.run("model.save", "one two three four")).status).toBe("form")
-    const card = formOf(store, "model.save")
-    expect(card?.payload.draft).toMatchObject({ name: "one", protocol: "two", modelId: "three", credential: "four" })
-    expect(card?.payload.error).toBeUndefined()
-    /*
-     * The register form is one input (D-18, the Run it every night app): every
-     * positional word reaches the flow, nothing is left to ask, and the line
-     * keeps the grammar's own sentence about itself (R102d B1d), as any line
-     * that fills its whole card does.
-     */
-    expect((await controller.commands.run("triggers.register", "one two three")).status).toBe("form")
-    expect(formOf(store, "triggers.register")?.payload.draft).toEqual({ flow: "one two three" })
-    expect(formOf(store, "triggers.register")?.payload.error).toContain("triggers.register takes")
-    await controller.dispose()
-  })
-
-  /*
    * The subtraction above is exactly that one: a line no slot was skipped for
    * keeps the sentence `main@origin` puts on the card, including every
    * complaint about a value the card is holding (R102d B1d). `/flow.run 7 8 9`

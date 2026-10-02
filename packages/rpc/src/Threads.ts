@@ -6,7 +6,7 @@
  * a message is an issue comment; a task is an issue that carries intent
  * metadata. These are the UI-owned payload fragments the `issue`,
  * `issue-list` and `connect` cards embed beside the chat = issues contract's
- * own fields (kind, personas, pending sends, reactions, the Slack mapping).
+ * own fields (kind, personas, pending sends, reactions).
  *
  * @since 1.0.0
  */
@@ -71,27 +71,3 @@ export const TaskMetaSchema = z.object({
  */
 export type TaskMeta = z.infer<typeof TaskMetaSchema>
 
-/**
- * One integration row on the connect card: what it syncs and its state.
- *
- * @since 1.0.0
- * @category schemas
- */
-export const IntegrationRowSchema = z.object({
-  id: z.enum(["slack"]),
-  /** `unavailable`: this server (or this host's proxy) has no route for the service, which is not the same as the account being disconnected. */
-  state: z.enum(["connected", "not-connected", "unavailable", "error"]),
-  /** The mapped target in the service's own words (`#smithers-team`, `ENG`). */
-  detail: z.string().optional(),
-  /** The server's error, verbatim. */
-  error: z.string().optional(),
-  /** ISO. */
-  lastSyncAt: z.string().optional()
-})
-/**
- * One integration row on the connect card.
- *
- * @since 1.0.0
- * @category models
- */
-export type IntegrationRow = z.infer<typeof IntegrationRowSchema>

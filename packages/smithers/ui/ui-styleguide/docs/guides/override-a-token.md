@@ -57,8 +57,8 @@ import { SmithersUiStyles } from "@smthrs/ui"
 ## Recipe: re-declare per axis
 
 A host that never stamps `data-palette` can name the shapes it actually uses.
-This bridges a generated brand onto the house names used by
-[`@smthrs/create-app`](/api/create-app), abbreviated here to six declarations:
+This bridges a host application's brand onto the house names, abbreviated here
+to six declarations:
 
 ```ts
 export const houseBridgeCss = `:root, :root[data-theme='light'], :root[data-theme='dark'] {

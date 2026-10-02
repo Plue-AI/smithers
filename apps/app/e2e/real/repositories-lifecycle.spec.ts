@@ -31,7 +31,7 @@ authenticatedTest(
     capabilities: ["identity"],
     description: "Create an initialized private repository through repo.create, read its stored metadata and README, reload its creation card, then delete only that uniquely owned repository and prove it is gone.",
     coverage: [
-      "action:repo.create", "host:local", "host:production", "host:native", "path:success", "path:persistence", "door:slash", "dimension:reload",
+      "action:repo.create", "host:local", "host:production", "path:success", "path:persistence", "door:slash", "dimension:reload",
       "surface:repository-api", "dimension:repository-create", "dimension:initialized-repository",
       "dimension:owned-cleanup", "evidence:create-read-delete-readback"
     ]

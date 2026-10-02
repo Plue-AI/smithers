@@ -35,8 +35,6 @@ const ALLOWED: Readonly<Record<string, number>> = {
   "box.ts": 2,
   // The refusal text a publishing plugin cell reads.
   "contributions.ts": 2,
-  // The estimate ledger and the ETA answer the model reads.
-  "estimate.ts": 3,
   // A plugin manifest's decode problem, for the plugin author.
   "extension.ts": 2,
   // Control-plane text kept on `FlowError.message` for the model and the log.

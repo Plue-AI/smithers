@@ -154,7 +154,7 @@ test("workspaces covers every non-private engine and agent package under package
   assert.ok(tooling.length > 0)
   assert.deepEqual(
     tooling.filter(([, manifest]) => manifest.private !== true).map(([, manifest]) => manifest.name).sort(),
-    ["@smthrs/build", "@smthrs/build-cli", "@smthrs/create-app", "@smthrs/targets"]
+    ["@smthrs/build", "@smthrs/build-cli", "@smthrs/targets"]
   )
   assert.deepEqual(
     tooling.filter(([, manifest]) => manifest.private === true).map(([, manifest]) => manifest.name).sort(),
@@ -194,14 +194,14 @@ test("importing the release scripts reads no workspace tree", async () => {
   }
 })
 
-test("the packed set is exactly the 50 names the RC contract publishes", () => {
+test("the packed set is exactly the 49 names the RC contract publishes", () => {
   // `publishedPackages` is the release decision; group membership is
   // only how it is enforced. Restating the roster here means a package that
   // joins or leaves the release has to change both files in one diff.
   const manifests = readWorkspaceManifests()
   const packed = packedWorkspaces.map((directory) => manifests.get(directory).name)
 
-  assert.equal(publishedPackages.length, 50)
+  assert.equal(publishedPackages.length, 49)
   assert.deepEqual([...packed].sort(), [...publishedPackages].sort())
   assert.ok(publishedPackages.includes("smthrs"), "the unscoped deprecation notice publishes with the RC")
 })
@@ -481,7 +481,6 @@ test("published adapters remain optional while executable SQLite and Bun host pr
   const optional = {
     "@smthrs/database": { "@effect/sql-sqlite-node": "4.0.0-rc.115" },
     "@smthrs/flows": { "@smthrs/platform-node": releaseVersion, "@smthrs/platform-bun": releaseVersion },
-    "@smthrs/create-app": { "@smthrs/testing": releaseVersion },
     "@smthrs/observability": {
       "@opentelemetry/exporter-logs-otlp-http": "0.222.0", "@opentelemetry/exporter-metrics-otlp-http": "0.222.0",
       "@opentelemetry/exporter-trace-otlp-http": "0.222.0", "@opentelemetry/sdk-trace-base": "2.11.0",
@@ -724,7 +723,13 @@ test("the real staging and tarball retain authored template config and exclude r
     const staged = join(directory, "staged")
     const config = join(source, "template/default/.smithers")
     await mkdir(config, { recursive: true })
-    const templateRoot = join(repoRoot, "packages/smithers/create-app/template/default")
+    const templateRoot = join(directory, "authored-template")
+    await mkdir(join(templateRoot, ".smithers"), { recursive: true })
+    for (const name of ["WORKSPACE.ts", "agents.ts", "sandbox.ts"]) {
+      await writeFile(join(templateRoot, ".smithers", name), `export const fixture = "${name}"\n`)
+    }
+    await writeFile(join(templateRoot, "PACKAGE.ts"), 'export const packageFixture = true\n')
+    await writeFile(join(templateRoot, "TOOLS.ts"), 'export const toolsFixture = true\n')
     await cp(templateRoot, join(source, "template/default"), { recursive: true })
     await mkdir(join(source, ".smithers"), { recursive: true })
     await writeFile(join(source, ".smithers", "state.db"), "runtime state")

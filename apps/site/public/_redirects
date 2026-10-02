@@ -7,8 +7,8 @@
 /docs/how-it-works/threads/  /docs/how-it-works/conversations/  301
 /docs/how-it-works/tasks  /docs/how-it-works/issues/  301
 /docs/how-it-works/tasks/  /docs/how-it-works/issues/  301
-/docs/learn/mirror-a-thread  /docs/learn/sync-a-conversation/  301
-/docs/learn/mirror-a-thread/  /docs/learn/sync-a-conversation/  301
+/docs/learn/mirror-a-thread  /docs/how-it-works/conversations/  301
+/docs/learn/mirror-a-thread/  /docs/how-it-works/conversations/  301
 /docs/learn/create-a-task  /docs/learn/create-an-issue/  301
 /docs/learn/create-a-task/  /docs/learn/create-an-issue/  301
 # App guides folded into the four-surface tutorials (2026-09-26).
@@ -884,3 +884,6 @@
 /docs/reference/cloud-ci  /docs/guides/cloud-ci/  301
 /docs/guides/ci/  /docs/guides/cloud-ci/  301
 /docs/reference/cloud-ci/  /docs/guides/cloud-ci/  301
+
+/docs/learn/sync-a-conversation  /docs/how-it-works/conversations/  301
+/docs/learn/sync-a-conversation/  /docs/how-it-works/conversations/  301

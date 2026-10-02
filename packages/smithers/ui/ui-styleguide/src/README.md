@@ -2,7 +2,7 @@
 
 Shipped-as-source `.ts` modules: the package's export map points straight at
 `src/index.ts` (no build step, no dependencies). Every relative specifier here
-carries its `.ts` extension, because `apps/review` loads this package under
+carries its `.ts` extension, because `flows/review` loads this package under
 Node ESM, where an extensionless specifier does not resolve.
 
 The contract lives one directory up:

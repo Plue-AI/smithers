@@ -70,7 +70,7 @@ The release train packs the `engine`, `agent` and `tooling` groups together at
 one synchronized version: the 49 names `publishedPackages` restates in
 `scripts/pack-release.mjs` and checks against what the workspace declares. Four
 tooling packages are public, `@smthrs/build`, `@smthrs/build-cli`,
-`@smthrs/create-app` and `@smthrs/targets`; deployment and repository-local
+`@smthrs/targets`; deployment and repository-local
 tooling stays out of the roster through its manifest `private` flag.
 Membership is not a proxy for feature scope, so a package can ship and still
 not be a release-candidate feature. `@smthrs/triggers`, `@smthrs/evals` and
@@ -147,11 +147,7 @@ only.
 | `smithers`                    | `#3367 capability ceiling changes refresh conflicted child identity without failing parent`        | `it.fails` (#3367)                                          |
 | `smithers/flows/platform-bun` | `executes the declared Bun lane in a Bun worker`                                                   | `it.skipIf(process.env.SMITHERS_PLATFORM_BUN_LANE === "1")` |
 | `smithers/agent/harness`      | `workerd smoke`                                                                                    | `describe.skipIf(FLOWS_WORKERD_SMOKE !== "1")`              |
-| `smithers/create-app`         | `layerTevm against a mainnet fork`                                                                 | `it.skip` in `template/aomi`                                |
 | `smithers/agent/integrations` | `GitHub live contract (GITHUB_TOKEN)`                                                              | `describe.skipIf(GITHUB_TOKEN === undefined)`               |
-| `smithers/agent/integrations` | `Linear live contract (LINEAR_API_KEY)`                                                            | `describe.skipIf(LINEAR_API_KEY === undefined)`             |
-| `smithers/agent/integrations` | `Telegram live contract (TELEGRAM_BOT_TOKEN)`                                                      | `describe.skipIf(TELEGRAM_BOT_TOKEN === undefined)`         |
-| `smithers/agent/integrations` | `long-polls without confirming any update (TELEGRAM_CHAT_ID)`                                      | `it.skipIf(TELEGRAM_CHAT_ID === undefined)`                 |
 | `smithers/build/targets`      | `SecretProxy brokered origins over the network`                                                    | `describe.runIf(SMITHERS_E2E_NETWORK === "1")`              |
 | `smithers/agent/model`        | `OpenAIChatCompletions over Gemini`                                                                | `describe.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1"          |
 | `smithers/migrate`            | `migrates a single-file JSX project through the bin (${reason})`                                   | `it.skip` when `SMITHERS_MIGRATE_SEAT` names no funded seat |
@@ -191,20 +187,7 @@ breaks if it regresses: an operator's migration could
 stop producing a compiling flow and only the release rehearsal would find out.
 Closing it for the default gate means paying for a model seat in CI, which
 the RC does not do.
-**`integrations`: the three live contract suites.** Each one talks to a real
-vendor API, `api.github.com`, `api.linear.app`, or `api.telegram.org`. Each
-skips when its credential is absent, naming the variable in the suite title and
-in a comment above it. They exist because the fixture suites prove the clients'
-behavior against a server this repository controls, and only a live call proves
-the wire contract those fixtures encode is still the one the vendor serves.
-What breaks if they regress: a provider changes a response shape, a header, or
-an error code, and nothing notices until an application does. Run them with
-`GITHUB_TOKEN=…`, `LINEAR_API_KEY=…`, or `TELEGRAM_BOT_TOKEN=…`; all three are
-read-only, and the Telegram poll confirms no offset so a running bot keeps its
-backlog. GitHub and Linear are `1.0.0-rc.0`'s release-smoke integrations, so
-both are run by hand at release time. Inside the Telegram suite one case is
-gated again on `TELEGRAM_CHAT_ID`: the long poll needs a chat the bot can
-see, and a token alone does not name one.
+The GitHub live contract requires an explicit test repository and credentials.
 
 **`harness` — workerd smoke.** The suite boots a real `workerd` process to
 prove the QuickJS cell runtime runs unchanged on the Cloudflare runtime.
@@ -230,17 +213,6 @@ Run it with `SMITHERS_MIGRATE_SEAT=anthropic:<model> ANTHROPIC_API_KEY=... pnpm
 --filter @smthrs/migrate test`. What breaks if it regresses: `smithers migrate`
 could stop producing a flow the registry discovers, and only a paid run would
 notice.
-
-**`create-app` — `layerTevm` against a mainnet fork.** The pin is inside
-`packages/smithers/create-app/template/aomi`, a scaffolding template copied into a new
-project rather than a suite this repository runs: `create-app`'s own
-`vitest.config.ts` includes `test/**/*.test.ts` only, because the template's
-tests resolve against the scaffolded copy's `node_modules`. The test needs a
-funded mainnet fork RPC endpoint, which no gate here provides. What breaks if
-it regresses: nothing in this repository; a scaffolded project inherits a
-skipped test it can enable with its own endpoint. It is listed because the pin
-register scans package directories, not vitest include globs, and a pin the
-scanner can see is a pin the register documents.
 
 **`smithers`: the funded-seat init scaffold.** `Bin.test.ts` gates one suite
 on a signed-in ChatGPT seat. It runs `smthrs init hello` and then

@@ -1,7 +1,6 @@
-import { REVIEW_MIGRATIONS } from "../../apps/review/src/server/migrations.ts"
 import type { Release, RolloutHost } from "./runtime.ts"
 
-export type WorkerApp = "review" | "bug-worker"
+export type WorkerApp = "bug-worker"
 export interface WorkerArtifact {
   readonly revision: string
   readonly sha256: string
@@ -17,7 +16,6 @@ export interface WorkerQualification {
     readonly status: "retained" | "replacement-required"
     readonly receipt: string
   }
-  readonly migrations?: { readonly revision: string; readonly applied: ReadonlyArray<string>; readonly receipt: string }
 }
 
 const sameArtifact = (a: WorkerArtifact, b: WorkerArtifact) => a.revision === b.revision && a.sha256 === b.sha256
@@ -31,12 +29,7 @@ export function assertWorkerQualified(app: WorkerApp, artifact: WorkerArtifact, 
     !sameArtifact(evidence.artifact, artifact) || !sameArtifact(evidence.adoption.artifact, artifact) ||
     evidence.adoption.status !== "retained" || !evidence.adoption.receipt.trim()
   ) throw new Error("Worker qualification refused")
-  if (
-    app === "review" && (
-      evidence.migrations?.revision !== artifact.revision || !evidence.migrations.receipt.trim() ||
-      REVIEW_MIGRATIONS.some(({ name }) => !evidence.migrations!.applied.includes(name))
-    )
-  ) throw new Error("Worker migration readback required")
+
 }
 
 /** The private host holds the exclusive lease, immutable artifact and durable receipts. */

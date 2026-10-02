@@ -148,13 +148,14 @@ export const make = (config: Config): Channel => {
         )
       )
 
+  const map: Channel["map"] = (event) => config.route(event as ExternalEvent)
   const json = WebhookChannel.make({
     name: config.name,
     schema: Schema.Json,
     credential: config.credential,
     ...(config.fingerprintHeaders === undefined ? {} : { fingerprintHeaders: config.fingerprintHeaders }),
     verify: verifier,
-    map: () => Effect.fail(new InvalidInput({ issue: "unreachable: the provider decoder maps the event" })),
+    map,
     project: config.project ?? noProjection
   })
   return {
@@ -186,7 +187,7 @@ export const make = (config: Config): Channel => {
           )
         )
       ),
-    map: (event) => config.route(event as ExternalEvent),
+    map,
     project: json.project
   }
 }

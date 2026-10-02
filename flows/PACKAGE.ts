@@ -18,7 +18,7 @@ const sources = Smithers.glob("//flows/**/*.ts")
 const scripts = Smithers.glob("//scripts/*.mjs")
 
 const check = Smithers.Typecheck({
-  srcs: [sources, scripts, Smithers.file("//apps/review/src/server/migrations.ts")],
+  srcs: [sources, scripts],
   deps: [],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
@@ -38,8 +38,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
     Smithers.file("//flows/test/worker-rollout.test.ts"),
-    Smithers.file("//flows/test/notes.test.ts"),
-    Smithers.file("//flows/test/telegram.test.ts")
+    Smithers.file("//flows/test/notes.test.ts")
   ]),
   srcs: [
     sources,
@@ -47,15 +46,11 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/register-repository/calibration/fit.json"),
     Smithers.file("//flows/test/fixtures/notes-calendar.ics"),
     Smithers.file("//flows/test/fixtures/notes-marketing.md"),
-    Smithers.file("//flows/test/fixtures/telegram-getme.json"),
-    Smithers.file("//flows/test/fixtures/telegram-updates.json"),
     scripts,
-    Smithers.file("//flows/review/flow.mdx"),
+    Smithers.file("//flows/review/flow.ts"),
     Smithers.file("//pnpm-workspace.yaml"),
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
-    Smithers.file("//apps/review/package.json"),
-    Smithers.file("//apps/bug-worker/package.json"),
-    Smithers.file("//apps/review/src/server/migrations.ts")
+    Smithers.file("//apps/bug-worker/package.json")
   ],
   deps: [],
   cwd
@@ -103,6 +98,7 @@ const issueSweep = Smithers.NodeTest({
     Smithers.file("//flows/issue-sweep/test/accounts.test.ts"),
     Smithers.file("//flows/issue-sweep/test/claude.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/land-baselines.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land-jj.test.ts"),
     Smithers.file("//flows/issue-sweep/test/work.test.ts"),
     Smithers.file("//flows/issue-sweep/test/remote-job.test.ts"),
@@ -167,7 +163,6 @@ const codingPackages = [
   "packages/smithers/build/infra",
   "packages/smithers/build/targets",
   "packages/smithers/control",
-  "packages/smithers/create-app",
   "packages/smithers/flows",
   "packages/smithers/flows/artifacts",
   "packages/smithers/flows/canonical",

@@ -22,8 +22,6 @@ const run = async (command: string, commandArgs: readonly string[]): Promise<num
 const serve = async (): Promise<never> => {
   if (process.env.SMITHERS_CHAT_STUB !== "0") throw new Error("The real E2E host requires SMITHERS_CHAT_STUB=0.")
   if (process.env.SMITHERS_SKIP_SPA_BUILD !== "1") {
-    const devkit = await run(process.execPath, ["scripts/ensure-devkit.mjs"])
-    if (devkit !== 0) process.exit(devkit)
     const build = await run("pnpm", ["exec", "vite", "build", "--configLoader", "runner"])
     if (build !== 0) process.exit(build)
   }

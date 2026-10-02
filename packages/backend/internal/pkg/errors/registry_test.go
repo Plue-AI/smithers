@@ -183,7 +183,7 @@ func TestNoCapacityIsRetryableInfra(t *testing.T) {
 // the infra fault, so every consumer renders "not your fault" without having
 // to special-case an English sentence.
 func TestOurRolloutIsNeverTheCallersFault(t *testing.T) {
-	for _, code := range []Code{CodeDesktopToolsUnavailable, CodeEnvironmentImageUnavailable, CodeCodingHostUnavailable} {
+	for _, code := range []Code{CodeEnvironmentImageUnavailable, CodeCodingHostUnavailable} {
 		entry, ok := Lookup(code)
 		require.True(t, ok)
 		assert.Equal(t, FaultInfra, entry.Fault,
@@ -284,14 +284,14 @@ func TestWriteErrorRetryAfterGuard(t *testing.T) {
 	t.Run("a preset header is never clobbered", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		rec.Header().Set("Retry-After", "47")
-		WriteError(rec, New(CodeDesktopNotReady, "still starting"))
+		WriteError(rec, New(CodeGuestNotReady, "still starting"))
 		assert.Equal(t, "47", rec.Header().Get("Retry-After"),
 			"middleware that computed its own window keeps it")
 	})
 
 	t.Run("a registered wait writes its own pacing", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		WriteError(rec, New(CodeDesktopNotReady, "still starting"))
+		WriteError(rec, New(CodeGuestNotReady, "still starting"))
 		assert.Equal(t, "2", rec.Header().Get("Retry-After"))
 
 		var body APIError

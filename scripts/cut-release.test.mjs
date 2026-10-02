@@ -211,12 +211,12 @@ test("a cut bumps every manifest, retargets internal ranges, and writes the sect
     assert.match(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"), /0\.2\.0/)
     assert.match(readFileSync(join(root, "bun.lock"), "utf8"), /0\.2\.0/)
     assert.deepEqual(git(root, ["tag"]), "v0.1.0", "a cut without --commit tags nothing")
-    const templatePath = versionedTemplates[0]
+    const templatePath = "packages/smithers/package.json"
     const staleTemplate = manifest(root, templatePath)
     staleTemplate.dependencies["@smthrs/kernel"] = "0.1.0"
     write(root, templatePath, json(staleTemplate))
     assert.throws(() => execFileSync(process.execPath, ["scripts/set-release-version.mjs", "--check", "0.2.0"],
-      { cwd: root, stdio: "pipe" }), (error) => error.status === 1 && /template\/default\/package\.json/.test(String(error.stderr)))
+      { cwd: root, stdio: "pipe" }), (error) => error.status === 1 && /packages\/smithers\/package\.json/.test(String(error.stderr)))
   })
 })
 

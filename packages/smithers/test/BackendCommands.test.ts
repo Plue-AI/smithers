@@ -124,6 +124,31 @@ const homeFixture = async (
   }
 }
 
+describe("retired product commands", () => {
+  it.each([
+    ["create-app", "my-app"],
+    ["repo", "fork", "owner/repo"],
+    ["repo", "transfer", "owner/repo", "--to", "other"],
+    ["changeset", "create", "--org", "org", "--member", "repo=change"],
+    ["changeset", "get", "--org", "org", "--id", "1"],
+    ["changeset", "list", "--org", "org"],
+    ["changeset", "land", "--org", "org", "--id", "1"]
+  ])("refuses %j without contacting the backend", async (...args) => {
+    const request = vi.fn((_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(500)
+      res.end("removed command contacted server")
+    })
+    const f = await homeFixture(request)
+    try {
+      const result = await f.run(args)
+      expect(result.code).not.toBe(0)
+      expect(request).not.toHaveBeenCalled()
+    } finally {
+      await f.close()
+    }
+  })
+})
+
 describe("repo clone over local Git HTTP", () => {
   it("preserves the configured origin and uses its saved login for a private repository", async () => {
     let gitRoot = ""

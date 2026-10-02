@@ -1,3 +1,4 @@
+import * as History from "../src/history/History.ts"
 /** Actual module bytes, native jj/SQLite and the canonical CLI resume boundary. */
 import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
@@ -119,7 +120,8 @@ it("resumes the retained module snapshot, replays carried steps and settles only
       "engine",
       (db) => Number(db.prepare("SELECT MAX(seq) AS seq FROM flows_journal_events WHERE run_id=?").get(runId)!.seq)
     )
-    const fork = await run("runs", "fork", runId, "--at", String(at))
+    const fork = await History.mutate(root, runId, { sequence: at }, "fork")
+    if (!("workspace" in fork)) throw new Error("Core fork workspace missing")
     expect(fork.workspace).toEqual(expect.any(String))
     expect(fork.runId).toEqual(expect.any(String))
     const workspace = String(fork.workspace), forkId = String(fork.runId)

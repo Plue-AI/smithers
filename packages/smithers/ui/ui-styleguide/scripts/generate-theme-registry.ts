@@ -22,7 +22,7 @@
  * from what this script would write now. `packages/smithers/ui/ui-styleguide` runs it as a
  * test, which is what keeps a hand edit to a generated file from surviving:
  * the emitted import specifier carries the `.ts` extension because
- * `apps/review` resolves this package under Node ESM, where an extensionless
+ * `flows/review` resolves this package under Node ESM, where an extensionless
  * relative specifier does not resolve, and a regeneration without this check
  * would silently take that extension back off.
  */

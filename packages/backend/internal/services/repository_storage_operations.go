@@ -75,23 +75,6 @@ func newDeleteStorageOperation(repository db.Repository, owner string, staged re
 	}
 }
 
-func newMoveStorageOperation(repository db.Repository, owner string, target repoTransferTarget, staged repohost.StagedMove) repositoryStorageOperation {
-	return repositoryStorageOperation{
-		RepositoryID:    repository.ID,
-		OperationType:   repositoryStorageOperationMove,
-		Token:           staged.Token,
-		StorageRouteKey: staged.StorageRouteKey,
-		SourceOwner:     owner,
-		SourceRepo:      repository.Name,
-		SourceUserID:    repository.UserID,
-		SourceOrgID:     repository.OrgID,
-		TargetOwner:     pgtype.Text{String: target.ownerName, Valid: true},
-		TargetRepo:      pgtype.Text{String: repository.Name, Valid: true},
-		TargetUserID:    target.userID,
-		TargetOrgID:     target.orgID,
-	}
-}
-
 type repositoryStorageOperationStore interface {
 	Create(context.Context, repositoryStorageOperation) error
 	Verify(context.Context, int64, string) (bool, error)

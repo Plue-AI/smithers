@@ -493,6 +493,9 @@ func (s *WorkspaceService) buildWorkspaceVMRequest(ctx context.Context, snapshot
 // worker's init handoff; snapshotID non-empty means "boot the closure's
 // golden snapshot when one is ready" (the container-kind id is never reused).
 func (s *WorkspaceService) buildWorkspaceVMRequestWithImage(ctx context.Context, snapshotID string, gitRepos []sandbox.GitRepositorySpec, repositoryID int64, workspaceID, kind string, fixedImage *runtimeports.SandboxEnvironmentImage) (sandbox.CreateRequest, error) {
+	if strings.TrimSpace(kind) == "desktop" {
+		return sandbox.CreateRequest{}, pkgerrors.BadRequest("kind must be container or vm")
+	}
 	req, err := s.buildContainerWorkspaceVMRequest(ctx, snapshotID, gitRepos, repositoryID, workspaceID, kind)
 	if err != nil {
 		return sandbox.CreateRequest{}, err
@@ -1043,6 +1046,9 @@ func (s *WorkspaceService) DeleteWorkspaceSnapshot(ctx context.Context, snapshot
 }
 
 func (s *WorkspaceService) findOrCreateWorkspaceForBookmark(ctx context.Context, repositoryID, userID int64, name, targetBookmark string, metadata workspaceCreateMetadata) (db.Workspace, error) {
+	if strings.TrimSpace(metadata.kind) == "desktop" {
+		return db.Workspace{}, pkgerrors.BadRequest("kind must be container or vm")
+	}
 	targetBookmark = targetWorkspaceBookmark(targetBookmark)
 	if isPrimaryWorkspaceBookmark(targetBookmark) {
 		return s.findOrCreatePrimaryWorkspace(ctx, repositoryID, userID, name, targetBookmark, metadata)
@@ -1757,7 +1763,6 @@ func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace d
 		s.sandboxMetrics.AddSandboxActiveVMs("workspace", 1)
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, workspace.ID)
-	_ = s.ensureWorkspaceDesktop(ctx, updated)
 	s.meterWorkspaceUsage(ctx, workspace, "running")
 	s.notifyWorkspace(ctx, updated.ID, "running")
 	slog.Info("sandbox created", "vm_id", vm.ID, "type", "workspace", "duration_ms", duration.Milliseconds())

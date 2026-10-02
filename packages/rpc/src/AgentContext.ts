@@ -199,7 +199,6 @@ export const AgentRuntimeContextSchema = z.object({
       kind: runtimeLineSchema,
       status: runtimeLineSchema,
       facet: runtimeLineSchema,
-      streaming: z.boolean()
     }).optional(),
     /** Optional, like every field a boundary may predate. */
     setup: AgentRuntimeSetupDraftSchema.optional()
@@ -512,7 +511,7 @@ export const renderAgentRuntimeContext = (context: AgentRuntimeContext): string 
         lines.push(
           `    Workspace ${line(ws.id)} in ${line(ws.repo)}: kind=${line(ws.kind)}, status=${line(ws.status)}, facet=${
             line(ws.facet)
-          }, desktop stream=${ws.streaming ? "attached" : "not attached"}. This does not reveal the screen contents.`
+          }.`
         )
       }
       if (card.setup) {

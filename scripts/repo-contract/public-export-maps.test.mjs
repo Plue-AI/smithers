@@ -107,10 +107,31 @@ describe("explicit public entrypoints", () => {
       "@smthrs/gateway/SuperviseRuntime",
       "@smthrs/gateway/test/TestSuperviseRuntime",
       "@smthrs/cli/McpServer",
-      "@smthrs/cli/CodexAuth"
-    ])
+      "@smthrs/cli/CodexAuth",
+      "@smthrs/build-cli/CreateApp",
+      "@smthrs/integrations/linear",
+      "@smthrs/integrations/linear/Actions",
+      "@smthrs/integrations/linear/Config",
+      "@smthrs/integrations/linear/LinearClient",
+      "@smthrs/integrations/linear/Payload",
+      "@smthrs/integrations/linear/Webhook",
+      "@smthrs/integrations/telegram",
+      "@smthrs/integrations/telegram/Actions",
+      "@smthrs/integrations/telegram/Approval",
+      "@smthrs/integrations/telegram/Chunk",
+      "@smthrs/integrations/telegram/Config",
+      "@smthrs/integrations/telegram/InitData",
+      "@smthrs/integrations/telegram/Markdown",
+      "@smthrs/integrations/telegram/Payload",
+      "@smthrs/integrations/telegram/Source",
+      "@smthrs/integrations/telegram/TelegramClient"
+])
     let retained = 0
     for (const previous of baseline.packages) {
+      if (baseline.retiredPackages.some(({ name }) => name === previous.name)) {
+        assert.equal(current.has(previous.name), false, `${previous.name} is retired`)
+        continue
+      }
       const manifest = current.get(previous.name)?.manifest
       assert.ok(manifest, previous.name)
       const removed = denied(previous.name)
@@ -130,7 +151,7 @@ describe("explicit public entrypoints", () => {
       }
       retained += previous.subpaths.length - removed.length
     }
-    assert.equal(retained, 767)
+    assert.equal(retained, 739)
   })
 
   it("retires CLI CodexAuth credentials while preserving the reviewed export history", () => {
@@ -178,10 +199,11 @@ process.stdout.write(JSON.stringify([
   })
 
   it("admits only explicitly reviewed additions without rewriting the original surface", () => {
-    assert.deepEqual(baseline.added.map(({ name, subpath }) => `${name}${subpath.slice(1)}`).sort(), [
-      "@smthrs/agent/Memory", "@smthrs/agent/MemoryCalibration", "@smthrs/agent/MemoryMine", "@smthrs/agent/RunawayGuard", "@smthrs/agent/ScriptedJudge", "@smthrs/agent/SeatRouter", "@smthrs/agent/SmithersPlugin", "@smthrs/artifacts/FileLease", "@smthrs/build-cli/KnownRed", "@smthrs/build-cli/Positionals", "@smthrs/build-cli/TargetIndex", "@smthrs/canonical/BoundedJson", "@smthrs/canonical/IssuePath", "@smthrs/canonical/ReadonlyMap", "@smthrs/canonical/Record", "@smthrs/canonical/Serializer", "@smthrs/capability/CapabilitySet", "@smthrs/cli/BunControl", "@smthrs/cli/CloudSandbox", "@smthrs/cli/CloudSession", "@smthrs/cli/ExecutionEnvironment", "@smthrs/cli/cli/EnvironmentCommands", "@smthrs/cli/cli/TokenCommands", "@smthrs/cli/tui-native", "@smthrs/control/ApprovalAuthority", "@smthrs/control/DispatchReader", "@smthrs/control/Health", "@smthrs/control/ScopedToken", "@smthrs/create-app/http", "@smthrs/create-app/worker", "@smthrs/crypto/Identity", "@smthrs/database/Dialect", "@smthrs/database/bun/BunDatabase", "@smthrs/database/postgres/PostgresDatabase", "@smthrs/engine-store/DeferredClockFold", "@smthrs/engine-store/EventTypes", "@smthrs/engine-store/ExecutionSnapshot", "@smthrs/engine-store/PlanInputStore", "@smthrs/engine-store/PlanMergeStore", "@smthrs/engine-store/ReplayOnly", "@smthrs/engine-store/RunChangeFeed", "@smthrs/engine-store/StepCacheFold", "@smthrs/engine/Hosts", "@smthrs/engine/PlacedAction", "@smthrs/evals/Trials", "@smthrs/flow/Deadline", "@smthrs/flow/Fault", "@smthrs/flow/Stall", "@smthrs/flows/BunRuntime", "@smthrs/flows/Runtime", "@smthrs/gateway/EngineTrace", "@smthrs/gateway/RunDevTools", "@smthrs/gateway/RunHistory", "@smthrs/gateway/RunTrace", "@smthrs/gateway/RuntimeBridge", "@smthrs/gateway/bun/BunGateway", "@smthrs/harness/CompletionClaim", "@smthrs/harness/FailedCall", "@smthrs/harness/Judgement", "@smthrs/harness/Monitor", "@smthrs/harness/Relevance", "@smthrs/harness/Supervisor", "@smthrs/integrations/core/AccessToken", "@smthrs/integrations/core/Connection", "@smthrs/integrations/core/IssueSync", "@smthrs/integrations/core/OAuthToken", "@smthrs/integrations/core/Source", "@smthrs/integrations/core/SourceRecord", "@smthrs/integrations/core/SourceStore", "@smthrs/integrations/core/Sync", "@smthrs/integrations/github/Sync", "@smthrs/integrations/gmail", "@smthrs/integrations/gmail/Actions", "@smthrs/integrations/gmail/Capabilities", "@smthrs/integrations/gmail/Config", "@smthrs/integrations/gmail/GmailClient", "@smthrs/integrations/gmail/Mime", "@smthrs/integrations/gmail/Reconcile", "@smthrs/integrations/gmail/Records", "@smthrs/integrations/gmail/Sync", "@smthrs/integrations/googlecalendar", "@smthrs/integrations/googlecalendar/Actions", "@smthrs/integrations/googlecalendar/CalendarClient", "@smthrs/integrations/googlecalendar/Config", "@smthrs/integrations/googlecalendar/Event", "@smthrs/integrations/googlecalendar/EventId", "@smthrs/integrations/googlecalendar/Sync", "@smthrs/integrations/slack", "@smthrs/integrations/slack/Actions", "@smthrs/integrations/slack/Approval", "@smthrs/integrations/slack/Config", "@smthrs/integrations/slack/Connections", "@smthrs/integrations/slack/IssueSync", "@smthrs/integrations/slack/Payload", "@smthrs/integrations/slack/SlackClient", "@smthrs/integrations/slack/SocketSource", "@smthrs/integrations/slack/Sync", "@smthrs/integrations/slack/Webhook", "@smthrs/integrations/telegram/IssueSync", "@smthrs/integrations/x", "@smthrs/integrations/x/Capabilities", "@smthrs/integrations/x/Config", "@smthrs/integrations/x/Records", "@smthrs/integrations/x/Sync", "@smthrs/integrations/x/XClient", "@smthrs/journal/Consensus", "@smthrs/journal/EngineEvent", "@smthrs/journal/JournalGeneration", "@smthrs/journal/SqlConsensus", "@smthrs/kernel/ChildProcessEnvironment", "@smthrs/kernel/ProcessConfinement", "@smthrs/kernel/Rooted", "@smthrs/memory/Migrations", "@smthrs/model/Classifier", "@smthrs/model/Evaluator", "@smthrs/model/EvaluatorBackup", "@smthrs/model/FailureCopy", "@smthrs/model/ModelCatalog", "@smthrs/model/Pricing", "@smthrs/patterns/Burndown", "@smthrs/plan/CachePolicy", "@smthrs/plan/Effects", "@smthrs/plan/Placement", "@smthrs/plan/Repetition", "@smthrs/plan/Scheduling", "@smthrs/plan/test/PlanFixtures", "@smthrs/platform-node/EgressHttpClient", "@smthrs/platform-node/ProcessConfinement", "@smthrs/platform-node/ProcessSandbox", "@smthrs/platform-node/ScopedProcess", "@smthrs/registry/Prompt", "@smthrs/registry/Prompt/jsx-runtime", "@smthrs/sandbox/CommandSandbox", "@smthrs/sandbox/CommandSandbox/*", "@smthrs/scorers/Checks", "@smthrs/scorers/Rubric", "@smthrs/scorers/ScoreGate", "@smthrs/scorers/Scorers", "@smthrs/std/Relocate", "@smthrs/std/TreeFingerprint", "@smthrs/testing/ProcessTable", "@smthrs/triggers/DispatchReader"
+    assert.deepEqual(baseline.added.filter(({ name }) => !baseline.retiredPackages.some((entry) => entry.name === name)).map(({ name, subpath }) => `${name}${subpath.slice(1)}`).sort(), [
+      "@smthrs/agent/Memory", "@smthrs/agent/MemoryCalibration", "@smthrs/agent/MemoryMine", "@smthrs/agent/RunawayGuard", "@smthrs/agent/ScriptedJudge", "@smthrs/agent/SeatRouter", "@smthrs/agent/SmithersPlugin", "@smthrs/artifacts/FileLease", "@smthrs/build-cli/KnownRed", "@smthrs/build-cli/Positionals", "@smthrs/build-cli/TargetIndex", "@smthrs/canonical/BoundedJson", "@smthrs/canonical/IssuePath", "@smthrs/canonical/ReadonlyMap", "@smthrs/canonical/Record", "@smthrs/canonical/Serializer", "@smthrs/capability/CapabilitySet", "@smthrs/cli/BunControl", "@smthrs/cli/CloudSandbox", "@smthrs/cli/CloudSession", "@smthrs/cli/ExecutionEnvironment", "@smthrs/cli/cli/EnvironmentCommands", "@smthrs/cli/cli/TokenCommands", "@smthrs/cli/tui-native", "@smthrs/control/ApprovalAuthority", "@smthrs/control/DispatchReader", "@smthrs/control/Health", "@smthrs/control/ScopedToken", "@smthrs/crypto/Identity", "@smthrs/database/Dialect", "@smthrs/database/bun/BunDatabase", "@smthrs/database/postgres/PostgresDatabase", "@smthrs/engine-store/DeferredClockFold", "@smthrs/engine-store/EventTypes", "@smthrs/engine-store/ExecutionSnapshot", "@smthrs/engine-store/PlanInputStore", "@smthrs/engine-store/PlanMergeStore", "@smthrs/engine-store/ReplayOnly", "@smthrs/engine-store/RunChangeFeed", "@smthrs/engine-store/StepCacheFold", "@smthrs/engine/Hosts", "@smthrs/engine/PlacedAction", "@smthrs/evals/Trials", "@smthrs/flow/Deadline", "@smthrs/flow/ExternalJob", "@smthrs/flow/Fault", "@smthrs/flow/Stall", "@smthrs/flows/BunRuntime", "@smthrs/flows/Runtime", "@smthrs/gateway/EngineTrace", "@smthrs/gateway/RunDevTools", "@smthrs/gateway/RunHistory", "@smthrs/gateway/RunTrace", "@smthrs/gateway/RuntimeBridge", "@smthrs/gateway/bun/BunGateway", "@smthrs/harness/CompletionClaim", "@smthrs/harness/FailedCall", "@smthrs/harness/Judgement", "@smthrs/harness/Monitor", "@smthrs/harness/Relevance", "@smthrs/harness/Supervisor", "@smthrs/integrations/core/AccessToken", "@smthrs/integrations/core/Connection", "@smthrs/integrations/core/IssueSync", "@smthrs/integrations/core/OAuthToken", "@smthrs/integrations/core/Source", "@smthrs/integrations/core/SourceRecord", "@smthrs/integrations/core/SourceStore", "@smthrs/integrations/core/Sync", "@smthrs/integrations/github/Proxy", "@smthrs/integrations/github/RateLimit", "@smthrs/integrations/github/Sync", "@smthrs/journal/Consensus", "@smthrs/journal/EngineEvent", "@smthrs/journal/JournalGeneration", "@smthrs/journal/SqlConsensus", "@smthrs/kernel/ChildProcessEnvironment", "@smthrs/kernel/ProcessConfinement", "@smthrs/kernel/Rooted", "@smthrs/kernel/Unreachable", "@smthrs/memory/Migrations", "@smthrs/model/Classifier", "@smthrs/model/Evaluator", "@smthrs/model/EvaluatorBackup", "@smthrs/model/FailureCopy", "@smthrs/model/ModelCatalog", "@smthrs/model/Pricing", "@smthrs/patterns/Burndown", "@smthrs/plan/CachePolicy", "@smthrs/plan/Effects", "@smthrs/plan/Placement", "@smthrs/plan/Repetition", "@smthrs/plan/Scheduling", "@smthrs/plan/test/PlanFixtures", "@smthrs/platform-node/EgressHttpClient", "@smthrs/platform-node/ProcessConfinement", "@smthrs/platform-node/ProcessSandbox", "@smthrs/platform-node/ScopedProcess", "@smthrs/registry/ExecutionSnapshot", "@smthrs/registry/Prompt", "@smthrs/registry/Prompt/jsx-runtime", "@smthrs/sandbox/CommandSandbox", "@smthrs/sandbox/CommandSandbox/*", "@smthrs/sandbox/SandboxMerge", "@smthrs/sandbox/SandboxMerge/*", "@smthrs/scorers/Checks", "@smthrs/scorers/Rubric", "@smthrs/scorers/ScoreGate", "@smthrs/scorers/Scorers", "@smthrs/std/Relocate", "@smthrs/std/TreeFingerprint", "@smthrs/testing/ProcessTable", "@smthrs/triggers/DispatchReader"
     ])
     for (const entry of baseline.added) {
+      if (baseline.retiredPackages.some(({ name }) => name === entry.name)) continue
       const manifest = current.get(entry.name).manifest
       assert.ok(entry.reason.length > 0)
       assert.deepEqual(exportTarget(manifest.exports, entry.subpath), entry.development)
@@ -356,6 +378,7 @@ process.stdout.write(JSON.stringify({assertions:'passed'}));
         typeof target === "string" ? [target] : target == null ? [] : Object.values(target).flatMap(targets)
       const probes = ["./future/Unreviewed", "./internal/Unreviewed", "./future/index"]
       for (const [index, previous] of baseline.packages.entries()) {
+        if (baseline.retiredPackages.some(({ name }) => name === previous.name)) continue
         const manifest = current.get(previous.name).manifest
         for (const [mode, map] of [["development", manifest.exports], ["published", manifest.publishConfig.exports]]) {
           for (const [phase, exports] of [["before", previous[mode]], ["after", map]]) {

@@ -50,7 +50,7 @@
     "lint": "pnpm --recursive --if-present run lint",
     "target-index": "pnpm exec smthrs target '//:targetIndex' --write",
     "test": "pnpm --recursive --if-present run test",
-    "test:e2e": "bun apps/app/e2e/packaged/run.ts",
+    "test:e2e": "pnpm --filter smithers-app run test:e2e",
     "test:jsdoc": "node --test eslint.jsdoc.test.mjs",
     "test:examples": "pnpm --filter @smthrs/examples run test",
     "lint:jsdoc": "eslint --config eslint.config.js \"packages/*/src/**/*.ts\" \"packages/*/*/src/**/*.ts\" \"packages/*/*/*/src/**/*.ts\" --max-warnings=0"

@@ -120,3 +120,51 @@ it("stops a batch on a rate-limited receipt before making another API request", 
   await expect(sync.drain()).rejects.toMatchObject({ status: 429, retryAfter: "120" })
   expect(requests).toBe(4)
 })
+
+const messageEvent = {
+  source: "example",
+  eventName: "integration:example:message",
+  correlationId: "one",
+  payload: { body: "hello" },
+  dedupeKey: "one",
+  receivedAtMs: 1
+}
+it.each([
+  [{ ignored: "unmapped" }, messageEvent, true, "ignored", 0],
+  [{ issue_id: 42 }, messageEvent, true, "applied", 1],
+  [{ issue_id: 42 }, undefined, true, "applied", 0],
+  [{ issue_id: 42 }, messageEvent, false, "applied", 0],
+  [null, messageEvent, true, "applied", 0],
+  [{ issue_id: "42" }, messageEvent, true, "applied", 0]
+])("notifies only an accepted, typed issue receipt (%j)", async (receipt, event, notify, expected, count) => {
+  const notifications: unknown[] = []
+  const sync = IssueSync.make({
+    owner: "owner",
+    repo: "repo",
+    connector,
+    ...(notify
+      ? {
+        onMessage: async (message) => {
+          notifications.push(message)
+        }
+      }
+      : {}),
+    request: async () => Response.json(receipt)
+  })
+  expect(await sync.ingest({ kind: "message" }, event)).toBe(expected)
+  expect(notifications).toHaveLength(count)
+  if (count) expect(notifications).toEqual([{ issueId: 42, event: messageEvent }])
+})
+
+it("leaves a callback failure unacknowledged for recovery", async () => {
+  const sync = IssueSync.make({
+    owner: "owner",
+    repo: "repo",
+    connector,
+    onMessage: async () => {
+      throw new Error("journal unavailable")
+    },
+    request: async () => Response.json({ issue_id: 42 })
+  })
+  await expect(sync.ingest({ kind: "message" }, messageEvent)).rejects.toThrow("journal unavailable")
+})

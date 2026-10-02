@@ -421,7 +421,7 @@ gate_tools() {
     swebench) echo 'js jj' ;;
     swebench-check) echo 'js' ;;
     server) echo 'js jj' ;;
-    review-app) echo 'js' ;;
+    review-flow) echo 'js' ;;
     bug-worker) echo 'js' ;;
     project-copy) echo 'js' ;;
     site) echo 'js' ;;
@@ -573,8 +573,8 @@ run_gate() {
     server)
       pnpm exec smthrs ci '//apps/server/...' --known-red '.github/ci-known-red.json' --verbose
       ;;
-    review-app)
-      pnpm exec smthrs ci '//apps/review/...' --known-red '.github/ci-known-red.json' --verbose
+    review-flow)
+      pnpm exec smthrs ci '//flows/review/...' --known-red '.github/ci-known-red.json' --verbose
       ;;
     bug-worker)
       pnpm exec smthrs ci '//apps/bug-worker/...' --known-red '.github/ci-known-red.json' --verbose

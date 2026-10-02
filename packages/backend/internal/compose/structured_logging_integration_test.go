@@ -17,15 +17,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/database"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/internal/observability"
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -235,137 +231,4 @@ func TestStructuredLogging_AuthenticatedRequestCarriesUserID(t *testing.T) {
 	assert.Equal(t, "access-log-user-"+suffix, labels["request_id"])
 	assert.Equal(t, fmt.Sprintf("%d", user.ID), labels["user_id"], "access log must name the PAT's user")
 	assert.NotContains(t, logs, token, "the raw token must never be logged")
-}
-
-// ---------------------------------------------------------------------------
-// R003: desktop relay bearer tokens never reach logs or spans
-// ---------------------------------------------------------------------------
-
-type stubDesktopRelayService struct {
-	authorize func(ctx context.Context, workspaceID, token string) (services.WorkspaceDesktopRelayTarget, error)
-}
-
-func (s *stubDesktopRelayService) CheckWorkspaceDesktopAccess(context.Context, string, int64, int64) error {
-	return nil
-}
-
-func (s *stubDesktopRelayService) CreateDesktopSession(context.Context, string, int64, int64) (services.WorkspaceDesktopSessionResponse, error) {
-	return services.WorkspaceDesktopSessionResponse{}, pkgerrors.Internal("not under test")
-}
-
-func (s *stubDesktopRelayService) AuthorizeDesktopRelay(ctx context.Context, workspaceID, token string) (services.WorkspaceDesktopRelayTarget, error) {
-	return s.authorize(ctx, workspaceID, token)
-}
-
-func (s *stubDesktopRelayService) ObserveDesktop(context.Context, string, int64, int64, services.DesktopObserveRequest) (services.DesktopObservation, error) {
-	return services.DesktopObservation{}, pkgerrors.Internal("not under test")
-}
-
-func (s *stubDesktopRelayService) InputDesktop(context.Context, string, int64, int64, services.DesktopInputRequest) (services.DesktopInputResponse, error) {
-	return services.DesktopInputResponse{}, pkgerrors.Internal("not under test")
-}
-
-// TestStructuredLogging_DesktopRelayTokenNeverReachesTelemetry mounts the
-// production /api/workspaces/{workspaceID}/desktop/{token}/* relay with the
-// real tracer provider installed globally and checks every relay outcome
-// (refused, conflicting, failing upstream authorization, and a successful
-// proxy) leaves neither the access log nor any exported span attribute
-// holding the smithers_desk_ credential.
-func TestStructuredLogging_DesktopRelayTokenNeverReachesTelemetry(t *testing.T) {
-	buf := installLogCapture(t)
-	exporter := tracetest.NewInMemoryExporter()
-	provider := observability.NewTracerProvider(exporter, 1.0)
-	originalProvider := otel.GetTracerProvider()
-	otel.SetTracerProvider(provider) // buildRouter's otelhttp middleware binds the global provider
-	t.Cleanup(func() {
-		otel.SetTracerProvider(originalProvider)
-		_ = provider.Shutdown(context.Background())
-	})
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("<html>vnc</html>"))
-	}))
-	t.Cleanup(upstream.Close)
-
-	const token = "smithers_desk_0123456789abcdef0123456789abcdef"
-	outcomes := map[string]error{} // token suffix -> authorization result
-	service := &stubDesktopRelayService{authorize: func(_ context.Context, workspaceID, got string) (services.WorkspaceDesktopRelayTarget, error) {
-		if err, refused := outcomes[got]; refused && err != nil {
-			return services.WorkspaceDesktopRelayTarget{}, err
-		}
-		return services.WorkspaceDesktopRelayTarget{Domain: "desktop.example.test", WorkspaceID: workspaceID, UserID: 1, RepositoryID: 1}, nil
-	}}
-
-	router := buildRouterCompat(
-		testConfigAllFlagsOn(),
-		nil,
-		nil, // pool
-		&routes.RepoHandler{},
-		&routes.AuthHandler{},
-		&routes.UserHandler{},
-		&routes.SSHKeyHandler{},
-		&routes.LabelHandler{},
-
-		&routes.OrgHandler{},
-		&routes.LandingHandler{},
-		&routes.SearchHandler{Service: &mockRouterSearchService{}},
-		&routes.IssueHandler{},
-		nil, // wikiService
-		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, // admin handlers
-		nil, nil, nil, nil, // webhook, secret, variable, commitStatus
-		nil, nil, nil, nil, nil, nil, // lfs, jjVCS, agentInternal, agentSession, agentSessionStream, pushHook
-		nil, // workflowHandler
-		&routes.WorkspaceHandler{Desktop: &routes.WorkspaceDesktopHandler{Service: service, RelayServiceURL: upstream.URL}},
-		nil, nil, // workspaceInternal, workspaceTerminal
-		nil, nil, nil, // telemetry, featureFlag, oauth2
-		nil, // smithersMetrics
-	)
-
-	cases := []struct {
-		name       string
-		suffix     string
-		path       string
-		err        error
-		wantStatus int
-	}{
-		{name: "expired session refused", suffix: "a", path: "/vnc.html", err: pkgerrors.Unauthorized("desktop session expired"), wantStatus: http.StatusUnauthorized},
-		{name: "workspace not running", suffix: "b", path: "/websockify", err: pkgerrors.Conflict("workspace is not running"), wantStatus: http.StatusConflict},
-		{name: "authorization backend failure", suffix: "c", path: "/vnc.html?autoconnect=true&password=secretvnc", err: pkgerrors.Internal("desktop lookup failed"), wantStatus: http.StatusInternalServerError},
-		{name: "successful relay", suffix: "d", path: "/vnc.html", wantStatus: http.StatusOK},
-		{name: "successful relay bare token", suffix: "e", path: "", wantStatus: http.StatusOK},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			caseToken := token + tc.suffix
-			outcomes[caseToken] = tc.err
-			exporter.Reset()
-
-			req := httptest.NewRequest(http.MethodGet, "/api/workspaces/ws-desktop/desktop/"+caseToken+tc.path, nil)
-			req.Header.Set("X-Request-Id", "desktop-"+tc.suffix)
-			status, logs := serveCapturingLogs(router, buf, req)
-			require.Equal(t, tc.wantStatus, status, "logs:\n%s", logs)
-
-			assert.NotContains(t, logs, caseToken, "access log must not contain the desktop bearer token")
-			assert.NotContains(t, logs, "secretvnc", "access log must not contain the VNC password")
-			entry := accessLogEntry(t, logs)
-			httpReq, ok := entry["httpRequest"].(map[string]any)
-			require.True(t, ok, "entry: %v", entry)
-			if tc.err != nil {
-				assert.Equal(t, "/api/workspaces/ws-desktop/desktop/smithers_desk_REDACTED"+strings.SplitN(tc.path, "?", 2)[0], httpReq["requestUrl"])
-			}
-
-			require.NoError(t, provider.ForceFlush(context.Background()))
-			spans := exporter.GetSpans()
-			require.NotEmpty(t, spans, "otelhttp must export the server span")
-			for _, span := range spans {
-				for _, attr := range span.Attributes {
-					value := attr.Value.String()
-					assert.NotContains(t, value, caseToken, "span %q attribute %s carries the desktop bearer token", span.Name, attr.Key)
-					assert.NotContains(t, value, "secretvnc", "span %q attribute %s carries the VNC password", span.Name, attr.Key)
-				}
-			}
-		})
-	}
 }

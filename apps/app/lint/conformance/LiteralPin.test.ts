@@ -77,16 +77,6 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
-    literal: "user.name",
-    file: "scripts/build-native.ts",
-    reason: "Git configuration key for the packaged repository fixture; declared by Git, not the app flow registry."
-  },
-  {
-    literal: "user.email",
-    file: "scripts/build-native.ts",
-    reason: "Git configuration key for the packaged repository fixture; declared by Git, not the app flow registry."
-  },
-  {
     literal: "owner-session",
     file: "scripts/run-mode-matrix.ts",
     reason: "Mode-matrix credential kind, declared by the matrix fixture contract, not a card kind."
@@ -95,11 +85,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     literal: "browser-profile",
     file: "scripts/run-mode-matrix.ts",
     reason: "Mode-matrix credential kind, declared by the matrix fixture contract, not a card kind."
-  },
-  {
-    literal: "postmaster.pid",
-    file: "scripts/test-native-owned.ts",
-    reason: "PostgreSQL PID filename used to await test database shutdown, not a flow name."
   },
   {
     literal: "flows.harness.step-fact.v1",
@@ -130,11 +115,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     literal: "smthrs-flow-graph-",
     file: "e2e/graph/lifecycle/gateway.test.ts",
     reason: "the scratch directory `BridgedEngineRun` mkdtemps its two SQLite files into, which this suite counts under its own TMPDIR and asserts removed when the host stops; a directory prefix, never a card id"
-  },
-  {
-    literal: "retired-",
-    file: "e2e/packaged/FixtureRun.ts",
-    reason: "A temporary fixture-directory prefix used for atomic cleanup, not a persisted card id."
   },
   {
     literal: "main.home",
@@ -170,11 +150,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     literal: "smithers-mvp-quarantine.private-test",
     file: "e2e/playwright/storage-refusal.spec.ts",
     reason: "an intentionally invented historical quarantine key; recovery must enumerate unknown original keys, not only a current vocabulary"
-  },
-  {
-    literal: "stable-macos-",
-    file: "e2e/packaged/PackagedApp.ts",
-    reason: "the Electrobun stable package directory prefix under build/, not an application card id"
   },
   {
     literal: "flow.ghost",

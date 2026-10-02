@@ -76,7 +76,6 @@ const EXPECTED_FLOWS = [
   "lint",
   "pr-triage",
   "release-notes",
-  "review",
   "review/change",
   "security-audit",
 ];
@@ -451,11 +450,11 @@ describe("the flow catalog", () => {
     }
   });
 
-  it("features the five repository flows first, each with a one-line summary", () => {
+  it("features the declared repository flows first, each with a one-line summary", () => {
     const featured = catalog.flows.filter((row) => row.featured);
     assert.deepEqual(
       featured.map((row) => row.id),
-      ["review", "lint", "pr-triage", "issue-triage", "release-notes"],
+      ["review", "lint", "pr-triage", "issue-triage", "release-notes", "issue-sweep"],
     );
     assert.deepEqual(catalog.flows.slice(0, featured.length), featured, "featured rows lead the catalog");
     for (const row of featured) {
@@ -591,7 +590,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -601,19 +600,22 @@ describe("discovery over the project flows directory", () => {
     // A module's exported `layer` states what it needs from its host as Effect
     // services. `memory/mine` writes under a root and to a bank only its host
     // may name, so it loads once a host binds them, and refuses by name before.
-    const hostBound = { "memory/mine": "missing_service memory/mine/Binding" };
+    const hostBound = {
+      "memory/mine": "missing_service memory/mine/Binding",
+      "review": "missing_service @smthrs/agent/AgentAction/Host",
+    };
     // The runners, schedules and registration steps are the host's to start,
     // never a model's tool.
-    const hiddenModules = ["issue-sweep", "issue-sweep/work", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
+    const hiddenModules = ["issue-sweep", "issue-sweep/work", "memory/mine", "notes/calendar-events", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
     // These named payloads cannot be safely reduced to a static document.
     // Keep this inventory independent of discovery's emitted warning list.
     const unavailablePayloads = [
       "coding", "coding/dispatch", "coding/implementation", "coding/prototype",
       "coding/request", "coding/verify", "coding/vibe", "coding/wiki",
       "issue-sweep", "issue-sweep/work", "memory/calibrate", "memory/mine",
-      "notes/calendar-events", "notes/telegram", "notes/traction",
+      "notes/calendar-events", "notes/traction",
       "register-repository", "register-repository/setup", "release-content",
-      "release", "wiki", "wrapped",
+      "release", "review", "wiki", "wrapped",
     ];
     for (const name of unavailablePayloads) {
       const descriptor = scan.entries.find((entry) => entry.name === name);
@@ -626,18 +628,28 @@ describe("discovery over the project flows directory", () => {
       const descriptor = scan.entries.find((entry) => entry.name === name);
       assert.equal(descriptor.effects.tier, "irreversible");
     }
-    // The root now has literal grants; the commented work array still cannot
-    // be proved statically and must retain its conservative wildcard.
-    assert.ok(!scan.entries.find((entry) => entry.name === "issue-sweep").capabilities.includes("*"));
-    assert.deepEqual(scan.entries.find((entry) => entry.name === "issue-sweep/work").capabilities, ["*"]);
+    assert.deepEqual(scan.entries.find((entry) => entry.name === "issue-sweep").capabilities, [
+      "proc:spawn:gh api *",
+      "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+      "proc:spawn:node /*/scripts/issue-claim.mjs *",
+      "proc:spawn:jj -R *", "proc:spawn:lockf *", "proc:spawn:pnpm *",
+      "proc:spawn:codex *", "proc:spawn:codex-rr *", "proc:spawn:claude-rr *",
+      "proc:spawn:claude-as *", "model:call:typesafe-ai/jev",
+    ]);
+    assert.deepEqual(scan.entries.find((entry) => entry.name === "issue-sweep/work").capabilities, [
+      "proc:spawn:gh api *", "proc:spawn:node /*/scripts/github-proxy.mjs --ensure",
+      "proc:spawn:jj -R *", "proc:spawn:git --git-dir *", "proc:spawn:pnpm *",
+      "proc:spawn:codex *", "proc:spawn:claude-as *", "proc:spawn:codex-rr status",
+      "proc:spawn:claude-rr status", "proc:spawn:codex-rr cool *", "proc:spawn:claude-rr cool *",
+    ]);
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
       [
         "unsupported_module_metadata at checks/wiki/flow.ts: Effect tier sealed under-classifies declared authority; using irreversible",
         ...unavailablePayloads.map((name) => `unsupported_module_metadata at ${name}/flow.ts: Payload schema cannot be projected statically; retaining its module locator`),
         "unsupported_module_metadata at issue-sweep/flow.ts: Effect tier compensable under-classifies declared authority; using irreversible",
-        "unsupported_module_metadata at issue-sweep/work/flow.ts: Capabilities must be a string-literal array for discovery; using the conservative wildcard",
         "unsupported_module_metadata at issue-sweep/work/flow.ts: Effect tier compensable under-classifies declared authority; using irreversible",
+        "unsupported_module_metadata at review/flow.ts: Effect tier sealed under-classifies declared authority; using irreversible",
         // `wiki` declares its own paths rather than inheriting the delegating
         // wildcard, so its sealed tier is raised only as far as those allow.
         "unsupported_module_metadata at wiki/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",
@@ -658,7 +670,8 @@ describe("discovery over the project flows directory", () => {
     );
     // A collapsed module flow names no delegate, so it loads and plans on a
     // host that registers none, building its exported layer from what an
-    // ordinary Node host supplies. `checks/wiki` still asks for a delegate by name.
+    // ordinary Node host supplies. Host-bound flows require their explicit
+    // memory/agent service; `checks/wiki` still asks for a delegate by name.
     const loaded = await run(
       Effect.forEach(
         [...scan.entries].filter((entry) => entry.body._tag === "Module").sort((left, right) => left.name < right.name ? -1 : 1),

@@ -1044,16 +1044,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       provider: "github",
       github: { connected: true, login: "will" },
       nativeAvailable: true,
-      integrations: {
-        repo: "smithersai/smithers",
-        rows: [{
-          id: "slack",
-          state: "error",
-          detail: "C003",
-          error: "token revoked",
-          lastSyncAt: "2026-09-26T09:40:00Z"
-        }]
-      }
     }
   },
   world: {
@@ -1093,6 +1083,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       lastSeq: 0
     },
     full: {
+      burndown: { filter: "working", item: 0 },
+      signalRequest: { name: "resume", state: "sent", afterSeq: 1, error: "" },
       authoring: { requestId: "author-request-1", owner: "will", launchError: "offline" },
       statusRollup: statusRollup("run:run-1", "running", "working"),
       repo: "smithersai/smithers",
@@ -1429,7 +1421,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       conversation: { branchId: "branch-main", owner: "will", creationKey: "conversation-1" },
       commentDraft: "Reply",
       pendingComments: [{ id: "request-1", text: "Hello", actor: "user", status: "requested" }],
-      sync: { provider: "slack", connectionId: "slack", scopeId: "T1", conversationId: "C1", threadId: "1.1" },
       state: "verified",
       author: "will",
       issueBody: "shard-3 wedges on sqlite",
@@ -1840,6 +1831,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
   file: {
     minimal: { repo: "smithersai/smithers", path: "README.md", content: "# hi\n", truncated: false },
     full: {
+      workspaceId: gatewayWorkspaceId,
       repo: "smithersai/smithers",
       localRepoId: "repo-1",
       path: "README.md",
@@ -2039,7 +2031,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       walkthrough: {
         seq: 5,
         sections: [{ title: "The route", markdown: "one bounded read", diagram: null }],
-        quiz: []
       },
       changeset: {
         id: 7,
@@ -3196,7 +3187,7 @@ describe("removed presentation compatibility", () => {
       expect(CardPatchSchema.safeParse({ kind: row.kind, payload: row.payload }).success).toBe(false)
     }
   })
-  test("a stored connect card drops its retired Linear row and keeps the Slack row (D-11)", () => {
+  test("a stored connect card drops all retired provider rows and retains GitHub authentication", () => {
     const slack = { id: "slack", state: "connected", detail: "C003" }
     const old = saved("connect", {
       ...FIXTURES.connect.minimal,
@@ -3204,9 +3195,9 @@ describe("removed presentation compatibility", () => {
     })
     const result = CardSchema.parse(JSON.parse(JSON.stringify(old)))
     expect(result.kind).toBe("connect")
-    expect(result.payload).toMatchObject({ integrations: { repo: "smithersai/smithers", rows: [slack] } })
+    expect(result.payload).toEqual(FIXTURES.connect.minimal)
     expect(CardSchema.parse(result)).toEqual(result)
-    expect(CardPatchSchema.safeParse({ kind: "connect", payload: old.payload }).success).toBe(false)
+    expect(CardPatchSchema.parse({ kind: "connect", payload: old.payload }).payload).toEqual(FIXTURES.connect.minimal)
   })
   test("the old snapshot facet becomes a terminal while internal snapshot provenance survives", () => {
     const old = saved("workspace", {
@@ -3263,4 +3254,18 @@ test("a saved local repository receipt drops its retired path", () => {
   }))
   if (parsed.kind !== "repository-choice") throw new Error("expected repository choice")
   expect(parsed.payload.created).toEqual({ fullName: "smithers-playground" })
+})
+
+
+test("saved provider sync settings disappear while native conversation history and sends remain", () => {
+ const old = { ...base, kind:"issue", payload: { ...FIXTURES.issue.minimal,
+  kind:"chat", comments:[{ author:"U001",commentBody:"historical",createdAt:null,origin:"slack" }],
+  pendingComments:[{ id:"native-send",text:"reply",actor:"user",status:"requested" }],
+  sync:{ provider:"telegram",connectionId:"bot",scopeId:"123",conversationId:"-100",state:"outcome_unknown" }
+ } }
+ const migrated = CardSchema.parse(old)
+ expect(migrated.kind).toBe("issue")
+ expect(migrated.payload).not.toHaveProperty("sync")
+ expect(migrated.payload).toMatchObject({ comments:[{ origin:"slack",commentBody:"historical" }],pendingComments:[{ id:"native-send",status:"requested" }] })
+ expect(CardSchema.parse(migrated)).toEqual(migrated)
 })

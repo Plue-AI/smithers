@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
-import { copyFile, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
@@ -69,25 +69,6 @@ export const minimalProfiles = (entries) => {
       absent: absentByDefault,
       imports: ["@smthrs/" + name]
     })),
-    {
-      // CreateApp's target rules execute through the shared Node supervisor.
-      // Its required runtime does not select SQLite, other hosts or app/test peers.
-      name: "create-app-default",
-      dependencies: { "@smthrs/create-app": firstParty, effect },
-      required: ["@smthrs/platform-node"],
-      absent: [
-        ...runners,
-        "@effect/platform-node",
-        "@effect/platform-node-shared",
-        "@effect/sql-sqlite-node",
-        ...telemetryAdapters,
-        ...browserAdapters,
-        "react",
-        "tsx",
-        "vite"
-      ],
-      imports: ["@smthrs/create-app", "@smthrs/create-app/package"]
-    }
   ]
 }
 
@@ -161,20 +142,6 @@ export const adapterProfiles = (entries) => {
       absent: [...runners, ...telemetryAdapters, "@effect/sql-sqlite-node", "@smthrs/platform-browser"],
       imports: ["@smthrs/platform-bun", "@smthrs/platform-bun/BunFileSystem", "@smthrs/platform-bun/BunHost"]
     },
-    {
-      name: "create-app-testing",
-      dependencies: {
-        "@smthrs/create-app": firstParty,
-        "@smthrs/testing": firstParty,
-        "@effect/platform-node": effect,
-        "@effect/platform-node-shared": effect,
-        vitest: "5.0.0",
-        effect
-      },
-      absent: ["@effect/platform-bun", "@smthrs/platform-bun", "@effect/sql-sqlite-node", ...telemetryAdapters],
-      imports: [],
-      vitest: true
-    }
   ]
 }
 
@@ -217,29 +184,6 @@ export const migrationProfiles = (entries) => {
       imports: ["@smthrs/migrate/flow/Command", "@smthrs/migrate/flow/MigrateFlow", "@smthrs/migrate/flow/Layers"]
     }
   ]
-}
-
-/** The shipped template must select every prerequisite its test helper needs. */
-export const templateProfile = (directory, entries) => {
-  const entry = entries.find((candidate) => candidate.name === "@smthrs/create-app")
-  assert.ok(entry, "candidate has no create-app template")
-  const manifest = JSON.parse(
-    execFileSync("tar", ["-xOf", join(directory, entry.filename), "package/template/default/package.json"], {
-      encoding: "utf8"
-    })
-  )
-  const version = candidateVersion(entries)
-  const dependencies = { ...manifest.dependencies, ...manifest.devDependencies }
-  for (const [name, range] of Object.entries(dependencies)) {
-    if (name.startsWith("@smthrs/")) {
-      assert.equal(range, version, `shipped template ${name} must select candidate ${version}`)
-      assert.ok(
-        entries.some((candidate) => candidate.name === name),
-        `shipped template ${name} is not in this candidate`
-      )
-    }
-  }
-  return { name: "template-default", dependencies, imports: [], vitest: true, scaffold: true }
 }
 
 /** Only walk package directories and their nested modules; symlinks are not copies. */
@@ -440,66 +384,6 @@ export const runCliMcpConsumer = async (manager, registryUrl, cliVersion, { env 
   }
 }
 
-/** Run the generated app's own recorded flow through the installed tools. */
-export const runTemplateReplay = async (consumer, profile) => {
-  const app = join(consumer, "generated-app")
-  await successful(join(consumer, "node_modules/.bin/smithers-build"), ["create-app", app], consumer)
-  const manifestPath = join(app, "package.json")
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"))
-  assert.equal(manifest.name, "generated-app", "the installed scaffolder must replace the template name")
-  assert.deepEqual(
-    { ...manifest.dependencies, ...manifest.devDependencies },
-    profile.dependencies,
-    "generated app dependencies differ from the selected packed template"
-  )
-  // The generated app gets the exact dependency tree already installed from
-  // its packed manifest. Move that tree for this probe so its graph command
-  // resolves the app's own .bin directory; no parent or source checkout CLI
-  // supplies a second declaration package or a missing executable.
-  const consumerRequire = createRequire(join(consumer, "package.json"))
-  const modules = realpathSync(join(consumer, "node_modules"))
-  const appModules = join(realpathSync(app), "node_modules")
-  const expected = Object.fromEntries(
-    Object.keys(profile.dependencies).filter((name) => name.startsWith("@smthrs/"))
-      .map((name) => [name, relative(modules, realpathSync(consumerRequire.resolve(name + "/package.json")))])
-  )
-  await rename(modules, appModules)
-  try {
-    for (const filename of ["package-lock.json", "pnpm-lock.yaml", ".npmrc"]) {
-      if (existsSync(join(consumer, filename))) await copyFile(join(consumer, filename), join(app, filename))
-    }
-    const appRequire = createRequire(manifestPath)
-    for (const [name, path] of Object.entries(expected)) {
-      assert.equal(
-        realpathSync(appRequire.resolve(name + "/package.json")),
-        realpathSync(join(appModules, path)),
-        `${name}: generated app resolution differs`
-      )
-    }
-    await successful("git", ["init", "--quiet"], app)
-    await successful("git", ["add", "."], app)
-    await successful(join(appModules, ".bin/smithers-build"), ["lint", "//:routes"], app)
-    console.log("template graph ok: installed app's routes target")
-    await successful(
-      join(appModules, ".bin/vitest"),
-      [
-        "run",
-        "--config",
-        join(app, "vitest.config.ts"),
-        "--root",
-        app,
-        "--maxWorkers=1"
-      ],
-      app,
-      { env: { ...process.env, SMTHRS_RECORD: "0" } }
-    )
-    console.log("template replay ok: installed scaffold and generated app's recorded flow")
-  } finally {
-    await rename(appModules, modules)
-  }
-  return app
-}
-
 export const runConsumerProfile = async (profile, manager, registryUrl, { runtime = false } = {}) => {
   const consumer = await mkdtemp(join(tmpdir(), "smithers-k-consumer-" + manager + "-" + profile.name + "-"))
   try {
@@ -560,18 +444,6 @@ export const runConsumerProfile = async (profile, manager, registryUrl, { runtim
         })
       }
       if (profile.name === "bun") await successful("bun", ["dependency-adapters.mjs", profile.name], consumer)
-      if (profile.vitest) {
-        await writeFile(
-          join(consumer, "adapter.test.mjs"),
-          await readFile(join(installedConsumerDirectory, "dependency-testing.mjs"))
-        )
-        await successful(
-          join(consumer, "node_modules/.bin/vitest"),
-          ["run", "adapter.test.mjs", "--maxWorkers=1"],
-          consumer
-        )
-      }
-      if (profile.scaffold) await runTemplateReplay(consumer, profile)
     }
     console.log(
       "consumer ok " + manager + " " + profile.name + ": " + tree.count + " packages; one Effect; " +
@@ -663,7 +535,6 @@ if (isMain(import.meta)) {
       ...minimalProfiles(entries),
       ...adapterProfiles(entries),
       ...migrationProfiles(entries),
-      templateProfile(directory, entries)
     ],
     runtime: true
   })

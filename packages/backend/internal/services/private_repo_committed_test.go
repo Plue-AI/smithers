@@ -125,31 +125,6 @@ func TestRepoService_CreateOrgAndForkUseCommittedPrivateAdmission(t *testing.T) 
 		assert.Equal(t, int64(77), policy.ownerID)
 	})
 
-	t.Run("private fork", func(t *testing.T) {
-		actor := testUser()
-		// Another user's private repository the actor may only read: forking a
-		// repository the actor can already write is refused, so this is the
-		// only shape of private fork that reaches billing.
-		source := testRepo(func(repository *db.Repository) {
-			repository.UserID = pgtype.Int8{Int64: 99, Valid: true}
-			repository.IsPublic = false
-		})
-		q := &mockRepoQuerier{
-			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-				return source, nil
-			},
-			getCollaboratorPermissionForRepo: func(context.Context, db.GetCollaboratorPermissionForRepoUserParams) (string, error) {
-				return "read", nil
-			},
-		}
-		policy := newCommittedPrivateBillingPolicy()
-		_, err := NewRepoService(q, &mockRepoHostClient{}, "s1", WithRepoBillingPolicy(policy)).
-			ForkRepo(context.Background(), actor, "alice", source.Name, "fork", "")
-		require.NoError(t, err)
-		assert.Equal(t, 1, policy.calls)
-		assert.Equal(t, BillingOwnerTypeUser, policy.ownerType)
-		assert.Equal(t, actor.ID, policy.ownerID)
-	})
 }
 
 func TestRepoService_UpdateRepo_PrivateAdmissionEnclosesOwnershipCommit(t *testing.T) {

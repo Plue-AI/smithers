@@ -160,7 +160,6 @@ func sseIdentityRouterForTest() http.Handler {
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},
@@ -237,7 +236,6 @@ func featureGateRouterForTest(cfg *config.Config) http.Handler {
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},

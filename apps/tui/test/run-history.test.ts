@@ -73,54 +73,6 @@ describe("/verify-run", () => {
   })
 })
 
-describe("/fork-run", () => {
-  test("forks at the frame and prints the parked child", async () => {
-    const { service, forks } = recording()
-    expect(await History.fork("run-1 4", service)).toBe("run-1-fork parked (fork of run-1)")
-    expect(forks).toEqual([{ runId: "run-1", at: 4 }])
-  })
-
-  test("carries one step's edited result, whose JSON may hold spaces", async () => {
-    const { service, forks } = recording()
-    await History.fork(`run-1 0 step=b result={"text": "hello world"}`, service)
-    await History.fork(`run-1 2  step=c   result=7 `, service)
-    expect(forks).toEqual([
-      { runId: "run-1", at: 0, step: { stepKeyDigest: "b", result: { text: "hello world" } } },
-      { runId: "run-1", at: 2, step: { stepKeyDigest: "c", result: 7 } }
-    ])
-  })
-
-  test("refuses a malformed address or edit without calling the host", async () => {
-    const { service, forks } = recording()
-    const usage = "Usage: /fork-run <run> <at> [step=<digest> result=<json>]"
-    const pair = "step= and result= edit a step together"
-    for (
-      const [argument, answer] of [
-        ["", usage],
-        ["run-1", usage],
-        ["run-1 -1", usage],
-        ["run-1 1.5", usage],
-        ["run-1 99999999999999999999", usage],
-        ["run-1 0 lineage=main", usage],
-        ["run-1 0 step", usage],
-        ["run-1 0 step=b", pair],
-        ["run-1 0 result=1", pair],
-        ["run-1 0 step= result=1", pair],
-        ["run-1 0 step=b result=  ", pair],
-        ["run-1 0 step=b result={", "result= must be JSON"]
-      ] as const
-    ) {
-      expect(await History.fork(argument, service)).toBe(answer)
-    }
-    expect(forks).toEqual([])
-  })
-
-  test("prints the host's refusal, and the unknown-failure sentence for a defect", async () => {
-    expect(await History.fork("run-1 9", refusing)).toBe("No frame 9")
-    expect(await History.fork("run-1 9", broken)).toBe(unknown)
-  })
-})
-
 describe("served", () => {
   /** A gateway double answering one exit line, recording the request. */
   const gateway = (exit: unknown, token?: string) => {
@@ -140,14 +92,6 @@ describe("served", () => {
   }
 
   test("posts the gateway frame to /projections and decodes the answer", async () => {
-    const child = { runId: "run-1-fork", parentRunId: "run-1", status: "parked" }
-    const forking = gateway({ _tag: "Success", value: child }, "secret")
-    expect(await Effect.runPromise(forking.history.fork({ runId: "run-1", at: 3 }))).toEqual(child as never)
-    expect(forking.requests).toEqual([{
-      url: "http://127.0.0.1:3000/projections",
-      authorization: "Bearer secret",
-      frame: { _tag: "Request", id: 1, tag: "Run.Fork", payload: { runId: "run-1", at: 3 }, headers: [] }
-    }])
     const verifying = gateway({ _tag: "Success", value: report })
     expect(await Effect.runPromise(verifying.history.verify({ runId: "run-1" }))).toEqual(report)
     expect(verifying.requests[0]?.authorization).toBeNull()

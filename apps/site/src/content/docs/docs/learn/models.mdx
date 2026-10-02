@@ -1,6 +1,6 @@
 ---
 title: "Choose a model"
-description: "Pick the model for chat, for background work, and for each agent, and set its reasoning effort."
+description: "Pick configured models for chat, background work, and agents."
 sidebar:
   order: 8
 ---
@@ -8,14 +8,14 @@ sidebar:
 import { Tabs, TabItem } from "@astrojs/starlight/components"
 import AppScreenshot from "../../../../components/AppScreenshot.astro"
 
-Each agent names its model in its file (`model:`). You can also pick the model for chat and override it per run.
+Each agent names its model in its file (`model:`). You can also pick a configured model for terminal chat.
 
 ## Pick a model
 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
 
-**Available now.** `/model.list` shows the models and which one each job uses. `/model.assign` changes one.
+The app uses the models configured by its host and agent files.
 
 </TabItem>
 <TabItem label="TUI">
@@ -61,7 +61,7 @@ smthrs tui -p "Explain this repository." --model openai:gpt-6-sol
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** `/thinking` takes `default`, `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Shift+Tab cycles through them.
+Set `effort:` in the agent's file.
 
 </TabItem>
 <TabItem label="CLI">

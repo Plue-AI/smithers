@@ -685,26 +685,6 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     expect(said(refused)).toContain("isn't JSON")
     expect(double.state.signaled.length).toBe(before)
   })
-
-  test("the steer family sends the steer envelope; the card notes the queued steer", async () => {
-    const store = await webStore()
-    const double = relay({ runs: [{ runId: "run-4", flowId: "review-pr", status: "running" }] })
-    const controller = createAppController(store, silentAgent, double.services)
-    await signIn(store)
-    await openMonitor(controller, store, "run-4")
-
-    const steered = await controller.commands.run("runs.steer", "run-4 use the smaller diff")
-    expect(said(steered)).toContain("steered run=run-4")
-    expect(double.state.steered[0]?.message).toMatchObject({ kind: "Message", body: "use the smaller diff", runId: "run-4" })
-
-    await controller.commands.run("runs.seat", "run-4 anthropic:claude-opus-4-1")
-    expect(double.state.steered[1]?.message).toMatchObject({ kind: "Seat", seat: "anthropic:claude-opus-4-1" })
-    await controller.commands.run("runs.tools", "run-4 bash, edit")
-    expect(double.state.steered[2]?.message).toMatchObject({ kind: "Tools", toolNames: ["bash", "edit"] })
-
-    const card = store.collections.cards.get(boxRunCard("run-4"))
-    expect(card?.kind === "run-trace" && card.payload.steeringPending).toBe(true)
-  })
 })
 
 describe("source-bound durable reruns", () => {

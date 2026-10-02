@@ -106,7 +106,7 @@ test("older workspace cards retain honest unknown-kind and terminal defaults wit
   const request = await f.send()
   expect(request.context?.recentCards).toEqual([
     { id: "legacy-box", kind: "workspace", title: "Box", status: "active", maximized: false,
-      workspace: { id: "box-1", repo: "acme/repo", kind: "unknown", status: "running", facet: "terminal", streaming: false } }
+      workspace: { id: "box-1", repo: "acme/repo", kind: "unknown", status: "running", facet: "terminal" } }
   ])
   expect(JSON.stringify(request.context)).not.toContain("targetBookmark")
 })

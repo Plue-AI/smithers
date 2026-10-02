@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,38 +139,6 @@ func TestRepoServiceDurableCreatesStayGatedUntilEnabled(t *testing.T) {
 		assert.Zero(t, createCalls)
 	})
 
-	t.Run("fork", func(t *testing.T) {
-		createCalls := 0
-		source := db.Repository{
-			ID: 41, UserID: pgtype.Int8{Int64: 22, Valid: true},
-			IsPublic: true, DefaultBookmark: "main",
-		}
-		q := &rolloutRepoQuerier{
-			mockRepoQuerier: &mockRepoQuerier{
-				getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-					return source, nil
-				},
-				createForkRepoFn: func(context.Context, db.CreateForkRepoParams) (db.Repository, error) {
-					createCalls++
-					return db.Repository{}, nil
-				},
-			},
-			canonicalUser: db.User{ID: 22, Username: "alice", LowerUsername: "alice"},
-		}
-		host := &rolloutProvisioningHost{mockRepoHostClient: &mockRepoHostClient{}}
-		svc := NewRepoServiceWithPool(q, host, "s1", pool, WithRepoProvisioningStore(struct{ RepositoryProvisioningStore }{}), WithRepoPlacementResolver(&fixedRepoPlacement{storageSetID: "s1"}))
-
-		_, err := svc.ForkRepo(context.Background(), actor, "alice", "source", "copy", "")
-		requireRepositoryRolloutUnavailable(t, err)
-		assert.Zero(t, host.prepareForkCalls)
-		assert.Zero(t, createCalls)
-
-		svc.EnableDurableProvisioning()
-		_, err = svc.ForkRepo(context.Background(), actor, "alice", "source", "copy", "")
-		assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-		assert.Equal(t, 1, host.prepareForkCalls)
-		assert.Zero(t, createCalls)
-	})
 }
 
 func TestGitHubImportStartStaysGatedUntilDurableWorkerEnabled(t *testing.T) {

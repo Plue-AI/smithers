@@ -46,7 +46,7 @@ import {
   RunSummarySchema,
   RunTimelineCardPayloadSchema
 } from "./TargetGraph.ts"
-import { IntegrationRowSchema, TaskMetaSchema } from "./Threads.ts"
+import { TaskMetaSchema } from "./Threads.ts"
 import { HttpUrlSchema, RelativeUrlPathSchema } from "./WebUrl.ts"
 
 /*
@@ -914,8 +914,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       provider: z.enum(["github", "local"]).optional(),
       github: z.object({ connected: z.boolean(), login: z.string().nullable() }),
       nativeAvailable: z.boolean(),
-      /** The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6), read by integrations.list. */
-      integrations: z.object({ repo: z.string(), rows: z.array(IntegrationRowSchema) }).optional()
     })
   }),
   /* A world query's embedded answer card (the agent's world form; §2c″). */
@@ -1566,28 +1564,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         status: z.enum(["requested", "failed", "unknown"]),
         error: z.string().optional()
       })).optional(),
-      sync: z.object({
-        provider: z.enum(["slack", "telegram"]),
-        deliveryId: z.number().optional(),
-        resolutionToken: z.string().optional(),
-        resolution: z.object({
-          deliveryId: z.number(),
-          expectedToken: z.string(),
-          action: z.enum(["sent", "skip", "retry"]),
-          evidence: z.string(),
-          messageId: z.string(),
-          owner: z.string(),
-          status: z.enum(["requested", "failed"]),
-          error: z.string().optional()
-        }).optional(),
-        connectionId: z.string(),
-        scopeId: z.string(),
-        conversationId: z.string(),
-        threadId: z.string().optional(),
-        externalUserId: z.string().optional(),
-        state: z.enum(["synced", "pending", "dispatching", "outcome_unknown", "failed", "unsupported"]).optional(),
-        error: z.string().nullable().optional()
-      }).optional(),
       labels: z.array(z.string()),
       comments: z.array(
         z.object({
@@ -2904,6 +2880,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
 ])
 /** Retired UI records keep their identity, without retaining executable forms or feature data. */
 const retiredFlows = new Set([
+  "integrations.admit", "integrations.list", "issues.sync.resolve",
   /* The experimental mocks' switch and prop setter left with the mocks. */
   "app.experimental",
   "experimental.set",
@@ -2997,12 +2974,6 @@ export const CardSchema = Object.assign(
     ) {
       const { body: _body, ...base } = row
       return { ...base, kind: "retired", title: "", loading: false, status: "acted", payload: {} }
-    }
-    const integrations = payload?.integrations as Record<string, unknown> | undefined
-    if (row.kind === "connect" && Array.isArray(integrations?.rows)) {
-      /* D-11 retired the first-party Linear integration; a stored connect card keeps its other rows. */
-      const rows = integrations.rows.filter((entry: unknown) => (entry as Record<string, unknown> | null)?.id !== "linear")
-      return { ...row, payload: { ...payload, integrations: { ...integrations, rows } } }
     }
     if (row.kind === "agents" && Array.isArray(payload?.agents)) {
       return {

@@ -9,10 +9,8 @@ It needs no network and no credentials.
 
 ## Raise the error
 
-An adapter validates its argument and throws. This helper is the shape of the
-real one: `Telegram.Chunk.chunk` in
-[`@smthrs/integrations`](/api/integrations) raises the same code with the same
-`details` key when its `maxLength` is out of range.
+This example helper validates a chunk size and throws a typed refusal. It uses
+only `@smthrs/errors`; no provider adapter is needed.
 
 ```ts
 import { SmithersError } from "@smthrs/errors"
@@ -23,7 +21,7 @@ const requireChunkLength = (maxLength: number): number => {
   if (!Number.isSafeInteger(maxLength) || maxLength < 1 || maxLength > MAX_MESSAGE_LENGTH) {
     throw new SmithersError(
       "INVALID_INPUT",
-      `Telegram chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
+      `Chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
       { maxLength }
     )
   }
@@ -60,7 +58,7 @@ const parseChunkLength = (raw: unknown): number | string => {
 }
 
 parseChunkLength(0)
-// "Fix the request: Telegram chunk maxLength must be an integer between 1 and 4096."
+// "Fix the request: Chunk maxLength must be an integer between 1 and 4096."
 ```
 
 `error.code` narrows to the five documented literals. This example deliberately
@@ -99,7 +97,8 @@ const describeCode = (code: SmithersErrorCode): string => {
 }
 ```
 
-After all five cases return, `code` narrows to `never`. If a code is added to
+The two Telegram cases handle historical failures; their adapter is outside
+the MVP. After all five cases return, `code` narrows to `never`. If a code is added to
 `SmithersErrorCode` without a matching case here, the assignment to `unhandled`
 fails type checking. The explicit `never` check provides that guarantee; the
 closed union alone does not.

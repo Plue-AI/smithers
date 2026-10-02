@@ -67,33 +67,11 @@ The `route` decides what a decoded event does. Two constructors ship:
 - `Core.Channel.signalRun(runId)` signals a run that is already waiting, with
   the event's signal name and payload.
 
-There is no broadcast: 1.0.0-rc.0 does not deliver one event to every run
-parked on a matching name. A delivery decodes to one event with one
-correlation, and the broader forms a caller might route on are exposed as
-data (`Linear.Webhook.names` and `correlations`)
-rather than delivered as duplicate signals.
-[Events, signals, and cursors](/concepts/events-and-signals/) covers those ladders.
+A delivery decodes to one event with one correlation.
 
 ## The redelivery guarantee
 
-`Channels.ingest` drops a replayed `idempotencyKey`. That is the whole
-redelivery guarantee, and the key is yours to put on the `RawInbound` you
-hand `ingest`. Nothing derives one for you. Each provider exports the
-derivation from its own delivery identity:
-
-- `Linear.Webhook.idempotencyKey(raw, payload)` reads `Linear-Delivery` and
-  falls back to the delivery's own identity: webhook id, entity, action, and
-  timestamp, which together identify the same delivery across a redelivery.
-- `Telegram.Source.idempotencyKey(event)` is the event's dedupe key, already
-  scoped to the source, because `update_id` is scoped per bot.
-
-An ingress that leaves the field unset has no redelivery protection at all:
-the provider's retry after a timeout becomes a second flow start or a second
-signal. The [Linear guide](/guides/linear/) shows an HTTP handler that
-builds a `RawInbound` correctly.
-
-Telegram is the special case. There is no signed webhook to verify, so the
-adapter is a `getUpdates` long poll rather than a channel. The poll's safety
-comes from the cursor contract instead: the acknowledgement offset is
-committed only after the batch it acknowledges has been handled. The
-[Telegram guide](/guides/telegram/) covers it.
+`Channels.ingest` drops a replayed `idempotencyKey`. The host derives the key
+from the source's delivery identity and puts it on `RawInbound` before ingestion.
+Leaving the field unset allows a retry to start work twice. The
+[receiver guide](/guides/webhook-ingress/) bounds the body before ingestion.

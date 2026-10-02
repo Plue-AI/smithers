@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { REVIEW_MIGRATIONS } from "../../apps/review/src/server/migrations.ts"
 import { type Release, rollout, type RolloutReceipt } from "../rollout/runtime.ts"
 import {
   qualifiedWorkerHost,
@@ -13,7 +12,6 @@ import {
 const artifact = { revision: "a".repeat(40), sha256: "b".repeat(64) }
 const previous = { version: "previous-version", revision: "c".repeat(40) }
 const candidate = { version: "candidate-version", revision: artifact.revision }
-const migrationNames = REVIEW_MIGRATIONS.map(({ name }) => name)
 
 function qualification(app: WorkerApp): WorkerQualification {
   return {
@@ -22,11 +20,6 @@ function qualification(app: WorkerApp): WorkerQualification {
     gate: { revision: artifact.revision, status: "passed" },
     artifact: { ...artifact },
     adoption: { artifact: { ...artifact }, status: "retained", receipt: "adoption receipt" },
-    ...(app === "review" ?
-      {
-        migrations: { revision: artifact.revision, applied: [...migrationNames], receipt: "migration readback" }
-      } :
-      {})
   }
 }
 
@@ -99,7 +92,7 @@ function assertRefusedBeforePublication(
   assert.equal(receipts.some((receipt) => receipt.status === "publishing"), false)
 }
 
-for (const app of ["review", "bug-worker"] as const) {
+for (const app of ["bug-worker"] as const) {
   test(`${app}: an interrupted publication restores the previous release without qualifying or publishing`, async () => {
     const last: RolloutReceipt = {
       startedAt: "2026-09-30T00:00:00.000Z",
@@ -190,40 +183,21 @@ for (const app of ["review", "bug-worker"] as const) {
 }
 
 const qualificationCases: Array<[string, WorkerApp, (evidence: WorkerQualification) => WorkerQualification]> = [
-  ["wrong app", "review", (e) => ({ ...e, app: "bug-worker" })],
-  ["wrong main revision", "review", (e) => ({ ...e, mainRevision: "d".repeat(40) })],
-  ["gate revision mismatch", "review", (e) => ({ ...e, gate: { ...e.gate, revision: "d".repeat(40) } })],
-  ["failed gate", "review", (e) => ({ ...e, gate: { ...e.gate, status: "failed" } })],
-  ["artifact digest mismatch", "review", (e) => ({ ...e, artifact: { ...e.artifact, sha256: "d".repeat(64) } })],
+  ["wrong app", "bug-worker", (e) => ({ ...e, app: "retired-worker" as WorkerApp })],
+  ["wrong main revision", "bug-worker", (e) => ({ ...e, mainRevision: "d".repeat(40) })],
+  ["gate revision mismatch", "bug-worker", (e) => ({ ...e, gate: { ...e.gate, revision: "d".repeat(40) } })],
+  ["failed gate", "bug-worker", (e) => ({ ...e, gate: { ...e.gate, status: "failed" } })],
+  ["artifact digest mismatch", "bug-worker", (e) => ({ ...e, artifact: { ...e.artifact, sha256: "d".repeat(64) } })],
   [
     "adoption artifact mismatch",
-    "review",
+    "bug-worker",
     (e) => ({ ...e, adoption: { ...e.adoption, artifact: { ...e.adoption.artifact, sha256: "d".repeat(64) } } })
   ],
-  ["missing adoption receipt", "review", (e) => ({ ...e, adoption: { ...e.adoption, receipt: "  " } })],
-  ["replacement required", "review", (e) => ({ ...e, adoption: { ...e.adoption, status: "replacement-required" } })],
-  ["missing migration readback", "review", (e) => {
-    const { migrations: _migrations, ...rest } = e
-    return rest
-  }],
-  [
-    "migration revision mismatch",
-    "review",
-    (e) => ({ ...e, migrations: { ...e.migrations!, revision: "d".repeat(40) } })
-  ],
-  ["missing migration receipt", "review", (e) => ({ ...e, migrations: { ...e.migrations!, receipt: "  " } })]
+  ["missing adoption receipt", "bug-worker", (e) => ({ ...e, adoption: { ...e.adoption, receipt: "  " } })],
+  ["replacement required", "bug-worker", (e) => ({ ...e, adoption: { ...e.adoption, status: "replacement-required" } })],
+
 ]
 
-for (const name of migrationNames) {
-  qualificationCases.push([
-    `missing ${name}`,
-    "review",
-    (e) => ({
-      ...e,
-      migrations: { ...e.migrations!, applied: e.migrations!.applied.filter((applied) => applied !== name) }
-    })
-  ])
-}
 
 for (const [name, app, change] of qualificationCases) {
   test(`${app}: ${name} refuses before the publisher`, async () => {

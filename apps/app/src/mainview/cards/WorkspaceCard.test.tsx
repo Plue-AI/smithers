@@ -5,7 +5,6 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
-import { INFRA_NOT_YOUR_FAULT } from "@smthrs/rpc/RefusalCopy"
 import { ControllerTestProvider } from "../ControllerContext"
 import { bindFlowPreloading } from "../flows/FlowAction"
 
@@ -14,11 +13,9 @@ import { createAppController } from "../state/AppController"
 import type { AppController } from "../state/AppController"
 import type { Card } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
-import { dropDesktopStream, holdDesktopStream } from "../state/seams/DesktopStream"
 import {
   EnvironmentImagesCardBody,
   headerFacts,
-  sessionUntil,
   uptimeLabel,
   WorkspaceCardBody
 } from "./WorkspaceCard"
@@ -595,23 +592,21 @@ describe("the workspace card", () => {
   /*
    * Lane L3b (ADR 0002: "three sandbox kinds share one option surface; the
    * kind is the choice"): the card's only create affordance — the failed
-   * workspace's re-open — offers the three kinds in plue's own words, and the
+   * workspace's re-open — offers the two kinds in plue's own words, and the
    * kind rides the invocation so it reaches the POST body.
    */
-  test("the create affordance offers the three kinds in plue's words and each carries its kind", () => {
+  test("the create affordance offers the two kinds in plue's words and each carries its kind", () => {
     const { host, commands } = render(workspaceCard({ status: "failed", provisioningStage: "boot" }))
     expect(host.textContent).toContain("Failed at boot.")
     const text = host.textContent ?? ""
     expect(text).toContain("legacy OCI image")
     expect(text).toContain("NixOS closure image, systemd PID 1")
-    expect(text).toContain("XFCE streamed over VNC")
+    expect(text).not.toContain("XFCE streamed over VNC")
     click(host, "Open a container box")
     click(host, "Open a vm box")
-    click(host, "Open a desktop box")
     expect(commands).toEqual([
       { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container" }) },
       { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm" }) },
-      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) }
     ])
     host.remove()
   })
@@ -620,328 +615,6 @@ describe("the workspace card", () => {
     const { host, commands } = render(workspaceCard({ status: "failed", provisioningStage: null, targetBookmark: null }))
     click(host, "Open a vm box")
     expect(commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", kind: "vm" }) })
-    host.remove()
-  })
-})
-
-/*
- * Lane L3b — the Desktop facet (plue's NixOS compute path). The facet exists
- * only for a desktop workspace; the iframe carries EXACTLY the attributes
- * plue's relay needs and nothing else; the credential is read from the
- * ephemeral holder, never from the card payload.
- */
-describe("the workspace card's desktop facet", () => {
-  const desktopCard = (overrides: Partial<Extract<Card, { kind: "workspace" }>["payload"]> = {}) =>
-    workspaceCard({
-      workspaceKind: "desktop",
-      environment: {
-        source: ".smithers/environment.nix",
-        revision: "b3f21c9d4e5a6b7c",
-        closureHash: "9f2b1c0d4e5a6b7c8d9e0f1a",
-        image: "registry.smithers-cloud.test/environments/smithersai/smithers:nixos-2405-9f2b1c0d"
-      },
-      desktop: { streamUrl: "/api/workspaces/ws-1/desktop/stream", session: null },
-      ...overrides
-    })
-
-  const streamUrl = "https://api.smithers-cloud.test/api/workspaces/ws-1/desktop/dtok-8f3a2b1c/vnc.html?autoconnect=1"
-
-  const holdStream = (expiresAt: string | null = "2026-09-03T09:12:00Z", url = streamUrl): void =>
-    holdDesktopStream({ workspaceId: "ws-1", url, sessionId: "dsess-1", expiresAt })
-
-  test("the Desktop tab is offered only for a desktop workspace, and it mints through box.desktop", () => {
-    dropDesktopStream()
-    const container = render(workspaceCard())
-    expect([...container.host.querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).not.toContain("Desktop")
-    container.host.remove()
-
-    const { host, commands } = render(desktopCard())
-    expect([...host.querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).toContain("Desktop")
-    click(host, "Desktop")
-    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
-    host.remove()
-  })
-
-  test("the iframe carries exactly the allow and sandbox attributes plue's relay needs", () => {
-    dropDesktopStream()
-    holdStream()
-    const { host } = render(desktopCard({ facet: "desktop" }), { attach: false })
-    const frame = host.querySelector("iframe")
-    expect(frame?.getAttribute("src")).toBe(streamUrl)
-    expect(frame?.getAttribute("allow")).toBe("clipboard-read; clipboard-write")
-    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms")
-    host.remove()
-    dropDesktopStream()
-  })
-
-  test("the status line says when the session lapses, and Rotate session rides its own flow", () => {
-    dropDesktopStream()
-    holdStream()
-    const { host, commands } = render(desktopCard({ facet: "desktop" }), { attach: false })
-    const line = sessionUntil("2026-09-03T09:12:00Z")
-    expect(line).toStartWith("session until ")
-    expect(host.textContent).toContain(line as string)
-    click(host, "Rotate session")
-    expect(commands[0]).toEqual({ name: "box.desktop.rotate", args: "ws-1" })
-    host.remove()
-    dropDesktopStream()
-  })
-
-  test("a rotate swaps the src: the facet renders whatever the holder holds now", () => {
-    dropDesktopStream()
-    holdStream()
-    const { host } = render(desktopCard({ facet: "desktop" }), { attach: false })
-    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(streamUrl)
-    const rotated = streamUrl.replace("dtok-8f3a2b1c", "dtok-rotated")
-    flushSync(() => {
-      holdDesktopStream({ workspaceId: "ws-1", url: rotated, sessionId: "dsess-2", expiresAt: null })
-    })
-    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(rotated)
-    // No expiry on the wire is no line about one, never a guessed time.
-    expect(host.textContent).not.toContain("session until")
-    host.remove()
-    dropDesktopStream()
-  })
-
-  test("a facet with nothing minted renders no frame at all", () => {
-    dropDesktopStream()
-    const { host } = render(desktopCard({ facet: "desktop" }), { attach: false })
-    expect(host.querySelector("iframe")).toBeNull()
-    expect(host.textContent).not.toContain("session until")
-    host.remove()
-  })
-
-  test("another workspace's mint is not this card's — the holder is read by workspace id", () => {
-    dropDesktopStream()
-    holdDesktopStream({ workspaceId: "ws-2", url: streamUrl, sessionId: "dsess-1", expiresAt: null })
-    const { host } = render(desktopCard({ facet: "desktop" }), { attach: false })
-    expect(host.querySelector("iframe")).toBeNull()
-    host.remove()
-    dropDesktopStream()
-  })
-
-  /*
-   * The product ruling, on the surface: an infra failure says plainly that it
-   * is not the user's fault and that the fix is more infra, by name. A user
-   * fault — their own quota, a bad bookmark — never does, because saying it
-   * there would be a lie that also stops them fixing the thing they can fix.
-   */
-  test("a full fleet says it is not your fault and names @fucory, with plue's own words kept underneath", () => {
-    dropDesktopStream()
-    const { host } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "running",
-        desktopRefusal: {
-          status: 503,
-          message: "no sandbox slots are free",
-          code: "no_capacity",
-          fault: "infra",
-          origin: "plue",
-          retryAfterSeconds: 30
-        }
-      })
-    )
-    expect(host.textContent).toContain(INFRA_NOT_YOUR_FAULT)
-    expect(host.textContent).toContain("@fucory")
-    /* Verbatim, underneath — never replaced by the lead line. */
-    expect(host.querySelector("details pre")?.textContent).toBe("no_capacity — no sandbox slots are free")
-    /* An infra refusal is not a wait: no clock is offered, because no clock will empty the fleet. */
-    expect(host.textContent).not.toContain("Try again in 30s.")
-    expect(host.querySelector("[data-fault=\"infra\"]")).not.toBeNull()
-    host.remove()
-  })
-
-  test("an account at its own cap gets NO infra line — that one is theirs to clear", () => {
-    dropDesktopStream()
-    const { host } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "running",
-        desktopRefusal: {
-          status: 429,
-          message: "you already have 5 boxes running",
-          code: "quota_exceeded",
-          fault: "user",
-          origin: "plue",
-          retryAfterSeconds: null
-        }
-      })
-    )
-    expect(host.textContent).not.toContain("@fucory")
-    expect(host.textContent).not.toContain(INFRA_NOT_YOUR_FAULT)
-    expect(host.textContent).toContain("Your account is at its cap")
-    expect(host.textContent).toContain("you already have 5 boxes running")
-    expect(host.querySelector("[data-fault=\"user\"]")).not.toBeNull()
-    host.remove()
-  })
-
-  test("a card persisted before the registry landed still gets a verdict, from its code", () => {
-    dropDesktopStream()
-    /* No `fault` and no `origin` on the row — re-derived from `no_capacity`. */
-    const { host } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "running",
-        desktopRefusal: { status: 503, message: "no sandbox slots are free", code: "no_capacity" }
-      })
-    )
-    expect(host.textContent).toContain(INFRA_NOT_YOUR_FAULT)
-    host.remove()
-  })
-
-  /*
-   * The other 409 on this facet, and the opposite verdict: the box is running
-   * fine, its IMAGE predates the desktop helpers, and plue calls that terminal
-   * for this box. So the reader is not told they asked wrongly, not told the
-   * fleet is full, and not handed a Retry that fails the same way forever. The
-   * door is the one act that works — a new box, on the current image.
-   */
-  test("a box whose image predates the desktop tools offers a new box, not a Retry, and blames nobody", () => {
-    dropDesktopStream()
-    const { host, commands } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "running",
-        desktopRefusal: {
-          status: 409,
-          message: "this box's image has no desktop tools; open a new box to get them",
-          code: "desktop_tools_unavailable",
-          fault: "infra",
-          origin: "plue",
-          retryAfterSeconds: null
-        }
-      })
-    )
-    expect(host.textContent).toContain("Not your fault")
-    expect(host.textContent).not.toContain("@fucory")
-    expect(host.textContent).not.toContain(INFRA_NOT_YOUR_FAULT)
-    /* plue's own words, verbatim, underneath. */
-    expect(host.textContent).toContain("desktop_tools_unavailable — this box's image has no desktop tools; open a new box to get them")
-    const labels = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))
-    expect(labels).not.toContain("Try the desktop session again")
-    expect(labels).not.toContain("Resume the box and open its desktop")
-    click(host, "Open a new desktop box with the current image")
-    expect(commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "desktop" }) })
-    host.remove()
-  })
-
-  test("a 409 reads the server's own words and offers Resume", () => {
-    dropDesktopStream()
-    const { host, commands } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "suspended",
-        desktopRefusal: { status: 409, message: "workspace is suspended; resume it before opening the desktop" }
-      })
-    )
-    expect(host.textContent).toContain("workspace is suspended; resume it before opening the desktop")
-    click(host, "Resume the box and open its desktop")
-    expect(commands[0]).toEqual({ name: "box.resume", args: "ws-1" })
-    host.remove()
-  })
-
-  test("a 400 reads the server's own words and offers no Resume — only Retry", () => {
-    dropDesktopStream()
-    const { host, commands } = render(
-      desktopCard({ facet: "desktop", desktopRefusal: { status: 400, message: "workspace kind container has no desktop" } })
-    )
-    expect(host.textContent).toContain("workspace kind container has no desktop")
-    expect(
-      [...host.querySelectorAll("button")].some((button) =>
-        button.getAttribute("aria-label") === "Resume the box and open its desktop")
-    ).toBe(false)
-    /* Every refusal offers the human a way to ask again; only a 409 offers a Resume. */
-    click(host, "Try the desktop session again")
-    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
-    host.remove()
-  })
-
-  /*
-   * `/desktop` — the one-command open — names where the box has got to while
-   * nothing streams yet, and offers the way out of the wait. plue's own words
-   * still read beside the stage when it refused: the stage is what the app is
-   * doing, the refusal is what the server said, and neither stands in for the
-   * other.
-   */
-  test("the wait names its stage and offers Stop, with no frame and no Retry until the server refuses", () => {
-    dropDesktopStream()
-    const { host, commands } = render(desktopCard({ facet: "desktop", status: "starting", desktopStage: "starting", desktopProgress: "Booting the box · 8s elapsed · usually about 20s" }))
-    expect(host.textContent).toContain("Booting the box · 8s elapsed · usually about 20s")
-    expect(host.querySelector('[aria-label="Starting desktop"]')).not.toBeNull()
-    expect(host.querySelector("iframe")).toBeNull()
-    /* Nothing was refused, so the facet offers no Retry and no Resume — only a wait to stop. */
-    const labels = (): Array<string | null> => [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))
-    expect(labels()).toContain("Stop waiting for the desktop box")
-    expect(labels()).not.toContain("Try the desktop session again")
-    expect(labels()).not.toContain("Resume the box and open its desktop")
-    click(host, "Stop waiting for the desktop box")
-    expect(commands[0]).toEqual({ name: "box.desktop.stop", args: "ws-1" })
-    host.remove()
-  })
-
-  test("once the mint has answered, the wait's stage is gone: plue's words stand alone", () => {
-    dropDesktopStream()
-    /*
-     * The seam clears the stage the moment the mint owns the card
-     * (WorkspaceSeam mintDesktopSession), so a refusal never reads under a
-     * line claiming the stream is starting. This is the card half of that:
-     * with no stage, the facet is plue's words and the acts they license.
-     */
-    const { host } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "running",
-        desktopRefusal: { status: 503, message: "service unavailable", code: "desktop_not_ready", retryAfterSeconds: 3 }
-      })
-    )
-    expect(host.textContent).toContain("desktop_not_ready — service unavailable")
-    for (const stale of ["starting the stream", "starting the box", "creating the box"]) {
-      expect(host.textContent).not.toContain(stale)
-    }
-    const labels = [...host.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))
-    expect(labels).toContain("Try the desktop session again")
-    expect(labels).not.toContain("Stop waiting for the desktop box")
-    /* Only a 409 says the box is not running, so only a 409 offers a Resume. */
-    expect(labels).not.toContain("Resume the box and open its desktop")
-    host.remove()
-  })
-
-  test("a 503 desktop_not_ready prints plue's code beside its sanitized message, and offers Retry (plue#496)", () => {
-    dropDesktopStream()
-    const { host, commands } = render(
-      desktopCard({
-        facet: "desktop",
-        status: "starting",
-        /*
-         * plue's own 503 body: writeRouteError replaces a 5xx message with
-         * the status text and KEEPS the code, so without the code a person
-         * would be told only "service unavailable".
-         */
-        desktopRefusal: {
-          status: 503,
-          message: "service unavailable",
-          code: "desktop_not_ready",
-          retryAfterSeconds: 2
-        }
-      })
-    )
-    expect(host.textContent).toContain("desktop_not_ready — service unavailable")
-    expect(host.textContent).toContain("Try again in 2s.")
-    /* Never a spinner in place of the server's answer. */
-    expect(host.querySelector("iframe")).toBeNull()
-    click(host, "Try the desktop session again")
-    expect(commands[0]).toEqual({ name: "box.desktop", args: "ws-1" })
-    host.remove()
-  })
-
-  test("a desktop the DTO says is not ready still renders no frame and no invented status line", () => {
-    dropDesktopStream()
-    const { host } = render(
-      desktopCard({ facet: "desktop", status: "starting", desktop: { ready: false, streamUrl: "/api/workspaces/ws-1/desktop/stream", session: null } })
-    )
-    expect(host.querySelector("iframe")).toBeNull()
-    expect(host.textContent).not.toContain("still starting")
     host.remove()
   })
 })

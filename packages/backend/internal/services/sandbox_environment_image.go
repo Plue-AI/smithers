@@ -17,10 +17,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-// Sandbox environment images are the NixOS compute path for kind=vm and
-// kind=desktop workspaces. nix/cloudbuild.yaml builds an image whose tag is
+// Sandbox environment images are the NixOS compute path for kind=vm workspaces. nix/cloudbuild.yaml builds an image whose tag is
 // the closure hash of the NixOS toplevel (nix/modules/base.nix + the
-// repository's .smithers/environment.nix [+ desktop.nix]); the registrar
+// repository's .smithers/environment.nix); the registrar
 // (scripts/build-nix-environment.ts) records it here. Workspace creation
 // resolves the newest ready image for (repository, kind), falling back to the
 // platform base image (repository_id NULL), and boots it with the worker's
@@ -76,7 +75,7 @@ type SandboxEnvironmentImageService struct {
 	q      SandboxEnvironmentImageQuerier
 	golden *GoldenSnapshotService
 	// bakeRequest returns the builder request for an image: the exact
-	// kind=vm/desktop workspace request, repository-agnostic, booting Image.
+	// kind=vm workspace request, repository-agnostic, booting Image.
 	bakeRequest func(image runtimeports.SandboxEnvironmentImage) sandbox.CreateRequest
 }
 
@@ -117,8 +116,8 @@ func (s *SandboxEnvironmentImageService) Register(ctx context.Context, input Reg
 		return SandboxEnvironmentImageResponse{}, pkgerrors.Internal("environment image store unavailable")
 	}
 	kind := strings.TrimSpace(input.Kind)
-	if kind != "vm" && kind != "desktop" {
-		return SandboxEnvironmentImageResponse{}, pkgerrors.BadRequest("kind must be vm or desktop")
+	if kind != "vm" {
+		return SandboxEnvironmentImageResponse{}, pkgerrors.BadRequest("kind must be vm")
 	}
 	closure := strings.TrimSpace(input.ClosureHash)
 	if !sandboxEnvironmentClosureHashPattern.MatchString(closure) {
@@ -215,8 +214,8 @@ func (s *SandboxEnvironmentImageService) Resolve(ctx context.Context, repository
 	// RFD-004: agent workspaces are container guests; they never boot a
 	// NixOS closure image.
 	kind = sandboxKindForWorkspace(kind)
-	if kind == "container" {
-		return runtimeports.SandboxEnvironmentImage{}, pkgerrors.BadRequest("container workspaces do not use environment images")
+	if kind != "vm" {
+		return runtimeports.SandboxEnvironmentImage{}, pkgerrors.BadRequest("kind must be vm")
 	}
 	candidates := []int64{0}
 	if repositoryID > 0 {

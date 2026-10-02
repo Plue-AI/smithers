@@ -260,42 +260,7 @@ const triggerRegistration = (args: string | undefined): Parsed => {
   return ok(payload)
 }
 
-/**
- * `--name <name> --protocol <protocol> --model <model id> --credential <NAME>
- * [--url <base url>] [--path <path>]`: the record model.save takes, each flag
- * onto the record's own field name. No value holds whitespace, and a short
- * line decodes to what it gave: that is the prefill model.edit opens the form
- * with. There is no flag for a credential's value, because there is no field.
- */
-const MODEL_FLAGS: Readonly<Record<string, string>> = {
-  name: "name",
-  protocol: "protocol",
-  model: "modelId",
-  credential: "credential",
-  url: "baseUrl",
-  path: "path"
-}
-const modelSave = (args: string | undefined): Parsed => {
-  const reason = `model.save takes ${Object.keys(MODEL_FLAGS).map((name) => `--${name}`).join(", ")}`
-  const payload: Record<string, unknown> = {}
-  const rest = trimmed(args)
-  if (rest === "") return ok(payload)
-  if (!rest.startsWith("--")) return no(reason)
-  for (const part of rest.split(/\s+(?=--)/)) {
-    const flag = /^--([a-z]+)(?:\s+(\S+))?$/.exec(part.trim())
-    const field = flag === null ? undefined : MODEL_FLAGS[flag[1]!]
-    if (flag === null || field === undefined) return no(reason)
-    if (flag[2] !== undefined) payload[field] = flag[2]
-  }
-  return ok(payload)
-}
 
-/** `<name>`: the one model a model flow acts on. A name holds no whitespace, and a bare line opens the form. */
-const modelName = (name: string, args: string | undefined): Parsed => {
-  const [id, ...extra] = tokensOf(args)
-  if (extra.length > 0) return no(`${name} takes one model name`)
-  return ok(id === undefined ? {} : { id })
-}
 
 /** A composer edit: one JSON object, so a prompt keeps its newlines and quotes. */
 const jsonObject = (name: string) => (args: string | undefined): Parsed => {
@@ -340,7 +305,7 @@ const secretName = (name: string, args: string | undefined, known: KnownReposito
 }
 
 /** The three sandbox kinds `box.open --kind` accepts (ADR 0002). */
-const KINDS: ReadonlyArray<string> = ["container", "vm", "desktop"]
+const KINDS: ReadonlyArray<string> = ["container", "vm"]
 
 /**
  * `<number> <text> [owner/repo]` as typed, or the button's JSON object
@@ -365,16 +330,6 @@ const issueComment = (args: string | undefined, known?: KnownRepositories): Pars
   if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) return no("issues.comment needs an issue number")
   if (typeof text !== "string" || text.trim() === "") return no("issues.comment needs the comment text")
   return ok({ number, text: text.trim(), ...(repo === undefined ? {} : { repo }) })
-}
-
-/** `[bookmark] [owner/repo]`: the one-command desktop open and its bare `desktop` door. */
-const desktopOpen = (args: string | undefined, known?: KnownRepositories): Parsed => {
-  const structured = structuredFields("box.desktop.open", args, ["bookmark", "repo"])
-  if (structured !== undefined) return structured
-  const { rest, repo } = identifierRepo(args, known)
-  const bookmark = rest.trim()
-  if (/\s/.test(bookmark)) return no("desktop takes a bookmark and optionally an owner/repo")
-  return ok({ ...(bookmark === "" ? {} : { bookmark }), ...(repo === undefined ? {} : { repo }) })
 }
 
 /**
@@ -480,23 +435,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "issues.fix": (args) => numberedTarget("issues.fix", args),
   "issues.verify": (args) => numberedTarget("issues.verify", args),
   "issues.comment.react": jsonObject("issues.comment.react"),
-  "issues.sync.resolve": jsonObject("issues.sync.resolve"),
   "issues.comment.retry": jsonObject("issues.comment.retry"),
   "issues.set": jsonObject("issues.set"),
   /* `<connection_id> <scope_id> <conversation_id> [external_user_id] [owner/repo]`, or the form's `{ connection_id, scope_id, conversation_id, external_user_id, repo }`. */
-  "integrations.admit": (args, known) => {
-    const structured = structuredFields("integrations.admit", args, ["connection_id", "scope_id", "conversation_id", "external_user_id", "repo"])
-    if (structured !== undefined) return structured
-    const { rest, repo } = splitTrailingRepo(args, known)
-    const [connection_id, scope_id, conversation_id, external_user_id, extra] = tokensOf(rest)
-    if (extra !== undefined) return no("integrations.admit takes a connection id, workspace id, channel id, an optional user id and optionally an owner/repo")
-    return ok({
-      ...(connection_id === undefined ? {} : { connection_id }), ...(scope_id === undefined ? {} : { scope_id }),
-      ...(conversation_id === undefined ? {} : { conversation_id }), ...(external_user_id === undefined ? {} : { external_user_id }),
-      ...(repo === undefined ? {} : { repo })
-    })
-  },
-  "integrations.list": args => repoOnly("integrations.list", args),
   "issues.setup": args => repoOnly("issues.setup", args),
   "review.setup": args => repoOnly("review.setup", args),
   "ci.setup": args => repoOnly("ci.setup", args),
@@ -598,27 +539,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const body = rest.join(" ").trim()
     if (body === "") return no("runs.steer needs the message to deliver")
     return ok({ runId, body })
-  },
-  "runs.seat": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.seat needs a run id")
-    const seat = rest.join(" ").trim()
-    if (seat === "") return no("runs.seat needs the seat to move the run to")
-    return ok({ runId, seat })
-  },
-  "runs.thinking": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.thinking needs a run id")
-    const thinking = rest.join(" ").trim()
-    if (thinking === "") return no("runs.thinking needs the thinking level")
-    return ok({ runId, thinking })
-  },
-  "runs.tools": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.tools needs a run id")
-    const toolNames = rest.join(" ").trim()
-    if (toolNames === "") return no("runs.tools needs the tool names, comma-separated")
-    return ok({ runId, toolNames })
   },
   "runs.logs": (args) => {
     const tokens = tokensOf(args)
@@ -850,7 +770,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "plugins.install": (args) => required("plugin", args, "plugins.install needs a plugin id — /plugins lists them"),
   "plugins.remove": (args) => required("plugin", args, "plugins.remove needs a plugin id — /plugins lists what is installed"),
   /* The flow the card names as absent; blank renders the generic "That is not in the web app". */
-  "app.download.prompt": (args) => optional("flow", args),
   "repos.import": (args) => repoOnly("repos.import", args),
   /* One freeform repository link; without it the form asks for one. */
   "repository.register": (args) => ok((args ?? "").trim() === "" ? {} : { link: (args ?? "").trim() }),
@@ -1010,25 +929,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   /* The value is never on a line: it arrives only through the form's write-only field. */
   "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
   "secrets.delete": (args, known) => secretName("secrets.delete", args, known, true),
-  "model.show": (args) => modelName("model.show", args),
-  "model.edit": (args) => modelName("model.edit", args),
-  "model.remove": (args) => modelName("model.remove", args),
-  "model.test": (args) => modelName("model.test", args),
-  "model.compose": (args) => modelName("model.compose", args),
-  "model.ask": (args) => modelName("model.ask", args),
-  "model.recall": (args) => modelName("model.recall", args),
-  "model.fixture": (args) => modelName("model.fixture", args),
-  "model.prompt": jsonObject("model.prompt"),
-  "model.state": jsonObject("model.state"),
-  "model.question": jsonObject("model.question"),
-  "model.option": jsonObject("model.option"),
-  "model.save": (args) => modelSave(args),
-  /* `<seat> <name|default>`: the seat alone is the card's Assign button, and the form asks for the model. */
-  "model.assign": (args) => {
-    const [seat, recordId, ...extra] = tokensOf(args)
-    if (extra.length > 0) return no("model.assign takes a seat and a model name")
-    return ok({ ...(seat === undefined ? {} : { seat }), ...(recordId === undefined ? {} : { recordId }) })
-  },
   /*
    * The palette flows (Search and Command Palette Spec 2026-09-07 §6): the
    * whole line is the query, qualifiers included (`deploy status:failed`);
@@ -1122,7 +1022,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (structured !== undefined) return structured
     /*
      * ADR 0002: the kind IS the choice, so it rides the line as `--kind
-     * <container|vm|desktop>` wherever the caller put it — the card's three
+     * <container|vm>` wherever the caller put it — the card's two
      * buttons append it, a human may type it anywhere. A recovery's
      * `--snapshot <id>` and `--recoveryOf <id>` (WorkspaceCard's restore
      * buttons) ride the same way. Everything left after them is the bookmark
@@ -1133,7 +1033,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     for (const name of ["kind", "snapshot", "recoveryOf"] as const) {
       const flagged = new RegExp(`(?:^|\\s)--${name}(?:\\s+(\\S+))?`).exec(line)
       if (flagged === null) continue
-      if (name === "kind" && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) return no("box.open's kind must be container, vm, or desktop")
+      if (name === "kind" && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) return no("box.open's kind must be container or vm")
       if (flagged[1] === undefined) return no(`box.open's --${name} needs an id`)
       flags[name] = flagged[1]
       line = line.replace(flagged[0], " ")
@@ -1199,21 +1099,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(workspaceId === undefined ? { path } : { path, workspaceId })
   },
   "box.services": (args) => optional("workspaceId", args),
-  /*
-   * Lane L3b: a mint is always addressed by id, because it hands out a
-   * credential for one named box. The one-command open is the exception that
-   * proves it — it takes no id because it is what CREATES the box:
-   * `/desktop [bookmark] [owner/repo]`, the same shape as `box.open`
-   * without the kind. A bookmark is one token; the trailing `owner/repo` is
-   * the target.
-   */
-  "box.desktop.open": (args, known) => desktopOpen(args, known),
-  "desktop": (args, known) => desktopOpen(args, known),
-  "box.desktop": (args) => required("workspaceId", args, "box.desktop needs a workspace id"),
-  "box.desktop.stop": (args) =>
-    required("workspaceId", args, "box.desktop.stop needs a workspace id"),
-  "box.desktop.rotate": (args) =>
-    required("workspaceId", args, "box.desktop.rotate needs a workspace id"),
   "box.images": (args) => repoOnly("box.images", args),
   "box.egress": (args) => {
     const [workspaceId, cursor, ...rest] = tokensOf(args)

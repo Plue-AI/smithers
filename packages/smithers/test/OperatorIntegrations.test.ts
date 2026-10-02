@@ -48,8 +48,7 @@ describe("integration CLI", () => {
       GITHUB_TOKEN: "fallback-fixture",
       SMITHERS_TELEGRAM_BOT_TOKEN: "telegram-fixture"
     })).toEqual([
-      { id: "github", provider: "github", tokenEnv: "SMITHERS_GITHUB_TOKEN" },
-      { id: "telegram", provider: "telegram", tokenEnv: "SMITHERS_TELEGRAM_BOT_TOKEN" }
+      { id: "github", provider: "github", tokenEnv: "SMITHERS_GITHUB_TOKEN" }
     ])
     expect(() => readIntegrations(directory, "missing.json", {})).toThrow("configuration does not exist")
   })
@@ -82,7 +81,7 @@ describe("integration CLI", () => {
       config,
       JSON.stringify({
         version: 1,
-        integrations: [{ id: "same", provider: "github" }, { id: "same", provider: "linear" }]
+        integrations: [{ id: "same", provider: "github" }, { id: "same", provider: "github" }]
       })
     )
     expect(() => readIntegrations(directory)).toThrow("Integration IDs must be unique")
@@ -125,12 +124,12 @@ describe("integration CLI", () => {
 
   it("checks every provider's default credential offline without sending requests", async () => {
     const directory = await root()
-    const integrations = ["github", "linear", "telegram"].map((provider) => ({ id: provider, provider }))
+    const integrations = ["github"].map((provider) => ({ id: provider, provider }))
     await Fs.writeFile(
       Path.join(directory, ".smithers/integrations.json"),
       JSON.stringify({ version: 1, integrations })
     )
-    for (const name of ["SMITHERS_GITHUB_TOKEN", "SMITHERS_LINEAR_API_KEY", "SMITHERS_TELEGRAM_BOT_TOKEN"]) {
+    for (const name of ["SMITHERS_GITHUB_TOKEN"]) {
       vi.stubEnv(name, "provider-fixture-secret")
     }
     const fetch = vi.fn(() => {
@@ -205,7 +204,7 @@ describe("integration CLI", () => {
     })
     vi.stubGlobal("fetch", fetch)
     const config = Path.join(directory, ".smithers/integrations.json")
-    await Fs.writeFile(config, JSON.stringify({ version: 1, integrations: [{ id: "linear", provider: "linear" }] }))
+    await Fs.writeFile(config, JSON.stringify({ version: 1, integrations: [{ id: "github", provider: "github" }] }))
     expect((await serve(directory, ["doctor", "unknown"])).output).toContain("Unknown integration")
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -254,30 +253,22 @@ describe("integration CLI", () => {
     expect(result.output).not.toContain("secret-value")
   })
 
-  it("discovers configured providers and verifies all three through their existing clients", async () => {
+  it("discovers GitHub and verifies it through the existing client", async () => {
     const directory = await root()
-    expect(readIntegrations(directory, undefined, { SMITHERS_LINEAR_API_KEY: "secret" })).toEqual([{
-      id: "linear",
-      provider: "linear",
-      tokenEnv: "SMITHERS_LINEAR_API_KEY"
-    }])
+    expect(readIntegrations(directory, undefined, { SMITHERS_LINEAR_API_KEY: "secret" })).toEqual([])
     const calls: Array<string> = []
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
         const url = String(input)
         calls.push(url)
-        if (url.includes("linear")) return Response.json({ data: { viewer: { id: "me" } } })
-        if (url.includes("telegram")) return Response.json({ ok: true, result: { id: 1, is_bot: true } })
         return Response.json({ resources: { core: { remaining: 5000 } } })
       })
     )
-    for (const provider of ["github", "linear", "telegram"] as const) {
+    for (const provider of ["github"] as const) {
       expect(await probe({ id: provider, provider }, "test-token")).toMatchObject({ healthy: true })
     }
     expect(calls).toContain("https://api.github.com/rate_limit")
-    expect(calls).toContain("https://api.linear.app/graphql")
-    expect(calls.some((url) => url.endsWith("/getMe"))).toBe(true)
   })
 
   it("refuses credentials and destinations the host never authorized, and accepts the ones it did", async () => {
@@ -333,3 +324,14 @@ describe("integration CLI", () => {
     expect(authorized.output).not.toContain("authorized-fixture-secret")
   })
 })
+
+for (const provider of ["linear", "telegram", "slack", "gmail", "googlecalendar", "x"]) {
+  it(`refuses stored ${provider} configuration without sending a diagnostic request`, async () => {
+    const directory = await root()
+    await Fs.writeFile(Path.join(directory, ".smithers/integrations.json"), JSON.stringify({ version: 1, integrations: [{ id: "retired", provider }] }))
+    const fetch = vi.fn(() => { throw new Error("retired adapter reached network") })
+    vi.stubGlobal("fetch", fetch)
+    expect((await serve(directory, ["doctor"])).code).toBe(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+}

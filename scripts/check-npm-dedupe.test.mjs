@@ -81,18 +81,12 @@ it("isolates each default library and the CLI on npm and pnpm, and refuses an in
   for (const manager of ["npm", "pnpm"]) {
     const profiles = results.filter((result) => result.manager === manager)
     assert.deepEqual(profiles.map((result) => result.profile), [
-      "database-default", "gateway-default", "observability-default", "flows-default", "create-app-default", "cli-default"
+      "database-default", "gateway-default", "observability-default", "flows-default", "cli-default"
     ])
     for (const profile of profiles) {
       assert.equal(profile.effectCopies.length, 1)
       assert.ok(profile.resolutions.length > 0)
       if (manager === "pnpm") assert.equal(profile.managerVersion, "11.25.0", "consumer must use the release toolchain, including on Node 22")
-    }
-    const createApp = profiles.find((profile) => profile.profile === "create-app-default")
-    for (const name of ["@smthrs/targets", "@smthrs/platform-node", "@effect/platform-node", "@effect/platform-node-shared"]) {
-      const runtime = createApp.resolutions.find((resolution) => resolution.name === name)
-      assert.ok(runtime, `${manager}: CreateApp's target runtime ${name} must resolve inside the consumer`)
-      assert.equal(runtime.effect, createApp.effectCopies[0], `${name}: target runtime must share the consumer's Effect`)
     }
     assert.equal(results.filter((result) => result.incompatible?.manager === manager).length, 1)
   }

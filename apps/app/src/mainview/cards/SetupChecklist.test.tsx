@@ -108,19 +108,19 @@ test("on the cloud web app the GitHub step belongs to the signup: three steps re
   expect(resolveSteps(commands, { ...empty, localAuth: true }).map(step => step.label)).toEqual(["Talk to Smithers", "Sign in", "Add a repository", "Set up a job"])
 })
 
-for (const [host, capabilities, count, talked] of [
-  ["cloud", [], "1 of 3", "2 of 3"], ["cloud", ["native.shell"], "2 of 4", "3 of 4"], ["local", [], "2 of 4", "3 of 4"],
-] as const) test(`the live card on a ${host} host${capabilities.length ? " in the desktop shell" : ""} counts ${count}, then ${talked} once the person writes`, async () => {
+for (const [host, count, talked] of [
+  ["cloud", "1 of 3", "2 of 3"], ["local", "2 of 4", "3 of 4"],
+] as const) test(`the live card on a ${host} host counts ${count}, then ${talked} once the person writes`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const host_ = document.createElement("div")
   const root = createRoot(host_)
-  const bootstrap = { apiVersion: 1, host, version: "test", buildSha: "test", capabilities: [...capabilities], authFlow: "redirect", sandbox: null }
+  const bootstrap = { apiVersion: 1, host, version: "test", buildSha: "test", capabilities: [], authFlow: "redirect", sandbox: null }
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
     flushSync(() => root.render(<ControllerContext value={{ store, bootstrap, dismissFirstRun: () => {}, commands: { all: () => jobCommands }, runCommand: () => {} } as unknown as AppController}><SetupChecklist /></ControllerContext>))
     await new Promise(resolve => setTimeout(resolve, 20))
-    const cloud = host === "cloud" && capabilities.length === 0
+    const cloud = host === "cloud"
     expect(host_.querySelector(".setup-checklist-count")?.textContent).toBe(count)
     expect(host_.querySelector("progress")?.getAttribute("max")).toBe(cloud ? "3" : "4")
     expect([...host_.querySelectorAll("ol > li")].map(item => item.firstChild?.textContent)).toEqual(cloud ? [TALK, "✓", "Set up a job"] : [TALK, "✓", "✓", "Set up a job"])

@@ -34,22 +34,6 @@ const bunPaths = (command: string | undefined): string[] => command?.startsWith(
   ? command.slice("bun test ".length).split(/\s+/) : []
 const selected = (path: string, paths: readonly string[]) => paths.some((entry) => path === entry || path.startsWith(`${entry}/`))
 
-// Read only executable Bun argv arrays, not mentions in comments or conformance inputs.
-const packagedTests = (): string[] => {
-  const source = ts.createSourceFile("run.ts", read("e2e/packaged/run.ts"), ts.ScriptTarget.Latest, true)
-  const paths: string[] = []
-  const visit = (node: ts.Node) => {
-    if (ts.isArrayLiteralExpression(node) && node.elements[0]?.getText(source) === "process.execPath" &&
-      node.elements[1] && ts.isStringLiteral(node.elements[1]) && node.elements[1].text === "test") {
-      paths.push(...node.elements.filter(ts.isStringLiteral).map((item) => item.text).filter((item) => testFile.test(item)))
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(source)
-  return paths
-}
-
-const packaged = packagedTests()
 // The real lane is a directly executable script; `test:e2e:real` only names it.
 // Admit only its actual Playwright invocation, never a comment/config mention.
 const invokesRealPlaywright = (source: string): boolean => {
@@ -111,8 +95,6 @@ const isolatedWrappers: Readonly<Record<string, string>> = {
   "e2e/fixtures/unit-entrypoints/AppIslandFallback.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
   "e2e/fixtures/unit-entrypoints/Main.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
   "e2e/fixtures/unit-entrypoints/Serve.child.test.ts": "src/bun/ServeEntrypoint.test.ts",
-  "e2e/fixtures/unit-entrypoints/NativeProduction.child.test.ts": "src/bun/NativeProductionEntrypoint.test.ts",
-  "e2e/fixtures/unit-entrypoints/NativeBridge.child.test.ts": "src/bun/NativeBridgeEntrypoint.test.ts"
 }
 
 // Only two declared wrapper shapes are admitted: a literal child URL, or a
@@ -194,7 +176,6 @@ const owners = (path: string): string[] => {
   if (selected(path, bunPaths(scripts["test:e2e:graph-lifecycle"]))) result.push("graph lifecycle")
   if (runsStep(prSteps, playwrightStep) && playwrightOwns(path, playwright)) result.push("Playwright")
   if (runsStep(prSteps, siteStep) && playwrightOwns(path, playwrightSite)) result.push("Playwright site")
-  if (scripts["test:e2e:packaged"] === "bun e2e/packaged/run.ts" && packaged.includes(path)) result.push("packaged native")
   if (realRunner && playwrightOwns(path, playwrightReal)) result.push("Playwright real")
   if (runsStep(prSteps, graphStep) && playwrightOwns(path, playwrightGraph)) result.push("Playwright graph")
   if (runsStep(prSteps, showcaseStep) && playwrightOwns(path, playwrightShowcase)) result.push("Playwright showcase")
@@ -310,9 +291,9 @@ test("unit inputs include inspected sources, harnesses and configs", () => {
     console.log(JSON.stringify(paths))
   `)
   for (const path of [
-    "scripts/canary-browser.ts", "scripts/run-pr-e2e.mjs", "scripts/run-real-e2e.ts", "scripts/README.md", "e2e/native/Probe.ts",
+    "scripts/canary-browser.ts", "scripts/run-pr-e2e.mjs", "scripts/run-real-e2e.ts", "scripts/README.md",
     "PACKAGE.ts", "package.json", "tsconfig.json", "vite.config.ts", "playwright.config.ts", "playwright.site.config.ts", "playwright.real.config.ts",
-    "electrobun.config.ts", "hutch.config.ts", "postcss.config.js", "tailwind.config.js"
+    "postcss.config.js", "tailwind.config.js"
   ]) expect(inputs).toContain(`apps/app/${path}`)
   for (const path of ["package.json", "pnpm-lock.yaml", "packages/rpc/src/Cards.ts", "packages/rpc/fixtures/force/graph.json",
     "packages/smithers/ui/src/cn.ts", "packages/smithers/gateway/src/GatewayProjection.ts"])

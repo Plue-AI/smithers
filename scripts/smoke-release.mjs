@@ -19,7 +19,7 @@
  * fresh resolver taking a third-party caret edge past the pin is how
  * `smithers-orchestrator@0.32.0` failed before its handshake (#2398).
  * Separate npm and pnpm consumers then certify default libraries, selected
- * Node/browser/Bun adapters, create-app/testing, and migration install shapes
+ * Node/browser/Bun adapters and migration install shapes
  * against the same tarballs before a successful smoke receipt is written.
  * Requires npm >=11.16.0 on PATH, including under Node 26.4.0. npm 10.9.3
  * crashes in Arborist when resolving the testing optional peers.

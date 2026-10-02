@@ -10,7 +10,7 @@ import versions from "../../../../data/versions.json"
 
 In this tutorial you'll build a small release flow, finish a run, fork it at a journal frame so a copy can publish to a different channel, and then rewind a second run to an earlier frame and re-derive a view from what remains.
 
-Fork copies a run's history up to one frame so the copy can diverge from its parent, rewind trims the run's own history back to a frame, and compensation is the per-effect undo a rewind performs on what the trimmed suffix did. [Time travel](/docs/concepts/time-travel/) explains all three. This tutorial uses the library API to show the operation directly. For existing CLI runs, use `smthrs runs inspect/replay/fork/rewind` as described in [time travel](/docs/concepts/time-travel/). The full operation and error tables live in the [time-travel API reference](/docs/reference/api/time-travel/).
+Fork copies a run's history up to one frame so the copy can diverge from its parent, rewind trims the run's own history back to a frame, and compensation is the per-effect undo a rewind performs on what the trimmed suffix did. [Time travel](/docs/concepts/time-travel/) explains all three. This tutorial uses the library API to show the operation directly. For existing CLI runs, `smthrs runs inspect` and `replay` inspect recorded history. The full operation and error tables live in the [time-travel API reference](/docs/reference/api/time-travel/).
 
 **Fork replay limitation:** copied attempt rows retain their parent digests, so actions keyed by the run ID execute again in the child. [Keep sealed steps from re-executing](https://time-travel.smithers.sh/guides/fork-a-run/#keep-sealed-steps-from-re-executing) carries the full rule and the cache declaration that answers it.
 
@@ -22,12 +22,12 @@ Not available.
 </TabItem>
 <TabItem label="TUI">
 
-`/fork` branches a conversation from an earlier message: [Chat with an agent](/docs/learn/chat/#pick-up-where-you-left-off).
+Saved conversations can be resumed with `/resume`.
 
 </TabItem>
 <TabItem label="CLI">
 
-`smthrs runs fork` and `smthrs runs rewind`: [Time travel](/docs/concepts/time-travel/).
+`smthrs runs inspect` and `replay` read recorded history. Fork and rewind are library operations.
 
 </TabItem>
 <TabItem label="API">

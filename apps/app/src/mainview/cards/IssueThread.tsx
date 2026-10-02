@@ -38,15 +38,6 @@ export const threadContext = (store: CardProjectionAuthority | undefined): Threa
   return { viewer: login === null || login === "" ? undefined : login, profiles }
 }
 
-type Sync = NonNullable<IssueCard["payload"]["sync"]>
-
-/** The mirrored conversation's link, from the mapping the record carries: Slack has a permalink; other providers have none. */
-export const syncUrl = (sync: Pick<Sync, "provider" | "scopeId" | "conversationId" | "threadId">): string | undefined => {
-  if (sync.provider !== "slack") return undefined
-  const base = `https://app.slack.com/client/${encodeURIComponent(sync.scopeId)}/${encodeURIComponent(sync.conversationId)}`
-  return sync.threadId === undefined ? base : `${base}/thread/${encodeURIComponent(sync.conversationId)}-${encodeURIComponent(sync.threadId)}`
-}
-
 /** A due date in the fewest words: the weekday inside a week, else the day. */
 export const dueWords = (iso: string, now: number = Date.now()): { readonly words: string; readonly past: boolean } => {
   const at = Date.parse(iso)
@@ -187,23 +178,6 @@ const Composer = ({ card, onRunCommand }: { readonly card: IssueCard; readonly o
   )
 }
 
-/* What a chat's delivery trouble says, by the mirror's state; its own error text stays behind Details. */
-export const THREAD_SYNC_FAILURES: Readonly<Record<NonNullable<Sync["state"]> | "unknown", UserFailureCopy>> = {
-  synced: { fault: "dependency", sentence: "Smithers had trouble syncing this chat. Not your fault.", actions: [] },
-  pending: { fault: "dependency", sentence: "Smithers is still trying to deliver the latest message. Not your fault.", actions: [] },
-  dispatching: { fault: "dependency", sentence: "Smithers is still trying to deliver the latest message. Not your fault.", actions: [] },
-  outcome_unknown: { fault: "dependency", sentence: "Smithers does not know whether the latest message arrived. Not your fault.", actions: [] },
-  failed: { fault: "dependency", sentence: "Smithers could not deliver the latest message. Not your fault.", actions: [] },
-  unsupported: { fault: "dependency", sentence: "The latest message was not delivered to this chat. Not your fault.", actions: [] },
-  unknown: { fault: "dependency", sentence: "Smithers had trouble syncing this chat. Not your fault.", actions: [] }
-}
-
-/* A resolution the owner chose that did not save, by its request status. */
-export const THREAD_RESOLUTION_FAILURES: Readonly<Record<NonNullable<Sync["resolution"]>["status"], UserFailureCopy>> = {
-  requested: { fault: "wait", sentence: "Smithers is still saving your resolution. Not your fault.", actions: [] },
-  failed: { fault: "infra", sentence: "Smithers could not save your resolution. Not your fault.", actions: [] }
-}
-
 /* A message that did not send, by its pending status. */
 export const THREAD_MESSAGE_FAILURES: Readonly<Record<NonNullable<IssueCard["payload"]["pendingComments"]>[number]["status"], UserFailureCopy>> = {
   requested: { fault: "wait", sentence: "Smithers is still sending this message. Not your fault.", actions: [] },
@@ -211,13 +185,9 @@ export const THREAD_MESSAGE_FAILURES: Readonly<Record<NonNullable<IssueCard["pay
   unknown: { fault: "infra", sentence: "Smithers does not know whether this message was sent. Not your fault.", actions: ["retry"] }
 }
 
-/** The mirror's delivery state, only when it is not simply synced; the record's own word. */
-const syncStateWords = (sync: Sync): string | undefined =>
-  sync.state === undefined || sync.state === "synced" ? undefined : sync.state.replace("_", " ")
-
 /** The conversation body of a chat issue. */
 export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { readonly card: IssueCard; readonly onRunCommand: RunCommand; readonly projectionStore?: CardProjectionAuthority | undefined }) => {
-  const { comments, issueBody, sync, task, state, author, authorAvatar, number, repo } = card.payload
+  const { comments, issueBody, task, state, author, authorAvatar, number, repo } = card.payload
   const context = threadContext(projectionStore)
   const pending = card.payload.pendingComments ?? []
   const rows: Array<{ readonly comment: Comment; readonly first: boolean; readonly day: string }> = []
@@ -233,27 +203,9 @@ export const IssueThreadBody = ({ card, onRunCommand, projectionStore }: { reado
   const acts = stateActions(card, context.viewer)
   const opener: PersonaRef | undefined = author === null ? undefined : { id: author, name: author, ...(authorAvatar === undefined ? {} : { iconUrl: authorAvatar }) }
   const viewer: PersonaRef | undefined = context.viewer === undefined ? undefined : { id: context.viewer, name: context.viewer }
-  const syncState = sync === undefined ? undefined : syncStateWords(sync)
-  const syncLink = sync === undefined ? undefined : syncUrl(sync)
   return (
     <article className="thread" data-testid={`conversation-${number}`} data-kind={task === undefined ? "conversation" : "issue"} data-state={state} data-keyboard-pane={card.payload.title}>
-      {task === undefined && sync === undefined ? null : (
-        <header className="thread-head">
-          <TaskStrip thread={{ ...card.payload, repo }} onRunCommand={onRunCommand} />
-          {sync === undefined ? null : (
-            <span className="thread-slack-state" data-state={sync.state}>
-              {syncState === undefined ? null : <span className="thread-slack">{syncState}</span>}
-              {sync.error ? <FailureNotice role="status" className="thread-sync-failure" data-testid="thread-sync-failure"
-                failure={describedFailure(`ThreadSync.${sync.state ?? "unknown"}`, THREAD_SYNC_FAILURES[sync.state ?? "unknown"], sync.error)} /> : null}
-              {sync.resolution?.error ? <FailureNotice className="thread-sync-failure" data-testid="thread-resolution-failure"
-                failure={describedFailure(`ThreadResolution.${sync.resolution.status}`, THREAD_RESOLUTION_FAILURES[sync.resolution.status], sync.resolution.error)} /> : null}
-              {sync.state === "outcome_unknown" && sync.deliveryId !== undefined ? <Button {...flowAction(onRunCommand, "issues.sync.resolve", flowArgs("issues.sync.resolve", { cardId: card.id, deliveryId: sync.deliveryId }))}>Resolve</Button> : null}
-              {syncLink === undefined ? <span className="thread-slack">{sync.provider}</span>
-                : <a className="thread-slack thread-slack-link" href={syncLink} target="_blank" rel="noreferrer">{sync.provider} ↗</a>}
-            </span>
-          )}
-        </header>
-      )}
+      {task === undefined ? null : <header className="thread-head"><TaskStrip thread={{ ...card.payload, repo }} onRunCommand={onRunCommand} /></header>}
       <ol className="thread-messages" aria-label="Messages">
         {issueBody === "" ? null : (
           <li className="thread-message" data-message="body">

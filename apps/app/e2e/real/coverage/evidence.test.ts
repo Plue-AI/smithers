@@ -36,17 +36,6 @@ test("raw receipts require exactly the owed scenarios and their actual invocatio
   for (const value of changed) expect(validateRawMatrixEvidence(value, expected).length).toBeGreaterThan(0)
 })
 
-test("native raw evidence binds the actual renderer and local CDP target", () => {
-  const invocation = { ...expected, mode: "native-plue" as const, origin: expected.endpoint }
-  const raw = evidence()
-  const native = { cdpEndpoint: "http://127.0.0.1:9333", targetID: "renderer-1", windowURL: "http://localhost:5174/app" }
-  const value = { ...raw, execution: { ...raw.execution!, ...invocation, surfaceOrigin: "http://localhost:5174", native }, runs: owedScenarioIds(invocation.mode).map(scenarioId => ({ ...raw.runs[0]!, scenarioId, mode: invocation.mode })) }
-  expect(validateRawMatrixEvidence(value, invocation)).toEqual([])
-  for (const changed of [undefined, { ...native, targetID: "" }, { ...native, cdpEndpoint: "https://foreign.test" }, { ...native, cdpEndpoint: "http://secret@localhost:9333" }, { ...native, windowURL: "http://localhost:5175/app" }]) {
-    expect(validateRawMatrixEvidence({ ...value, execution: { ...value.execution, native: changed } }, invocation).length).toBeGreaterThan(0)
-  }
-})
-
 test("evidence hashes retain exact child bytes, refuse tampering and never overwrite prior runs", () => {
   const directory = root(), bytes = new TextEncoder().encode(JSON.stringify(evidence()))
   const ref = archiveEvidence(directory, "local-plue/raw.json", bytes)

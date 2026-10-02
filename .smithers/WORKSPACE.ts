@@ -70,8 +70,6 @@ export const Workspace = S.Workspace("smithers", {
     "fixture-steps-form": S.LocalRepository("packages/smithers/build/build-cli/test/fixtures/steps-form"),
     "fixture-target-body": S.LocalRepository("packages/smithers/build/build-cli/test/fixtures/target-body"),
     "fixture-viem-node-spec": S.LocalRepository("packages/smithers/build/build-cli/test/fixtures/viem-node-spec"),
-    "template-aomi": S.LocalRepository("packages/smithers/create-app/template/aomi"),
-    "template-default": S.LocalRepository("packages/smithers/create-app/template/default"),
     "ui-e2e-repo-plugin": S.LocalRepository("apps/app/e2e/fixtures/repo-plugin")
   },
   // Gitignored caches with no CACHEDIR.TAG: run evidence, the Go module

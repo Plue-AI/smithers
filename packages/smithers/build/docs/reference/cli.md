@@ -18,7 +18,7 @@ form; for the behavior behind each command, see the
 Commands: [`cache`](#cache), [`show`](#show), [`targets`](#targets),
 [`info`](#show), [`explain`](#show), [`affected`](#affected),
 [`clean`](#clean), [`watch`](#watch), [`install`](#install),
-[`create-app`](#create-app), [`build`](#build), [`test`](#test),
+[`build`](#build), [`test`](#test),
 [`lint`](#lint), [`docs`](#docs), [`review`](#review), [`run`](#run),
 [`target`](#target), [`git-hooks`](#git-hooks), [`ci`](#ci),
 [`query`](#query), [`owners`](#owners), and [`graph`](#graph). An argv whose
@@ -27,7 +27,7 @@ bare-label form.
 
 ## Common options
 
-Every command except `create-app` accepts these.
+Every command accepts these.
 
 | Option        | Alias | Type   | Default                       | Description                                                                                                           |
 | ------------- | ----- | ------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -219,27 +219,6 @@ Result:
 Failure: error code `install_failed`, exit code 1.
 
 See [Install](../concepts/install.md).
-
----
-
-## create-app
-
-Scaffolds a Smithers app from a `@smthrs/create-app` template. It is the one
-command that takes neither `--workspace` nor `--cache-dir`.
-
-```sh
-smithers-build create-app my-app
-```
-
-| Argument | Description                                        |
-| -------- | -------------------------------------------------- |
-| `dir`    | Directory to create; its name becomes the app name |
-
-| Option       | Alias | Type   | Default   | Description   |
-| ------------ | ----- | ------ | --------- | ------------- |
-| `--template` | `-t`  | string | `default` | Template name |
-
-Failure: error code `create_app_failed`, exit code 1.
 
 ---
 

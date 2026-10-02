@@ -110,7 +110,6 @@ func buildRouterCompat(
 
 		orgHandler,
 		landingHandler,
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		searchHandler,

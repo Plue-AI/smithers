@@ -53,7 +53,8 @@ literal typed at a throw site. That is the intended friction:
 
 Smithers 0.x carried a registry of 180 codes for an orchestrator engine that no
 longer exists. Under the 1.0 release policy the registry was trimmed to the
-codes the `@smthrs/integrations` trees actually raise, which is five.
+five integration codes. Two Telegram codes remain for historical decoding
+after that adapter's MVP retirement.
 
 The rest of Smithers does not use codes at all. A Smithers package states
 each failure it can produce as a `Schema.TaggedError` class on the effect that
@@ -65,8 +66,7 @@ call can produce.
 
 Integration adapters are the exception because they are not written as Effect
 failure channels all the way down. Several of their helpers are plain
-synchronous functions that throw, `Telegram.Approval.callbackData` and
-`Telegram.Chunk.chunk` among them, and their failures cross into an HTTP
+synchronous functions that throw, and their failures cross into an HTTP
 handler, a webhook route, and a journal row. One class with a stable code is
 what those three readers can agree on.
 

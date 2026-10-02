@@ -212,28 +212,6 @@ func PerRepoAPIRequests(store *TokenBucketStore) func(http.Handler) http.Handler
 // RequireWorkspaceDesktopAccess checks write access before the desktop rate
 // bucket is charged. The checker uses the same workspace access rule as the
 // desktop service, including explicit write shares.
-func RequireWorkspaceDesktopAccess(check func(context.Context, string, int64, int64) error) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user := UserFromContext(r.Context())
-			repo := RepoContextFromContext(r.Context())
-			if check == nil || user == nil || repo == nil || repo.Repository == nil {
-				errors.WriteError(w, errors.Internal("workspace access check unavailable"))
-				return
-			}
-			if err := check(r.Context(), chi.URLParam(r, "id"), repo.Repository.ID, user.ID); err != nil {
-				var apiErr *errors.APIError
-				if stderrors.As(err, &apiErr) {
-					errors.WriteError(w, apiErr)
-				} else {
-					errors.WriteError(w, errors.Internal("check workspace access: "+err.Error()))
-				}
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
 
 // PerWorkspaceDesktopControl enforces 1800 desktop observe/input requests per
 // hour per caller and workspace — an agent driving a box at roughly one action
@@ -242,32 +220,6 @@ func RequireWorkspaceDesktopAccess(check func(context.Context, string, int64, in
 // single drive session would otherwise exhaust a repo's whole API budget.
 // Per API pod, like every bucket in this file; the global 5000/hr per-user
 // limit still applies above it.
-func PerWorkspaceDesktopControl(store *TokenBucketStore) func(http.Handler) http.Handler {
-	const (
-		capacity = 1800
-		window   = time.Hour
-		scope    = "workspace_desktop_control"
-	)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if store == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// workspaces.id is UUID-typed. PostgreSQL accepts case differences,
-			// optional braces and omitted/additional hyphens for the same UUID.
-			// Access has already been checked by RequireWorkspaceDesktopAccess.
-			id := strings.Trim(strings.ToLower(strings.TrimSpace(chi.URLParam(r, "id"))), "{}")
-			key := scope + "|workspace:" + strings.ReplaceAll(id, "-", "") + "|" + searchRateLimitKey(r)
-			allowed, retryAfter := store.Take(r.Context(), key, capacity, window)
-			if !allowed {
-				rateLimitExceededResponse(w, retryAfter)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
 
 func perRepoBucketMiddleware(store *TokenBucketStore, scope string, capacity int, window time.Duration) func(http.Handler) http.Handler {
 	return perRepoBucketMiddlewareKeyed(store, capacity, window, func(r *http.Request) string {

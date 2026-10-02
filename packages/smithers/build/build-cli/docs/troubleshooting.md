@@ -283,11 +283,6 @@ without writing through it. If backup publication fails, installation reports
 `write_failed` and leaves the handwritten hook in place. Move a directory at
 `<hook>.bak` out of the way before retrying.
 
-## The scaffold refused
-
-See [Scaffold an app](./guides/scaffold-an-app.md) for the `create-app`
-refusals and the package versions copied into a new app.
-
 ## Progress output looks wrong
 
 Under `--ui auto` the renderer is chosen from the environment. Force one to

@@ -9,8 +9,8 @@
  * comparison {@link verifySignature} performs on digest material.
  *
  * The header formats every provider in this package uses are accepted:
- * GitHub's `sha256=<hex>` in `X-Hub-Signature-256`, Linear's bare hex in
- * `Linear-Signature`, and the standard-base64 digest some providers send.
+ * GitHub's `sha256=<hex>` in `X-Hub-Signature-256`, bare hex digests,
+ * and standard-base64 digests.
  *
  * @since 1.0.0
  */
@@ -18,7 +18,7 @@
 import { createHmac } from "node:crypto"
 
 const HEX = /^[0-9a-f]+$/i
-// Standard base64. Linear signs with hex, but some providers sign with base64.
+// Standard base64, supported alongside hex digests.
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 /**

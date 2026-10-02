@@ -145,30 +145,6 @@ for (const outcome of ["accepted", "rejected", "dismissed"] as const) test(`Chat
   expect(controller.store.session().paletteOpen).toBe(outcome !== "dismissed")
 })
 
-test("the actual download door reserves its window synchronously and navigates only after acceptance", async () => {
-  const { controller, held } = await fixture({ bootstrap: bootstrap("cloud"), downloadUrl: "https://downloads.test/app" })
-  const { popup, opened } = popupFixture()
-  const pending = controller.commands.run("app.download")
-  expect(opened).toEqual(["about:blank"])
-  expect(popup.location.href).toBe("about:blank")
-  expect(popup.opener).toBeNull()
-  held.resolve()
-  expect((await pending).status).toBe("executed")
-  expect(popup.location.href).toBe("https://downloads.test/app")
-  expect(popup.closed).toBe(false)
-})
-
-test("a rejected download intent closes its empty reservation and never navigates", async () => {
-  const { controller, held } = await fixture({ bootstrap: bootstrap("cloud"), downloadUrl: "https://downloads.test/app" }, true)
-  const { popup, opened } = popupFixture()
-  const pending = controller.commands.run("app.download")
-  expect(opened).toEqual(["about:blank"])
-  held.resolve()
-  expect(await pending).toMatchObject({ status: "failed", persistenceFailed: true })
-  expect(popup.location.href).toBe("about:blank")
-  expect(popup.closed).toBe(true)
-})
-
 for (const host of ["local", "cloud"] as const) test(`the ${host} OAuth handoff reserves before commit and starts only afterward`, async () => {
   const requests: string[] = []
   const { controller, held } = await fixture({ bootstrap: { ...bootstrap(host), authFlow: "native-handoff" }, handoffPollMs: 1,

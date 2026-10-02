@@ -100,41 +100,6 @@ func TestBillingService_AuthorizeRepositoryTransferCommitted_FallbackLimits(t *t
 	}
 }
 
-func TestRepoTransferRequestIntegration_AcceptRechecksRecipientPrivateRepoLimit(t *testing.T) {
-	f := newTransferRequestFixture(t)
-	ctx := context.Background()
-	_, err := f.pool.Exec(ctx, `UPDATE repositories SET is_public=FALSE WHERE id=$1`, f.repoID)
-	require.NoError(t, err)
-	billing := NewBillingService(db.New(f.pool), nil, BillingServiceConfig{})
-	freePlan := billing.checkoutPlans[BillingOwnerTypeUser][BillingPlanFree]
-	freePlan.Limits.PrivateRepos = 1
-	freePlan.Limits.StorageBytes = unlimitedBillingQuantity
-	billing.checkoutPlans[BillingOwnerTypeUser][BillingPlanFree] = freePlan
-	f.svc.billing = billing
-	id := f.request(t)
-
-	// The recipient's last slot is consumed after consent was requested.
-	otherRepo := "billing-pending-transfer-" + uuid.NewString()
-	_, err = f.pool.Exec(ctx, `
-		INSERT INTO repositories (user_id, name, lower_name, description, is_public, default_bookmark)
-		VALUES ($1, $2, $2, '', FALSE, 'main')
-	`, f.recipient.ID, otherRepo)
-	require.NoError(t, err)
-	_, err = f.svc.AcceptRepoTransfer(ctx, f.recipient, id)
-	require.Error(t, err)
-	require.Equal(t, 403, httpStatus(err))
-	require.Equal(t, f.sender.ID, f.ownerID(t))
-	require.Equal(t, "pending", f.status(t, id))
-	require.Empty(t, f.moves)
-
-	_, err = f.pool.Exec(ctx, `UPDATE repositories SET is_public=TRUE WHERE user_id=$1 AND lower_name=$2`, f.recipient.ID, otherRepo)
-	require.NoError(t, err)
-	updated, err := f.svc.AcceptRepoTransfer(ctx, f.recipient, id)
-	require.NoError(t, err)
-	require.Equal(t, f.recipient.ID, updated.UserID.Int64)
-	require.Equal(t, "accepted", f.status(t, id))
-}
-
 func TestBillingService_AuthorizePrivateRepoCommitted_FallbackLimits(t *testing.T) {
 	t.Parallel()
 

@@ -1,7 +1,7 @@
 /**
  * Targets for the private Smithers theme tokens.
  *
- * `@smthrs/ui` and `apps/review` import this package. See
+ * `@smthrs/ui` and `flows/review` import this package. See
  * `packages/smithers/ui/PACKAGE.ts` for why this package declares its own targets: the
  * root `packageDefaults` would otherwise
  * synthesize a `BuildAndCheckTypeScriptPackage` library build and vitest suite for it, and

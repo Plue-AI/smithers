@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // The suite reaches the review app, whose walkthrough renderer and server
+    // The suite reaches the review flow, whose walkthrough renderer
     // sources are typed against DOM, as the modules that own them declare.
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true,

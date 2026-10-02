@@ -42,8 +42,7 @@ const privateAdapterManifests = [
   "packages/smithers/flows/platform-node",
   "packages/smithers/flows/platform-bun",
   "packages/smithers/gateway",
-  "packages/smithers/flows",
-  "packages/smithers/create-app"
+  "packages/smithers/flows"
 ].map((directory) => Smithers.file(`//${directory}/package.json`))
 
 /**
@@ -124,7 +123,6 @@ const releaseRehearsal = Smithers.NodeTest({
     Smithers.file("//scripts/check-api-baseline.test.mjs"),
     Smithers.file("//scripts/release-consumers.test.mjs"),
     Smithers.file("//scripts/installed-consumer-boundary.test.mjs"),
-    Smithers.file("//scripts/template-replay.test.mjs"),
     Smithers.file("//scripts/release-npm-support.test.mjs"),
     Smithers.file("//scripts/release-node-support.test.mjs"),
     Smithers.file("//scripts/release-peer-ranges.test.mjs"),
@@ -141,9 +139,7 @@ const releaseRehearsal = Smithers.NodeTest({
     ...sources,
     Smithers.file("//.pnpmfile.mjs"),
     Smithers.file("//.github/workflows/release.yml"),
-    Smithers.file("//.github/workflows/ci.yml"),
-    Smithers.file("//packages/smithers/build/build-cli/src/CreateApp.ts"),
-    Smithers.file("//packages/smithers/create-app/template/default/vitest.config.ts")
+    Smithers.file("//.github/workflows/ci.yml")
   ],
   deps: []
 })
@@ -386,8 +382,8 @@ const providerLiveGuards = Smithers.NodeTest({
 })
 
 /**
- * The review and bug-worker `deploy` scripts refuse to publish outside a
- * qualified Cloud rollout: each exits nonzero, never reaches `alchemy`, and
+ * The bug-worker `deploy` script refuses to publish outside a
+ * qualified Cloud rollout: it exits nonzero, never reaches `alchemy`, and
  * says why.
  *
  * @since 1.0.0
@@ -398,7 +394,6 @@ const workerDeployQualification = Smithers.NodeTest({
   srcs: [
     ...sources,
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
-    Smithers.file("//apps/review/package.json"),
     Smithers.file("//apps/bug-worker/package.json")
   ],
   deps: []
@@ -522,36 +517,6 @@ const npmDedupe = Smithers.NodeTest({
 const npmDedupeUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/check-npm-dedupe.test.mjs")]),
   srcs: sources,
-  deps: []
-})
-
-/**
- * A scaffolded app resolves under strict peer resolution.
- *
- * `@effect/platform-node` floats `@effect/platform-node-shared` through a caret
- * range, so a resolver may select a shared adapter whose `effect` peer is the
- * next RC and conflicts with the exact `effect` a template pins. This
- * repository pins the shared adapter in its root overrides; a generated app is
- * not a workspace member and inherits nothing, so the template carries the pin
- * and this scaffolds with the real CLI and installs what it wrote under
- * `npm --strict-peer-deps` and `pnpm --strict-peer-dependencies`.
- *
- * The installs read registry metadata, so this target needs the network, and
- * the registry is an input the key cannot name: a hit means the manifests are
- * unchanged, never that the registry still resolves them. So the key catches a
- * template that drops the pin, and a cold cache catches an upstream that starts
- * floating a new adapter.
- *
- * @since 0.1.0
- * @category test
- */
-const templatePeers = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/check-template-peers.test.mjs")]),
-  srcs: [
-    ...sources,
-    Smithers.glob("//packages/smithers/create-app/template/*/package.json"),
-    Smithers.file("//packages/smithers/create-app/package.json")
-  ],
   deps: []
 })
 
@@ -1023,7 +988,6 @@ export const Package = Smithers.Package({
     releaseSmoke,
     releaseVersion,
     signalCampaign,
-    templatePeers,
     testPinRegister,
     toolchainPins,
     thirdPartyNotices,

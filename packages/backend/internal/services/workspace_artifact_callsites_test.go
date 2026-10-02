@@ -33,7 +33,7 @@ func stagedWorkspaceScript(client *artifactRecordingClient) string {
 
 func TestWorkspaceArtifactCreateKindsAndSnapshots(t *testing.T) {
 	artifactCallsiteFixture(t)
-	for _, kind := range []string{"container", "vm", "desktop"} {
+	for _, kind := range []string{"container", "vm"} {
 		for _, snapshot := range []string{"", "snapshot-source"} {
 			t.Run(kind+"/"+snapshot, func(t *testing.T) {
 				svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage(kind)}))

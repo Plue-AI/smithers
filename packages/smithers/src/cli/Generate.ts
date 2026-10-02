@@ -4,7 +4,6 @@
  */
 
 import { openPackageIndex, runPackageVerb, type RuntimeConfig } from "@smthrs/build-cli/Cli"
-import * as CreateApp from "@smthrs/build-cli/CreateApp"
 import * as Reporter from "@smthrs/build-cli/Reporter"
 import * as TargetInstall from "@smthrs/targets/Install"
 import * as Target from "@smthrs/targets/Target"
@@ -194,18 +193,7 @@ const generateTarget = async (
  * @since 1.0.0
  */
 export const createGenerateCli = (config: RuntimeConfig = {}) =>
-  Cli.create("generate", { description: "Scaffold apps, flows, packages, and CI configuration" })
-    .command("app", {
-      description: "Create an application from a bundled template",
-      mcp: { annotations: { readOnlyHint: false } },
-      args: z.object({ directory: z.string() }),
-      options: z.object({ template: z.string().default("default") }),
-      run: (c) =>
-        safe(
-          c,
-          () => CreateApp.scaffold({ directory: c.args.directory, template: c.options.template })
-        )
-    })
+  Cli.create("generate", { description: "Scaffold flows, packages, and CI configuration" })
     .command("flow", {
       description: "Create a durable Markdown flow without replacing an existing flow",
       mcp: { annotations: { readOnlyHint: false } },

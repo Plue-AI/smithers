@@ -233,12 +233,12 @@ describe("the turn size without a budget", () => {
   })
 
   test("code intelligence is stated only where its flows are registered", async () => {
-    const honesty = { host: "web", github: { connected: true, login: "will", repositories: 1 }, localRepositories: [], localRepositoriesAvailable: false } as const
+    const honesty = { github: { connected: true, login: "will", repositories: 1 }, localRepositories: [], localRepositoriesAvailable: false } as const
     const catalog = [{ name: "files.read", summary: "Read a file" }]
     expect(smithersInstructions(catalog, honesty)).not.toContain("code.hover")
-    expect(smithersInstructions(catalog, honesty)).toContain("code intelligence (hover, definitions, diagnostics)")
-    const native = smithersInstructions([...catalog, { name: "code.hover", summary: "The type at a position" }], { ...honesty, host: "native" })
-    expect(native).toContain(CODE_INTEL_LINE)
-    expect(native).not.toContain("code intelligence (hover, definitions, diagnostics) need the native app")
+    expect(smithersInstructions(catalog, honesty)).not.toContain(CODE_INTEL_LINE)
+    const enabled = smithersInstructions([...catalog, { name: "code.hover", summary: "The type at a position" }], honesty)
+    expect(enabled).toContain(CODE_INTEL_LINE)
+    expect(enabled).not.toContain("need the native app")
   })
 })

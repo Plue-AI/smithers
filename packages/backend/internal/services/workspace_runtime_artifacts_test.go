@@ -236,9 +236,7 @@ func TestRuntimeArtifactsBootstrapMatchesPlacedEnvironment(t *testing.T) {
 	for _, scenario := range []struct{ name, kind, closure, guestKind string }{
 		{"container", "container", "", "container"},
 		{"VM without closure uses Nix", "vm", "", "vm"},
-		{"desktop without closure uses Nix", "desktop", "", "desktop"},
 		{"pinned VM uses Nix", "vm", "closure-sha", "vm"},
-		{"pinned desktop uses Nix", "desktop", "closure-sha", "desktop"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			row := sampleDBWorkspace("placed-environment")

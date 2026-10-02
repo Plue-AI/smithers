@@ -68,7 +68,7 @@ Recovery is not an operation. Building `TimeTravel.layer` finishes or rolls back
 
 ## Boundaries
 
-Nothing rewrites a committed entry: a rewind archives the suffix after the frame and records an audit row for the operation. Replay re-executes nothing; a coordinate the journal does not hold is `not_found`. Compensation covers exactly the effects your handlers declare. The CLI exposes these operations under `smthrs runs`; the unified MCP server exposes the corresponding command tools.
+Nothing rewrites a committed entry: a rewind archives the suffix after the frame and records an audit row for the operation. Replay re-executes nothing; a coordinate the journal does not hold is `not_found`. Compensation covers exactly the effects your handlers declare. The CLI exposes recorded-history inspection under `smthrs runs inspect`, `replay`, and `verify`. Fork and rewind remain library operations.
 
 ## Use the CLI
 
@@ -81,13 +81,7 @@ smthrs runs replay <run-id> --at 17
 
 Replace `<run-id>` and `17` with the run and sequence you want to inspect. These commands read recorded state without executing actions. History commands operate on local state; they do not use a remote control-plane connection.
 
-Forking requires an eligible parked or terminal agent run, its approved plan, and `jj`. Rewind requires an exact frame. Preview its effects before applying it:
 
-```bash
-smthrs runs rewind <run-id> --at 17 --preview
-```
-
-Only add `--yes` when you intend to archive the suffix and restore the frame. [The CLI reference](/docs/reference/cli/) describes the retained fork workspace and resuming a child.
 
 ## Failure answers
 

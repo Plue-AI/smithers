@@ -20,7 +20,10 @@ import (
 )
 
 // The command-selection eval (issue #3313): fixed chat messages against the
-// app's real 222-command catalog. Offline (the default) it replays recorded
+// retained 220-command catalog. The GitHub connection/import commands remain;
+// retired provider commands are absent. Original model answers remain byte-for-byte
+// recorded evidence (including obsolete zero-score keys), not fresh live results.
+// Offline (the default) it replays recorded
 // Jev answers through SelectCommands, so a change to the question shape,
 // threshold or parsing that loses a command fails here. Live, it asks the
 // gateway itself:
@@ -88,7 +91,10 @@ func TestCommandSelectionEval(t *testing.T) {
 	require.NoError(t, err)
 	var eval selectionEval
 	require.NoError(t, json.Unmarshal(raw, &eval))
-	require.Len(t, eval.Catalog, 222)
+	require.Len(t, eval.Catalog, 220)
+	for _, command := range eval.Catalog {
+		require.NotContains(t, command.Name, "integrations.")
+	}
 	mode := os.Getenv("SMITHERS_JEV_EVAL")
 	live := mode == "live" || mode == "record"
 	if live && os.Getenv("AI_GATEWAY_API_KEY") == "" {

@@ -26,7 +26,7 @@ export default showcase({
   order: 100,
   title: "Runs",
   summary: "The run inbox; a run's trace and transcript; steer, re-seat and stop a live run.",
-  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run.retry", "runs.steer", "runs.seat", "runs.thinking", "flow.run.stop"],
+  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run.retry", "runs.steer", "flow.run.stop"],
   run: async ({ page, app, backend }) => {
     const now = Date.now()
     const steers: Array<{ kind: string; body?: string }> = []
@@ -217,7 +217,7 @@ export default showcase({
     await expect.poll(() => summaries.get(CODING) ?? 0).toBeGreaterThan(reads)
     await app.beat(500)
 
-    // A live run takes a steer, a new seat and a thinking level, then stops from its toast.
+    // A live run takes a steer, stops from its toast.
     await app.show(inbox)
     await app.click(inbox.getByTestId(`runs-open-${REVIEW}`))
     const review = page.getByTestId(`card-${boxRunCardId(REPO, REVIEW)}`)
@@ -226,12 +226,6 @@ export default showcase({
     await app.type(review.getByTestId(`flow-run-steer-input-${REVIEW}`), "smaller diff")
     await app.click(review.getByRole("button", { name: "Steer" }))
     await expect(review).toContainText("steering pending")
-    const seat = review.getByLabel("Move the run to a seat")
-    await app.type(seat, "claude-opus")
-    await seat.press("Enter")
-    await app.saw("runs.seat", () => expect.poll(() => steers.map(steer => steer.kind)).toContain("Seat"))
-    await review.getByTestId(`flow-run-thinking-${REVIEW}`).selectOption("high")
-    await app.saw("runs.thinking", () => expect.poll(() => steers.map(steer => steer.kind)).toContain("Thinking"))
     await app.beat(900)
     const toast = page.locator('.toast-stack .toast[data-toast-status="running"]').filter({ hasText: "review-pr" })
     await app.click(toast.getByRole("button", { name: "Stop" }))

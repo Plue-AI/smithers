@@ -59,10 +59,8 @@ export interface Command {
 export const commands: ReadonlyArray<Command> = [
   { name: "model", args: "[query]", description: "Pick a model" },
   { name: "theme", description: "Pick a theme" },
-  { name: "thinking", args: "[level]", description: "Set the reasoning effort" },
   { name: "new", description: "Start a new conversation" },
   { name: "resume", description: "Resume a conversation" },
-  { name: "fork", description: "Fork from an earlier message" },
   { name: "conversation", description: "Show the conversation file and tokens" },
   { name: "compact", description: "Drop the oldest context" },
   { name: "name", args: "<name>", description: "Name this conversation" },
@@ -127,19 +125,9 @@ export const unknown = (name: string): string => {
 
 /** Tab and Enter insert `/name ` for these, so the argument can be typed or completed. */
 export const takesArgument = (command: Command): boolean =>
-  command.args?.startsWith("<") === true || command.name === "thinking"
+  command.args?.startsWith("<") === true
 
 export { parseCommand } from "@smthrs/ui/command-line"
-
-export const thinkingLevels = ["none", "minimal", "low", "medium", "high", "xhigh"] as const
-export type Thinking = (typeof thinkingLevels)[number] | undefined
-
-/** Shift+Tab: the provider default, then each level, then back to the default. */
-export const nextThinking = (current: Thinking): Thinking => {
-  if (current === undefined) return thinkingLevels[0]
-  const at = thinkingLevels.indexOf(current)
-  return at === thinkingLevels.length - 1 ? undefined : thinkingLevels[at + 1]
-}
 
 /** Formats a token count the way pi's footer does: 950, 1.2k, 45k, 1.2M. */
 export const tokens = (count: number): string => {

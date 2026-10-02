@@ -22,7 +22,6 @@ import {
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
-  MODEL_TEST_PATH,
   TURN_PATH,
   TURN_REPLAY_PATH,
   TURN_RETIRE_PATH,
@@ -32,7 +31,7 @@ import { AUTHENTICATED_USER_PATH } from "@smthrs/rpc/ApplicationAuth"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { APP_API_VERSION, APP_BOOTSTRAP_PATH } from "@smthrs/rpc/AppBootstrap"
 import { AgentRuntimeContextSchema } from "@smthrs/rpc/AgentContext"
-import { MODEL_TEST_BODY_MAX_BYTES, modelFailureRefusalCode, ModelTestRequestSchema } from "@smthrs/rpc/ConfiguredModel"
+import { modelFailureRefusalCode } from "@smthrs/rpc/ConfiguredModel"
 import type { ModelCredentialEnv } from "@smthrs/rpc/ConfiguredModel"
 import { localCapabilities } from "@smthrs/rpc/HostCapabilities"
 import {
@@ -166,14 +165,8 @@ export interface LocalServerOptions {
   readonly version?: string
   readonly buildSha?: string
   /**
-   * True only when the desktop shell (`NativeApp.ts`) started this host as
-   * its renderer origin: the bootstrap then carries `native.shell`, the one
-   * row native-shell UI reads. A headless or test launch never claims it.
-   */
-  readonly nativeShell?: boolean
-  /**
    * Test fixture state directory. The
-   * native launcher passes the platform's application-support directory; a
+   * local host uses its application-support directory; a
    * test passes a temp dir or nothing.
    */
   readonly modelKeychain?: CloudKeychain
@@ -189,7 +182,6 @@ export interface LocalServerOptions {
    */
   readonly env?: ModelCredentialEnv
   /** Test override for the one deadline a model test runs under. */
-  readonly modelTestDeadlineMs?: number
   /** Test override for the transport a configured model is reached through. */
   readonly modelFetch?: typeof globalThis.fetch
 }
@@ -264,7 +256,7 @@ const closeReasonOf = (text: string): string => {
 /** The headers the tunnel dials the cloud socket with: the bearer, and an Origin only where an environment still enforces one. */
 const cloudWsUpstreamHeaders = (token: string | undefined): Record<string, string> => {
   const headers: Record<string, string> = {}
-  // plue#475: the terminal upgrade skips the Origin check for Bearer principals, so a desktop app sends none — SMITHERS_CLOUD_WS_ORIGIN is the knob for an environment that still enforces it.
+  // plue#475: the terminal upgrade skips the Origin check for Bearer principals, so the local host sends none — SMITHERS_CLOUD_WS_ORIGIN is the knob for an environment that still enforces it.
   const origin = Bun.env.SMITHERS_CLOUD_WS_ORIGIN
   if (origin !== undefined && origin !== "") headers["origin"] = origin
   if (token !== undefined) headers["authorization"] = `Bearer ${token}`
@@ -721,7 +713,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         plans: identityUpstream !== null,
         cloud: cloudUpstream !== null,
         browser: remoteEnabled,
-        nativeShell: options.nativeShell === true
       }),
       authFlow: identityUpstream === null ? "none" : "both",
       // Required by `AppBootstrapSchema`, and omitting it stopped the app
@@ -947,19 +938,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     credentials: modelCredentials,
     env: modelEnv,
     egress: remoteEnabled,
-    ...(options.modelTestDeadlineMs === undefined ? {} : { deadlineMs: options.modelTestDeadlineMs }),
     ...(options.modelFetch === undefined ? {} : { fetch: options.modelFetch })
   })
   router.add("GET", MODEL_CATALOG_PATH, async () => { await modelCredentials.refresh(); return json(modelProbe.catalog()) })
-  router.add("POST", MODEL_TEST_PATH, async ({ request }) => {
-    const parsed = await readJson(request, MODEL_TEST_BODY_MAX_BYTES)
-    if ("error" in parsed) return parsed.error
-    const body = ModelTestRequestSchema.safeParse(parsed.body)
-    if (!body.success) return refuse("request_invalid", "Body must be { model }.")
-    // Both outcomes are a 200: a failed test is an answer, typed, with no provider text in it.
-    return json(await modelProbe.test(body.data.model, body.data.input))
-  })
-
   /*
    * The Smithers Cloud login (lane piper, ADR 0001): start answers the URL the
    * renderer opens in the system browser; the session answer never carries

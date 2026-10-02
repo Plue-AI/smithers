@@ -21,15 +21,10 @@ export const UNAVAILABLE: Readonly<Record<string, string>> = {
   "chat.dictate": "needs a microphone",
   "box.terminal": "needs a live cloud sandbox terminal",
   "code.*": "needs a live cloud sandbox language server",
-  "desktop": "needs a live cloud sandbox desktop",
-  "box.desktop": "needs a live cloud sandbox desktop",
-  "box.desktop.open": "needs a live cloud sandbox desktop",
-  "box.desktop.stop": "needs a live cloud sandbox desktop",
-  "box.desktop.rotate": "needs a live cloud sandbox desktop",
   "billing.upgrade": "external Stripe checkout",
   "billing.portal": "external Stripe portal",
-  "cloud.sign-in": "native app only (host-held Cloud session)",
-  "cloud.sign-out": "native app only (host-held Cloud session)"
+  "cloud.sign-in": "local host only (host-held Cloud session)",
+  "cloud.sign-out": "local host only (host-held Cloud session)"
 }
 
 const inert = (flags: { readonly pluginLibrary: boolean }): CommandActions =>

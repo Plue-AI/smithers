@@ -293,7 +293,7 @@ describe("the workspace package contract", () => {
 
   it("keeps Effect external and platform adapters private", () => {
     const owners = publishable.filter(({ manifest }) => manifest.smthrs?.privateEffectAdapters)
-    assert.equal(owners.length, 8)
+    assert.equal(owners.length, 7)
     for (const { manifest } of owners) {
       assert.equal(manifest.dependencies?.effect ?? manifest.peerDependencies?.effect, effectVersion)
       assert.ok(manifest.smthrs.privateEffectAdapters.includes("@effect/platform-node-shared"))
@@ -329,7 +329,7 @@ describe("the workspace package contract", () => {
     assert.ok(platform.manifest.smthrs.privateEffectAdapters.includes("@effect/platform-bun"))
   })
 
-  for (const name of ["platform-node", "create-app", "gateway"]) {
+  for (const name of ["platform-node", "gateway"]) {
     it(`ships ${name}'s shared adapter without a consumer resolver edge`, () => {
       const entry = publishable.find(({ manifest }) => manifest.name === "@smthrs/" + name)
       assert.ok(entry)

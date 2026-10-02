@@ -68,7 +68,7 @@ func TestOutsiderRunCredentialReadsNoConversationPostgres(t *testing.T) {
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{},
 		&routes.LandingHandler{Service: services.NewLandingService(q, reviewTestRepoHost{})},
-		nil, nil, nil,
+		nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{Service: services.NewIssueService(q)},
 		nil,
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},

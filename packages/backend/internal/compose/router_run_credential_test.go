@@ -103,7 +103,7 @@ func TestServerRouter_RepositoryJobPauseRequiresPerson(t *testing.T) {
 				testConfigAllFlagsOn(), nil, nil,
 				&routes.RepoHandler{}, nil, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, nil,
 				&routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{},
-				nil, nil, nil, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
+				nil, nil, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 				nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 				nil, nil, // notifications, pair sessions
 				nil, nil, nil, nil, nil, // admin routes

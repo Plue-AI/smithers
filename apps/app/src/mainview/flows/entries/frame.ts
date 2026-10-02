@@ -8,7 +8,7 @@ import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
 /** The `frame` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
-export const namespace: Namespace = { id: "frame", label: "Frames", summary: "Navigate and fork frames" }
+export const namespace: Namespace = { id: "frame", label: "Frames", summary: "Navigate frames" }
 
 /** The `frame` flows registered as one aggregator block. */
 export const frameFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
@@ -29,14 +29,5 @@ export const frameFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     userOnlyReason: "frame navigation is the human's browser gesture",
     input: NoPayload,
     handler: () => actions.frameForward()
-  }),
-  flow({
-    name: "frame.fork",
-    summary: "Fork the current frame",
-    hidden: true,
-    userOnly: true,
-    userOnlyReason: "forking a frame is the human's browser gesture",
-    input: NoPayload,
-    handler: () => actions.forkFrame()
   })
 ]

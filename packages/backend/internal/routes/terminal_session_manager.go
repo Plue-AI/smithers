@@ -263,7 +263,7 @@ func (m *TerminalSessionManager) open(ctx context.Context, sessionID string, inf
 
 func terminalNeedsActivationWatch(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "vm", "desktop":
+	case "vm":
 		return true
 	default:
 		return false

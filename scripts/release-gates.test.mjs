@@ -308,7 +308,7 @@ test("the inventory is release.yml's publish job: same gates, same names, same o
   assert.ok(steps.length >= 35, `${steps.length} gates is too few to be the publish job`)
   // The gates the review found missing, named so the fix cannot regress quietly.
   for (const target of [
-    "//apps/app:check", "//apps/app:unitTests", "//apps/server/...", "//apps/review/...", "//apps/bug-worker/...",
+    "//apps/app:check", "//apps/app:unitTests", "//apps/server/...", "//flows/review/...", "//apps/bug-worker/...",
     "//:projectCopy", "//evals/agent:test", "//evals/agent:check", "//evals/authoring:test",
     "//evals/authoring:check", "//evals/swebench:offline", "//evals/swebench:check", "//evals/review-seeded-bugs/...",
     "//evals/review-seeded-bugs:check", "//evals/recommend/...", "//evals/recommend:check", "//:ci", "//:factoryProjection",

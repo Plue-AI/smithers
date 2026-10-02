@@ -250,7 +250,7 @@ package sits inside `packages/smithers`, the CLI everything ships behind:
 ```
 packages/
   smithers/                 @smthrs/cli — the `smthrs` executable (alias `smithers`)
-    control/ gateway/ mcp/ notifications/ migrate/ create-app/
+    control/ gateway/ mcp/ notifications/ migrate/
     flows/                  @smthrs/flows — the engine, and what it is made of
       flow/ engine/ engine-store/ journal/ run-store/ step-cache/ plan/
       artifacts/ database/ canonical/ crypto/ keys/ capability/ kernel/
@@ -268,7 +268,7 @@ packages/
 
 Nesting is directories and nothing else. Every npm name, version, dist-tag,
 and the published set are what they were when the tree was flat; the roster is
-the 51 names `publishedPackages` restates in `scripts/pack-release.mjs`, and
+`publishedPackages` in `scripts/pack-release.mjs`, and
 only target labels move, from `//packages/canonical:test` to
 `//packages/smithers/flows/canonical:test`.
 

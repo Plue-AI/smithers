@@ -506,11 +506,11 @@ func TestWorkspaceService_FindOrCreateWorkspace_VMThenDesktopOnSameBookmarkCreat
 
 	vm, err := svc.findOrCreateWorkspaceForBookmark(context.Background(), 101, 1, "proof-vm", "main", workspaceCreateMetadata{kind: "vm"})
 	require.NoError(t, err)
-	desktop, err := svc.findOrCreateWorkspaceForBookmark(context.Background(), 101, 1, "proof-desktop", "main", workspaceCreateMetadata{kind: "desktop"})
+	desktop, err := svc.findOrCreateWorkspaceForBookmark(context.Background(), 101, 1, "proof-container", "main", workspaceCreateMetadata{kind: "container"})
 	require.NoError(t, err)
 
 	assert.Equal(t, "vm", vm.Kind)
-	assert.Equal(t, "desktop", desktop.Kind)
+	assert.Equal(t, "container", desktop.Kind)
 	assert.NotEqual(t, vm.ID, desktop.ID)
 	assert.Len(t, workspaces, 2)
 }

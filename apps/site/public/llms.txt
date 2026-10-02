@@ -18,7 +18,7 @@
 ## How Smithers works
 
 - [How Smithers works](https://smithers.sh/docs/how-it-works/): The ideas behind Smithers: conversations, issues, the wiki, agents, triggers, flows, and runs, and how they fit together.
-- [Conversations](https://smithers.sh/docs/how-it-works/conversations/): A conversation is a chat with Smithers or the discussion on an issue. Conversations last, and can sync with Slack or Telegram.
+- [Conversations](https://smithers.sh/docs/how-it-works/conversations/): A conversation is a chat with Smithers or the discussion on an issue. Conversations retain their messages and work history.
 - [Issues](https://smithers.sh/docs/how-it-works/issues/): An issue is something to get done: it moves from open to fixed to verified, and the verifier is never the fixer.
 - [Wiki](https://smithers.sh/docs/how-it-works/wiki/): One wiki per repository, with a public part and a private part: Markdown pages in folders, linked like an Obsidian vault, versioned and kept current.
 - [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend. Start one from the app, the TUI, the CLI, or the API.
@@ -27,13 +27,12 @@
 ## Tutorials: GUI, TUI, CLI, API
 
 - [Chat with an agent](https://smithers.sh/docs/learn/chat/): Ask Smithers a question, steer it while it works, and queue a follow-up, from the app, the terminal, a script, or the API.
-- [Sync a conversation with Slack or Telegram](https://smithers.sh/docs/learn/sync-a-conversation/): Connect a conversation to a Slack thread or a Telegram chat, and see each message once on both sides.
 - [Create an issue](https://smithers.sh/docs/learn/create-an-issue/): Open an issue, hand it to the coding factory, and move it from open to fixed to verified.
 - [Follow an issue to main](https://smithers.sh/docs/learn/issue-to-main/): See where each issue is on its way to main: planned, being built, checked, in review, or landed.
 - [Run a flow](https://smithers.sh/docs/learn/run-a-flow/): Pick one of the repository's flows, give it what it needs, and follow its run.
 - [Configure an agent and a trigger](https://smithers.sh/docs/learn/agent-and-trigger/): Write an agent as a flow.mdx file, run it once, then put it on a schedule.
 - [Work in the background](https://smithers.sh/docs/learn/background-work/): Hand off a bounded job, keep chatting, and follow, stop, or retry it.
-- [Choose a model](https://smithers.sh/docs/learn/models/): Pick the model for chat, for background work, and for each agent, and set its reasoning effort.
+- [Choose a model](https://smithers.sh/docs/learn/models/): Pick configured models for chat, background work, and agents.
 - [Watch an agent work](https://smithers.sh/docs/learn/watch-an-agent/): Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you.
 - [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
 - [Inspect a run with DevTools](https://smithers.sh/docs/learn/devtools/): Open a run's node tree the way React DevTools opens a component tree: every node with its state and timing, and the selected node's inputs, outputs and journal frames, live.
@@ -53,7 +52,7 @@
 - [Keys](https://smithers.sh/docs/tui/keys/): Every TUI shortcut, grouped by where it works.
 - [Command line](https://smithers.sh/docs/tui/cli/): Start the TUI interactive, continued, or for one answer.
 - [Configuration](https://smithers.sh/docs/tui/configuration/): Providers, TUI settings, instruction files, and where conversations are stored.
-- [Views, filters, and estimates](https://smithers.sh/docs/tui/views/): Tabs, transcript filters, themes, and time and token estimates in the TUI.
+- [Views and filters](https://smithers.sh/docs/tui/views/): Tabs, transcript filters, and themes in the TUI.
 - [Extend the TUI](https://smithers.sh/docs/tui/extend/): Publish views and cards, add keys and status items, and watch results with monitors.
 
 ## The app
@@ -99,9 +98,9 @@
 - [Back up, gc, and retain run state](https://smithers.sh/docs/guides/retention/): Back up the .flows directory safely, delete terminal runs with smthrs gc, and sweep unreferenced artifacts.
 - [Operate the memory store](https://smithers.sh/docs/guides/memory-ops/): Inspect, seed, and prune namespaced facts with the smthrs memory command, and run memory maintenance.
 - [Test your flows](https://smithers.sh/docs/guides/testing-flows/): Run flows on the in-memory engine under vitest, assert on recorded results and journal entries, and replay recorded model responses instead of calling a provider.
-- [Review pull requests with the Smithers action](https://smithers.sh/docs/guides/pr-review-action/): Add the Smithers review GitHub Action to a repository, trigger agent reviews with a PR comment, and run the same review from a terminal.
 - [Run CI](https://smithers.sh/docs/guides/cloud-ci/): Run repository workflows on Smithers Cloud, or launch a flow from a CI job and handle its exit status.
 - [Define triggers](https://smithers.sh/docs/guides/triggers/): Register a durable cron trigger that starts a flow, host the scheduler, fire an occurrence by hand, and inspect it.
+- [Review a change](https://smithers.sh/docs/guides/pr-review-action/): Run the ordinary review flow over a repository change.
 
 ## Concepts
 
@@ -142,7 +141,6 @@
 - [@smthrs/cli](https://smithers.sh/docs/reference/api/cli/): Node command-line interface for Smithers control
 - [@smthrs/control](https://smithers.sh/docs/reference/api/control/): Control services and RPC projections for flows
 - [@smthrs/core](https://smithers.sh/docs/reference/api/core/): Schema-first flow signatures and metadata over @smthrs/flow: one options object that lowers to a declared action and the flow that calls it
-- [@smthrs/create-app](https://smithers.sh/docs/reference/api/create-app/): Declare a Smithers app in one PACKAGE.ts: file-routed flows, panes, and Cloudflare targets
 - [@smthrs/crypto](https://smithers.sh/docs/reference/api/crypto/): Strict SHA-256 hashing with injected and synchronous Effect entry points
 - [@smthrs/database](https://smithers.sh/docs/reference/api/database/): A driver-neutral SQL contract with a bounded write-retry seam, plus the composed migration ladder
 - [@smthrs/engine-store](https://smithers.sh/docs/reference/api/engine-store/): Effect services for durable engine action persistence and replay boundaries
@@ -152,7 +150,7 @@
 - [@smthrs/fs](https://smithers.sh/docs/reference/api/fs/): Private metadata routing and schema-checked command projections for Smithers flows
 - [@smthrs/gateway](https://smithers.sh/docs/reference/api/gateway/): Effect workspace gateway contracts, projections, and supervision ports for flows
 - [@smthrs/harness](https://smithers.sh/docs/reference/api/harness/): The Smithers built-in agent loop: a cell-first controller whose model turns produce JavaScript cells that run in a persistent realm and reach the world only through durable flow calls
-- [@smthrs/integrations](https://smithers.sh/docs/reference/api/integrations/): GitHub, Linear, Telegram, Slack, Google Calendar, Gmail, and X adapters over the Smithers control plane
+- [@smthrs/integrations](https://smithers.sh/docs/reference/api/integrations/): GitHub adapters over the Smithers control plane
 - [@smthrs/jj](https://smithers.sh/docs/reference/api/jj/): Jujutsu version control as a portable Effect host service
 - [@smthrs/journal](https://smithers.sh/docs/reference/api/journal/): Effect services for the Smithers event journal: the immutable run history and the owner fence on its durable channel
 - [@smthrs/kernel](https://smithers.sh/docs/reference/api/kernel/): Capability kernel: effect tiers, monotone capability sets, grant store, and permission-decorating layers over the Host services
@@ -199,12 +197,10 @@
 - [smthrs build](https://smithers.sh/docs/reference/cli/build/): Execute the build targets selected by a pattern
 - [smthrs cache](https://smithers.sh/docs/reference/cli/cache/): Inspect and maintain local action-result caches
 - [smthrs change](https://smithers.sh/docs/reference/cli/change/): Inspect local jj changes
-- [smthrs changeset](https://smithers.sh/docs/reference/cli/changeset/): Land one change per repository as a single transaction
 - [smthrs ci](https://smithers.sh/docs/reference/cli/ci/): Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
 - [smthrs clean](https://smithers.sh/docs/reference/cli/clean/): Execute only declared Clean targets selected by the patterns
 - [smthrs completion](https://smithers.sh/docs/reference/cli/completion/): Generate shell completions
 - [smthrs config](https://smithers.sh/docs/reference/cli/config/): Read and set CLI configuration
-- [smthrs create-app](https://smithers.sh/docs/reference/cli/create-app/): Scaffold a Smithers app from a @smthrs/create-app template
 - [smthrs credentials](https://smithers.sh/docs/reference/cli/credentials/): Manage encrypted local credentials without printing secret values
 - [smthrs docs](https://smithers.sh/docs/reference/cli/docs/): Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
 - [smthrs doctor](https://smithers.sh/docs/reference/cli/doctor/): Report registry, database, runtime, and provider readiness
@@ -213,7 +209,7 @@
 - [smthrs eval](https://smithers.sh/docs/reference/cli/eval/): Run fixed evaluation suites and compare committed score baselines
 - [smthrs explain](https://smithers.sh/docs/reference/cli/explain/): Explain a target's actual planned cache key and local cache state
 - [smthrs gc](https://smithers.sh/docs/reference/cli/gc/): Delete terminal runs older than a threshold, with the rows they own
-- [smthrs generate](https://smithers.sh/docs/reference/cli/generate/): Scaffold apps, flows, packages, and CI configuration
+- [smthrs generate](https://smithers.sh/docs/reference/cli/generate/): Scaffold flows, packages, and CI configuration
 - [smthrs git-hooks](https://smithers.sh/docs/reference/cli/git-hooks/): Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
 - [smthrs graph](https://smithers.sh/docs/reference/cli/graph/): Print the target graph without executing it
 - [smthrs history](https://smithers.sh/docs/reference/cli/history/): Follow each issue's lane, checks and pull request
@@ -280,7 +276,7 @@
 - [@smthrs/evals](https://evals.smithers.sh/llms.txt): Fixed-suite evaluation, baselines, regression reports, and score gates for flows
 - [@smthrs/fs](https://fs.smithers.sh/llms.txt): Private metadata routing and schema-checked command projections for Smithers flows
 - [@smthrs/harness](https://harness.smithers.sh/llms.txt): The Smithers built-in agent loop: a cell-first controller whose model turns produce JavaScript cells that run in a persistent realm and reach the world only through durable flow calls
-- [@smthrs/integrations](https://integrations.smithers.sh/llms.txt): GitHub, Linear, Telegram, Slack, Google Calendar, Gmail, and X adapters over the Smithers control plane
+- [@smthrs/integrations](https://integrations.smithers.sh/llms.txt): GitHub adapters over the Smithers control plane
 - [@smthrs/memory](https://memory.smithers.sh/llms.txt): Effect services for durable cross-run facts, history, notes, recall, and maintenance
 - [@smthrs/model](https://model.smithers.sh/llms.txt): Schema-first Effect model protocols, routes, and streaming events for flows
 - [@smthrs/plugin](https://plugin.smithers.sh/llms.txt): Vite-style typed plugin kernel for flows: hooks, resolution, and config execution
@@ -289,7 +285,6 @@
 - [@smthrs/std](https://std.smithers.sh/llms.txt): The flows standard tool library: filesystem, search, HTTP, web-search, shell, and language-server flows
 - [@smthrs/triggers](https://triggers.smithers.sh/llms.txt): Durable cron triggers and channel contracts for flows
 - [@smthrs/control](https://control.smithers.sh/llms.txt): Control services and RPC projections for flows
-- [@smthrs/create-app](https://create-app.smithers.sh/llms.txt): Declare a Smithers app in one PACKAGE.ts: file-routed flows, panes, and Cloudflare targets
 - [@smthrs/cli](https://cli.smithers.sh/llms.txt): Node command-line interface for Smithers control
 - [@smthrs/artifacts](https://artifacts.smithers.sh/llms.txt): Effect service for the Smithers content-addressed artifact store, local and remote
 - [@smthrs/canonical](https://canonical.smithers.sh/llms.txt): RFC 8785 canonical JSON as an Effect Schema

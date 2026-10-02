@@ -251,8 +251,7 @@ describe("ci conformance", () => {
     // nor removes enforcement — it is pinned only so the roster stays exact.
     //
     // `dev` is a developer entry point, not a gate: it forwards to the UI
-    // workspace's `start` (devkit projection, `vite build --configLoader
-    // runner`, `electrobun dev`) so the Electrobun launch lives in one place.
+    // workspace's `start` browser/headless entry point.
     // `checklist` forwards the UI acceptance checks. `dev` runs nothing in
     // CI and fans nothing out.
     //
@@ -264,9 +263,8 @@ describe("ci conformance", () => {
     // public-export JSDoc across all three package depths with the root config.
     // Keep its source globs aligned with the target below.
     //
-    // `test:e2e` is the macOS developer entry point for the packaged
-    // Electrobun lane. It builds a stable bundle and drives that bundle with
-    // Bun; CI does not invoke it because the package graph has no macOS host.
+    // `test:e2e` forwards to the app's browser suite. The native desktop
+    // distribution is outside the MVP.
     //
     // `target-index` is the operator alias for the write half of
     // `//:targetIndex`. `.smithers/target-index.json` is derived from every
@@ -326,7 +324,7 @@ describe("ci conformance", () => {
       "release:workflow": "node --experimental-strip-types flows/release-support/main.ts release",
       test: "pnpm --recursive --if-present run test",
       tui: "bun apps/tui/src/main.tsx",
-      "test:e2e": "bun apps/app/e2e/packaged/run.ts",
+      "test:e2e": "pnpm --filter smithers-app run test:e2e",
       "test:examples": "pnpm --filter @smthrs/examples run test",
       "test:jsdoc": "node --test eslint.jsdoc.test.mjs"
     })

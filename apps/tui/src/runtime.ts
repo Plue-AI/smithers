@@ -33,7 +33,6 @@ export interface Ports {
   readonly list?: () => unknown
   readonly retry?: (id: string) => unknown
   /** Every active tab's and flow run's estimate; see `estimate.ts`. */
-  readonly eta?: () => unknown
   /** The user's flow runs, served to cells by the Smithers plugin. */
   readonly flows?: SmithersPlugin.Ports
   readonly monitors?: Pick<Monitors.Monitors, "create" | "list" | "stop">
@@ -187,14 +186,6 @@ export const source = (ports: Ports): FlowBinding.Source =>
         "Stop a monitor.",
         Schema.Struct({ id: short }),
         (input) => ports.monitors!.stop(input.id)
-      )
-    ]),
-    ...(ports.eta === undefined ? [] : [
-      bind(
-        "tab.eta",
-        "Estimated remaining minutes and tokens for every active tab and flow run, from past runs and scored earlier estimates. Use it to answer ETA questions.",
-        Schema.Struct({}),
-        () => ports.eta!()
       )
     ]),
     ...(ports.delegate === undefined ? [] : [

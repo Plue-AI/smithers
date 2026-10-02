@@ -47,7 +47,6 @@ export default defineConfig({
         "agent/**",
         "build/**",
         "control/**",
-        "create-app/**",
         "flows/**",
         "gateway/**",
         "mcp/**",

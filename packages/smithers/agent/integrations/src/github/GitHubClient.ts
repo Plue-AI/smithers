@@ -261,7 +261,7 @@ export const nextPageUrl = (linkHeader: string | null): string | null => {
   if (linkHeader === null || linkHeader.length === 0) return null
   for (const part of linkHeader.split(",")) {
     const match = /^<([^>]+)>;\s*rel="next"$/.exec(part.trim())
-    if (match !== null) return match[1] ?? null
+    if (match !== null) return match[1]!
   }
   return null
 }
@@ -562,7 +562,6 @@ export const make = (
       Schedule.while(({ input }) => isRetryable(input)),
       Schedule.passthrough,
       Schedule.addDelay(({ input }) => {
-        if (!isRetryable(input)) return Effect.succeed(Duration.zero)
         const details = (input as IntegrationError).details as { readonly retryAfterMs?: number | null } | undefined
         const wait = details?.retryAfterMs
         return Effect.succeed(typeof wait === "number" && wait > 0 ? Duration.millis(wait) : Duration.zero)

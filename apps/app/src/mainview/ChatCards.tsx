@@ -8,7 +8,7 @@ import { flowAction, flowProps } from "./flows/FlowAction"
  * cards/CardRenderers.tsx; this file never names a card kind except for narrow presentation adaptations in the shared shell.
  */
 import { Button, StatusPill } from "@smthrs/ui"
-import { ArrowLeft, ArrowRight, GitFork, Maximize2, Minimize2, PanelTop } from "lucide-react"
+import { ArrowLeft, ArrowRight, Maximize2, Minimize2, PanelTop } from "lucide-react"
 import { memo, useCallback, useRef } from "react"
 import type { CardActions } from "./cards/CardFamily"
 import { isRetiredCard, pillStatus, renderCardBody } from "./cards/CardRenderers"
@@ -70,7 +70,6 @@ export interface CardViewProps extends CardActions {
   readonly onMinimize: () => void
   readonly onFrameBack?: () => void
   readonly onFrameForward?: () => void
-  readonly onForkFrame?: () => void
   /* A maximized card's "Open in tab" (docs/LOCAL-APP.md "Cards"): user-triggered only. */
   readonly onOpenInTab: (id: string) => void
 }
@@ -92,7 +91,6 @@ export const CardView = memo(function CardView({
   onMinimize,
   onFrameBack,
   onFrameForward,
-  onForkFrame,
   onOpenInTab,
   onConnectGitHub,
   onRunWorkflow,
@@ -225,17 +223,6 @@ export const CardView = memo(function CardView({
                     </Button>
                   </>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  {...flowProps("frame.fork")}
-                  data-testid="frame-fork"
-                  aria-label="Fork frame"
-                  title="Fork frame"
-                  onClick={() => onForkFrame?.()}
-                >
-                  <GitFork size={13} />
-                </Button>
                 {/* Open in tab exists only on the maximized card: a user's explicit act (THE EMBED LAW). */}
                 <Button
                   variant="ghost"

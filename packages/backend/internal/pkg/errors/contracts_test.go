@@ -20,12 +20,7 @@ func TestSpecializedConstructorsUseRegisteredVerdicts(t *testing.T) {
 		fault      Fault
 		retryAfter int
 	}{
-		{"desktop not ready", DesktopNotReady, CodeDesktopNotReady, http.StatusServiceUnavailable, FaultWait, 2},
-		{"desktop not running", DesktopNotRunning, CodeDesktopNotRunning, http.StatusConflict, FaultUser, 0},
-		{"desktop busy", DesktopBusy, CodeDesktopBusy, http.StatusConflict, FaultWait, 1},
-		{"desktop tools unavailable", DesktopToolsUnavailable, CodeDesktopToolsUnavailable, http.StatusConflict, FaultInfra, 0},
 		{"environment image unavailable", EnvironmentImageUnavailable, CodeEnvironmentImageUnavailable, http.StatusConflict, FaultInfra, 0},
-		{"desktop act repeated", DesktopActRepeated, CodeDesktopActRepeated, http.StatusConflict, FaultUser, 0},
 		{"guest not ready", GuestNotReady, CodeGuestNotReady, http.StatusServiceUnavailable, FaultWait, 3},
 		{"github reconnect required", GitHubReconnectRequired, CodeGitHubReconnectRequired, http.StatusUnauthorized, FaultUser, 0},
 	} {
@@ -50,11 +45,7 @@ func TestSpecializedConstructorsUseRegisteredVerdicts(t *testing.T) {
 		status     int
 		fault      Fault
 		retryAfter int
-	}{
-		{"frame changed", DesktopFrameChanged, CodeDesktopFrameChanged, http.StatusConflict, FaultUser, 0},
-		{"focus terminal", DesktopFocusTerminal, CodeDesktopFocusTerminal, http.StatusConflict, FaultUser, 0},
-		{"input out of bounds", DesktopInputOutOfBounds, CodeDesktopInputOutOfBounds, http.StatusUnprocessableEntity, FaultUser, 0},
-	} {
+	}{} {
 		t.Run(tc.name, func(t *testing.T) {
 			details := map[string]any{"completed": 2, "index": 3}
 			err := tc.build("action refused", details)

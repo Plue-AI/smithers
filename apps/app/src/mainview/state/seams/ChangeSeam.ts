@@ -21,8 +21,6 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  *   GET  /api/repos/{o}/{r}/commits/{ref}/statuses?limit=100 — the checks at one revision's commit, with their work (#452)
  *   PUT  /api/repos/{o}/{r}/landings/{n}/land { commit_id } — lands the request's WHOLE stack; QUEUED, never "merged"
  *   POST /api/repos/{o}/{r}/workspaces { snapshot_id }    — forks a revision's snapshot into a computer
- *   GET  /api/orgs/{org}/changesets                        — the live changeset DTO (ADR 0003)
- *   POST /api/orgs/{org}/changesets/{id}/land              — synchronous; 409 carries failure_reason
  *
  * A field a route omits stays absent — the card renders nothing in its place.
  *
@@ -43,7 +41,6 @@ import type {
   ChangeTurn,
   ChangeVerdict,
   ChangeWalkthrough,
-  ChangesetState,
   DiffFile,
   LandingBlock
 } from "@smthrs/rpc/Changes"
@@ -73,7 +70,7 @@ export interface ChangeSeam {
   readonly sinceMyReview: (changeId: string, repo?: string) => Outcome
   /** `change.checks <changeId> <seq>`: the Checks facet's revision picker. */
   readonly checksAt: (changeId: string, seq: number, repo?: string) => Outcome
-  /** `change.land <changeId>`: land the carrying landing request (queued) or the changeset (synchronous). */
+  /** `change.land <changeId>`: land the carrying landing request (queued). */
   readonly landChange: (changeId: string, repo?: string) => Outcome
   /** `change.split <changeId> <path…>`: move the named paths into a new change (plue#489). */
   readonly splitChange: (changeId: string, paths: ReadonlyArray<string>, repo?: string) => Outcome
@@ -144,7 +141,6 @@ interface ChangeAux {
   readonly owners: ChangeOwners | null
   readonly landed: ChangeLanded | null
   readonly walkthrough: ChangeWalkthrough | null
-  readonly changeset: ChangesetState | null
   readonly unread: ChangeUnread
   readonly facet?: ChangeFacet | undefined
   readonly error?: string | undefined
@@ -625,7 +621,7 @@ const parseAnalyzer = (value: unknown): ChangeAnalyzerRun | null => {
 }
 
 const parseWalkthrough = (value: unknown, seq: number | null): ChangeWalkthrough | null => {
-  if (!isRecord(value) || !Array.isArray(value.sections) || !Array.isArray(value.quiz)) return null
+  if (!isRecord(value) || !Array.isArray(value.sections)) return null
   return {
     seq,
     sections: value.sections.flatMap((entry) => {
@@ -634,64 +630,10 @@ const parseWalkthrough = (value: unknown, seq: number | null): ChangeWalkthrough
       if (title === null) return []
       return [{ title, markdown: typeof entry.markdown === "string" ? entry.markdown : "", diagram: str(entry.diagram) }]
     }),
-    quiz: value.quiz
   }
 }
 
 /** The forked workspace off POST /workspaces, in the row's shape (WorkspaceSeam owns the full parser). */
-/** One changeset row off the live DTO (ADR 0003); malformed rows drop. */
-const parseChangeset = (value: unknown): ChangesetState | null => {
-  if (!isRecord(value)) return null
-  const id = intOrNull(value.id)
-  const organization = str(value.organization)
-  const state = str(value.state)
-  if (id === null || organization === null || state === null) return null
-  if (state !== "pending" && state !== "landing" && state !== "landed" && state !== "failed") return null
-  return {
-    id,
-    organization,
-    superproject: str(value.superproject) ?? "",
-    changeId: str(value.change_id) ?? "",
-    state,
-    failureReason: str(value.failure_reason),
-    targetBookmark: str(value.target_bookmark) ?? "main",
-    members: arrayOf(value.members, "members").flatMap((member) => {
-      if (!isRecord(member)) return []
-      const repository = str(member.repository)
-      const path = str(member.path)
-      const changeId = str(member.change_id)
-      const commitId = str(member.commit_id)
-      if (repository === null || path === null || changeId === null || commitId === null) return []
-      return [{
-        repository,
-        path,
-        changeId,
-        commitId,
-        targetBookmark: str(member.target_bookmark) ?? "main",
-        previousCommitId: str(member.previous_commit_id),
-        landedCommitId: str(member.landed_commit_id)
-      }]
-    })
-  }
-}
-
-/*
- * The changeset this change belongs to, scoped by REPOSITORY: a jj change id
- * is per-repo and nothing stops two repos from holding the same id, so a
- * bare id match could attach — and land — another repo's changeset. A match
- * is `superproject · change_id` or `member.repository · member.change_id`;
- * plue spells both `org/name` (changeset.go), which is the app's repo id.
- */
-const changesetFor = (
-  changesets: ReadonlyArray<ChangesetState>,
-  repoId: string,
-  changeId: string
-): ChangesetState | null =>
-  changesets.find((changeset) =>
-    (changeset.superproject === repoId && changeset.changeId === changeId)
-    || changeset.members.some((member) => member.repository === repoId && member.changeId === changeId)
-  ) ?? null
-
 const cardIdOf = (repoId: string, changeId: string): string => `change-${repoId}-${changeId}`
 const diffCardIdOf = (repoId: string, changeId: string): string => `diff-${repoId}-${changeId}`
 
@@ -962,26 +904,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       : { value: walkthrough }
   }
 
-  /** The org's changesets, when the repository's owner IS an org; a read `null` means none carries this change here. */
-  const loadChangeset = async (repoId: string, changeId: string): Promise<Read<ChangesetState | null>> => {
-    const repository = ctx.store.collections.repositories.get(repoId)
-    if (repository?.ownerKind !== "org") return { value: null }
-    const answer = await getJson(`/orgs/${encodeURIComponent(repository.org)}/changesets`)
-    if ("error" in answer) return { unread: answer.error }
-    const rows = arrayOrNull(answer.body, "changesets")
-    if (rows === null) return { unread: `Smithers Cloud's answer for the changesets of ${repository.org} was malformed` }
-    return {
-      value: changesetFor(
-        rows.flatMap((entry) => {
-          const parsed = parseChangeset(entry)
-          return parsed === null ? [] : [parsed]
-        }),
-        repoId,
-        changeId
-      )
-    }
-  }
-
   /* ---- the card ---- */
 
   /*
@@ -1024,7 +946,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       owners: pick("owners") ?? null,
       landed: pick("landed") ?? null,
       walkthrough: pick("walkthrough") ?? null,
-      changeset: pick("changeset") ?? null,
+      changeset: null,
       ...(overrides.unread !== undefined
         ? (Object.keys(overrides.unread).length === 0 ? {} : { unread: overrides.unread })
         : prior?.unread !== undefined ? { unread: prior.unread } : {}),
@@ -1087,11 +1009,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
      * one-panel picker (surfacePins, surfaceChecksAt) keep the prior
      * payload of what they do not read, through renderChange's fallback.
      */
-    const [conflicts, diff, landing, changeset, findings, walkthrough, checks] = await Promise.all([
+    const [conflicts, diff, landing, findings, walkthrough, checks] = await Promise.all([
       detail.conflicts === null ? loadConflicts(repoId, changeId) : Promise.resolve({ value: detail.conflicts }),
       loadDiff(repoId, changeId, pins),
       loadLanding(repoId, changeId),
-      loadChangeset(repoId, changeId),
       loadFindings(repoId, changeId),
       loadWalkthrough(repoId, changeId, change.currentSeq),
       loadChecks(repoId, checksRevision === null ? change.commitId : checksRevision.commitId)
@@ -1141,7 +1062,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       owners: detail.owners,
       landed: detail.landed,
       walkthrough: "unread" in walkthrough ? null : walkthrough.value,
-      changeset: "unread" in changeset ? null : changeset.value,
       unread: {
         ...("unread" in diff ? { diff: diff.unread } : {}),
         ...("unread" in conflicts ? { conflicts: conflicts.unread } : {}),
@@ -1155,7 +1075,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
           ? { reviewRequests: "the landing request carried no review_requests[]" }
           : {}),
         ...("unread" in landing ? { stack: landing.unread } : {}),
-        ...("unread" in changeset ? { changeset: changeset.unread } : {}),
         ...("unread" in walkthrough ? { walkthrough: walkthrough.unread } : {})
       },
       ...(options.facet === undefined ? {} : { facet: options.facet }),
@@ -1439,34 +1358,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const repoId = resolved.repo
-    /* A changeset lands atomically through its own route — never partially; an unread list can't clear the change of one. */
-    const changesetRead = await loadChangeset(repoId, changeId)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if ("unread" in changesetRead) {
-      return `The changesets ${changeId} might belong to weren't read (${changesetRead.unread}) — nothing was landed.`
-    }
-    const changeset = changesetRead.value
-    if (changeset !== null) {
-      if (changeset.state === "landing") {
-        return `Changeset ${changeset.id} is landing — the card tracks it.`
-      }
-      if (changeset.state === "landed") {
-        return `Changeset ${changeset.id} already landed.`
-      }
-      const landed = await sendJson("POST", `/orgs/${encodeURIComponent(changeset.organization)}/changesets/${changeset.id}/land`)
-      if (!current() && "error" in landed) return SIGN_OUT_REFUSAL
-      if ("error" in landed) {
-        /* A 409 restores every member bookmark; the row's failure_reason is the honest line. */
-        await surfaceChange(repoId, changeId, {}, current)
-        return landed.error
-      }
-      const refreshed = parseChangeset(landed.body)
-      return mutationResult(
-        repoId, changeId,
-        `Changeset ${changeset.id} landed — every member bookmark moved together.`,
-        refreshed === null ? {} : { overrides: { changeset: refreshed } }, null, current
-      )
-    }
     const landingRead = await loadLanding(repoId, changeId)
     if (!current()) return SIGN_OUT_REFUSAL
     if ("unread" in landingRead) {

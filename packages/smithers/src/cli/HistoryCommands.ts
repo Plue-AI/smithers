@@ -1,12 +1,9 @@
 /**
- * Time-travel commands mounted on the durable runs namespace.
+ * Recorded-history commands mounted on the durable runs namespace.
  * @since 1.0.0
  */
 
-import type { Schema } from "effect"
 import { type Cli, z } from "incur"
-import { readFileSync } from "node:fs"
-import * as CliError from "../CliError.ts"
 import * as Environment from "../Environment.ts"
 import * as History from "../history/History.ts"
 import * as Verify from "../history/Verify.ts"
@@ -20,9 +17,6 @@ const options = Bridge.connectionOptions.extend({
   lineage: z.string().optional().describe("Lineage ID; defaults to the lineage recorded at the frame"),
   limit: z.number().int().positive().default(10_000).describe("Maximum journal entries to read")
 })
-const mutationOptions = options.extend({
-  at: z.number().int().nonnegative().describe("Exact journal sequence to branch or rewind to")
-})
 const verifyArgs = z.object({
   run: z.string().min(1).optional().describe("Durable run ID; omitted, every run the store holds")
 })
@@ -33,28 +27,10 @@ const verifyOptions = Bridge.connectionOptions.extend({
 })
 const parameters = (parsed: z.output<typeof options>): History.Options => ({ ...parsed, sequence: parsed.at })
 
-const forkOptions = mutationOptions.extend({
-  step: z.string().min(1).optional().describe("Step key digest whose recorded result the fork replaces"),
-  result: z.string().optional().describe("The replacement result as JSON, or @file to read it from a file")
-})
-
-/** The `--step`/`--result` pair as a fork override; one without the other is a usage error. */
-const override = (parsed: z.output<typeof forkOptions>): History.Options["override"] => {
-  if (parsed.step === undefined && parsed.result === undefined) return undefined
-  if (parsed.step === undefined || parsed.result === undefined) {
-    throw new CliError.UsageError({ message: "--step and --result edit a step together; pass both" })
-  }
-  const text = parsed.result.startsWith("@") ? readFileSync(parsed.result.slice(1), "utf8") : parsed.result
-  try {
-    return { stepKeyDigest: parsed.step, result: JSON.parse(text) as Schema.Json }
-  } catch {
-    throw new CliError.UsageError({ message: "--result must be JSON" })
-  }
-}
 const refusal = { code: "history_failed" } as const
 
 /**
- * Mount the read and mutation commands on an existing runs group.
+ * Mount the history inspection commands on an existing runs group.
  * @since 1.0.0
  * @category constructors
  */
@@ -118,56 +94,6 @@ export const appendHistoryCommands = (cli: Cli.Cli, runtime: Bridge.Runtime = {}
           if (report.verdict === "divergent") throw Verify.divergence(report)
           return report
         })
-      }
-    })
-    .command("fork", {
-      description: "Branch a parked run at a historical frame into a durable, isolated workspace",
-      mcp: { annotations: { readOnlyHint: false } },
-      args,
-      options: forkOptions,
-      run(c) {
-        return Presentation.guard(
-          c,
-          async () => {
-            const { step: _step, result: _result, ...address } = c.options
-            const edit = override(c.options)
-            return await History.mutate(
-              Project.localRoot(c.options, runtime.environment ?? process.env),
-              c.args.run,
-              { ...parameters(address), ...(edit === undefined ? {} : { override: edit }) },
-              "fork",
-              runtime.signal
-            )
-          },
-          refusal
-        )
-      }
-    })
-    .command("rewind", {
-      description: "Preview or archive a run's suffix and restore an earlier frame; requires --yes to mutate",
-      mcp: { annotations: { readOnlyHint: false } },
-      args,
-      options: mutationOptions.extend({
-        preview: z.boolean().default(false).describe("Show the affected suffix and effects without changing anything"),
-        yes: z.boolean().default(false).describe("Confirm archiving the suffix and restoring the historical frame"),
-        wholeRepo: z.boolean().default(false).describe(
-          "Restore the whole jj repository (bookmarks, rebases, descriptions) to the frame's recorded operation"
-        )
-      }),
-      destructive: true,
-      run(c) {
-        if (!c.options.preview && !c.options.yes) {
-          return c.error({
-            code: "confirmation_required",
-            exitCode: 2,
-            message: "Use --preview to inspect the rewind, then --yes to apply it"
-          })
-        }
-        return Presentation.guard(c, async () => {
-          const root = Project.localRoot(c.options, runtime.environment ?? process.env)
-          if (c.options.preview) return await History.preview(root, c.args.run, parameters(c.options), runtime.signal)
-          return await History.mutate(root, c.args.run, parameters(c.options), "rewind", runtime.signal)
-        }, refusal)
       }
     })
 

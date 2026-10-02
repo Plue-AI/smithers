@@ -32,18 +32,17 @@ import { flowAction, flowProps } from "../flows/FlowAction"
  */
 import { eq } from "@tanstack/db"
 import { useLiveQuery } from "@tanstack/react-db"
-import { useState, useSyncExternalStore } from "react"
-import { Button, Spinner, StatusPill } from "@smthrs/ui"
+import { useState } from "react"
+import { Button, StatusPill } from "@smthrs/ui"
 import { Globe, Monitor, Play, RefreshCw, Server, Square, Trash2 } from "lucide-react"
 import { useController } from "../ControllerContext"
 import type { Card } from "../state/AppState"
-import { readDesktopStream, subscribeDesktopStream } from "../state/seams/DesktopStream"
 import { refusalFromStored } from "@smthrs/rpc/Refusal"
 import { refusalDoors, refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { EGRESS_PROXY_UNAVAILABLE } from "../state/seams/WorkspaceSeam"
-import { dayLabel, timeLabel } from "../Timestamps"
+import { dayLabel } from "../Timestamps"
 import { shortId } from "../state/ids"
 import { FileListCardBody } from "./FileCards"
 import type { CardFamily, RunCommand } from "./CardFamily"
@@ -85,7 +84,7 @@ export interface WorkspaceCardActions {
 type WorkspaceCard = Extract<Card, { kind: "workspace" }>
 type WorkspacePayload = WorkspaceCard["payload"]
 
-const FACETS = ["terminal", "files", "services", "egress", "desktop"] as const
+const FACETS = ["terminal", "files", "services", "egress"] as const
 
 /*
  * Lane L3b — ADR 0002: "three sandbox kinds share one option surface; the kind
@@ -96,7 +95,6 @@ const FACETS = ["terminal", "files", "services", "egress", "desktop"] as const
 const KINDS = [
   { kind: "container", says: "legacy OCI image, the default" },
   { kind: "vm", says: "NixOS closure image, systemd PID 1" },
-  { kind: "desktop", says: "NixOS closure image, systemd PID 1, plus XFCE streamed over VNC" }
 ] as const
 
 /**
@@ -163,168 +161,6 @@ const imageTag = (image: string | null | undefined): string | null => {
   return tag === "" || tag.includes("/") ? null : tag
 }
 
-/**
- * When the minted desktop session lapses, in the app's one timestamp
- * vocabulary. A session the mint gave no expiry for says nothing — a guessed
- * deadline is worse than none, because the iframe simply dies at the real one.
- */
-export const sessionUntil = (expiresAt: string | null, now: number = Date.now()): string | null => {
-  if (expiresAt === null || expiresAt === "") return null
-  const at = Date.parse(expiresAt)
-  return Number.isNaN(at) ? null : `session until ${timeLabel(at, now)}`
-}
-
-/** What `/desktop` is doing right now, in the product's words (box, never computer). */
-const DESKTOP_STAGE_LINE: Record<NonNullable<WorkspacePayload["desktopStage"]>, string> = {
-  creating: "creating the box",
-  resuming: "resuming the box",
-  starting: "starting the box",
-  activating: "the box is up, its desktop is still activating",
-  streaming: "starting the stream"
-}
-
-/*
- * Lane L3b — the Desktop facet: plue's NixOS VM streamed over VNC, embedded in
- * the card (THE EMBED LAW; maximize is the card's own act, and the frame fills
- * it through cards.css).
- *
- * The iframe's `src` is the absolute, already-credentialed `stream_url` the
- * session POST minted: it embeds a live machine's token and VNC password. It
- * is therefore read from module memory (state/seams/DesktopStream.ts) through
- * `useSyncExternalStore` — React's own external-store hook, so no `useEffect`
- * and no lifecycle synchronisation — and never from the card payload, because
- * everything a payload holds is written to disk by the persistence backend.
- * Leaving the facet drops the mint, so nothing outlives the unmounted iframe.
- */
-const WorkspaceDesktopBody = ({
-  payload,
-  onRunCommand
-}: {
-  readonly payload: WorkspacePayload
-  readonly onRunCommand: WorkspaceCardActions["onRunCommand"]
-}) => {
-  const stream = useSyncExternalStore(
-    subscribeDesktopStream,
-    () => readDesktopStream(payload.workspaceId),
-    () => null
-  )
-  if (stream === null) {
-    const stored = payload.desktopRefusal ?? null
-    const refusal = stored === null ? null : refusalFromStored(stored)
-    const stage = payload.desktopStage ?? null
-    if (refusal === null && stage === null) return null
-    /*
-     * The lead line, chosen by FAULT from the one copy table
-     * (`@smthrs/rpc/RefusalCopy`), because "service unavailable" reads
-     * identically whether the caller asked for something they may not have,
-     * whether the box simply is not up yet, or whether the whole fleet is
-     * full — and only the last of those is the one where a person needs to be
-     * told, plainly, that it is not their fault. plue's code and words stay
-     * behind Details (`refusalUserFailure`).
-     */
-    const doors = refusal === null ? [] : refusalDoors(refusal)
-    return (
-      <div className="world-card-list">
-        {/* The one-command open's own line: where the box got to, and the way out of the wait. */}
-        {stage === null ? null : <p className="world-card-path" role="status"><Spinner size="sm" aria-label="Starting desktop" />{payload.desktopProgress ?? DESKTOP_STAGE_LINE[stage]}</p>}
-        {refusal === null ? null : <FailureNotice failure={refusalUserFailure(refusal)} role="status" className="world-card-empty" />}
-        {refusal !== null && refusal.fault === "wait" && refusal.retryAfter != null ?
-          <p className="world-card-path">{`Try again in ${refusal.retryAfter}s.`}</p> :
-          null}
-        {stage === null ? null : (
-          <Button
-            size="sm"
-            variant="outline"
-            aria-label="Stop waiting for the desktop box"
-            {...flowAction(onRunCommand, "box.desktop.stop", payload.workspaceId)}
-          >
-            Stop waiting
-          </Button>
-        )}
-        {refusal === null ? null : <UpgradeDoor refusal={refusal} onRunCommand={onRunCommand} />}
-        {doors.includes("resume") ?
-          (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Resume the box and open its desktop"
-              {...flowAction(onRunCommand, "box.resume", payload.workspaceId)}
-            >
-              <Play size={12} aria-hidden="true" /> Resume
-            </Button>
-          ) :
-          null}
-        {doors.includes("retry") ?
-          (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Try the desktop session again"
-              {...flowAction(onRunCommand, "box.desktop", payload.workspaceId)}
-            >
-              <RefreshCw size={12} aria-hidden="true" /> Retry
-            </Button>
-          ) :
-          null}
-        {/*
-         * The door for a refusal plue calls terminal for THIS box — today,
-         * `desktop_tools_unavailable`, a box whose image predates the desktop
-         * helpers. Neither Retry nor Resume can ever satisfy it: the tools are
-         * not in the closure it booted. Opening a new box is the same act the
-         * failed-provisioning row offers, on the same kind, so the current
-         * image comes with it.
-         */}
-        {doors.includes("new-box") ?
-          (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Open a new desktop box with the current image"
-              {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: "desktop" }))}
-            >
-              <Play size={12} aria-hidden="true" /> Open a new box
-            </Button>
-          ) :
-          null}
-        {/*
-         * THE SEAM for a "Tell @fucory" door. `doors` already carries
-         * `report` for every infra and bug refusal in the app; nothing renders
-         * it because whether that door FILES something or merely says
-         * something is the product owner's call and has not been made. When it
-         * is, one case here — and the same case on the terminal facet — gives
-         * every such refusal the affordance at once.
-         */}
-      </div>
-    )
-  }
-  const until = sessionUntil(stream.expiresAt)
-  return (
-    <div className="workspace-desktop">
-      <iframe
-        className="workspace-desktop-frame"
-        title={`Desktop of ${payload.name}`}
-        src={stream.url}
-        allow="clipboard-read; clipboard-write"
-        sandbox="allow-scripts allow-same-origin allow-forms"
-        /* Control focus: a cross-origin frame is detected as window blur + activeElement === this iframe. */
-        data-control-focus-id={`desktop:${payload.workspaceId}`}
-        data-control-focus-kind="desktop"
-      />
-      <p className="world-card-row">
-        {until === null ? null : <span className="world-card-path">{until}</span>}
-        <Button
-          size="sm"
-          variant="outline"
-          {...flowAction(onRunCommand, "box.desktop.rotate", payload.workspaceId)}
-        >
-          Rotate session
-        </Button>
-      </p>
-    </div>
-  )
-}
-
-/** plue's file listing carries three types; the shared listing row knows two. A symlink lists as a file. */
 const listingCard = (payload: WorkspacePayload): Extract<Card, { kind: "file-list" }> => {
   const path = payload.filesPath ?? ""
   return {
@@ -364,7 +200,6 @@ const WorkspaceFacetBody = ({
   const { payload } = card
   if (card.loading) return <ViewSkeleton />
   if (card.status === "error" && card.body) return <p className="world-card-empty">{card.body}</p>
-  if (facet === "desktop") return <WorkspaceDesktopBody payload={payload} onRunCommand={onRunCommand} />
   if (facet === "files") {
     if (payload.files === undefined) return null
     return (
@@ -460,7 +295,7 @@ const WorkspaceFacetBody = ({
        * `guest_not_ready` is one — is ALSO retried
        * by the seam on the server's own pacing, so the button is the human's
        * way to stop waiting for that clock, not the only way forward. (The
-       * `report` door for an infra refusal has no control yet; see the desktop
+       * `report` door for an infra refusal has no control yet; see the terminal
        * facet's seam note.)
        */}
       {terminalRefusal !== null ?
@@ -515,7 +350,7 @@ export const WorkspaceCardBody = ({
   onRunCommand
 }: { readonly card: WorkspaceCard } & WorkspaceCardActions) => {
   const { payload } = card
-  const facet = payload.facet ?? "terminal"
+  const facet = payload.facet === "desktop" ? "terminal" : payload.facet ?? "terminal"
   /* The registry is the truth about the terminal door: the Worker registers box.terminal only once its relay is on. */
   const controller = useController()
   const { data: recoveryRows } = useLiveQuery(q => q.from({ workspace: controller.store.collections.cloudWorkspaces })
@@ -602,11 +437,11 @@ export const WorkspaceCardBody = ({
           aria-label="Restore snapshot"
           {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo,
             snapshot: recovery.snapshotId, recoveryOf: payload.workspaceId,
-            ...(recoveryKind === "container" || recoveryKind === "vm" || recoveryKind === "desktop" ? { kind: recoveryKind } : {}) }))}>Restore</Button>}
+            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}) }))}>Restore</Button>}
         {recovery.createFresh ? <Button size="sm" variant="outline" disabled={recoveryPending}
           aria-label="Create fresh box"
           {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo, recoveryOf: payload.workspaceId,
-            ...(recoveryKind === "container" || recoveryKind === "vm" || recoveryKind === "desktop" ? { kind: recoveryKind } : {}) }))}>Create</Button> : null}
+            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}) }))}>Create</Button> : null}
       </p>}
       {recovery?.request?.error === undefined ? null : <FailureNotice className="world-card-empty"
         failure={describedFailure("BoxActRefused", BOX_FAILURE_COPY.BoxActRefused, recovery.request.error)} />}
@@ -635,25 +470,17 @@ export const WorkspaceCardBody = ({
           </p>
         ) :
         null}
-      {/*
-        Lane L3b: the Desktop tab exists only for a desktop workspace — a
-        container and a vm have no display to stream. Opening it runs
-        `box.desktop`, which MINTS a session (a live machine's password),
-        so it is its own confirmed act rather than a facet switch.
-      */}
       <div className="world-card-row" role="tablist" aria-label="Box facets">
-        {FACETS.filter((name) => name !== "desktop" || payload.workspaceKind === "desktop").map((name) => (
+        {FACETS.map((name) => (
           <Button
             key={name}
             size="sm"
             variant={name === facet ? "default" : "outline"}
             role="tab"
             aria-selected={name === facet}
-            {...flowProps(name === "desktop" ? "box.desktop" : "box.facet")}
+            {...flowProps("box.facet")}
             onClick={() =>
-              name === "desktop"
-                ? onRunCommand("box.desktop", payload.workspaceId)
-                : onRunCommand("box.facet", flowArgs("box.facet", { workspaceId: payload.workspaceId, facet: name }))}
+              onRunCommand("box.facet", flowArgs("box.facet", { workspaceId: payload.workspaceId, facet: name }))}
           >
             {name[0]!.toUpperCase()}{name.slice(1)}
           </Button>

@@ -1,7 +1,6 @@
 import { Effect, Tracer } from "effect"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as GitHubClient from "../src/github/GitHubClient.ts"
-import * as LinearClient from "../src/linear/LinearClient.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -35,13 +34,5 @@ describe("client tracing", () => {
     expect(span?.attributes.get("http.response.status_code")).toBe(502)
     expect(span?.attributes.get("integration.retryable")).toBe(true)
     expect(JSON.stringify([...(span?.attributes.entries() ?? [])])).not.toContain("secret-token")
-  })
-
-  it("records a Linear query span that marks mutations", async () => {
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: { x: true } })))
-    const spans = await traced(LinearClient.make({ apiKey: "k" }, {}).query("mutation X { x }"))
-    const span = spans.find((candidate) => candidate.name === "LinearClient.query")
-    expect(span?.attributes.get("graphql.mutation")).toBe(true)
-    expect(span?.attributes.get("http.attempts")).toBe(1)
   })
 })

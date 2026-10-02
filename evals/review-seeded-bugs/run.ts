@@ -31,11 +31,18 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
-import { Review } from "../../apps/review/src/workflow/reviewFlow.ts";
-import { layerMemory } from "../../apps/review/src/workflow/reviewLayer.ts";
-import { reviewSeatResolver } from "../../apps/review/src/workflow/reviewSeatResolver.ts";
-import { resolveReviewSeats } from "../../apps/review/src/workflow/reviewSeats.ts";
+import { Effect, Layer } from "effect";
+import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts";
+import * as RequestExecutor from "@smthrs/model/RequestExecutor";
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
+
+/** Live evals use the CLI's normal credential/alias resolver, rather than review-specific provider code. */
+const liveSeats = () => NativeEquipment.layerSeatResolver(process.env).pipe(
+  Layer.provide(RequestExecutor.layer),
+  Layer.provide(FetchHttpClient.layer)
+);
+import Review from "../../flows/review/flow.ts";
+import { layerMemory } from "./host.ts";
 import { type Baseline, baselineFrom, drift, type FixtureOutcome } from "./baseline.ts";
 import { answerReview } from "./deterministicReviewer.ts";
 import { materializeFixture } from "./fixtureRepo.ts";
@@ -60,7 +67,6 @@ export async function runFixture(label: PlantedBugLabel, layer: ReturnType<typeo
           repo: repoDir,
           runReview: true,
           narrate: false,
-          quiz: "off",
           // Verification is off so the score measures the reviewer, not a
           // second seat's willingness to drop its findings.
           verify: false,
@@ -144,7 +150,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const live = argv.includes("--live");
   const update = argv.includes("--update");
   // Compose before any fixture directory or Git process exists.
-  const seats = live ? reviewSeatResolver(resolveReviewSeats()) : scriptedSeats(answerReview);
+  const seats = live ? liveSeats() : scriptedSeats(answerReview);
   const layer = live ? layerMemory(seats) : layerMemory(seats, {});
   const labels = loadCorpus();
 

@@ -1,10 +1,10 @@
 # Smithers application
 
-The application has a React renderer and an Electrobun desktop host. Its browser build is served by `apps/server`.
+The application has a React browser renderer, served by `apps/server` or the retained local HTTP host. Native desktop distribution is outside the MVP.
 
 ## Code ownership
 
-`apps/app/src/mainview` owns chat, embedded surfaces, the flow registry, controller and store. `apps/app/src/mainview/chain` owns browser persistence and replay recovery. `apps/app/src/bun` owns the native shell and authenticated local origin. Repository work, terminals and language servers run in the workspace backend.
+`apps/app/src/mainview` owns chat, embedded surfaces, the flow registry, controller and store. `apps/app/src/mainview/chain` owns browser persistence and replay recovery. `apps/app/src/bun` owns the authenticated local HTTP host. Repository work, terminals and language servers run in the workspace backend.
 
 ## Coding evidence
 
@@ -12,4 +12,4 @@ The application has a React renderer and an Electrobun desktop host. Its browser
 
 ## Verification
 
-The app README distinguishes unit tests, browser tests, opt-in real chat, and packaged native tests. The default browser tests use isolated state and a chat stub. Real chat and packaged native testing require their separate lanes.
+The app README distinguishes unit tests, browser tests and opt-in real chat. The default browser tests use isolated state and a chat stub. Real chat requires its separate lane; offline tests do not prove provider behavior.

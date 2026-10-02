@@ -2,7 +2,7 @@
 
 ## 1.0.0-rc.0
 
-`@smthrs/ui` is `private: true` at this release: `apps/ui` and `apps/review`
+`@smthrs/ui` is `private: true` at this release: `apps/ui` and `flows/review`
 consume it through the workspace.
 
 ### Added

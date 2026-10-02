@@ -49,7 +49,7 @@ func TestWorkspaceResourceBounds(t *testing.T) {
 			}
 		})
 	}
-	for _, input := range []CreateWorkspaceInput{{Kind: "desktop", Resources: WorkspaceResources{CPUs: resourcePtr(4)}}, {SnapshotID: "snapshot", Resources: WorkspaceResources{CPUs: resourcePtr(4)}}} {
+	for _, input := range []CreateWorkspaceInput{{SnapshotID: "snapshot", Resources: WorkspaceResources{CPUs: resourcePtr(4)}}} {
 		require.Error(t, s.validateWorkspaceResources(input))
 	}
 }

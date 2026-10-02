@@ -195,7 +195,7 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
         upstream.push(request.clone())
         const path = new URL(request.url).pathname
         if (path === "/api/repos/will/smithers/workspaces" && request.method === "POST") {
-          return json(409, { message: "fixture desktop create reached backend" })
+          return json(409, { message: "fixture VM create reached backend" })
         }
         if (path === "/api/user/workspaces") return state === "degraded"
           ? json(403, { code: "forbidden", fault: "user", message: "insufficient token scope" }) : json(200, [])
@@ -243,7 +243,7 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
         const result = await workspace.listWorkspaces()
         if (state === "signed-in") {
           expect(result).toEqual({ value: "No boxes." })
-          expect(await workspace.openDesktopBox("main", "will/smithers")).toContain("fixture desktop create reached backend")
+          expect(await workspace.openWorkspace("main", "will/smithers", "vm")).toContain("fixture VM create reached backend")
           expect(upstream.some(request => request.method === "POST" && new URL(request.url).pathname === "/api/repos/will/smithers/workspaces")).toBe(true)
           expect(requests.some(request => request.url.startsWith("/api/user/workspaces"))).toBe(true)
           expect(upstream.every(request => !request.headers.has(LOCAL_SESSION_HEADER))).toBe(true)

@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -62,36 +61,6 @@ func TestShareListingRoutesRejectUnrepresentablePageOffsets(t *testing.T) {
 	}
 }
 
-func TestChangesetRouteRejectsUnrepresentablePageOffset(t *testing.T) {
-	const perPage = 4
-	maxPage := int64(math.MaxInt32/int64(perPage) + 1)
-	for _, tc := range []struct {
-		page int64
-		want int
-	}{
-		{maxPage, http.StatusOK},
-		{maxPage + 1, http.StatusBadRequest},
-	} {
-		called := false
-		h := ChangesetHandler{Service: &mockChangesetRouteService{listFn: func(_ context.Context, _ *db.User, _ string, page, size int) ([]services.ChangesetResponse, error) {
-			called = true
-			require.Equal(t, int(tc.page), page)
-			require.Equal(t, perPage, size)
-			return nil, nil
-		}}}
-		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/orgs/acme/changesets?page=%d&per_page=%d", tc.page, perPage), nil)
-		req = withRouteParams(req, map[string]string{"org": "acme"})
-		req = withTestUser(req, &db.User{ID: 1})
-		rec := httptest.NewRecorder()
-		h.ListChangesets(rec, req)
-		require.Equal(t, tc.want, rec.Code, rec.Body.String())
-		if tc.want == http.StatusBadRequest {
-			require.Contains(t, rec.Body.String(), `"code":"bad_request"`)
-		}
-		require.Equal(t, tc.want == http.StatusOK, called)
-	}
-}
-
 func TestPageRoutesRejectPageBeyondIntRange(t *testing.T) {
 	for _, path := range []string{"/api/share/listings", "/api/share/my/listings"} {
 		svc := &pageShareListingService{}
@@ -101,17 +70,4 @@ func TestPageRoutesRejectPageBeyondIntRange(t *testing.T) {
 		require.Contains(t, rec.Body.String(), `"code":"bad_request"`)
 		require.False(t, svc.called)
 	}
-	called := false
-	h := ChangesetHandler{Service: &mockChangesetRouteService{listFn: func(context.Context, *db.User, string, int, int) ([]services.ChangesetResponse, error) {
-		called = true
-		return nil, nil
-	}}}
-	req := httptest.NewRequest(http.MethodGet, "/api/orgs/acme/changesets?page=9223372036854775808", nil)
-	req = withRouteParams(req, map[string]string{"org": "acme"})
-	req = withTestUser(req, &db.User{ID: 1})
-	rec := httptest.NewRecorder()
-	h.ListChangesets(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-	require.Contains(t, rec.Body.String(), `"code":"bad_request"`)
-	require.False(t, called)
 }

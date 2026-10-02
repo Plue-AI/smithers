@@ -42,22 +42,21 @@ type UpdateRepoRequest struct {
 
 // RepoResponse is the API response for repo operations.
 type RepoResponse struct {
-	PendingTransfer            *db.RepositoryTransferRequest `json:"pending_transfer,omitempty"`
-	ID                         int64                         `json:"id"`
-	Owner                      string                        `json:"owner"`
-	Name                       string                        `json:"name"`
-	FullName                   string                        `json:"full_name"`
-	Description                string                        `json:"description"`
-	Private                    bool                          `json:"private"`
-	IsPublic                   bool                          `json:"is_public"`
-	DefaultBookmark            string                        `json:"default_bookmark"`
-	Topics                     []string                      `json:"topics"`
-	LandingQueueMode           string                        `json:"landing_queue_mode"`
-	LandingQueueRequiredChecks []string                      `json:"landing_queue_required_checks"`
-	IsArchived                 bool                          `json:"is_archived"`
-	ArchivedAt                 *time.Time                    `json:"archived_at,omitempty"`
-	IsFork                     bool                          `json:"is_fork"`
-	ForkID                     *int64                        `json:"fork_id,omitempty"`
+	ID                         int64      `json:"id"`
+	Owner                      string     `json:"owner"`
+	Name                       string     `json:"name"`
+	FullName                   string     `json:"full_name"`
+	Description                string     `json:"description"`
+	Private                    bool       `json:"private"`
+	IsPublic                   bool       `json:"is_public"`
+	DefaultBookmark            string     `json:"default_bookmark"`
+	Topics                     []string   `json:"topics"`
+	LandingQueueMode           string     `json:"landing_queue_mode"`
+	LandingQueueRequiredChecks []string   `json:"landing_queue_required_checks"`
+	IsArchived                 bool       `json:"is_archived"`
+	ArchivedAt                 *time.Time `json:"archived_at,omitempty"`
+	IsFork                     bool       `json:"is_fork"`
+	ForkID                     *int64     `json:"fork_id,omitempty"`
 	// ForkOf is "owner/name" of the upstream this repository was forked from,
 	// present only on a fork whose upstream still resolves.
 	ForkOf                  *string                `json:"fork_of,omitempty"`
@@ -97,13 +96,7 @@ type RepoRouteService interface {
 	ListGitRefs(ctx context.Context, viewer *db.User, owner, repo string) ([]services.GitRef, error)
 	ArchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error)
 	UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error)
-	TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error)
-	ListRepoTransfers(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error)
-	AcceptRepoTransfer(ctx context.Context, actor *db.User, transferID int64) (db.Repository, error)
-	DeclineRepoTransfer(ctx context.Context, actor *db.User, transferID int64) error
-	CancelRepoTransfer(ctx context.Context, actor *db.User, transferID int64) error
 	GetRepoView(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error)
-	ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error)
 }
 
 // RepoHandler handles repository API requests.
@@ -113,17 +106,6 @@ type RepoHandler struct {
 	RepoSyncService       RepoSyncRouteService
 	SSHHost               string
 	AuditService          *services.AuditService
-}
-
-// TransferRepoRequest is the API request for transferring a repo.
-type TransferRepoRequest struct {
-	NewOwner string `json:"new_owner"`
-}
-
-// ForkRepoRequest is the API request for forking a repo.
-type ForkRepoRequest struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
 }
 
 type RepoTopicsResponse struct {
@@ -708,110 +690,6 @@ func (h *RepoHandler) UnarchiveRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 // TransferRepo handles POST /api/repos/{owner}/{repo}/transfer.
-func (h *RepoHandler) TransferRepo(w http.ResponseWriter, r *http.Request) {
-	user, err := requireRouteUser(r)
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-	owner, repoName, err := repoOwnerAndName(r)
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-
-	var req TransferRepoRequest
-	if !decodeJSONBody(w, r, &req) {
-		return
-	}
-
-	updated, err := h.Service.TransferRepo(r.Context(), user, owner, repoName, req.NewOwner)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	action := "transfer"
-	if updated.PendingTransfer != nil {
-		action = "transfer_requested"
-	}
-	if h.AuditService != nil {
-		h.AuditService.Log(r.Context(), services.AuditEvent{
-			EventType:  "repo." + action,
-			ActorID:    &user.ID,
-			ActorName:  user.Username,
-			TargetType: "repository",
-			TargetID:   &updated.ID,
-			TargetName: fmt.Sprintf("%s/%s", owner, repoName),
-			Action:     action,
-			IPAddress:  r.RemoteAddr,
-		})
-	}
-
-	response := mapRepoResponse(updated.Owner, updated.Repository, h.SSHHost)
-	response.PendingTransfer = updated.PendingTransfer
-	errors.WriteJSON(w, http.StatusAccepted, response)
-}
-
-// ForkRepo handles POST /api/repos/{owner}/{repo}/fork (and its /forks alias).
-//
-// It is the only way a repository is ever copied into a user namespace: plue
-// forks nothing on its own, so this handler runs only because a person clicked
-// a button that named the repository and the namespace.
-func (h *RepoHandler) ForkRepo(w http.ResponseWriter, r *http.Request) {
-	user, err := requireRouteUser(r)
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-	owner, repoName, err := repoOwnerAndName(r)
-	if err != nil {
-		errors.WriteError(w, err.(*errors.APIError))
-		return
-	}
-
-	var req ForkRepoRequest
-	if !decodeOptionalJSONBody(w, r, &req) {
-		return
-	}
-
-	outcome, err := h.Service.ForkRepo(r.Context(), user, owner, repoName, req.Name, req.Description)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	forkedRepo := outcome.Repository
-
-	if h.AuditService != nil && outcome.Created {
-		h.AuditService.Log(r.Context(), services.AuditEvent{
-			EventType:  "repo.fork",
-			ActorID:    &user.ID,
-			ActorName:  user.Username,
-			TargetType: "repository",
-			TargetID:   &forkedRepo.ID,
-			TargetName: fmt.Sprintf("%s/%s", user.Username, forkedRepo.Name),
-			Action:     "fork",
-			IPAddress:  r.RemoteAddr,
-		})
-	}
-
-	// 202 when this request created the fork (the ref copy completes
-	// asynchronously), 200 when the caller already had it. A repeated fork is
-	// answered with the same repository rather than a second copy, so the UI
-	// can treat both as "go to my fork".
-	status := http.StatusOK
-	if outcome.Created {
-		status = http.StatusAccepted
-	}
-	resp := mapRepoResponse(user.Username, forkedRepo, h.SSHHost)
-	resp.CanWrite = true
-	forkOf := fmt.Sprintf("%s/%s", owner, repoName)
-	resp.ForkOf = &forkOf
-	errors.WriteJSON(w, status, resp)
-}
-
-// mapWritableRepoResponse follows a successful write authorized by the service.
-// Transfers use their separate response because the actor may lose write access.
 func mapWritableRepoResponse(owner string, repo db.Repository, sshHost string) RepoResponse {
 	response := mapRepoResponse(owner, repo, sshHost)
 	response.CanWrite = true

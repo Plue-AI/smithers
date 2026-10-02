@@ -38,18 +38,6 @@ export interface InstructionSetup {
 
 /** The connector truth the state projection already carries into every turn. */
 export interface InstructionHonesty {
-  /**
-   * Which app this is: `web` when the bootstrap host is the cloud Worker,
-   * `native` otherwise. On the web the model is told, once, which asks belong
-   * to the native app and what to execute when it gets one (WEB_HOST_LINE).
-   */
-  readonly host: "web" | "native"
-  /**
-   * Whether a native build is published to download (controller/app.ts
-   * `downloadUrl`). Absent or false = not yet: the web line then tells the
-   * model never to promise a download link.
-   */
-  readonly nativeDownloadable?: boolean
   /** Sign-in IS the GitHub connector (§2a′). */
   readonly github: {
     readonly connected: boolean
@@ -57,9 +45,9 @@ export interface InstructionHonesty {
     /** The loaded repository inventory count; null when signed out. */
     readonly repositories: number | null
   }
-  /** Connected local repositories by display name (native client only). */
+  /** Connected repositories by display name. */
   readonly localRepositories: ReadonlyArray<string>
-  /** Whether this client can connect local repositories at all (native bridge). */
+  /** Whether this host can connect local repositories. */
   readonly localRepositoriesAvailable: boolean
   readonly repositorySetups?: ReadonlyArray<InstructionSetup>
 }
@@ -174,17 +162,8 @@ const WORKFLOW_LAUNDERING_RULE = [
   "The honest shape is the one that names what a run CAN produce: a run can write text, a summary, or a draft into this chat for the user to use themselves. Say that, and stop."
 ] as const
 
-/*
- * The web app's one host line (docs/web-mode/PLAN.md §1). It names
- * app.download.prompt, which the cloud host registers, so the instruction is
- * grounded in that host's catalog; one line keeps the prompt budget intact.
- * The doors it lists are the native ones (registry.ts `nativeDoor`): the
- * local services. The Cloud
- * sign-in is named so the model never sends a web user to download an app
- * for a session the GitHub cookie already gives them.
- */
 export const WEB_HOST_LINE =
-  "This is the Smithers web app. Local repositories, local terminals, build targets, local agents, code intelligence (hover, definitions, diagnostics) need the native app; when asked for one, say so and execute app.download.prompt. On the web the GitHub sign-in is the Smithers Cloud sign-in — there is no separate Cloud sign-in to offer."
+  "This is the Smithers web app. Run only commands this host exposes. A hosted GitHub session also signs in to Smithers Cloud."
 
 /*
  * Code intelligence (docs/code-intel/PLAN.md §4) is stated only where its
@@ -194,13 +173,6 @@ export const WEB_HOST_LINE =
  */
 export const CODE_INTEL_LINE =
   "Asked about the type, definition or diagnostics of code in an open local repository, answer through code.hover, code.definition and code.diagnostics (<path>:<line>:<col>); the answer lands on the file card in the chat."
-
-/** Appended to the web line while no native release carries an asset (AppLinks.ts). */
-export const NO_DOWNLOAD_LINE =
-  "The native app is not downloadable yet: app.download.prompt says so on its card, and you never promise a download link."
-
-const webHostLine = (honesty: InstructionHonesty): string =>
-  honesty.nativeDownloadable === true ? WEB_HOST_LINE : `${WEB_HOST_LINE} ${NO_DOWNLOAD_LINE}`
 
 const connectorLine = (honesty: InstructionHonesty): string => {
   const github = honesty.github.connected
@@ -229,7 +201,6 @@ export const STANDING_INSTRUCTION_TEXT = [
   SMITHERS_INSTRUCTIONS,
   CODE_INTEL_LINE,
   WEB_HOST_LINE,
-  NO_DOWNLOAD_LINE,
   ...NAMED_CANT_YETS,
   ...WORKFLOW_LAUNDERING_RULE
 ].join("\n")
@@ -263,7 +234,7 @@ export const smithersInstructions = (
     ...listed.map(commandLine),
     "",
     `Connector state right now: ${connectorLine(honesty)}`,
-    ...(honesty.host === "web" ? [webHostLine(honesty)] : []),
+    WEB_HOST_LINE,
     "",
     `Everything the catalog lacks is a can't-yet; when you are unsure whether a command exists, call list with a query before you answer. You cannot ${
       NAMED_CANT_YETS.join("; ")

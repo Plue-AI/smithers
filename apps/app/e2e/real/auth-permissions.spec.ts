@@ -28,7 +28,7 @@ const authCookieNames = async (context: BrowserContext, baseURL: string): Promis
 authenticatedTest("the selected mode retains its authenticated session through document, bootstrap, and reload", scenario("auth.mode-session-cookie-persistence", {
   capabilities: ["identity"],
   coverage: [
-    "action:account.show", "host:local", "host:production", "host:native", "path:persistence", "door:slash", "door:user-only",
+    "action:account.show", "host:local", "host:production", "path:persistence", "door:slash", "door:user-only",
     "dimension:mode-auth-session", "dimension:document-bootstrap-cookie-persistence",
     "evidence:session-readback-and-cookie-names"
   ],

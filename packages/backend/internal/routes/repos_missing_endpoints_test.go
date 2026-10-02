@@ -100,24 +100,6 @@ func (m repoMissingEndpointMockService) ArchiveRepo(ctx context.Context, actor *
 func (m repoMissingEndpointMockService) UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error) {
 	return db.Repository{}, nil
 }
-func (m repoMissingEndpointMockService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-	return services.RepoTransferResult{}, nil
-}
-func (m repoMissingEndpointMockService) ListRepoTransfers(context.Context, *db.User) ([]db.RepositoryTransferRequest, error) {
-	return nil, nil
-}
-func (m repoMissingEndpointMockService) AcceptRepoTransfer(context.Context, *db.User, int64) (db.Repository, error) {
-	return db.Repository{}, nil
-}
-func (m repoMissingEndpointMockService) DeclineRepoTransfer(context.Context, *db.User, int64) error {
-	return nil
-}
-func (m repoMissingEndpointMockService) CancelRepoTransfer(context.Context, *db.User, int64) error {
-	return nil
-}
-func (m repoMissingEndpointMockService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error) {
-	return services.ForkOutcome{Created: true}, nil
-}
 
 func (m repoMissingEndpointMockService) GetRepoView(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error) {
 	return services.RepoView{}, nil

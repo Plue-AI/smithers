@@ -71,17 +71,13 @@ type IssuePersona struct {
 }
 
 type CreateIssueCommentInput struct {
-	externalCommenter string
-	Persona           *IssuePersona `json:"persona,omitempty"`
-	IdempotencyKey    string        `json:"idempotency_key,omitempty"`
-	Body              string        `json:"body"`
+	Persona        *IssuePersona `json:"persona,omitempty"`
+	IdempotencyKey string        `json:"idempotency_key,omitempty"`
+	Body           string        `json:"body"`
 }
 
 type UpdateIssueCommentInput struct {
-	// externalCommenter: the issue-sync intake writes an external account's
-	// edit under the owner's name, so it names no writer.
-	externalCommenter bool
-	Body              string `json:"body"`
+	Body string `json:"body"`
 }
 
 type IssueUserSummary struct {
@@ -882,7 +878,7 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 	if len(req.IdempotencyKey) > 128 {
 		return IssueCommentResponse{}, pkgerrors.BadRequest("message identity is too long")
 	}
-	if req.externalCommenter == "" && issueCommentOrigin(req.IdempotencyKey) != IssueCommentOriginApp {
+	if issueCommentOrigin(req.IdempotencyKey) != IssueCommentOriginApp {
 		return IssueCommentResponse{}, pkgerrors.BadRequest("message identity prefix is reserved for chat sync")
 	}
 	persona := []byte("{}")
@@ -895,14 +891,9 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, actor *db.User, o
 		}
 		persona, _ = json.Marshal(req.Persona)
 	}
-	// The comment's writer is the person acting; a run credential names no
-	// one, and neither does the issue-sync intake, whose text an external
-	// account wrote under the owner's name.
+	// The comment's writer is the person acting; a run credential names no one.
 	commenter := actor.Username
 	editor, _ := nativeIssueTextWriter(ctx, actor.ID)
-	if req.externalCommenter != "" {
-		commenter, editor = req.externalCommenter, ""
-	}
 	var comment db.IssueComment
 	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
 		if werr := tx.SetIssueTextEditor(ctx, editor, ""); werr != nil {
@@ -1033,9 +1024,6 @@ func (s *IssueService) UpdateIssueComment(ctx context.Context, actor *db.User, o
 	}
 
 	editor, _ := nativeIssueTextWriter(ctx, actor.ID)
-	if req.externalCommenter {
-		editor = ""
-	}
 	var updated db.IssueComment
 	err = s.withIssueWriteTx(ctx, func(tx issueWriteTx) error {
 		if werr := tx.SetIssueTextEditor(ctx, editor, ""); werr != nil {

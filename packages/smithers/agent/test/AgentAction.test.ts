@@ -181,6 +181,50 @@ const run = (
   )
 
 describe("AgentAction.make", () => {
+  for (const duration of ["constant", "payload"] as const) {
+    for (const stage of ["resolution", "model"] as const) {
+      it(`applies ${duration} action timeout during ${stage} through the ordinary implementation layer`, async () => {
+        let interrupted = false
+        const Timed = AgentAction.make(`agent/test/Timed-${duration}-${stage}`, {
+          payload: { millis: Schema.Number }, output: Review, seat: "anthropic:test-model",
+          prompt: () => "Review this change",
+          timeout: duration === "constant" ? 20 : ({ millis }) => millis
+        })
+        const TimedFlow = Flow.make(`agent/test/TimedFlow-${duration}-${stage}`, {
+          payload: { millis: Schema.Number }, success: Review, error: AgentAction.AgentFailure,
+          body: (payload) => Timed.call(payload)
+        })
+        const result = await Effect.runPromise(Effect.gen(function*() {
+          const entered = yield* Deferred.make<void>()
+          const wait = Deferred.succeed(entered, void 0).pipe(
+            Effect.andThen(Effect.never), Effect.ensuring(Effect.sync(() => { interrupted = true }))
+          )
+          const selected = stage === "resolution"
+            ? SeatResolver.layer({ resolve: () => wait })
+            : seats(Model.make({ stream: () => Stream.fromEffect(wait) }))
+          const layers = Layer.mergeAll(Timed.layer, Interpreter.layer(TimedFlow)).pipe(
+            Layer.provideMerge(AgentAction.layerHost(host)), Layer.provideMerge(selected),
+            Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, scriptedCompletionJudge)),
+            Layer.provideMerge(Safety.layer), Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory), Layer.provideMerge(NodeCrypto.layer)
+          )
+          const fiber = yield* TimedFlow.execute({ millis: 20 }, { executionId: `timeout-${duration}-${stage}` }).pipe(
+            Effect.result, Effect.provide(layers), Effect.forkChild({ startImmediately: true })
+          )
+          yield* Deferred.await(entered)
+          yield* TestClock.adjust("20 millis")
+          return yield* Fiber.join(fiber)
+        }).pipe(Effect.provide(TestClock.layer()), Effect.scoped))
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") {
+          expect(result.failure).toBeInstanceOf(HarnessError)
+          expect(result.failure.message).toContain("timed out")
+        }
+        expect(interrupted).toBe(true)
+      })
+    }
+  }
+
   it("shares the host stance defaults and refuses unsupported settings", () => {
     expect(AgentAction.supervisorStance({})).toBe("careful")
     expect(AgentAction.supervisorStance({ SMITHERS_SUPERVISOR_STANCE: "" })).toBe("careful")

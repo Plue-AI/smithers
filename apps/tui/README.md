@@ -131,7 +131,6 @@ the only help key.
 | Ctrl+K                                                | Search: commands, actions that apply now beside their keys (undo, diff, stop, resume, steer, a monitor's stop, custom views, Run Claude Code…, Run Codex…), and files; `/` commands, `text:` file text (rg, `text:/re/` for a regex), `conversation:` resumes, `tab:` opens a worker, `?` lists prefixes. Enter inserts `@path` or `@path:line`, or runs or opens the item. Replaces the editor's Ctrl+K (delete to line end); Ctrl+U and Ctrl+W remain                              |
 | Ctrl+L                                                | Model dialog; type to filter                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Ctrl+P, Shift+Ctrl+P                                  | Next, previous model                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Ctrl+O                                                | Show the program: cell code, output, plumbing calls, timing, and diffs                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Ctrl+T                                                | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live                                                                                                                                                                                                                                                                                                                                                                  |
 | Ctrl+S                                                | Open Summary on this tab / back to it or Chat; only a main or custom view switches focus. With work it's the overview: Needs you (parked, failed, a worker's ask, a flow waiting on its form), Working and Done, each row `glyph name seat clock window% cache%`, beside the selected row's cards (Chat heads the list and shows the conversation review). Tab switches pane, arrows/hjkl move, Space peeks at the row's ask or last step, **a** answers it, Enter opens, Esc closes |
@@ -166,10 +165,10 @@ the only help key.
 
 The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 
-`/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/conversation`, `/compact`,
+`/model [query]`, `/theme`, `/new`, `/resume`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/chat`, `/filter`,
 `/grep [text]`, `/smithers`, `/retry #<issue>`, `/flows`, `/flow <name> [json|key=value|prompt]`,
-`/quit`, `/exit`. After `/model`, `/thinking` and `/flow`
+`/quit`, `/exit`. After `/model` and `/flow`
 the menu completes the argument, and the `/` menu lists the directory's flows.
 An unknown command keeps its line in the composer and names the nearest
 command (`Unknown command /flwo. Try /flow.`). Stopping, resuming and steering
@@ -231,9 +230,7 @@ Sessions are owner-only JSONL under `~/.smithers/tui/sessions/<cwd>--<hash>/`
 (`SMITHERS_TUI_SESSION_DIR` overrides). A torn last line is dropped; a file
 damaged earlier is renamed `.damaged` and left out of the list. Credential
 shapes in prompts, shell output and flow calls are saved as `[REDACTED]`; file
-patches keep their bytes so undo can apply them. `/fork` starts a new session from the
-messages before a chosen one and puts that message back in the editor; the
-original stays resumable.
+patches keep their bytes so undo can apply them.
 
 Long cwd slugs are bounded to the filesystem's filename limit; the full path
 still determines the hash. Existing session folders remain readable.
@@ -260,7 +257,7 @@ large change are listed unchecked with the reason; the other files still undo.
 A deleted file comes back with its mode. **u** shows only when something can
 be undone and no turn, command, worker or flow runs. Afterwards the card reads
 `· undone`, the session records the undo, and the next turn is told. `/new`,
-`/resume` and `/fork` wait for it. In the Summary of the chat itself, **u**
+`/resume` wait for it. In the Summary of the chat itself, **u**
 undoes the selected row's turn the same way.
 
 ## Runtime UI and delegation
@@ -376,7 +373,7 @@ request id again starts the new request in that tab.
 
 Workers run locally. Restarting the TUI restores their transcripts and
 auto-relaunches running and waiting workers; parked workers relaunch at reset.
-`/new`, `/resume`, and `/fork`
+`/new` and `/resume`
 require running work to finish or be stopped first.
 
 ## Extensions
@@ -449,7 +446,7 @@ Missing required input opens a form built from the payload schema by
 approval is pending: every field shows its value, and a choice shows all its
 options with the chosen one filled. Esc, Ctrl+K, Ctrl+S and the tab keys close
 it and leave the run parked. A parked run never blocks `/new`, `/resume`,
-`/fork` or undo. Flows whose envelope grants every capability (`*`) use the
+undo. Flows whose envelope grants every capability (`*`) use the
 same y/n/a approval row. Its status settles only from the control plane's
 watch; **x** asks the control plane to cancel. The run's tab lists a module
 flow's steps (each action or flow call it made, from the engine's
@@ -507,20 +504,6 @@ Each active monitor is a row under Summary's Working group; **x** there, or
 Ctrl+K Stop, stops it. Stopping a monitor cancels its current shell command. Changing sessions and
 quitting cancel active monitor commands too; quit waits within its 3-second
 shutdown limit.
-
-## Estimates
-
-Every chat turn, worker tab and flow run gets a time and token estimate when it
-is requested, and is scored when it settles. A flow or a turn is estimated from
-its own past runs; a delegated request asks GPT-6 Luna with the most similar past
-runs and the model's own past errors in the prompt when an OpenAI route (key or
-codex login) is detected, or takes the median run otherwise; no other provider
-stands in. A model failure is logged with its reason; no estimate toast interrupts a form or a delegated request.
-Scores calibrate the next estimate. A running tab and a working turn show
-`~7m·250k` (time left, tokens) or `late`; the coordinator's `tab.eta` flow
-answers ETA questions, queued tabs included. The eval log is
-`<session dir>/<cwd slug>/evals/estimates.jsonl`. See
-`.plans/estimation-system.md`.
 
 ## Wrapped harnesses
 

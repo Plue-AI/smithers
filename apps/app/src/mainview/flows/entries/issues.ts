@@ -18,17 +18,6 @@ export const namespace: Namespace = { id: "issues", label: "Issues", summary: "G
 export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...issueFlows(actions),
   flow({
-    name: "issues.sync.resolve",
-    summary: "Resolve an unconfirmed delivery; retry may duplicate it",
-    form: { args: payload => JSON.stringify(payload), fields: { action: { label: "Sent, skip, or retry (may duplicate)" }, evidence: { label: "Evidence / reason" }, messageId: { label: "Message ID (required for sent)" } } },
-    runtimeAny: ["cloud"],
-    args: "<json {cardId, deliveryId, action, evidence, messageId?}>",
-    requires: ["signed-in"],
-    confirm: "resolve this unconfirmed delivery; retry may duplicate it",
-    input: Schema.Struct({ cardId: Schema.String, deliveryId: Schema.Number, action: Schema.Literals(["sent", "skip", "retry"]), evidence: Schema.String, messageId: Schema.optional(Schema.String) }),
-    handler: ({ cardId, deliveryId, action, evidence, messageId }) => actions.resolveIssueSync(cardId, deliveryId, action, evidence, messageId ?? "")
-  }),
-  flow({
     name: "issues",
     hidden: true,
     grammar: args => payloadFor("issues.list", args),

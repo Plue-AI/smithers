@@ -78,7 +78,6 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "model", keys: ["ctrl+l"], label: "Pick model", context: "composer", group: "Composer" },
   { id: "next-model", keys: ["ctrl+p"], label: "Next model", context: "composer", group: "Composer" },
   { id: "previous-model", keys: ["ctrl+shift+p"], label: "Previous model", context: "composer", group: "Composer" },
-  { id: "thinking", keys: ["shift+tab"], label: "Thinking level", context: "composer", group: "Composer" },
   { id: "commands", keys: ["/"], label: "Commands", context: "composer", group: "Composer" },
   { id: "mention", keys: ["@"], label: "Mention file", context: "composer", group: "Composer" },
   { id: "shell-input", keys: ["!"], label: "Shell mode", context: "composer", group: "Composer" },

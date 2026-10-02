@@ -95,19 +95,19 @@ export function TabStrip(props: {
   )
 }
 
-/** `sol · 12.4s`, then the estimate while it runs: `sol · 12.4s ~3m`. */
-const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta: string): string =>
-  `${Tabs.seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}${eta === "" ? "" : ` ${eta}`}`
+/** Reported model and elapsed time. */
+const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number): string =>
+  `${Tabs.seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
 
-/** A worker's tab chip: glyph, title, model, clock and estimate. */
-export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, eta = ""): Chip => {
+/** A worker's tab chip: glyph, title, model and clock. */
+export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number): Chip => {
   const { glyph, tone } = Tabs.styleOf(tab, now)
   return {
     id: `tab:${tab.id}`,
     label: tab.title,
     glyph,
     tone,
-    detail: facts(tab, models, now, eta)
+    detail: facts(tab, models, now)
   }
 }
 
@@ -118,7 +118,6 @@ export function WorkerList(props: {
   readonly models: ReadonlyArray<Model>
   readonly now: number
   /** The worker's estimate label, empty when there is none. */
-  readonly eta: (tab: Tab) => string
   readonly onSelect: (id: string) => void
 }) {
   return (
@@ -140,7 +139,7 @@ export function WorkerList(props: {
               <span fg={selected ? color.text : color.muted}>{tab.description ?? tab.title}</span>
             </text>
             <text fg={color.faint} wrapMode="none">
-              {facts(tab, props.models, props.now, props.eta(tab))}
+              {facts(tab, props.models, props.now)}
             </text>
           </box>
         )

@@ -36,9 +36,8 @@ change to the evaluation lifetime and bootstrap contract.
 Scaffold into an empty directory, then install the workspace's dependencies
 before evaluating declarations. A globally installed CLI does not supply a
 workspace-local runtime contract merely because its versions match. Prefer
-`pnpm exec smithers-build` after installation. A copied create-app template
-already contains dependency declarations; check an `init`-generated manifest
-before installing, because `init` can create a manifest without them.
+`pnpm exec smithers-build` after installation. Check an `init`-generated manifest before installing, because `init` can
+create a manifest without dependency declarations.
 
 ## Module formats and CommonJS callers
 

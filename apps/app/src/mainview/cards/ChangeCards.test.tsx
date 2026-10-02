@@ -713,7 +713,6 @@ describe("the change card", () => {
         { title: "What changed", markdown: "The split flow lands in one module.", diagram: null },
         { title: "How it flows", markdown: "Two steps.", diagram: "graph TD; A-->B" }
       ],
-      quiz: [{ question: "q" }]
     }
     const trailing = renderChange(liveCard({ walkthrough, facet: "walkthrough" }))
     expect(tabs(trailing.host)).toEqual(["Diff", "Findings", "Checks", "Review", "History", "Walkthrough", "Owners"])
@@ -722,7 +721,7 @@ describe("the change card", () => {
     expect(text).toContain("What changed")
     expect(text).toContain("The split flow lands in one module.")
     expect(text).toContain("graph TD; A-->B")
-    expect(text).toContain("Quiz · 1 question")
+    expect(text).not.toContain("Quiz")
     trailing.host.remove()
 
     const files = Array.from({ length: 21 }, (_, index) => ({
@@ -761,56 +760,9 @@ describe("the change card", () => {
     landed.host.remove()
   })
 
-  test("a failed changeset keeps its reason behind Details with Retry land", () => {
-    const { host, commands } = renderChange(
-      changeCard({ changeset: changesetOf({ state: "failed", failureReason: "bookmark moved under the land" }) })
-    )
-    const text = host.textContent ?? ""
-    const notice = host.querySelector('[data-testid="changeset-failure"]')!
-    expect(notice.getAttribute("role")).toBe("alert")
-    expect(notice.querySelector(".ghc-visually-hidden")?.textContent).toBe("Landing failed. Open Details for the reason.")
-    expect(notice.querySelector("summary")?.textContent).toBe("Details")
-    expect(notice.querySelector("details")?.open).toBe(false)
-    expect(notice.querySelector("details pre")?.textContent).toBe("bookmark moved under the land")
-    expect(text).toContain("Changeset 7 → main")
-    expect(landButton(host).disabled).toBe(false)
-    expect(landButton(host).textContent).toContain("Retry land")
-    click(host, "Land the changeset")
-    expect(commands[0]).toEqual({ name: "change.land", args: "qupxosqw" })
-    host.remove()
-  })
 
-  test("failed changesets with blank reasons do not announce an empty diagnostic", () => {
-    for (const detail of ["", " \n "]) {
-      const { host } = renderChange(changeCard({ changeset: changesetOf({ state: "failed", failureReason: detail }) }))
-      expect(host.querySelector('[data-testid="changeset-failure"]')).toBeNull()
-      expect(landButton(host).textContent).toContain("Retry land")
-      host.remove()
-    }
-  })
 
-  test("Land is disabled with the reason while a changeset is landing or landed", () => {
-    const landing = renderChange(changeCard({ changeset: changesetOf({ state: "landing" }) }))
-    expect(landButton(landing.host).disabled).toBe(true)
-    expect(landReason(landing.host)).toBe("landing…")
-    landing.host.remove()
 
-    const landed = renderChange(changeCard({ changeset: changesetOf({ state: "landed" }) }))
-    expect(landButton(landed.host).disabled).toBe(true)
-    expect(landReason(landed.host)).toBe("landed")
-    landed.host.remove()
-  })
-
-  test("a changeset lists its members as repository · path before the Land confirm", () => {
-    const { host } = renderChange(
-      changeCard({ changeset: changesetOf({ members: [member("will/cs-api", "services/api"), member("will/cs-web", "apps/web")] }) })
-    )
-    const text = host.textContent ?? ""
-    expect(text).toContain("2 members")
-    expect(text).toContain("will/cs-api · services/api")
-    expect(text).toContain("will/cs-web · apps/web")
-    host.remove()
-  })
 
   test("the Land and Full diff acts carry complete invocations", () => {
     const { host, commands } = renderChange(changeCard())
@@ -1145,7 +1097,7 @@ describe("docs/LOCAL-APP.md's Cards section", () => {
 
   test("the change card's header form and facet strip are the ones the doc states", async () => {
     const text = await contract()
-    const { host } = renderChange(liveCard({ walkthrough: { seq: 2, sections: [], quiz: [] } }))
+    const { host } = renderChange(liveCard({ walkthrough: { seq: 2, sections: [] } }))
     expect(host.textContent ?? "").toContain("rev 2 of 2")
     expect(text).toContain("The header names `rev N of M` when recorded")
     /* The five always-on facets, named in the order the strip renders them. */
@@ -1203,3 +1155,18 @@ test("the diff header abbreviates commit ids to seven characters and retains ful
   expect(header.querySelectorAll(`[title="${to}"]`)).toHaveLength(3)
   host.remove()
 })
+
+for (const state of ["pending", "landing", "landed", "failed"] as const) {
+  test(`stored ${state} changeset cards cannot restore retired controls`, () => {
+    const legacy = renderChange(changeCard({ changeset: changesetOf({ state, members: [member("will/api", "api")] }), stack: null }))
+    expect(legacy.host.querySelector('[data-flow="change.land"]')).toBeNull()
+    expect(legacy.host.querySelector('[data-flow="change.revert"]')).toBeNull()
+    expect(legacy.host.textContent).not.toContain("Changeset")
+    legacy.host.remove()
+    const native = renderChange(changeCard({ changeset: changesetOf({ state }) }))
+    click(native.host, "Land 1 → 2")
+    expect(native.commands).toEqual([{ name: "change.land", args: "qupxosqw" }])
+    expect(native.host.textContent).not.toContain("Changeset")
+    native.host.remove()
+  })
+}

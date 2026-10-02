@@ -10,17 +10,6 @@ import { startBrowserTestHost } from "../../scripts/browser-test-host"
 const UI_DIR = fileURLToPath(new URL("../../", import.meta.url))
 
 if (process.env.SMITHERS_SKIP_SPA_BUILD !== "1") {
-  // vite.config.ts imports the Hutch projection; a fresh worktree has none yet.
-  const devkit = Bun.spawn([process.execPath, "scripts/ensure-devkit.mjs"], {
-    cwd: UI_DIR,
-    stdout: "inherit",
-    stderr: "inherit"
-  })
-  const devkitCode = await devkit.exited
-  if (devkitCode !== 0) {
-    console.error(`[webserver] ensure-devkit exited ${devkitCode}`)
-    process.exit(devkitCode)
-  }
   console.log("[webserver] vite build")
   const build = Bun.spawn(["pnpm", "exec", "vite", "build", "--configLoader", "runner"], {
     cwd: UI_DIR,

@@ -140,7 +140,7 @@ func (m *benchRepoHostClient) InitRepo(_ context.Context, _, _, _ string, _ bool
 func (m *benchRepoHostClient) DeleteRepo(_ context.Context, _, _ string) error {
 	return nil
 }
-func (m *benchRepoHostClient) ForkRepo(_ context.Context, _, _, _, _ string) error { return nil }
+
 func (m *benchRepoHostClient) MoveRepo(_ context.Context, _, _, _, _ string) error { return nil }
 func (m *benchRepoHostClient) GetFileAtChange(_ context.Context, _, _, _, _ string) (repohost.FileContent, error) {
 	return repohost.FileContent{Content: "test content"}, nil

@@ -490,44 +490,6 @@ export const definitions = {
     args: z.object({ "id": z.string().describe("Change ID") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
-  "changeset create": {
-    description: "Create a changeset that pins one change per member repository",
-    args: z.object({}),
-    options: z.object({
-      "org": z.string().describe("Organization name"),
-      "member": z.array(z.string()).describe("Member as REPO=CHANGE_ID (repeat or comma-separate for several)").default(
-        []
-      ),
-      "description": z.string().describe("Changeset description").default(""),
-      "parent": z.string().describe("Parent changeset change id (stacking)").default(""),
-      "target": z.string().describe("Target bookmark for every member and the superproject").default("main")
-    })
-  },
-  "changeset get": {
-    description: "Show a changeset",
-    args: z.object({}),
-    options: z.object({
-      "org": z.string().describe("Organization name"),
-      "id": z.coerce.number().describe("Changeset id").default(0)
-    })
-  },
-  "changeset land": {
-    description: "Land a changeset: every member change, then the superproject commit, as one transaction",
-    args: z.object({}),
-    options: z.object({
-      "org": z.string().describe("Organization name"),
-      "id": z.coerce.number().describe("Changeset id").default(0)
-    })
-  },
-  "changeset list": {
-    description: "List an organization's changesets",
-    args: z.object({}),
-    options: z.object({
-      "org": z.string().describe("Organization name"),
-      "limit": z.coerce.number().describe("Results per page").default(30),
-      "page": z.coerce.number().describe("Page number").default(1)
-    })
-  },
   "completion": { description: "Generate shell completions", args: z.object({}), options: z.object({}) },
   "config get": {
     description: "Get a config value by key",
@@ -955,14 +917,6 @@ export const definitions = {
       "private": z.boolean().describe("Set visibility").optional()
     })
   },
-  "repo fork": {
-    description: "Fork a repository",
-    args: z.object({ "repo": z.string().describe("Repository to fork in OWNER/REPO format") }),
-    options: z.object({
-      "name": z.string().describe("Name for the forked repository").optional(),
-      "organization": z.string().describe("Organization to fork into").optional()
-    })
-  },
   "repo home": {
     description:
       "List remote homepage blocks in server order using the saved login; local smthrs flow list reads checkout flows",
@@ -1003,11 +957,6 @@ export const definitions = {
     options: z.object({
       "workspace": z.string().describe("ID of one of your workspaces that answers the lookup")
     })
-  },
-  "repo transfer": {
-    description: "Transfer repository ownership",
-    args: z.object({ "repo": z.string().describe("Repository in OWNER/REPO format") }),
-    options: z.object({ "to": z.string().describe("New owner (user or organization)") })
   },
   "repo unarchive": {
     description: "Unarchive a repository",

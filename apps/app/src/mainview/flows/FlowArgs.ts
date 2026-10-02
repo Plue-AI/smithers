@@ -20,6 +20,7 @@ import type { SetupManualRequest } from "@smthrs/rpc/RepositorySetup"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "flow.create": { readonly description: string; readonly repo: string }
   readonly "feature.prototype": { readonly request: string; readonly repo: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
@@ -53,7 +54,6 @@ export interface FlowInput {
   readonly "prs.land": { readonly number: number; readonly repo: string }
   readonly "prs.review": { readonly number: number; readonly verdict: "approve" | "request-changes" | "comment"; readonly repo: string }
 
-  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm" | "desktop"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
   readonly "egress.allow": { readonly host: string; readonly repo: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
@@ -62,9 +62,6 @@ export interface FlowInput {
 
   readonly "change.split": { readonly changeId: string; readonly paths: ReadonlyArray<string> }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
-  readonly "runs.seat": { readonly runId: string; readonly seat: string }
-  readonly "runs.tools": { readonly runId: string; readonly toolNames: string }
-  readonly "runs.thinking": { readonly runId: string; readonly thinking: string }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "commits.list": { readonly branch: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
@@ -86,11 +83,8 @@ export interface FlowInput {
   readonly "repository.register": { readonly link: string }
   readonly "issues.verify": { readonly number: number; readonly repo: string }
   readonly "issues.comment.react": { readonly number: number; readonly repo?: string; readonly commentId: number; readonly name: string; readonly active: boolean }
-  readonly "issues.sync.resolve": { readonly cardId: string; readonly deliveryId: number }
   readonly "issues.comment.retry": { readonly cardId: string; readonly requestId: string }
   readonly "issues.set": { readonly number: number; readonly repo: string; readonly field: "owner" | "due" | "priority" | "parent"; readonly value: string }
-  readonly "integrations.admit": { readonly connection_id?: string; readonly scope_id?: string; readonly conversation_id?: string; readonly external_user_id?: string; readonly repo: string }
-  readonly "integrations.list": { readonly repo: string }
   readonly "issues.reopen": { readonly number: number; readonly repo: string }
   readonly "findings.please-fix": { readonly changeId: string; readonly findingId: number }
   readonly "findings.not-useful": { readonly changeId: string; readonly findingId: number }
@@ -117,7 +111,6 @@ export interface FlowInput {
   /** Carried as JSON: `triggers.pause` declares `grammar: carried(...)`, which reads one object and refuses a positional line. */
   readonly "triggers.pause": { readonly slug: string; readonly repo?: string }
   readonly "wiki.heading": { readonly line: string; readonly cardId?: string }
-  readonly "box.desktop.open": { readonly bookmark?: string; readonly repo: string }
   readonly "billing.upgrade": { readonly plan: string }
   readonly "runs.list": { readonly repo?: string; readonly status?: string; readonly flow?: string; readonly lineage?: string; readonly sourceCard?: string }
   readonly "runs.attention": { readonly repo?: string; readonly sourceCard?: string }
@@ -169,13 +162,6 @@ export interface FlowInput {
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   /** `<runId> <body>` — the body is the rest of the line. */
   readonly "runs.steer": { readonly runId: string; readonly body: string }
-  /** `<seat> <name|default>` — neither a seat nor a model name holds whitespace. */
-  readonly "model.assign": { readonly seat: string; readonly recordId: string }
-  /** The composer's edits (controller/modelCall.ts) ride as JSON: a prompt holds newlines and quotes. */
-  readonly "model.prompt": { readonly id: string; readonly system?: string; readonly prompt?: string; readonly maxTokens?: number; readonly temperature?: string }
-  readonly "model.state": { readonly id: string; readonly key?: string; readonly kind?: string; readonly value?: string; readonly was?: string; readonly remove?: boolean }
-  readonly "model.question": { readonly id: string; readonly question?: string; readonly type?: string; readonly instructions?: string; readonly criteria?: unknown; readonly was?: string; readonly remove?: boolean }
-  readonly "model.option": { readonly id: string; readonly question: string; readonly option?: string; readonly about?: string; readonly was?: string; readonly remove?: boolean }
 
 }
 
@@ -261,9 +247,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "agent.session.view": payload => line(token(payload, "sessionId"), token(payload, "repo")),
   "agent.session.stop": payload => line(token(payload, "sessionId"), token(payload, "repo")),
-  "runs.seat": payload => line(token(payload, "runId"), token(payload, "seat")),
-  "runs.tools": payload => line(token(payload, "runId"), token(payload, "toolNames")),
-  "runs.thinking": payload => line(token(payload, "runId"), token(payload, "thinking")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "history.parallel": payload => line(token(payload, "value"), token(payload, "repo")),
   "history.retry": payload => line(token(payload, "id"), token(payload, "repo")),
@@ -284,11 +267,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "repository.register": payload => String(payload.link).trim(),
   "issues.verify": payload => line(token(payload, "number"), token(payload, "repo")),
   "issues.comment.react": payload => JSON.stringify(payload),
-  "issues.sync.resolve": payload => JSON.stringify(payload),
   "issues.comment.retry": payload => JSON.stringify(payload),
   "issues.set": payload => JSON.stringify(payload),
-  "integrations.admit": payload => JSON.stringify(payload),
-  "integrations.list": payload => line(token(payload, "repo")),
   "issues.reopen": payload => line(token(payload, "number"), token(payload, "repo")),
   "findings.please-fix": payload => line(token(payload, "changeId"), token(payload, "findingId")),
   "findings.not-useful": payload => line(token(payload, "changeId"), token(payload, "findingId")),
@@ -340,11 +320,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.resolve": (payload) => line(token(payload, "changeId"), token(payload, "path")),
   "form.set": (payload) => line(token(payload, "cardId"), token(payload, "field"), token(payload, "value")),
   "runs.steer": (payload) => line(token(payload, "runId"), token(payload, "body")),
-  "model.assign": (payload) => line(token(payload, "seat"), token(payload, "recordId")),
-  "model.prompt": (payload) => JSON.stringify(payload),
-  "model.state": (payload) => JSON.stringify(payload),
-  "model.question": (payload) => JSON.stringify(payload),
-  "model.option": (payload) => JSON.stringify(payload),
   "triggers.register": payload => JSON.stringify({ ...payload,
     ...(payload.tokens === undefined ? {} : { tokens: String(payload.tokens) }),
     ...(payload.minutes === undefined ? {} : { minutes: String(payload.minutes) }) }),
@@ -352,7 +327,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "triggers.run": (payload) => line(token(payload, "slug"), token(payload, "repo")),
   "triggers.pause": (payload) => JSON.stringify(payload),
   "wiki.heading": (payload) => line(token(payload, "line"), token(payload, "cardId")),
-  "box.desktop.open": (payload) => JSON.stringify(payload),
 
 }
 

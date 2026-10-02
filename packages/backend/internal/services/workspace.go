@@ -180,24 +180,9 @@ type WorkspaceEnvironment struct {
 }
 
 // WorkspaceDesktop is the kind=desktop stream surface.
-type WorkspaceDesktop struct {
-	// Ready is true only after smithers-desktop-start has verified the noVNC
-	// endpoint. Desktop workspaces remain starting until that happens.
-	Ready bool `json:"ready"`
-	// StreamURL is the desktop relay root, relative to the API origin
-	// (like html_url): POST {stream_url}session mints a session and returns
-	// the credentialed viewer URL.
-	StreamURL string `json:"stream_url"`
-	// Session is the current stream session, or null before the first mint.
-	Session *WorkspaceDesktopSession `json:"session"`
-}
 
 // WorkspaceDesktopSession identifies a desktop stream session. The relay
 // token itself is returned once by POST .../desktop/session.
-type WorkspaceDesktopSession struct {
-	ID        string    `json:"id"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
 
 // WorkspaceHead is the last head reported by the workspace guest after jj
 // snapshotted its working copy.
@@ -228,10 +213,9 @@ type WorkspaceResponse struct {
 	// when it started from its bookmark (#1968).
 	SourceCommit string `json:"source_commit,omitempty"`
 	// Desktop is present only for kind=desktop workspaces.
-	Desktop *WorkspaceDesktop `json:"desktop,omitempty"`
-	Head    WorkspaceHead     `json:"head"`
-	Ahead   int32             `json:"ahead"`
-	Behind  int32             `json:"behind"`
+	Head   WorkspaceHead `json:"head"`
+	Ahead  int32         `json:"ahead"`
+	Behind int32         `json:"behind"`
 	// AgentSessionID is set on kind=agent rows: the run this computer
 	// belongs to (RFD-004).
 	AgentSessionID    string `json:"agent_session_id,omitempty"`
@@ -642,12 +626,8 @@ type WorkspaceService struct {
 	workspaceVCPUCount int32
 	agentMemoryMB      int32
 	agentVCPUCount     int32
-	desktopMemoryMB    int32
-	desktopVCPUCount   int32
 	resourceLimits     workspaceResourceLimits
-	// desktopObserveText allows the focused Chrome tab's document text into
 	// desktop observations. See WithWorkspaceDesktopObserveText.
-	desktopObserveText bool
 	// agentDiskReclaimAfter is how long an agent workspace stays stopped
 	// before its runtime disk is reclaimed. See WithWorkspaceAgentDiskReclaimAfter.
 	agentDiskReclaimAfter time.Duration
@@ -815,24 +795,11 @@ func WithWorkspaceAgentResources(memoryMB, vcpuCount int32) WorkspaceServiceOpti
 // WithWorkspaceDesktopResources sizes kind=desktop VMs. A non-positive value
 // keeps the built-in default: an unset or mistyped deployment value must never
 // boot a 0 MiB guest.
-func WithWorkspaceDesktopResources(memoryMB, vcpuCount int32) WorkspaceServiceOption {
-	return func(s *WorkspaceService) {
-		if memoryMB > 0 {
-			s.desktopMemoryMB = memoryMB
-		}
-		if vcpuCount > 0 {
-			s.desktopVCPUCount = vcpuCount
-		}
-	}
-}
 
 // WithWorkspaceDesktopObserveText toggles reading the focused Chrome tab's
 // document text in desktop observations. Off makes every observation report
 // text: null — the operator's kill switch for that prompt-injection channel,
 // with no code change and no client change.
-func WithWorkspaceDesktopObserveText(enabled bool) WorkspaceServiceOption {
-	return func(s *WorkspaceService) { s.desktopObserveText = enabled }
-}
 
 // NewWorkspaceService returns a new WorkspaceService.
 func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *WorkspaceService {
@@ -853,9 +820,6 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		workspaceVCPUCount:           defaultWorkspaceVCPUCount,
 		agentMemoryMB:                4096,
 		agentVCPUCount:               2,
-		desktopMemoryMB:              defaultWorkspaceDesktopMemoryMB,
-		desktopVCPUCount:             defaultWorkspaceDesktopVCPUCount,
-		desktopObserveText:           true,
 		agentDiskReclaimAfter:        defaultAgentWorkspaceDiskReclaimAfter,
 		leaseDeleteAfter:             defaultWorkspaceLeaseDeleteAfter,
 		runtimeLocks:                 &workspaceRuntimeLockRegistry{entries: make(map[string]*workspaceRuntimeLock)},
@@ -880,13 +844,6 @@ func (s *WorkspaceService) loadOwnedWorkspace(ctx context.Context, workspaceID s
 
 // CheckWorkspaceDesktopAccess checks the same write grant used by desktop
 // observe and input before their request is charged to a rate bucket.
-func (s *WorkspaceService) CheckWorkspaceDesktopAccess(ctx context.Context, workspaceID string, repositoryID, userID int64) error {
-	if s == nil || s.q == nil {
-		return pkgerrors.Internal("workspace store unavailable")
-	}
-	_, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
-	return err
-}
 
 // workspacePreviewAuthorizationQuerier is what AuthorizeWorkspacePreview
 // reads beyond WorkspaceQuerier; the production store (db.Queries) has it.
@@ -1293,18 +1250,7 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 	if strings.TrimSpace(workspace.VmID) != "" {
 		resp.SSHHost = fmt.Sprintf("%s@%s", workspace.VmID, s.sshHost)
 	}
-	if resp.Kind == "desktop" {
-		resp.Desktop = &WorkspaceDesktop{
-			Ready:     workspace.Status == "running",
-			StreamURL: workspaceDesktopStreamPath(workspace.ID),
-		}
-		if strings.TrimSpace(workspace.DesktopSessionID) != "" && workspace.DesktopSessionExpiresAt.Valid {
-			resp.Desktop.Session = &WorkspaceDesktopSession{
-				ID:        workspace.DesktopSessionID,
-				ExpiresAt: workspace.DesktopSessionExpiresAt.Time,
-			}
-		}
-	}
+
 	if snapshotID := UUIDString(workspace.SourceSnapshotID); snapshotID != "" {
 		resp.SnapshotID = snapshotID
 	}
@@ -1328,6 +1274,7 @@ func normalizeWorkspaceKind(kind string) string {
 	case "vm":
 		return "vm"
 	case "desktop":
+		// Preserve the kind of historical rows; all provisioning rejects it.
 		return "desktop"
 	case "agent":
 		// RFD-004: an agent run's computer. Only the control plane creates
@@ -1340,8 +1287,8 @@ func normalizeWorkspaceKind(kind string) string {
 
 func validateWorkspaceCreateMetadata(input CreateWorkspaceInput) error {
 	kind := strings.TrimSpace(input.Kind)
-	if kind != "" && kind != "container" && kind != "vm" && kind != "desktop" {
-		return pkgerrors.BadRequest("kind must be container, vm, or desktop")
+	if kind != "" && kind != "container" && kind != "vm" {
+		return pkgerrors.BadRequest("kind must be container or vm")
 	}
 	source := strings.TrimSpace(input.Environment.Source)
 	if source != "" && source != defaultWorkspaceEnvironmentSource {

@@ -17,7 +17,7 @@ const matrixScenarioIds = process.env.SMITHERS_REAL_MATRIX_SCENARIOS === undefin
 if (deploymentMode !== undefined && !(DEPLOYMENT_MODES as readonly string[]).includes(deploymentMode)) throw new Error(`Invalid SMITHERS_REAL_E2E_MODE: ${deploymentMode}`)
 const matrixHost = deploymentMode === undefined ? undefined : MODE_DESCRIPTORS[deploymentMode as keyof typeof MODE_DESCRIPTORS].legacyHost
 const expectedHost = process.env.SMITHERS_REAL_E2E_HOST ?? matrixHost ?? (externalBaseURL ? "production" : "local")
-if (!["local", "production", "native"].includes(expectedHost)) throw new Error(`Invalid SMITHERS_REAL_E2E_HOST: ${expectedHost}`)
+if (!["local", "production"].includes(expectedHost)) throw new Error(`Invalid SMITHERS_REAL_E2E_HOST: ${expectedHost}`)
 process.env.SMITHERS_REAL_E2E_HOST = expectedHost
 // The named model credentials and their pinned origins the runner declared: the host under test reads them by name.
 const modelCredentials = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>

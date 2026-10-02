@@ -41,7 +41,6 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
     if (name === "auth.sign-in") {
       if (ctx.services.openExternal !== undefined || !signInByHandoff(ctx.services.bootstrap) || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-out") return undefined
     }
-    if (name === "app.download" && (ctx.services.openExternal !== undefined || ctx.services.downloadUrl === null)) return undefined
     if (name === "chat.send" || name === "chat.queue") {
       if (request.name === "form.submit") return { name, composerDraftCurrent: () => false, release: () => {} }
       const text = named === undefined ? args : named.text

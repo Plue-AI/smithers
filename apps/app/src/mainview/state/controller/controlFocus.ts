@@ -3,7 +3,7 @@
  * a terminal, a browser card, a markdown editor — the rest
  * of the app dims and blurs a touch, modal-style, and the surface wears an
  * outset ring. Clicking out releases, exactly like a modal backdrop, and the
- * releasing click never activates what it landed on. Desktop embeds keep only
+ * releasing click never activates what it landed on. Embedded surfaces keep only
  * the keyboard release affordance: no dim, elevation, or swallowed outside click.
  *
  * The state is one app-level record owned by the controller, never React
@@ -13,7 +13,7 @@
  * every surface is detected declaratively from the DOM, so this module is
  * the only authority:
  *
- *  - terminal / desktop / browser surfaces mark their interactive element
+ *  - terminal / browser surfaces mark their interactive element
  *    with `data-control-focus-id` + `data-control-focus-kind`;
  *  - the markdown editor adapter forwards no attributes, so it is detected
  *    by its own `data-slot="markdown-editor"` root;
@@ -29,7 +29,7 @@
  * every bubble above the pinned navigation.
  */
 
-export type ControlFocusKind = "terminal" | "desktop" | "browser" | "editor"
+export type ControlFocusKind = "terminal" | "browser" | "editor"
 
 export interface ControlFocus {
   readonly surfaceId: string
@@ -45,12 +45,11 @@ export interface ControlFocusController {
   readonly dispose: () => void
 }
 
-const KINDS: ReadonlyArray<ControlFocusKind> = ["terminal", "desktop", "browser", "editor"]
+const KINDS: ReadonlyArray<ControlFocusKind> = ["terminal", "browser", "editor"]
 
-/** What the release affordance calls each surface. A desktop is the user's "box", never a "computer". */
+/** What the release affordance calls each surface.  */
 const NOUN: Record<ControlFocusKind, string> = {
   terminal: "terminal",
-  desktop: "box",
   browser: "browser",
   editor: "editor"
 }
@@ -424,7 +423,7 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
      */
     const anchor = containerOf(detection.element)
     current = { state: { surfaceId: detection.surfaceId, kind: detection.kind, since: Date.now() }, anchor }
-    anchor.setAttribute("data-control-focus", detection.kind === "desktop" ? "inline" : "human")
+    anchor.setAttribute("data-control-focus", "human")
     const win = doc?.defaultView ?? null
     if (doc !== undefined && win !== null) {
       /*
@@ -438,13 +437,12 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
       clippers = findClippers(anchor, win)
       outset = Number.parseFloat(win.getComputedStyle(anchor).getPropertyValue("--control-focus-outset"))
       if (!Number.isFinite(outset)) outset = FALLBACK_OUTSET
-      // A desktop is an interactive transcript embed, not a modal spotlight.
-      if (detection.kind !== "desktop") {
+
         dim = doc.createElement("div")
         dim.className = "control-focus-dim"
         dim.setAttribute("aria-hidden", "true")
         doc.body.append(dim)
-      }
+      
       mountReleaseButton(anchor, detection.kind)
       fit()
       /*
@@ -514,10 +512,7 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
     if (!event.isTrusted || current === null) return
     const target = asElement(event.target)
     const inside = isInside(target)
-    if (!inside && current?.state.kind === "desktop") {
-      clear(false)
-      return
-    }
+
     gesture = { pointerId: event.pointerId, inside, touch: event.pointerType === "touch", x: event.clientX, y: event.clientY, sawMouseDown: false }
     if (inside) return
     /*
@@ -588,10 +583,7 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
     if (!event.isTrusted || current === null || compatTail()) return
     const target = asElement(event.target)
     const inside = isInside(target)
-    if (!inside && current?.state.kind === "desktop") {
-      clear(false)
-      return
-    }
+
     let held = gesture
     if (event.type === "mousedown") {
       if (held !== null && !held.sawMouseDown) {

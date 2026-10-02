@@ -222,47 +222,6 @@ func TestRepoService_CreateOrgRepo_AdoptsAmbiguousCommittedRow(t *testing.T) {
 	assert.Equal(t, pgtype.Int8{Int64: 77, Valid: true}, repository.OrgID)
 }
 
-func TestRepoService_ForkRepo_AdoptsAmbiguousCommittedRow(t *testing.T) {
-	// The source belongs to another user: a caller who can already write to it
-	// is refused outright, so only a reader reaches the create path.
-	source := testRepo(func(repo *db.Repository) {
-		repo.ID = 42
-		repo.UserID = pgtype.Int8{Int64: 99, Valid: true}
-		repo.IsPublic = true
-	})
-	var createArg db.CreateForkRepoParams
-	q := &mockRepoQuerier{
-		getRepoByOwnerAndLowerNameFn: func(_ context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-			switch arg.LowerName {
-			case source.LowerName:
-				return source, nil
-			case "demo-copy":
-				return recoveredForkRepository(createArg, 73), nil
-			default:
-				return db.Repository{}, pgx.ErrNoRows
-			}
-		},
-		createForkRepoFn: func(_ context.Context, arg db.CreateForkRepoParams) (db.Repository, error) {
-			createArg = arg
-			return db.Repository{}, errAmbiguousRepositoryCreate
-		},
-	}
-	forkCalls := 0
-	rh := &mockRepoHostClient{forkRepoFn: func(context.Context, string, string, string, string) error {
-		forkCalls++
-		return nil
-	}}
-
-	repository, err := NewRepoService(q, rh, "s1").ForkRepo(
-		context.Background(), testUser(), "alice", source.Name, "demo-copy", "fork desc",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, int64(73), repository.Repository.ID)
-	assert.True(t, repository.Repository.IsFork)
-	assert.Equal(t, source.ID, repository.Repository.ForkID.Int64)
-	assert.Equal(t, 1, forkCalls)
-}
-
 func TestRepoService_CreateRepo_AmbiguousFailureWithoutRecoverableRowRemainsInternal(t *testing.T) {
 	for _, lookupErr := range []error{pgx.ErrNoRows, stdErrors.New("lookup unavailable")} {
 		lookupErr := lookupErr

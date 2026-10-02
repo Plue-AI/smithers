@@ -1,3 +1,4 @@
+import { restoreRecordedBranch } from "../RecordedBranch.fixture"
 import { scopedControllers } from "../ControllerTestScope"
 import { silentAgent } from "../TestFixtures"
 import type { AppServices } from "../AppController"
@@ -535,7 +536,7 @@ describe("cloud Wiki controller", () => {
     const frames = createFramesController(f.ctx, undefined)
     frames.maximizeCard(`wiki-open-${id}`)
     await until(() => f.store.session().maximizedCardId !== null)
-    await frames.forkFrame()
+    await restoreRecordedBranch(f.store)
     await until(() => f.store.session().activeBranchId !== sourceBranch)
     expect(f.store.collections.worldDocuments.get(id)?.cloud?.phase).toBe("cached")
     expect(await f.wiki.editCloudWiki(id, "# Attempted historical edit")).toContain("Refresh")
@@ -862,7 +863,7 @@ describe("attachment bytes read under one account", () => {
     const file = f.file()
     const attaching = f.attach(file)
     await file.reading.promise
-    expect(await frames.forkFrame()).toBeUndefined()
+    await restoreRecordedBranch(f.store)
     await until(() => f.store.session().activeBranchId !== originalBranch)
     const indexReads = f.requests.filter((request) => request.url.includes("/navigation/index?")).length
     file.release.resolve()

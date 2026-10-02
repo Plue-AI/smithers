@@ -1,5 +1,5 @@
 /**
- * Crash-then-resume for every durable GitHub and Linear write-back action.
+ * Crash-then-resume for every durable GitHub write-back action.
  *
  * Each case runs one action on the production SQLite engine. The fake
  * provider applies the write and never answers it, and the test disposes the
@@ -21,10 +21,7 @@ import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 import * as GitHubActions from "../src/github/Actions.ts"
 import * as GitHubClient from "../src/github/GitHubClient.ts"
-import * as LinearActions from "../src/linear/Actions.ts"
-import * as LinearClient from "../src/linear/LinearClient.ts"
 import { type FakeGitHub, startGitHub } from "./GitHubFake.ts"
-import { type FakeLinear, startLinear } from "./LinearFake.ts"
 
 const cleanups: Array<() => Promise<void>> = []
 
@@ -122,13 +119,6 @@ const gitHub = async (): Promise<[FakeGitHub, Layer.Layer<GitHubClient.GitHubCli
   return [github, Layer.orDie(GitHubClient.layer({ token: "t", apiBaseUrl: github.fixture.origin }, {}))]
 }
 
-const linearFake = async (): Promise<[FakeLinear, Layer.Layer<LinearClient.LinearClient>]> => {
-  const linear = await startLinear()
-  cleanups.push(() => linear.fixture.close())
-  linear.hold = true
-  return [linear, Layer.orDie(LinearClient.layer({ apiKey: "lin_api_fixture", apiBaseUrl: linear.fixture.origin }, {}))]
-}
-
 it("add-labels resumes to one label", async () => {
   const [github, client] = await gitHub()
   const result = await crashThenResume(
@@ -184,31 +174,4 @@ it("link-pr resumes to one closing reference", async () => {
   expect(result.updated).toBe(false)
   expect(github.pullBody).toBe("Parser fix.\n\nCloses #7")
   expect(github.writes()).toEqual(["PATCH /repos/o/r/pulls/9"])
-})
-
-it("linear update-issue resumes to the same issue", async () => {
-  const [linear, client] = await linearFake()
-  const result = await crashThenResume(
-    LinearActions.UpdateIssue,
-    LinearActions.layerUpdateIssue,
-    client,
-    { issue: "ENG-1", title: "Renamed" },
-    linear.held
-  )
-  expect(result.title).toBe("Renamed")
-  expect(linear.issue.title).toBe("Renamed")
-})
-
-it("linear comment-on-issue resumes to one comment", async () => {
-  const [linear, client] = await linearFake()
-  const result = await crashThenResume(
-    LinearActions.CommentOnIssue,
-    LinearActions.layerCommentOnIssue,
-    client,
-    { issue: "ENG-1", body: "Fixed" },
-    linear.held
-  )
-  expect(result.created).toBe(false)
-  expect(linear.issue.comments).toEqual([{ id: result.id, body: "Fixed" }])
-  expect(linear.mutations()).toEqual(["CommentCreate"])
 })

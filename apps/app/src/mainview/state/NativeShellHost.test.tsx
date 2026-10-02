@@ -2,7 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
-import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
+import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
@@ -52,9 +52,6 @@ const SELF_HOST: AppBootstrap = {
   authFlow: "credentials",
   sandbox: { platform: "darwin", mode: "trusted-only" }
 }
-
-/** The same backend behind the desktop shell's relay (src/bun/NativeRendererServer.ts): one row more. */
-const SHELL_OVER_SELF_HOST: AppBootstrap = { ...SELF_HOST, capabilities: [...SELF_HOST.capabilities, "native.shell"] }
 
 /** GitHub redirect bootstrap; the hosted Worker's handoff variants are covered below too. */
 const WORKER: AppBootstrap = {
@@ -141,30 +138,4 @@ for (const authFlow of ["redirect", "native-handoff", "both"] as const) test(`th
   expect(host.querySelector('[data-testid="signup"]')?.getAttribute("data-stage")).toBe("account")
   expect((host.querySelector('[data-testid="signup-account"]') as HTMLInputElement | null)?.value).toBe("github-owner")
   expect((host.querySelector('[data-testid="signup-name"]') as HTMLInputElement | null)?.value).toBe("Grace Owner")
-})
-
-describe("the desktop shell still does", () => {
-  test("the shell's relay adds native.shell and only that row is read", () => {
-    expect(nativeShell(SHELL_OVER_SELF_HOST)).toBe(true)
-    // The Bun host under the shell (src/bun/NativeApp.ts passes `nativeShell: true`) says the same; headless it does not.
-    expect(nativeShell({ capabilities: localCapabilities({ agent: true, identity: false, cloud: false, nativeShell: true }) })).toBe(true)
-    expect(nativeShell({ capabilities: localCapabilities({ agent: true, identity: false, cloud: false }) })).toBe(false)
-  })
-
-  test("signed out in the shell, the opening read shows and nothing gates it", async () => {
-    const controller = await openSignedOut(SHELL_OVER_SELF_HOST)
-    expect(controller.identityProvider).toBe("local")
-    const { host, markup } = mount(controller)
-    expect(host.querySelector(".smithers-chat-message .message-cta")).toBeNull()
-    expect(markup()).not.toContain("Sign in to continue.")
-    expect(host.querySelector('[data-testid="setup-checklist"]')).not.toBeNull()
-  })
-
-  test("the identity names the native app", async () => {
-    const controller = await openSignedOut(SHELL_OVER_SELF_HOST)
-    await controller.commands.run("smithers.who")
-    await settled()
-    const said = [...controller.store.collections.messages.values()].map((message) => message.text).join("\n")
-    expect(said).toContain("the native Smithers app")
-  })
 })

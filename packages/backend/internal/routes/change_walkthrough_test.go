@@ -42,7 +42,6 @@ func TestJJVCSHandlerGetChangeWalkthrough(t *testing.T) {
 	diagram := "graph LR; A-->B"
 	want := services.ChangeWalkthroughResponse{
 		Sections: []services.ChangeWalkthroughSection{{Title: "Overview", Markdown: "The story", Diagram: &diagram}},
-		Quiz:     []json.RawMessage{json.RawMessage(`{"question":"Why?"}`)},
 	}
 	h := &JJVCSHandler{
 		RepoResolver: jjVCSLegacyResolver{},
@@ -60,8 +59,7 @@ func TestJJVCSHandlerGetChangeWalkthrough(t *testing.T) {
 	var got services.ChangeWalkthroughResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, want.Sections, got.Sections)
-	require.Len(t, got.Quiz, 1)
-	assert.JSONEq(t, string(want.Quiz[0]), string(got.Quiz[0]))
+	assert.NotContains(t, rec.Body.String(), "quiz")
 }
 
 func TestJJVCSHandlerGetChangeWalkthroughErrors(t *testing.T) {
@@ -98,8 +96,6 @@ func TestJJVCSHandlerPutChangeWalkthrough(t *testing.T) {
 			assert.Zero(t, revisionSeq)
 			require.Len(t, input.Sections, 1)
 			assert.Equal(t, "Read me", input.Sections[0].Markdown)
-			require.Len(t, input.Quiz, 1)
-			assert.JSONEq(t, `{"question":"What changed?","correctIndex":0}`, string(input.Quiz[0]))
 			return input, nil
 		}},
 	}
@@ -107,7 +103,7 @@ func TestJJVCSHandlerPutChangeWalkthrough(t *testing.T) {
 	h.PutChangeWalkthrough(rec, changeWalkthroughRequest(http.MethodPut, "/api/repos/acme/demo/changes/change-1/walkthrough", body))
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, body, rec.Body.String())
+	assert.JSONEq(t, `{"sections":[{"title":"Overview","markdown":"Read me"}]}`, rec.Body.String())
 }
 
 func TestJJVCSHandlerPutChangeWalkthroughRejectsMalformedBody(t *testing.T) {

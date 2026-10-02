@@ -14,43 +14,21 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { executeAgentToolCall } from "../flows/agentTools"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { IDENTITY_LINE, NO_DOWNLOAD_LINE, smithersInstructions, WEB_HOST_LINE } from "./Instructions"
+import { IDENTITY_LINE, WEB_HOST_LINE, smithersInstructions } from "./Instructions"
 import type { InstructionHonesty } from "./Instructions"
 import { memoryStorage, settle } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
-const honesty = (host: InstructionHonesty["host"], nativeDownloadable?: boolean): InstructionHonesty => ({
-  host,
-  ...(nativeDownloadable === undefined ? {} : { nativeDownloadable }),
+const honesty = (): InstructionHonesty => ({
   github: { connected: false, login: null, repositories: null },
-  localRepositories: [],
-  localRepositoriesAvailable: host === "native"
+  localRepositories: [], localRepositoriesAvailable: false
 })
 
-describe("the host line", () => {
-  test("the web app states what needs the native app, that code intelligence is among them, that the GitHub sign-in is the Cloud sign-in, and what to execute when asked", () => {
-    const prompt = smithersInstructions([], honesty("web", true))
-    expect(prompt).toContain(WEB_HOST_LINE)
-    expect(WEB_HOST_LINE).toBe(
-      "This is the Smithers web app. Local repositories, local terminals, build targets, local agents, code intelligence (hover, definitions, diagnostics) need the native app; when asked for one, say so and execute app.download.prompt. On the web the GitHub sign-in is the Smithers Cloud sign-in — there is no separate Cloud sign-in to offer."
-    )
-    expect(prompt.split(WEB_HOST_LINE)).toHaveLength(2)
-    // A published native build: no caveat.
-    expect(prompt).not.toContain(NO_DOWNLOAD_LINE)
-  })
-
-  test("while no native release carries an asset the web line says the app is not downloadable, from the live fact", () => {
-    for (const prompt of [smithersInstructions([], honesty("web")), smithersInstructions([], honesty("web", false))]) {
-      expect(prompt).toContain(`${WEB_HOST_LINE} ${NO_DOWNLOAD_LINE}`)
-      expect(prompt.split(NO_DOWNLOAD_LINE)).toHaveLength(2)
-    }
-    expect(smithersInstructions([], honesty("native"))).not.toContain(NO_DOWNLOAD_LINE)
-  })
-
-  test("the native app carries no such line", () => {
-    expect(smithersInstructions([], honesty("native"))).not.toContain("Smithers web app")
-  })
+test("the browser host line is present once and names no retired download door", () => {
+  const prompt = smithersInstructions([], honesty())
+  expect(prompt.split(WEB_HOST_LINE)).toHaveLength(2)
+  expect(prompt).not.toContain("app.download")
 })
 
 /** An agent double that records the turn request and answers one text frame. */
@@ -97,7 +75,7 @@ const bootstrapFor = (host: AppBootstrap["host"]): AppBootstrap =>
       version: "test",
       buildSha: "local",
       // The desktop shell's row: the mode line reads it, never the host name.
-      capabilities: localCapabilities({ agent: true, identity: true, cloud: true, nativeShell: true }),
+      capabilities: localCapabilities({ agent: true, identity: true, cloud: true }),
       authFlow: "native-handoff",
       sandbox: { platform: "darwin", mode: "enforced" }
     }
@@ -147,21 +125,11 @@ describe("a turn asking who you are is answered with the name", () => {
   }
 })
 
-describe("the turn passes the host from the bootstrap", () => {
-  test("a cloud bootstrap's turn carries the web line and the flow it names", async () => {
-    const { instructions, names } = await firstTurnInstructions("cloud")
+describe("the turn passes the current browser host contract", () => {
+  for (const host of ["cloud", "local"] as const) test(`${host} has the browser line and no download door`, async () => {
+    const { instructions, names } = await firstTurnInstructions(host)
     expect(instructions).toContain(WEB_HOST_LINE)
-    // The line names a flow this host's catalog actually has.
-    expect(names).toContain("app.download.prompt")
-    expect(instructions).toMatch(/^- \/app\.download\.prompt\b.* — /m)
-    // And the live download fact: no native release carries an asset today (AppLinks.ts).
-    expect(instructions).toContain(NO_DOWNLOAD_LINE)
-  })
-
-  test("a local bootstrap's turn carries neither", async () => {
-    const { instructions } = await firstTurnInstructions("local")
-    expect(instructions).not.toContain("Smithers web app")
-    expect(instructions).not.toContain("/app.download.prompt")
+    expect(names).not.toContain("app.download.prompt")
   })
 })
 
@@ -175,13 +143,13 @@ describe("the command section lists pinned and disclosed commands in full, and o
   const header = 'Commands for this conversation (4 exist; the list action with a "query" finds the rest, with their arguments):'
 
   test("with nothing pinned or disclosed, the header counts the catalog and no command line follows", () => {
-    const prompt = smithersInstructions(catalog, honesty("native"))
+    const prompt = smithersInstructions(catalog, honesty())
     expect(prompt).toContain(`${header}\n\n`)
     for (const { name } of catalog) expect(prompt).not.toContain(`- /${name}`)
   })
 
   test("a disclosed command is listed with its arguments and summary; an undisclosed one stays out", () => {
-    const prompt = smithersInstructions(catalog, honesty("native"), { pinned: ["auth.prompt"], disclosed: ["appearance.dark-mode", "runs.list"] })
+    const prompt = smithersInstructions(catalog, honesty(), { pinned: ["auth.prompt"], disclosed: ["appearance.dark-mode", "runs.list"] })
     const section = prompt.slice(prompt.indexOf(header) + header.length).split("\n\n")[0]!.trim().split("\n")
     // Catalog order, not request order; one line per command.
     expect(section).toEqual([
@@ -193,7 +161,7 @@ describe("the command section lists pinned and disclosed commands in full, and o
   })
 
   test("a disclosed name the catalog no longer has is dropped, and a name both pinned and disclosed is listed once", () => {
-    const prompt = smithersInstructions(catalog, honesty("native"), { pinned: ["runs.list"], disclosed: ["runs.list", "gone.command"] })
+    const prompt = smithersInstructions(catalog, honesty(), { pinned: ["runs.list"], disclosed: ["runs.list", "gone.command"] })
     expect(prompt.split("- /runs.list")).toHaveLength(2)
     expect(prompt).not.toContain("gone.command")
   })
@@ -201,7 +169,7 @@ describe("the command section lists pinned and disclosed commands in full, and o
 
 describe("the prompt's surface examples", () => {
   test("name no default-off feature, in either flag state", () => {
-    const prompt = smithersInstructions([], honesty("web"))
+    const prompt = smithersInstructions([], honesty())
     expect(prompt).toContain("When a surface is involved (connect, browser)")
     expect(prompt).not.toContain("(world, connect, browser)")
   })

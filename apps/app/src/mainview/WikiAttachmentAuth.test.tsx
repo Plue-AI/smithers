@@ -6,7 +6,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import { startNativeRendererServer } from "../bun/NativeRendererServer"
+import { startLocalServer } from "../bun/server"
+import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { ControllerContext } from "./ControllerContext"
 import { WorldSurface } from "./WorldSurface"
 import { createApplicationClient } from "./runtime/ApplicationClient"
@@ -64,7 +65,11 @@ test("the Wiki pane uses its selected application identity to display and downlo
     if (path === archivePath) return new NetworkResponse(archiveBytes, { headers: { "content-type": "application/zip" } })
     return new NetworkResponse("Not found", { status: 404 })
   } })
-  const native = startNativeRendererServer(dist, `http://127.0.0.1:${remote.port}`, "selected-pat")
+  const native = await startLocalServer({ port: 0, distDir: dist, cloudMode: "hybrid",
+    identityUpstream: null, cloudApi: `http://127.0.0.1:${remote.port}`, home: "/test/home", log: () => {},
+    cloudAuth: { token: () => "selected-pat", session: () => ({ state: "signed-in", username: "owner", expiresAt: null }),
+      start: async () => ({ error: "already signed in" }), signOut: async () => {}, stop: async () => {} }
+  })
   const blobUrls = new Map<string, Blob>()
   const revoked: string[] = []
   let nextBlob = 0
@@ -83,11 +88,16 @@ test("the Wiki pane uses its selected application identity to display and downlo
   let host: HTMLDivElement | undefined
   let store: Awaited<ReturnType<typeof createAppStore>> | undefined
   try {
-    const target = resolveApplicationTarget({ apiVersion: 1, mode: "native-plue", apiOrigin: native.origin,
+    const target = resolveApplicationTarget({ apiVersion: 1, mode: "local-plue", apiOrigin: native.origin,
       auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false }, native.origin)
     const client = createApplicationClient(target, { token: () => "selected-pat", pageOrigin: native.origin,
       // Bun's fetch lacks the browser's relative-URL resolution for a same-origin renderer.
-      fetchImpl: (input, init) => networkFetch(new URL(String(input), native.origin).toString(), init) })
+      fetchImpl: (input, init) => {
+        const url = new URL(String(input), native.origin)
+        const headers = new NetworkHeaders(init?.headers)
+        headers.set(LOCAL_SESSION_HEADER, native.sessionToken)
+        return networkFetch(new URL(`/api/cloud${url.pathname}${url.search}`, native.origin).toString(), { ...init, headers })
+      } })
     const wikiAttachments = createWikiAttachmentStore({ http: client.fetch, baseUrl: client.baseUrl })
     store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
@@ -124,13 +134,13 @@ test("the Wiki pane uses its selected application identity to display and downlo
     expect(await blobUrls.get(download.href)?.arrayBuffer().then((buffer) => [...new Uint8Array(buffer)])).toEqual([...archiveBytes])
     expect(revoked).toContain(imageUrl)
 
-    const raw = await networkFetch(`${native.origin}${imagePath}`)
-    const foreign = await networkFetch(`${native.origin}${archivePath}`, { headers: { authorization: "Bearer foreign-pat" } })
+    const raw = await networkFetch(`${native.origin}/api/cloud${imagePath}`)
+    const foreign = await networkFetch(`${native.origin}/api/cloud${archivePath}`, { headers: { authorization: "Bearer foreign-pat" } })
     expect([raw.status, foreign.status]).toEqual([401, 401])
     expect(seen.filter((request) => request.authorization === "Bearer selected-pat").map((request) => request.path))
       .toEqual([imagePath, archivePath])
-    expect(seen.filter((request) => request.authorization === null).map((request) => request.path))
-      .toEqual([imagePath, archivePath])
+    // Unauthenticated local requests are refused before reaching the upstream.
+    expect(seen.filter((request) => request.authorization === null)).toEqual([])
     const downloadUrl = download.href
     flushSync(() => root!.render(<ControllerContext value={controller}><WikiPageView
       body="![[assets/logo.png]]" links={[{ target: "assets/logo.png", embed: true, pageId: 3 }]}
@@ -152,7 +162,7 @@ test("the Wiki pane uses its selected application identity to display and downlo
     await store?.dispose?.()
     URL.createObjectURL = createObjectURL
     URL.revokeObjectURL = revokeObjectURL
-    native.stop()
+    await native.stop()
     remote.stop(true)
     rmSync(dist, { recursive: true, force: true })
     globalThis.fetch = browserFetch
@@ -239,7 +249,7 @@ test("an attachment refusal surfaces an error and a new selection can recover", 
   }
 })
 
-test("a session-authenticated attachment keeps its browser session through the native relay", async () => {
+test("a session-authenticated attachment keeps its browser session through the selected browser transport", async () => {
   const browserFetch = globalThis.fetch
   const browserRequest = globalThis.Request
   const browserResponse = globalThis.Response
@@ -265,7 +275,7 @@ test("a session-authenticated attachment keeps its browser session through the n
       ? new NetworkResponse(imageBytes, { headers: { "content-type": "image/png" } })
       : new NetworkResponse("Unauthorized", { status: 401 })
   } })
-  const native = startNativeRendererServer(dist, `http://127.0.0.1:${remote.port}`)
+  const native = { origin: `http://127.0.0.1:${remote.port}`, stop: async () => {} }
   const originalCreate = URL.createObjectURL
   const originalRevoke = URL.revokeObjectURL
   URL.createObjectURL = () => "blob:session-attachment"
@@ -289,7 +299,7 @@ test("a session-authenticated attachment keeps its browser session through the n
       catch (error) { throw new Error(`session attachment failed: ${JSON.stringify({ seen, snapshot: attachments.get(imagePath), baseUrl: client.baseUrl })}`, { cause: error }) }
       expect(attachments.get(imagePath)?.url).toBe("blob:session-attachment")
       unsubscribe()
-      expect((await networkFetch(`${native.origin}${imagePath}`)).status).toBe(200)
+      expect((await networkFetch(`${native.origin}${imagePath}`, { headers: { cookie: "smithers_session=owner" } })).status).toBe(200)
       expect(seen).toEqual([
         { path: "/api/login", cookie: null },
         { path: imagePath, cookie: "smithers_session=owner" },
@@ -299,7 +309,7 @@ test("a session-authenticated attachment keeps its browser session through the n
   } finally {
     URL.createObjectURL = originalCreate
     URL.revokeObjectURL = originalRevoke
-    native.stop()
+    await native.stop()
     remote.stop(true)
     rmSync(dist, { recursive: true, force: true })
     globalThis.fetch = browserFetch

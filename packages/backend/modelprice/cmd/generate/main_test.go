@@ -17,7 +17,7 @@ func TestCheckConsumerProvenance(t *testing.T) {
 		t.Fatalf("build generator: %v\n%s", err, output)
 	}
 	const bridge = "packages/smithers/agent/model/src/Pricing.ts"
-	consumers := []string{"evals/swebench/prices.ts", "apps/review/src/server/proxy/modelPrices.ts"}
+	consumers := []string{"evals/swebench/prices.ts"}
 	const public = `import { table as PRICES } from "@smthrs/model/Pricing";`
 	const generated = `import { type ModelPrice, modelPrices } from "./internal/prices.generated.ts"`
 	cases := []struct {

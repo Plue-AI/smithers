@@ -321,14 +321,6 @@
    "summary": "Comment on an issue"
   },
   {
-   "name": "integrations.admit",
-   "summary": "Admit a Slack channel to a repository's conversations"
-  },
-  {
-   "name": "integrations.list",
-   "summary": "Show the services connected to a repository's conversations, issues and wiki"
-  },
-  {
    "name": "issues.setup",
    "summary": "Handle issues"
   },

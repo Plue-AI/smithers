@@ -15,7 +15,7 @@ claiming equal production maturity across the catalog:
 
 | Category | Packages and entrypoints |
 | --- | --- |
-| Application authoring and operation | `@smthrs/cli`, `@smthrs/flows`, `@smthrs/flow`, `@smthrs/agent`, `@smthrs/std`, `@smthrs/create-app`, `@smthrs/build`, `@smthrs/build-cli`, implemented `@smthrs/targets` rules |
+| Application authoring and operation | `@smthrs/cli`, `@smthrs/flows`, `@smthrs/flow`, `@smthrs/agent`, `@smthrs/std`, `@smthrs/build`, `@smthrs/build-cli`, implemented `@smthrs/targets` rules |
 | Advanced integration contracts | `@smthrs/artifacts`, `@smthrs/canonical`, `@smthrs/capability`, `@smthrs/control`, `@smthrs/core`, `@smthrs/crypto`, `@smthrs/database`, `@smthrs/engine`, `@smthrs/engine-store`, `@smthrs/errors`, `@smthrs/evals`, `@smthrs/gateway`, `@smthrs/harness`, `@smthrs/integrations`, `@smthrs/jj`, `@smthrs/journal`, `@smthrs/kernel`, `@smthrs/keys`, `@smthrs/mcp`, `@smthrs/memory`, `@smthrs/model`, `@smthrs/notifications`, `@smthrs/observability`, `@smthrs/patterns`, `@smthrs/plan`, `@smthrs/platform-node`, `@smthrs/plugin`, `@smthrs/registry`, `@smthrs/run-store`, `@smthrs/sandbox`, `@smthrs/scorers`, `@smthrs/step-cache`, `@smthrs/sync`, `@smthrs/testing`, `@smthrs/time-travel`, `@smthrs/triggers` |
 | Preview hosts | `@smthrs/platform-browser`, `@smthrs/platform-bun`, and `@smthrs/flows/BunRuntime`; each requires its own host acceptance evidence |
 | Migration only | `@smthrs/migrate` and the `smthrs` deprecation package |
@@ -83,6 +83,24 @@ rewinding a live composition, observe its durable suspended state and stop the
 caller's automatic resume loop. Inspection remains read-only. Durable clock
 timestamps are integer milliseconds; sampled fractional clocks are normalized
 at persistence boundaries, while caller-supplied timestamps remain validated.
+
+## MVP compatibility changes
+
+The approved [MVP scope cut](https://github.com/smithersai/smithers/issues/3385)
+removes `@smthrs/create-app`, the build CLI's `CreateApp` export and app generator,
+public repository fork/transfer and cross-repository changeset commands, and
+non-GitHub provider subpaths from `@smthrs/integrations`. Consumers of those
+surfaces must stop importing or invoking them before adopting this candidate.
+Existing stored failure codes, schema migrations and internal repository
+machinery remain available for historical data and recovery.
+
+Review runs as an ordinary `review` flow through the configured host; its old
+standalone worker and command distribution are retired. Native desktop and
+Cloud desktop distribution, user-facing time-travel controls, the model lab
+and predictive TUI estimates are outside this MVP. Core time-travel, build,
+agent, model and memory libraries remain supported authoring surfaces.
+`AgentAction` gains an optional fixed or payload-derived timeout, composed
+within the existing host action; omitted timeouts preserve existing behavior.
 
 ## Reviewing changes before publication
 

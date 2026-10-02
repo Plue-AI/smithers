@@ -54,7 +54,6 @@ export const cardActions = (controller: AppController, card?: Card): CardBinding
     onMinimize: () => runCommand("card.minimize"),
     onFrameBack: () => runCommand("frame.back"),
     onFrameForward: () => runCommand("frame.forward"),
-    onForkFrame: () => runCommand("frame.fork"),
     onOpenInTab: (id) => runCommand("tab.card", id),
     onConnectGitHub: () => runCommand("auth.sign-in"),
     onRunWorkflow: (name) => runCommand("flow.run", name),

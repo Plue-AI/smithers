@@ -27,12 +27,10 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`build`](/docs/reference/cli/build/) | Execute the build targets selected by a pattern |
 | [`cache`](/docs/reference/cli/cache/) | Inspect and maintain local action-result caches |
 | [`change`](/docs/reference/cli/change/) | Inspect local jj changes |
-| [`changeset`](/docs/reference/cli/changeset/) | Land one change per repository as a single transaction |
 | [`ci`](/docs/reference/cli/ci/) | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
 | [`clean`](/docs/reference/cli/clean/) | Execute only declared Clean targets selected by the patterns |
 | [`completion`](/docs/reference/cli/completion/) | Generate shell completions |
 | [`config`](/docs/reference/cli/config/) | Read and set CLI configuration |
-| [`create-app`](/docs/reference/cli/create-app/) | Scaffold a Smithers app from a @smthrs/create-app template |
 | [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
 | [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
 | [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
@@ -42,7 +40,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
 | [`flow`](/docs/reference/cli/flow/) | Discover, plan, and start durable flows |
 | [`gc`](/docs/reference/cli/gc/) | Collect old terminal runs and compact their journals; separate from target caches |
-| [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
+| [`generate`](/docs/reference/cli/generate/) | Scaffold flows, packages, and CI configuration |
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
 | [`history`](/docs/reference/cli/history/) | Follow each issue's lane, checks and pull request |
@@ -167,13 +165,6 @@ for evidence and known gaps. Detection never changes permissions or approvals.
 `.flows/control.db` holds control state, memory, credentials, and triggers;
 `.flows/engine.db` holds execution history. Historical `inspect` and `replay`
 read committed frames without calling models or re-executing actions.
-
-`runs fork <run> --at <sequence>` requires an eligible parked or terminal
-agent run, an approved plan, and `jj`; its isolated workspace is retained in
-`.flows/forks/`. Resume the returned child with `runs resume`. Rewind uses
-`--at <sequence> --preview` to inspect the affected suffix, then `--yes` to
-archive it and restore the frame of a pending or suspended engine run. Use
-`fork` for terminal history; active runs and unsafe effect boundaries are refused.
 
 Evaluation runs are saved in `.flows/evals/runs/`; baselines default to
 `evals/<encoded-suite>.baseline.json` and require `--force` to overwrite.

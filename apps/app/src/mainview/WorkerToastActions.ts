@@ -43,8 +43,6 @@ export const workerToastActions = (card: Card | undefined, cards: ReadonlyArray<
   }
   add("stop", "Stop", "flow.run.stop", card.id)
   add("steer", "Steer", "runs.steer", flowArgs("runs.steer", { runId, body: "" }))
-  if (status === "running" || status === "parked") add("model", "Model", "runs.seat", flowArgs("runs.seat", { runId, seat: "" }))
-  add("thinking", "Thinking", "runs.thinking", flowArgs("runs.thinking", { runId, thinking: "" }))
   // An admin-decided wait is reached from the admin's approvals inbox, never from a run's toast.
   // Every gate is answered: the run inbox and the run card say the same verb for the same act.
   if (!adminDecided(card.payload.workflow)) add("approval", "Answer", "approvals.open", runId)

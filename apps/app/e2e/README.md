@@ -3,7 +3,6 @@
 | Tier | Script                               | Runner                 | Specs                    |
 | ---- | ------------------------------------ | ---------------------- | ------------------------ |
 | T1   | `pnpm --filter smithers-app test:e2e` | `playwright.config.ts` | `playwright/*.spec.ts`   |
-| T2   | `bun run test:e2e` (repository root) | `packaged/run.ts`      | `packaged/*.e2e.test.ts` |
 | Real | `pnpm --filter smithers-app test:e2e:real` | `scripts/run-real-e2e.ts` | `real/**/*.spec.ts` |
 | Showcase | `pnpm --dir apps/app showcase [id...]` | `playwright.showcase.config.ts` | `showcase/cases/*.case.ts` |
 
@@ -19,21 +18,6 @@ T1 builds the SPA through `playwright/webserver.ts`, runs
 `scripts/browser-test-host.ts` on port 47311 with `SMITHERS_CHAT_STUB=1`,
 and drives it with headless Chromium. Individual specs use `page.route`
 and `page.routeWebSocket` for their fixture seams.
-
-T2 builds the stable Electrobun package and launches its real executable with
-the production native renderer. A test-only, bearer-authenticated HTTP bridge
-binds `127.0.0.1` only when the runner supplies `SMITHERS_E2E_BRIDGE=1`; DOM
-evaluation crosses Electrobun's own WebView RPC. The local origin, its HTTP
-routes and the native renderer are production implementations.
-
-Every test gets a temporary home and uses the app's persisted local origin, so
-relaunch tests exercise production origin selection without touching the user's profile. An atomic suite lease
-and per-test marker are cleared only after process and fixture cleanup. A dead
-prior lease is removed and fails preflight once; rerun after inspecting the
-stale-fixture report, or set `SMITHERS_E2E_RECOVER_STALE=1` to repair and
-continue explicitly. Failure logs, reports, and best-effort screenshots land
-under `test-results/electrobun-packaged/`. T2 currently requires macOS and
-network access to the public fixture remote.
 
 ## The showcase (`showcase/`)
 

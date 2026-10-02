@@ -203,7 +203,6 @@ const WALKTHROUGH = {
     { title: "What changed", markdown: "The split flow lands in **one** module." },
     { title: "How it flows", markdown: "Two steps.", diagram: "graph TD; A-->B" }
   ],
-  quiz: [{ question: "Where does the split live?", answer: "packages/smithers/flows/flow" }]
 }
 
 const REPO = "api/repos/will/smithers"
@@ -562,7 +561,6 @@ describe("createChangeSeam", () => {
         { title: "What changed", markdown: "The split flow lands in **one** module.", diagram: null },
         { title: "How it flows", markdown: "Two steps.", diagram: "graph TD; A-->B" }
       ],
-      quiz: [{ question: "Where does the split live?", answer: "packages/smithers/flows/flow" }]
     })
 
     const none = await harness({ ...viewRoutes, [`${CHANGE_ROUTE}/walkthrough?rev=2`]: json(404, { message: "walkthrough not found" }) })
@@ -857,69 +855,7 @@ describe("createChangeSeam", () => {
     expect(payloadOf(store)?.unread?.stack).toBe(landings)
   })
 
-  test("a changeset attaches only when its superproject or a member is THIS repository's change", async () => {
-    /* Another repo's changeset holding the same jj change id: a bare id match would attach — and land — it. */
-    const foreign = {
-      id: 7,
-      organization: "will",
-      description: "atom",
-      state: "pending",
-      failure_reason: null,
-      superproject: "will/api",
-      change_id: "qupxosqw",
-      commit_id: "a03f5f",
-      target_bookmark: "main",
-      members: [{ repository: "will/api", path: "api", change_id: "qupxosqw", commit_id: "a03f5f", target_bookmark: "main" }]
-    }
-    const { store, seam, requests } = await harness(
-      {
-        ...viewRoutes,
-        "api/orgs/will/changesets": json(200, { changesets: [foreign] }),
-        "POST api/orgs/will/changesets/7/land": json(200, { ...foreign, state: "landed" }),
-        [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-      },
-      { ownerKind: "org" }
-    )
-    await seam.viewChange("qupxosqw")
-    expect(payloadOf(store)?.changeset).toBeNull()
 
-    await seam.landChange("qupxosqw")
-    expect(requests).not.toContain("POST api/orgs/will/changesets/7/land")
-    expect(requests).toContain(`PUT ${REPO}/landings/42/land`)
-  })
-
-  test("a changeset attaches through a member row in this repository", async () => {
-    const changeset = {
-      id: 7,
-      organization: "will",
-      description: "atom",
-      state: "pending",
-      failure_reason: null,
-      superproject: "will/super",
-      change_id: "zzzzzzzz",
-      commit_id: "ffffff",
-      target_bookmark: "main",
-      members: [{ repository: "will/smithers", path: "smithers", change_id: "qupxosqw", commit_id: "a03f5f", target_bookmark: "main" }]
-    }
-    const { store, seam } = await harness(
-      { ...viewRoutes, "api/orgs/will/changesets": json(200, { changesets: [changeset] }) },
-      { ownerKind: "org" }
-    )
-    await seam.viewChange("qupxosqw")
-    expect(payloadOf(store)?.changeset?.id).toBe(7)
-    expect(payloadOf(store)?.changeset?.superproject).toBe("will/super")
-    expect(payloadOf(store)?.changeset?.members).toEqual([
-      {
-        repository: "will/smithers",
-        path: "smithers",
-        changeId: "qupxosqw",
-        commitId: "a03f5f",
-        targetBookmark: "main",
-        previousCommitId: null,
-        landedCommitId: null
-      }
-    ])
-  })
 
   test("change.diff renders the diff card pinned at the current revision; conflicted files lead", async () => {
     const { store, seam } = await harness({
@@ -1050,20 +986,6 @@ describe("createChangeSeam", () => {
     expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
   })
 
-  test("change.land refuses when the org's changesets weren't read — a land can't clear the change of one", async () => {
-    const { seam, requests } = await harness(
-      {
-        ...viewRoutes,
-        "api/orgs/will/changesets": json(500, { message: "changesets down" }),
-        [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-      },
-      { ownerKind: "org" }
-    )
-    expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "The changesets qupxosqw might belong to weren't read (Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.) — nothing was landed."
-    )
-    expect(requests.some((request) => request.startsWith("PUT ") || request.startsWith("POST "))).toBe(false)
-  })
 
   test("change.land without a carrying landing request says so and names the way out", async () => {
     const { seam } = await harness({
@@ -1104,62 +1026,7 @@ describe("createChangeSeam", () => {
     expect(said(queued.store)).toEqual([])
   })
 
-  test("change.land lands the changeset through its own route when one carries the change", async () => {
-    const changeset = {
-      id: 7,
-      organization: "will",
-      description: "atom",
-      state: "pending",
-      failure_reason: null,
-      superproject: "will/smithers",
-      change_id: "qupxosqw",
-      commit_id: "a03f5f",
-      target_bookmark: "main",
-      members: []
-    }
-    const { seam, requests } = await harness(
-      {
-        "api/orgs/will/changesets": json(200, { changesets: [changeset] }),
-        "POST api/orgs/will/changesets/7/land": json(200, { ...changeset, state: "landed" }),
-        ...viewRoutes
-      },
-      { ownerKind: "org" }
-    )
-    const result = await seam.landChange("qupxosqw")
 
-    expect(textOf(result)).toBe("Changeset 7 landed — every member bookmark moved together.")
-    expect(requests).toContain("POST api/orgs/will/changesets/7/land")
-    /* Request keys are `${method} ${path}` with the cloud prefix stripped, so the landing-request route would record as `PUT api/repos/...`. */
-    expect(requests.some((request) => request.startsWith("PUT api/repos/"))).toBe(false)
-    expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
-  })
-
-  test("change.land on a failed changeset re-reads and renders the failure reason", async () => {
-    const changeset = {
-      id: 7,
-      organization: "will",
-      description: "atom",
-      state: "pending",
-      failure_reason: null,
-      superproject: "will/smithers",
-      change_id: "qupxosqw",
-      commit_id: "a03f5f",
-      target_bookmark: "main",
-      members: []
-    }
-    const { store, seam } = await harness(
-      {
-        "api/orgs/will/changesets": json(200, { changesets: [changeset] }),
-        "POST api/orgs/will/changesets/7/land": json(409, { message: "changeset land failed: bookmark moved" }),
-        ...viewRoutes
-      },
-      { ownerKind: "org" }
-    )
-    const result = await seam.landChange("qupxosqw")
-
-    expect(textOf(result)).toBe("changeset land failed: bookmark moved")
-    expect(payloadOf(store)?.changeset?.state).toBe("pending")
-  })
 
   test("review.done / ack / reopen POST the thread transition on the carrying landing and re-read the card", async () => {
     const done = { ...COMMENTS[0], state: "done", anchor_state: "current", done_at: "2026-09-01T11:00:00Z", done_by: 7, resolved_in_revision: { commit_id: "a03f5f", seq: 2 } }
@@ -1779,18 +1646,6 @@ describe("committed change mutations", () => {
     expect(requests.filter((request) => request.startsWith("PUT "))).toHaveLength(1)
   })
 
-  test("land retains the committed changeset after a failed change refresh", async () => {
-    const changeset = { id: 7, organization: "will", state: "pending", superproject: "will/smithers", change_id: "qupxosqw", members: [] }
-    const { seam } = await harness({
-      ...viewRoutes,
-      [CHANGE_ROUTE]: refreshFailure,
-      "api/orgs/will/changesets": json(200, { changesets: [changeset] }),
-      "POST api/orgs/will/changesets/7/land": json(201, { ...changeset, state: "landed" })
-    }, { ownerKind: "org" })
-    const result = await seam.landChange("qupxosqw")
-    expect(result).toEqual({ value: expect.stringContaining("Changeset 7 landed") })
-    expectRefreshWarning(textOf(result))
-  })
 
   const reviewCases = [
     { act: "threadDone", arg: 3, route: `POST ${REPO}/landings/42/threads/3/done`, body: { ...COMMENTS[0], state: "done" }, success: "Comment 3 on qupxosqw is done" },
@@ -1894,7 +1749,7 @@ const auxiliaryContainers = [
   { panel: "conflicts", route: `${CHANGE_ROUTE}/conflicts`, empty: [], wrong: { conflicts: {} }, recovery: { conflicts: [{ file_path: "src/app.ts", resolution_status: "unresolved" }] } },
   { panel: "findings", route: `${CHANGE_ROUTE}/findings`, empty: { findings: [], analyzers: [] }, wrong: { findings: {}, analyzers: [] }, recovery: FINDINGS },
   { panel: "checks", route: `${REPO}/commits/a03f5f/statuses?limit=100`, empty: [], wrong: { statuses: {} }, recovery: STATUSES },
-  { panel: "walkthrough", route: `${CHANGE_ROUTE}/walkthrough?rev=2`, empty: { sections: [], quiz: [] }, wrong: { sections: {}, quiz: [] }, recovery: WALKTHROUGH },
+  { panel: "walkthrough", route: `${CHANGE_ROUTE}/walkthrough?rev=2`, empty: { sections: [] }, wrong: { sections: {} }, recovery: WALKTHROUGH },
   { panel: "stack", route: `${REPO}/landings?limit=100`, empty: [], wrong: { items: {} }, recovery: { items: [LANDING] } },
   { panel: "diff", route: `${CHANGE_ROUTE}/diff`, empty: { file_diffs: [] }, wrong: { file_diffs: {} }, recovery: DIFF }
 ] as const
@@ -1918,7 +1773,7 @@ for (const entry of auxiliaryContainers) {
           expect(payload?.findings).toEqual([])
           expect(payload?.analyzers).toEqual([])
         } else if (entry.panel === "checks") expect(payload?.checks).toEqual([])
-        else if (entry.panel === "walkthrough") expect(payload?.walkthrough).toEqual({ seq: 2, sections: [], quiz: [] })
+        else if (entry.panel === "walkthrough") expect(payload?.walkthrough).toEqual({ seq: 2, sections: [] })
         else if (entry.panel === "stack") {
           expect(payload?.stack).toBeNull()
           expect(payload?.threads).toEqual([])
@@ -1954,18 +1809,18 @@ for (const entry of auxiliaryContainers) {
   }
 }
 
-for (const panel of ["threads", "changeset"] as const) {
+for (const panel of ["threads"] as const) {
   for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
     test(`${panel} auxiliary distinguishes ${shape} from an empty list and recovers mixed rows`, async () => {
-      const route = panel === "threads" ? `${REPO}/landings/42/comments?limit=100` : "api/orgs/will/changesets"
+      const route = `${REPO}/landings/42/comments?limit=100`
       let body: unknown = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container"
-        ? panel === "threads" ? { comments: {} } : { changesets: {} }
-        : panel === "threads" ? { comments: [] } : []
-      const { seam, store, requests } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) }, { ownerKind: panel === "changeset" ? "org" : "user" })
+        ? { comments: {} }
+        : { comments: [] }
+      const { seam, store, requests } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) }, { ownerKind: "user" })
       expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
       await settleStore(store)
       if (shape === "empty") {
-        expect(payloadOf(store)?.[panel]).toEqual(panel === "threads" ? [] : null)
+        expect(payloadOf(store)?.[panel]).toEqual([])
         expect(payloadOf(store)?.unread?.[panel]).toBeUndefined()
       } else {
         expect(payloadOf(store)?.[panel]).toBeNull()
@@ -1973,80 +1828,61 @@ for (const panel of ["threads", "changeset"] as const) {
         expect(payloadOf(store)?.unread?.[panel]?.trim().length).toBeGreaterThan(0)
       }
       expect(requests.filter(request => request === `GET ${route}`)).toHaveLength(1)
-      body = panel === "threads" ? { comments: [...COMMENTS, null, [], 42] } : [
-        { id: 7, organization: "will", superproject: "will/smithers", change_id: "qupxosqw", state: "pending", target_bookmark: "main", members: [], extra: "permitted" },
-        null, {}, { id: 8, state: "unknown" }
-      ]
+      body = { comments: [...COMMENTS, null, [], 42] }
       requests.length = 0
       expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
       await settleStore(store)
       expect(payloadOf(store)?.unread?.[panel]).toBeUndefined()
-      if (panel === "threads") {
-        expect(payloadOf(store)?.threads?.map(thread => [thread.id, thread.state, thread.author])).toEqual([[3, "open", "will"], [4, "done", "ana"], [5, "resolved", "will"]])
-      } else {
-        expect(payloadOf(store)?.changeset).toEqual({ id: 7, organization: "will", superproject: "will/smithers", changeId: "qupxosqw", state: "pending", failureReason: null, targetBookmark: "main", members: [] })
-      }
+      expect(payloadOf(store)?.threads?.map(thread => [thread.id, thread.state, thread.author])).toEqual([[3, "open", "will"], [4, "done", "ana"], [5, "resolved", "will"]])
       expect(requests.filter(request => request === `GET ${route}`)).toHaveLength(1)
     })
   }
 }
 
-for (const field of ["analyzers", "quiz"] as const) {
-  for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
-    test(`independent ${field} ${shape} does not borrow validity from its opposite array`, async () => {
-      const route = field === "analyzers" ? `${CHANGE_ROUTE}/findings` : `${CHANGE_ROUTE}/walkthrough?rev=2`
-      const value = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container" ? {} : []
-      let body: unknown = field === "analyzers" ? { findings: [], analyzers: value } : { sections: [], quiz: value }
-      const { seam, store } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) })
-      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
-      await settleStore(store)
-      if (shape === "empty") {
-        if (field === "analyzers") {
-          expect(payloadOf(store)?.findings).toEqual([])
-          expect(payloadOf(store)?.analyzers).toEqual([])
-        } else expect(payloadOf(store)?.walkthrough).toEqual({ seq: 2, sections: [], quiz: [] })
-        expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeUndefined()
-      } else {
-        expect(payloadOf(store)?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeNull()
-        expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toEqual(expect.any(String))
-        if (field === "analyzers") expect(payloadOf(store)?.analyzers).toBeNull()
-      }
-      body = field === "analyzers" ? FINDINGS : WALKTHROUGH
-      await seam.viewChange("qupxosqw")
-      await settleStore(store)
-      expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeUndefined()
-      if (field === "analyzers") expect(payloadOf(store)?.analyzers?.map(run => [run.name, run.state])).toEqual([["smithers-review", "finished"], ["lint", "paused"]])
-      else {
-        expect(payloadOf(store)?.walkthrough?.sections.map(section => section.title)).toEqual(["What changed", "How it flows"])
-        expect(payloadOf(store)?.walkthrough?.quiz).toEqual(WALKTHROUGH.quiz)
-      }
-    })
+for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
+ test(`independent analyzers ${shape} does not borrow validity from findings`, async () => {
+  const route = `${CHANGE_ROUTE}/findings`
+  const value = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container" ? {} : []
+  let body: unknown = { findings: [], analyzers: value }
+  const { seam, store } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) })
+  await seam.viewChange("qupxosqw"); await settleStore(store)
+  if (shape === "empty") {
+   expect(payloadOf(store)?.findings).toEqual([])
+   expect(payloadOf(store)?.analyzers).toEqual([])
+   expect(payloadOf(store)?.unread?.findings).toBeUndefined()
+  } else {
+   expect(payloadOf(store)?.findings).toBeNull()
+   expect(payloadOf(store)?.analyzers).toBeNull()
+   expect(payloadOf(store)?.unread?.findings).toEqual(expect.any(String))
   }
+  body = FINDINGS
+  await seam.viewChange("qupxosqw"); await settleStore(store)
+  expect(payloadOf(store)?.unread?.findings).toBeUndefined()
+  expect(payloadOf(store)?.analyzers?.map(run => [run.name, run.state])).toEqual([["smithers-review", "finished"], ["lint", "paused"]])
+ })
 }
+test("walkthrough sections remain readable with retired quiz data", async () => {
+ const { seam, store } = await harness({ ...viewRoutes, [`${CHANGE_ROUTE}/walkthrough?rev=2`]: json(200, { ...WALKTHROUGH, quiz: { retired: true } }) })
+ await seam.viewChange("qupxosqw"); await settleStore(store)
+ expect(payloadOf(store)?.walkthrough?.sections.map(section => section.title)).toEqual(["What changed", "How it flows"])
+ expect(payloadOf(store)?.walkthrough).not.toHaveProperty("quiz")
+})
 
-for (const malformed of [false, true]) {
-  test(`organization land ${malformed ? "refuses malformed" : "accepts genuinely empty"} changeset admission`, async () => {
+for (const retiredAnswer of [404, 500]) {
+  test(`org-owned change views and lands without the retired changeset route (${retiredAnswer})`, async () => {
     const { seam, store, requests, bodies } = await harness({
       ...viewRoutes,
-      "api/orgs/will/changesets": json(200, malformed ? { changesets: {} } : []),
+      "api/orgs/will/changesets": json(retiredAnswer, { message: "retired" }),
       [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
     }, { ownerKind: "org" })
+    await seam.viewChange("qupxosqw")
     const result = await seam.landChange("qupxosqw")
     await settleStore(store)
-    if (malformed) {
-      expect(typeof result).toBe("string")
-      if (typeof result !== "string") throw new Error("Malformed changesets must refuse landing with a durable message")
-      expect(textOf(result)).toContain("The changesets qupxosqw might belong to weren't read")
-      expect(textOf(result)).toContain("nothing was landed")
-      expect(requests).toEqual(["GET api/orgs/will/changesets"])
-      expect([...store.collections.messages.values()].map(message => message.text)).toEqual([result])
-      expect([...store.collections.cards.values()]).toEqual([])
-    } else {
-      expect(result).toEqual({ value: "Landing request #42 is queued — it lands 1 → 2 together (mzxvbnmk, qupxosqw); the card tracks it." })
-      expect(requests.filter(request => request.startsWith("PUT "))).toEqual([`PUT ${REPO}/landings/42/land`])
-      expect(bodies[`PUT ${REPO}/landings/42/land`]).toBe('{"commit_id":"a03f5f"}')
-      expect([...store.collections.messages.values()]).toEqual([])
-    }
+    expect(result).toEqual({ value: "Landing request #42 is queued — it lands 1 → 2 together (mzxvbnmk, qupxosqw); the card tracks it." })
+    expect(requests.filter(request => request.includes("changesets"))).toEqual([])
+    expect(requests.filter(request => request.startsWith("PUT "))).toEqual([`PUT ${REPO}/landings/42/land`])
+    expect(bodies[`PUT ${REPO}/landings/42/land`]).toBe('{"commit_id":"a03f5f"}')
+    expect(payloadOf(store)?.changeset).toBeNull()
   })
 }
 

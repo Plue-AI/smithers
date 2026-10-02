@@ -20,7 +20,8 @@ what the caller must do, not by where the failure happened:
   `IntegrationError` subclass so the failure carries a `reason`.
 - The runtime lacks a primitive you need: `UNSUPPORTED`.
 
-The two Telegram codes belong to their adapters and are not general purpose.
+The two Telegram codes are retained for historical decoding. Do not use them
+for new adapters.
 If none of the five fits your failure, you are probably not writing an
 integration adapter. State the failure as a `Schema.TaggedError` on the effect
 that can fail, which is what every other Smithers package does. See
@@ -33,7 +34,7 @@ import { SmithersError } from "@smthrs/errors/SmithersError"
 
 throw new SmithersError(
   "INVALID_INPUT",
-  `Telegram chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
+  `Chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
   { maxLength }
 )
 ```
@@ -51,22 +52,16 @@ line never prints `details: undefined`.
 The class stores `details` and `cause` verbatim. Anything you attach is
 anything a log will hold.
 
-Provider text is the case that catches people out, because a message from
-`fetch` or from the platform can quote a URL your code never formatted. Run it
-through a redactor first:
+Provider responses and network errors may contain credentials. Prefer a fixed
+summary and explicitly safe details instead of attaching raw response text:
 
 ```ts
-import { Telegram } from "@smthrs/integrations"
-
-const message = Telegram.TelegramClient.redactBotToken(
-  cause instanceof Error ? cause.message : String(cause),
-  botToken
-)
+const summary = "Provider request failed"
+const details = { operation: "read-issue" }
 ```
 
-`redactBotToken` replaces both the literal token and any `/bot<id>:<secret>`
-path segment. Attach the redacted string, and attach the raw `cause` only when
-you know what is inside it.
+The GitHub adapter already redacts its own errors. A custom adapter must apply
+its own credential policy before constructing an error or attaching a cause.
 
 Keep verification failures coarse. Report that a signature did not match, never
 which bytes differed: a more specific message is a verification oracle.
@@ -94,14 +89,8 @@ conditional spread at every call site.
 ## Subclass when you have typed fields
 
 Subclass `SmithersError` when your adapter has fields a caller reads by name.
-Two subclasses in [`@smthrs/integrations`](/api/integrations) show the shape:
-
-- `Core.IntegrationError` adds `reason`, the eight-value classification, and
-  merges it into `details` so the schema form and the class agree.
-- `Telegram.TelegramClient.TelegramApiError` adds `errorCode`,
-  `retryAfterSeconds`, `deliveredMessageIds`, and a `reason` override, and
-  always fills every key of `details`, using `null` for the ones the failure
-  could not supply.
+`Core.IntegrationError` in [`@smthrs/integrations`](/api/integrations) adds
+`reason` and merges it into `details` so the schema form and the class agree.
 
 Two rules make a subclass behave:
 

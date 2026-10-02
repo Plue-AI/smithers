@@ -21,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
-	"github.com/smithersai/smithers/packages/backend/chatconnector"
 	"github.com/smithersai/smithers/packages/backend/commerce"
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
@@ -766,9 +765,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		),
 		services.WithWorkspaceResources(cfg.Sandbox.WorkspaceMemoryMB, cfg.Sandbox.WorkspaceVCPUCount),
 		services.WithWorkspaceAgentResources(cfg.Sandbox.AgentMemoryMB, cfg.Sandbox.AgentVCPUCount),
-		services.WithWorkspaceDesktopResources(cfg.Sandbox.DesktopMemoryMB, cfg.Sandbox.DesktopVCPUCount),
 		services.WithWorkspaceResourceLimits(cfg.Sandbox.WorkspaceMaxVCPUCount, cfg.Sandbox.WorkspaceMaxMemoryMB, cfg.Sandbox.WorkspaceMaxDiskMB),
-		services.WithWorkspaceDesktopObserveText(cfg.Sandbox.DesktopObserveText),
 		services.WithWorkspaceLeaseDeleteAfter(time.Duration(cfg.Sandbox.WorkspaceLeaseDeleteAfter)*time.Second),
 		// Supply setup-only secrets and persistent nonsecret variables to fresh
 		// repository workspace VMs; secrets exist only during the setup phase
@@ -793,7 +790,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		goldenSnapshotService = services.NewGoldenSnapshotService(runtimeStores.GoldenSnapshots, goldenSnapshotSandbox, workspaceService.GoldenBakeVMRequest)
 		services.WithWorkspaceGoldenSnapshots(goldenSnapshotService)(workspaceService)
 	}
-	// NixOS environment images: the kind=vm/desktop compute path. Registering
+	// NixOS environment images: the kind=vm compute path. Registering
 	// an image bakes its closure-keyed golden snapshot from the same request
 	// workspaces boot (NixBakeVMRequest), so the second boot clones a disk.
 	var environmentImageService *services.SandboxEnvironmentImageService
@@ -990,9 +987,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// A send-upstream repository delivers a landing as a GitHub pull request.
 		GitHubPull: services.NewLandingGitHubPullService(landingService, queries, repoConnectionService, gitHubUserReposService, publicBaseURL, repoConnectionService),
 	}
-	changesetHandler := &routes.ChangesetHandler{
-		Service: changesetService,
-	}
 	buildCacheService := services.NewBuildCacheService(services.NewPgxBuildCacheStore(queries, pool), blobStore, cfg.Blob.BuildCacheArtifactMaxBytes)
 	buildCacheService.MaxAge = time.Duration(cfg.Blob.BuildCacheMaxAgeDays) * 24 * time.Hour
 	buildCacheService.MaxRepositoryBytes = cfg.Blob.BuildCacheRepoQuotaBytes
@@ -1137,7 +1131,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		EgressAudit: egressAuditService,
 		Broker:      sseBroker,
 		Metrics:     smithersMetrics,
-		Desktop:     &routes.WorkspaceDesktopHandler{Service: workspaceService, RelayToken: cfg.Sandbox.PreviewRelayToken},
 		// User previews are private: hosted preview redirects carry a ticket
 		// signed with a key derived from the relay token the gateway holds.
 		PreviewTickets: previewgateway.NewTickets(cfg.Sandbox.PreviewRelayToken),
@@ -1396,7 +1389,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 		orgHandler,
 		landingHandler,
-		changesetHandler,
 		buildCacheHandler,
 		stackHandler,
 		searchHandler,
@@ -1507,18 +1499,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		r = withLocalReadiness(r, pool, options.Repository)
 	}
 	r = mountBlobTransferHandler(r, transferStore, cfg)
-	connectorHost, err := chatconnector.FromEnvironment(os.Getenv, os.Getenv("SMITHERS_DATA_ROOT"), cfg.Server.Addr)
-	if err != nil {
-		return err
-	}
-	var connectorWorker *criticalWorker
-	if connectorHost != nil {
-		if cfg.Auth.Mode != "selfhost" || !options.topology.workers() || !options.topology.servesHTTP() {
-			return errors.New("environment chat connectors require the combined self-host backend")
-		}
-		connectorWorker = newCriticalWorker()
-	}
-	r = withCriticalWorkerReadiness(r, connectorWorker)
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
 	r = withCriticalWorkerReadiness(r, messageDispatchWorker)
 	r = withCriticalWorkerReadiness(r, flowWorker)
@@ -1563,15 +1543,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// Start landing worker in a background goroutine.
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
-	var connectorFailure <-chan error
-	if connectorWorker != nil {
-		connectorWorker.Start(workerCtx, "chat connectors", func(ctx context.Context) error {
-			return connectorHost.Run(ctx, func(ctx context.Context, owner, repo, bootstrap string) (string, func(), error) {
-				return issueService.IssueChatConnectorCredential(ctx, queries, owner, repo, bootstrap)
-			})
-		})
-		connectorFailure = connectorWorker.Failed()
-	}
 	var workspaceCommandFailure <-chan error
 	if workspaceCommandWorker != nil {
 		workspaceCommandWorker.Start(workerCtx, "workspace commands", func(ctx context.Context) error {
@@ -1762,7 +1733,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		case <-sigCh:
 		case <-ctx.Done():
 		case <-abortShutdown:
-		case fatalWorkerErr = <-connectorFailure:
 		case fatalWorkerErr = <-workspaceCommandFailure:
 		case fatalWorkerErr = <-messageDispatchFailure:
 		case fatalWorkerErr = <-flowWorkerFailure:
@@ -1802,7 +1772,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			stopFlow()
 		}
-		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "message dispatch": messageDispatchWorker, "chat connectors": connectorWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
+		for name, worker := range map[string]*criticalWorker{"workspace commands": workspaceCommandWorker, "message dispatch": messageDispatchWorker, "chat dispatch": chatWorker, "chat producer callbacks": chatCallbackWorker} {
 			if worker == nil {
 				continue
 			}

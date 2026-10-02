@@ -58,7 +58,6 @@
     "./Cache": "./src/Cache.ts",
     "./CacheAdmin": "./src/CacheAdmin.ts",
     "./Cli": "./src/Cli.ts",
-    "./CreateApp": "./src/CreateApp.ts",
     "./Diagnostic": "./src/Diagnostic.ts",
     "./DockerExec": "./src/DockerExec.ts",
     "./Entry": "./src/Entry.ts",
@@ -103,7 +102,8 @@
     "./WorkspaceToolchain": "./src/WorkspaceToolchain.ts",
     "./effect-resolution.d": null,
     "./engine": "./src/engine.ts",
-    "./main": "./src/main.ts"
+    "./main": "./src/main.ts",
+    "./CreateApp": null
   },
   "files": [
     "src/**/*.js",
@@ -235,16 +235,6 @@
         "require": {
           "types": "./dist/cjs/Cli.d.ts",
           "default": "./dist/cjs/Cli.js"
-        }
-      },
-      "./CreateApp": {
-        "import": {
-          "types": "./dist/esm/CreateApp.d.ts",
-          "default": "./dist/esm/CreateApp.js"
-        },
-        "require": {
-          "types": "./dist/cjs/CreateApp.d.ts",
-          "default": "./dist/cjs/CreateApp.js"
         }
       },
       "./Diagnostic": {
@@ -687,7 +677,8 @@
           "types": "./dist/cjs/main.d.ts",
           "default": "./dist/cjs/main.js"
         }
-      }
+      },
+      "./CreateApp": null
     }
   },
   "scripts": {
@@ -704,7 +695,6 @@
     "@smthrs/build": "1.0.0-rc.1",
     "@smthrs/canonical": "1.0.0-rc.1",
     "@smthrs/core": "1.0.0-rc.1",
-    "@smthrs/create-app": "1.0.0-rc.1",
     "@smthrs/crypto": "1.0.0-rc.1",
     "@smthrs/engine": "1.0.0-rc.1",
     "@smthrs/flow": "1.0.0-rc.1",

@@ -13,7 +13,7 @@ import ts from "typescript"
 import { sites } from "../../docs/shared/manifest.mjs"
 
 const root = resolve(import.meta.dirname, "../../..")
-const appEntries = ["review", "bug-worker"].map((name) => join(root, "apps", name, "alchemy.run.ts"))
+const appEntries = ["bug-worker"].map((name) => join(root, "apps", name, "alchemy.run.ts"))
 
 /** The smithers.sh zone on account dd3525a4132493566aeb38de533c8827. */
 const SMITHERS_ZONE_ID = "8ebd98d2f0dc7d8db2e61f31ebc19c14"
@@ -63,22 +63,7 @@ test("stack properties and shared implementation typecheck against the declared 
 })
 
 test("app stacks retain their Worker routing and defer required redacted credentials", async () => {
-  const [review, bugs] = await Promise.all(appEntries.map((path) => import(pathToFileURL(path).href)))
-  // The live Worker, bucket, database and hostname observed on Cloudflare
-  // 2026-09-23: Alchemy 1 names. Another name creates a second Worker and
-  // empty storage beside the live ones.
-  assert.equal(review.workerProps.name, "smithers-review-smithers-review-williamcory")
-  assert.equal(review.walkthroughsProps.name, "smithers-review-walkthroughs-williamcory")
-  assert.equal(review.reviewDbProps.name, "smithers-review-review-db-williamcory")
-  assert.equal(review.workerProps.main, "src/server/worker.ts")
-  assert.deepEqual(review.workerProps.domain, { name: "review.jjhub.tech", zoneId: "72854846f57d9e46794e7e6aae7e3328" })
-  assert.deepEqual(review.workerProps.routes, [])
-  assert.equal(review.workerProps.workersDev, true)
-  assert.equal(review.workerProps.observability.enabled, true)
-  assert.equal(review.workerProps.env.PUBLIC_BASE_URL, "https://review.jjhub.tech")
-  assert.ok(Effect.isEffect(review.workerProps.env.WALKTHROUGHS))
-  assert.ok(Effect.isEffect(review.workerProps.env.DB))
-
+  const [bugs] = await Promise.all(appEntries.map((path) => import(pathToFileURL(path).href)))
   // The live Worker, KV namespace and hostnames observed on Cloudflare 2026-09-23.
   // Another name creates a second Worker and an empty namespace; a declared
   // domain detaches every live hostname it does not list.
@@ -103,10 +88,6 @@ test("app stacks retain their Worker routing and defer required redacted credent
   )
 
   const credentials = [
-    [review.workerProps.env.REVIEW_PUBLISH_TOKEN, "REVIEW_PUBLISH_TOKEN"],
-    [review.workerProps.env.ADMIN_TOKEN, "REVIEW_ADMIN_TOKEN"],
-    [review.workerProps.env.METRICS_TOKEN, "REVIEW_METRICS_TOKEN"],
-    [review.workerProps.env.ANTHROPIC_API_KEY, "REVIEW_ANTHROPIC_API_KEY"],
     [bugs.workerProps.env.BUG_ADMIN_TOKEN, "BUG_ADMIN_TOKEN"],
     [bugs.workerProps.env.RESEND_API_KEY, "RESEND_API_KEY"],
     [bugs.workerProps.env.GITHUB_FORK_TOKEN, "GITHUB_FORK_TOKEN"]
@@ -189,7 +170,6 @@ test("every shared-state stack plans against one record under stage prod", () =>
   // last, and the CLI's default stage is dev_$USER, so either one gives each
   // machine its own view of production.
   const stacks = [
-    { stack: "apps/review/alchemy.run.ts", pkg: "apps/review/package.json", qualifiedOnly: true },
     { stack: "apps/bug-worker/alchemy.run.ts", pkg: "apps/bug-worker/package.json", qualifiedOnly: true },
     ...sites.map((site) => ({ stack: "apps/docs/shared/alchemy-site.mjs", pkg: `apps/docs/${site.slug}/package.json`, qualifiedOnly: false }))
   ]
@@ -218,9 +198,9 @@ test("every shared-state stack plans against one record under stage prod", () =>
   }
 })
 
-test("review and bug-worker local deploy commands refuse unqualified publication", () => {
+test("bug-worker local deploy commands refuse unqualified publication", () => {
   const guard = join(root, "flows/rollout/refuse-unqualified.mjs")
-  for (const app of ["review", "bug-worker"]) {
+  for (const app of ["bug-worker"]) {
     for (const flags of [[], ["--stage", "prod"], ["--adopt", "--stage", "prod"]]) {
       const label = `${app} ${flags.join(" ")}`
       const result = spawnSync(process.execPath, [guard, ...flags], { cwd: join(root, "apps", app), encoding: "utf8" })
@@ -238,8 +218,6 @@ test("documented deploy commands hand Alchemy its flags directly", () => {
   const docs = [
     "apps/bug-worker/README.md",
     "apps/bug-worker/alchemy.run.ts",
-    "apps/review/CONTRIBUTING.md",
-    "apps/review/alchemy.run.ts",
     "apps/docs/README.md",
     ...sites.map((site) => `apps/docs/${site.slug}/alchemy.run.ts`)
   ]

@@ -21,13 +21,9 @@ type ChangeWalkthroughSection struct {
 	Diagram  *string `json:"diagram,omitempty"`
 }
 
-// ChangeWalkthroughResponse is the structured smithers review artifact. Quiz
-// entries intentionally remain opaque JSON: the walkthrough contract promises
-// an ordered question array, while apps/review owns the evolving question
-// fields and the API preserves them losslessly.
+// ChangeWalkthroughResponse contains the narrated sections for a change revision.
 type ChangeWalkthroughResponse struct {
 	Sections []ChangeWalkthroughSection `json:"sections"`
-	Quiz     []json.RawMessage          `json:"quiz"`
 }
 
 type changeWalkthroughStore interface {
@@ -88,17 +84,9 @@ func (s *ChangeService) StoreWalkthrough(ctx context.Context, repositoryID int64
 	if sections == nil {
 		sections = []ChangeWalkthroughSection{}
 	}
-	quiz := input.Quiz
-	if quiz == nil {
-		quiz = []json.RawMessage{}
-	}
 	sectionsJSON, err := json.Marshal(sections)
 	if err != nil {
 		return ChangeWalkthroughResponse{}, pkgerrors.UnprocessableEntity("invalid walkthrough sections")
-	}
-	quizJSON, err := json.Marshal(quiz)
-	if err != nil {
-		return ChangeWalkthroughResponse{}, pkgerrors.UnprocessableEntity("invalid walkthrough quiz")
 	}
 
 	revision, err := s.queries.GetChangeRevisionForWalkthrough(ctx, db.GetChangeRevisionForWalkthroughParams{
@@ -116,7 +104,8 @@ func (s *ChangeService) StoreWalkthrough(ctx context.Context, repositoryID int64
 	params := db.UpsertChangeWalkthroughParams{
 		ChangeRevisionID: revision.ID,
 		Sections:         sectionsJSON,
-		Quiz:             quizJSON,
+		// Retain the historical column for existing installations; new artifacts contain no quiz.
+		Quiz: json.RawMessage(`[]`),
 	}
 	if s.pool == nil {
 		return storeChangeWalkthrough(ctx, s.queries, params, repositoryID, changeID, revision.Seq)
@@ -166,19 +155,12 @@ func storeChangeWalkthrough(ctx context.Context, store changeWalkthroughStore, p
 func decodeChangeWalkthrough(row db.ChangeWalkthrough) (ChangeWalkthroughResponse, error) {
 	response := ChangeWalkthroughResponse{
 		Sections: []ChangeWalkthroughSection{},
-		Quiz:     []json.RawMessage{},
 	}
 	if err := json.Unmarshal(row.Sections, &response.Sections); err != nil {
 		return ChangeWalkthroughResponse{}, pkgerrors.Internal("failed to decode change walkthrough sections").WithCause(err)
 	}
-	if err := json.Unmarshal(row.Quiz, &response.Quiz); err != nil {
-		return ChangeWalkthroughResponse{}, pkgerrors.Internal("failed to decode change walkthrough quiz").WithCause(err)
-	}
 	if response.Sections == nil {
 		response.Sections = []ChangeWalkthroughSection{}
-	}
-	if response.Quiz == nil {
-		response.Quiz = []json.RawMessage{}
 	}
 	return response, nil
 }

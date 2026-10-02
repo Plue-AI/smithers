@@ -293,21 +293,12 @@ const sessions: ReadonlyArray<Session.Summary> = [
     parent: "/sessions/a.jsonl"
   }
 ]
-test("resume and fork keep saved file and turn identities while clipping only labels", () => {
+test("resume keeps saved file identities while clipping only labels", () => {
   expect(rows({ kind: "resume", query: "", selected: 0, sessions })).toEqual([
     { key: "/sessions/a.jsonl", label: "Fix build", detail: "just now", value: "/sessions/a.jsonl" },
     { key: "/sessions/fork.jsonl", label: "Review", detail: "fork · just now", value: "/sessions/fork.jsonl" }
   ])
-  const turns = [{ index: 42, at: future, text: `${"x".repeat(61)}\nsecond line` }, {
-    index: 7,
-    at: future,
-    text: "Find bug"
-  }]
-  expect(rows({ kind: "fork", query: "", selected: 0, turns })).toEqual([
-    { key: "42", label: "x".repeat(60), detail: "just now", value: "42" },
-    { key: "7", label: "Find bug", detail: "just now", value: "7" }
-  ])
-  expect(rows({ kind: "fork", query: "second line", selected: 0, turns }).map((row) => row.value)).toEqual(["42"])
+
 })
 
 test("palette serializes public target identities without changing their exact paths or worker IDs", () => {
@@ -419,7 +410,6 @@ test.each(
     [{ kind: "worker-model", id: "w", query: "x", selected: 0 }, "Select model", "No worker-model matches \"x\""],
     [{ kind: "theme", query: "x", selected: 0 }, "Select theme", "No theme matches \"x\""],
     [{ kind: "filter", query: "x", selected: 0 }, "Filter chat", "No filter matches \"x\""],
-    [{ kind: "fork", query: "x", selected: 0, turns: [] }, "Fork from message", "No messages match \"x\""],
     [{ kind: "resume", query: "x", selected: 0, sessions: [] }, "Resume session", "No sessions in this directory"]
   ] satisfies Array<[Picker.Picker, string, string]>
 )("category title and empty message stay independent of search status: %s", (picker, title, empty) => {

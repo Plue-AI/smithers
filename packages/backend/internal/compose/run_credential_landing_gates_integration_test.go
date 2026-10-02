@@ -130,7 +130,7 @@ func newLandingGateFixtureWithFactory(t *testing.T, commits map[string]string, f
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{},
 		&routes.LandingHandler{Service: services.NewLandingService(q, gateTestRepoHost{commits: commits, factory: factory})},
-		nil, nil, nil,
+		nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil,
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},

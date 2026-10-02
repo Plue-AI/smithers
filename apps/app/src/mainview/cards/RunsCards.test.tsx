@@ -491,25 +491,6 @@ describe("the run card, per phase and waiting reason", () => {
     expect(dispatched[0]).toEqual({ name: "runs.steer", args: "sourceCard=flow-run-run-1 run-1 use the smaller diff" })
   })
 
-  test("the thinking strip names the wire's own levels", () => {
-    const { host, dispatched } = renderRun({ phase: "running" })
-    const select = host.querySelector("[data-testid='flow-run-thinking-run-1']") as HTMLSelectElement
-    expect([...select.options].map((option) => option.value)).toEqual([
-      "",
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh"
-    ])
-    select.value = "high"
-    flushSync(() => {
-      select.dispatchEvent(new Event("change", { bubbles: true }))
-    })
-    expect(dispatched[0]).toEqual({ name: "runs.thinking", args: "sourceCard=flow-run-run-1 run-1 high" })
-  })
-
   test("the transcript facet renders its rows; the steps tab is the way back", () => {
     const { host, dispatched } = renderRun({
       phase: "running",

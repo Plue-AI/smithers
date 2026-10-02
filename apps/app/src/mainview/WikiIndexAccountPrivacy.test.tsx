@@ -1,3 +1,4 @@
+import { restoreRecordedBranch } from "./state/RecordedBranch.fixture"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { act } from "react"
@@ -223,7 +224,7 @@ test("switching conversation branches retains the loaded private index for the s
     await f.store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
     f.controller.maximizeCard(card.id)
     await waitFor(() => f.store.session().maximizedCardId === card.id)
-    expect(await f.controller.forkFrame()).toBeUndefined()
+    await restoreRecordedBranch(f.store)
     await waitFor(() => f.store.session().activeBranchId !== original)
     expect(f.controller.wikiIndexes.get(repo, "private")?.pages.map(page => page.title)).toEqual(["ALICE PRIVATE INCIDENT"])
     expect(f.host.textContent).toContain("ALICE PRIVATE INCIDENT")
@@ -266,7 +267,7 @@ test("a response held across a branch fork cannot write an index into the new br
     await f.store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
     f.controller.maximizeCard(card.id)
     await waitFor(() => f.store.session().maximizedCardId === card.id)
-    expect(await f.controller.forkFrame()).toBeUndefined()
+    await restoreRecordedBranch(f.store)
     await waitFor(() => f.store.session().activeBranchId !== original)
     held.resolve(Response.json(index))
     expect(await oldRead).toBe("The account or conversation changed while the Wiki was loading.")

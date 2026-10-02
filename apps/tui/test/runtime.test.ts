@@ -193,7 +193,6 @@ it("decodes every runtime binding through its declared input, not the placeholde
     read: note("read"),
     list: note("list"),
     retry: note("retry"),
-    eta: note("eta"),
     monitors: {
       create: note("monitor.create"),
       list: note("monitor.list"),
@@ -212,7 +211,6 @@ it("decodes every runtime binding through its declared input, not the placeholde
     ],
     "monitor.list": [{}, "monitor.list", undefined],
     "monitor.stop": [{ id: "ci" }, "monitor.stop", "ci"],
-    "tab.eta": [{}, "eta", undefined],
     "agent.delegate": [
       { id: "fix", title: "Fix", prompt: "Fix it.", agent: "review" },
       "delegate",

@@ -82,26 +82,6 @@ func (m *benchRepoRouteService) UnarchiveRepo(_ context.Context, _ *db.User, _, 
 	return m.repo, nil
 }
 
-func (m *benchRepoRouteService) TransferRepo(_ context.Context, _ *db.User, _, _, _ string) (services.RepoTransferResult, error) {
-	return services.RepoTransferResult{Repository: m.repo}, nil
-}
-func (m *benchRepoRouteService) ListRepoTransfers(context.Context, *db.User) ([]db.RepositoryTransferRequest, error) {
-	return nil, nil
-}
-func (m *benchRepoRouteService) AcceptRepoTransfer(context.Context, *db.User, int64) (db.Repository, error) {
-	return m.repo, nil
-}
-func (m *benchRepoRouteService) DeclineRepoTransfer(context.Context, *db.User, int64) error {
-	return nil
-}
-func (m *benchRepoRouteService) CancelRepoTransfer(context.Context, *db.User, int64) error {
-	return nil
-}
-
-func (m *benchRepoRouteService) ForkRepo(_ context.Context, _ *db.User, _, _, _, _ string) (services.ForkOutcome, error) {
-	return services.ForkOutcome{Repository: m.repo, Created: true}, nil
-}
-
 func (m *benchRepoRouteService) GetRepoView(_ context.Context, _ *db.User, _, _ string) (services.RepoView, error) {
 	return services.RepoView{Repository: m.repo}, nil
 }

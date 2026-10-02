@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vite"
 import type { Plugin } from "vite"
-import { electrobunViteAliases } from "./.hutch/devkit/api/config/electrobun-vite"
 import { buildStamp, resolveBuildSha } from "./scripts/build-stamp"
 import { assertAcyclicChunks } from "./scripts/chunk-graph"
 
@@ -63,15 +62,6 @@ export default defineConfig({
       }
     }
   }],
-  resolve: {
-    /*
-     * Electrobun 2.x ships no SDK in node_modules; Hutch projects it into
-     * .hutch/devkit (`electrobun prepare`, run implicitly by `electrobun dev`
-     * and `electrobun build`). The SPA imports `electrobun/view`, so Vite
-     * needs the same aliases Hutch injects into its own bundles.
-     */
-    alias: electrobunViteAliases(resolve(here, ".hutch/devkit"))
-  },
   /*
    * The world editor's Milkdown adapter pulls in Vue's esm-bundler build,
    * which warns on every load that these compile-time flags were never

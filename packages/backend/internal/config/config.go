@@ -175,9 +175,6 @@ type FeatureFlagsConfig struct {
 	Agents bool `mapstructure:"agents"`
 	// WebDashboard gates the web dashboard read-out surface. Default false.
 	WebDashboard bool `mapstructure:"web_dashboard"`
-	// Changesets gates /orgs/{org}/changesets: cross-repository changesets
-	// landed through the organization superproject. Default false.
-	Changesets bool `mapstructure:"changesets"`
 	// SubscriptionConnections lets each user connect their own ChatGPT (Codex)
 	// subscription login or Anthropic API key so their own agent runs and
 	// workspaces authenticate with it through the pool route. A Claude
@@ -298,17 +295,6 @@ type SandboxConfig struct {
 	WorkspaceMaxVCPUCount int32 `mapstructure:"workspace_max_vcpu_count"`
 	WorkspaceMaxMemoryMB  int32 `mapstructure:"workspace_max_memory_mb"`
 	WorkspaceMaxDiskMB    int32 `mapstructure:"workspace_max_disk_mb"`
-	// DesktopMemoryMB and DesktopVCPUCount size kind=desktop workspace VMs.
-	// Non-positive values keep the service defaults.
-	DesktopMemoryMB  int32 `mapstructure:"desktop_memory_mb"`
-	DesktopVCPUCount int32 `mapstructure:"desktop_vcpu_count"`
-	// DesktopObserveText enables reading the focused Chrome tab's document
-	// text in POST .../desktop/observe. It is the operator's kill switch for a
-	// prompt-injection channel: the text is chosen by whatever page the box is
-	// displaying. On by default because it is the cheapest useful observation
-	// an agent can take; turning it off makes every observation report
-	// text: null without a code change.
-	DesktopObserveText bool `mapstructure:"desktop_observe_text"`
 	// AgentMaxConcurrent is a GLOBAL (fleet-wide) cap on how many agent sandbox
 	// VMs may be allocated at once, enforced on the dispatch path via a DB COUNT
 	// of live agent sessions. It is a capacity guard against a runaway
@@ -339,7 +325,7 @@ type SandboxConfig struct {
 
 	// PreviewRelayToken is the shared credential the preview gateway demands
 	// for platform domains (its SMITHERS_PREVIEW_RELAY_TOKEN). The gateway is
-	// public for user previews, so the desktop relay presents this on every
+	// public for user previews, so the preview relay presents this on every
 	// request.
 	// Empty means every such request is refused with 401.
 	// Env: SMITHERS_PREVIEW_RELAY_TOKEN.
@@ -516,11 +502,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("sandbox.agent_rootfs_size_mb", 2048)
 	v.SetDefault("sandbox.agent_max_runtime_seconds", 1800)
 	v.SetDefault("sandbox.agent_idle_timeout_seconds", 300)
-	// A desktop guest runs XFCE on Xvnc plus a browser; the provider's 512 MiB
-	// default OOMs on the first page. 1 vCPU keeps 7 desktops per worker.
-	v.SetDefault("sandbox.desktop_memory_mb", 2048)
-	v.SetDefault("sandbox.desktop_vcpu_count", 1)
-	v.SetDefault("sandbox.desktop_observe_text", true)
 	// 0 = unlimited/disabled. Opt-in spend guard; enabling it (e.g. via
 	// SMITHERS_SANDBOX_AGENT_MAX_CONCURRENT in Helm) is a deliberate change.
 	v.SetDefault("sandbox.agent_max_concurrent", 0)
@@ -653,7 +634,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("feature_flags.workspaces", true)
 	v.SetDefault("feature_flags.agents", false)
 	v.SetDefault("feature_flags.web_dashboard", false)
-	v.SetDefault("feature_flags.changesets", false)
 	v.SetDefault("feature_flags.subscription_connections", false)
 	v.SetDefault("feature_flags.protected_bookmarks", false)
 	v.SetDefault("feature_flags.notifications", false)
@@ -794,7 +774,6 @@ func Load(configFile string) (*Config, error) {
 		{"feature_flags.workspaces", "SMITHERS_FEATURE_FLAGS_WORKSPACES"},
 		{"feature_flags.agents", "SMITHERS_FEATURE_FLAGS_AGENTS"},
 		{"feature_flags.web_dashboard", "SMITHERS_FEATURE_FLAGS_WEB_DASHBOARD"},
-		{"feature_flags.changesets", "SMITHERS_FEATURE_FLAGS_CHANGESETS"},
 		{"feature_flags.subscription_connections", "SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS"},
 		{"feature_flags.protected_bookmarks", "SMITHERS_FEATURE_FLAGS_PROTECTED_BOOKMARKS"},
 		{"feature_flags.notifications", "SMITHERS_FEATURE_FLAGS_NOTIFICATIONS"},
@@ -870,9 +849,6 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.agent_rootfs_size_mb", "SMITHERS_SANDBOX_AGENT_ROOTFS_SIZE_MB"},
 		{"sandbox.agent_max_runtime_seconds", "SMITHERS_SANDBOX_AGENT_MAX_RUNTIME_SECONDS"},
 		{"sandbox.agent_idle_timeout_seconds", "SMITHERS_SANDBOX_AGENT_IDLE_TIMEOUT_SECONDS"},
-		{"sandbox.desktop_memory_mb", "SMITHERS_SANDBOX_DESKTOP_MEMORY_MB"},
-		{"sandbox.desktop_vcpu_count", "SMITHERS_SANDBOX_DESKTOP_VCPU_COUNT"},
-		{"sandbox.desktop_observe_text", "SMITHERS_DESKTOP_OBSERVE_TEXT"},
 		{"sandbox.agent_max_concurrent", "SMITHERS_SANDBOX_AGENT_MAX_CONCURRENT"},
 		{"sandbox.workspace_idle_timeout", "SMITHERS_SANDBOX_WORKSPACE_IDLE_TIMEOUT"},
 		{"sandbox.workspace_lease_delete_after", "SMITHERS_SANDBOX_WORKSPACE_LEASE_DELETE_AFTER"},

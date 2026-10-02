@@ -18,24 +18,16 @@ const developerToken = (): string | undefined => {
 
 let clientRead: Promise<ApplicationClient> | undefined
 
-const nativeRuntimeAvailable = (): boolean => typeof window !== "undefined" && window.__electrobun !== undefined
-
-const nativeTarget = async () => (await import("../native/NativeBridge")).nativeApplicationTarget()
-
-const nativeToken = async () => (await import("../native/NativeBridge")).nativeApplicationToken()
-
 /** One runtime-selected transport, shared by preload, bootstrap, and controllers. */
 export const loadRuntimeApplicationClient = (): Promise<ApplicationClient> => {
   if (clientRead !== undefined) return clientRead
-  const native = nativeRuntimeAvailable()
-  const selected = native ? undefined : selectedBackendTarget(location.origin)
+  const selected = selectedBackendTarget(location.origin)
   clientRead = loadApplicationTarget({
-    native: native ? nativeTarget :
-      async () => selected
+    native: async () => selected
   }).then((target) =>
     createApplicationClient(target, {
       fetchImpl: createAppFetch(),
-      token: native ? nativeToken : selected === undefined
+      token: selected === undefined
         ? developerToken : () => selectedBackendToken(target, location.origin)
     })
   )
@@ -57,7 +49,7 @@ export const runtimeClientErrorFetch: FetchLike = async (input, init) => {
   } catch (error) {
     // The target is unknown. Never guess a native/external backend or attach a
     // bearer token; a hosted web page can still report to its serving origin.
-    if (nativeRuntimeAvailable() || typeof location === "undefined" || !/^https?:$/.test(location.protocol)) throw error
+    if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) throw error
     const sameOrigin = resolveApplicationTarget(SAME_ORIGIN_SESSION_TARGET, location.origin)
     return createApplicationClient(sameOrigin, { fetchImpl: createAppFetch() }).fetch(input, init)
   }

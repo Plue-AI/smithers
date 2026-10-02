@@ -39,7 +39,6 @@ test("the strip preserves plugin, worker, flow and custom view order, with no tr
       calls.push(worker.id)
       return { id: `tab:${worker.id}`, label: worker.title }
     },
-    runEta: (flow) => flow.status === "running" ? " ~2m" : ""
   })
   expect(strip).toEqual([
     { id: "chat", label: "Chat" },
@@ -50,7 +49,7 @@ test("the strip preserves plugin, worker, flow and custom view order, with no tr
     { id: "tab:child", label: "child" },
     { id: "tab:bound", label: "bound" },
     { id: "tab:nested", label: "nested" },
-    { id: "flow:running", label: "◌ review ~2m" },
+    { id: "flow:running", label: "◌ review" },
     { id: "flow:done", label: "✓ review" },
     { id: "ui:bound-view", label: "bound-view" },
     { id: "ui:custom", label: "custom" }

@@ -61,15 +61,6 @@ func TestRepos_H_AuditBranches(t *testing.T) {
 			unarchiveFn: func(context.Context, *db.User, string, string) (db.Repository, error) {
 				return routeRepo(func(r *db.Repository) { r.ID = 103 }), nil
 			},
-			transferFn: func(context.Context, *db.User, string, string, string) (services.RepoTransferResult, error) {
-				return services.RepoTransferResult{Repository: routeRepo(func(r *db.Repository) { r.ID = 104 }), Owner: "alice", PendingTransfer: &db.RepositoryTransferRequest{ID: 77}}, nil
-			},
-			forkFn: func(context.Context, *db.User, string, string, string, string) (db.Repository, error) {
-				return routeRepo(func(r *db.Repository) {
-					r.ID = 105
-					r.Name = "demo-fork"
-				}), nil
-			},
 		},
 	}
 	params := map[string]string{"owner": "alice", "repo": "demo"}
@@ -80,28 +71,9 @@ func TestRepos_H_AuditBranches(t *testing.T) {
 	reposHStatus(t, h, h.DeleteRepo, reposHReq(http.MethodDelete, "/api/repos/alice/demo", ``, params, true), http.StatusNoContent)
 	reposHStatus(t, h, h.ArchiveRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/archive", ``, params, true), http.StatusOK)
 	reposHStatus(t, h, h.UnarchiveRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/unarchive", ``, params, true), http.StatusOK)
-	reposHStatus(t, h, h.TransferRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/transfer", `{"new_owner":"bob"}`, params, true), http.StatusAccepted)
-	reposHStatus(t, h, h.ForkRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/forks", `{"name":"demo-fork"}`, params, true), http.StatusAccepted)
 
-	require.Len(t, audit.calls, 8)
+	require.Len(t, audit.calls, 6)
 	assert.Equal(t, "repo.create", audit.calls[0].EventType)
-	assert.Equal(t, "repo.transfer_requested", audit.calls[6].EventType)
-	assert.Equal(t, "transfer_requested", audit.calls[6].Action)
-	assert.Equal(t, "repo.fork", audit.calls[7].EventType)
-}
-
-func TestRepos_H_ImmediateOrgTransferKeepsCompletionAudit(t *testing.T) {
-	audit := &reposHAuditQueries{}
-	h := &RepoHandler{
-		AuditService: services.NewAuditService(audit),
-		Service: reposCovService{transferFn: func(context.Context, *db.User, string, string, string) (services.RepoTransferResult, error) {
-			return services.RepoTransferResult{Repository: routeRepo(nil), Owner: "acme"}, nil
-		}},
-	}
-	reposHStatus(t, h, h.TransferRepo, reposHReq(http.MethodPost, "/api/repos/alice/demo/transfer", `{"new_owner":"acme"}`, map[string]string{"owner": "alice", "repo": "demo"}, true), http.StatusAccepted)
-	require.Len(t, audit.calls, 1)
-	assert.Equal(t, "repo.transfer", audit.calls[0].EventType)
-	assert.Equal(t, "transfer", audit.calls[0].Action)
 }
 
 func TestRepos_H_ErrorBranches(t *testing.T) {
@@ -140,9 +112,6 @@ func TestRepos_H_ErrorBranches(t *testing.T) {
 		unarchiveFn: func(context.Context, *db.User, string, string) (db.Repository, error) {
 			return db.Repository{}, svcErr
 		},
-		forkFn: func(context.Context, *db.User, string, string, string, string) (db.Repository, error) {
-			return db.Repository{}, svcErr
-		},
 	}}
 	params := map[string]string{"owner": "alice", "repo": "demo"}
 	noOwner := map[string]string{"repo": "demo"}
@@ -167,9 +136,4 @@ func TestRepos_H_ErrorBranches(t *testing.T) {
 	reposHStatus(t, h, h.UnarchiveRepo, reposHReq(http.MethodPost, "/unarchive", ``, noOwner, true), http.StatusBadRequest)
 	reposHStatus(t, h, h.UnarchiveRepo, reposHReq(http.MethodPost, "/unarchive", ``, params, true), http.StatusForbidden)
 
-	reposHStatus(t, h, h.TransferRepo, reposHReq(http.MethodPost, "/transfer", `{"new_owner":"bob"}`, noOwner, true), http.StatusBadRequest)
-	reposHStatus(t, h, h.ForkRepo, reposHReq(http.MethodPost, "/fork", `{`, params, true), http.StatusBadRequest)
-	reposHStatus(t, h, h.ForkRepo, reposHReq(http.MethodPost, "/fork", `{"name":"copy"}`, params, false), http.StatusUnauthorized)
-	reposHStatus(t, h, h.ForkRepo, reposHReq(http.MethodPost, "/fork", `{"name":"copy"}`, noOwner, true), http.StatusBadRequest)
-	reposHStatus(t, h, h.ForkRepo, reposHReq(http.MethodPost, "/fork", `{"name":"copy"}`, params, true), http.StatusForbidden)
 }

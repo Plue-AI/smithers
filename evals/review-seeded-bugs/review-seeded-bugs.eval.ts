@@ -1,7 +1,7 @@
 /** Offline seeded-review fixture suite for the fixed-suite CLI. */
 import { CaseExecutor, Suite } from "@smthrs/evals"
 import { Effect } from "effect"
-import { layerMemory } from "../../apps/review/src/workflow/reviewLayer.ts"
+import { layerMemory } from "./host.ts"
 import * as Binding from "../../packages/smithers/agent/scorers/src/Binding.ts"
 import * as Scorer from "../../packages/smithers/agent/scorers/src/Scorer.ts"
 import * as Flow from "../../packages/smithers/flows/core/src/Flow.ts"

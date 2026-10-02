@@ -1,5 +1,4 @@
 import { shownInTranscript } from "./state/ApprovalDeciders"
-import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import {
 Button,
 ChatMessage,
@@ -238,13 +237,7 @@ function AppContent() {
   // The signup onboarding owns the transcript until its stage is done (state/Signup.ts).
   // A repository URL is a page about that repository; the signup meets the landing entry, or resumes wherever its row is.
   const signingUp = githubIdentity && (session.signup !== undefined || controller.repositoryApp === null) && signupOpening(session.signup, identity?.state, identity?.accountOwnerLogin) !== false
-  /*
-   * On a web origin sign-in is the whole transcript (`gatedByAuth` below): the
-   * desktop shell alone opens signed out. An owner-credentials origin
-   * (self-host) has no GitHub copy to show, so its gate is the one door.
-   */
-  const nativeShellHost = nativeShell(controller.bootstrap)
-  const authMessage: Message | undefined = signingUp ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity && !nativeShellHost
+  const authMessage: Message | undefined = signingUp ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity
     ? {
       id: "auth-state",
       role: "smithers",
@@ -318,13 +311,7 @@ function AppContent() {
    * collections (never stored), with the repo step riding it as its action.
    * A gated auth state (signed out) still shows only itself.
    */
-  /*
-   * In the desktop shell sign-in is an option, never a gate (docs/LOCAL-APP.md):
-   * the shell's own backend signs its owner in, so the opening read shows.
-   * Signed out on any web origin — hosted or self-hosted — sign-in is the whole
-   * transcript. The shell is the `native.shell` row, never the host name.
-   */
-  const gatedByAuth = identity?.state === "signed-out" && !nativeShellHost
+  const gatedByAuth = identity?.state === "signed-out"
   const repositoryCatalog = controller.repositoryFlows()
   // An app names a flow; a tile whose flow this host does not register would be a dead button, so it is not shown.
   const home = repositoryCatalog?.home?.kind === "blocks"
@@ -355,10 +342,9 @@ function AppContent() {
   const homeOnly = appsHome && messages.length === 0 && conversationCards.length === 0 && !typing
   // A cloud repository opens on its Welcome actions. Selection is durable and
   // precedes that card's load, so the technical success read never flashes first.
-  // The desktop shell's diagnostics and stored failures keep their existing presentation.
-  const repositoryOpening = !nativeShellHost && session.activeRepoKey != null
+  const repositoryOpening = session.activeRepoKey != null
   // A new conversation opens empty; the host's opening read belongs to main alone, after the signup.
-  // The host read is a diagnostic: local and desktop hosts show it; a cloud visitor never needs it.
+  // The host read is a diagnostic: local hosts show it; a cloud visitor never needs it.
   const cloudWeb = cloudWebHost(controller.bootstrap)
   const openingMessage: InitMessage | undefined = gatedByAuth || signingUp || cloudWeb || repositoryOpening || conversationTabId !== undefined || appsHome ? undefined : initMessage({
     bootstrap: controller.bootstrap,

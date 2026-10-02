@@ -38,7 +38,4 @@ func TestBackendReleaseBuildStampsCLIVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(dockerfile), "COPY packages/smithers/package.json packages/smithers/package.json")
 	require.Contains(t, string(dockerfile), `sh scripts/build-backend.sh /out/smithers-backend "$BUILD_SHA"`)
-	nativeBuild, err := os.ReadFile("../apps/app/scripts/build-native.ts")
-	require.NoError(t, err)
-	require.Contains(t, string(nativeBuild), `"sh", "scripts/build-backend.sh", join(nativeDir, "bin", "smithers-backend"), revision`)
 }

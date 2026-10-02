@@ -1,7 +1,7 @@
 /**
  * RFC 7636 PKCE parameters for the OAuth authorization-code flow.
  *
- * The GitHub and Linear OAuth apps both run the authorization-code flow from a
+ * The GitHub OAuth apps both run the authorization-code flow from a
  * public client, where an intercepted authorization code is otherwise
  * redeemable by whoever caught it. PKCE binds the code to the verifier that
  * requested it: the client sends `S256(verifier)` up front and the verifier

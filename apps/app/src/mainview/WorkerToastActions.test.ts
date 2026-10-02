@@ -14,19 +14,19 @@ const run = (phase: Extract<Card, { kind: "run-trace" }>["payload"]["phase"], wa
 
 test("worker controls follow the current state and keep source-card routing", () => {
   const actions = workerToastActions(run("running"))
-  expect(actions.map(a => a.label)).toEqual(["Open tab", "Stop", "Steer", "Model", "Thinking"])
+  expect(actions.map(a => a.label)).toEqual(["Open tab", "Stop", "Steer"])
   expect(actions.find(a => a.flow === "flow.run.stop")?.args).toBe("card-run")
   expect(actions.find(a => a.flow === "runs.steer")?.args).toBe("sourceCard=card-run run-1")
   expect(workerToastActions(run("completed")).map(a => a.label)).toEqual(["Open tab"])
   expect(workerToastActions(run("failed")).map(a => a.label)).toEqual(["Open tab", "Run again"])
   expect(workerToastActions(run("running", "approval")).map(a => a.label)).toEqual(["Open tab", "Stop", "Answer"])
-  expect(workerToastActions(run("running", "signal")).map(a => a.label)).toEqual(["Open tab", "Stop", "Model", "Thinking", "Resume"])
+  expect(workerToastActions(run("running", "signal")).map(a => a.label)).toEqual(["Open tab", "Stop", "Resume"])
   expect(workerToastActions(run("reconnecting")).at(-1)?.label).toBe("Reconnect")
 })
 
-test("steer, model and thinking forms retain the exact worker and ask only for the missing value", () => {
+test("the steer form retains the exact worker and asks only for the missing value", () => {
   const entries = runsFlows({} as CommandActions)
-  for (const [name, field] of [["runs.steer", "body"], ["runs.seat", "seat"], ["runs.thinking", "thinking"]]) {
+  for (const [name, field] of [["runs.steer", "body"]]) {
     const action = workerToastActions(run("running")).find(a => a.flow === name)!
     const entry = entries.find(e => nameOf(e) === name)!
     const fields = formFieldsFor(entry.input, entry.metadata.form)

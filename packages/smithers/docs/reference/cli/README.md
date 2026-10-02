@@ -65,7 +65,7 @@ transfer.
 | `issue create/list/view/edit/close/reopen/comment` | Issues, cursor pagination (`--all`), additive labels and assignees. |
 | `history show/watch/retry/todo/backfill/bootstrap/parallel` | The repository history: each issue's checks, lane (running time, account, seat, box), spend and pull request. `todo <title>` files a TODO for the factory; `watch <issue>` follows one issue until its pull request is open or it stops. |
 | `wiki list/search/view/create/edit/delete/revisions/index/history` | Wiki pages, public/private selection and revision checks. |
-| `repo create/list/view/clone/fork/transfer/edit/archive/unarchive/delete` | Repository administration and cloning. |
+| `repo create/list/view/clone/edit/archive/unarchive/delete` | Repository administration and cloning. |
 | `repo home [OWNER/REPO]` | List remote homepage blocks in server order with the saved login. |
 | `repo connect/disconnect/status/mirror-sync/push` | GitHub connection and lease-protected personal refs. |
 | `workspace create/list/view/delete/fork/snapshots/watch/ssh/shell/exec/cp/issue` | Boxes, terminal sessions, durable API commands, file copies and issue runs. |
@@ -74,7 +74,6 @@ transfer.
 | `change status/list/show/diff/files/conflicts`, `bookmark list/create/delete` | Local jj changes and bookmarks. |
 | `land create/list/view/edit/review/comment/checks/conflicts/land` | Landing requests with commit-bound review and merge gates. |
 | `stack submit/unsubmit/status/sync/land` | Linked GitHub requests, review and CI gates, and ordered landing. |
-| `changeset create/get/list/land` | Organization changesets. |
 | `search repos/issues/code/users`, `label`, `notification` | Search, repository labels and notifications. |
 | `secret`, `variable`, `ssh-key`, `org`, `webhook`, `extension linear`, `artifact` | Backend resources and integrations. |
 | `cache cloud list/stats/clear`, `cache connect`, `cache token` | Backend caches. `cache status/prune/clear` retains local target-cache behavior. |

@@ -72,7 +72,6 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
       labels: [], kind: "chat", source: "smithers-cloud",
       task: { owner: ENGINEER, due: iso(24 * 60), priority: 1, parent: { number: 2088, title: "Wiki freshness" }, fixedBy: ENGINEER },
       visibility: "private",
-      sync: { provider: "slack", connectionId: "slack", scopeId: "T0000000000", conversationId: "C0000000000", threadId: "1700000000.000100", state: "synced" },
       comments: [
         { id: 9001, author: "smithers-bot", persona: { username: "assistant" }, commentBody: "The owner asked for the staleness banner fix. Taking it.", createdAt: iso(-60 * 24 + 12), reactions: [] },
         { id: 9002, author: "smithers-bot", persona: { username: "engineer" }, commentBody: "On it. Plan: reproduce, then fix `wiki/search.ts`.", createdAt: iso(-60 * 24 + 14), reactions: [] },
@@ -105,7 +104,7 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
     payload: {
       repo: REPO,
       approvals: [
-        { runId: "run-post-digest", requestId: "gate-1", title: "slack.post #team", approval: { _tag: "ApprovalTarget.Node", node: "call-3" }, requestedAt: T0 - 12 * 60_000 },
+        { runId: "run-post-digest", requestId: "gate-1", title: "Publish repository digest", approval: { _tag: "ApprovalTarget.Node", node: "call-3" }, requestedAt: T0 - 12 * 60_000 },
         { runId: "run-eval-suite", requestId: "gate-2", title: "Which suite owns the flaky test?", approval: {}, requestedAt: T0 - 60 * 60_000, question: { kind: "ask", prompt: "Which suite owns the flaky test?" } }
       ]
     }
@@ -114,9 +113,6 @@ export const fixtureCards = (): ReadonlyArray<Card> => [
     id: "connect-embedded", kind: "connect", title: "Connect work to Smithers", status: "active", createdAt: T0, ordinal: 6,
     payload: {
       provider: "github", github: { connected: true, login: "owner" }, nativeAvailable: false,
-      integrations: { repo: REPO, rows: [
-        { id: "slack", state: "connected", detail: "#team", lastSyncAt: iso(-4) }
-      ] }
     }
   }
 ]

@@ -13,17 +13,12 @@ import { createGenerateCli, initialize } from "../src/cli/Generate.ts"
 const ports = vi.hoisted(() => ({
   openPackageIndex: vi.fn(),
   runPackageVerb: vi.fn(),
-  scaffold: vi.fn(),
   writeFailure: vi.fn()
 }))
 vi.mock("@smthrs/build-cli/Cli", async (load) => ({
   ...await load<typeof import("@smthrs/build-cli/Cli")>(),
   openPackageIndex: ports.openPackageIndex,
   runPackageVerb: ports.runPackageVerb
-}))
-vi.mock("@smthrs/build-cli/CreateApp", async (load) => ({
-  ...await load<typeof import("@smthrs/build-cli/CreateApp")>(),
-  scaffold: ports.scaffold
 }))
 vi.mock("node:fs/promises", async (load) => {
   const actual = await load<typeof import("node:fs/promises")>()
@@ -45,7 +40,6 @@ const directory = async () => {
 beforeEach(() => {
   ports.openPackageIndex.mockReset().mockResolvedValue({ targets: () => [] })
   ports.runPackageVerb.mockReset().mockResolvedValue({ ok: true, generated: ["result.ts"] })
-  ports.scaffold.mockReset().mockResolvedValue({ directory: "app", created: ["package.json"] })
   ports.writeFailure.mockReset()
 })
 afterEach(async () => {
@@ -260,28 +254,20 @@ describe("workspace initialization behavior", () => {
 })
 
 describe("generator command behavior", () => {
-  it.each([["app"], ["flow"], ["package"], ["ci"]])("keeps %s help inert", async (args) => {
+  it.each([["flow"], ["package"], ["ci"]])("keeps %s help inert", async (args) => {
     const result = await invoke([...args, "--help"])
     expect(result.codes).not.toContain(1)
-    expect(ports.scaffold).not.toHaveBeenCalled()
     expect(ports.openPackageIndex).not.toHaveBeenCalled()
     expect(ports.runPackageVerb).not.toHaveBeenCalled()
   })
 
-  it("routes application directory and explicit or default templates to the app scaffold", async () => {
-    await invoke(["app", "my-app"])
-    expect(ports.scaffold).toHaveBeenLastCalledWith({ directory: "my-app", template: "default" })
-    const result = await invoke(["app", "custom-app", "--template", "harness"])
-    expect(ports.scaffold).toHaveBeenLastCalledWith({ directory: "custom-app", template: "harness" })
-    expect(JSON.parse(result.stdout)).toEqual({ directory: "app", created: ["package.json"] })
-    expect(ports.openPackageIndex).not.toHaveBeenCalled()
-  })
-
-  it("renders app scaffold failures as a nonzero command result", async () => {
-    ports.scaffold.mockRejectedValueOnce(new Error("template unavailable"))
-    const result = await invoke(["app", "my-app"])
+  it("refuses the retired app generator without running a workspace generator", async () => {
+    const root = await directory()
+    const result = await invoke(["app", join(root, "my-app")])
     expect(result.codes).toContain(1)
-    expect(result.stdout).toContain("template unavailable")
+    expect(await readdir(root)).toEqual([])
+    expect(ports.openPackageIndex).not.toHaveBeenCalled()
+    expect(ports.runPackageVerb).not.toHaveBeenCalled()
   })
 
   it("writes a requested flow without changing package declarations and preserves it on repeat", async () => {

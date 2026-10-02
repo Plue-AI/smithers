@@ -3,8 +3,7 @@ import type { ClientErrorReporter } from "./state/ClientErrors"
 import { isWriterOwnershipError } from "./state/StorageRecoveryContract"
 import { selectFirstRunRepository } from "./state/FirstRunRepository"
 import { Effect } from "effect"
-import { hasCapability, nativeShell } from "@smthrs/rpc/AppBootstrap"
-import { nativeApplicationBootstrapToken, nativeOpenExternal, nativeShellAvailable } from "./native/NativeBridge"
+import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import { loadRuntimeApplicationClient } from "./runtime/ApplicationTransport"
 import { beginRepositoryEntry, openRequestedRepo, requestedRepo, withoutRepoParam } from "./RepoLink"
 import { createBrowserFrameHistory } from "./runtime/FrameHistory"
@@ -57,7 +56,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     const runtime = yield* Effect.sync(() => createRuntime({
       bootstrap,
       http,
-      ...(nativeShellAvailable ? { nativeOpenExternal } : {})
     }))
     const agent = yield* Effect.sync(() => runtime.backend.agent ?? unavailableAgent())
     const pageLifetime = new AbortController()
@@ -74,15 +72,13 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           baseUrl: client.baseUrl,
           applicationTarget: client.target,
           localIdentity: client.localIdentity,
-          ...(nativeShellAvailable ? { localBootstrapToken: nativeApplicationBootstrapToken } : {}),
           applicationIdentity: client.identity,
           authorizeSocket: client.authorizeWebSocket,
           bootstrap: runtime.bootstrap,
           repositoryApp: store.savedStoreUnavailable ? undefined : requested ?? undefined,
           frameHistory: createBrowserFrameHistory(window, { keepUrl: options.keepUrl === true }),
           // The next-step recommender (state/Recommend.ts) is opt-in here, the one real composition root.
-          recommender: { enabled: hasCapability(bootstrap, "recommend") },
-          ...(runtime.shell.kind === "native" ? { openExternal: runtime.shell.openExternal } : {})
+          recommender: { enabled: hasCapability(bootstrap, "recommend") }
         }
       )
     )
@@ -123,7 +119,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         login: null,
         admin: false
       }))
-    } else if (nativeShell(bootstrap) || canPaintAppBeforeIdentity({
+    } else if (canPaintAppBeforeIdentity({
       requestedRepo: requested,
       hasTranscript: store.collections.cards.size > 0 || store.collections.messages.size > 0,
       identityState: store.collections.identitySessions.get("identity")?.state,
@@ -158,8 +154,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     // The awaited branch above has its identity answer here; the non-blocking
     // one does not, so this call is its own no-op and the `.then()` decides.
     if (requested === null) yield* Effect.sync(() => selectFirstRunRepository(store, controller.settleFirstRunTarget))
-    // An assigned seat this host cannot answer surfaces unasked (controller/models.ts).
-    yield* Effect.sync(() => void controller.observeModels())
     // `/api/user` above is also the selected backend's Cloud-capability
     // identity; no second native/cloud session probe is started.
     // Both URL rewrites keep the entry's state: on a repository path the

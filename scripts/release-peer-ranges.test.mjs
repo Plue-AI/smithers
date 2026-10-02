@@ -43,7 +43,7 @@ test("an executable selects an optional adapter and all selected consumers const
 
 test("an explicitly installed first-party facade selects its optional peer contract", () => {
   const manifests = [
-    { name: "@smthrs/create-app", peerDependencies: { "@smthrs/testing": "1.0.0-rc.0" },
+    { name: "@smthrs/recording-fixture", peerDependencies: { "@smthrs/testing": "1.0.0-rc.0" },
       peerDependenciesMeta: { "@smthrs/testing": { optional: true } } },
     { name: "@smthrs/testing", version: "1.0.0-rc.0" }
   ]

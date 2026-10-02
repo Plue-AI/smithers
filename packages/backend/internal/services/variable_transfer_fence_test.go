@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -65,23 +64,30 @@ func newVariableTransferFixture(t *testing.T) variableTransferFixture {
 	}
 }
 
+// changeOwner exercises the real ownership fence without the retired forge API.
+func (f variableTransferFixture) changeOwner(ctx context.Context) error {
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(ctx, repoOwnershipLockSQL, f.repo.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE repositories SET user_id=$2 WHERE id=$1`, f.repo.ID, f.recipient.ID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 func (f variableTransferFixture) move(t *testing.T, ctx context.Context) {
 	t.Helper()
-	request, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
-	require.NoError(t, err)
-	require.NotNil(t, request.PendingTransfer)
-	updated, err := f.transfer.AcceptRepoTransfer(ctx, &f.recipient, request.PendingTransfer.ID)
-	require.NoError(t, err)
-	require.Equal(t, f.recipient.ID, updated.UserID.Int64)
-	require.True(t, updated.UserID.Valid)
+	require.NoError(t, f.changeOwner(ctx))
 	f.assertOwner(t, f.recipient.ID)
 	fresh, err := f.queries.GetRepoByID(ctx, f.repo.ID)
 	require.NoError(t, err)
 	allowed, err := canWriteRepo(ctx, f.queries, fresh, f.owner.ID)
 	require.NoError(t, err)
-	require.False(t, allowed, "Alice must lose write permission after transfer")
-	require.DirExists(t, filepath.Join(f.cfg.RepoPath(f.recipient.Username, f.repo.Name), ".jj"))
-	require.NoDirExists(t, f.cfg.RepoPath(f.owner.Username, f.repo.Name))
+	require.False(t, allowed, "old owner must lose write permission")
 }
 
 func (f variableTransferFixture) assertOwner(t *testing.T, want int64) {
@@ -246,9 +252,6 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 				require.NoError(t, err)
 			}
 			guard := newPausedVariableGuard(f.pool, true)
-			request, err := f.transfer.TransferRepo(ctx, &f.owner, f.owner.Username, f.repo.Name, f.recipient.Username)
-			require.NoError(t, err)
-			require.NotNil(t, request.PendingTransfer)
 			service := NewVariableService(&pausedVariableQueries{Queries: f.queries, guard: guard}, WithVariableOwnershipGuard(guard))
 			writeResult := make(chan error, 1)
 			go func() {
@@ -262,8 +265,7 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 			awaitVariableFence(t, ctx, guard.entered) // the shared advisory lock is held during the write callback
 			transferResult := make(chan error, 1)
 			go func() {
-				_, err := f.transfer.AcceptRepoTransfer(ctx, &f.recipient, request.PendingTransfer.ID)
-				transferResult <- err
+				transferResult <- f.changeOwner(ctx)
 			}()
 			require.Eventually(t, func() bool {
 				select {
@@ -294,7 +296,7 @@ func TestVariableWrite_FencesTransferAndNewOwnerCanWrite(t *testing.T) {
 				f.assertVariable(t, name, nil)
 			}
 			newOwnerService := NewVariableService(f.queries, WithVariableOwnershipGuard(NewRepoOwnershipFence(f.pool)))
-			_, err = newOwnerService.SetVariable(ctx, &f.recipient, f.recipient.Username, f.repo.Name, name, "new-owner-write")
+			_, err := newOwnerService.SetVariable(ctx, &f.recipient, f.recipient.Username, f.repo.Name, name, "new-owner-write")
 			require.NoError(t, err)
 			f.assertVariable(t, name, variableValue("new-owner-write"))
 		})

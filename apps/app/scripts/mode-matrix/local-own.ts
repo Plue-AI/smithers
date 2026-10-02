@@ -125,7 +125,6 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     await run("build coding host", ["node", "flows/coding/build.mjs", join(hostDir, "smithers-coding-host")])
     await run("build model host", ["node", "apps/model-host/build.mjs", join(hostDir, "smithers-model-host")])
     await run("write Flow host manifest", ["node", "distribution/flow-host-manifest.mjs", manifest, join(hostDir, "smithers-coding-host")])
-    await run("prepare Vite devkit", ["bun", "apps/app/scripts/ensure-devkit.mjs"])
     const backendPort = await availablePort()
     const webPort = await availablePort()
     const backendOrigin = `http://127.0.0.1:${backendPort}`

@@ -20,21 +20,17 @@ import (
 )
 
 type mockRepoRouteService struct {
-	createRepoFn      func(ctx context.Context, user *db.User, name, description string, isPublic bool, defaultBookmark string, autoInit bool) (db.Repository, error)
-	createOrgRepoFn   func(ctx context.Context, actor *db.User, orgName, name, description string, isPublic bool, defaultBookmark string, autoInit bool) (db.Repository, error)
-	getRepoFn         func(ctx context.Context, viewer *db.User, owner, repo string) (db.Repository, error)
-	updateRepoFn      func(ctx context.Context, actor *db.User, owner, repo string, req services.UpdateRepoRequest) (db.Repository, error)
-	deleteRepoFn      func(ctx context.Context, actor *db.User, owner, repo string) error
-	transferRepoFn    func(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error)
-	listTransfersFn   func(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error)
-	acceptTransferFn  func(ctx context.Context, actor *db.User, id int64) (db.Repository, error)
-	declineTransferFn func(ctx context.Context, actor *db.User, id int64) error
-	cancelTransferFn  func(ctx context.Context, actor *db.User, id int64) error
-	forkRepoFn        func(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (db.Repository, error)
-	forkOutcomeFn     func(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error)
-	getRepoViewFn     func(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error)
-	getContentsFn     func(ctx context.Context, viewer *db.User, owner, repo, ref, path string) (services.RepoContent, error)
-	listContentsFn    func(ctx context.Context, viewer *db.User, owner, repo, ref, dirPath string) ([]services.RepoContent, error)
+	createRepoFn    func(ctx context.Context, user *db.User, name, description string, isPublic bool, defaultBookmark string, autoInit bool) (db.Repository, error)
+	createOrgRepoFn func(ctx context.Context, actor *db.User, orgName, name, description string, isPublic bool, defaultBookmark string, autoInit bool) (db.Repository, error)
+	getRepoFn       func(ctx context.Context, viewer *db.User, owner, repo string) (db.Repository, error)
+	updateRepoFn    func(ctx context.Context, actor *db.User, owner, repo string, req services.UpdateRepoRequest) (db.Repository, error)
+	deleteRepoFn    func(ctx context.Context, actor *db.User, owner, repo string) error
+
+	forkRepoFn func(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (db.Repository, error)
+
+	getRepoViewFn  func(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error)
+	getContentsFn  func(ctx context.Context, viewer *db.User, owner, repo, ref, path string) (services.RepoContent, error)
+	listContentsFn func(ctx context.Context, viewer *db.User, owner, repo, ref, dirPath string) ([]services.RepoContent, error)
 }
 
 func TestRepositoryHomeResolution(t *testing.T) {
@@ -178,17 +174,6 @@ func (m mockRepoRouteService) DeleteRepo(ctx context.Context, actor *db.User, ow
 		return m.deleteRepoFn(ctx, actor, owner, repo)
 	}
 	return nil
-}
-
-func (m mockRepoRouteService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error) {
-	if m.forkOutcomeFn != nil {
-		return m.forkOutcomeFn(ctx, actor, owner, repo, nameOverride, descriptionOverride)
-	}
-	if m.forkRepoFn != nil {
-		forked, err := m.forkRepoFn(ctx, actor, owner, repo, nameOverride, descriptionOverride)
-		return services.ForkOutcome{Repository: forked, Created: true}, err
-	}
-	return services.ForkOutcome{Created: true}, nil
 }
 
 func (m mockRepoRouteService) GetRepoView(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error) {
@@ -912,136 +897,4 @@ func TestRepoHandler_PatchRepo_ServiceError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.PatchRepo(rec, req)
 	require.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestRepoHandler_TransferRepo(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unauthorized when missing user", func(t *testing.T) {
-		h := RepoHandler{Service: mockRepoRouteService{}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"bob"}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	t.Run("invalid json", func(t *testing.T) {
-		h := RepoHandler{Service: mockRepoRouteService{}}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader("not-json"))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	t.Run("body too large", func(t *testing.T) {
-		h := RepoHandler{Service: mockRepoRouteService{}}
-		bigBody := `{"new_owner":"` + strings.Repeat("a", 2<<20) + `"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(bigBody))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	})
-
-	t.Run("user transfer remains at source until accepted", func(t *testing.T) {
-		now := time.Now().UTC().Truncate(time.Second)
-		pending := &db.RepositoryTransferRequest{ID: 77, RepositoryID: 1, SenderID: 1, RecipientID: 2, SourceOwner: "alice", SourceName: "demo", Status: "pending"}
-		h := RepoHandler{
-			Service: mockRepoRouteService{
-				transferRepoFn: func(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-					assert.Equal(t, int64(1), actor.ID)
-					assert.Equal(t, "alice", owner)
-					assert.Equal(t, "demo", repo)
-					assert.Equal(t, "bob", newOwner)
-					return services.RepoTransferResult{Repository: routeRepo(func(r *db.Repository) {
-						r.UserID = pgtype.Int8{Int64: 1, Valid: true}
-						r.CreatedAt = now
-						r.UpdatedAt = now
-					}), Owner: "alice", PendingTransfer: pending}, nil
-				},
-			},
-			SSHHost: "smithers.test",
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"bob"}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusAccepted, rec.Code)
-		var body RepoResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Equal(t, "alice", body.Owner)
-		assert.Equal(t, "alice/demo", body.FullName)
-		assert.Equal(t, "demo", body.Name)
-		assert.Equal(t, "git@smithers.test:alice/demo.git", body.CloneURL)
-		require.NotNil(t, body.PendingTransfer)
-		assert.Equal(t, pending.ID, body.PendingTransfer.ID)
-	})
-
-	t.Run("organization transfer changes owner immediately", func(t *testing.T) {
-		h := RepoHandler{Service: mockRepoRouteService{transferRepoFn: func(_ context.Context, _ *db.User, _, _, _ string) (services.RepoTransferResult, error) {
-			return services.RepoTransferResult{Repository: routeRepo(nil), Owner: "acme"}, nil
-		}}, SSHHost: "smithers.test"}
-		req := withAuth(withRouteParams(httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"acme"}`)), map[string]string{"owner": "alice", "repo": "demo"}), 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusAccepted, rec.Code)
-		var body RepoResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Equal(t, "acme/demo", body.FullName)
-		assert.Equal(t, "git@smithers.test:acme/demo.git", body.CloneURL)
-		assert.Nil(t, body.PendingTransfer)
-	})
-
-	t.Run("service 403 propagated", func(t *testing.T) {
-		h := RepoHandler{
-			Service: mockRepoRouteService{
-				transferRepoFn: func(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-					return services.RepoTransferResult{}, pkgerrors.Forbidden("permission denied")
-				},
-			},
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"bob"}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "mallory")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusForbidden, rec.Code)
-	})
-
-	t.Run("service 404 propagated", func(t *testing.T) {
-		h := RepoHandler{
-			Service: mockRepoRouteService{
-				transferRepoFn: func(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-					return services.RepoTransferResult{}, pkgerrors.NotFound("user or organization 'nobody' not found")
-				},
-			},
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"nobody"}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusNotFound, rec.Code)
-	})
-
-	t.Run("service 409 propagated", func(t *testing.T) {
-		h := RepoHandler{
-			Service: mockRepoRouteService{
-				transferRepoFn: func(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-					return services.RepoTransferResult{}, pkgerrors.Conflict("user 'bob' already has a repository named 'demo'")
-				},
-			},
-		}
-		req := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/transfer", strings.NewReader(`{"new_owner":"bob"}`))
-		req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
-		req = withAuth(req, 1, "alice")
-		rec := httptest.NewRecorder()
-		h.TransferRepo(rec, req)
-		require.Equal(t, http.StatusConflict, rec.Code)
-	})
 }

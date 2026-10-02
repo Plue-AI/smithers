@@ -19,7 +19,7 @@ func (s *IssueService) FindIssueComment(ctx context.Context, actor *db.User, own
 	if err != nil {
 		return IssueCommentResponse{}, err
 	}
-	q, err := s.syncQueries()
+	q, err := s.commentQueries()
 	if err != nil {
 		return IssueCommentResponse{}, err
 	}
@@ -38,4 +38,13 @@ func (s *IssueService) FindIssueComment(ctx context.Context, actor *db.User, own
 		return IssueCommentResponse{}, err
 	}
 	return mapIssueComment(c), nil
+}
+
+// Native comment lookup/reactions require the ordinary product storage.
+func (s *IssueService) commentQueries() (*db.Queries, error) {
+	q, ok := s.queries.(*db.Queries)
+	if !ok {
+		return nil, api.Internal("issue comment storage unavailable")
+	}
+	return q, nil
 }

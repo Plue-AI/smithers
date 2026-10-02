@@ -5,8 +5,6 @@
 
 import * as Environment from "@smthrs/integrations/Environment"
 import * as GitHub from "@smthrs/integrations/github"
-import * as Linear from "@smthrs/integrations/linear"
-import * as Telegram from "@smthrs/integrations/telegram"
 import { Effect, Redacted } from "effect"
 import { Cli, z } from "incur"
 import { existsSync, readFileSync } from "node:fs"
@@ -29,7 +27,7 @@ const execute = <A>(context: Presentation.Failing, body: () => Promise<A>) =>
     })
   })
 
-const provider = z.enum(["github", "linear", "telegram"])
+const provider = z.enum(["github"])
 const endpoint = z.string().url().refine((text) => {
   const url = new URL(text)
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
@@ -65,16 +63,6 @@ const authority = {
     apiBaseUrl: GitHub.Config.DEFAULT_API_BASE_URL,
     apiBaseUrlEnv: "SMITHERS_GITHUB_API_BASE_URL"
   },
-  linear: {
-    tokenEnv: ["SMITHERS_LINEAR_API_KEY"],
-    apiBaseUrl: Linear.Config.DEFAULT_API_BASE_URL,
-    apiBaseUrlEnv: "SMITHERS_LINEAR_API_BASE_URL"
-  },
-  telegram: {
-    tokenEnv: ["SMITHERS_TELEGRAM_BOT_TOKEN"],
-    apiBaseUrl: Telegram.Config.DEFAULT_API_BASE_URL,
-    apiBaseUrlEnv: "SMITHERS_TELEGRAM_API_BASE_URL"
-  }
 } as const
 
 const defaultTokenEnv = (kind: Integration["provider"]) => authority[kind].tokenEnv[0]
@@ -152,7 +140,7 @@ export const readIntegrations = (
     if (file !== ".smithers/integrations.json") {
       throw refused("user", `Integration configuration does not exist: ${file}`)
     }
-    return (["github", "linear", "telegram"] as const).flatMap((provider) => {
+    return (["github"] as const).flatMap((provider) => {
       const tokenEnv = provider === "github" && !env["SMITHERS_GITHUB_TOKEN"] && env["GITHUB_TOKEN"]
         ? "GITHUB_TOKEN"
         : defaultTokenEnv(provider)
@@ -220,15 +208,7 @@ const secret = async (options: LocalOptions, entry: Integration): Promise<string
  */
 export const probe = async (entry: Integration, token: string, timeoutMs = 10_000) => {
   authorize(entry, Environment.ambientEnvironment())
-  const operation = entry.provider === "github"
-    ? GitHub.GitHubClient.make({ token, apiBaseUrl: entry.apiBaseUrl, maxRetries: 0 }, {}).request("GET", "/rate_limit")
-    : entry.provider === "linear"
-    ? Linear.LinearClient.make({ apiKey: token, apiBaseUrl: entry.apiBaseUrl }, {}).query(
-      "query SmithersDoctor { viewer { id } }"
-    )
-    : Telegram.TelegramClient.make({ botToken: token, apiBaseUrl: entry.apiBaseUrl, maxRateLimitRetries: 0 }, {}).call(
-      "getMe"
-    )
+  const operation = GitHub.GitHubClient.make({ token, apiBaseUrl: entry.apiBaseUrl, maxRetries: 0 }, {}).request("GET", "/rate_limit")
   await Effect.runPromise(operation.pipe(Effect.timeout(timeoutMs)))
   return { id: entry.id, provider: entry.provider, healthy: true }
 }

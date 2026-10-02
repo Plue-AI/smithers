@@ -15,12 +15,10 @@ Commands:
   build         Execute the build targets selected by a pattern
   cache         Inspect and maintain local action-result caches
   change        Inspect local jj changes
-  changeset     Land one change per repository as a single transaction
   ci            Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
   clean         Execute only declared Clean targets selected by the patterns
   completion    Generate shell completions
   config        Read and set CLI configuration
-  create-app    Scaffold a Smithers app from a @smthrs/create-app template
   credentials   Manage encrypted local credentials without printing secret values
   docs          Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
   doctor        Check project discovery, providers, tools, and durable-state compatibility
@@ -30,7 +28,7 @@ Commands:
   explain       Explain a target's actual planned cache key and local cache state
   flow          Discover, plan, and start durable flows
   gc            Collect old terminal runs and compact their journals; separate from target caches
-  generate      Scaffold apps, flows, packages, and CI configuration
+  generate      Scaffold flows, packages, and CI configuration
   git-hooks     Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
   graph         Print the target graph without executing it
   history       Follow each issue's lane, checks and pull request

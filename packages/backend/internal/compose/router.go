@@ -76,7 +76,6 @@ func buildRouter(
 
 	orgHandler *routes.OrgHandler,
 	landingHandler *routes.LandingHandler,
-	changesetHandler *routes.ChangesetHandler,
 	buildCacheHandler *routes.BuildCacheHandler,
 	stackHandler *routes.StackHandler,
 	searchHandler *routes.SearchHandler,
@@ -171,7 +170,6 @@ func buildRouter(
 
 	gateSecrets := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Secrets })
 	gateNotifications := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Notifications })
-	gateChangesets := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Changesets })
 	// Stored Claude/ChatGPT subscription logins: self-host only, off in the
 	// hosted product. Covers every /provider-connections route and the pool.
 	gateSubscriptionConnections := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.SubscriptionConnections })
@@ -560,17 +558,7 @@ func buildRouter(
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspace/sessions/{id}/destroy", workspaceHandler.DestroySession)
 		})
 	}
-	if workspaceHandler != nil && workspaceHandler.Desktop != nil {
-		// Desktop-session-token authenticated relay for kind=desktop workspaces.
-		// Outside repository auth: the viewer runs in an iframe and a
-		// WebSocket, neither of which can carry headers, so the path token is
-		// the credential.
-		r.Group(func(r chi.Router) {
-			r.Use(cors.Handler(apiCORS))
-			r.Handle("/api/workspaces/{workspaceID}/desktop/{token}", http.HandlerFunc(workspaceHandler.Desktop.Relay))
-			r.Handle("/api/workspaces/{workspaceID}/desktop/{token}/*", http.HandlerFunc(workspaceHandler.Desktop.Relay))
-		})
-	}
+
 	if repositoryJobHandler != nil {
 		// A box's coding host calls repository jobs back with its flowhost
 		// binding ID (SMITHERS_GATEWAY_ID) and control credential. Keep these
@@ -1107,12 +1095,6 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Patch("/user", userHandler.PatchAuthenticatedUser)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/user/workflow-runs/active-count", workflowRunCountHandler.GetActiveWorkflowRunCount)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/user/repos", repoHandler.CreateRepo)
-			// Incoming private repositories are not readable by their recipient yet.
-			// The service checks recipient identity or current source ownership.
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), middleware.RejectRepositoryRestrictedToken).Get("/user/repository-transfers", repoHandler.ListRepoTransfers)
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/accept", repoHandler.AcceptRepoTransfer)
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/decline", repoHandler.DeclineRepoTransfer)
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RejectRepositoryRestrictedToken).Post("/user/repository-transfers/{transfer_id}/cancel", repoHandler.CancelRepoTransfer)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization)).Post("/orgs/{org}/repos", repoHandler.CreateOrgRepo)
 
 			r.Route("/repos/{owner}/{repo}", func(r chi.Router) {
@@ -1128,10 +1110,6 @@ func buildRouter(
 					middleware.RequireAuth,
 					middleware.RequireScope(middleware.ScopeWriteRepository),
 				}
-				forkRepo := []func(http.Handler) http.Handler{
-					middleware.RequireAuth,
-					middleware.RequireScope(middleware.ScopeWriteRepository),
-				}
 				adminRepo := []func(http.Handler) http.Handler{
 					middleware.RequireAuth,
 					middleware.RequireScope(middleware.ScopeWriteRepository),
@@ -1143,19 +1121,13 @@ func buildRouter(
 				if queries != nil {
 					readRepo = append(readRepo, middleware.RequireRepoPermission(middleware.PermissionRead))
 					writeRepo = append(writeRepo, middleware.RequireRepoPermission(middleware.PermissionWrite))
-					forkRepo = append(forkRepo, middleware.RequireRepoPermission(middleware.PermissionRead))
 					adminRepo = append(adminRepo, middleware.RequireRepoPermission(middleware.PermissionAdmin))
 					ownerRepo = append(ownerRepo, middleware.RequireRepoPermission(middleware.PermissionOwner))
 				}
-				// A repository-bound workflow/agent token may mutate only the
-				// repository it names. Fork and transfer are repo-addressed routes,
-				// but their effects create or move a repository in another owner
-				// namespace, so they must reject that restricted capability.
-				forkRepo = append(forkRepo, middleware.RejectRepositoryRestrictedToken)
+				// Owner-only policy changes require an unrestricted account token.
 				ownerRepo = append(ownerRepo, middleware.RejectRepositoryRestrictedToken)
 				readRepo = append(readRepo, repoAPIQuota)
 				writeRepo = append(writeRepo, repoAPIQuota)
-				forkRepo = append(forkRepo, repoAPIQuota)
 				adminRepo = append(adminRepo, repoAPIQuota)
 				ownerRepo = append(ownerRepo, repoAPIQuota)
 
@@ -1177,12 +1149,6 @@ func buildRouter(
 				r.With(adminRepo...).Delete("/", repoHandler.DeleteRepo)
 				r.With(adminRepo...).Post("/archive", repoHandler.ArchiveRepo)
 				r.With(adminRepo...).Post("/unarchive", repoHandler.UnarchiveRepo)
-				r.With(ownerRepo...).Post("/transfer", repoHandler.TransferRepo)
-				// Forking is an explicit, user-initiated action. /fork is the
-				// documented spelling; /forks stays registered because existing
-				// clients call it.
-				r.With(forkRepo...).Post("/fork", repoHandler.ForkRepo)
-				r.With(forkRepo...).Post("/forks", repoHandler.ForkRepo)
 
 				// Repo sync routes: registered inside the repo-scoped group so
 				// LoadRepoContext + RequireRepoPermission(write) gate access to the
@@ -1260,14 +1226,6 @@ func buildRouter(
 				r.With(append(writeRepo, gateIssues)...).Post("/issues", issueHandler.CreateIssue)
 				r.With(append(writeRepo, gateIssues)...).Put("/issues/{number}/comments/{comment}/reactions", issueHandler.IssueReaction)
 				r.With(append(readRepo, gateIssues)...).Get("/issues/{number}/comments/{comment}/reactions", issueHandler.IssueReaction)
-				r.With(append(writeRepo, gateIssues)...).Put("/issues/{number}/sync", issueHandler.IssueSync)
-				r.With(append(readRepo, gateIssues)...).Get("/issues/{number}/sync", issueHandler.IssueSync)
-				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/channels", issueHandler.IssueSyncChannel)
-				r.With(append(readRepo, gateIssues)...).Get("/issues/sync/channels", issueHandler.IssueSyncChannels)
-				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/events", issueHandler.IssueSyncEvent)
-				r.With(append(writeRepo, gateIssues)...).Get("/issues/sync/deliveries", issueHandler.IssueSyncDeliveries)
-				r.With(append(writeRepo, gateIssues)...).Post("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)
-				r.With(append(writeRepo, gateIssues)...).Put("/issues/sync/deliveries/{id}", issueHandler.IssueSyncReceipt)
 
 				r.With(append(writeRepo, gateIssues)...).Patch("/issues/{number}", issueHandler.PatchIssue)
 				r.With(append(writeRepo, gateIssues)...).Post("/issues/{number}/comments", issueHandler.PostIssueComment)
@@ -1552,32 +1510,9 @@ func buildRouter(
 					readChildren = append(readChildren, repoAPIQuota, gateWorkspaces)
 					writeChildren = append(writeChildren, repoAPIQuota, gateWorkspaces, gateSandboxes)
 					routes.RegisterWorkspaceChildrenRoutes(r, workspaceHandler, readChildren, writeChildren)
-					if workspaceHandler.Desktop != nil {
-						// kind=desktop stream session mint: rotates the VNC password in
-						// the guest and returns the credentialed viewer URL once.
-						r.With(writeWorkspace...).Post("/workspaces/{id}/desktop/session", workspaceHandler.Desktop.PostDesktopSession)
-						// Desktop observe/input: the same write scope and repo
-						// permission as the mint (and as SSH), but the per-repo
-						// 1000/hr API bucket is REPLACED by a per-workspace
-						// 1800/hr one. An agent driving a box spends a request
-						// every couple of seconds; charging that to the repo's
-						// generic budget would starve every other API call the
-						// same user makes.
-						desktopControl := []func(http.Handler) http.Handler{
-							middleware.RequireAuth,
-							middleware.RequireScope(middleware.ScopeWriteRepository),
-						}
-						if queries != nil {
-							desktopControl = append(desktopControl, middleware.RequireRepoPermission(middleware.PermissionWrite))
-						}
-						desktopControl = append(desktopControl,
-							middleware.RequireWorkspaceDesktopAccess(workspaceHandler.Desktop.Service.CheckWorkspaceDesktopAccess),
-							middleware.PerWorkspaceDesktopControl(quotaStore), gateWorkspaces)
-						r.With(desktopControl...).Post("/workspaces/{id}/desktop/observe", workspaceHandler.Desktop.PostDesktopObserve)
-						r.With(desktopControl...).Post("/workspaces/{id}/desktop/input", workspaceHandler.Desktop.PostDesktopInput)
-					}
+
 					if workspaceHandler.EnvironmentImages != nil {
-						// NixOS environment image registry (kind=vm/desktop images built
+						// NixOS environment image registry (kind=vm images built
 						// from .smithers/environment.nix by scripts/build-nix-environment.ts).
 						r.With(readWorkspace...).Get("/environment-images", workspaceHandler.EnvironmentImages.ListRepoImages)
 						adminWorkspaceImages := []func(http.Handler) http.Handler{
@@ -1866,14 +1801,6 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser), gateSubscriptionConnections).Get("/orgs/{org}/provider-connections", providerConnectionHandler.ListOrgConnections)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser), gateSubscriptionConnections).Post("/orgs/{org}/provider-connections", providerConnectionHandler.ConnectOrg)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization)).Delete("/orgs/{org}/members/{username}", orgHandler.DeleteOrgMember)
-			if changesetHandler != nil {
-				// Cross-repository changesets land through the organization
-				// superproject; gated by feature_flags.changesets alone.
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateChangesets).Get("/orgs/{org}/changesets", changesetHandler.ListChangesets)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), gateChangesets).Post("/orgs/{org}/changesets", changesetHandler.CreateChangeset)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateChangesets).Get("/orgs/{org}/changesets/{id}", changesetHandler.GetChangeset)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), gateChangesets).Post("/orgs/{org}/changesets/{id}/land", changesetHandler.LandChangeset)
-			}
 			if secretHandler != nil {
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadOrganization), gateSecrets).Get("/orgs/{org}/secrets", secretHandler.ListOrgSecrets)
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization), gateSecrets).Post("/orgs/{org}/secrets", secretHandler.SetOrgSecret)
@@ -1920,7 +1847,7 @@ func buildRouter(
 					r.With(writeAdmin...).Post("/grant", extras.AdminGrant.Grant)
 				}
 				if workspaceHandler != nil && workspaceHandler.EnvironmentImages != nil {
-					// Platform base NixOS images (repository_id NULL) for kind=vm/desktop.
+					// Platform base NixOS images (repository_id NULL) for kind=vm.
 					r.With(readAdmin...).Get("/sandbox/environment-images", workspaceHandler.EnvironmentImages.ListBaseImages)
 					r.With(writeAdmin...).Post("/sandbox/environment-images", workspaceHandler.EnvironmentImages.RegisterBaseImage)
 				}

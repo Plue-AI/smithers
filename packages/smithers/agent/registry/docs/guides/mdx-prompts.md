@@ -46,7 +46,6 @@ running expressions. Execution loads the captured bytes. Editing either the
 prompt or a component after discovery refuses execution until the registry
 refreshes; the new closure changes the flow's execution digest.
 
-A prompt-backed flow still needs its host action implementation. The create-app
-host supplies it from the resolved `AGENT.ts`. Other module hosts export a named
-`layer` implementing the declaration's ordinary `flow.action`, as described in
+A prompt-backed flow still needs its host action implementation. Module hosts
+export a named `layer` implementing the declaration's ordinary `flow.action`, as described in
 [Prompt-backed flows](/pkg/flow/guides/use-a-prompt). MDX adds no execution loop.

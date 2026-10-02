@@ -8,7 +8,7 @@ export default defineDocsSite({
   starlight,
   slug: "integrations",
   title: "@smthrs/integrations",
-  description: "GitHub, Linear, Telegram, Slack, Google Calendar, Gmail, and X adapters over the Smithers control plane",
+  description: "GitHub adapters over the Smithers control plane",
   sourceDir: "packages/smithers/agent/integrations",
   contentDir: fileURLToPath(new URL("./src/content/docs", import.meta.url))
 })

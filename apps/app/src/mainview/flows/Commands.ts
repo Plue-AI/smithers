@@ -68,7 +68,7 @@ export type CommandOutcome =
     readonly status: "unavailable"
     readonly door: AbsentDoor
     readonly reason: string
-    readonly action: "app.download.prompt" | null
+    readonly action: null
   }
   | {
     readonly status: "failed"
@@ -136,13 +136,12 @@ export interface AbsentExplanation {
 }
 
 /** Whether the native app is the answer to a miss of this door: the refusal card carries the download. */
-export const downloadAnswers = (door: AbsentDoor): boolean => door === "cloud.pat"
 
 /** The sentence a miss of each door gets, after the flow it names. */
 export const absentReason = (name: string, door: AbsentDoor): string => {
   switch (door) {
     case "cloud.pat":
-      return `/${name} is not in the web app — it needs the native app's Smithers Cloud session.`
+      return `/${name} is not in the web app — it needs a local Smithers Cloud session.`
     case "cloud.session":
       return `/${name} is not in the web app — on the web your GitHub sign-in is your Smithers Cloud sign-in.`
     case "origin":
@@ -151,7 +150,7 @@ export const absentReason = (name: string, door: AbsentDoor): string => {
 }
 
 /** The flow the registry renders for a native-only miss on the web. */
-const DOWNLOAD_PROMPT = "app.download.prompt"
+
 
 /**
  * One flow invoked with its input ALREADY NAMED — the door a form submits
@@ -566,17 +565,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       const absent = explainAbsent(name)
       if (absent === undefined) return { status: "unknown-command" }
       const { door, reason } = absent
-      if (!downloadAnswers(door)) return { status: "unavailable", door, reason, action: null }
-      /*
-       * The refusal IS the download card: rendered here, through the prompt
-       * flow's own binding, so slash, button and agent get the same card and
-       * none of them has to know to ask for it. Invoked directly rather than
-       * through runAs: the human did not run app.download.prompt, the app did,
-       * so it neither ranks in their recent commands nor traces as their act.
-       */
-      const prompt = find(DOWNLOAD_PROMPT)
-      if (prompt !== undefined) await invoke(prompt, { flow: name }, invocation)
-      return { status: "unavailable", door, reason, action: DOWNLOAD_PROMPT }
+      return { status: "unavailable", door, reason, action: null }
+
     }
     let target = invoker === "agent" ? agentEntry(nameOf(entry)) ?? entry : entry
     if (invoker === "agent" && !modelInvocable(target)) {

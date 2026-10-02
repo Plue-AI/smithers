@@ -540,9 +540,19 @@ other error schemas throw `TypeError` before the layer is built.
 | `corrections` | `number`                                           | How many times a decode miss may be corrected, in the same session or a fresh one. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal.                          |
 | `repair`      | `Repair<Payload>`                                  | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                                          |
 | `modelParams` | `ModelRequest.GenerationParams`                    | Generation parameters for the step's model calls.                                                                                                                                                      |
+| `timeout` | `Duration.Input \| ((payload) => Duration.Input)` | Bounds the entire action, including seat resolution, retries and corrections. Expiry interrupts the agent with a typed `HarnessError`; shared host budgets and model-call limits still apply. |
 | `maxFrames`   | `number`                                           | The cell-loop bound for this step, ahead of the host's.                                                                                                                                                |
 | `claimCap`    | `number`                                           | Overrides `Host.claimCap` for this step. Zero disarms the completion claim brake, so an answer (a classification, an extraction) stands without the host's judge reading it.                           |
 | `memory`      | `(payload) => ReadonlyArray<SnapshotRecorder.Row>` | Opening memory rows for this step. A judged step's run-start relevance reading withholds the rows Jev is confident the task does not need and journals `relevance-settled`. Keep them out of `prompt`. |
+
+For a fixed deadline, use `timeout: "2 minutes"`; for an input-dependent
+limit, use `timeout: payload => Duration.minutes(payload.timeout)`. The
+callback receives the decoded payload. An omitted timeout adds no action
+deadline. Expiry interrupts outstanding seat resolution, model streams and
+correction/retry work, then fails with `HarnessError` and the message
+`<action tag> timed out.` Caller cancellation remains interruption rather than
+being converted into timeout failure. Host budgets and model-call limits
+continue to apply independently; a deadline does not refund spent budget.
 
 ### AgentAction.Repair
 

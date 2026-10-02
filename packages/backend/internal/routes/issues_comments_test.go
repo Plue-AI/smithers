@@ -47,8 +47,6 @@ func newIssueCommentsHarness(t *testing.T) (*issueCommentsHarness, func(method, 
 	r.Route("/api/repos/{owner}/{repo}/issues", func(r chi.Router) {
 		r.Get("/", h.ListIssues)
 		r.Post("/", h.CreateIssue)
-		r.Put("/sync/channels", h.IssueSyncChannel)
-		r.Post("/sync/events", h.IssueSyncEvent)
 		r.Get("/comments/{id}", h.GetIssueComment)
 		r.Patch("/comments/{id}", h.PatchIssueComment)
 		r.Get("/{number}", h.GetIssue)
@@ -83,24 +81,15 @@ func TestIssueCommentOrigin(t *testing.T) {
 	h, call := newIssueCommentsHarness(t)
 	ctx := context.Background()
 
-	status, raw := call("PUT", "/sync/channels", `{"provider":"slack","connection_id":"workspace","scope_id":"T001","conversation_id":"C001"}`)
-	require.Equal(t, http.StatusOK, status, string(raw))
-	event := func(delivery, message, body string) int64 {
-		t.Helper()
-		status, raw := call("POST", "/sync/events", fmt.Sprintf(`{"provider":"slack","connection_id":"workspace","scope_id":"T001","conversation_id":"C001","thread_id":"100.000001","delivery_key":%q,"message_id":%q,"version":%q,"user_id":"U001","kind":"message","body":%q}`,
-			delivery, message, message, body))
-		require.Equal(t, http.StatusOK, status, string(raw))
-		out := decodeObject(t, raw)
-		require.NotContains(t, out, "ignored", string(raw))
-		return int64(out["issue_id"].(float64))
-	}
-	issueID := event("ev:1", "100.000001", "from slack")
-	event("ev:2", "100.000002", "slack reply")
-	issue, err := h.q.GetIssueByID(ctx, issueID)
+	issue, err := h.svc.CreateIssue(ctx, &h.user, h.user.Username, "repo", services.CreateIssueInput{Title: "historical conversation", Kind: "chat"})
+	require.NoError(t, err)
+	issueID := issue.ID
+	// An installed database's provider-origin comment remains readable.
+	_, err = h.pool.Exec(ctx, `INSERT INTO issue_comments(issue_id,user_id,body,idempotency_key) VALUES($1,$2,'slack reply','slack:100.000002')`, issueID, h.user.ID)
 	require.NoError(t, err)
 	path := fmt.Sprintf("/%d", issue.Number)
 
-	status, raw = call("POST", path+"/comments", `{"body":"from the app","idempotency_key":"app-1"}`)
+	status, raw := call("POST", path+"/comments", `{"body":"from the app","idempotency_key":"app-1"}`)
 	require.Equal(t, http.StatusCreated, status, string(raw))
 	app := decodeObject(t, raw)
 	require.Equal(t, "app", app["origin"], "an API comment is from the app")
@@ -113,13 +102,13 @@ func TestIssueCommentOrigin(t *testing.T) {
 	for _, c := range comments {
 		origins[c["body"].(string)] = c["origin"].(string)
 	}
-	require.Equal(t, "slack", origins["slack reply"], "an intake comment is from Slack: %s", raw)
+	require.Equal(t, "slack", origins["slack reply"], "a historical comment retains Slack origin: %s", raw)
 	require.Equal(t, "app", origins["from the app"])
 	for _, c := range comments {
 		require.Contains(t, []string{"app", "slack"}, c["origin"])
 	}
 
-	// Mirroring the app comment to Slack records its Slack message; it stays an app comment.
+	// A historical external receipt never changes an app comment's origin.
 	_, err = h.pool.Exec(ctx, `INSERT INTO issue_external_messages(issue_id,comment_id,message_id) VALUES($1,$2,'100.000003')`, issueID, appID)
 	require.NoError(t, err)
 	status, raw = call("GET", fmt.Sprintf("/comments/%d", appID), "")
@@ -129,7 +118,7 @@ func TestIssueCommentOrigin(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, string(raw))
 	require.Equal(t, "app", decodeObject(t, raw)["origin"])
 
-	// The intake's message-identity namespace is reserved.
+	// Historical provider identity namespaces remain reserved against spoofing.
 	for _, key := range []string{"slack:100.000009", "telegram:9"} {
 		status, raw = call("POST", path+"/comments", fmt.Sprintf(`{"body":"spoof","idempotency_key":%q}`, key))
 		require.Equal(t, http.StatusBadRequest, status, string(raw))

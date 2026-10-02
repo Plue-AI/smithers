@@ -135,7 +135,7 @@ const localBootstrap = (capabilities: ReadonlyArray<RuntimeCapability>): AppBoot
 /** The web bootstrap with every supported shared capability. */
 const WEB = cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, balance: true, overview: true, plans: true, portal: true, checkout: true, terminal: true, browser: true }))
 /** The Bun server under the desktop shell, with a cloud upstream, the agent, identity and manual paths. */
-const NATIVE = localBootstrap(localCapabilities({ agent: true, identity: true, cloud: true, balance: true, overview: true, plans: true, browser: true, nativeShell: true }))
+const NATIVE = localBootstrap(localCapabilities({ agent: true, identity: true, cloud: true, balance: true, overview: true, plans: true, browser: true }))
 
 /** Every command state the recommendation rule distinguishes. */
 const STATES: ReadonlyArray<CommandState> = (["chat", "world", "connectors", "flows"] as const).flatMap((surface) =>
@@ -239,15 +239,6 @@ describe("host parity — the web and native catalogs against the servers' own c
     expect(names).toContain("files.read")
   })
 
-  test("the host-scoped flows exist exactly where their host is", async () => {
-    const { web, native, unknown } = await registries
-    for (const name of ["app.download", "app.download.prompt"]) {
-      expect(`${name} on web: ${web.commands.find(name) !== undefined}`).toBe(`${name} on web: true`)
-      expect(`${name} on native: ${native.commands.find(name) !== undefined}`).toBe(`${name} on native: false`)
-      expect(`${name} without a host: ${unknown.commands.find(name) !== undefined}`).toBe(`${name} without a host: false`)
-    }
-  })
-
   test("(c) box.terminal is present exactly when cloud.terminal is", async () => {
     const withRelay = await controllerFor(
       cloudBootstrap(cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: true }))
@@ -293,10 +284,10 @@ describe("host parity — the web and native catalogs against the servers' own c
     const everything = new Set<RuntimeCapability>([
       ...productCapabilities,
       ...cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: true, browser: true }),
-      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true, nativeShell: true })
+      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true })
     ])
-    /* Every capability the schema names is emitted by some host; an orphan fails here. */
-    const orphans = RuntimeCapabilitySchema.options.filter((capability) => !everything.has(capability))
+    /* Every current capability has a host row. native.shell remains decode-only for historical records. */
+    const orphans = RuntimeCapabilitySchema.options.filter((capability) => capability !== "native.shell" && !everything.has(capability))
     expect(orphans).toEqual([])
   })
 
@@ -401,43 +392,6 @@ describe("host parity — the web and native catalogs against the servers' own c
       const file = host.querySelector('[data-kind="file"]')!
       expect(webNames.has("code.hover")).toBe(true)
       expect(file.textContent).not.toContain("needs the native app")
-    } finally {
-      flushSync(() => root.unmount())
-      await controller.dispose()
-      host.remove()
-    }
-  })
-
-  test("(a″) the web DOM's data-flow controls and data-flows manifest name only web-registered flows", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = scopedController(store, unavailableAgent, {
-      bootstrap: WEB,
-      // The download button renders only while a native release exists to download; the sweep must see it.
-      downloadUrl: "https://example.test/download",
-      fetchImpl: async () =>
-        new Response(JSON.stringify({ status: "error" }), { status: 404, headers: { "content-type": "application/json" } })
-    })
-    await controller.adoptSession({ state: "signed-out", login: null, admin: false })
-    // Download is now an explicit embedded prompt, not permanent shell chrome.
-    await controller.commands.runForAgent("app.download.prompt")
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    const host = document.createElement("div")
-    document.body.append(host)
-    const root = createRoot(host)
-    flushSync(() => root.render(createElement(ControllerTestProvider, { controller, children: createElement(App) })))
-    try {
-      const webNames = new Set(controller.commands.all().map((command) => command.name))
-      const nativeOnlyNames = new Set((await declared()).filter((entry) => nativeOnly(entry.metadata)).map(nameOf))
-      const manifest = host.querySelector(".app-shell")?.getAttribute("data-flows")?.split(" ") ?? []
-      expect(manifest.length).toBeGreaterThan(20)
-      expect(manifest.filter((name) => !webNames.has(name))).toEqual([])
-      expect(manifest.filter((name) => nativeOnlyNames.has(name))).toEqual([])
-      const rendered = [...new Set([...host.querySelectorAll("[data-flow]")].map((el) => el.getAttribute("data-flow") ?? ""))]
-      // The funnel's two controls are on the page, so the sweep covers them.
-      expect(rendered).toContain("auth.sign-in")
-      expect(rendered).toContain("app.download")
-      expect(rendered.filter((name) => !webNames.has(name))).toEqual([])
-      expect(rendered.filter((name) => nativeOnlyNames.has(name))).toEqual([])
     } finally {
       flushSync(() => root.unmount())
       await controller.dispose()

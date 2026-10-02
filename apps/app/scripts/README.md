@@ -12,9 +12,8 @@ E2E and live-check scripts. Unless a section says otherwise, run them from
 | `pnpm run test:e2e:auth` | `e2e/native/CloudAuthFragment.test.ts` | Playwright Chromium; starts isolated loopback OAuth fixtures |
 | `pnpm run test:e2e:site` | Specs under `e2e/site/` | Playwright Chromium; builds and previews `apps/site` |
 | `pnpm run test:e2e:probes` | Tests under `e2e/probes/` | Playwright Chromium; no server and no deployed host |
-| `pnpm run test:e2e:packaged` | Bridge, fixture lease and packaged-app tests named by `e2e/packaged/run.ts` | Packaged Electrobun app |
 
-Native process probes are Bun tests, separate from Playwright specs. `lint/conformance/TestInventory.test.ts`
+Headless host process probes are Bun tests, separate from Playwright specs. `lint/conformance/TestInventory.test.ts`
 checks that each test file belongs to an executable runner. The `unitTests`
 target uses the same discovery as `pnpm test`; its inputs include scripts,
 E2E harnesses, configs and RPC fixtures. It depends on the RPC, gateway and

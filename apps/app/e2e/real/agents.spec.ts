@@ -2,7 +2,8 @@ import { AGENT_ROLES } from "@smthrs/rpc/AgentRoles"
 import type { Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { closeComposer, command, expect, reloadApp, test } from "./support"
-import { boot, listModels, modelsCard } from "./models/ui"
+import { openApp, awaitBoot } from "./support"
+const boot = async (page: Page) => { const at = performance.now(); await openApp(page); await awaitBoot(page, "navigate", at) }
 
 const BUILTIN_ROLE_IDS = AGENT_ROLES.map((role) => role.id)
 
@@ -38,9 +39,9 @@ test("/agent.list opens one durable Agents card that survives a reload", scenari
   await expectBuiltinRoles(page)
 
   // A later card takes the tail; a second /agent.list brings the same Agents card back to it instead of adding a second.
-  await listModels(page)
-  await expect(cards(page).last()).toHaveAttribute("data-kind", "models")
-  await expect(modelsCard(page)).toBeVisible()
+  await command(page, "/account.show")
+  await closeComposer(page)
+  await expect(cards(page).last()).toHaveAttribute("data-kind", "account")
   await command(page, "/agent.list")
   await closeComposer(page)
   await expect(page.getByTestId("chrome-actions")).toHaveCount(0)

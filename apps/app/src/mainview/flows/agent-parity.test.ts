@@ -54,7 +54,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "card.minimize": "minimizing a card is the human's explicit act",
   "frame.back": "frame navigation is the human's browser gesture",
   "frame.forward": "frame navigation is the human's browser gesture",
-  "frame.fork": "forking a frame is the human's browser gesture",
   "wiki.delete.confirm": "a confirm-dialog answer is the human's",
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
@@ -67,7 +66,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "world.delete.cancel": "a confirm-dialog answer is the human's",
   "auth.sign-in": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
   "auth.sign-out": "dropping the human's session is theirs alone",
-  "app.download": "a browser handoff the human clicks; the agent renders the step with app.download.prompt",
   "cloud.sign-in": "the Smithers Cloud browser login is the human's gesture on their account; the agent renders the step with cloud.prompt",
   "cloud.sign-out": "dropping the human's Smithers Cloud credential is theirs alone",
   "toast.dismiss": "dismissing a toast is the human's gesture",
@@ -278,39 +276,6 @@ describe("the three-door law", () => {
     expect(store.collections.tabs.size).toBe(tabsBefore)
     expect(store.collections.tabs.get("card-card-1")?.kind).toBe("card")
     expect(store.session().workspaceName).toBe("Force")
-  })
-
-  /*
-   * `/desktop` is consequential — it launches a box and mints a live
-   * machine's credential — so the model may ASK for it and never perform it.
-   * The ask is one confirmation for the whole act, and it BINDS the
-   * repository it resolved: a confirmation waits for a human, the selection
-   * moves while it waits, and the button must run the act the message named.
-   */
-  test("the agent's bare /desktop confirms once, naming and binding the repository the ask resolved", async () => {
-    const { controller, store } = await boot()
-    cloudSession(store, "signed-in", "will")
-    store.dispatch({
-      type: "repositories.loaded",
-      actor: "system",
-      repositories: [
-        { id: "will/smithers", org: "will", ownerKind: "user", name: "smithers", head: { bookmark: "main", changeId: "q", commitId: "c" } },
-        { id: "will/force", org: "will", ownerKind: "user", name: "force", head: { bookmark: "main", changeId: "q", commitId: "c" } }
-      ]
-    })
-    store.dispatch({ type: "repo.selected", actor: "user", id: "will/smithers" })
-    await settle()
-    const result = await execute(controller, "desktop")
-    expect(result).toContain("asked the user to confirm")
-    const confirmation = confirmationFor(store, "desktop")
-    expect(confirmation?.text).toContain("open a desktop box on will/smithers")
-    /* The bare line became an explicit one: the button cannot drift to another repository. */
-    expect(confirmation?.action?.args).toBe(JSON.stringify({ repo: "will/smithers" }))
-    /* Switching the selection afterwards changes nothing the confirmation will run. */
-    store.dispatch({ type: "repo.selected", actor: "user", id: "will/force" })
-    await settle()
-    expect(confirmationFor(store, "desktop")?.action?.args).toBe(JSON.stringify({ repo: "will/smithers" }))
-    controller.dispose()
   })
 
   test("cloud.prompt renders the Smithers Cloud sign-in step; signed in it says so", async () => {

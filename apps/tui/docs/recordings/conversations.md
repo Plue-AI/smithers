@@ -37,18 +37,7 @@ Wait for answer "Ready."
 Capture "Continue the original conversation."
 ```
 
-```tui-script fork-session
-Use "basic"
-Type "Explain the addition function."
-Press Enter
-Wait for answer "Ready."
-Type "/fork"
-Press Enter
-Wait for "Explain the addition"
-Capture "Choose the message where the conversation should branch."
-Press Enter
-Capture "Start a new conversation with the selected message in the editor."
-```
+
 
 ```tui-script compact-context
 Use "basic"

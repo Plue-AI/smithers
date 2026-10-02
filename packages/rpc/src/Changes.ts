@@ -412,14 +412,13 @@ export const ChangeLandedSchema = z.object({
  */
 export type ChangeLanded = z.infer<typeof ChangeLandedSchema>
 
-/** The walkthrough artifact for one revision (plue#465): sections with optional Mermaid, and the quiz verbatim.
+/** The walkthrough artifact for one revision (plue#465): sections with optional Mermaid.
  * @since 1.0.0
  * @category schemas
  */
 export const ChangeWalkthroughSchema = z.object({
   seq: z.number().int().positive().nullable(),
   sections: z.array(z.object({ title: z.string(), markdown: z.string(), diagram: z.string().nullable() })),
-  quiz: z.array(z.unknown())
 })
 /**
  * The decoded value accepted by {@link ChangeWalkthroughSchema}.

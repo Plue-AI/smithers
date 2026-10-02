@@ -3,7 +3,7 @@ import { releaseInterruptedApproval } from "../ApprovalRecovery"
 import { lostActRefusal } from "../BrowserWriteFailure"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { AGENT_RUNTIME_CONTEXT_VERSION } from "@smthrs/rpc/AgentContext"
-import { hasCapability, nativeShell } from "@smthrs/rpc/AppBootstrap"
+import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import { setupCandidate, storedSetupCandidate } from "@smthrs/rpc/RepositorySetup"
 import type { AgentChatMessage,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
@@ -34,8 +34,6 @@ import { toolActLine } from "../ToolActLine"
 import { WORLD_BODY_BUDGET,worldContextDocuments } from "../WorldContext"
 import { knowledgeCardAvailable } from "../KnowledgeFeatures"
 import { isRuntimeOwnedCard } from "../isRuntimeOwnedCard"
-import { readDesktopStream } from "../seams/DesktopStream"
-import { downloadUrlOf } from "./app"
 import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { createHttpTurnDriver } from "./httpTurns"
@@ -63,7 +61,6 @@ export interface TurnControllerDependencies {
   /** The next transcript ordinal, so a refusal card lands at the end of the conversation. */
   readonly nextOrdinal: () => number
   readonly surfaceCommandFailure: FailureController["surfaceCommandFailure"]
-  readonly credentialMissing?: () => void
   readonly forwardApprovalDecision: (
     card: Extract<Card, { kind: "approval" }>,
     decision: "approved" | "denied",
@@ -93,7 +90,7 @@ export const createTurnController = (
   dependencies: TurnControllerDependencies
 ): TurnController => {
   const { store, agent } = ctx
-  const { settleTurnBilling, nextOrdinal, surfaceCommandFailure, forwardApprovalDecision, forwardInboxApprovalDecision, credentialMissing } =
+  const { settleTurnBilling, nextOrdinal, surfaceCommandFailure, forwardApprovalDecision, forwardInboxApprovalDecision } =
     dependencies
 
   // The cloud host authenticates ordinary turns; its public catalog is the
@@ -255,7 +252,6 @@ export const createTurnController = (
             id: card.payload.workspaceId, repo: card.payload.repo,
             kind: card.payload.workspaceKind ?? "unknown", status: card.payload.status,
             facet: card.payload.facet ?? "terminal",
-            streaming: readDesktopStream(card.payload.workspaceId) !== null,
           } } : {}),
           /*
            * The open setup's own draft. Asked "what will run automatically?"
@@ -348,9 +344,6 @@ export const createTurnController = (
         "Hold a streaming conversation in this chat and read its visible transcript.",
         "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
         "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
-        ...(ctx.commands.find("box.desktop.open") === undefined ? [] : [
-          "Open a live cloud desktop inside this browser chat with box.desktop.open [bookmark] [owner/repo] (alias desktop). It creates or reuses a desktop box and embeds its live screen; the user can interact with it and explicitly maximize or restore the card. This feature does not require the native app. Use the existing box state in recent cards; an attached stream is already open, not a reason to offer sign-in. You cannot infer screen contents from the stream's presence.",
-        ]),
         "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat.",
         ...(exploring === null
           ? []
@@ -387,8 +380,6 @@ export const createTurnController = (
     const catalog = agentVisibleCatalog(ctx.commands.callable())
     return smithersInstructions(catalog, {
       // The bootstrap is the one authority for the mode: the desktop shell's row says native; every web origin, hosted or self-hosted, is the web app.
-      host: nativeShell(ctx.services.bootstrap) ? "native" : "web",
-      nativeDownloadable: downloadUrlOf(ctx.services) !== null,
       github: {
         connected: githubConnected,
         login: githubConnected ? identity?.login ?? null : null,
@@ -876,7 +867,6 @@ export const createTurnController = (
       ctx.activeTurn = undefined
       settleRunClaims(turn)
       if (frame.error !== undefined) {
-        if (frame.code === "credential_missing") credentialMissing?.()
         store.dispatch({
           type: "message.response.failed",
           actor: "system",

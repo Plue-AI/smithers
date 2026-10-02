@@ -10,7 +10,7 @@ import type { Card, WikiIndexRow, WorldDocument } from "../state/AppState"
 import { CLOUD_WIKI_PAGE_FAILURES, WIKI_INDEX_FAILURE, WIKI_SPACE_UNREADABLE } from "../wiki/CloudWikiFailure"
 import type { CloudWikiState } from "../wiki/CloudWikiState"
 import { WikiTree } from "../wiki/WikiNavigation"
-import { BROWSER_READ_FAILURE, BrowserCardBody, ConnectCardBody, INTEGRATION_FAILURES, WorldCardBody } from "./ConversationCards"
+import { WorldCardBody } from "./ConversationCards"
 
 const wikiAccount = { store: { collections: { identitySessions: new Map([["identity", { state: "signed-in", login: "octo" }]]) } } } as unknown as AppController
 const ScopedWorldCard = (props: Parameters<typeof WorldCardBody>[0]) => <ControllerContext.Provider value={wikiAccount}><WorldCardBody {...props} /></ControllerContext.Provider>
@@ -40,68 +40,6 @@ const recorder = () => {
   const calls: Call[] = []
   return { calls, run: (name: string, args?: string) => { const parsed = payloadFor(name as never, args); calls.push({ name, payload: "payload" in parsed ? parsed.payload : parsed }) } }
 }
-
-describe("integration rows", () => {
-  const connect = (rows: NonNullable<Extract<Card, { kind: "connect" }>["payload"]["integrations"]>["rows"]): Extract<Card, { kind: "connect" }> => ({
-    id: "connect-embedded", kind: "connect", title: "Connect", status: "active", createdAt: 1, ordinal: 1,
-    payload: { provider: "github", github: { connected: true, login: "octo" }, nativeAvailable: false, integrations: { repo: "acme/app", rows } }
-  } as Extract<Card, { kind: "connect" }>)
-
-  test("a service's failure says which service, keeps the server's words in Details, and retries the read", () => {
-    const { calls, run } = recorder()
-    const host = render(<ConnectCardBody card={connect([
-      { id: "slack", state: "error", error: "Reading the Slack channels failed (500)" }
-    ])} onConnectGitHub={() => {}} onRunCommand={run} />)
-    for (const [id, raw] of [["slack", "Reading the Slack channels failed (500)"]] as const) {
-      const notice = host.querySelector<HTMLElement>(`[data-testid="integration-failure-${id}"]`)!
-      expect(notice.getAttribute("role")).toBe("alert")
-      expect(notice.dataset.fault).toBe("infra")
-      expect(notice.dataset.failure).toBe(`IntegrationFailed.${id}`)
-      expect(sentenceOf(notice)).toBe(INTEGRATION_FAILURES[id].sentence)
-      expect(sentenceOf(notice)).not.toContain(raw)
-      expect(notice.querySelector("details")?.open).toBe(false)
-      expect(notice.querySelector("details pre")?.textContent).toBe(raw)
-      notice.querySelector<HTMLButtonElement>("button")!.click()
-    }
-    expect(INTEGRATION_FAILURES.slack.sentence).toContain("Slack")
-    expect(Object.keys(INTEGRATION_FAILURES)).toEqual(["slack"])
-    expect(calls).toEqual([{ name: "integrations.list", payload: { repo: "acme/app" } }])
-  })
-
-  test("only a disconnected Slack row offers Connect, and it opens the admission flow for the card's repository", () => {
-    const { calls, run } = recorder()
-    const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "not-connected" }])} onConnectGitHub={() => {}} onRunCommand={run} />)
-    expect(host.querySelectorAll('[data-integration] button')).toHaveLength(1)
-    const button = host.querySelector<HTMLButtonElement>('[data-integration="slack"] button')!
-    expect(button.textContent).toBe("Connect")
-    button.click()
-    expect(calls).toEqual([{ name: "integrations.admit", payload: { repo: "acme/app" } }])
-    for (const state of ["connected", "unavailable", "error"] as const) {
-      const other = render(<ConnectCardBody card={connect([{ id: "slack", state, ...(state === "error" ? { error: "x" } : {}) }])} onConnectGitHub={() => {}} onRunCommand={() => {}} />)
-      expect(Array.from(other.querySelectorAll('[data-integration="slack"] button')).map(node => node.textContent)).not.toContain("Connect")
-    }
-  })
-
-  test("a healthy row draws no failure", () => {
-    const host = render(<ConnectCardBody card={connect([{ id: "slack", state: "connected", detail: "C123" }])} onConnectGitHub={() => {}} onRunCommand={() => {}} />)
-    expect(host.querySelector('[data-testid^="integration-failure-"]')).toBeNull()
-  })
-})
-
-test("a browser card's refusal is one sentence with the page's words behind Details", () => {
-  const raw = "HTTP 502 upstream_timeout: fetch https://example.com/ failed"
-  const card = {
-    id: "browser-x", kind: "browser", title: "page", status: "error", createdAt: 0, ordinal: 0,
-    payload: { url: "https://example.com/", finalUrl: null, status: 0, frameable: false, blockReason: null, error: raw }
-  } as Extract<Card, { kind: "browser" }>
-  const notice = render(<BrowserCardBody card={card} />).querySelector<HTMLElement>('[data-testid="browser-card-failure"]')!
-  expect(notice.dataset.failure).toBe("BrowserReadFailed")
-  expect(notice.dataset.fault).toBe("infra")
-  expect(sentenceOf(notice)).toBe(BROWSER_READ_FAILURE.sentence)
-  expect(sentenceOf(notice)).not.toContain("502")
-  expect(notice.querySelector("details pre")?.textContent).toBe(raw)
-  expect(notice.querySelectorAll("button").length).toBe(0)
-})
 
 describe("a Wiki page's sync failure, keyed on its phase", () => {
   const document = (phase: CloudWikiState["phase"], error: string | null): WorldDocument => ({

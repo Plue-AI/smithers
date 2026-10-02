@@ -375,6 +375,14 @@ export interface Options<
   readonly modelParams?: ModelRequest.GenerationParams | undefined
   readonly maxFrames?: number | undefined
   /**
+   * Bounds the whole action, including seat resolution, retries and corrections.
+   * Accepts a constant duration or a duration callback over the decoded payload.
+   * Caller cancellation remains interruption; an omitted option adds no deadline.
+   * The host's model-call limits and shared budget still apply independently.
+   * Expiry interrupts the agent and returns a typed HarnessError.
+   */
+  readonly timeout?: Duration.Input | ((payload: PayloadSchemaOf<Payload>["Type"]) => Duration.Input) | undefined
+  /**
    * The idle bound for an action whose frames are meant to change files:
    * consecutive frames that write nothing before the run is asked for an
    * edit, and twice that before it fails `read_only_cap`. Omitted disarms it,
@@ -1127,5 +1135,11 @@ export const implement = <
       )
     })
 
-  return declared.toLayer(execute)
+  return declared.toLayer((payload) => options.timeout === undefined ? execute(payload) : execute(payload).pipe(
+    Effect.interruptible,
+    Effect.timeoutOrElse({
+      duration: typeof options.timeout === "function" ? options.timeout(payload) : options.timeout,
+      orElse: () => Effect.fail(new HarnessError({ code: "model_failed", message: `${tag} timed out.` }))
+    })
+  ))
 }

@@ -123,16 +123,7 @@ const (
 )
 
 // Desktop observe/input verdicts. See docs/specs/workspaces.md.
-const (
-	CodeDesktopNotReady         Code = "desktop_not_ready"
-	CodeDesktopNotRunning       Code = "desktop_not_running"
-	CodeDesktopBusy             Code = "desktop_busy"
-	CodeDesktopToolsUnavailable Code = "desktop_tools_unavailable"
-	CodeDesktopFrameChanged     Code = "frame_changed"
-	CodeDesktopFocusTerminal    Code = "focus_terminal"
-	CodeDesktopActRepeated      Code = "desktop_act_repeated"
-	CodeDesktopInputOutOfBounds Code = "desktop_input_out_of_bounds"
-)
+const ()
 
 // Workspace terminal and language-server sessions.
 const (
@@ -377,13 +368,10 @@ var registry = map[Code]Entry{
 	CodeGitHubForbiddenAction: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it."},
 	// The box is up but its desktop helpers have not finished linking; the
 	// same request works seconds later.
-	CodeDesktopNotReady: {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 2, Doc: "The box is up but its desktop helpers have not finished linking; the same request works seconds later."},
 	// The box is suspended, failed, or has no VM. Observe and input never
 	// auto-resume: the caller asks for a resume first.
-	CodeDesktopNotRunning: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The box is suspended, failed, or has no VM. Observe and input never auto-resume: the caller asks for a resume first."},
 	// Another action holds this box's desktop lock. Nothing was injected;
 	// retry once the other action returns.
-	CodeDesktopBusy: {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 1, Doc: "Another action holds this box's desktop lock. Nothing was injected; retry once the other action returns."},
 	// The box booted from an image older than the one shipping the desktop
 	// helpers. It is terminal for that box.
 	//
@@ -394,19 +382,14 @@ var registry = map[Code]Entry{
 	// did anything wrong. The status stays 409 because nothing is down — the
 	// box's own image is the conflict — and no retry against this box can ever
 	// succeed, so it carries no retry window.
-	CodeDesktopToolsUnavailable: {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The box booted from an image older than the one shipping the desktop helpers. It is terminal for that box, and it is plue's rollout lag rather than anything the caller did."},
 	// The framebuffer geometry moved between the observation the plan was
 	// aimed at and the injection. Nothing was injected.
-	CodeDesktopFrameChanged: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The framebuffer geometry moved between the observation the plan was aimed at and the injection. Nothing was injected."},
 	// The focused window is a terminal and the caller did not set
 	// allow_terminal, so the keystroke was refused.
-	CodeDesktopFocusTerminal: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The focused window is a terminal and the caller did not set allow_terminal, so the keystroke was refused."},
 	// This act_id already ran on this box; the guest replayed its verdict
 	// instead of acting twice.
-	CodeDesktopActRepeated: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "This act_id already ran on this box; the guest replayed its verdict instead of acting twice."},
 	// A positioned action fell outside the live framebuffer. Earlier actions
 	// in the same plan may already have run.
-	CodeDesktopInputOutOfBounds: {Status: http.StatusUnprocessableEntity, Fault: FaultUser, RetryAfter: 0, Doc: "A positioned action fell outside the live framebuffer. Earlier actions in the same plan may already have run."},
 	// The box has no binary for the session's language. The message is the
 	// install line, verbatim.
 	CodeLanguageServerMissing: {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The box has no binary for the session's language. The message is the install line, verbatim."},

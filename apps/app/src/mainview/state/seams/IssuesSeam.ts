@@ -3,8 +3,6 @@ import { readRepositoryDetail } from "../RepositoryReadReceipts"
 import { readRepositoryListError,repositoryListRead,type RepositoryForm } from "./RepositoryListSeam"
 
 import type { Card } from "../AppState"
-import { actorSharedState } from "../ActorBindings"
-import { TOAST_SUPERSEDED } from "../controller/failures"
 import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
 import { resolveTargetRepo, selectedBoxBinding } from "../RepoContext"
@@ -30,8 +28,6 @@ export interface IssuesSeam {
   readonly reactToIssueComment: (number: number, commentId: number, name: string, active: boolean, repo?: string) => Promise<string | void>
 
   readonly subscribe: (onDispose: (release: () => void) => void) => void
-  readonly resolveIssueSync: (cardId: string, deliveryId: number, action: "sent" | "skip" | "retry", evidence: string, messageId: string) => Promise<string | void>
-  readonly mapIssueSync: (number: number, mapping: Omit<NonNullable<IssuePayload["sync"]>, "state" | "error">, repo?: string) => Promise<string | void>
   /** Renders the list card and answers the rows as text (the model reads the value, never the card). */
   readonly listIssues: ViewAction<[filter: "open" | "closed" | "all", repo?: string, kind?: IssueKindFilter, view?: string]>
   readonly viewIssue: ViewAction<[number: number, repo?: string, source?: "smithers-cloud" | "github"]>
@@ -52,17 +48,6 @@ type IssueListPayload = Extract<Card, { kind: "issue-list" }>["payload"]
 type IssueListRow = IssueListPayload["issues"][number]
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 type IssueCommentRow = IssuePayload["comments"][number]
-type ResolutionRequest = NonNullable<NonNullable<IssuePayload["sync"]>["resolution"]>
-type ResolutionFlight = {
-  readonly repo: string
-  readonly number: number
-  readonly request: ResolutionRequest
-  readonly ownerValid: () => boolean
-  admission?: Promise<void>
-  admitting: boolean
-  started: boolean
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
 
@@ -550,17 +535,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       return `The backend answered issue #${number} in ${repo} with an unreadable payload`
     }
     if (payload.kind === "chat") {
-      const mapping = await ctx.http(`${issuesPath(repo)}/${number}/sync`)
-      if (mapping.ok) {
-        const wire: unknown = await mapping.json().catch(() => null)
-        if (isRecord(wire) && (wire.provider === "slack" || wire.provider === "telegram") && typeof wire.connection_id === "string" && typeof wire.scope_id === "string" && typeof wire.conversation_id === "string") {
-          payload.sync = { provider: wire.provider, connectionId: wire.connection_id, scopeId: wire.scope_id, conversationId: wire.conversation_id, ...(typeof wire.thread_id === "string" && wire.thread_id ? { threadId: wire.thread_id } : {}), ...(typeof wire.external_user_id === "string" && wire.external_user_id ? { externalUserId: wire.external_user_id } : {}) }
-          if (wire.state === "synced" || wire.state === "pending" || wire.state === "dispatching" || wire.state === "outcome_unknown" || wire.state === "failed" || wire.state === "unsupported") payload.sync.state = wire.state
-          if (typeof wire.resolution_token === "string") payload.sync.resolutionToken = wire.resolution_token
-          if (typeof wire.delivery_id === "number" && wire.delivery_id > 0) payload.sync.deliveryId = wire.delivery_id
-          if (typeof wire.error === "string" || wire.error === null) payload.sync.error = wire.error
-        }
-      } else if (mapping.status !== 404) return readErrorMessage(mapping, `Loading sync settings failed (${mapping.status})`)
       for (const comment of payload.comments) {
         if (comment.id === undefined) continue
         const response = await ctx.http(`${issuesPath(repo)}/${number}/comments/${comment.id}/reactions`)
@@ -842,74 +816,10 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     }).finally(() => { active!.delete(cardId); if (currentOwner()) drainComments(cardId) })
   }
 
-  const resolvingSync = actorSharedState(ctx, "issues.resolutions", () => new Map<string, ResolutionFlight>())
-  const ownsResolution = (cardId: string, flight: ResolutionFlight) => resolvingSync.get(cardId) === flight && flight.ownerValid()
-  const matchesResolution = (card: Card | undefined, flight: ResolutionFlight): boolean => {
-    if (card?.kind !== "issue" || card.payload.repo !== flight.repo || card.payload.number !== flight.number) return false
-    const sync = card.payload.sync, request = sync?.resolution, wanted = flight.request
-    return sync?.state === "outcome_unknown" && sync.deliveryId === wanted.deliveryId && sync.resolutionToken === wanted.expectedToken &&
-      request?.status === "requested" && request.owner === wanted.owner && request.deliveryId === wanted.deliveryId &&
-      request.expectedToken === wanted.expectedToken && request.action === wanted.action && request.evidence === wanted.evidence && request.messageId === wanted.messageId
-  }
-  const resolutionFlight = (card: Extract<Card, { kind: "issue" }>, request: ResolutionRequest, admitting: boolean): ResolutionFlight => ({
-    repo: card.payload.repo, number: card.payload.number, request, ownerValid: captureCloudOwner(ctx, false), admitting, started: false
-  })
-  const drainResolution = (cardId: string) => {
-    const card = ctx.store.collections.cards.get(cardId)
-    const request = card?.kind === "issue" ? card.payload.sync?.resolution : undefined
-    if (ctx.isDisposed?.() || card?.kind !== "issue" || request?.status !== "requested" || request.owner !== signedInOwner()) return
-    let flight = resolvingSync.get(cardId)
-    if (flight && ownsResolution(cardId, flight) && matchesResolution(card, flight)) {
-      if (flight.admitting || flight.started) return
-    } else {
-      flight = resolutionFlight(card, request, false)
-      if (!matchesResolution(card, flight)) return
-      resolvingSync.set(cardId, flight)
-    }
-    const mine = flight
-    mine.started = true
-    const valid = () => ownsResolution(cardId, mine)
-    const current = () => valid() && matchesResolution(ctx.store.collections.cards.get(cardId), mine)
-    const work = async () => {
-      if (!current()) return TOAST_SUPERSEDED
-      let failure: string | undefined
-      try {
-        const response = await ctx.http(`${issuesPath(card.payload.repo)}/sync/deliveries/${request.deliveryId}`, {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ resolution: request.action, expected_token: request.expectedToken, state: { sent: "sent", skip: "unsupported", retry: "pending" }[request.action], error: request.evidence, message_id: request.messageId })
-        })
-        if (!response.ok) failure = await readErrorMessage(response, `Resolution failed (${response.status})`)
-        else await response.body?.cancel().catch(() => {})
-      } catch { failure = "Resolution unconfirmed: nothing answered." }
-      if (!current()) return TOAST_SUPERSEDED
-      await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: failure ? { ...request, status: "failed", error: failure } : undefined } }), "system")
-      const before = ctx.store.collections.cards.get(cardId)
-      if (!valid() || before?.kind !== "issue" || before.payload.repo !== mine.repo || before.payload.number !== mine.number ||
-          before.payload.sync?.deliveryId !== request.deliveryId || before.payload.sync.resolutionToken !== request.expectedToken) return TOAST_SUPERSEDED
-      if (failure) return failure
-      // A successful write still needs an authoritative read. A newer request
-      // or card edit owns the projection while this read is outstanding.
-      const snapshot = JSON.stringify(before.payload)
-      const result = await readIssue(mine.repo, mine.number)
-      const latest = ctx.store.collections.cards.get(cardId)
-      if (!valid() || latest?.kind !== "issue" || JSON.stringify(latest.payload) !== snapshot) return TOAST_SUPERSEDED
-      if (typeof result === "string") return `Delivery resolved, but refreshing the card failed: ${result}`
-      if (result.card.kind === "issue") await ctx.dispatch({ type: "card.view.loaded", actor: "system", card: {
-        ...latest, title: result.card.title, payload: { ...result.card.payload,
-          conversation: latest.payload.conversation, commentDraft: latest.payload.commentDraft, pendingComments: latest.payload.pendingComments }
-      } }).isPersisted.promise
-      if (!valid()) return TOAST_SUPERSEDED
-    }
-    void (ctx.withToast ? ctx.withToast(`issue.resolve:${cardId}`, "Resolving delivery", "Delivery resolved", work, false, valid, cardId) : work())
-      .finally(() => { if (resolvingSync.get(cardId) === mine) resolvingSync.delete(cardId) })
-  }
-
   // Remote issue comments are authoritative. Restored cards reconnect through
   // the same read path; a poll is only a projection refresh, never a chat store.
   const subscribe: IssuesSeam["subscribe"] = onDispose => {
     const watches = new Map<string, { stop: () => void; address: string }>()
-    const deliveryStatuses = new Map<string, string>()
-    const deliveryWork = new Map<string, (failure?: string) => void>()
     let disposed = false
     const reconcile = () => {
       if (disposed) return
@@ -918,29 +828,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       const cards = [...ctx.store.collections.cards.values()].flatMap(card => signedIn && card.kind === "issue" && card.payload.kind === "chat" && card.payload.source !== "github" && !card.loading && (!card.payload.conversation || card.payload.conversation.owner === signedInOwner() && card.payload.conversation.branchId === ctx.store.session().activeBranchId) ? [card] : [])
       const wanted = new Map(cards.map(card => [card.id, `${card.payload.repo}:${card.payload.number}`]))
       for (const [id, watch] of watches) if (wanted.get(id) !== watch.address) { watch.stop(); watches.delete(id) }
-      for (const [id, settle] of deliveryWork) if (!wanted.has(id)) { deliveryWork.delete(id); deliveryStatuses.delete(id); settle() }
       for (const card of cards) {
-        const delivery = card.payload.sync
-        const deliveryKey = JSON.stringify([delivery?.state, delivery?.error])
-        if (ctx.withToast && delivery?.state && deliveryStatuses.get(card.id) !== deliveryKey) {
-          deliveryStatuses.set(card.id, deliveryKey)
-          const pending = delivery?.state === "pending" || delivery?.state === "dispatching"
-          const failure = delivery?.state === "outcome_unknown" ? "Delivery unconfirmed. Resolve to continue."
-            : delivery?.state === "failed" || delivery?.state === "unsupported" ? delivery.error || "Message delivery failed." : undefined
-          if (!pending) {
-            const settle = deliveryWork.get(card.id)
-            if (settle) { deliveryWork.delete(card.id); settle(failure) }
-            else void ctx.withToast(`issue.delivery:${card.id}`, "Message sync", "Messages synced", async () => failure, true, captureCloudOwner(ctx, false), card.id)
-          } else if (!deliveryWork.has(card.id)) {
-            const settled = new Promise<string | undefined>(resolve => { deliveryWork.set(card.id, resolve) })
-            const ownerValid = captureCloudOwner(ctx, false)
-            const current = () => {
-              const live = ctx.store.collections.cards.get(card.id)
-              return ownerValid() && live?.kind === "issue" && !live.loading && live.payload.repo === card.payload.repo && live.payload.number === card.payload.number && (!card.payload.conversation || card.payload.conversation.owner === signedInOwner() && card.payload.conversation.branchId === ctx.store.session().activeBranchId)
-            }
-            void ctx.withToast(`issue.delivery:${card.id}`, "Syncing messages", "Messages synced", () => settled, false, current, card.id)
-          }
-        }
         if (card.payload.conversation && card.payload.comments.some(comment => comment.idempotencyKey === `message-${ctx.store.session().turnId}-user`)) {
           const owner = ctx.store.collections.identitySessions.get("identity")?.login ?? ctx.store.collections.cloudSessions.get("cloud")?.username
           if (card.payload.conversation.owner === owner && card.payload.conversation.branchId === ctx.store.session().activeBranchId) {
@@ -954,7 +842,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
           }
         }
         drainComments(card.id)
-        drainResolution(card.id)
         if (card.payload.number === 0) continue
         if (watches.has(card.id)) continue
         let stopped = false
@@ -974,7 +861,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
             if (typeof result === "string") return result
             const previous = ctx.store.collections.cards.get(card.id)
             if (previous?.kind !== "issue" || result.card.kind !== "issue" || previous.payload.number !== card.payload.number || previous.payload.repo !== card.payload.repo || JSON.stringify(previous.payload) !== startedPayload) return
-            const payload = { ...result.card.payload, sync: result.card.payload.sync && { ...result.card.payload.sync, resolution: previous.payload.sync?.resolution }, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments }
+            const payload = { ...result.card.payload, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments }
             if (JSON.stringify(previous.payload) === JSON.stringify(payload)) return
             await ctx.dispatch({ type: "card.view.loaded", actor: "system", card: { ...previous, title: result.card.title, payload } }).isPersisted.promise
           }
@@ -995,8 +882,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!ownerValid()) {
         for (const watch of watches.values()) watch.stop()
         watches.clear()
-        for (const settle of deliveryWork.values()) settle()
-        deliveryWork.clear(); deliveryStatuses.clear()
         ownerValid = captureCloudOwner(ctx, false)
       }
       schedule()
@@ -1004,7 +889,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     const identity = ctx.store.collections.identitySessions.subscribeChanges(retire)
     const cloud = ctx.store.collections.cloudSessions.subscribeChanges(retire)
     reconcile()
-    onDispose(() => { disposed = true; changes.unsubscribe(); session.unsubscribe(); identity.unsubscribe(); cloud.unsubscribe(); for (const watch of watches.values()) watch.stop(); watches.clear(); for (const settle of deliveryWork.values()) settle(); deliveryWork.clear() })
+    onDispose(() => { disposed = true; changes.unsubscribe(); session.unsubscribe(); identity.unsubscribe(); cloud.unsubscribe(); for (const watch of watches.values()) watch.stop(); watches.clear() })
   }
 
   return {
@@ -1044,64 +929,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!response.ok) return readErrorMessage(response, `Saving the reaction failed (${response.status})`)
       await response.body?.cancel().catch(() => {})
       return refreshDetail("Reaction saved", target.repo, number)
-    },
-    resolveIssueSync: async (cardId, deliveryId, action, evidence, messageId) => {
-      const card = ctx.store.collections.cards.get(cardId)
-      const owner = signedInOwner()
-      if (!owner || card?.kind !== "issue" || card.payload.sync?.state !== "outcome_unknown" || card.payload.sync.deliveryId !== deliveryId) return "Delivery is no longer unknown."
-      if (!card.payload.sync.resolutionToken) return "Refresh the delivery before resolving."
-      const expectedToken = card.payload.sync.resolutionToken
-      if (!evidence.trim() || evidence.length > 4096 || (action === "sent" && !messageId.trim())) return "Add evidence and a message ID for sent."
-      const existing = card.payload.sync.resolution
-      if (existing?.status === "requested" && existing.owner === owner && existing.deliveryId === deliveryId && existing.expectedToken === expectedToken) {
-        const flight = resolvingSync.get(cardId)
-        if (flight?.admitting && ownsResolution(cardId, flight) && matchesResolution(card, flight)) {
-          await flight.admission
-          if (!ownsResolution(cardId, flight)) return "Resolution is no longer current."
-        }
-        drainResolution(cardId)
-        return "Resolution requested."
-      }
-      const request: ResolutionRequest = { deliveryId, expectedToken, action, evidence, messageId, owner, status: "requested" }
-      const flight = resolutionFlight(card, request, true)
-      const admission = Promise.withResolvers<void>()
-      flight.admission = admission.promise
-      void admission.promise.catch(() => {})
-      // Reserve admission before the optimistic card wakes either actor's
-      // subscription. Only its successful persistence receipt permits launch.
-      resolvingSync.set(cardId, flight)
-      try {
-        await updateLocalIssue(cardId, payload => ({ ...payload, sync: payload.sync && { ...payload.sync, resolution: request } }))
-      } catch (error) {
-        if (resolvingSync.get(cardId) === flight) resolvingSync.delete(cardId)
-        admission.reject(error)
-        throw error
-      }
-      if (!ownsResolution(cardId, flight) || !matchesResolution(ctx.store.collections.cards.get(cardId), flight)) {
-        if (resolvingSync.get(cardId) === flight) resolvingSync.delete(cardId)
-        admission.resolve()
-        return "Resolution is no longer current."
-      }
-      flight.admitting = false
-      admission.resolve()
-      drainResolution(cardId)
-      return "Resolution requested."
-    },
-    mapIssueSync: async (number, mapping, explicitRepo) => {
-      const { provider, connectionId, scopeId, conversationId, threadId, externalUserId } = mapping
-      const target = resolveTargetRepo(ctx.store, explicitRepo)
-      if ("error" in target) return target.error
-      const { repo } = target
-      let response: Response
-      try {
-        response = await ctx.http(`${issuesPath(repo)}/${number}/sync`, {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ provider, connection_id: connectionId, scope_id: scopeId, conversation_id: conversationId, ...(threadId ? { thread_id: threadId } : {}), ...(externalUserId ? { external_user_id: externalUserId } : {}) })
-        })
-      } catch { return "Sync mapping status unknown: nothing answered. Refresh to check." }
-      if (!response.ok) return readErrorMessage(response, `Mapping sync failed (${response.status})`)
-      await response.body?.cancel().catch(() => {})
-      return refreshDetail("Sync mapped", repo, number)
     },
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", explicitRepo, filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
       [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),

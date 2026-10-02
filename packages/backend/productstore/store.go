@@ -162,7 +162,6 @@ type Product interface {
 	RetryWorkflowArtifactDeletion(ctx context.Context, arg db.RetryWorkflowArtifactDeletionParams) (db.WorkflowArtifact, error)
 	RetryWorkflowCacheDeletion(ctx context.Context, arg db.RetryWorkflowCacheDeletionParams) (db.WorkflowCach, error)
 	SetAgentSessionWorkspace(ctx context.Context, arg db.SetAgentSessionWorkspaceParams) error
-	SetWorkspaceDesktopSession(ctx context.Context, arg db.SetWorkspaceDesktopSessionParams) error
 	SetWorkspaceEnvironmentImage(ctx context.Context, arg db.SetWorkspaceEnvironmentImageParams) error
 	SetWorkspaceHeadPushTokenID(ctx context.Context, arg db.SetWorkspaceHeadPushTokenIDParams) error
 	SetWorkspaceIdleTimeout(ctx context.Context, arg db.SetWorkspaceIdleTimeoutParams) (db.Workspace, error)

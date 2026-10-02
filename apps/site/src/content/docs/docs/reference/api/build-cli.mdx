@@ -8,7 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/bui
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/build/build-cli/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/build/build-cli/docs/api.md)
 
-> **Related APIs:** [`@smthrs/build`](/docs/reference/api/build/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/create-app`](/docs/reference/api/create-app/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/keys`](/docs/reference/api/keys/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/targets`](/docs/reference/api/targets/)
+> **Related APIs:** [`@smthrs/build`](/docs/reference/api/build/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/keys`](/docs/reference/api/keys/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/targets`](/docs/reference/api/targets/)
 
 ```ts
 import { cli, makeCli, Planner, Workspace } from "@smthrs/build-cli"
@@ -626,18 +626,6 @@ The deterministic replacement for a real agent CLI. From
 | `ScriptedGateRunner`            | `GateRunner` plus `calls()`                                      | Call accounting for assertions.                                                               |
 | `ScriptedGateCall`              | `{ round: number; gates; files }`                                | One recorded scripted gate-runner call.                                                       |
 | `promptFilesOf`                 | `(prompt: string) => ReadonlyArray<string>`                      | The paths under a prompt's `=== FILES ===` section, for cross-process proofs.                 |
-
-## CreateApp
-
-The `create-app` implementation. From `@smthrs/build-cli/CreateApp`.
-
-| Export            | Signature                                               | What it is                                                              |
-| ----------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `scaffold`        | `(options: ScaffoldOptions) => Promise<ScaffoldReport>` | Copies one template into a new directory.                               |
-| `ScaffoldOptions` | `{ directory; template?; templateRoot? }`               | `template` defaults to `default`.                                       |
-| `ScaffoldReport`  | `{ directory; name; template; files }`                  | What one scaffold copied.                                               |
-| `templateRoot`    | `() => string`                                          | Locates the `template` directory of the installed `@smthrs/create-app`. |
-| `templates`       | `(root: string) => Promise<ReadonlyArray<string>>`      | The template names a directory offers, sorted.                          |
 
 ## GitCommit
 

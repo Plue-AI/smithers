@@ -7,7 +7,7 @@ Shared CSS tokens and layout primitives for Smithers browser UIs.
 Eight color palettes, each with a light and a dark variant, emitted as CSS
 custom properties plus the base element and component rules that consume them.
 `@smthrs/ui` builds its shadcn-anatomy components on these tokens; `apps/app` and
-`apps/review` embed the sheets directly.
+`flows/review` embed the sheets directly.
 
 Private at `1.0.0-rc.0`: the package ships only inside the workspace, as
 TypeScript source with no build step and no dependencies.
@@ -104,7 +104,7 @@ bare mention in prose does not count.
 
 ### `ERR_MODULE_NOT_FOUND` for a relative specifier
 
-The package ships as source and is loaded under Node ESM by `apps/review`,
+The package ships as source and is loaded under Node ESM by `flows/review`,
 where an extensionless relative specifier does not resolve. Every relative
 import inside `src/` carries its `.ts` extension for that reason, and the theme
 generator emits it too. If you dropped one, `tests/nodeEsmResolution.test.ts`

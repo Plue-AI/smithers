@@ -7,8 +7,7 @@ The chat timeline interleaves cloud agent and run transcript rows with messages 
 The Filter button opens a keyboard menu with Show all, Chat, each lane, Messages, Cards, Subagent rows, and Search. Arrow keys move between menu items, Enter or Space activates one, and Escape closes it. The same actions are available as `/chat.filter`, `/chat.filter.toggle <target>`, `/chat.filter.grep [text]`, and `/chat.filter.reset`, including through the agent door. `session.chatFilter` and `session.chatFilterMenuOpen` persist; every change is an actor-stamped transition.
 
 The same React application runs against two explicit hosts: Smithers Cloud and a
-local Bun origin. Electrobun is an optional native shell around the local
-origin; it is not a separate application or state model.
+local browser origin.
 
 ## Composition roots
 
@@ -17,13 +16,9 @@ origin; it is not a separate application or state model.
 | Smithers Cloud | `apps/server` Cloudflare Worker | none | agent, identity, Smithers Cloud, checkout when configured |
 | Web, hosted or self-hosted | `packages/backend` Go (`host: "cloud"`, `authFlow` `redirect` or `credentials`) | none | identity, cloud, `cloud.terminal`, GitHub when configured |
 | Local browser/headless | `apps/app/src/bun/serve.ts` | none | agent/identity/cloud only in hybrid mode |
-| Desktop shell | `apps/app/src/bun/NativeApp.ts` + Electrobun over the Go backend or Plue | system-browser handoff | the backend's rows plus `native.shell`, the one row native-shell UI reads (never `host`) |
 
-The desktop app offers exactly the web app's feature set. The local backend —
-targets, in-process language servers, terminals, local repositories and
-harness detection — retired; see `LOCAL-BACKEND-RETIREMENT.md` for what each
-one became. Code intelligence stayed, re-doored on `cloud.terminal`: plue's
-language server in the workspace VM, over the tunnel this origin serves.
+Repository tools, terminals and harness execution run in the shared backend
+and workspace VM. The browser host keeps the authenticated terminal tunnel.
 
 The client first loads `GET /api/bootstrap` and validates it with
 `AppBootstrapSchema`. Commands declare required runtime capabilities; the
@@ -32,7 +27,7 @@ so disabled hosts do not expose controls that can only fail.
 
 Supported capabilities are `agent`, `model.turn`, `recommend`,
 `browser.read`, `identity`, `github`, `cloud`, `billing.checkout`,
-`cloud.terminal`, `cloud.pat`, and `native.shell`. No
+`cloud.terminal` and `cloud.pat`. No
 capability is local-only: a door no host can open is a flow that should not
 exist.
 
@@ -45,23 +40,8 @@ chat turns go to the shared backend's `POST /api/agent/turn` on
 and signed out a turn is refused with `cloud_sign_in_required`.
 `SMITHERS_CHAT_STUB=1` selects the deterministic in-process agent
 (`e2e/support/ChatStub.ts`) in the two hosts that read it — the browser test
-host and the packaged app. `startLocalServer` itself never reads it: an agent
+host and headless app. `startLocalServer` itself never reads it: an agent
 is injected through its `agent` option or the host has the Smithers Cloud one.
-
-The native launcher starts the local origin in its own process, then opens the
-window at it. There is no detached session owner: quitting the app stops the
-server with it, because nothing long-running lives on this machine any more.
-Long-running work lives in a plue workspace, which survives on its own.
-
-The native launcher defaults to hybrid unless explicitly set to offline. The
-packaged app serves its built SPA from `127.0.0.1` on a port chosen at first
-launch and saved as `local-origin-port` in its application-support directory.
-Later launches reuse that port because OPFS and localStorage belong to the
-complete browser origin. If the saved port is occupied, startup fails rather
-than moving the user's conversation to an empty origin. `SMITHERS_LOCAL_PORT`
-is an explicit development/test override and does not replace the saved port. The
-headless server prints `SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:<port>` when it
-is ready.
 
 ## Owned backend environment
 
@@ -94,24 +74,14 @@ The server rejects missing/invalid tokens, cross-origin API requests,
 unexpected `Host`/`Origin` values, non-JSON mutation bodies, oversized HTTP
 bodies and WebSocket frames. It binds loopback only.
 
-The native RPC surface has exactly one privileged operation:
-
-- `openExternal({ url })`, which accepts only HTTP(S) URLs and opens the
-  system browser.
-
-It has no HTTP fallback in the packaged app.
-
 Chat acceptance, replay, cancellation, and retirement belong to the shared
-Go backend and PostgreSQL journal. The renderer relay preserves the backend
+Go backend and PostgreSQL journal. The browser transport preserves the backend
 turn identity and sealed delivery bytes; disconnecting it never erases a turn.
 
-The identity proxy re-scopes the seam's session cookie to the local origin
-before the WebView sees it: `Domain` goes because the cookie belongs to this
-origin now, and `Secure` goes because WebKit refuses a `Secure` cookie set over
-`http://127.0.0.1` (Chromium accepts one, so only the native renderer showed
-the failure). The trail line for `/api/auth/native/claim` names the cookie's
-attributes, never its value, and every `/` and `/api/*` request leaves a
-`METHOD /path -> status in Nms` line.
+The local HTTP identity proxy re-scopes the upstream cookie onto its loopback
+origin: it removes `Domain` and `Secure` for the local HTTP browser session.
+The sign-in claim log names cookie attributes without the credential value.
+Request logs retain method, path, status, and elapsed time.
 
 The cloud proxy (`/api/cloud/*`, lane piper) forwards to `SMITHERS_CLOUD_API`
 (default `https://api.jjhub.tech`) with the same rules as the identity proxy:
@@ -188,7 +158,6 @@ never reaches a reader. A top-level page navigation (the system browser opening
 | POST | `/api/agent/turn/erase` | Delete-only proof, including fencing a not-yet-accepted leg |
 | POST | `/api/agent/turn/cancel` | Cancel a turn (`/api/chat/cancel` is an alias) |
 | GET | `/api/model/catalog` | Built-in models, credential names with `present` and their pinned origins, and seats; never a value |
-| POST | `/api/model/test` | One request to a configured model; 200 with a typed result for a pass and a failure; no sign-in |
 | POST | `/api/tools/browser-fetch` | Guarded, pinned HTTPS page read (501 offline) |
 | POST | `/api/telemetry/errors` | Renderer crash report; logged and counted |
 | ANY | `/api/cloud/*` | Cloud proxy to `SMITHERS_CLOUD_API` (Bearer from the Bun credential; 501 offline) |
@@ -263,8 +232,7 @@ surfaces, all over the workspace gateway's own projections and procedures:
   Resume when the control plane names a wait other than an approval
   (`/runs.resume`), Run again when settled (`/runs.rerun`, the launch input
   recorded on the card at launch; an honest refusal when this client never
-  saw it), and a steer row (`/runs.steer`, `/runs.seat`, `/runs.thinking`,
-  `/runs.tools`) whose queued state reads `steering pending · delivered at
+  saw it), and a steer row (`/runs.steer`) whose queued state reads `steering pending · delivered at
   the next turn`. A waiting run names the control plane's reason:
   `accepted · nothing is driving it` for an accepted run, the wait's word for
   a parked one. Three facet tabs switch the body: Steps (default),
@@ -285,7 +253,7 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   the languages it relays a language server for (`lsp: typescript`, from the
   DTO's `lsp.languages`). Every fact renders only when the payload carries
   it: an absent field renders NOTHING, never a placeholder and never a zero
-  the wire did not state. A vm or desktop adds what it booted (`env ·
+  the wire did not state. A vm adds what it booted (`env ·
   <closure> · <image tag>`), a driving agent session is named but not opened,
   and the ssh host rides its own copyable line. A six-state pill (pending,
   starting, running, suspended, stopped, failed) leads; a starting workspace
@@ -298,9 +266,7 @@ Lane `citc` (ADR 0002) adds the persistent cloud computers:
   declared service with the port and url it publishes), Snapshots (Fork
   from, Make template, Delete per row), and Egress (each call this computer
   made, whether it was allowed or blocked, and which secret NAMES the proxy
-  swapped in, never a value); a `desktop` workspace also gets Desktop, which
-  mints a session and streams plue's NixOS VM over VNC, so it is its own
-  confirmed act rather than a facet switch. The footer acts: Suspend or
+  swapped in, never a value). The footer acts: Suspend or
   Resume, Fork, Snapshot, and Delete behind a typed confirm.
   `/box.terminal` opens the workspace's terminal in the card's Terminal
   facet (the socket tunnels through the origin's `/api/cloud-ws/` bridge with
@@ -400,7 +366,7 @@ snapshots. Restoring one preserves its captured facts until an explicit workspac
 act refreshes it.
 
 Durable routes use `/w/:workspace/b/:branch/f/:frame`. Browser back/forward,
-reload, and immutable branch forks operate on workspace/branch/frame records in
+reload, and recorded branch restoration operate on workspace/branch/frame records in
 the same store as cards. Fullscreen is explicit; the composer remains mounted
 and usable while a card is maximized.
 
@@ -453,69 +419,6 @@ request: the turn runs on the backend (`SMITHERS_CLOUD_API`) as the Cloud user
 `SMITHERS_CLOUD_TOKEN` names; no stored login is read. A successful server shutdown removes only its owned temporary
 directory; failed startup/shutdown retains it for inspection.
 
-The root `test:e2e` command packages the stable macOS app with Electrobun's
-native renderer, launches the actual bundle, and drives it through a loopback
-bridge that exists only when `SMITHERS_E2E_BRIDGE=1` and requires a random
-bearer token. The runner redirects application state to a temporary home,
-keeps the local origin fixed across relaunch, and preserves failure artifacts
-under `apps/app/test-results/electrobun-packaged/`. It covers the stable
-renderer, bridge security, and chat persistence across relaunch.
-
-`PackagedApp.quit()` drains only the native process group recorded at launch,
-including descendants remaining after the launcher exits. It never discovers
-cleanup targets by executable path, so another instance of the same bundle
-keeps running. Quitting the app ends its local origin with it. Bridge
-deadlines cover headers, the complete response body, and decoding, including
-error responses and screenshots.
-
-`PackagedApp.eval(script)` sends potentially mutating scripts once. A failed
-reply reports an unknown outcome and does not retry, because renderer execution
-may already have completed. Use `evalReadOnly(script)` only for repeatable reads;
-it retries bridge timeouts within its deadline. `waitFor` also requires a
-read-only expression because it polls repeatedly.
-
-The runner holds an atomic lease plus a per-test cleanup marker. If a prior
-process died before cleanup, the next run preserves its isolated state, writes a
-stale-fixture report, and fails before launching a test.
-`SMITHERS_E2E_RECOVER_STALE=1 bun run test:e2e` explicitly repairs a readable
-lease whose owner is no longer alive and continues in a single invocation.
-Recovery and cleanup claim and recheck the lease generation before moving it
-aside for deletion. Missing or unreadable leases may belong to initializing
-owners and are always preserved. An interrupted retirement leaves a `.retiring`
-guard; inspect and remove the abandoned registry only after confirming no
-suite is running. Failed package staging removes its temporary workspace and
-reports both errors if cleanup also fails. The packaged lane is macOS-only and
-the GitHub fixture scenario requires network access.
-
-### Deep links
-
-`smithers://open/<owner>/<repo>` (`src/bun/DeepLink.ts`) opens that
-repository page. On a cold launch macOS can deliver the link before the SDK
-loads; it waits in `pendingDeepLink` and becomes the window's first URL.
-
-Electrobun 2.0.1's native wrapper frees each link right after calling its URL
-handler, and the SDK's handler is a threadsafe `JSCallback` that reads the
-string a task later: freed memory (#3061). In 10 packaged cold launches the
-first window opened the linked page 0 times. So `src/bun/NativeUrlOpen.ts`
-installs its own handler, a few lines of C compiled by Bun that copy the link
-inside the native call. It installs before `electrobun/main` loads, which
-drains the links buffered before launch, and again right after, replacing the
-SDK's. The native probe (`src/bun/Main.test.ts`) and
-`src/bun/NativeUrlOpen.test.ts` deliver links through a fake wrapper with the
-same string lifetime (`e2e/native/FakeNativeWrapper.ts`); the SDK's own
-handler reads garbage there.
-
-Packaged check (#1969). It needs no install: `open -a` delivers the link
-through the same `application:openURLs:` path a `smithers://` click uses.
-
-1. `pnpm build`, then launch the stable bundle once without a link so it
-   unpacks itself.
-2. `open -n -a build/stable-macos-arm64/Smithers.app --env HOME=<scratch>
-   --env SMITHERS_E2E_BRIDGE=1 --env SMITHERS_E2E_BRIDGE_PORT=<port> --env
-   SMITHERS_E2E_BRIDGE_TOKEN=<token> smithers://open/smithersai/smithers`.
-3. `GET /state` on the bridge: `window.url` ends with `/smithersai/smithers`.
-   Repeat with the app running: the open window navigates to the link.
-
 ### Approval ownership
 
 Approval and approvals-inbox cards are created by runtime transitions from
@@ -533,22 +436,6 @@ their own output. Chain policy registers approvals directly with the store.
 Legacy cards without a trusted request cannot authorize an operation; a fresh
 runtime request or gateway refresh must register the gate first.
 
-## App-shell verification
-
-From `apps/app`, `pnpm test` runs Bun tests under `src/` and `scripts/`.
-`pnpm run test:e2e:auth` runs the browser OAuth callback regression with
-Playwright Chromium and local fixture servers. `pnpm run test:e2e:probes` runs
-the probe helpers' Chromium tests under `e2e/probes/`. CI's `browserE2e`
-wrapper runs both before the Playwright specs; packaged native probes remain a
-separate tier.
-
-`pnpm run checklist -- --target <origin>` works from the repository root or
-`apps/app`. `--dry-run` writes reports without network calls or a browser.
-Exit codes are `0` for no failed or undecided probes (prerequisite skips are
-allowed), `1` for failures, and `2` for probes that ran but could not decide.
-See [the scripts runbook](../scripts/README.md#launch-checklist-launch-checklistts)
-for prerequisites, commands and report fields.
-
 ## Plugin Library configuration
 
 `AppServices.features.pluginLibrary` defaults to `false`. Enable it explicitly
@@ -556,3 +443,16 @@ at controller construction to register Library navigation, commands, recommendat
 and agent tools. Disabled controllers refuse Library mutations and leave existing
 plugin installations available to the other app features. Saved Library cards are
 inert while disabled.
+
+## MVP feature recovery
+
+The native app and Cloud desktop were removed for the focused MVP in
+[smithers#3387](https://github.com/smithersai/smithers/issues/3387). Their clean
+source baseline is commit `2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d`.
+VM/container execution, terminals, previews, files, internal snapshots, and
+agent memory remain supported. Historical desktop database fields remain
+readable for upgrades; they do not expose a desktop launch door.
+
+## Client scope recovery
+
+Model experiment cards, request composers, model CRUD/tests, per-run model/effort/tool controls, and manual frame forks are retired for the MVP ([#3387](https://github.com/smithersai/smithers/issues/3387)). The pre-removal source is commit `8c3d1e7c0260c3f78d6bbcb7de339880dffe95cb`. Model configuration and credentials remain host concerns. Recorded histories and existing branch snapshots still decode; ordinary navigation, log inspection, and automatic recovery remain available.

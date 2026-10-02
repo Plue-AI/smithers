@@ -190,7 +190,7 @@
 }
 
 .slash-menu-name {
-	/* Never shrink: a dotted name (/box.desktop.open) has no break
+	/* Never shrink: a dotted name (/box.open) has no break
 	 * opportunities, so a shrunk box paints its text over the description. */
 	flex-shrink: 0;
 	min-width: 64px;
@@ -873,35 +873,6 @@
 	border-radius: 10px;
 	background: #fff;
 }
-/*
- * Lane L3b — the Desktop facet: plue's NixOS VM streamed over VNC, embedded in
- * the card (THE EMBED LAW). It follows the browser and html panels' shape, so
- * maximizing the card — the user's own act, through the card header — gives
- * the frame the card's full height instead of a second full-screen surface.
- */
-.workspace-desktop {
-	display: flex;
-	flex-direction: column;
-	gap: 0.375rem;
-}
-.workspace-desktop-frame {
-	width: 100%;
-	height: 22rem;
-	border: 1px solid var(--border);
-	border-radius: 10px;
-	background: #000;
-}
-.smithers-card[data-maximized="true"] .workspace-desktop-frame {
-	flex: 1;
-	height: 100%;
-	min-height: 0;
-}
-.smithers-card[data-maximized="true"] .workspace-desktop {
-	flex: 1;
-	min-height: 0;
-	display: flex;
-	flex-direction: column;
-}
 .smithers-card[data-maximized="true"] .browser-card-frame {
 	flex: 1;
 	height: auto;
@@ -912,30 +883,6 @@
 	height: calc(100% - 2.5rem);
 	display: flex;
 	flex-direction: column;
-}
-/* Carry the available height through the workspace wrapper to the stream.
- * Percentage heights stopped at .world-card-list and left the VM tiny. */
-.smithers-card[data-maximized="true"]:has(.workspace-desktop) {
-	display: flex;
-	flex-direction: column;
-	overflow: hidden;
-	overscroll-behavior: contain;
-}
-.smithers-card[data-maximized="true"]:has(.workspace-desktop) .smithers-card-header {
-	flex-shrink: 0;
-}
-.smithers-card[data-maximized="true"]:has(.workspace-desktop) .smithers-card-body,
-.smithers-card[data-maximized="true"]:has(.workspace-desktop) .smithers-card-body > .world-card-list {
-	flex: 1;
-	min-height: 0;
-	height: auto;
-}
-.smithers-card[data-maximized="true"]:has(.workspace-desktop) .world-card-list > :not(.workspace-desktop),
-.smithers-card[data-maximized="true"] .workspace-desktop > .world-card-row {
-	flex-shrink: 0;
-}
-.smithers-card[data-maximized="true"] .workspace-desktop-frame {
-	height: auto;
 }
 .browser-card-blocked {
 	padding: 1rem;
@@ -1019,9 +966,6 @@
 .flow-run-steer-input {
 	flex: 1;
 	min-width: 0;
-}
-.flow-run-steer-select {
-	flex: none;
 }
 .workflow-repo-chooser {
 	display: flex;
@@ -1407,260 +1351,6 @@
 .stack-glyph[data-group="done"][data-state="landed"],
 .stack-group-head > .stack-glyph[data-group="done"] {
 	color: var(--success);
-}
-
-/* The models card: a row is its name, a test dot and its acts; maximized it is the list beside the facts and the seats. */
-.models-row {
-	flex-wrap: wrap;
-	border-radius: var(--r-sm);
-}
-.models-row[data-selected="true"] {
-	background: var(--hover-subtle);
-}
-.models-row-select {
-	all: unset;
-	display: flex;
-	flex: 1;
-	min-width: 0;
-	cursor: pointer;
-	border-radius: var(--r-sm);
-}
-.models-row-select:focus-visible {
-	outline: 2px solid var(--ring);
-}
-.models-test {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.375rem;
-	margin-left: auto;
-	font-size: var(--fs-small);
-	color: var(--muted-foreground);
-	white-space: nowrap;
-}
-.models-dot {
-	flex: none;
-	width: 0.5rem;
-	height: 0.5rem;
-	border-radius: var(--r-full);
-	background: var(--border-strong);
-}
-.models-row[data-test-state="passed"] .models-dot {
-	background: var(--success);
-}
-.models-row[data-test-state="failed"] .models-dot {
-	background: var(--danger);
-}
-.models-row[data-test-state="failed"] .models-test {
-	color: var(--danger);
-	white-space: normal;
-	overflow-wrap: anywhere;
-}
-.models-row[data-test-state="running"] .models-dot {
-	background: var(--run);
-	animation: run-outcome-pulse 1.2s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-	.models-dot { animation: none; }
-}
-.models-seats select {
-	padding: var(--sp-1) var(--sp-2);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--r-sm);
-	background: var(--surface);
-	color: var(--text);
-	font-family: var(--font-mono);
-	font-size: var(--fs-small);
-}
-.models-seats select:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
-	border-color: var(--ring-border);
-}
-.models-seats tr[data-resolvable="false"] select {
-	border-color: var(--danger);
-}
-.models-pane {
-	display: grid;
-	grid-template-columns: minmax(16rem, 26rem) 1fr;
-	gap: 1rem;
-}
-.models-pane-list,
-.models-pane-main {
-	display: flex;
-	flex-direction: column;
-	gap: 0.75rem;
-	min-width: 0;
-}
-/* A pane row is one line: the name gives way with an ellipsis, the acts never wrap under it. */
-.models-pane .models-row {
-	flex-wrap: nowrap;
-}
-.models-pane .workflow-list-text > strong {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-@media (max-width: 600px) {
-	.models-pane { grid-template-columns: 1fr; }
-}
-
-/*
- * The model-call card: the request is controls, the answer is read-only text
- * beside the question it answered. Every control is the flow form's control
- * (same border, same focus ring); a long value reads in mono. An answer that
- * no longer matches the request is struck and dimmed, never removed.
- */
-.model-call {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-3);
-}
-.model-call :is(input:not([type="checkbox"]), textarea, select) {
-	min-width: 0;
-	padding: var(--sp-1) var(--sp-2);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--r-sm);
-	background: var(--surface);
-	color: var(--text);
-	font: inherit;
-	font-size: var(--fs-small);
-}
-.model-call :is(input:not([type="checkbox"]), textarea, select):focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
-	border-color: var(--ring-border);
-}
-.model-call textarea {
-	resize: vertical;
-	width: 100%;
-}
-.model-call select,
-.model-call .model-call-key,
-.model-call .model-call-mono {
-	font-family: var(--font-mono);
-}
-.model-call-state,
-.model-call-questions {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-2);
-}
-.model-call-field {
-	display: grid;
-	grid-template-columns: minmax(6rem, 10rem) auto minmax(0, 1fr) auto;
-	gap: var(--sp-2);
-	align-items: start;
-}
-.model-call-field > input[type="checkbox"] {
-	align-self: center;
-}
-.model-call-question {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-2);
-	padding: var(--sp-2);
-	border: 1px solid var(--border);
-	border-radius: var(--r-sm);
-}
-.model-call-question-head {
-	display: flex;
-	align-items: center;
-	gap: var(--sp-2);
-}
-.model-call-question-head > .model-call-key {
-	font-size: var(--fs-small);
-}
-.model-call-answer {
-	margin-left: auto;
-	font-family: var(--font-mono);
-	font-size: var(--fs-small);
-	color: var(--success);
-}
-.model-call[data-stale="true"] .model-call-answer,
-.model-call[data-stale="true"] .model-call-text,
-.model-call[data-stale="true"] .model-call-result {
-	opacity: 0.45;
-	text-decoration: line-through;
-}
-.model-call-criteria {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-1);
-}
-.model-call-question[data-question-type="boolean"] .model-call-criteria {
-	flex-direction: row;
-}
-.model-call-question[data-question-type="boolean"] .model-call-criteria > input {
-	flex: 1;
-}
-.model-call-option {
-	display: grid;
-	grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr) auto;
-	gap: var(--sp-2);
-	align-items: center;
-}
-.model-call-question[data-question-type="score"] .model-call-option {
-	grid-template-columns: minmax(6rem, 10rem) auto;
-}
-.model-call-row {
-	display: flex;
-	align-items: start;
-	gap: var(--sp-2);
-}
-.model-call-row > span:first-child {
-	flex: 0 0 6rem;
-	padding-top: var(--sp-1);
-	color: var(--muted-foreground);
-	font-size: var(--fs-small);
-}
-.model-call-knobs {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--sp-3);
-}
-.model-call-knobs input {
-	width: 6rem;
-}
-.model-call-text {
-	margin: 0;
-	padding: var(--sp-2);
-	border: 1px solid var(--border);
-	border-radius: var(--r-sm);
-	font-size: var(--fs-small);
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-.model-call-foot {
-	display: flex;
-	align-items: center;
-	gap: var(--sp-3);
-}
-.model-call-result {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.375rem;
-	margin-left: auto;
-	font-size: var(--fs-small);
-	color: var(--muted-foreground);
-}
-.model-call-result[data-ok="true"] .models-dot {
-	background: var(--success);
-}
-.model-call-result[data-ok="false"] {
-	color: var(--danger);
-}
-.model-call-result[data-ok="false"] .models-dot {
-	background: var(--danger);
-}
-.model-call-fixture {
-	display: flex;
-	flex-direction: column;
-	gap: var(--sp-1);
-	align-items: start;
-}
-@media (max-width: 600px) {
-	.model-call-field,
-	.model-call-option { grid-template-columns: 1fr; }
 }
 
 /*

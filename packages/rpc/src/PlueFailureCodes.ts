@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:21a0c1a689f5163c988339e74a6c7c25418e40e020bcb37522f5e01d4fe0a442"
+export const PLUE_FAILURE_DIGEST = "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -97,20 +97,12 @@ export const PLUE_FAILURE_CODES = [
   "coding_unsupported_jj",
   "coding_workspace_busy",
   "conflict",
-  "desktop_act_repeated",
-  "desktop_busy",
-  "desktop_input_out_of_bounds",
-  "desktop_not_ready",
-  "desktop_not_running",
-  "desktop_tools_unavailable",
   "egress_proxy_unavailable",
   "environment_image_unavailable",
   "exec_in_progress",
   "feature_not_enabled",
-  "focus_terminal",
   "forbidden",
   "fork_not_needed",
-  "frame_changed",
   "gateway_timeout",
   "generation_required",
   "github_import_already_active",
@@ -199,6 +191,7 @@ export const PLUE_FAILURE_CODES = [
   "worker_registration_conflict",
   "workspace_failed",
   "workspace_rebuild_required",
+  "workspace_resources_exceeded",
   "workspace_session_kind_mismatch",
   "workspace_session_pending",
   "workspace_source_invalid_ack",
@@ -293,18 +286,6 @@ export const PLUE_FAILURES = {
   "coding_workspace_busy": { fault: "wait", status: 503, retryAfter: 1 },
   /** The resource is in a state that refuses this operation right now. */
   "conflict": { fault: "user", status: 409, retryAfter: 0 },
-  /** This act_id already ran on this box; the guest replayed its verdict instead of acting twice. */
-  "desktop_act_repeated": { fault: "user", status: 409, retryAfter: 0 },
-  /** Another action holds this box's desktop lock. Nothing was injected; retry once the other action returns. */
-  "desktop_busy": { fault: "wait", status: 409, retryAfter: 1 },
-  /** A positioned action fell outside the live framebuffer. Earlier actions in the same plan may already have run. */
-  "desktop_input_out_of_bounds": { fault: "user", status: 422, retryAfter: 0 },
-  /** The box is up but its desktop helpers have not finished linking; the same request works seconds later. */
-  "desktop_not_ready": { fault: "wait", status: 503, retryAfter: 2 },
-  /** The box is suspended, failed, or has no VM. Observe and input never auto-resume: the caller asks for a resume first. */
-  "desktop_not_running": { fault: "user", status: 409, retryAfter: 0 },
-  /** The box booted from an image older than the one shipping the desktop helpers. It is terminal for that box, and it is plue's rollout lag rather than anything the caller did. */
-  "desktop_tools_unavailable": { fault: "infra", status: 409, retryAfter: 0 },
   /** The box's egress proxy is not answering, so the box would have had no outbound network. */
   "egress_proxy_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** No NixOS environment image is registered for this workspace kind on this deployment, so no box of that kind can boot until plue builds and registers one. */
@@ -313,14 +294,10 @@ export const PLUE_FAILURES = {
   "exec_in_progress": { fault: "user", status: 409, retryAfter: 0 },
   /** The endpoint's storage is not provisioned on this deployment, so the feature is switched off here. Retrying does not help until the deployment is migrated. */
   "feature_not_enabled": { fault: "infra", status: 503, retryAfter: 0 },
-  /** The focused window is a terminal and the caller did not set allow_terminal, so the keystroke was refused. */
-  "focus_terminal": { fault: "user", status: 409, retryAfter: 0 },
   /** The credential is valid but is not allowed to perform this operation. */
   "forbidden": { fault: "user", status: 403, retryAfter: 0 },
   /** The caller already has write access to this repository, so there is nothing to fork: edit it in place. */
   "fork_not_needed": { fault: "user", status: 403, retryAfter: 0 },
-  /** The framebuffer geometry moved between the observation the plan was aimed at and the injection. Nothing was injected. */
-  "frame_changed": { fault: "user", status: 409, retryAfter: 0 },
   /** plue gave up waiting for an upstream call it made on the caller's behalf. */
   "gateway_timeout": { fault: "bug", status: 504, retryAfter: 0 },
   /** The worker request omitted the placement generation that fences it. */
@@ -497,6 +474,8 @@ export const PLUE_FAILURES = {
   "workspace_failed": { fault: "user", status: 409, retryAfter: 0 },
   /** The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace. */
   "workspace_rebuild_required": { fault: "user", status: 409, retryAfter: 0 },
+  /** Requested workspace CPU, memory or disk exceeds the configured maximum. */
+  "workspace_resources_exceeded": { fault: "user", status: 400, retryAfter: 0 },
   /** A session of one kind was opened on the other kind's stream route. */
   "workspace_session_kind_mismatch": { fault: "user", status: 409, retryAfter: 0 },
   /** The session row exists but its box is still provisioning; the same open succeeds once it is running. */
@@ -509,6 +488,6 @@ export const PLUE_FAILURES = {
   "workspace_source_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** The requested workspace SSH user is not offered; ask for the workspace user or root. */
   "workspace_ssh_user_invalid": { fault: "user", status: 400, retryAfter: 0 },
-  /** The recorded workspace VM no longer exists. An unbound setup may select another compatible workspace within quota; established bindings remain explicit. */
+  /** The recorded workspace VM no longer exists. Recovery details offer creation of a new workspace from owned snapshot metadata, or fresh creation. Provider restoration must succeed; the old workspace and recovery identifiers remain intact. */
   "workspace_vm_missing": { fault: "infra", status: 409, retryAfter: 0 }
 } satisfies Record<PlueFailureCode, PlueFailureEntry>

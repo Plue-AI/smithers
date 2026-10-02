@@ -375,44 +375,6 @@ describe("every declaration that takes arguments names a decoder", () => {
   })
 })
 
-/*
- * The model flows. A name or a seat holds no whitespace (ConfiguredModel.ts
- * MODEL_RECORD_ID, MODEL_SEAT_IDS), so a whole line runs: `/model.test <name>`
- * and `/model.assign <seat> <name>` never meet a form. A short line decodes
- * to what it gave, which is what the form opens prefilled with.
- */
-describe("the model grammars", () => {
-  test("a name runs the flow, and a second token is refused rather than read as part of the name", () => {
-    for (const name of ["model.show", "model.edit", "model.remove", "model.test"]) {
-      expect(payloadFor(name, " fast-kimi ")).toEqual({ payload: { id: "fast-kimi" } })
-      expect(payloadFor(name, "")).toEqual({ payload: {} })
-      expect(payloadFor(name, "fast-kimi extra")).toEqual({ error: `${name} takes one model name` })
-    }
-  })
-
-  test("model.assign takes a seat and a model name, and `default` is a name like any other", () => {
-    expect(payloadFor("model.assign", "explainer fast-kimi")).toEqual({ payload: { seat: "explainer", recordId: "fast-kimi" } })
-    expect(payloadFor("model.assign", "explainer default")).toEqual({ payload: { seat: "explainer", recordId: "default" } })
-    // The seat alone is what the card's Assign button gives: the form asks for the model.
-    expect(payloadFor("model.assign", "explainer")).toEqual({ payload: { seat: "explainer" } })
-    expect(payloadFor("model.assign", "")).toEqual({ payload: {} })
-    expect(payloadFor("model.assign", "explainer fast-kimi extra")).toEqual({ error: "model.assign takes a seat and a model name" })
-  })
-
-  test("model.save reads its flags onto the record's own field names", () => {
-    expect(payloadFor("model.save", "--name fast-kimi --protocol openai-chat --model kimi-for-coding/k3 --credential OLLAMA --url http://127.0.0.1:11434 --path /v1/chat/completions")).toEqual({
-      payload: { name: "fast-kimi", protocol: "openai-chat", modelId: "kimi-for-coding/k3", credential: "OLLAMA", baseUrl: "http://127.0.0.1:11434", path: "/v1/chat/completions" }
-    })
-    // A short line is the edit door's prefill; a flag with no value gives nothing.
-    expect(payloadFor("model.save", "--name fast-kimi --url")).toEqual({ payload: { name: "fast-kimi" } })
-    expect(payloadFor("model.save", undefined)).toEqual({ payload: {} })
-    const refusal = { error: "model.save takes --name, --protocol, --model, --credential, --url, --path" }
-    expect(payloadFor("model.save", "fast-kimi")).toEqual(refusal)
-    expect(payloadFor("model.save", "--name fast-kimi --key sk-1")).toEqual(refusal)
-  })
-})
-
-
 test("coding connection revocation decodes its ID and requires a missing ID", () => {
   expect(payloadFor("secrets.revoke", "conn-1")).toEqual({ payload: { id: "conn-1" } })
   expect(payloadFor("secrets.revoke", undefined)).toEqual({ error: "Choose a coding connection" })
@@ -422,4 +384,17 @@ test("coding connection revocation decodes its ID and requires a missing ID", ()
   expect(payloadFor("secrets.bind", "NPM_TOKEN")).toEqual({ payload: { name: "NPM_TOKEN" } })
   expect(payloadFor("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "registry.npmjs.org", headers: "authorization" })))
     .toEqual({ payload: { name: "NPM_TOKEN", hosts: "registry.npmjs.org", headers: "authorization" } })
+})
+
+test("the workspace launch grammar preserves container and VM but rejects desktop", () => {
+  for (const kind of ["container", "vm"] as const) {
+    expect(payloadFor("box.open", `main --kind ${kind}`)).toEqual({ payload: { bookmark: "main", kind } })
+  }
+  expect(payloadFor("box.open", "main --kind desktop")).toHaveProperty("error")
+  const names = baseFlows({} as CommandActions).map(flow => nameOf(flow))
+  for (const removed of ["desktop", "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop", "app.download", "app.download.prompt"]) {
+    expect(names).not.toContain(removed)
+  }
+  expect(names).toContain("box.open")
+  expect(names).toContain("box.terminal")
 })

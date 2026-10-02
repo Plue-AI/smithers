@@ -1,7 +1,7 @@
 /**
  * The provenance envelope for anything an integration retrieves.
  *
- * A Slack message, a GitHub issue comment and a calendar event are different
+ * A message, a GitHub issue comment and an external event are different
  * documents, and this package keeps their provider payload exactly as it
  * arrived. What every one of them also needs, before it can be stored,
  * retrieved or placed in a prompt, is the same set of facts: which provider
@@ -86,7 +86,7 @@ export const Thread = Schema.Struct({
  * @since 1.0.0
  */
 export const SourceRecord = Schema.Struct({
-  /** The provider that produced it: `github`, `slack`, `googlecalendar`. */
+  /** The provider that produced it: `github`. */
   provider: Schema.NonEmptyString,
   /** The configured connection it was retrieved through. */
   connectionId: Schema.NonEmptyString,
@@ -139,7 +139,7 @@ export const decode = Schema.decodeUnknownEffect(SourceRecord)
  */
 export type Ordering = Pick<SourceRecord, "updatedAtMs" | "deleted" | "version">
 
-// A decimal version token: Slack's `1712345678.000200`, a Google sequence.
+// A decimal version token: `1712345678.000200`, an external sequence.
 const DECIMAL_VERSION = /^(\d+)(?:\.(\d+))?$/
 
 const sign = (left: string, right: string): number => left === right ? 0 : left < right ? -1 : 1
@@ -149,7 +149,7 @@ const sign = (left: string, right: string): number => left === right ? 0 : left 
  *
  * A missing token sorts first. Two decimal tokens compare as numbers, digit by
  * digit, so `10.5` follows `9.75` without a floating-point round trip that
- * would merge two microsecond-distinct Slack timestamps. Any other pair
+ * would merge two microsecond-distinct timestamps. Any other pair
  * compares by code unit: a total order, so the same pair always resolves the
  * same way whichever copy arrives first.
  *
@@ -184,7 +184,7 @@ export const compareVersion = (left: string | null, right: string | null): numbe
  * live copy, because a provider stamps a delete with the time of the version it
  * removed. Then the version token decides. Between two copies with no change
  * time, the version is the only change order, so it decides before deletion:
- * a provider without change times (Gmail) versions every copy, deletions and
+ * a provider without change times versions every copy, deletions and
  * restorations included, from one sequence. Each time class is ordered
  * lexicographically, so this is a total order and applying copies in any
  * order converges on the same winner.

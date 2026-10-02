@@ -21,7 +21,7 @@ Option names are the kebab-case form of their schema key, so `cacheDir` is
 
 ## Workspace options
 
-Every command except `create-app` takes these.
+Every command takes these.
 
 | Option        | Alias | Type   | Default                | Meaning                                                         |
 | ------------- | ----- | ------ | ---------------------- | --------------------------------------------------------------- |
@@ -495,26 +495,6 @@ processes have no durable flow host identity or process journal; recovery after
 the watch parent itself is killed is outside this contract. Windows uses the
 Node spawner's process-tree termination and does not provide the POSIX group
 absence check.
-
-## Scaffolding
-
-### create-app
-
-Scaffolds a Smithers app from a `@smthrs/create-app` template. It takes
-neither `--workspace` nor `--cache-dir`, because it creates a directory rather
-than reading a workspace.
-
-```bash
-pnpm exec smithers-build create-app my-app
-```
-
-| Option       | Alias | Type   | Default   | Meaning       |
-| ------------ | ----- | ------ | --------- | ------------- |
-| `--template` | `-t`  | string | `default` | Template name |
-
-The directory's own name becomes the app name, so it must match
-`[a-z0-9][a-z0-9._-]*`. The directory must not exist or must be empty. See
-[Scaffold an app](./guides/scaffold-an-app.md).
 
 ## Exit codes
 

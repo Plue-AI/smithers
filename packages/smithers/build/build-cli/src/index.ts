@@ -20,7 +20,6 @@ export * as AgentFake from "./AgentFake.ts"
 /** @category namespace exports @since 0.1.0 */
 export * as AgentSession from "./AgentSession.ts"
 /** @category namespace exports @since 0.1.0 */
-export * as CreateApp from "./CreateApp.ts"
 /** @category namespace exports @since 0.1.0 */
 export * as GitCommit from "./GitCommit.ts"
 /** @category namespace exports @since 0.1.0 */

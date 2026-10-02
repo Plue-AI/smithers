@@ -60,8 +60,7 @@ const cells = {
     "console.log(await ctx.call(\"read\", {path:\"math.js\"}));ctx.done(\"Review complete: add subtracts instead of adding.\");",
   monitor:
     "const existing = await ctx.call(\"monitor.list\", {}); if (existing.some(monitor => monitor.updates > 0)) { console.log(await ctx.call(\"monitor.stop\",{id:\"checks\"})); ctx.done(\"Stopped the checks monitor.\"); } else { if (!JSON.stringify(existing).includes(\"checks\")) console.log(await ctx.call(\"monitor.create\", {id:\"checks\",title:\"Checks\",watch:\"Tell me when the check output changes.\",source:{kind:\"shell\",command:\"cat check-status.txt\"},trigger:{kind:\"interval\",seconds:10}}));ctx.done(\"Monitor request settled.\"); }",
-  estimates:
-    "console.log(await ctx.call(\"tab.eta\",{}));ctx.done(\"Estimates use the recorded history of these tasks.\");"
+
 }
 export const monitorCell = cells.monitor
 export const scenarioNames = [
@@ -79,7 +78,6 @@ export const scenarioNames = [
   "flow-approval",
   "monitor",
   "monitor-refusal",
-  "estimates",
   "print",
   "slow",
   "failure",

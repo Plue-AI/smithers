@@ -436,14 +436,6 @@ func (m *mockRepoHostClient) FinalizeStagedDelete(ctx context.Context, staged re
 	return nil
 }
 
-func (m *mockRepoHostClient) ForkRepo(ctx context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) error {
-	m.forkRepoCalls++
-	if m.forkRepoFn != nil {
-		return m.forkRepoFn(ctx, srcOwner, srcRepo, dstOwner, dstRepo)
-	}
-	return nil
-}
-
 func (m *mockRepoHostClient) MoveRepo(ctx context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) error {
 	m.moveRepoCalls++
 	if m.moveRepoFn != nil {
@@ -1387,117 +1379,6 @@ func TestRepoService_DeleteRepo_RemovesRepoHostDataBeforeDBDelete(t *testing.T) 
 	require.NoError(t, err)
 	assert.True(t, q.deleteCalled)
 	assert.Equal(t, []string{"repo-host", "db"}, callOrder)
-}
-
-func TestRepoService_TransferRepo_RequiresOwnerPermission(t *testing.T) {
-	tests := []struct {
-		name             string
-		actorID          int64
-		repo             db.Repository
-		isOrgOwner       bool
-		teamPerm         string
-		collaboratorPerm string
-		expectedCode     int
-		allowTransfer    bool
-		targetOwner      string
-		targetUser       db.User
-	}{
-		{
-			name:          "user owner allowed",
-			actorID:       11,
-			repo:          testRepo(func(r *db.Repository) { r.UserID = pgtype.Int8{Int64: 11, Valid: true}; r.OrgID = pgtype.Int8{} }),
-			targetOwner:   "bob",
-			targetUser:    db.User{ID: 21, Username: "bob", LowerUsername: "bob"},
-			allowTransfer: true,
-		},
-		{
-			name:             "collaborator admin denied",
-			actorID:          12,
-			repo:             testRepo(func(r *db.Repository) { r.UserID = pgtype.Int8{Int64: 99, Valid: true}; r.OrgID = pgtype.Int8{} }),
-			collaboratorPerm: "admin",
-			targetOwner:      "bob",
-			expectedCode:     403,
-		},
-		{
-			name:         "team admin denied",
-			actorID:      13,
-			repo:         testRepo(func(r *db.Repository) { r.UserID = pgtype.Int8{}; r.OrgID = pgtype.Int8{Int64: 22, Valid: true} }),
-			teamPerm:     "admin",
-			targetOwner:  "bob",
-			expectedCode: 403,
-		},
-		{
-			name:          "org owner allowed",
-			actorID:       14,
-			repo:          testRepo(func(r *db.Repository) { r.UserID = pgtype.Int8{}; r.OrgID = pgtype.Int8{Int64: 22, Valid: true} }),
-			isOrgOwner:    true,
-			targetOwner:   "bob",
-			targetUser:    db.User{ID: 22, Username: "bob", LowerUsername: "bob"},
-			allowTransfer: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			q := &mockRepoQuerier{
-				getRepoByOwnerAndLowerNameFn: func(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-					if arg.Owner == "owner" && arg.LowerName == "repo" {
-						return tc.repo, nil
-					}
-					return db.Repository{}, pgx.ErrNoRows
-				},
-				isOrgOwnerForRepoUserFn: func(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error) {
-					return tc.isOrgOwner, nil
-				},
-				getHighestTeamPermissionForRepo: func(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error) {
-					return tc.teamPerm, nil
-				},
-				getCollaboratorPermissionForRepo: func(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error) {
-					return tc.collaboratorPerm, nil
-				},
-				getUserByLowerUsernameFn: func(ctx context.Context, lowerUsername string) (db.User, error) {
-					assert.Equal(t, strings.ToLower(tc.targetOwner), lowerUsername)
-					if tc.allowTransfer {
-						return tc.targetUser, nil
-					}
-					t.Fatalf("authorization failure should short-circuit before target owner lookup")
-					return db.User{}, nil
-				},
-				deleteCollaboratorsByRepoFn: func(ctx context.Context, repositoryID int64) error {
-					assert.Equal(t, tc.repo.ID, repositoryID)
-					return nil
-				},
-				deleteTeamReposByRepoFn: func(ctx context.Context, repositoryID int64) error {
-					assert.Equal(t, tc.repo.ID, repositoryID)
-					return nil
-				},
-				transferRepoToUserFn: func(ctx context.Context, arg db.TransferRepoToUserParams) (db.Repository, error) {
-					t.Fatal("creating a transfer request must not change repository ownership")
-					return db.Repository{}, nil
-				},
-			}
-			svc := NewRepoService(q, &mockRepoHostClient{}, "smithers-repo-host-0")
-			tx := &fakeOwnershipTx{q: q, getByIDFn: func(context.Context, int64) (db.Repository, error) { return tc.repo, nil }}
-			svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
-
-			result, err := svc.TransferRepo(context.Background(), &db.User{ID: tc.actorID, Username: "actor"}, "owner", "repo", tc.targetOwner)
-			if tc.allowTransfer {
-				require.NoError(t, err)
-				require.NotNil(t, result.PendingTransfer)
-				assert.Equal(t, tc.repo.ID, result.ID)
-				assert.Equal(t, tc.repo.UserID, result.UserID)
-				assert.Equal(t, tc.targetUser.ID, result.PendingTransfer.RecipientID)
-				assert.True(t, tx.committed)
-				assert.False(t, q.transferToUserCalled)
-				assert.False(t, q.transferToOrgCalled)
-				return
-			}
-
-			assert.Equal(t, tc.expectedCode, apiStatus(t, err))
-			assert.False(t, q.transferToUserCalled)
-			assert.False(t, q.transferToOrgCalled)
-		})
-	}
 }
 
 // --- Coverage gap tests for CreateOrgRepo ---

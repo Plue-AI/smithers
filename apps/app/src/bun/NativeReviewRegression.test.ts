@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createCloudAuth } from "./CloudAuth"
 import type { CloudKeychain } from "./CloudAuth"
-import { createNativeShutdown } from "./NativeShutdown"
 import { fakeBackend, signedInKeychain } from "./fixtures/FakeBackendTurns"
 import { startLocalServer } from "./server"
 
@@ -133,15 +132,4 @@ test("expired credentials allow a fresh login and valid restores recheck scope",
     if (expired) { expect(saved.value()).toBeNull(); expect(await auth.start()).toHaveProperty("url") }
     else expect(auth.session().scopes).toBe("degraded")
   }
-})
-
-test("native quit waits for cleanup once then allows Electrobun's final quit", async () => {
-  let beforeQuit!: (event: { response?: { allow: boolean } }) => void; let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve }); const quits: Array<number> = []; let stops = 0
-  const shutdown = createNativeShutdown({ onBeforeQuit: (handler) => { beforeQuit = handler }, stop: async () => { stops++; await gate }, quit: (code) => { quits.push(code) }, log: () => {} })
-  const event: { response?: { allow: boolean } } = {}; beforeQuit(event); beforeQuit({})
-  expect(event.response).toEqual({ allow: false }); expect(stops).toBe(1); expect(quits).toEqual([])
-  release(); await shutdown()
-  const final: { response?: { allow: boolean } } = {}; beforeQuit(final)
-  expect(final.response).toBeUndefined(); expect(quits).toEqual([0])
 })

@@ -68,7 +68,6 @@ export const agentVisibleCatalog = (
 const USER_ONLY_ALTERNATIVES: Readonly<Record<string, string>> = {
   "auth.sign-in": "invoke auth.prompt, which renders that button in the chat",
   "cloud.sign-in": "invoke cloud.prompt, which renders that button in the chat",
-  "app.download": "invoke app.download.prompt, which renders that button in the chat",
   "admin.reset": "suggest /chat.clear if they want a fresh chat",
   "chat.send": "answer with text instead",
   "card.maximize": "your invocation of a surface flow renders the embedded card",

@@ -885,358 +885,6 @@
       "reason": "GitHub issue, pull request and comment change feed into source records, alongside the existing GitHub client and webhook subpaths."
     },
     {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail",
-      "development": "./src/gmail.ts",
-      "published": {
-        "types": "./dist/esm/gmail.d.ts",
-        "import": "./dist/esm/gmail.js",
-        "require": "./dist/cjs/gmail.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Actions",
-      "development": "./src/gmail/Actions.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Actions.d.ts",
-        "import": "./dist/esm/gmail/Actions.js",
-        "require": "./dist/cjs/gmail/Actions.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Capabilities",
-      "development": "./src/gmail/Capabilities.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Capabilities.d.ts",
-        "import": "./dist/esm/gmail/Capabilities.js",
-        "require": "./dist/cjs/gmail/Capabilities.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Config",
-      "development": "./src/gmail/Config.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Config.d.ts",
-        "import": "./dist/esm/gmail/Config.js",
-        "require": "./dist/cjs/gmail/Config.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/GmailClient",
-      "development": "./src/gmail/GmailClient.ts",
-      "published": {
-        "types": "./dist/esm/gmail/GmailClient.d.ts",
-        "import": "./dist/esm/gmail/GmailClient.js",
-        "require": "./dist/cjs/gmail/GmailClient.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Mime",
-      "development": "./src/gmail/Mime.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Mime.d.ts",
-        "import": "./dist/esm/gmail/Mime.js",
-        "require": "./dist/cjs/gmail/Mime.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Reconcile",
-      "development": "./src/gmail/Reconcile.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Reconcile.d.ts",
-        "import": "./dist/esm/gmail/Reconcile.js",
-        "require": "./dist/cjs/gmail/Reconcile.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Records",
-      "development": "./src/gmail/Records.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Records.d.ts",
-        "import": "./dist/esm/gmail/Records.js",
-        "require": "./dist/cjs/gmail/Records.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./gmail/Sync",
-      "development": "./src/gmail/Sync.ts",
-      "published": {
-        "types": "./dist/esm/gmail/Sync.d.ts",
-        "import": "./dist/esm/gmail/Sync.js",
-        "require": "./dist/cjs/gmail/Sync.js"
-      },
-      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar",
-      "development": "./src/googlecalendar.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar.d.ts",
-        "import": "./dist/esm/googlecalendar.js",
-        "require": "./dist/cjs/googlecalendar.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/Actions",
-      "development": "./src/googlecalendar/Actions.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/Actions.d.ts",
-        "import": "./dist/esm/googlecalendar/Actions.js",
-        "require": "./dist/cjs/googlecalendar/Actions.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/CalendarClient",
-      "development": "./src/googlecalendar/CalendarClient.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/CalendarClient.d.ts",
-        "import": "./dist/esm/googlecalendar/CalendarClient.js",
-        "require": "./dist/cjs/googlecalendar/CalendarClient.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/Config",
-      "development": "./src/googlecalendar/Config.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/Config.d.ts",
-        "import": "./dist/esm/googlecalendar/Config.js",
-        "require": "./dist/cjs/googlecalendar/Config.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/Event",
-      "development": "./src/googlecalendar/Event.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/Event.d.ts",
-        "import": "./dist/esm/googlecalendar/Event.js",
-        "require": "./dist/cjs/googlecalendar/Event.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/EventId",
-      "development": "./src/googlecalendar/EventId.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/EventId.d.ts",
-        "import": "./dist/esm/googlecalendar/EventId.js",
-        "require": "./dist/cjs/googlecalendar/EventId.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./googlecalendar/Sync",
-      "development": "./src/googlecalendar/Sync.ts",
-      "published": {
-        "types": "./dist/esm/googlecalendar/Sync.d.ts",
-        "import": "./dist/esm/googlecalendar/Sync.js",
-        "require": "./dist/cjs/googlecalendar/Sync.js"
-      },
-      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack",
-      "development": "./src/slack.ts",
-      "published": {
-        "types": "./dist/esm/slack.d.ts",
-        "import": "./dist/esm/slack.js",
-        "require": "./dist/cjs/slack.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Actions",
-      "development": "./src/slack/Actions.ts",
-      "published": {
-        "types": "./dist/esm/slack/Actions.d.ts",
-        "import": "./dist/esm/slack/Actions.js",
-        "require": "./dist/cjs/slack/Actions.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Approval",
-      "development": "./src/slack/Approval.ts",
-      "published": {
-        "types": "./dist/esm/slack/Approval.d.ts",
-        "import": "./dist/esm/slack/Approval.js",
-        "require": "./dist/cjs/slack/Approval.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Config",
-      "development": "./src/slack/Config.ts",
-      "published": {
-        "types": "./dist/esm/slack/Config.d.ts",
-        "import": "./dist/esm/slack/Config.js",
-        "require": "./dist/cjs/slack/Config.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Connections",
-      "development": "./src/slack/Connections.ts",
-      "published": {
-        "types": "./dist/esm/slack/Connections.d.ts",
-        "import": "./dist/esm/slack/Connections.js",
-        "require": "./dist/cjs/slack/Connections.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Payload",
-      "development": "./src/slack/Payload.ts",
-      "published": {
-        "types": "./dist/esm/slack/Payload.d.ts",
-        "import": "./dist/esm/slack/Payload.js",
-        "require": "./dist/cjs/slack/Payload.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/SlackClient",
-      "development": "./src/slack/SlackClient.ts",
-      "published": {
-        "types": "./dist/esm/slack/SlackClient.d.ts",
-        "import": "./dist/esm/slack/SlackClient.js",
-        "require": "./dist/cjs/slack/SlackClient.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/SocketSource",
-      "development": "./src/slack/SocketSource.ts",
-      "published": {
-        "types": "./dist/esm/slack/SocketSource.d.ts",
-        "import": "./dist/esm/slack/SocketSource.js",
-        "require": "./dist/cjs/slack/SocketSource.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Sync",
-      "development": "./src/slack/Sync.ts",
-      "published": {
-        "types": "./dist/esm/slack/Sync.d.ts",
-        "import": "./dist/esm/slack/Sync.js",
-        "require": "./dist/cjs/slack/Sync.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/Webhook",
-      "development": "./src/slack/Webhook.ts",
-      "published": {
-        "types": "./dist/esm/slack/Webhook.d.ts",
-        "import": "./dist/esm/slack/Webhook.js",
-        "require": "./dist/cjs/slack/Webhook.js"
-      },
-      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x",
-      "development": "./src/x.ts",
-      "published": {
-        "types": "./dist/esm/x.d.ts",
-        "import": "./dist/esm/x.js",
-        "require": "./dist/cjs/x.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x/Capabilities",
-      "development": "./src/x/Capabilities.ts",
-      "published": {
-        "types": "./dist/esm/x/Capabilities.d.ts",
-        "import": "./dist/esm/x/Capabilities.js",
-        "require": "./dist/cjs/x/Capabilities.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x/Config",
-      "development": "./src/x/Config.ts",
-      "published": {
-        "types": "./dist/esm/x/Config.d.ts",
-        "import": "./dist/esm/x/Config.js",
-        "require": "./dist/cjs/x/Config.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x/Records",
-      "development": "./src/x/Records.ts",
-      "published": {
-        "types": "./dist/esm/x/Records.d.ts",
-        "import": "./dist/esm/x/Records.js",
-        "require": "./dist/cjs/x/Records.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x/Sync",
-      "development": "./src/x/Sync.ts",
-      "published": {
-        "types": "./dist/esm/x/Sync.d.ts",
-        "import": "./dist/esm/x/Sync.js",
-        "require": "./dist/cjs/x/Sync.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./x/XClient",
-      "development": "./src/x/XClient.ts",
-      "published": {
-        "types": "./dist/esm/x/XClient.d.ts",
-        "import": "./dist/esm/x/XClient.js",
-        "require": "./dist/cjs/x/XClient.js"
-      },
-      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
-    },
-    {
       "name": "@smthrs/harness",
       "subpath": "./FailedCall",
       "development": "./src/FailedCall.ts",
@@ -1345,28 +993,6 @@
         "require": "./dist/cjs/core/IssueSync.js"
       },
       "reason": "Shared issue/comment mirror contract the Slack and Telegram adapters implement against the backend's issue API (b662d687b). The backend owns identities, mappings, claims and receipts; this module owns no store or worker."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./slack/IssueSync",
-      "development": "./src/slack/IssueSync.ts",
-      "published": {
-        "types": "./dist/esm/slack/IssueSync.d.ts",
-        "import": "./dist/esm/slack/IssueSync.js",
-        "require": "./dist/cjs/slack/IssueSync.js"
-      },
-      "reason": "Slack transport for mirroring issue conversations through core/IssueSync: a host schedules drain() and feeds its existing SocketSource to ingest() (b662d687b)."
-    },
-    {
-      "name": "@smthrs/integrations",
-      "subpath": "./telegram/IssueSync",
-      "development": "./src/telegram/IssueSync.ts",
-      "published": {
-        "types": "./dist/esm/telegram/IssueSync.d.ts",
-        "import": "./dist/esm/telegram/IssueSync.js",
-        "require": "./dist/cjs/telegram/IssueSync.js"
-      },
-      "reason": "Telegram transport for mirroring issue conversations through core/IssueSync, with the same host-scheduled drain() and ingest() shape as Slack (b662d687b)."
     },
     {
       "name": "@smthrs/scorers",
@@ -1637,6 +1263,109 @@
         }
       },
       "reason": "Reviewed upstream cb79039728 declaration: canonical Flow pattern plus claimed bounded round, ordered landing, release-on-failure and capacity wait/resume helpers. It adds one explicit subpath over the existing @smthrs/flow model; it does not authorize issue claims, provider credentials or history writes by itself. Required injected callbacks remain the host authority."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./github/Proxy",
+      "development": "./src/github/Proxy.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/github/Proxy.d.ts",
+          "default": "./dist/esm/github/Proxy.js"
+        },
+        "require": {
+          "types": "./dist/cjs/github/Proxy.d.ts",
+          "default": "./dist/cjs/github/Proxy.js"
+        }
+      },
+      "reason": "Preserves GitHub transport already exported before MVP cuts at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d. Exact source maps retained; GitHubProxy and GitHubRateLimit behavioral suites verify these contracts. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./github/RateLimit",
+      "development": "./src/github/RateLimit.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/github/RateLimit.d.ts",
+          "default": "./dist/esm/github/RateLimit.js"
+        },
+        "require": {
+          "types": "./dist/cjs/github/RateLimit.d.ts",
+          "default": "./dist/cjs/github/RateLimit.js"
+        }
+      },
+      "reason": "Preserves GitHub transport already exported before MVP cuts at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d. Exact source maps retained; GitHubProxy and GitHubRateLimit behavioral suites verify these contracts. #3389."
+    },
+    {
+      "name": "@smthrs/registry",
+      "subpath": "./ExecutionSnapshot",
+      "development": "./src/ExecutionSnapshot.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ExecutionSnapshot.d.ts",
+          "default": "./dist/esm/ExecutionSnapshot.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExecutionSnapshot.d.ts",
+          "default": "./dist/cjs/ExecutionSnapshot.js"
+        }
+      },
+      "reason": "Required execution snapshot recovery already exported at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d; source and both maps verified identical during MVP cuts. No implementation or declaration change. #3389."
+    },
+    {
+      "name": "@smthrs/flow",
+      "subpath": "./ExternalJob",
+      "development": "./src/ExternalJob.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ExternalJob.d.ts",
+          "default": "./dist/esm/ExternalJob.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExternalJob.d.ts",
+          "default": "./dist/cjs/ExternalJob.js"
+        }
+      },
+      "reason": "Retained core API already exported at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d; source and both maps verified identical during MVP cuts. No production implementation or declaration changed. #3389."
+    },
+    {
+      "name": "@smthrs/kernel",
+      "subpath": "./Unreachable",
+      "development": "./src/Unreachable.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Unreachable.d.ts",
+          "default": "./dist/esm/Unreachable.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Unreachable.d.ts",
+          "default": "./dist/cjs/Unreachable.js"
+        }
+      },
+      "reason": "Retained core API already exported at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d; source and both maps verified identical during MVP cuts. No production implementation or declaration changed. #3389."
+    },
+    {
+      "name": "@smthrs/sandbox",
+      "subpath": "./SandboxMerge",
+      "development": "./src/SandboxMerge/index.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/SandboxMerge/index.d.ts",
+          "default": "./dist/esm/SandboxMerge/index.js"
+        },
+        "require": {
+          "types": "./dist/cjs/SandboxMerge/index.d.ts",
+          "default": "./dist/cjs/SandboxMerge/index.js"
+        }
+      },
+      "reason": "Retained core API already exported at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d; source and both maps verified identical during MVP cuts. No production implementation or declaration changed. #3389."
+    },
+    {
+      "name": "@smthrs/sandbox",
+      "subpath": "./SandboxMerge/*",
+      "development": null,
+      "published": null,
+      "reason": "Retained core API already exported at clean main 2ad6fe2afcd2e45d81587b62f79d51b4ab02ae0d; source and both maps verified identical during MVP cuts. No production implementation or declaration changed. #3389."
     }
   ],
   "removed": [
@@ -1689,6 +1418,91 @@
       "name": "@smthrs/cli",
       "subpath": "./CodexAuth",
       "reason": "Codex subscription seats use the vendor CLI; Smithers no longer reads, forwards or refreshes vendor credentials (#2804)."
+    },
+    {
+      "name": "@smthrs/build-cli",
+      "subpath": "./CreateApp",
+      "reason": "Application scaffolding is deferred from the MVP. #3386."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear/Actions",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear/Config",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear/LinearClient",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear/Payload",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./linear/Webhook",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Actions",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Approval",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Chunk",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Config",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/InitData",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Markdown",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Payload",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/Source",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/TelegramClient",
+      "reason": "Non-GitHub adapters are deferred from the MVP. Historical reviewed contract is retained for restoration. #3389."
     }
   ],
   "packages": [
@@ -4130,6 +3944,388 @@
         "./index",
         "./package.json"
       ]
+    }
+  ],
+  "retiredPackages": [
+    {
+      "name": "@smthrs/create-app",
+      "reason": "Application scaffolding is deferred from the MVP; reviewed historical exports remain recorded for restoration. #3386."
+    }
+  ],
+  "retiredAdditions": [
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail",
+      "development": "./src/gmail.ts",
+      "published": {
+        "types": "./dist/esm/gmail.d.ts",
+        "import": "./dist/esm/gmail.js",
+        "require": "./dist/cjs/gmail.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Actions",
+      "development": "./src/gmail/Actions.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Actions.d.ts",
+        "import": "./dist/esm/gmail/Actions.js",
+        "require": "./dist/cjs/gmail/Actions.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Capabilities",
+      "development": "./src/gmail/Capabilities.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Capabilities.d.ts",
+        "import": "./dist/esm/gmail/Capabilities.js",
+        "require": "./dist/cjs/gmail/Capabilities.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Config",
+      "development": "./src/gmail/Config.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Config.d.ts",
+        "import": "./dist/esm/gmail/Config.js",
+        "require": "./dist/cjs/gmail/Config.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/GmailClient",
+      "development": "./src/gmail/GmailClient.ts",
+      "published": {
+        "types": "./dist/esm/gmail/GmailClient.d.ts",
+        "import": "./dist/esm/gmail/GmailClient.js",
+        "require": "./dist/cjs/gmail/GmailClient.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Mime",
+      "development": "./src/gmail/Mime.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Mime.d.ts",
+        "import": "./dist/esm/gmail/Mime.js",
+        "require": "./dist/cjs/gmail/Mime.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Reconcile",
+      "development": "./src/gmail/Reconcile.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Reconcile.d.ts",
+        "import": "./dist/esm/gmail/Reconcile.js",
+        "require": "./dist/cjs/gmail/Reconcile.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Records",
+      "development": "./src/gmail/Records.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Records.d.ts",
+        "import": "./dist/esm/gmail/Records.js",
+        "require": "./dist/cjs/gmail/Records.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./gmail/Sync",
+      "development": "./src/gmail/Sync.ts",
+      "published": {
+        "types": "./dist/esm/gmail/Sync.d.ts",
+        "import": "./dist/esm/gmail/Sync.js",
+        "require": "./dist/cjs/gmail/Sync.js"
+      },
+      "reason": "Gmail integration (client, header-injection-safe MIME, change feed, reconcilable draft/send actions) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar",
+      "development": "./src/googlecalendar.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar.d.ts",
+        "import": "./dist/esm/googlecalendar.js",
+        "require": "./dist/cjs/googlecalendar.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/Actions",
+      "development": "./src/googlecalendar/Actions.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/Actions.d.ts",
+        "import": "./dist/esm/googlecalendar/Actions.js",
+        "require": "./dist/cjs/googlecalendar/Actions.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/CalendarClient",
+      "development": "./src/googlecalendar/CalendarClient.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/CalendarClient.d.ts",
+        "import": "./dist/esm/googlecalendar/CalendarClient.js",
+        "require": "./dist/cjs/googlecalendar/CalendarClient.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/Config",
+      "development": "./src/googlecalendar/Config.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/Config.d.ts",
+        "import": "./dist/esm/googlecalendar/Config.js",
+        "require": "./dist/cjs/googlecalendar/Config.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/Event",
+      "development": "./src/googlecalendar/Event.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/Event.d.ts",
+        "import": "./dist/esm/googlecalendar/Event.js",
+        "require": "./dist/cjs/googlecalendar/Event.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/EventId",
+      "development": "./src/googlecalendar/EventId.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/EventId.d.ts",
+        "import": "./dist/esm/googlecalendar/EventId.js",
+        "require": "./dist/cjs/googlecalendar/EventId.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./googlecalendar/Sync",
+      "development": "./src/googlecalendar/Sync.ts",
+      "published": {
+        "types": "./dist/esm/googlecalendar/Sync.d.ts",
+        "import": "./dist/esm/googlecalendar/Sync.js",
+        "require": "./dist/cjs/googlecalendar/Sync.js"
+      },
+      "reason": "Google Calendar integration (client, deterministic event ids, retry-safe event actions, syncToken change feed) as tested library code; no host wiring yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack",
+      "development": "./src/slack.ts",
+      "published": {
+        "types": "./dist/esm/slack.d.ts",
+        "import": "./dist/esm/slack.js",
+        "require": "./dist/cjs/slack.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Actions",
+      "development": "./src/slack/Actions.ts",
+      "published": {
+        "types": "./dist/esm/slack/Actions.d.ts",
+        "import": "./dist/esm/slack/Actions.js",
+        "require": "./dist/cjs/slack/Actions.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Approval",
+      "development": "./src/slack/Approval.ts",
+      "published": {
+        "types": "./dist/esm/slack/Approval.d.ts",
+        "import": "./dist/esm/slack/Approval.js",
+        "require": "./dist/cjs/slack/Approval.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Config",
+      "development": "./src/slack/Config.ts",
+      "published": {
+        "types": "./dist/esm/slack/Config.d.ts",
+        "import": "./dist/esm/slack/Config.js",
+        "require": "./dist/cjs/slack/Config.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Connections",
+      "development": "./src/slack/Connections.ts",
+      "published": {
+        "types": "./dist/esm/slack/Connections.d.ts",
+        "import": "./dist/esm/slack/Connections.js",
+        "require": "./dist/cjs/slack/Connections.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Payload",
+      "development": "./src/slack/Payload.ts",
+      "published": {
+        "types": "./dist/esm/slack/Payload.d.ts",
+        "import": "./dist/esm/slack/Payload.js",
+        "require": "./dist/cjs/slack/Payload.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/SlackClient",
+      "development": "./src/slack/SlackClient.ts",
+      "published": {
+        "types": "./dist/esm/slack/SlackClient.d.ts",
+        "import": "./dist/esm/slack/SlackClient.js",
+        "require": "./dist/cjs/slack/SlackClient.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/SocketSource",
+      "development": "./src/slack/SocketSource.ts",
+      "published": {
+        "types": "./dist/esm/slack/SocketSource.d.ts",
+        "import": "./dist/esm/slack/SocketSource.js",
+        "require": "./dist/cjs/slack/SocketSource.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Sync",
+      "development": "./src/slack/Sync.ts",
+      "published": {
+        "types": "./dist/esm/slack/Sync.d.ts",
+        "import": "./dist/esm/slack/Sync.js",
+        "require": "./dist/cjs/slack/Sync.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/Webhook",
+      "development": "./src/slack/Webhook.ts",
+      "published": {
+        "types": "./dist/esm/slack/Webhook.d.ts",
+        "import": "./dist/esm/slack/Webhook.js",
+        "require": "./dist/cjs/slack/Webhook.js"
+      },
+      "reason": "Slack integration (Web API client, Events API and Socket Mode doors with fail-closed allowlists, durable post/update/reconcile actions, Block Kit approvals, env and broker connection glue) for the local organization host's Slack intake."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x",
+      "development": "./src/x.ts",
+      "published": {
+        "types": "./dist/esm/x.d.ts",
+        "import": "./dist/esm/x.js",
+        "require": "./dist/cjs/x.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x/Capabilities",
+      "development": "./src/x/Capabilities.ts",
+      "published": {
+        "types": "./dist/esm/x/Capabilities.d.ts",
+        "import": "./dist/esm/x/Capabilities.js",
+        "require": "./dist/cjs/x/Capabilities.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x/Config",
+      "development": "./src/x/Config.ts",
+      "published": {
+        "types": "./dist/esm/x/Config.d.ts",
+        "import": "./dist/esm/x/Config.js",
+        "require": "./dist/cjs/x/Config.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x/Records",
+      "development": "./src/x/Records.ts",
+      "published": {
+        "types": "./dist/esm/x/Records.d.ts",
+        "import": "./dist/esm/x/Records.js",
+        "require": "./dist/cjs/x/Records.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x/Sync",
+      "development": "./src/x/Sync.ts",
+      "published": {
+        "types": "./dist/esm/x/Sync.d.ts",
+        "import": "./dist/esm/x/Sync.js",
+        "require": "./dist/cjs/x/Sync.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./x/XClient",
+      "development": "./src/x/XClient.ts",
+      "published": {
+        "types": "./dist/esm/x/XClient.d.ts",
+        "import": "./dist/esm/x/XClient.js",
+        "require": "./dist/cjs/x/XClient.js"
+      },
+      "reason": "X integration, read-only: client, scope capabilities, mention and direct-message change feeds into private source records. Writes are not durable actions yet."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./slack/IssueSync",
+      "development": "./src/slack/IssueSync.ts",
+      "published": {
+        "types": "./dist/esm/slack/IssueSync.d.ts",
+        "import": "./dist/esm/slack/IssueSync.js",
+        "require": "./dist/cjs/slack/IssueSync.js"
+      },
+      "reason": "Slack transport for mirroring issue conversations through core/IssueSync: a host schedules drain() and feeds its existing SocketSource to ingest() (b662d687b)."
+    },
+    {
+      "name": "@smthrs/integrations",
+      "subpath": "./telegram/IssueSync",
+      "development": "./src/telegram/IssueSync.ts",
+      "published": {
+        "types": "./dist/esm/telegram/IssueSync.d.ts",
+        "import": "./dist/esm/telegram/IssueSync.js",
+        "require": "./dist/cjs/telegram/IssueSync.js"
+      },
+      "reason": "Telegram transport for mirroring issue conversations through core/IssueSync, with the same host-scheduled drain() and ingest() shape as Slack (b662d687b)."
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting"
-description: "Symptoms you will actually hit with @smthrs/errors: a failing instanceof, a missing details property, a summary that lost its URL, and a Telegram failure classified as unretryable."
+description: "Symptoms you will actually hit with @smthrs/errors: a failing instanceof, a missing details property, a summary that lost its URL."
 editUrl: "https://github.com/smithersai/smithers/edit/main/packages/errors/docs/troubleshooting.md"
 ---
 
@@ -95,23 +95,6 @@ wrote the suffix into the middle of its summary, where it is prose and is left
 alone.
 
 **Fix.** Never write the URL into a summary. The constructor appends it.
-
-## A Telegram rate limit is reported as a permanent failure
-
-**Symptom.** An action that talks to Telegram fails with `delivery-failed` and
-`retryable: false`, even for a 429 or a 500.
-
-**Cause.** `TelegramApiError` is not an `IntegrationError`. An action that maps
-it straight through `Core.ActionFailure.fromIntegrationError` takes the
-unclassified path, which is a non-retryable `delivery-failed` for every
-Telegram failure. A spent rate limit then looks exactly like a chat that does
-not exist.
-
-**Fix.** Call `Telegram.TelegramClient.toIntegrationError(error)` first. It maps
-429 and 5xx to a retryable `delivery-failed`, 401 and 403 to
-`permission-denied`, and 400 and 404 to `decode-failed`, and carries
-`deliveredMessageIds` forward. See
-[Handle a failed integration call](/guides/handle-a-failure/#read-the-reason-on-a-provider-failure).
 
 ## A string will not type check as a code
 

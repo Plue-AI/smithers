@@ -176,14 +176,14 @@ test.each([["command", "No matching commands"], ["argument", "No matches"], ["fi
   "empty %s completion shows %s",
   async (kind, message) => {
     const frame = await draw(
-      <AppView.CompletionMenu menu={completion(kind, [])} selected={0} seat="test:model" thinking={undefined} />
+      <AppView.CompletionMenu menu={completion(kind, [])} selected={0} seat="test:model" />
     )
     expect(frame.trim()).toBe(`┃${message}`)
   }
 )
-test.each([["/model test:model", undefined], ["/thinking default", undefined], ["/thinking high", "high"]] as const)(
+test.each(["/model test:model"] as const)(
   "argument completion marks current %s",
-  async (insert, thinking) => {
+  async (insert) => {
     const frame = await draw(
       <AppView.CompletionMenu
         menu={completion("argument", [{ label: "Current", insert, submit: true, hint: "Provider", detail: "Details" }, {
@@ -193,7 +193,6 @@ test.each([["/model test:model", undefined], ["/thinking default", undefined], [
         }])}
         selected={1}
         seat="test:model"
-        thinking={thinking}
       />
     )
     expect(frame).toContain("● Current")
@@ -208,7 +207,7 @@ test("completion caps rows and reveals the last selected result", async () => {
       menu={completion("file", choices.map((row) => ({ label: row.label, insert: row.label, submit: false })))}
       selected={19}
       seat="test:model"
-      thinking={undefined}
+     
       rows={3}
     />
   )

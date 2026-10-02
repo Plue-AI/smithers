@@ -5,9 +5,8 @@ description: "One error class and five closed codes for the Smithers integration
 
 `@smthrs/errors` is a single error class, `SmithersError`, and a closed
 vocabulary of five codes. Smithers is a durable-execution engine for agent
-workflows, and its integration adapters are the packages that call GitHub,
-Linear, and Telegram on a workflow's behalf. They raise `SmithersError` when
-one of those calls fails, and a caller decides what to do by reading
+workflows. Its GitHub adapter raises `SmithersError` when
+an integration call fails, and a caller decides what to do by reading
 `error.code` rather than by matching on message text.
 
 ## Why you would reach for it
@@ -53,7 +52,7 @@ is on this site, and the source is
 entry point, the two module subpaths, and the paths the exports map refuses.
 The package has no runtime dependencies and needs Node.js 26.4.0 or later.
 
-## The shortest real example
+## A small example
 
 A helper refuses an argument, and the caller classifies the refusal without
 reading a word of prose:
@@ -67,7 +66,7 @@ const requireChunkLength = (maxLength: number): number => {
   if (!Number.isSafeInteger(maxLength) || maxLength < 1 || maxLength > MAX_MESSAGE_LENGTH) {
     throw new SmithersError(
       "INVALID_INPUT",
-      `Telegram chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
+      `Chunk maxLength must be an integer between 1 and ${MAX_MESSAGE_LENGTH}.`,
       { maxLength }
     )
   }
@@ -79,7 +78,7 @@ try {
 } catch (error) {
   if (!isSmithersError(error)) throw error
   error.code // "INVALID_INPUT"
-  error.summary // "Telegram chunk maxLength must be an integer between 1 and 4096."
+  error.summary // "Chunk maxLength must be an integer between 1 and 4096."
   error.details // { maxLength: 0 }
   Object.keys(error) // ["code", "summary", "docsUrl", "details"]
 }
@@ -98,10 +97,8 @@ nothing widens it at runtime:
 - `INVALID_INPUT`: the call is wrong, and no retry makes it right.
 - `INTEGRATION_ERROR`: a provider call, a webhook read, or a listener
   reconciliation failed. `details.reason` says which, and whether to retry.
-- `TELEGRAM_API_ERROR`: one Telegram Bot API call failed, with the bot token
-  redacted from the message and the details.
-- `TELEGRAM_INIT_DATA_INVALID`: Telegram Mini App `initData` did not
-  authenticate.
+- `TELEGRAM_API_ERROR` and `TELEGRAM_INIT_DATA_INVALID`: retained for
+  historical failure decoding. The Telegram adapter is outside the MVP.
 - `UNSUPPORTED`: the runtime lacks a primitive the call needs, such as Web
   Crypto.
 
@@ -116,9 +113,8 @@ The packages built on top of it are how you get from here into the rest of the
 system:
 
 - [`@smthrs/integrations`](/api/integrations) is the only package that depends
-  on this one. It raises all five codes and ships the two subclasses,
-  `Core.IntegrationError` with its eight-value `reason`, and
-  `Telegram.TelegramClient.TelegramApiError` with the Bot API envelope.
+  on this one. Its `Core.IntegrationError` carries a classified `reason`.
+  Historical error codes remain readable after their adapters are retired.
 - Those adapters answer webhooks through the Smithers control plane,
   [`@smthrs/control`](/api/control), and expose their provider calls as durable
   actions built with [`@smthrs/flow`](/api/flow). A durable action is the

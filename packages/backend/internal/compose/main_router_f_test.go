@@ -28,7 +28,6 @@ func allFlagsRouterForTest() http.Handler {
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},

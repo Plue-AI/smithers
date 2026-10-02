@@ -41,8 +41,6 @@ export const chips = (input: {
   /** Every other `ui:` view. */
   readonly views: ReadonlyArray<Panels.Panel>
   readonly worker: (tab: Tab) => Chip
-  /** A run's estimate, with its leading space, or "". */
-  readonly runEta: (run: Run) => string
 }): ReadonlyArray<Chip> => {
   const { workspace } = input
   return [
@@ -52,7 +50,7 @@ export const chips = (input: {
     ...workspace.tabs.map(input.worker),
     ...input.runs.map((run) => ({
       id: `flow:${run.id}`,
-      label: `${flowGlyph(run.status)}${run.flow}${input.runEta(run)}`
+      label: `${flowGlyph(run.status)}${run.flow}`
     })),
     ...input.views.map((panel) => ({ id: `ui:${panel.id}`, label: panel.title }))
   ]

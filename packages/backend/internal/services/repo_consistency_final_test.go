@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -31,87 +31,6 @@ func (db *recordingImportCleanupDB) DeleteRepo(context.Context, int64) error {
 	return nil
 }
 
-func TestTransferRepo_FailsClosedOnDestinationLookupErrors(t *testing.T) {
-	t.Parallel()
-
-	actor := &db.User{ID: 1, Username: "alice"}
-	repository := testRepo(nil)
-
-	t.Run("user lookup failure is not treated as an absent user", func(t *testing.T) {
-		orgLookups := 0
-		q := &mockRepoQuerier{
-			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-				return repository, nil
-			},
-			getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) {
-				return db.User{}, errors.New("database unavailable")
-			},
-			getOrgByLowerNameFn: func(context.Context, string) (db.Organization, error) {
-				orgLookups++
-				return db.Organization{}, nil
-			},
-		}
-
-		_, err := NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(
-			context.Background(), actor, "alice", repository.Name, "bob",
-		)
-		assert.Equal(t, 500, apiStatus(t, err))
-		assert.Zero(t, orgLookups)
-		assert.False(t, q.transferToUserCalled)
-		assert.False(t, q.transferToOrgCalled)
-	})
-
-	t.Run("user destination duplicate lookup failure is not treated as free", func(t *testing.T) {
-		lookups := 0
-		q := &mockRepoQuerier{
-			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-				lookups++
-				if lookups == 1 {
-					return repository, nil
-				}
-				return db.Repository{}, errors.New("database unavailable")
-			},
-			getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) {
-				return db.User{ID: 2, Username: "bob", LowerUsername: "bob"}, nil
-			},
-		}
-
-		_, err := NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(
-			context.Background(), actor, "alice", repository.Name, "bob",
-		)
-		assert.Equal(t, 500, apiStatus(t, err))
-		assert.False(t, q.transferToUserCalled)
-	})
-
-	t.Run("organization destination duplicate lookup failure is not treated as free", func(t *testing.T) {
-		lookups := 0
-		q := &mockRepoQuerier{
-			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-				lookups++
-				if lookups == 1 {
-					return repository, nil
-				}
-				return db.Repository{}, errors.New("database unavailable")
-			},
-			getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) {
-				return db.User{}, pgx.ErrNoRows
-			},
-			getOrgByLowerNameFn: func(context.Context, string) (db.Organization, error) {
-				return db.Organization{ID: 3, Name: "acme", LowerName: "acme"}, nil
-			},
-			getOrgMemberFn: func(context.Context, db.GetOrgMemberParams) (db.OrgMember, error) {
-				return db.OrgMember{OrganizationID: 3, UserID: actor.ID, Role: "owner"}, nil
-			},
-		}
-
-		_, err := NewRepoService(q, &mockRepoHostClient{}, "s1").TransferRepo(
-			context.Background(), actor, "alice", repository.Name, "acme",
-		)
-		assert.Equal(t, 500, apiStatus(t, err))
-		assert.False(t, q.transferToOrgCalled)
-	})
-}
-
 func TestCreateRepo_RequiresAuthenticatedUser(t *testing.T) {
 	t.Parallel()
 
@@ -119,47 +38,6 @@ func TestCreateRepo_RequiresAuthenticatedUser(t *testing.T) {
 		context.Background(), nil, "demo", "", true, "main", false,
 	)
 	assert.Equal(t, 401, apiStatus(t, err))
-}
-
-func TestForkRepoProductRowTracksSourceByStableID(t *testing.T) {
-	t.Parallel()
-
-	actor := &db.User{ID: 7, Username: "bob", LowerUsername: "bob"}
-	source := testRepo(func(repository *db.Repository) {
-		repository.ID = 41
-		repository.UserID = pgtype.Int8{Int64: 2, Valid: true}
-		repository.Name = "source"
-		repository.LowerName = "source"
-		repository.IsPublic = true
-	})
-	q := &mockRepoQuerier{
-		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-			return source, nil
-		},
-		createForkRepoFn: func(_ context.Context, arg db.CreateForkRepoParams) (db.Repository, error) {
-			return db.Repository{
-				ID:              42,
-				UserID:          arg.UserID,
-				Name:            arg.Name,
-				LowerName:       arg.LowerName,
-				Description:     arg.Description,
-				IsPublic:        arg.IsPublic,
-				DefaultBookmark: arg.DefaultBookmark,
-				IsFork:          true,
-				ForkID:          arg.ForkID,
-			}, nil
-		},
-	}
-	rh := &mockRepoHostClient{forkRepoFn: func(context.Context, string, string, string, string) error {
-		return nil
-	}}
-
-	forked, err := NewRepoService(q, rh, "active-s9").ForkRepo(
-		context.Background(), actor, "alice", source.Name, "copy", "",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, source.ID, forked.Repository.ForkID.Int64)
-	assert.Equal(t, 1, rh.forkRepoCalls)
 }
 
 func TestGitHubImportCreatesProductRepositoryRow(t *testing.T) {

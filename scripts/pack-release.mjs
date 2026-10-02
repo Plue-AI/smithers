@@ -52,7 +52,6 @@ export const publishedPackages = [
   "@smthrs/cli",
   "@smthrs/control",
   "@smthrs/core",
-  "@smthrs/create-app",
   "@smthrs/crypto",
   "@smthrs/database",
   "@smthrs/engine",

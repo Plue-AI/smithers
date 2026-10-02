@@ -1,8 +1,6 @@
 import { Cause, Effect, Layer } from "effect"
 import { describe, expect, it } from "vitest"
 import * as GitHubClient from "../src/github/GitHubClient.ts"
-import * as LinearClient from "../src/linear/LinearClient.ts"
-import * as TelegramClient from "../src/telegram/TelegramClient.ts"
 
 // A bad config used to throw out of `Layer.sync`, which dies as a defect that
 // `catchTag` and `Effect.flip` cannot see, behind a `Layer<Client>` type that
@@ -10,9 +8,7 @@ import * as TelegramClient from "../src/telegram/TelegramClient.ts"
 describe("client layers", () => {
   it.each(
     [
-      ["GitHub", GitHubClient.layer({ apiBaseUrl: "not a url" }, {}), "INTEGRATION_ERROR"],
-      ["Linear", LinearClient.layer({ apiKey: "k", requestTimeout: 0 }, {}), "INTEGRATION_ERROR"],
-      ["Telegram", TelegramClient.layer({}, {}), "INVALID_INPUT"]
+      ["GitHub", GitHubClient.layer({ apiBaseUrl: "not a url" }, {}), "INTEGRATION_ERROR"]
     ] as const
   )("fails the %s layer build with a typed error for a bad config", async (_name, layer, code) => {
     const failure = await Effect.runPromise(
@@ -25,9 +21,7 @@ describe("client layers", () => {
   // and stays a defect.
   it.each(
     [
-      ["GitHub", () => GitHubClient.layer(null as never, {})],
-      ["Linear", () => LinearClient.layer(null as never, {})],
-      ["Telegram", () => TelegramClient.layer(null as never, {})]
+      ["GitHub", () => GitHubClient.layer(null as never, {})]
     ] as const
   )("keeps a non-config throw from the %s layer a defect", async (_name, layer) => {
     const exit = await Effect.runPromiseExit(Effect.scoped(Layer.build(layer() as Layer.Layer<unknown, unknown>)))

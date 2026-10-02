@@ -286,22 +286,6 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
     doors: ["upgrade"]
   },
   rate_limit_exceeded: { lead: "You're going faster than Smithers allows. Give it a minute.", doors: ["retry"] },
-  /*
-   * `infra`, like a full fleet, and it must NOT read like one. This box booted
-   * an image from before the desktop helpers shipped, and it is still healthy:
-   * nothing is full, nothing is down, and telling a reader to yell for more
-   * infra points them at a problem that does not exist. What IS true is that
-   * we have not rebuilt and re-registered that image yet, so it is ours and
-   * not theirs — and that plue calls it terminal for this box, which makes a
-   * Retry a door onto a wall. A new box boots the current image and has them.
-   */
-  desktop_tools_unavailable: {
-    lead:
-      "This box predates Smithers' desktop tools. Not your fault — and no retry adds them to it. A new box comes with them.",
-    agent:
-      "fault=infra: this BOX booted an image older than the desktop tools, because Smithers has not rebuilt and re-registered that image yet. Not the user's fault and not their request's, and nothing is full, so do NOT say Smithers ran out of infra and do NOT tell them to ask for more of it. Retrying fails identically on this box forever — tell them to open a new box, which boots the current image and has the tools.",
-    doors: ["new-box", "report"]
-  },
   workspace_rebuild_required: {
     lead: "This box was built with a subscription token. Delete it and open a new one.",
     agent:
@@ -521,7 +505,6 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
     doors: ["retry", "report"]
   },
   /* The 409 the desktop facet has always offered Resume for: the box is stopped, not broken. */
-  desktop_not_running: { lead: "That box isn't running.", doors: ["resume", "retry"] },
   retained_runtime_not_running: { lead: "That box isn't running.", doors: ["resume", "retry"] },
   unauthorized: { lead: "Smithers Cloud doesn't recognise this session.", doors: ["sign-in"] },
   invalid_token: { lead: "Smithers Cloud doesn't recognise this session.", doors: ["sign-in"] },
@@ -797,7 +780,7 @@ export const refusalCopy = (refusal: Refusal): RefusalCopyRow => {
    * this is an older deployment or the Worker's own envelope — and 409 on a
    * box act has one meaning, "not in a state that allows this", whose way out
    * has always been Resume. A CODED refusal never reaches this line: its row
-   * above has already said what to offer, `desktop_not_running` included.
+   * above has already said what to offer, the workspace status included.
    */
   return refusal.code === null && refusal.status === 409 && !row.doors.includes("resume")
     ? { ...row, doors: [...row.doors, "resume"] }

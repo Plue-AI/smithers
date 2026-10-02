@@ -794,7 +794,6 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	updated = s.installWorkspaceHeadReporterBestEffort(ctx, updated, workspace.VmID)
 	// Re-publish the desktop port: the controller's domain mapping carries
 	// the placement generation, which a resume can move.
-	_ = s.ensureWorkspaceDesktop(ctx, updated)
 	s.notifyWorkspace(ctx, updated.ID, "running")
 	slog.Info("sandbox resumed", "vm_id", workspace.VmID, "type", "workspace", "duration_ms", resumeDuration.Milliseconds())
 	return updated, nil

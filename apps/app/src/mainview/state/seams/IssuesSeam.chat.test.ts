@@ -138,6 +138,7 @@ type RouteAnswer = Response | ((request: Request) => Response | Promise<Response
 // Explicit absent optional/startup resources for these repositories. No other
 // request is silently converted to a valid fixture refusal.
 const absentRoutes = new Set([
+  "GET /api/user/settings/signup",
   "GET /api/repository-setup/state",
   "GET /api/repos/will/flows/contents/.smithers/factory.json",
   "GET /api/repos/will/flows/home",
@@ -145,8 +146,6 @@ const absentRoutes = new Set([
   "GET /api/repos/smithersai/smithers/home",
   "GET /api/user/github-repos/will/flows/issues",
   "GET /api/repos/will/flows/issue-views",
-  "GET /api/repos/will/flows/issues/8/sync",
-  "GET /api/repos/will/flows/issues/10/sync",
   "GET /api/repos/will/flows/issues/8/comments/31/reactions",
   "GET /api/repos/will/flows/issues/8/comments/32/reactions",
   "GET /api/repos/will/flows/issues/8/comments/41/reactions",
@@ -219,7 +218,7 @@ describe("conversations and issues through the issues seam", () => {
  * The chat = issues contract (#2111), read through the backend's own DTOs:
  * services.IssueResponse (`kind`, `visibility`, `idempotency_key`),
  * services.IssueCommentResponse (`persona` {username, iconEmoji|iconUrl},
- * `commenter`, `type`, `idempotency_key`), the `/sync` mapping row and
+ * `commenter`, `type`, `idempotency_key`) and
  * services.IssueReaction. Field names here are the Go struct tags.
  */
 const at = "2026-09-26T09:05:00Z"
@@ -232,7 +231,7 @@ const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
   ({ id, issue_id: 700, user_id: 1, commenter: "will", body, type: "issue_comment", created_at: at, updated_at: at, ...extra })
 
 describe("a conversation on the chat = issues contract", () => {
-  test("reads kind and visibility, persona comments, the sync mapping and reactions off the backend's DTOs; a message posts with its request id as the key and a refusal stays retryable and says what failed and whose fault it was", async () => {
+  test("reads kind and visibility, persona comments, historical comments and native reactions off the backend's DTOs; a message posts with its request id as the key and a refusal stays retryable and says what failed and whose fault it was", async () => {
     const calls: Array<{ line: string; body?: unknown }> = []
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent, backend({
@@ -241,9 +240,6 @@ describe("a conversation on the chat = issues contract", () => {
         commentDto(31, "Taking it.", { idempotency_key: "dispatch:step", persona: { username: "engineering", iconEmoji: ":hammer:" } }),
         commentDto(32, "from Slack", { commenter: "U0HUMAN", persona: { username: "" } })
       ]),
-      "GET /api/repos/will/flows/issues/7/sync": json(200, {
-        provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", thread_id: "1700000000.000100", external_user_id: "", state: "synced", error: ""
-      }),
       "GET /api/repos/will/flows/issues/7/comments/31/reactions": json(200, [{ name: "eyes", actor: "will", active: true }, { name: "eyes", actor: "U0HUMAN", active: false }]),
       "GET /api/repos/will/flows/issues/7/comments/32/reactions": json(200, []),
       "POST /api/repos/will/flows/issues/7/comments": json(503, { status: "error", message: "the mirror is down" })
@@ -260,7 +256,7 @@ describe("a conversation on the chat = issues contract", () => {
       // An empty persona is no persona: the external commenter is the author, as the mirror recorded it.
       { id: 32, author: "U0HUMAN", commentBody: "from Slack", createdAt: at, reactions: [] }
     ])
-    expect(card.payload.sync).toEqual({ provider: "slack", connectionId: "slack-main", scopeId: "T0123", conversationId: "C0123", threadId: "1700000000.000100", state: "synced", error: "" })
+    expect(calls.some(call => call.line.endsWith("/sync"))).toBe(false)
     // A message: acknowledged at once, posted with its request id as the idempotency key; the refusal keeps the row failed with what failed and whose fault it was, never the server's words.
     expect(await controller.commentOnIssue(7, "Ship it.", REPO)).toEqual({ value: "Requested" })
     await settled()
@@ -295,7 +291,6 @@ describe("issues.set stores intent metadata on the issue", () => {
       "PATCH /api/repos/will/flows/issues/7": patch,
       "GET /api/repos/will/flows/issues/7": json(200, { ...issueDto, kind: "issue", priority: 2, owner: { id: 2, login: "engineer" }, due: "2026-10-01", parent: { number: 5, title: "Fences" } }),
       "GET /api/repos/will/flows/issues/7/comments": json(200, []),
-      "GET /api/repos/will/flows/issues/7/sync": json(404, { message: "not found" })
     }, calls))
     await signedIn(store)
     return { calls, store, controller }

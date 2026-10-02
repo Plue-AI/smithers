@@ -9,7 +9,7 @@ import { scriptedModel, scriptedSeats } from "./scriptedSeats.ts";
 
 describe("scriptedSeats", () => {
   test("preserves distinct seat aliases while sharing one scripted model identity", async () => {
-    const aliases = ["review", "review-verify", "review-narrate", "review-quiz"];
+    const aliases = ["sol", "luna"];
     const seats = await Effect.runPromise(
       Effect.gen(function* () {
         const resolver = yield* SeatResolver.SeatResolver;
@@ -18,7 +18,7 @@ describe("scriptedSeats", () => {
     );
 
     expect(seats.map((seat) => seat.id)).toEqual(aliases);
-    expect(new Set(seats.map((seat) => seat.id)).size).toBe(4);
+    expect(new Set(seats.map((seat) => seat.id)).size).toBe(2);
     expect(new Set(seats.map((seat) => seat.modelId))).toEqual(new Set(["scripted-reviewer"]));
     expect(new Set(seats.map((seat) => seat.model)).size).toBe(1);
   });

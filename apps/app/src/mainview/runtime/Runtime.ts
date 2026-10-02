@@ -8,7 +8,6 @@ import { createWebAgent } from "../native/WebAgent"
 
 export type ShellPort =
   | { readonly kind: "browser" }
-  | { readonly kind: "native"; readonly openExternal: (url: string) => Promise<boolean> }
 
 export interface AppRuntime {
   readonly bootstrap: AppBootstrap
@@ -80,12 +79,8 @@ export const warmBootstrap = (http: FetchLike): Promise<AppBootstrap> => {
 export const createRuntime = (options: {
   readonly bootstrap: AppBootstrap
   readonly http: FetchLike
-  readonly nativeOpenExternal?: (url: string) => Promise<boolean>
 }): AppRuntime => {
   const { bootstrap, http } = options
-  const native = options.nativeOpenExternal === undefined
-    ? ({ kind: "browser" } as const)
-    : ({ kind: "native", openExternal: options.nativeOpenExternal } as const)
   return {
     bootstrap,
     http,
@@ -93,7 +88,7 @@ export const createRuntime = (options: {
       ...(hasCapability(bootstrap, "agent") ? { agent: createWebAgent({ fetchImpl: http }) }
         : hasCapability(bootstrap, "model.turn") ? { agent: modelOnlyAgent(http) } : {})
     },
-    shell: native
+    shell: { kind: "browser" }
   }
 }
 

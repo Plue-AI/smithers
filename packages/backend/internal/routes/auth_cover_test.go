@@ -283,7 +283,6 @@ func TestAuth_Cov_RouteErrorRetryAfterAndRandomHex(t *testing.T) {
 func TestAuth_Cov_RouteErrorPreservesOnlyAllowlisted5xxMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	for _, code := range []pkgerrors.Code{
-		pkgerrors.CodeDesktopNotReady,
 		pkgerrors.CodeNoCapacity,
 		pkgerrors.CodeEgressProxyUnavailable,
 		pkgerrors.CodeSecretDeliveryUnavailable,

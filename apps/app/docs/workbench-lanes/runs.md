@@ -29,11 +29,9 @@ Scope, in order:
    `accepted · nothing is driving it` (Resume). Flows `runs.resume`,
    `runs.rerun`, `runs.signal <runId> <name> [json]`; `flow.run.stop` gains
    `[reason]`.
-5. **flow-run card: steer.** A steer composer row under the steps plus a
-   mono strip `seat ▾ · thinking ▾ · tools ▾`; a queued steer reads
+5. **flow-run card: steer.** A steer composer row under the steps; a queued steer reads
    `steering pending · delivered at the next turn` until delivered. Flows
-   `runs.steer <runId> <message>`, `runs.seat <runId> <provider:model>`,
-   `runs.thinking <runId> <level>`, `runs.tools <runId> <tool,...>`.
+   `runs.steer <runId> <message>`.
 6. **flow-run card: Transcript and Events facets.** Transcript rows turn · at
    · kind · text with a follow toggle, maximize for the full log; Events
    shows raw ControlEvent JSON only under `debug.verbose`. Flows

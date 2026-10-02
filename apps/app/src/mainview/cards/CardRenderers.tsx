@@ -32,7 +32,6 @@ import { flowPlanCardFamily } from "./FlowPlanCard"
 import { stackCardFamily } from "./StackCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
-import { modelCardFamily } from "./ModelCards"
 import { notificationsCardFamily } from "./NotificationsCard"
 import { LibrarianLibraryCard } from "../plugins/tutorial2-librarian-card"
 import { RepositoryChoiceCard } from "./RepositoryChoiceCard"
@@ -65,7 +64,7 @@ const pluginLibraryCardFamily: CardFamily<"plugin-library"> = {
 }
 
 /** Wire kinds retained for old journals, with no live producer or UI. */
-export const RETIRED_CARD_KINDS = ["retired", "service-log", "repo", "targets", "target-run", "graph", "run-timeline", "run-history", "affected", "ci-matrix"] as const
+export const RETIRED_CARD_KINDS = ["models", "model-call", "retired", "service-log", "repo", "targets", "target-run", "graph", "run-timeline", "run-history", "affected", "ci-matrix"] as const
 type RetiredCardKind = (typeof RETIRED_CARD_KINDS)[number]
 type RenderedCardKind = Exclude<Card["kind"], RetiredCardKind>
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: RetiredCardKind }> =>
@@ -91,7 +90,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   repositoryUpdateCardFamily,
   envCardFamily,
   secretsCardFamily,
-  modelCardFamily,
   accountCardFamily,
   stackCardFamily,
   repoImportCardFamily,
@@ -132,7 +130,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...repositoryUpdateCardFamily,
   ...envCardFamily,
   ...secretsCardFamily,
-  ...modelCardFamily,
   ...accountCardFamily,
   ...stackCardFamily,
   ...repoImportCardFamily,

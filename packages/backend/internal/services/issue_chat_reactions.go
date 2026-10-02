@@ -22,7 +22,7 @@ func (s *IssueService) IssueReactions(ctx context.Context, actor *db.User, owner
 	if err != nil {
 		return nil, err
 	}
-	q, err := s.syncQueries()
+	q, err := s.commentQueries()
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *IssueService) SetIssueReaction(ctx context.Context, actor *db.User, own
 	if !reactionName.MatchString(in.Name) {
 		return nil, api.BadRequest("invalid reaction")
 	}
-	q, err := s.syncQueries()
+	q, err := s.commentQueries()
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (s *IssueService) SetIssueReaction(ctx context.Context, actor *db.User, own
 		return nil, err
 	}
 	if changed {
-		err = recordReaction(ctx, tx, i.ID, commentID, actor.ID, in.Name, actor.Username, in.Active, true)
+		err = recordReaction(ctx, tx, i.ID, commentID, actor.ID, in.Name, actor.Username, in.Active)
 		if err != nil {
 			return nil, err
 		}
@@ -99,15 +99,12 @@ func (s *IssueService) SetIssueReaction(ctx context.Context, actor *db.User, own
 	}
 	return s.IssueReactions(ctx, actor, owner, repo, number, commentID)
 }
-func recordReaction(ctx context.Context, tx pgx.Tx, issueID, commentID, actorID int64, name, author string, active, outbound bool) error {
+func recordReaction(ctx context.Context, tx pgx.Tx, issueID, commentID, actorID int64, name, author string, active bool) error {
 	payload, _ := json.Marshal(map[string]any{"comment": map[string]any{"id": commentID}, "reaction": map[string]any{"name": name, "actor": author, "active": active}})
 	var eventID int64
 	err := tx.QueryRow(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'comment.reaction',$3) RETURNING id`, issueID, actorID, payload).Scan(&eventID)
 	if err != nil {
 		return err
-	}
-	if outbound {
-		_, err = tx.Exec(ctx, `INSERT INTO issue_sync_deliveries(issue_id,event_id) SELECT $1,$2 WHERE EXISTS(SELECT 1 FROM issue_sync_threads WHERE issue_id=$1)`, issueID, eventID)
 	}
 	return err
 }

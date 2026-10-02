@@ -11,6 +11,8 @@
  * human can decide.
  */
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { repositoryFlowsOf } from "./seams/RepositoryFlowsSeam"
 import type { Card } from "@smthrs/rpc/Cards"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
@@ -321,7 +323,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
 
     // The gateway was provisioned BEFORE anything was launched, and the
     // launch is the stock create-flow with the description as its input.
-    const order = double.calls.filter(call => !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state")).map((call) => call.path)
+    const order = double.calls.filter(call => call.path.startsWith("/api/workflow/")).map((call) => call.path)
     expect(double.profileReads).toEqual([SIGNUP_PROFILE_PATH])
     expect(order[0]).toBe("/api/workflow/provision")
     expect(double.state.launched).toEqual([
@@ -894,4 +896,32 @@ describe("wave 11 — workflows are presented", () => {
         .map((command) => command.name)
     ).toEqual(["flow.create", "flow.list", "flow.run", "flow.plan"])
   })
+})
+
+// Offline relay substitutes the remote gateway only; catalog, command parsing,
+// controller, provision/Plan/Run protocol and persisted run card are real.
+test.each([
+  { label: "bare", args: undefined, input: {} },
+  { label: "with JSON", args: '{"verify":false,"narrate":false}', input: { verify: false, narrate: false } }
+])("/review $label from the actual repository projection launches the ordinary gateway flow", async ({ args, input }) => {
+  const projection = JSON.parse(readFileSync(new URL("../../../../../.smithers/factory.json", import.meta.url), "utf8")) as {
+    flows: Parameters<typeof repositoryFlowsOf>[0]
+  }
+  const flows = projection.flows
+  const store = await webStore()
+  const double = relay({ flows: flows.map(row => ({ flowId: row.id, description: row.description })) })
+  const controller = createAppController(store, silentAgent, double.services)
+  await signIn(store)
+  await settle()
+  await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: REPO, flows: repositoryFlowsOf(flows) }).isPersisted.promise
+  await settle()
+  double.finish()
+  const outcome = await controller.commands.run("review", args)
+  expect(outcome.status).toBe("executed")
+  await waitFor(() => runCard(store)?.payload.phase === "completed")
+  expect(double.state.launched).toEqual([{ workflow: "review", input }])
+  expect(double.calls.filter(call => call.path === "/api/workflow/rpc").map(call => (call.body as { procedure: string }).procedure)).toContain("Plan")
+  expect(double.calls.filter(call => call.path === "/api/workflow/rpc").map(call => (call.body as { procedure: string }).procedure)).toContain("Run")
+  expect(runCard(store)?.payload.workflow).toBe("review")
+  expect(double.calls.some(call => call.path.includes("/review/"))).toBe(false)
 })

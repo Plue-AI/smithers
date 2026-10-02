@@ -19,9 +19,9 @@ export const canonicalSHA256 = (body: unknown): string => {
 export type MatrixTier = "deterministic" | "local-infrastructure" | "live-provider" | "plue-production"
 export type MatrixStatus = "passed" | "failed" | "unavailable" | "not-configured"
 export type ProductProvider = "selfhost" | "plue"
-export type ProductSurface = "web" | "local" | "native"
-export type ProcessRole = "web" | "local-ui" | "native-ui" | "supervisor" | "app" | "docker-app" | "postgres"
-const PROCESS_ROLES: readonly ProcessRole[] = ["web", "local-ui", "native-ui", "supervisor", "app", "docker-app", "postgres"]
+export type ProductSurface = "web" | "local"
+export type ProcessRole = "web" | "local-ui" | "supervisor" | "app" | "docker-app" | "postgres"
+const PROCESS_ROLES: readonly ProcessRole[] = ["web", "local-ui", "supervisor", "app", "docker-app", "postgres"]
 
 export interface ModeDescriptor {
   readonly id: DeploymentMode
@@ -62,20 +62,13 @@ export const MODE_DESCRIPTORS: Readonly<Record<DeploymentMode, ModeDescriptor>> 
     id: "local-plue", surface: "local", provider: "plue", legacyHost: "production",
     requiredProcessRoles: ["local-ui"], forbiddenProcessRoles: ["app", "docker-app", "postgres", "supervisor"], requiresPersistentRestart: false
   },
-  "native-own": {
-    id: "native-own", surface: "native", provider: "selfhost", legacyHost: "local",
-    requiredProcessRoles: ["native-ui", "supervisor", "app", "postgres"], forbiddenProcessRoles: [], requiresPersistentRestart: true
-  },
-  "native-plue": {
-    id: "native-plue", surface: "native", provider: "plue", legacyHost: "production",
-    requiredProcessRoles: ["native-ui"], forbiddenProcessRoles: ["app", "docker-app", "postgres", "supervisor"], requiresPersistentRestart: false
-  }
+
 }
 
-export const MATRIX_SURFACE_DRIVERS: Readonly<Record<ProductSurface, "playwright" | "electrobun-cdp">> = {
+export const MATRIX_SURFACE_DRIVERS: Readonly<Record<ProductSurface, "playwright">> = {
   web: "playwright",
   local: "playwright",
-  native: "electrobun-cdp"
+
 }
 
 /** One obligation catalog. Modes inject topology; they do not copy scenario bodies. */
@@ -108,7 +101,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 2
+export const FEATURE_MATRIX_VERSION = 3
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
@@ -136,7 +129,7 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "billing.portal": { selfhost: billing, plue: billing },
   "cloud.terminal": { selfhost: core, plue: core },
   "cloud.pat": { selfhost: optional("a local host's session with its configured backend"), plue: absent("the shared backend holds no Smithers Cloud PAT session") },
-  "native.shell": { selfhost: absent("the desktop shell appends it; no backend advertises it"), plue: absent("the desktop shell appends it; no backend advertises it") }
+  "native.shell": { selfhost: absent("retired shell capability"), plue: absent("retired shell capability") },
 }
 
 export const featureMatrixSHA256 = (): string => canonicalSHA256(FEATURE_MATRIX)
@@ -177,8 +170,7 @@ export interface ModeConfig {
   readonly endpoint: string
   readonly auth: { readonly kind: "browser-profile" | "owner-session" | "application-token"; readonly environment: string }
   readonly executionReceipt: string
-  /** Secret-free reference to a JSON launch envelope held only in the runner environment. */
-  readonly surfaceDriver?: { readonly kind: "electrobun-cdp"; readonly environment: string }
+
 }
 
 export interface MatrixConfig {
@@ -265,22 +257,12 @@ export const parseMatrixConfig = (value: unknown): MatrixConfig => {
       throw new Error(`${entry.mode} auth must name a browser-profile, owner-session, or application-token environment variable`)
     }
     if (!entry.executionReceipt.trim()) throw new Error(`${entry.mode} executionReceipt is required`)
-    let surfaceDriver: ModeConfig["surfaceDriver"]
-    if (entry.surfaceDriver !== undefined) {
-      if (!isObject(entry.surfaceDriver) || entry.surfaceDriver.kind !== "electrobun-cdp" ||
-          typeof entry.surfaceDriver.environment !== "string" || !/^[A-Z][A-Z0-9_]+$/.test(entry.surfaceDriver.environment)) {
-        throw new Error(`${entry.mode} surfaceDriver must name an electrobun-cdp environment variable`)
-      }
-      if (MODE_DESCRIPTORS[entry.mode].surface !== "native") throw new Error(`${entry.mode} must not configure a native surface driver`)
-      surfaceDriver = { kind: "electrobun-cdp", environment: entry.surfaceDriver.environment }
-    }
     return {
       mode: entry.mode,
       origin: httpOrigin(entry.origin),
       endpoint: httpOrigin(entry.endpoint),
       auth: { kind: entry.auth.kind, environment: entry.auth.environment },
-      executionReceipt: entry.executionReceipt,
-      ...(surfaceDriver ? { surfaceDriver } : {})
+      executionReceipt: entry.executionReceipt
     }
   })
   return { revision: value.revision, modes }
@@ -338,18 +320,7 @@ export const probeMode = async (
 ): Promise<ModeReadiness> => {
   const descriptor = MODE_DESCRIPTORS[config.mode]
   const reasons: string[] = []
-  if (descriptor.surface === "native") {
-    if (config.surfaceDriver === undefined) reasons.push("native mode has no packaged Electrobun CDP driver configuration")
-    else if (!environment[config.surfaceDriver.environment]?.trim()) {
-      reasons.push(`native driver environment ${config.surfaceDriver.environment} is unavailable`)
-    }
-    if (config.mode === "native-own" && config.auth.kind !== "owner-session") {
-      reasons.push("native-own requires the packaged owner-session bootstrap flow")
-    }
-    if (config.mode === "native-plue" && config.auth.kind !== "application-token") {
-      reasons.push("native-plue requires the packaged application-token flow")
-    }
-  }
+
   if (!environment[config.auth.environment]?.trim()) reasons.push(`auth environment ${config.auth.environment} is unavailable`)
   let capabilities: readonly string[] = []
   let buildSha: string | undefined
@@ -458,7 +429,7 @@ export const missingModeReadiness = (mode: DeploymentMode, reason: string): Mode
 
 export interface MatrixSelection {
   readonly modes: readonly DeploymentMode[]
-  readonly scope: "six-mode" | "partial"
+  readonly scope: "all-modes" | "partial"
 }
 
 export const selectMatrixModes = (value?: string): MatrixSelection => {
@@ -469,7 +440,7 @@ export const selectMatrixModes = (value?: string): MatrixSelection => {
         return mode as DeploymentMode
       })
   if (modes.length === 0 || new Set(modes).size !== modes.length) throw new Error("matrix modes must be a nonempty set")
-  return { modes, scope: modes.length === DEPLOYMENT_MODES.length ? "six-mode" : "partial" }
+  return { modes, scope: modes.length === DEPLOYMENT_MODES.length ? "all-modes" : "partial" }
 }
 
 export const matrixPasses = (
@@ -501,5 +472,5 @@ export const matrixVerdict = (
   commands: readonly { readonly tier: string; readonly status: "passed" | "failed" | "unavailable"; readonly exitCode?: number }[] = []
 ) => {
   const ok = matrixPasses(readiness, scenarios, deterministicPassed, selection.modes, commands)
-  return { ok, scope: selection.scope, modes: selection.modes, sixModeAccepted: ok && selection.scope === "six-mode" }
+  return { ok, scope: selection.scope, modes: selection.modes, allModesAccepted: ok && selection.scope === "all-modes" }
 }

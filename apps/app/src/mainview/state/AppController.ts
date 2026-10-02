@@ -72,8 +72,6 @@ import { createHealthStatusController } from "./controller/health-status"
 import { createInputModeController } from "./controller/inputMode"
 import { createIssueFlowsController,type IssueFlowsController } from "./controller/issueFlows"
 import { createRepositorySetupController, type RepositorySetupController } from "./controller/repositorySetup"
-import { createModelCallController, type ModelCallController } from "./controller/modelCall"
-import { createModelsController,type ModelsController } from "./controller/models"
 import type { OnboardingController } from "./controller/onboarding"
 import { createOnboardingController } from "./controller/onboarding"
 import { createRegistrationController, type RegistrationController } from "./controller/registration"
@@ -126,7 +124,6 @@ import type { GitHubSeam } from "./seams/GitHubSeam"
 import { createGitHubSeam } from "./seams/GitHubSeam"
 import type { IssuesSeam } from "./seams/IssuesSeam"
 import { createIssuesSeam } from "./seams/IssuesSeam"
-import { createIntegrationsSeam, type IntegrationsSeam } from "./seams/IntegrationsSeam"
 import type { LandingsSeam } from "./seams/LandingsSeam"
 import { createLandingsSeam } from "./seams/LandingsSeam"
 import type { NotificationsSeam } from "./seams/NotificationsSeam"
@@ -166,7 +163,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** Immutable repository pointer from this page's entry URL. */
   readonly repositoryApp: string | null
   /** The native app's download URL this page offers; null while no native release carries an asset (controller/app.ts). */
-  readonly downloadUrl: string | null
   /** The resolved feature flags (every flag defaults off). */
   readonly features: Required<AppFeatures>
   readonly nativeAgentAvailable: boolean
@@ -317,9 +313,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly rerunRun: RunsController["rerunRun"]
   readonly signalRun: RunsController["signalRun"]
   readonly steerRun: RunsController["steerRun"]
-  readonly steerRunSeat: RunsController["steerRunSeat"]
-  readonly steerRunThinking: RunsController["steerRunThinking"]
-  readonly steerRunTools: RunsController["steerRunTools"]
   readonly showRunLogs: RunsController["showRunLogs"]
   readonly showRunSteps: RunsController["showRunSteps"]
   readonly showRunEvents: RunsController["showRunEvents"]
@@ -347,7 +340,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly minimizeCard: () => void
   readonly frameBack: () => void
   readonly frameForward: () => void
-  readonly forkFrame: () => Promise<string | void>
   /* The card tabs (docs/LOCAL-APP.md "Cards"); see controller/tabs.ts. */
   readonly openCardTab: TabsController["openCardTab"]
   readonly selectTab: TabsController["selectTab"]
@@ -368,25 +360,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly setFormField: FormsController["setFormField"]
   readonly submitForm: FormsController["submitForm"]
   readonly dismissCard: FormsController["dismissCard"]
-  /* Configured models and the seats they fill; see controller/models.ts. */
-  readonly listModels: ModelsController["listModels"]
-  readonly showModel: ModelsController["showModel"]
-  readonly newModel: ModelsController["newModel"]
-  readonly editModel: ModelsController["editModel"]
-  readonly saveModel: ModelsController["saveModel"]
-  readonly removeModel: ModelsController["removeModel"]
-  readonly testModel: ModelsController["testModel"]
-  readonly assignSeat: ModelsController["assignSeat"]
-  readonly observeModels: ModelsController["observeModels"]
-  /* The composer for one configured model; see controller/modelCall.ts. */
-  readonly composeModel: ModelCallController["composeModel"]
-  readonly askModel: ModelCallController["askModel"]
-  readonly recallModel: ModelCallController["recallModel"]
-  readonly setModelPrompt: ModelCallController["setModelPrompt"]
-  readonly setModelField: ModelCallController["setModelField"]
-  readonly setModelQuestion: ModelCallController["setModelQuestion"]
-  readonly setModelOption: ModelCallController["setModelOption"]
-  readonly fixtureModel: ModelCallController["fixtureModel"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   readonly cloudTerminal: CloudTerminalClient
   /* The admin dev-tools panel + debug reads (§2b/§2d; admin registry only). */
@@ -508,10 +481,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly promptCloudSignIn: () => void
   /** Reload the app window — the /reload affordance (dev loop, stuck states). */
   readonly reloadApp: () => void
-  /** Open the native app's download page (app.download — the web app's one door to the native app). */
-  readonly openDownload: AppShellController["openDownload"]
-  /** Render the native-only refusal card with the download action (app.download.prompt — the agent's door). */
-  readonly promptDownload: AppShellController["promptDownload"]
   /** Render and return the identity line (smithers.who). */
   readonly introduce: AppShellController["introduce"]
   /** Render the account card, or the sign-in step signed out (account.show). */
@@ -532,14 +501,10 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly draftIssueComment: IssuesSeam["draftIssueComment"]
   readonly retryIssueComment: IssuesSeam["retryIssueComment"]
   readonly reactToIssueComment: IssuesSeam["reactToIssueComment"]
-  readonly resolveIssueSync: IssuesSeam["resolveIssueSync"]
-  readonly mapIssueSync: IssuesSeam["mapIssueSync"]
   readonly editIssueComment: IssuesSeam["editIssueComment"]
   readonly deleteIssueComment: IssuesSeam["deleteIssueComment"]
   readonly commentOnIssue: IssuesSeam["commentOnIssue"]
   readonly setIssueTask: IssuesSeam["setIssueTask"]
-  readonly listIntegrations: IntegrationsSeam["listIntegrations"]
-  readonly admitSlackChannel: IntegrationsSeam["admitSlackChannel"]
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
   readonly setLandingTab: LandingsSeam["setTab"]
@@ -624,12 +589,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly readWorkspaceFile: WorkspaceSeam["readFile"]
   readonly listWorkspaceServices: WorkspaceSeam["listServices"]
   readonly listWorkspaceEgress: WorkspaceSeam["listEgress"]
-  /* Lane L3b: the NixOS desktop and the environment images a repository has built. */
-  readonly openWorkspaceDesktop: WorkspaceSeam["openDesktop"]
-  readonly rotateWorkspaceDesktop: WorkspaceSeam["rotateDesktop"]
-  /** `/desktop`: create-or-reuse the desktop box, wait for it, and stream it, under one confirm. */
-  readonly openDesktopBox: WorkspaceSeam["openDesktopBox"]
-  readonly stopDesktopWait: WorkspaceSeam["stopDesktopWait"]
   /** The repository the active selection names, for a flow that must BIND its target before it asks. */
   readonly activeRepository: () => string | null
   readonly listEnvironmentImages: WorkspaceSeam["listEnvironmentImages"]
@@ -734,18 +693,11 @@ export interface AppServices {
   /** The toast debounce (the 300ms law); injectable so tests pin both sides of it. */
   readonly toastDebounceMs?: number
   /**
-   * Open a URL in the system browser (the native shell's door). Present =
+   * Open a URL in the browser. Present =
    * the sign-in handoff runs OAuth outside the webview, where passkeys
    * work; absent = pure web keeps the same-page navigation.
    */
   readonly openExternal?: (url: string) => Promise<boolean>
-  /**
-   * The native app's download URL, when the composition root knows one;
-   * default the shared constant (AppLinks.ts), null until a release carries
-   * an asset. Tests inject a URL to exercise the door, and null to prove it
-   * is absent.
-   */
-  readonly downloadUrl?: string | null
   /** The handoff claim poll cadence; tests shorten it. */
   readonly handoffPollMs?: number
   /** How long a settled-ok toast states its result before dismissing itself. */
@@ -920,7 +872,6 @@ export const createAppController = (
   }
   const issuesSeam = actors.pair(seamCtx, (context, select) => createIssuesSeam(context, request => select(renderFlowForm)(request)))
   /* The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6). */
-  const integrationsSeam = actors.pair(seamCtx, createIntegrationsSeam)
   const landingsSeam = actors.pair(seamCtx, (context, select) => createLandingsSeam(context, request => select(renderFlowForm)(request)))
   const repositoriesSeam = actors.pair(seamCtx, (context) => createRepositoriesSeam(context))
   const tutorialRepository = actors.pair(ctx, (context) => createTutorialRepositoryController(context, {
@@ -1045,7 +996,7 @@ export const createAppController = (
     ctx.onDispose(localAuth.dispose)
   }
   const { showPlugins, installPlugin, removePlugin, listPlugins } = actors.pair(ctx, createPluginsController)
-  const { downloadUrl, openDownload, promptDownload, introduce } = actors.pair(ctx, (context) => createAppShellController(context))
+  const { introduce } = actors.pair(ctx, (context) => createAppShellController(context))
   const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
 
   const {
@@ -1081,7 +1032,6 @@ export const createAppController = (
     minimizeCard,
     frameBack,
     frameForward,
-    forkFrame
   } = createFramesController(ctx, services.frameHistory)
 
   const {
@@ -1092,31 +1042,7 @@ export const createAppController = (
     selectBox,
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
-  const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal, minimizeCard }))
-  const {
-    listModels,
-    showModel,
-    newModel,
-    editModel,
-    saveModel,
-    removeModel,
-    testModel,
-    assignSeat,
-    credentialMissing,
-    resumeModels,
-    observeModels
-  } = actors.pair(ctx, (context, select) => createModelsController(context, { nextOrdinal: store.nextOrdinal, renderFlowForm: select(renderFlowForm), minimizeCard }))
-  const {
-    composeModel,
-    askModel,
-    recallModel,
-    setModelPrompt,
-    setModelField,
-    setModelQuestion,
-    setModelOption,
-    fixtureModel,
-    resumeModelCalls
-  } = actors.pair(ctx, (context) => createModelCallController(context, { nextOrdinal: store.nextOrdinal, minimizeCard }))
+  const { renderFlowForm, setFormField, submitForm, dismissCard, focusHandoff: formFocus } = actors.pair(ctx, (context) => createFormsController(context, { nextOrdinal: store.nextOrdinal }))
   const {
     listAgents,
   } = actors.pair(ctx, (context) => createAgentsController(context, { nextOrdinal: store.nextOrdinal }))
@@ -1231,8 +1157,7 @@ export const createAppController = (
     nextOrdinal: store.nextOrdinal,
     surfaceCommandFailure,
     forwardApprovalDecision,
-    forwardInboxApprovalDecision,
-    credentialMissing
+    forwardInboxApprovalDecision
   })
   const promptQueue = createPromptQueueController(ctx, send)
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
@@ -1740,9 +1665,6 @@ export const createAppController = (
     rerunRun: runs.rerunRun,
     signalRun: runs.signalRun,
     steerRun: runs.steerRun,
-    steerRunSeat: runs.steerRunSeat,
-    steerRunThinking: runs.steerRunThinking,
-    steerRunTools: runs.steerRunTools,
     showRunLogs: runs.showRunLogs,
     showRunSteps: runs.showRunSteps,
     showRunEvents: runs.showRunEvents,
@@ -1768,7 +1690,6 @@ export const createAppController = (
     minimizeCard,
     frameBack,
     frameForward,
-    forkFrame,
     openCardTab,
     selectTab,
     closeTab,
@@ -1783,23 +1704,6 @@ export const createAppController = (
     setFormField,
     submitForm,
     dismissCard,
-    listModels,
-    showModel,
-    newModel,
-    editModel,
-    saveModel,
-    removeModel,
-    testModel,
-    assignSeat,
-    observeModels,
-    composeModel,
-    askModel,
-    recallModel,
-    setModelPrompt,
-    setModelField,
-    setModelQuestion,
-    setModelOption,
-    fixtureModel,
     cloudTerminal,
     toggleDevtools,
     toggleChatFilterMenu,
@@ -1849,8 +1753,6 @@ export const createAppController = (
     promptSignIn,
     promptCloudSignIn,
     reloadApp,
-    openDownload,
-    promptDownload,
     dismissFirstRun: () => { store.dispatch({ type: "first-run.dismissed", actor: ctx.commandActor }) },
     dismissHint: (id: string) => {
       if (ctx.disposed || privacyActions.refuse(ctx.commandActor) !== undefined) return
@@ -1869,13 +1771,9 @@ export const createAppController = (
     draftIssueComment: issuesSeam.draftIssueComment,
     retryIssueComment: issuesSeam.retryIssueComment,
     reactToIssueComment: issuesSeam.reactToIssueComment,
-    mapIssueSync: issuesSeam.mapIssueSync,
-    resolveIssueSync: issuesSeam.resolveIssueSync,
     editIssueComment: issuesSeam.editIssueComment,
     deleteIssueComment: issuesSeam.deleteIssueComment,
     setIssueTask: issuesSeam.setIssueTask,
-    listIntegrations: integrationsSeam.listIntegrations,
-    admitSlackChannel: integrationsSeam.admitSlackChannel,
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
@@ -1951,10 +1849,6 @@ export const createAppController = (
     readWorkspaceFile: workspaceSeam.readFile,
     listWorkspaceServices: workspaceSeam.listServices,
     listWorkspaceEgress: workspaceSeam.listEgress,
-    openWorkspaceDesktop: workspaceSeam.openDesktop,
-    rotateWorkspaceDesktop: workspaceSeam.rotateDesktop,
-    openDesktopBox: workspaceSeam.openDesktopBox,
-    stopDesktopWait: workspaceSeam.stopDesktopWait,
     activeRepository: () => activeRepositoryId(store),
     listEnvironmentImages: workspaceSeam.listEnvironmentImages,
     listSessionEgress: egressSeam.listSessionEgress,
@@ -2114,7 +2008,7 @@ export const createAppController = (
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
-    queueMicrotask(() => { if (!ctx.disposed) { resumeModels(); resumeModelCalls(); account.resumeAccount() } })
+    queueMicrotask(() => { if (!ctx.disposed) { account.resumeAccount() } })
     repositoryReadiness.resume()
     repositorySetup.resumeRepositorySetups()
     repoImportSeam.resume()
@@ -2188,7 +2082,6 @@ export const createAppController = (
     controlFocus,
     formFocus,
     storageRecoveryState,
-    downloadUrl,
     features,
     nativeAgentAvailable: agent.available,
     tappedFetch: http,

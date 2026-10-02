@@ -32,7 +32,7 @@ projection (D-020) and the duration predictor (D-030).
 
 ## Ground truth — the UI side
 
-The product UI is `apps/app` (React 19 + Vite + Electrobun; `apps/ui` is empty and
+The product UI is `apps/app` (React 19 + Vite; `apps/ui` is empty and
 the CHANGELOG reference to it is stale). No router — navigation is frames over
 `history.state`. All application state lives in TanStack DB collections persisted
 to SQLite; **React components are projections, never authorities**, and

@@ -58,7 +58,6 @@ export type CommandActions =
     | "wikiAttachments"
     // Feature flags and the download URL are the composition root's configuration, never an action.
     | "features"
-    | "downloadUrl"
     // The scope close is the composition root's act, never a flow's.
     | "dispose"
   >

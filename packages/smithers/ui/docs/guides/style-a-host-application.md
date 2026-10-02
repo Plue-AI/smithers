@@ -52,7 +52,7 @@ fallback runs in an effect, so it cannot help a server-rendered document.
 specificity, so its declarations win. Redefine the styleguide custom properties
 rather than the component classes, and every component follows at once.
 
-This is how the `create-app` Aomi template maps its brand onto the names the
+This maps a host application's brand onto the names the
 components read:
 
 ```tsx

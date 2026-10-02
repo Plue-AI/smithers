@@ -112,33 +112,21 @@ func Internal(msg string) *APIError { return New(CodeInternal, msg) }
 
 // DesktopNotReady reports the bounded NixOS activation window during which a
 // desktop VM can accept exec requests before its desktop helpers are linked.
-func DesktopNotReady(msg string) *APIError {
-	return New(CodeDesktopNotReady, msg)
-}
 
 // DesktopNotRunning reports that a desktop box is suspended, failed, or has no
 // VM. The observe/input routes never auto-resume: the consumer shows a Resume
 // button instead of paying a minute of VM start inside a 30 s request.
-func DesktopNotRunning(msg string) *APIError {
-	return New(CodeDesktopNotRunning, msg)
-}
 
 // DesktopBusy reports same-pod contention on one box's desktop: the API holds
 // a per-workspace lock so two agents cannot interleave pointer actions. It
 // fails at once rather than queueing, because the caller's 30 s budget is
 // better spent observing the state the other action produced.
-func DesktopBusy(msg string) *APIError {
-	return New(CodeDesktopBusy, msg)
-}
 
 // DesktopToolsUnavailable reports a box booted from an image older than the
 // one that ships the desktop observe/input helpers. It is terminal for that
 // box: no retry helps, the user has to open a new one. The fault is infra —
 // the helpers are missing because plue has not re-registered the image, not
 // because the caller asked for anything wrong.
-func DesktopToolsUnavailable(msg string) *APIError {
-	return New(CodeDesktopToolsUnavailable, msg)
-}
 
 // EnvironmentImageUnavailable reports that this deployment has no registered
 // NixOS image for the workspace kind being booted. Like
@@ -150,37 +138,19 @@ func EnvironmentImageUnavailable(msg string) *APIError {
 // DesktopFrameChanged reports that the framebuffer geometry moved between the
 // observation the plan was aimed at and the injection. Nothing was injected;
 // details carry the current frame and a fresh observation.
-func DesktopFrameChanged(msg string, details any) *APIError {
-	err := New(CodeDesktopFrameChanged, msg)
-	err.Details = details
-	return err
-}
 
 // DesktopFocusTerminal reports a refused keystroke: the focused window is a
 // terminal and the caller did not set allow_terminal. Typing into a shell that
 // carries the repository's git credential is the one input the API will not
 // perform by default.
-func DesktopFocusTerminal(msg string, details any) *APIError {
-	err := New(CodeDesktopFocusTerminal, msg)
-	err.Details = details
-	return err
-}
 
 // DesktopActRepeated reports a replayed act_id. The guest keeps the last 64
 // under its lock, so the ledger is cross-pod safe without a schema.
-func DesktopActRepeated(msg string) *APIError {
-	return New(CodeDesktopActRepeated, msg)
-}
 
 // DesktopInputOutOfBounds reports a positioned action outside the live
 // framebuffer. The guest re-checks geometry immediately before each action, so
 // this can fire after earlier actions of the same plan already ran; details
 // carry the index and how many completed.
-func DesktopInputOutOfBounds(msg string, details any) *APIError {
-	err := New(CodeDesktopInputOutOfBounds, msg)
-	err.Details = details
-	return err
-}
 
 // GuestNotReady reports the bounded boot window during which a VM guest is
 // reachable but NixOS activation has not finished exposing its login shell.

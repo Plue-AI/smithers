@@ -60,98 +60,36 @@ func TestIssueCommentFactsAndLookup(t *testing.T) {
 	require.Empty(t, hidden.Events)
 }
 
-func TestIssueTelegramUsesSharedSync(t *testing.T) {
+func TestRetiredMappingsDoNotDispatchNativeCommentChanges(t *testing.T) {
 	pool := newProductTestPool(t)
 	ctx := context.Background()
-	actor, repo := issueCovSeedUserRepo(t, pool)
-	q := db.New(pool)
-	svc := NewIssueService(q)
-	cfg := IssueSyncInput{Provider: "telegram", ConnectionID: "bot", ScopeID: "123", ConversationID: "-100001", ExternalUserID: "42"}
-	require.NoError(t, svc.ConfigureIssueSyncChannel(ctx, &actor, actor.Username, repo, cfg))
-	event := IssueSyncEvent{IssueSyncInput: cfg, DeliveryKey: "update:1", MessageID: "10", Version: "100.0000000001", UserID: "42", Body: "sync test", Kind: "message"}
-	id, err := svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.NoError(t, err)
-	repeated, err := NewIssueService(db.New(pool)).IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.NoError(t, err)
-	require.Equal(t, id, repeated)
-	event.DeliveryKey = "update:2"
-	event.MessageID = "11"
-	event.Version = "100.0000000002"
-	event.Body = "reply"
-	reply, err := svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.NoError(t, err)
-	require.Equal(t, id, reply)
-	event.Kind = "edit"
-	event.DeliveryKey = "update:3"
-	event.Version = "100.0000000003"
-	event.Body = "edited same second"
-	_, err = svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.NoError(t, err)
-	issue, err := q.GetIssueByID(ctx, id)
-	require.NoError(t, err)
-	rows, _, count, err := svc.ListIssueComments(ctx, &actor, actor.Username, repo, issue.Number, 0, 100)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), count)
-	require.Equal(t, "edited same second", rows[1].Body)
-	pending, err := svc.IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
-	require.NoError(t, err)
-	require.Empty(t, pending)
-	event.Kind = "message"
-	event.ThreadID = "7"
-	event.DeliveryKey = "update:4"
-	event.MessageID = "12"
-	event.Version = "101.0000000004"
-	topic, err := svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.NoError(t, err)
-	require.NotEqual(t, id, topic)
-	event.UserID = "99"
-	event.DeliveryKey = "forbidden"
-	_, err = svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.Error(t, err)
-	posted, err := svc.CreateIssueComment(ctx, &actor, actor.Username, repo, issue.Number, CreateIssueCommentInput{Body: "outbound", IdempotencyKey: "outbound"})
-	require.NoError(t, err)
-	pending, err = svc.IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
-	require.NoError(t, err)
-	require.Len(t, pending, 1)
-	require.Equal(t, "telegram", pending[0].Mapping.Provider)
-	claim, err := svc.ClaimIssueSync(ctx, &actor, actor.Username, repo, pending[0].ID)
-	require.NoError(t, err)
-	require.NoError(t, svc.CompleteIssueSync(ctx, &actor, actor.Username, repo, pending[0].ID, IssueSyncReceipt{State: "sent", Token: claim.Token, MessageID: "20,21"}))
-	_, err = svc.UpdateIssueComment(ctx, &actor, actor.Username, repo, posted.ID, UpdateIssueCommentInput{Body: "longer"})
-	require.NoError(t, err)
-	pending, err = svc.IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
-	require.NoError(t, err)
-	require.Equal(t, "20,21", pending[0].MessageID)
-	claim, err = svc.ClaimIssueSync(ctx, &actor, actor.Username, repo, pending[0].ID)
-	require.NoError(t, err)
-	require.NoError(t, svc.CompleteIssueSync(ctx, &actor, actor.Username, repo, pending[0].ID, IssueSyncReceipt{State: "outcome_unknown", Token: claim.Token, MessageID: "20,21,22"}))
-	recovered, e := NewIssueService(db.New(pool)).IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
-	require.NoError(t, e)
-	require.Equal(t, "20,21,22", recovered[0].MessageID, "partial receipt must survive restart ahead of old mapping")
-	require.NoError(t, svc.CompleteIssueSync(ctx, &actor, actor.Username, repo, pending[0].ID, IssueSyncReceipt{State: "sent", Token: claim.Token, MessageID: "20,21,22"}))
-	require.NoError(t, svc.DeleteIssueComment(ctx, &actor, actor.Username, repo, posted.ID))
-	pending, err = svc.IssueSyncDeliveries(ctx, &actor, actor.Username, repo)
-	require.NoError(t, err)
-	require.Equal(t, "20,21,22", pending[0].MessageID)
-}
-
-func TestIssueTelegramTopicAdmission(t *testing.T) {
-	pool := newProductTestPool(t)
-	ctx := context.Background()
-	actor, repo := issueCovSeedUserRepo(t, pool)
+	owner, repo := issueCovSeedUserRepo(t, pool)
 	svc := NewIssueService(db.New(pool))
-	cfg := IssueSyncInput{Provider: "telegram", ConnectionID: "bot", ScopeID: "123", ConversationID: "-100", ThreadID: "7"}
-	require.NoError(t, svc.ConfigureIssueSyncChannel(ctx, &actor, actor.Username, repo, cfg))
-	event := IssueSyncEvent{IssueSyncInput: cfg, DeliveryKey: "one", MessageID: "10", Version: "100.1", UserID: "42", Body: "topic", Kind: "message"}
-	_, err := svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
+	issue, err := svc.CreateIssue(ctx, &owner, owner.Username, repo, CreateIssueInput{Title: "chat", Kind: "chat"})
 	require.NoError(t, err)
-	event.ThreadID = "8"
-	event.DeliveryKey = "two"
-	event.MessageID = "11"
-	_, err = svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.Error(t, err)
-	event.ThreadID = ""
-	event.DeliveryKey = "three"
-	_, err = svc.IngestIssueSync(ctx, &actor, actor.Username, repo, event)
-	require.Error(t, err)
+	// Existing mapping and receipt survive; the migration changes no old data.
+	_, err = pool.Exec(ctx, `INSERT INTO issue_sync_threads(issue_id,owner_id,provider,connection_id,scope_id,conversation_id) VALUES($1,$2,'slack','old','T001','C001')`, issue.ID, owner.ID)
+	require.NoError(t, err)
+	var eventID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'comment.created','{}') RETURNING id`, issue.ID, owner.ID).Scan(&eventID))
+	_, err = pool.Exec(ctx, `INSERT INTO issue_sync_deliveries(issue_id,event_id,state,error) VALUES($1,$2,'outcome_unknown','historical receipt')`, issue.ID, eventID)
+	require.NoError(t, err)
+	comment, err := svc.CreateIssueComment(ctx, &owner, owner.Username, repo, issue.Number, CreateIssueCommentInput{Body: "first", IdempotencyKey: "native-message"})
+	require.NoError(t, err)
+	reactions, err := svc.SetIssueReaction(ctx, &owner, owner.Username, repo, issue.Number, comment.ID, IssueReaction{Name: "eyes", Active: true})
+	require.NoError(t, err)
+	require.Len(t, reactions, 1)
+	_, err = svc.UpdateIssueComment(ctx, &owner, owner.Username, repo, comment.ID, UpdateIssueCommentInput{Body: "edited"})
+	require.NoError(t, err)
+	require.NoError(t, svc.DeleteIssueComment(ctx, &owner, owner.Username, repo, comment.ID))
+	var events []string
+	var deliveries int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT array_agg(event_type ORDER BY id) FROM issue_events WHERE issue_id=$1`, issue.ID).Scan(&events))
+	require.Equal(t, []string{"opened", "comment.created", "comment.created", "comment.reaction", "comment.edited", "comment.deleted"}, events, "native timeline plus historical event and create/reaction/edit/delete remain durable")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_sync_deliveries WHERE issue_id=$1`, issue.ID).Scan(&deliveries))
+	require.Equal(t, 1, deliveries, "native changes never enqueue retired provider deliveries")
+	var state, reason string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state,error FROM issue_sync_deliveries WHERE issue_id=$1`, issue.ID).Scan(&state, &reason))
+	require.Equal(t, "outcome_unknown", state)
+	require.Equal(t, "historical receipt", reason)
 }

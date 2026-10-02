@@ -55,7 +55,7 @@ describe("publication conformance", () => {
         // true, so it expires by itself: a package that drops `private`, or
         // moves into a release group, falls straight back into the assertion
         // below. Every other private package here (`chain`, `evals`, `fs`,
-        // `scorers`, `triggers`, `integrations`, `errors`, `create-app`) is in
+        // `scorers`, `triggers`, `integrations`, `errors`) is in
         // a release group, kept the map it arrived with, and is still held to
         // its exact shape, so nothing that could be packed reaches this branch.
         const publication = manifest.publishConfig?.exports

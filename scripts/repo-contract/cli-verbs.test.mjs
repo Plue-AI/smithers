@@ -141,11 +141,13 @@ describe("the CLI reference", () => {
     }
   })
 
-  it("distinguishes the review service from the model-review target command", () => {
+  it("distinguishes the ordinary review flow from the model-review target command", () => {
     const page = readFileSync(join(root, "apps/site/src/content/docs/docs/guides/pr-review-action.mdx"), "utf8")
-    assert.ok(page.includes("`smithers-review`"))
+    assert.ok(page.includes("`/review`"))
     assert.ok(page.includes("`smthrs review <pattern>`"))
     assert.ok(page.includes("model-review targets"))
+    assert.ok(page.includes("smthrs flow start review"))
+    assert.ok(!page.includes("`smithers-review`"))
     assert.ok(!page.includes("review` subcommand was removed"))
   })
 

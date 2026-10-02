@@ -1,4 +1,3 @@
-import { MODEL_SEAT_DEFAULT,SeatIdSchema,modelSeat,seatAccepts } from "@smthrs/rpc/ConfiguredModel"
 import { Schema } from "effect"
 import type { AgentInvocation } from "../../flows/AgentInvocation"
 import type { CommandGesture } from "../../flows/CommandGesture"
@@ -18,7 +17,6 @@ import { fileOptions,fileTargetKey } from "../seams/FilesSeam"
 import { readIssueOptions } from "../seams/IssuesSeam"
 import { readLandingOptions } from "../seams/LandingsSeam"
 import type { ControllerContext } from "./context"
-import { MODELS_CARD_ID, credentialOptions } from "./models"
 import { setupQuestionCardId } from "./repositorySetup"
 import { setupGuideQuestions } from "./repositorySetupGuide"
 import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal } from "./spokenLines"
@@ -75,7 +73,6 @@ export interface FormsController {
 }
 
 export interface FormsControllerDependencies {
-  readonly minimizeCard?: () => void
   readonly nextOrdinal: () => number
 }
 
@@ -184,11 +181,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
 
   /** The options a seam supplies for a provider, read at render; an empty list is a valid answer. */
   const optionsFor = (provider: OptionProvider, draft: FormDraft): ReadonlyArray<FieldOption> => {
-    /* What the host listed is on the Models card (controller/models.ts); with no card it listed nothing. */
-    const listed = (): Extract<Card, { kind: "models" }>["payload"] | undefined => {
-      const card = collections.cards.get(MODELS_CARD_ID)
-      return card?.kind === "models" ? card.payload : undefined
-    }
     switch (provider) {
       case "files":
         /* Filled asynchronously from the selected repository below; never invented here. */
@@ -215,19 +207,9 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
             : { value: manifest.id, label: manifest.name }
         )
       }
-      case "models": {
-        // A seat takes one kind of model, and `default` hands it back to the host.
-        const seat = SeatIdSchema.safeParse(draft["seat"])
-        return [
-          ...(seat.success ? [{ value: MODEL_SEAT_DEFAULT, label: "Default" }] : []),
-          ...[...collections.models.values()]
-            .filter((model) => !seat.success || seatAccepts(seat.data, model.protocol))
-            .map((model) => ({ value: model.id, label: `${model.id} · ${model.modelId}` }))
-        ]
-      }
-      case "credentials": return credentialOptions(listed())
-      case "seats":
-        return (listed()?.seats ?? []).map((seat) => ({ value: seat.id, label: modelSeat(seat.id).label }))
+      case "models":
+      case "credentials":
+      case "seats": return []
       /* The lists a card already holds answer at render; the seam read below refreshes them once the form is on screen. */
       case "issues": {
         const repo = targetRepo(draft)
@@ -463,7 +445,6 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     // Agent-created forms do not dismiss chrome the human is using.
     if (request.via === "user" && ctx.commandActor === "user") {
     }
-    if (request.via === "user" && ctx.commandActor === "user" && store.session().maximizedCardId === MODELS_CARD_ID) deps.minimizeCard?.()
     const existing = collections.cards.get(cardId)
     if (existing?.kind === "flow-form" && existing.payload.submitting === true) {
       reopens.set(cardId, () => { renderFlowForm(request) })
@@ -523,7 +504,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     /*
      * Options were supplied at render and stay as the card holds them; only a
      * field that can change WHICH harness the model list belongs to, or which
-     * seat the models must suit, re-resolves the providers and re-reads the
+     * providers, re-resolves the providers and re-reads the
      * list (so a later commit on another field never overwrites the list the
      * harness answered with).
      */

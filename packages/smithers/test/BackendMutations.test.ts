@@ -119,26 +119,6 @@ describe("resource mutations", () => {
       deliveries: [{ id: 8 }]
     })
   })
-  it.each([[], ["bad"], ["repo="], ["=change"]])("rejects invalid changeset membership %j", async (...member) => {
-    const { c, request } = await fixture()
-    expect(() => resources["changeset create"]!(c, {}, { org: "org", member: member.flat() })).toThrow()
-    expect(request).not.toHaveBeenCalled()
-  })
-  it("preserves parent and multiple repository changes in a changeset", async () => {
-    const { c, request } = await fixture()
-    await resources["changeset create"]!(c, {}, {
-      org: "org",
-      member: ["repo=change,repo2=change2"],
-      parent: "parent",
-      target: "main"
-    })
-    expect(request).toHaveBeenCalledWith("POST", "/api/orgs/org/changesets", {
-      description: "",
-      target_bookmark: "main",
-      parent_change_id: "parent",
-      members: [{ repo: "repo", change_id: "change" }, { repo: "repo2", change_id: "change2" }]
-    })
-  })
   it("marks all notifications read only when requested", async () => {
     const { c, request } = await fixture()
     await expect(resources["notification read"]!(c, {}, {})).rejects.toThrow("ID")
@@ -329,9 +309,6 @@ describe("remaining read and update contracts", () => {
       ["cache list", {}, "GET", "/api/repos/owner/repo/caches"],
       ["cache stats", {}, "GET", "/api/repos/owner/repo/caches/stats"],
       ["cache clear", {}, "DELETE", "/api/repos/owner/repo/caches"],
-      ["changeset get", {}, "GET", "/api/orgs/org/changesets/7"],
-      ["changeset land", {}, "POST", "/api/orgs/org/changesets/7/land"],
-      ["changeset list", {}, "GET", "/api/orgs/org/changesets"],
       ["wiki search", {}, "GET", "/api/repos/owner/repo/wiki/search"],
       ["wiki revisions", { slug: "page" }, "GET", "/api/repos/owner/repo/wiki/page/revisions"],
       ["wiki history", { "page-id": 7 }, "GET", "/api/repos/owner/repo/wiki/history/7"],
@@ -494,7 +471,5 @@ describe("remaining read and update contracts", () => {
     expect(request.mock.calls.at(-1)![2]).toEqual({})
     await resources["wiki create"]!(c, {}, { ...options, title: "Title" })
     expect(request.mock.calls.at(-1)![2]).toMatchObject({ slug: null })
-    await resources["changeset create"]!(c, {}, { org: "org", member: ["repo=change"] })
-    expect(request.mock.calls.at(-1)![2]).not.toHaveProperty("parent_change_id")
   })
 })

@@ -94,7 +94,7 @@ The contract that keeps this safe:
 - `rollback` is required even when the answer is "nothing to undo": a rewind that fails after compensating replays rollbacks in reverse from the receipts `revert` returned, and a silent default would make a forgotten handler indistinguishable from a deliberate no-op.
 - Some work cannot be undone. The rewind then fails with code `irreversible` (no handler, or a sealed result whose cache entry is gone), or with `compensation_failed` when a handler or the workspace restore itself fails, and stops rather than leaving the world half reverted.
 
-The library exposes rewind through `TimeTravel`; the CLI exposes it as `smthrs runs rewind <run-id> --at <sequence>`. Use `--preview` to inspect the affected suffix before applying a rewind with `--yes`. See [Time travel](/docs/concepts/time-travel/) for host and run eligibility requirements.
+The library exposes rewind through `TimeTravel`; see the [API reference](/docs/reference/api/time-travel/).
 
 ## Verify it worked
 

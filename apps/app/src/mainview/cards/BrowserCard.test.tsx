@@ -2,7 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
-import { BrowserCardBody } from "./ConversationCards"
+import { BROWSER_READ_FAILURE, BrowserCardBody } from "./ConversationCards"
 
 GlobalRegistrator.register({ url: "http://127.0.0.1:4920/owner/repo" })
 afterAll(async () => { await GlobalRegistrator.unregister() })
@@ -28,4 +28,23 @@ test("an upstream browser card cannot frame the app's own origin with scripts an
     expect(html).not.toContain('href="http://127.0.0.1:4920')
     expect(html).toContain("This site can&#x27;t be embedded here.")
   }
+})
+
+// Retained behavior: retiring adjacent provider controls must not lose browser
+// refusal coverage or turn an infrastructure refusal into the person's fault.
+test("a browser refusal keeps raw details out of its sentence and offers no invented action", () => {
+  const raw = "HTTP 502 upstream_timeout: fetch https://example.com/ failed"
+  const card: Extract<Card, { kind: "browser" }> = {
+    ...browserCard("https://example.com/"), status: "error",
+    payload: { url: "https://example.com/", finalUrl: null, status: 0, frameable: false, blockReason: null, error: raw }
+  }
+  const host = document.createElement("div")
+  host.innerHTML = renderToStaticMarkup(<BrowserCardBody card={card} />)
+  const notice = host.querySelector<HTMLElement>('[data-testid="browser-card-failure"]')!
+  expect(notice.dataset.failure).toBe("BrowserReadFailed")
+  expect(notice.dataset.fault).toBe("infra")
+  expect(notice.querySelector(":scope > p")?.textContent).toBe(BROWSER_READ_FAILURE.sentence)
+  expect(notice.querySelector(":scope > p")?.textContent).not.toContain("502")
+  expect(notice.querySelector("details pre")?.textContent).toBe(raw)
+  expect(notice.querySelectorAll("button")).toHaveLength(0)
 })

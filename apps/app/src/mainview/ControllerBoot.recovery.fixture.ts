@@ -9,7 +9,6 @@ const fakeController = {
   dispose: async () => { calls.push("controller.dispose") },
   adoptSession: async () => { calls.push("identity.adopt") },
   loadSession: async () => { calls.push("identity.load") },
-  observeModels: () => { calls.push("models.observe") },
   runCommand: () => { calls.push("command.run") },
   handleInstallReturn: () => { calls.push("install.return"); return false },
   handleAuthReturn: () => { calls.push("auth.return"); return false }
@@ -34,11 +33,6 @@ mock.module("./RepoLink", () => ({
 }))
 mock.module("./runtime/FrameHistory", () => ({ createBrowserFrameHistory: () => ({}) }))
 mock.module("./runtime/TurnErasure", () => ({ createTurnEraser: () => async () => {} }))
-mock.module("./native/NativeBridge", () => ({
-  nativeShellAvailable: false,
-  nativeApplicationBootstrapToken: undefined,
-  nativeOpenExternal: undefined
-}))
 const { runControllerBoot } = await import("./ControllerBoot.client")
 const controller = await runControllerBoot()
 if ((controller as unknown) !== fakeController) throw new Error("boot did not return the recovery controller")

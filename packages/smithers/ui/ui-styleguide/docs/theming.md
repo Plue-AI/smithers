@@ -69,8 +69,7 @@ specificity arithmetic read from the other side.
 When the font block rode along with every light variant, all eight `:root`
 rules declared `--font-sans` at (0,2,0). A consumer declaring its own font on a
 bare `:root`, which is (0,1,0), lost the moment any palette was selected.
-The application template in [`@smthrs/create-app`](/api/create-app) is exactly
-that consumer: it declares its own font stack on a bare `:root`. Emitting the fonts once, in the one rule whose specificity a consumer
+A host application can declare its own font stack on a bare `:root`. Emitting the fonts once, in the one rule whose specificity a consumer
 can actually beat, is what makes a font override possible at all.
 
 ## The alias layer

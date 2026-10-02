@@ -111,7 +111,6 @@ const TERMINAL_UNTIL_WE_SHIP: ReadonlyArray<PlueFailureCode> = [
   "coding_host_unavailable",
   "coding_reporter_upgrade_required",
   "coding_unsupported_jj",
-  "desktop_tools_unavailable",
   "environment_image_unavailable",
   "feature_not_enabled",
   "secret_delivery_unavailable"
@@ -300,7 +299,7 @@ describe("the infra line", () => {
    * plue a695bed7), and both were told, by the iff above, to say we ran out.
    */
   test("does NOT appear for our own rollout lag — nothing is full, an image is old", async () => {
-    for (const code of ["desktop_tools_unavailable", "environment_image_unavailable"] as const) {
+    for (const code of ["environment_image_unavailable"] as const) {
       expect(PLUE_FAILURES[code].fault, code).toBe("infra")
       const lead = refusalLead(forCode(code))
       expect(lead, code).not.toContain("@fucory")
@@ -405,30 +404,11 @@ describe("a refusal the native host wrote", () => {
 })
 
 describe("doors", () => {
-  test("a stopped box offers resume, a dead session offers sign-in, a wait offers retry", async () => {
-    expect(refusalDoors(forCode("desktop_not_running"))).toContain("resume")
-    expect(refusalDoors(forCode("unauthorized"))).toContain("sign-in")
-    expect(refusalDoors(forCode("invalid_token"))).toEqual(["sign-in"])
-    expect(refusalDoors(forCode("desktop_not_ready"))).toContain("retry")
-  })
 
   test("report is offered for infra and bug, and is not offered for a user fault", async () => {
     expect(refusalDoors(forCode("no_capacity"))).toContain("report")
     expect(refusalDoors(forCode("internal"))).toContain("report")
     expect(refusalDoors(forCode("quota_exceeded"))).not.toContain("report")
-  })
-
-  /*
-   * plue calls this one terminal for that box: the helpers are missing from
-   * the image it booted, so the identical request fails identically forever.
-   * A Retry is therefore a door onto a wall. The door that works is a new box,
-   * which boots the current image.
-   */
-  test("a box with no desktop tools offers a new box, never a retry", async () => {
-    const doors = refusalDoors(forCode("desktop_tools_unavailable"))
-    expect(doors).toContain("new-box")
-    expect(doors).not.toContain("retry")
-    expect(doors).not.toContain("resume")
   })
 })
 
@@ -464,22 +444,6 @@ describe("the agent's tool result", () => {
   test("every fault produces a distinct instruction to the model", async () => {
     const sentences = PLUE_FAULTS.map((fault) => REFUSAL_COPY[fault].agent)
     expect(new Set(sentences).size).toBe(PLUE_FAULTS.length)
-  })
-
-  /*
-   * The model gets the same correction the reader does. Left to the fault's
-   * own sentence it would tell the user to yell for more infra about a box
-   * whose image is simply old, and would have nothing to offer them.
-   */
-  test("the model is told a missing desktop tool is our rollout, not a shortage", async () => {
-    const text = agentRefusalText(forCode("desktop_tools_unavailable", "this box's image has no desktop tools"))
-    expect(text).toContain("fault=infra")
-    expect(text).toContain("code=desktop_tools_unavailable")
-    expect(text).not.toContain("@fucory")
-    /* The correction is explicit, the way deployment_not_configured's is. */
-    expect(text).toContain("nothing is full")
-    expect(text).toContain("do NOT say Smithers ran out of infra")
-    expect(text).toContain("open a new box")
   })
 })
 

@@ -6,6 +6,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { Package } from "../PACKAGE.ts"
 import { Package as WikiPackage } from "../wiki/PACKAGE.ts"
+import { Package as ReviewPackage } from "../review/PACKAGE.ts"
 import { nativeTests } from "./coding-native-gate.mjs"
 
 const root = fileURLToPath(new URL("../", import.meta.url))
@@ -26,7 +27,7 @@ const discoverTests = async (directory: string): Promise<string[]> => {
 
 const registeredTests = (files: readonly string[]): Set<string> => {
   const registered = new Set<string>()
-  for (const [owner, pack] of [["flows", Package], ["flows/wiki", WikiPackage]] as const) {
+  for (const [owner, pack] of [["flows", Package], ["flows/wiki", WikiPackage], ["flows/review", ReviewPackage]] as const) {
     for (const target of Object.values(pack)) {
       const metadata = Target.metadata(target)
       if (metadata.target !== "NodeTest") continue

@@ -165,7 +165,7 @@ Use your shell.
 
 ## Pick up where you left off
 
-Conversations are saved. Come back to one, or branch from an earlier message to try another way.
+Conversations are saved. Come back to a saved conversation.
 
 <Tabs syncKey="surface">
 <TabItem label="GUI">
@@ -182,13 +182,11 @@ Conversations are saved. Come back to one, or branch from an earlier message to 
 | Continue the latest | `smthrs tui -c` |
 | Pick one | `smthrs tui -r`, `/resume`, or Ctrl+K then `conversation:` |
 | Name it | `/name <name>` |
-| Branch from an earlier message | `/fork`; the original stays |
 | Drop old context | `/compact` |
 | Copy the last answer | `/copy` |
 
-Running work restarts from its recorded steps. `/fork` doesn't change files; press `u` in **Summary** to [undo an edit](/docs/learn/review-a-change/).
+Running work restarts from its recorded steps. Press `u` in **Summary** to [undo an edit](/docs/learn/review-a-change/).
 
-<AppScreenshot src="/images/learn/tui-fork-session.gif" alt="Forking a TUI conversation from an earlier message." caption="The TUI with a scripted test model." width={880} height={480} />
 
 </TabItem>
 <TabItem label="CLI">

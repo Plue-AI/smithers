@@ -31,20 +31,6 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
       '{"request":"Inspect owner/other first","repo":"will/flows"}',
       { request: "Inspect owner/other first", repo: "will/flows" })
   })
-  test("integrations.admit's button carries only its repository, so the form asks for the ids", () => {
-    roundTrip("integrations.admit", { repo: "owner/repo" }, '{"repo":"owner/repo"}', { repo: "owner/repo" })
-    roundTrip("integrations.admit", { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" },
-      '{"connection_id":"slack-main","scope_id":"T0123","conversation_id":"C0123","external_user_id":"U0123","repo":"owner/repo"}',
-      { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" })
-  })
-  test("integrations.admit's slash line reads ids in order, an optional user, and a trailing repository", () => {
-    expect(payloadFor("integrations.admit", "slack-main T0123 C0123")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123" } })
-    expect(payloadFor("integrations.admit", "slack-main T0123 C0123 U0123 owner/repo")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "U0123", repo: "owner/repo" } })
-    expect(payloadFor("integrations.admit", "slack-main T0123 owner/repo")).toEqual({ payload: { connection_id: "slack-main", scope_id: "T0123", repo: "owner/repo" } })
-    expect(payloadFor("integrations.admit", undefined)).toEqual({ payload: {} })
-    expect(payloadFor("integrations.admit", "a b c d e")).toHaveProperty("error")
-    expect(payloadFor("integrations.admit", '{"conversation_id":"C0123","other":1}')).toHaveProperty("error")
-  })
   test("change.request carries its pushed source ref through a box chooser continuation", () => {
     roundTrip("change.request", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" },
       "Fix the flaky check from:topic owner/repo", { prompt: "Fix the flaky check", from: "topic", repo: "owner/repo" })
@@ -90,23 +76,6 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
       runId: "run-1",
       body: "focus on the failing test"
     })
-  })
-
-  test("model.assign carries the seat and the name, and `default` is a name", () => {
-    roundTrip("model.assign", { seat: "explainer", recordId: "default" }, "explainer default", { seat: "explainer", recordId: "default" })
-  })
-
-  test("a composer edit rides as JSON, newlines and quotes intact, and an omitted field stays omitted", () => {
-    const prompt = { id: "writer", system: "Answer in one line.\nNo \"quotes\".", maxTokens: 64, temperature: "" }
-    roundTrip("model.prompt", prompt, JSON.stringify(prompt), prompt)
-    const field = { id: "judge", key: "diff", kind: "diff", value: "@@ -1 +1 @@\n-a\n+b", was: "patch" }
-    roundTrip("model.state", field, JSON.stringify(field), field)
-    roundTrip("model.state", { id: "judge", key: "diff", remove: true }, "{\"id\":\"judge\",\"key\":\"diff\",\"remove\":true}", { id: "judge", key: "diff", remove: true })
-    const question = { id: "judge", question: "q1", type: "choice", instructions: "Which one?", criteria: { a: "the first", b: "" } }
-    roundTrip("model.question", question, JSON.stringify(question), question)
-    roundTrip("model.question", { id: "judge" }, "{\"id\":\"judge\"}", { id: "judge" })
-    const option = { id: "judge", question: "q1", option: "b", about: "the second" }
-    roundTrip("model.option", option, JSON.stringify(option), option)
   })
 
   test("change.pins carries both pins", () => {
@@ -160,11 +129,6 @@ describe("FlowName — the seam's names are the registry's names", () => {
       "change.pins",
       "change.resolve",
       "form.set",
-      "model.assign",
-      "model.option",
-      "model.prompt",
-      "model.question",
-      "model.state",
       "runs.steer",
     ]
     expect(named.filter((name) => !declared.has(name))).toEqual([])
@@ -289,16 +253,13 @@ test("split preserves each file path through the real slash parser", () => {
 
 test("card configuration args round-trip through their production grammars", () => {
   const cases = [
-    ["runs.seat", { runId: "r1", seat: "code" }],
-    ["runs.tools", { runId: "r1", toolNames: "read,write" }],
-    ["runs.thinking", { runId: "r1", thinking: "high" }],
     ["change.checks", { changeId: "c1", seq: 3 }],
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
     ["commits.list", { branch: "feature/topic", repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],
     ["secrets.move", { id: "conn-1", direction: "down" }],
-    ["box.open", { repo: "owner/repo", kind: "desktop" }],
+    ["box.open", { repo: "owner/repo", kind: "vm" }],
     ["box.open", { repo: "owner/repo" }],
     ["box.delete", { workspaceId: "w1", confirmName: "My workspace" }],
     ["box.egress", { workspaceId: "w1", cursor: "next" }],

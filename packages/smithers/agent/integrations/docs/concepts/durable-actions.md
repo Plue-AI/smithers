@@ -25,16 +25,11 @@ its error schema.
 | `GitHub.Actions.UpsertComment`   | `integrations/github/upsert-comment`   |
 | `GitHub.Actions.CheckRun`        | `integrations/github/check-run`        |
 | `GitHub.Actions.LinkPullRequest` | `integrations/github/link-pr`          |
-| `Linear.Actions.CreateIssue`     | `integrations/linear/create-issue`     |
-| `Linear.Actions.UpdateIssue`     | `integrations/linear/update-issue`     |
-| `Linear.Actions.CommentOnIssue`  | `integrations/linear/comment-on-issue` |
-| `Telegram.Actions.SendMessage`   | `integrations/telegram/send-message`   |
 
 A flow body calls `CommentOnIssue.call(payload)`, which records a plan node
 and runs nothing. The node demands a requirement that only the matching
 implementation layer answers, so a composition that forgot the layer fails to
-compile rather than at run time. `GitHub.Actions.layer`,
-`Linear.Actions.layer`, and `Telegram.Actions.layer` implement the action
+compile rather than at run time. `GitHub.Actions.layer` implements the actions
 over the provider's client in context; the client is supplied separately,
 through its own `layer`.
 
@@ -58,7 +53,7 @@ Neither does the client underneath, and the line it draws is worth knowing:
 
 ## Keyed write-back
 
-The GitHub write-back actions and Linear's `UpdateIssue` and `CommentOnIssue`
+The GitHub write-back actions
 read before they write, which makes a repeat safe. They declare an
 `idempotencyKey` and a retry policy, so the engine repeats one after a lost
 answer or a process that died mid-step:
@@ -71,19 +66,10 @@ answer or a process that died mid-step:
   runs needs a GitHub App installation token.
 - `LinkPullRequest` adds `Closes #N` to the pull request's description unless
   it already closes the issue.
-- `UpdateIssue` sets fields, so a repeat leaves the same issue.
-- `CommentOnIssue` posts under a UUID derived from the step's key and looks
-  for that comment first.
 
 GitHub does not enforce the comment marker or `external_id` as unique, so a
 write still in flight when the repeat reads can land after it and leave two.
 The retry backoff narrows that window; it does not close it.
-
-`Telegram.Actions.SendMessage` is the one action that is not atomic. Text
-over Telegram's 4096-character limit becomes several `sendMessage` calls
-inside the step, and a failure partway through leaves the earlier chunks
-visible in the chat. The failure names their ids, so an operator deciding
-whether to resend can see what the reader already has.
 
 ## The journaled failure
 
@@ -99,7 +85,7 @@ reads after a restart:
 | `message`             | Provider text already safe to persist, capped at 512 characters.            |
 | `retryable`           | Whether another attempt could clear it.                                     |
 | `outcomeUnknown`      | The write may already have been applied. Absent when it definitely was not. |
-| `deliveredMessageIds` | What a partially completed Telegram send already put in the chat.           |
+| `deliveredMessageIds` | Ids a partially completed external delivery already produced.               |
 
 `outcomeUnknown` is the difference between "this did not happen" and "nobody
 knows", and an operator deciding whether to run the step again needs it, so
@@ -114,15 +100,6 @@ the error's `summary` rather than its `message`, so one provider's failures
 do not carry a documentation URL the others' do not. `toIntegrationError`
 converts back to the class, for a caller that wants `isRetryable` or the
 control-plane mappings.
-
-Telegram is the exception in the middle. The Bot API client fails with its
-own `TelegramApiError`, which carries the API's `error_code` while the
-client's retry schedule is still operating. `Telegram.TelegramClient.toIntegrationError`
-maps it onto the shared vocabulary at the action boundary: an exhausted 429
-journals `retryable: true`, a chat that does not exist journals
-`decode-failed`, and a blocked bot journals `permission-denied`. The durable
-action applies that mapping, so every journaled failure keeps the package's
-one promise: a machine-readable reason.
 
 ## Write your own action
 

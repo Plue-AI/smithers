@@ -201,6 +201,9 @@ func (s *WorkspaceService) runningRuntimeWorkspace(ctx context.Context, row db.W
 // closure selects its exact image; an ordinary workspace resolves the current
 // repository image or platform base. Neither can fall back to a container.
 func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Workspace) (workspaceapi.WorkspaceSpec, error) {
+	if strings.TrimSpace(row.Kind) == "desktop" {
+		return workspaceapi.WorkspaceSpec{ID: row.ID}, pkgerrors.BadRequest("kind must be container or vm")
+	}
 	resources, err := s.runtimeWorkspaceResources(row)
 	if err != nil {
 		return workspaceapi.WorkspaceSpec{ID: row.ID}, err

@@ -138,21 +138,16 @@ Caller-controlled output was not inert bounded data; rendering failures exit 1.
 
 ### `@smthrs/errors` (`SmithersError`)
 
-The five codes carried by `SmithersError`, the class the integration adapters
-raise. Every one of these is what a `SmithersError.message` points at, so this
-is the page a user reaches from a log line. Branch on `error.code`; the union
-is closed, so a `switch` over it stays exhaustive. The complete reference,
-with every raise site by function name, is on the
-[package's own site](https://errors.smithers.sh/reference/error-codes/).
+`SmithersError` carries five public codes. Current GitHub failures use
+`INTEGRATION_ERROR`; Telegram codes remain for historical failure decoding.
+Branch on `error.code`, then inspect the adapter's reason and delivery outcome.
+The [package reference](https://errors.smithers.sh/reference/error-codes/)
+describes the full contract.
 
-| Code | Where raised | Cause | Fix |
-| --- | --- | --- | --- |
-| `INVALID_INPUT` | Integration helpers | An argument the helper cannot use: a missing bot token, an approval option key containing a colon, callback data over Telegram's 64-byte limit, or a non-https Mini App URL | Correct the argument; the carried field names it |
-| `INTEGRATION_ERROR` | Integration clients, webhook sources, listener reconciliation | A provider call or reconciliation failed; `reason` classifies it so a caller can map it to a transport status | Branch on `details.reason`; retry only the reasons that are transient |
-| `TELEGRAM_API_ERROR` | The Telegram Bot API client | The API answered `ok: false`, returned a non-JSON body, or the transport failed | Read `details.errorCode` and `details.description`; honour `details.retryAfterSeconds` when present |
-| `TELEGRAM_INIT_DATA_INVALID` | Mini App `initData` verification | The payload is empty, expired, missing its hash or signature, or failed HMAC or Ed25519 verification | Re-request `initData` from the client; the expiry failures carry `authDate` |
-| `UNSUPPORTED` | Any adapter needing a runtime primitive | The runtime lacks something the adapter needs, such as Web Crypto or Ed25519 verification | Run on a runtime that provides the primitive |
-
-The bot token is redacted from both the message and the details of every
-`TELEGRAM_API_ERROR`. Redaction happens where the error is raised, not where
-it is logged.
+| Code | Meaning | Action |
+| --- | --- | --- |
+| `INVALID_INPUT` | Invalid helper argument | Correct the argument |
+| `INTEGRATION_ERROR` | Provider, webhook or listener failure | Inspect `details.reason`; reconcile ambiguous writes before retrying |
+| `TELEGRAM_API_ERROR` | Historical Telegram API failure | Preserve the receipt; its adapter is outside the MVP |
+| `TELEGRAM_INIT_DATA_INVALID` | Historical Telegram authentication refusal | Treat it as an authentication refusal |
+| `UNSUPPORTED` | Missing runtime primitive | Use a compatible runtime |

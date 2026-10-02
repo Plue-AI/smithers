@@ -53,35 +53,3 @@ func (m mockRepoRouteService) ArchiveRepo(ctx context.Context, actor *db.User, o
 func (m mockRepoRouteService) UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error) {
 	return db.Repository{}, nil
 }
-
-func (m mockRepoRouteService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-	if m.transferRepoFn != nil {
-		return m.transferRepoFn(ctx, actor, owner, repo, newOwner)
-	}
-	return services.RepoTransferResult{}, nil
-}
-
-func (m mockRepoRouteService) ListRepoTransfers(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error) {
-	if m.listTransfersFn != nil {
-		return m.listTransfersFn(ctx, actor)
-	}
-	return nil, nil
-}
-func (m mockRepoRouteService) AcceptRepoTransfer(ctx context.Context, actor *db.User, id int64) (db.Repository, error) {
-	if m.acceptTransferFn != nil {
-		return m.acceptTransferFn(ctx, actor, id)
-	}
-	return db.Repository{}, nil
-}
-func (m mockRepoRouteService) DeclineRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
-	if m.declineTransferFn != nil {
-		return m.declineTransferFn(ctx, actor, id)
-	}
-	return nil
-}
-func (m mockRepoRouteService) CancelRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
-	if m.cancelTransferFn != nil {
-		return m.cancelTransferFn(ctx, actor, id)
-	}
-	return nil
-}

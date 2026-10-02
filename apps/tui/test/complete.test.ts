@@ -30,13 +30,7 @@ describe("slash completion", () => {
   it("opens on / at the start and fuzzy-matches command names", () => {
     expect(labels(Complete.complete("/", 1, sources))?.[0]).toBe("/model")
     expect(labels(Complete.complete("/rsm", 4, sources))).toEqual(["/resume"])
-    const fork = Complete.complete("/fo", 3, sources)!.items[0]!
-    expect(fork).toMatchObject({
-      label: "/fork",
-      insert: "/fork",
-      submit: true,
-      detail: "Fork from an earlier message"
-    })
+    expect(labels(Complete.complete("/fork", 5, sources)) ?? []).not.toContain("/fork")
     expect(Complete.complete("say /model", 10, sources)).toBeUndefined()
   })
 
@@ -59,15 +53,13 @@ describe("slash completion", () => {
     expect(resume).toMatchObject({ insert: "/resume", submit: true })
     const named = Complete.complete("/nam", 4, sources)!.items[0]!
     expect(named).toMatchObject({ insert: "/name ", submit: false })
-    const thinking = Complete.complete("/thin", 5, sources)!.items[0]!
-    expect(thinking).toMatchObject({ insert: "/thinking ", submit: false })
+
   })
 
-  it("completes /model and /thinking arguments", () => {
+  it("completes /model arguments", () => {
     const models = Complete.complete("/model opus", 11, sources)!
     expect(models.kind).toBe("argument")
     expect(models.items.map((item) => item.insert)).toEqual(["/model anthropic:claude-opus-5-5"])
-    expect(labels(Complete.complete("/thinking hi", 12, sources))).toEqual(["high", "xhigh"])
     expect(Complete.complete("/name  foo", 10, sources)).toBeUndefined()
   })
 

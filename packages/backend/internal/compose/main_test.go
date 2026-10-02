@@ -283,68 +283,6 @@ func TestBuildServer_WiresGitHTTPProxyWebhookDependencies(t *testing.T) {
 	require.True(t, singleOwnerGuard, "single-owner fencing must follow the configured auth mode")
 }
 
-func TestBuildRouter_RepoForkRouteRequiresWriteScopeAndReadPermission(t *testing.T) {
-	t.Parallel()
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "router.go", nil, 0)
-	require.NoError(t, err)
-
-	routeUsesForkRepo := false
-	forkRepoRequiresWriteScope := false
-	forkRepoRequiresReadPermission := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		if postCall, ok := n.(*ast.CallExpr); ok {
-			postSelector, ok := postCall.Fun.(*ast.SelectorExpr)
-			if !ok || postSelector.Sel.Name != "Post" || len(postCall.Args) == 0 {
-				return true
-			}
-
-			route, ok := postCall.Args[0].(*ast.BasicLit)
-			if !ok || route.Value != "\"/forks\"" {
-				return true
-			}
-
-			withCall, ok := postSelector.X.(*ast.CallExpr)
-			require.True(t, ok, "POST /forks should be mounted through r.With")
-
-			withSelector, ok := withCall.Fun.(*ast.SelectorExpr)
-			require.True(t, ok, "POST /forks should be mounted through r.With")
-			assert.Equal(t, "With", withSelector.Sel.Name)
-			require.Len(t, withCall.Args, 1)
-
-			middlewareIdent, ok := withCall.Args[0].(*ast.Ident)
-			require.True(t, ok, "POST /forks should pass a middleware slice to r.With")
-			assert.Equal(t, "forkRepo", middlewareIdent.Name)
-
-			routeUsesForkRepo = true
-		}
-
-		assign, ok := n.(*ast.AssignStmt)
-		if !ok || len(assign.Lhs) != len(assign.Rhs) {
-			return true
-		}
-		for i, lhs := range assign.Lhs {
-			ident, ok := lhs.(*ast.Ident)
-			if !ok || ident.Name != "forkRepo" {
-				continue
-			}
-			if hasMiddlewareCall(assign.Rhs[i], "RequireScope", "ScopeWriteRepository") {
-				forkRepoRequiresWriteScope = true
-			}
-			if hasMiddlewareCall(assign.Rhs[i], "RequireRepoPermission", "PermissionRead") {
-				forkRepoRequiresReadPermission = true
-			}
-		}
-
-		return true
-	})
-
-	require.True(t, routeUsesForkRepo, "expected POST /forks route to use forkRepo middleware")
-	require.True(t, forkRepoRequiresWriteScope, "forkRepo should require write:repository token scope")
-	require.True(t, forkRepoRequiresReadPermission, "forkRepo should preserve source repository read permission")
-}
-
 func TestBuildRouter_GitHubReconcileUsesRepositoryWriteMiddleware(t *testing.T) {
 	t.Parallel()
 

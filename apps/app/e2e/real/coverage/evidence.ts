@@ -42,15 +42,7 @@ export const validateRawMatrixEvidence = (value: unknown, expected: ExpectedMatr
     try {
       if (typeof execution.surfaceOrigin !== "string") throw new Error()
       evidenceOrigin(execution.surfaceOrigin)
-      if (MODE_DESCRIPTORS[expected.mode].surface !== "native" && execution.surfaceOrigin !== expected.origin) errors.push("raw surface differs from mode origin")
-      if (MODE_DESCRIPTORS[expected.mode].surface === "native") {
-        const native = execution.native
-        if (!object(native) || typeof native.targetID !== "string" || !native.targetID || typeof native.cdpEndpoint !== "string" || typeof native.windowURL !== "string") errors.push("native runtime invocation evidence is missing")
-        else {
-          const cdp = new URL(evidenceOrigin(native.cdpEndpoint)), window = new URL(native.windowURL)
-          if (cdp.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(cdp.hostname) || window.username || window.password || window.origin !== execution.surfaceOrigin) errors.push("native runtime invocation evidence is invalid")
-        }
-      }
+      if (execution.surfaceOrigin !== expected.origin) errors.push("raw surface differs from mode origin")
     } catch { errors.push("raw surface origin is invalid") }
   }
   const owed = owedScenarioIds(expected.mode), seen = new Set<string>()

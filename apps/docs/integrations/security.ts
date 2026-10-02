@@ -24,17 +24,15 @@ export const security = {
     {
       id: "docs-webhook-ingress-snippets",
       title: "Copyable webhook ingress snippets verify the exact raw bytes before trusting the payload",
-      threat: "A user who copies the Linear or Slack ingress handler lets an unauthenticated internet caller forge an event that starts or signals a run, or exhaust the server with an unbounded body.",
+      threat: "A user who copies the generic or GitHub ingress handler lets an unauthenticated internet caller forge an event that starts or signals a run, or exhaust the server with an unbounded body.",
       lookFor: [
         "An ingress snippet that routes, dispatches, or keys on a parsed payload before Channels.ingest or Webhook.verify has checked the signature over the received bytes.",
         "An HTTP handler snippet that buffers the request body without a maxBodyBytes cap and 413 refusal.",
         "A snippet or prose that re-serializes the parsed JSON before verifying, disables the timestamp freshness window, or responds 200 on a verification failure."
       ],
       paths: [
-        "src/content/docs/guides/linear.md",
-        "src/content/docs/guides/slack.md",
+        "src/content/docs/guides/webhook-ingress.md",
         "src/content/docs/guides/github.md",
-        "src/content/docs/guides/telegram.md",
         "src/content/docs/concepts/control-plane.md",
         "src/content/docs/concepts/events-and-signals.md",
         "src/content/docs/index.md",
@@ -44,29 +42,15 @@ export const security = {
       ]
     },
     {
-      id: "docs-approval-allowlist-snippets",
-      title: "Approval and intake snippets always bind an allowlist and a verified identity",
-      threat: "A stranger in a shared Telegram or Slack chat presses an approve button, or forges Mini App initData, and approves a deploy or sends intake on the owner's behalf.",
-      lookFor: [
-        "A Telegram.Approval or Slack.Approval spec in a snippet with an empty, wildcard, or missing allowedChatIds/allowedUserIds.",
-        "A snippet that trusts Telegram.InitData.parse or initDataUnsafe output without verifyWithBotToken or verifySignature, or sets maxAgeSeconds to 0 as a recommended default.",
-        "A Source.make or owner-only intake example whose allowlist admits a group chat id where the prose says it admits individual approvers."
-      ],
-      paths: ["src/content/docs/guides/telegram.md", "src/content/docs/guides/slack.md", "src/content/docs/reference/api.md"]
-    },
-    {
       id: "docs-provider-request-snippets",
       title: "Copyable provider request snippets never build API paths or OAuth grants from untrusted strings",
-      threat: "A user who copies a GitHub or Google snippet lets a webhook payload or model output redirect an authenticated request to another repository or endpoint, or requests broader OAuth scopes than the operation needs.",
+      threat: "A user who copies a GitHub snippet lets a webhook payload or model output redirect an authenticated request to another repository or endpoint, or requests broader OAuth scopes than the operation needs.",
       lookFor: [
-        "A snippet that interpolates an owner, repo, issue number, calendar id, or message id into a request path instead of using GitHub.Repository.requireRepositoryPath or the typed client.",
-        "An OAuth snippet that skips PKCE or state, logs the code verifier or tokens, or requests scopes beyond what Gmail.Capabilities or the Google Calendar guide maps to the operation."
+        "A snippet that interpolates an owner, repo, issue number, or comment id into a request path instead of using GitHub.Repository.requireRepositoryPath or the typed client.",
+        "An OAuth snippet that skips PKCE or state, logs the code verifier or tokens, or requests scopes beyond what the GitHub operation needs."
       ],
       paths: [
         "src/content/docs/guides/github.md",
-        "src/content/docs/guides/gmail.md",
-        "src/content/docs/guides/google-calendar.md",
-        "src/content/docs/guides/x.md",
         "src/content/docs/reference/api.md"
       ]
     },

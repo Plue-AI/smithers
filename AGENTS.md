@@ -1,5 +1,24 @@
 # Permanent product interaction rules
 
+## MVP scope boundaries (Will, 2026-10-01, [#3385](https://github.com/smithersai/smithers/issues/3385))
+
+- Retain all five maintenance jobs, the build system, independent public library
+  packages, and the wiki as the agent memory/source of truth, including runtime
+  decisions stored outside source. Retain mirrors, Git/LFS/SSH needed by workers,
+  jj, Mythical, native factory issue/landing data, and their security boundaries.
+- Remove legacy forge-only customer controls, cloud desktop streaming,
+  non-GitHub integrations, create-app, and Electrobun desktop distribution from
+  the MVP. Preserve shared execution, headless browser/self-hosting, custom flow
+  UI, and ordinary repository flow authoring when removing those surfaces.
+- Remove user-facing historical fork/rewind controls, never core time-travel
+  libraries or recovery/replay. Preserve decoding of existing persisted history.
+- Remove TUI predictive estimates and the ordinary-user model laboratory.
+  Preserve actual usage/budgets, monitors, custom UI/extensions, model APIs and
+  host configuration/routing/credentials.
+- Review is an ordinary `/review` flow using the shared runtime, host services
+  and custom UI. It has no separate service, account, billing or model runtime;
+  reviewer quizzes are out of scope. Preserve review quality and verification.
+
 Task-specific maintenance guidance lives in
 [the repository skill](.agents/skills/smithers-maintenance/SKILL.md): use it for
 workspace graph changes, generated docs, benchmarks, and flow authoring.

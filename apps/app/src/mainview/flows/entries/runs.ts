@@ -143,36 +143,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, body, sourceCard }) => actions.steerRun(runId, body, sourceCard)
   }),
   flow({
-    name: "runs.seat",
-    confirm: "change the run's seat",
-    summary: "Move a run to a different model seat",
-    runtime: ["cloud"],
-    args: "[sourceCard=id] <runId> <seat>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, seat: Schema.String }),
-    handler: ({ runId, seat, sourceCard }) => actions.steerRunSeat(runId, seat, sourceCard)
-  }),
-  flow({
-    name: "runs.thinking",
-    confirm: "change the run's thinking level",
-    summary: "Change a run's thinking level",
-    runtime: ["cloud"],
-    args: "[sourceCard=id] <runId> <level>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, thinking: Schema.String }),
-    handler: ({ runId, thinking, sourceCard }) => actions.steerRunThinking(runId, thinking, sourceCard)
-  }),
-  flow({
-    name: "runs.tools",
-    confirm: "change the run's tools",
-    summary: "Add tools to a run's active set",
-    runtime: ["cloud"],
-    args: "[sourceCard=id] <runId> <names,comma-separated>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, toolNames: Schema.String }),
-    handler: ({ runId, toolNames, sourceCard }) => actions.steerRunTools(runId, toolNames, sourceCard)
-  }),
-  flow({
     name: "runs.logs",
     summary: "Show a run's transcript on its card (--follow keeps it live)",
     runtimeAny: ["cloud"],

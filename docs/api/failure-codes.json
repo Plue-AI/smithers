@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:05247e8a9c3f9277f27fee13bd4b48371634a98ec29af1cf372b718b073dcdc0",
+  "digest": "sha256:ea18e05bd1ebb3fab740b155dcf833bfc11f607243e556c776e950345aa8d6d3",
   "faults": [
     "user",
     "wait",
@@ -208,48 +208,6 @@
       "doc": "The resource is in a state that refuses this operation right now."
     },
     {
-      "code": "desktop_act_repeated",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "This act_id already ran on this box; the guest replayed its verdict instead of acting twice."
-    },
-    {
-      "code": "desktop_busy",
-      "fault": "wait",
-      "status": 409,
-      "retry_after": 1,
-      "doc": "Another action holds this box's desktop lock. Nothing was injected; retry once the other action returns."
-    },
-    {
-      "code": "desktop_input_out_of_bounds",
-      "fault": "user",
-      "status": 422,
-      "retry_after": 0,
-      "doc": "A positioned action fell outside the live framebuffer. Earlier actions in the same plan may already have run."
-    },
-    {
-      "code": "desktop_not_ready",
-      "fault": "wait",
-      "status": 503,
-      "retry_after": 2,
-      "doc": "The box is up but its desktop helpers have not finished linking; the same request works seconds later."
-    },
-    {
-      "code": "desktop_not_running",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "The box is suspended, failed, or has no VM. Observe and input never auto-resume: the caller asks for a resume first."
-    },
-    {
-      "code": "desktop_tools_unavailable",
-      "fault": "infra",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "The box booted from an image older than the one shipping the desktop helpers. It is terminal for that box, and it is plue's rollout lag rather than anything the caller did."
-    },
-    {
       "code": "egress_proxy_unavailable",
       "fault": "infra",
       "status": 503,
@@ -278,13 +236,6 @@
       "doc": "The endpoint's storage is not provisioned on this deployment, so the feature is switched off here. Retrying does not help until the deployment is migrated."
     },
     {
-      "code": "focus_terminal",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "The focused window is a terminal and the caller did not set allow_terminal, so the keystroke was refused."
-    },
-    {
       "code": "forbidden",
       "fault": "user",
       "status": 403,
@@ -297,13 +248,6 @@
       "status": 403,
       "retry_after": 0,
       "doc": "The caller already has write access to this repository, so there is nothing to fork: edit it in place."
-    },
-    {
-      "code": "frame_changed",
-      "fault": "user",
-      "status": 409,
-      "retry_after": 0,
-      "doc": "The framebuffer geometry moved between the observation the plan was aimed at and the injection. Nothing was injected."
     },
     {
       "code": "gateway_timeout",
@@ -920,6 +864,13 @@
       "status": 409,
       "retry_after": 0,
       "doc": "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."
+    },
+    {
+      "code": "workspace_resources_exceeded",
+      "fault": "user",
+      "status": 400,
+      "retry_after": 0,
+      "doc": "Requested workspace CPU, memory or disk exceeds the configured maximum."
     },
     {
       "code": "workspace_session_kind_mismatch",

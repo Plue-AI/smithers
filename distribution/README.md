@@ -27,10 +27,6 @@ The image contains the web build, `apps/backend`, the canonical coding and model
 
 The image also includes the npm `@smthrs/cli` package as `smithers` (`smthrs` is an alias). Boxes receive its installed dependency tree from `SMITHERS_WORKSPACE_CLI_PACKAGE`, defaulting to `/opt/smithers/cli.tar`; they require Node 26. `distribution/build-cli.mjs` builds and packs the CLI through the existing release tooling. No Go CLI or registry download is needed in a box.
 
-## Slack and Telegram
-
-The backend can run the [durable chat connector host](../packages/backend/chatconnector/README.md). Set its configuration and owner credential file paths, plus the configured provider credentials, in the backend environment. Its SQLite action receipts and polling cursors live in the persistent data volume and are included in the existing backup.
-
 ## Platform model keys
 
 Agent runs, workspaces and Flow hosts can use provider keys the installation pays for, as well as repository keys and connected accounts. After the first start, put the keys in a JSON file of provider name to key in the data volume. The providers are `anthropic`, `openai`, `cerebras`, `openrouter` and `vercel` (the AI Gateway key for recommendations, in place of `AI_GATEWAY_API_KEY`):

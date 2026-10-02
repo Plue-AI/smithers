@@ -41,7 +41,7 @@ switch (error.code) {
   case "TELEGRAM_INIT_DATA_INVALID":
     return unauthorized()
   case "UNSUPPORTED":
-    return serverError("This runtime cannot verify Telegram init data.")
+    return serverError("This runtime lacks a required primitive.")
   case "TELEGRAM_API_ERROR":
   case "INTEGRATION_ERROR":
     return classifyProviderFailure(error)
@@ -58,8 +58,8 @@ and gets the same answer.
 
 ## Read the reason on a provider failure
 
-`INTEGRATION_ERROR` and `TELEGRAM_API_ERROR` are the two codes where retrying
-can help, and neither answers that question from the code alone.
+Current provider failures use `INTEGRATION_ERROR`. Its code alone does not
+authorize retrying a write: inspect the reason and any unknown outcome.
 
 For `INTEGRATION_ERROR`, use the refinement and the helpers that
 [`@smthrs/integrations`](/api/integrations) exports rather than reading
@@ -82,20 +82,8 @@ the key the clients set on the responses a retry can plausibly clear.
 `toUnauthorized` and `toInvalidInput` build the control plane's typed errors
 from `summary`, so no documentation URL reaches the transport.
 
-For `TELEGRAM_API_ERROR`, convert first. A `TelegramApiError` is not an
-`IntegrationError`, so classifying it directly reports a spent rate limit and a
-nonexistent chat as the same non-retryable failure:
-
-```ts
-import { Telegram } from "@smthrs/integrations"
-
-const classified = Telegram.TelegramClient.toIntegrationError(error)
-```
-
-The conversion maps 429 and 5xx to a retryable `delivery-failed`, 401 and 403
-to `permission-denied`, and 400 and 404 to `decode-failed`. It also carries
-`deliveredMessageIds` forward, so a caller deciding whether to resend a long
-message knows which chunks the chat already holds.
+`TELEGRAM_API_ERROR` is retained for decoding historical failures. The Telegram
+adapter is outside the MVP; new GitHub calls report `INTEGRATION_ERROR` directly.
 
 ## Fail an action, do not throw inside one
 

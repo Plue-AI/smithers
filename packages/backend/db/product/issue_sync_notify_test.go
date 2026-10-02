@@ -37,7 +37,7 @@ func TestIssueSyncDeliveryNotifiesAfterCommit(t *testing.T) {
 	short, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	_, err = listener.Conn().WaitForNotification(short)
 	cancel()
-	require.ErrorIs(t, err, context.DeadlineExceeded, "uncommitted work must not wake the connector")
+	require.ErrorIs(t, err, context.DeadlineExceeded, "uncommitted work must not wake the durable delivery listener")
 	require.NoError(t, tx.Commit(ctx))
 	wait := func() {
 		ctx, cancel := context.WithTimeout(ctx, time.Second)

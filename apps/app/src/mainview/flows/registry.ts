@@ -51,8 +51,6 @@ import * as github from "./entries/github"
 import * as history from "./entries/history"
 import * as issue from "./entries/issue"
 import * as issues from "./entries/issues"
-import * as integrations from "./entries/integrations"
-import * as model from "./entries/model"
 import * as notifications from "./entries/notifications"
 import * as palette from "./entries/palette"
 import * as plugins from "./entries/plugins"
@@ -155,21 +153,20 @@ export const flowCapabilityHeld = (bootstrap: Pick<AppBootstrap, "capabilities">
   bootstrap.capabilities.includes(capability)
 
 /**
- * A door only the native app opens: the host-held Smithers Cloud PAT session,
- * and the desktop shell itself (`native.shell`).
+ * A door requiring the local host-held Smithers Cloud PAT session.
  *
  * The local services (`local.*`) were retired with the local backend
  * (apps/app/docs/LOCAL-BACKEND-RETIREMENT.md): no host emits one and
  * `RuntimeCapabilitySchema` no longer accepts one.
  */
-const nativeDoor = (capability: FlowCapability): boolean => capability === "cloud.pat" || capability === "native.shell"
+const nativeDoor = (capability: FlowCapability): boolean => capability === "cloud.pat"
 
 /**
- * Whether a flow can exist only in the native app — the classification behind
+ * Whether a flow can exist only in the local host — the classification behind
  * the web app's honest refusal (docs/web-mode/PLAN.md §1).
  *
  * A `runtime` entry that is a native door settles it. An either/or flow
- * (`runtimeAny`) is native-only only when EVERY alternative is a native door.
+ * (`runtimeAny`) is host-only only when EVERY alternative is a native door.
  * A flow that names its `hosts` without the cloud is native-only by
  * declaration.
  */
@@ -382,7 +379,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   runs.namespace,
   approvals.namespace,
   issues.namespace,
-  integrations.namespace,
   issue.namespace,
   prs.namespace,
   github.namespace,
@@ -402,7 +398,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   commits.namespace,
   env.namespace,
   secrets.namespace,
-  model.namespace,
   history.namespace,
   notifications.namespace,
   browser.namespace,

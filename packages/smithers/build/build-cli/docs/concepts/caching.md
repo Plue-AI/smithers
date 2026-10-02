@@ -12,8 +12,7 @@ safe.
 
 Every workspace command takes `--cache-dir`, a workspace-relative directory
 holding the result cache, the content-addressed artifact store, and rule
-scratch files. `create-app` is the exception: it scaffolds a directory and
-reads no workspace.
+scratch files.
 
 Precedence is the flag, then the `S.Cache({ directory })` of the workspace
 declaration, then `.flows`. An empty value, an absolute path, and any `..`

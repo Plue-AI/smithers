@@ -37,8 +37,16 @@ func TestIssueChatSyncUpgradeFromMain(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(pending), 2)
 	require.Equal(t, []int{39, 40}, pending[:2], "later migrations may follow")
-	require.NoError(t, Apply(ctx, pool))
-	require.NoError(t, Apply(ctx, pool)) // Restart reuses the same migration ledger.
+	// Upgrade through the last provider-enabled schema before retiring dispatch.
+	for _, m := range all {
+		if m.version <= 38 || m.version >= 103 {
+			continue
+		}
+		_, err = pool.Exec(ctx, m.sql, pgx.QueryExecModeSimpleProtocol)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO smithers_product_migrations(version,checksum) VALUES($1,$2)`, m.version, m.checksum)
+		require.NoError(t, err)
+	}
 	var after, kind, body, persona, key string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(f)-'audience_user_id' ORDER BY sequence)::text FROM issue_state_facts f`).Scan(&after))
 	require.Equal(t, before, after)
@@ -51,7 +59,7 @@ func TestIssueChatSyncUpgradeFromMain(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_state_facts WHERE entity_type='issue_comment'`).Scan(&count))
 	require.Zero(t, count) // No invented historical comment facts.
 
-	// Both connectors are available directly, with no Slack schema or default.
+	// Seed installed provider mappings and receipts before migration 0103.
 	for index, provider := range []string{"slack", "telegram"} {
 		id := index + 2
 		_, err = pool.Exec(ctx, `INSERT INTO issues(id,repository_id,number,author_id,title,kind) VALUES($1,1,$1,1,'chat','chat')`, id)
@@ -72,10 +80,16 @@ func TestIssueChatSyncUpgradeFromMain(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_state_facts WHERE entity_type='issue_comment' AND audience_user_id=1`).Scan(&count))
 	require.Equal(t, 2, count)
 	require.NoError(t, Apply(ctx, pool))
+	require.NoError(t, Apply(ctx, pool)) // Restart reuses the migration ledger.
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_sync_deliveries WHERE state='outcome_unknown' AND claim_token='claim' AND message_id='message' AND reconcile_key<>''`).Scan(&count))
 	require.Equal(t, 2, count)
 	_, err = pool.Exec(ctx, `UPDATE issue_comments SET body='edited' WHERE id=1`)
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_state_facts WHERE entity_type='issue_comment' AND audience_user_id IS NULL`).Scan(&count))
 	require.Equal(t, 1, count)
+	_, err = pool.Exec(ctx, `UPDATE issue_comments SET body='native edit' WHERE id=2;
+ INSERT INTO issue_comments(id,issue_id,user_id,body) VALUES(4,2,1,'native comment');`, pgx.QueryExecModeSimpleProtocol)
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM issue_sync_deliveries`).Scan(&count))
+	require.Equal(t, 2, count, "new comment mutations cannot add deliveries for retained provider mappings")
 }

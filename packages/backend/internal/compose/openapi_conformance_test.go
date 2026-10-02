@@ -3,6 +3,7 @@ package compose
 import (
 	"bytes"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
@@ -113,13 +113,12 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 		authHandler.LocalService = (*services.AuthService)(nil)
 	}
 	workspaceHandler := &routes.WorkspaceHandler{
-		Desktop:           &routes.WorkspaceDesktopHandler{Service: (*services.WorkspaceService)(nil)},
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}
 	wiki := services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
 	router := buildRouter(cfg, queries, nil,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
-		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.ChangesetHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
+		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.PairSessionHandler{},
 		&routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
 		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, &routes.BillingHandler{},

@@ -92,14 +92,13 @@ describe("deployment mode matrix", () => {
     expect(() => canonicalSHA256({ value: undefined })).toThrow("JSON value")
   })
 
-  test("enumerates six modes over one obligation catalog", () => {
+  test("enumerates four modes over one obligation catalog", () => {
     expect(Object.keys(MODE_DESCRIPTORS)).toEqual([...DEPLOYMENT_MODES])
     expect(MATRIX_OBLIGATIONS.length).toBeGreaterThan(10)
     expect(new Set(MATRIX_OBLIGATIONS.map(({ id }) => id)).size).toBe(MATRIX_OBLIGATIONS.length)
     expect(DEPLOYMENT_MODES.map((mode) => [mode, MODE_DESCRIPTORS[mode].legacyHost])).toEqual([
       ["web-selfhost", "local"], ["web-plue", "production"],
       ["local-own", "local"], ["local-plue", "production"],
-      ["native-own", "local"], ["native-plue", "production"]
     ])
   })
 
@@ -175,7 +174,8 @@ describe("deployment mode matrix", () => {
     // Every published version keeps its digest. A row change bumps FEATURE_MATRIX_VERSION and appends a digest.
     const published = [
       "73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4",
-      "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68"
+      "42a406f582e43f1022b4c8d790961d6d978bf603f89c1c62ce7479a7668b9d68",
+      "609193c0daf3143e80a21a1fa4c28f51e6a7b4a5c8f9cee2e5faf780dbdbd356"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)
@@ -299,13 +299,13 @@ describe("deployment mode matrix", () => {
     expect(parseMatrixConfig({
       revision,
       modes: [{
-        mode: "native-own",
+        mode: "local-own",
         origin: "https://example.test", endpoint: "https://example.test",
         auth: { kind: "owner-session", environment: "SMITHERS_OWNER_SESSION" },
         executionReceipt: "/tmp/native-own.json"
       }]
     }).modes[0]).toEqual({
-      mode: "native-own",
+      mode: "local-own",
       origin: "https://example.test", endpoint: "https://example.test",
       auth: { kind: "owner-session", environment: "SMITHERS_OWNER_SESSION" },
       executionReceipt: "/tmp/native-own.json"
@@ -322,20 +322,6 @@ describe("deployment mode matrix", () => {
     const parsed = parseMatrixConfig({ revision, modes: [config] }).modes[0]!
     expect(validateExecutionReceipt(parsed, revision, { ...receipt("local-plue", ["local-ui"]), origin: config.origin })).toEqual([])
     expect(validateExecutionReceipt(parsed, revision, { ...receipt("local-plue", ["local-ui"]), origin: config.origin, endpoint: "https://foreign.test" })).toContain("launcher endpoint differs from selected backend")
-  })
-
-  test("requires native own supervision and proves remote native starts neither backend nor postgres", () => {
-    const ownConfig = parseMatrixConfig({ revision, modes: [{
-      mode: "native-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-session", environment: "OWNER" }, executionReceipt: "x"
-    }] }).modes[0]!
-    expect(validateExecutionReceipt(ownConfig, revision, receipt("native-own", ["native-ui", "app", "postgres"]))).toContain("launcher did not prove supervisor started")
-    expect(validateExecutionReceipt(ownConfig, revision, receipt("native-own", ["native-ui", "supervisor", "app", "postgres"]))).toEqual([])
-
-    const remoteConfig = parseMatrixConfig({ revision, modes: [{
-      mode: "native-plue", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "browser-profile", environment: "PROFILE" }, executionReceipt: "x"
-    }] }).modes[0]!
-    expect(validateExecutionReceipt(remoteConfig, revision, receipt("native-plue", ["native-ui", "app"]))).toContain("remote mode unexpectedly started app")
-    expect(validateExecutionReceipt(remoteConfig, revision, receipt("native-plue", ["native-ui"]))).toEqual([])
   })
 
   test("reports unlaunched own modes as failed, never passed", () => {
@@ -365,15 +351,14 @@ describe("deployment mode matrix", () => {
     expect(await probeMode(config, revision, { PROFILE: "configured" }, fetcher)).toMatchObject({ status: "passed", bootstrapSHA256: canonicalSHA256(cloudBootstrap(deployed)) })
   })
 
-  test.each(["web-plue", "local-plue", "native-plue"] as const)("%s rejects a local Bun API surface", async (mode) => {
+  test.each(["web-plue", "local-plue"] as const)("%s rejects a local Bun API surface", async (mode) => {
     const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
     roots.push(root)
     const path = join(root, "receipt.json")
     writeFileSync(path, JSON.stringify(receipt(mode, MODE_DESCRIPTORS[mode].requiredProcessRoles, mode === "web-plue" ? deployed : revision)))
     const config = parseMatrixConfig({ revision, modes: [{
       mode, origin: "https://example.test", endpoint: "https://example.test",
-      auth: { kind: mode === "native-plue" ? "application-token" : "browser-profile", environment: "PROFILE" }, executionReceipt: path,
-      ...(mode === "native-plue" ? { surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_DRIVER" } } : {})
+      auth: { kind: "browser-profile", environment: "PROFILE" }, executionReceipt: path,
     }] }).modes[0]!
     const result = await probeMode(config, revision, { PROFILE: "configured", NATIVE_DRIVER: "configured" }, async () => Response.json({
       apiVersion: 1, host: "local", version: "test", buildSha: "b".repeat(40),
@@ -400,67 +385,11 @@ describe("deployment mode matrix", () => {
     expect(result.reasons).toContain("bootstrap authFlow none does not advertise owner credentials")
   })
 
-  test("native readiness remains unavailable without a packaged native driver envelope", async () => {
-    const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
-    roots.push(root)
-    const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify(receipt("native-own", ["native-ui", "supervisor", "app", "postgres"])))
-    const config = parseMatrixConfig({ revision, modes: [{
-      mode: "native-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-session", environment: "OWNER" }, executionReceipt: path
-    }] }).modes[0]!
-    const result = await probeMode(config, revision, { OWNER: "configured" }, async () => Response.json({
-      apiVersion: 1, host: "local", version: "test", buildSha: revision,
-      capabilities: [], authFlow: "none", sandbox: null
-    }))
-    expect(result.status).toBe("failed")
-    expect(result.reasons).toContain("native mode has no packaged Electrobun CDP driver configuration")
-  })
-
-  test("native readiness accepts only an explicit available driver reference", async () => {
-    const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
-    roots.push(root)
-    const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify(receipt("native-plue", ["native-ui"])))
-    const config = parseMatrixConfig({ revision, modes: [{
-      mode: "native-plue",
-      origin: "https://example.test", endpoint: "https://example.test",
-      auth: { kind: "application-token", environment: "PLUE_TOKEN" },
-      executionReceipt: path,
-      surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_PLUE_DRIVER" }
-    }] }).modes[0]!
-    const { fetcher } = recordingOrigin(cloudBootstrap(deployed))
-    expect((await probeMode(config, revision, { PLUE_TOKEN: "configured" }, fetcher)).reasons)
-      .toContain("native driver environment NATIVE_PLUE_DRIVER is unavailable")
-    expect((await probeMode(config, revision, {
-      PLUE_TOKEN: "configured", NATIVE_PLUE_DRIVER: "configured"
-    }, fetcher)).status).toBe("passed")
-  })
-
-  test("native auth follows the package handshake instead of a browser-profile substitute", async () => {
-    const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
-    roots.push(root)
-    const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify(receipt("native-plue", ["native-ui"])))
-    const config = parseMatrixConfig({ revision, modes: [{
-      mode: "native-plue",
-      origin: "https://example.test", endpoint: "https://example.test",
-      auth: { kind: "browser-profile", environment: "PROFILE" },
-      executionReceipt: path,
-      surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_DRIVER" }
-    }] }).modes[0]!
-    const result = await probeMode(config, revision, { PROFILE: "x", NATIVE_DRIVER: "x" }, async (input) =>
-      new URL(String(input)).pathname === "/api/health" ? new Response("ok") : Response.json({
-        apiVersion: 1, host: "cloud", version: "test", buildSha: revision,
-        capabilities: [], authFlow: "both", sandbox: null
-      }))
-    expect(result.reasons).toContain("native-plue requires the packaged application-token flow")
-  })
-
   test("rejects invented launcher roles", () => {
     const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
     roots.push(root)
     const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify({ ...receipt("native-own", ["native-ui", "supervisor", "app", "postgres"]), startedRoles: ["native-ui", "magic"] }))
+    writeFileSync(path, JSON.stringify({ ...receipt("local-own", ["local-ui", "app", "postgres"]), startedRoles: ["local-ui", "magic"] }))
     expect(() => readExecutionReceipt(path)).toThrow("malformed execution receipt")
   })
 
@@ -483,12 +412,12 @@ describe("deployment mode matrix", () => {
     expect(matrixPasses([result], rows, true, ["local-plue"])).toBe(false)
   })
 
-  test("three passing own modes cannot accept a six-mode run with three unconfigured Plue modes", () => {
+  test("two passing own modes cannot accept a all-modes run with two unconfigured Plue modes", () => {
     const readiness = DEPLOYMENT_MODES.map((mode) => mode.endsWith("-plue")
       ? missingModeReadiness(mode, "not configured")
       : { ...missingModeReadiness(mode, "ready"), status: "passed" as const,
           capabilities: ["identity", "agent", "model.turn", "cloud", "cloud.terminal"] })
-    expect(readiness.filter(({ status }) => status === "not-configured")).toHaveLength(3)
+    expect(readiness.filter(({ status }) => status === "not-configured")).toHaveLength(2)
     const runs = readiness.filter(({ status }) => status === "passed").flatMap((state) =>
       applicableScenarioIds(state.capabilities).map((scenarioId) => ({
         mode: state.mode, scenarioId, host: MODE_DESCRIPTORS[state.mode].legacyHost,
@@ -506,16 +435,16 @@ describe("deployment mode matrix", () => {
     expect(matrixPasses(readiness, rows.slice(1), true)).toBe(false)
 
     const own = selectMatrixModes("own-only")
-    expect(own).toEqual({ modes: ["web-selfhost", "local-own", "native-own"], scope: "partial" })
+    expect(own).toEqual({ modes: ["web-selfhost", "local-own"], scope: "partial" })
     const ownReadiness = readiness.filter(({ mode }) => own.modes.includes(mode))
     const ownRows = rows.filter(({ mode }) => own.modes.includes(mode))
     expect(matrixVerdict(own, ownReadiness, ownRows, true)).toEqual({
-      ok: true, scope: "partial", modes: own.modes, sixModeAccepted: false
+      ok: true, scope: "partial", modes: own.modes, allModesAccepted: false
     })
-    expect(matrixVerdict(selectMatrixModes(), readiness, rows, true).sixModeAccepted).toBe(false)
+    expect(matrixVerdict(selectMatrixModes(), readiness, rows, true).allModesAccepted).toBe(false)
   })
 
-  test("six-mode acceptance needs an executed receipt for every owed scenario", () => {
+  test("all-modes acceptance needs an executed receipt for every owed scenario", () => {
     const selection = selectMatrixModes()
     const readiness = selection.modes.map((mode) => ({
       mode, status: "passed" as const,
@@ -529,19 +458,18 @@ describe("deployment mode matrix", () => {
     })))
     const receipts = readiness.flatMap((state) => scenarioReceipts(state, revision, runs))
     expect(matrixVerdict(selection, readiness, receipts, true)).toEqual({
-      ok: true, scope: "six-mode", modes: DEPLOYMENT_MODES, sixModeAccepted: true
+      ok: true, scope: "all-modes", modes: DEPLOYMENT_MODES, allModesAccepted: true
     })
     const missing = readiness.flatMap((state) => scenarioReceipts(state, revision,
-      runs.filter((run) => run.mode !== "native-plue" || run.scenarioId !== "flows.product-run")))
-    expect(matrixVerdict(selection, readiness, missing, true).sixModeAccepted).toBe(false)
+      runs.filter((run) => run.mode !== "local-plue" || run.scenarioId !== "flows.product-run")))
+    expect(matrixVerdict(selection, readiness, missing, true).allModesAccepted).toBe(false)
   })
 
   test("owed scenarios come from the feature matrix, so a Plue host never owes model.turn", () => {
     const owedCapabilities = (mode: (typeof DEPLOYMENT_MODES)[number]) => [...new Set(MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)
       .filter(({ id }) => owedScenarioIds(mode).includes(id)).flatMap(({ capabilities }) => capabilities))].sort()
     expect(owedCapabilities("web-plue")).toEqual(["cloud", "cloud.terminal", "github", "identity"])
-    expect(owedCapabilities("native-plue")).toEqual(["cloud", "cloud.terminal", "github", "identity"])
-    expect(owedCapabilities("web-selfhost")).toEqual(["cloud", "cloud.terminal", "identity", "model.turn"])
+        expect(owedCapabilities("web-selfhost")).toEqual(["cloud", "cloud.terminal", "identity", "model.turn"])
   })
 
   test("web-plue readiness certifies the deployed Worker build without a health route or the checkout revision", async () => {
@@ -595,13 +523,12 @@ describe("deployment mode matrix", () => {
     expect(stale.reasons).toContain(`bootstrap revision ${deployed} does not match ${revision}`)
   })
 
-  test.each(["web-selfhost", "local-own", "native-own"] as const)("%s accepts the deployment-neutral Go bootstrap", async (mode) => {
+  test.each(["web-selfhost", "local-own"] as const)("%s accepts the deployment-neutral Go bootstrap", async (mode) => {
     const descriptor = MODE_DESCRIPTORS[mode]
     const config = parseMatrixConfig({ revision, modes: [{
       mode, origin: "https://example.test", endpoint: "https://example.test",
       auth: { kind: "owner-session", environment: "OWNER" },
       executionReceipt: writeReceipt(receipt(mode, descriptor.requiredProcessRoles)),
-      ...(mode === "native-own" ? { surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_DRIVER" } } : {})
     }] }).modes[0]!
     // The shared Go backend's self-hosted response: cloud is the API surface, not its deployment provider.
     const bootstrap = {
@@ -641,10 +568,9 @@ describe("deployment mode matrix", () => {
     expect(moved?.reason).toBe(`deployment changed during the run: ${"c".repeat(40)} is not ${deployed}`)
   })
 
-  test("runner partitions cover only their declared modes while the default still requires all six", () => {
+  test("runner partitions cover only their declared modes while the default still requires all four", () => {
     const ubuntu = ["web-selfhost", "web-plue", "local-own", "local-plue"] as const
-    const mac = ["native-own", "native-plue"] as const
-    expect(new Set([...ubuntu, ...mac])).toEqual(new Set(DEPLOYMENT_MODES))
+    expect(new Set(ubuntu)).toEqual(new Set(DEPLOYMENT_MODES))
     const readiness = ubuntu.map((mode) => missingModeReadiness(mode, "not configured"))
     const rows = readiness.flatMap((state) => scenarioReceipts(state, revision, []))
     expect(matrixPasses(readiness, rows, true, ubuntu)).toBe(false)

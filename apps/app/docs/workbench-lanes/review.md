@@ -19,8 +19,7 @@ Scope, in order:
    and parity tests.
 4. Land button reasons from `blocked_by`: threads open, missing agent LGTM
    or human approval, checks.
-5. Walkthrough facet rendering the `apps/review` story (sections, diagrams,
-   quiz) from the walkthrough route; empty state when none exists.
+5. Walkthrough facet rendering review sections and diagrams from the walkthrough route; empty state when none exists.
 Exit: card tests per thread state and per verdict row; seam tests with
 doubles; T1 spec: comment, Done, Ack, Land button reason updates each time.
 Never fake a route the backend lacks: render the ADR's empty wording.

@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { liveModel } from "../create-app/template/aomi/test/support/liveModel.ts"
+import { liveModel } from "./support/liveModel.ts"
 import * as Agents from "../src/Agents.ts"
 import * as Application from "../src/Application.ts"
 import * as CodexCode from "../src/internal/CodexCode.ts"

@@ -204,7 +204,7 @@ func TestPublicRouteErrorsSanitizePrivateDiagnosticsAndPreserveSafePacing(t *tes
 		{"internal cause", apierrors.Internal("private operation").WithCause(errors.New(secret)), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
 		{"untyped", errors.New(secret), 500, `{"message":"internal server error","code":"internal","fault":"bug"}`, ""},
 		{"dependency", apierrors.New(apierrors.Code("service_unavailable"), secret), 503, `{"message":"service unavailable","code":"service_unavailable","fault":"infra"}`, ""},
-		{"safe startup", apierrors.New(apierrors.Code("desktop_not_ready"), "desktop helpers linking"), 503, `{"message":"desktop helpers linking","code":"desktop_not_ready","fault":"wait","retry_after":2}`, "2"},
+		{"safe startup", apierrors.New(apierrors.Code("guest_not_ready"), "guest helpers linking"), 503, `{"message":"guest helpers linking","code":"guest_not_ready","fault":"wait","retry_after":3}`, "3"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()

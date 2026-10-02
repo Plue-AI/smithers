@@ -22,7 +22,6 @@ import * as Ansi from "./Ansi.ts"
 import * as Audience from "./Audience.ts"
 import { publishNamespaceFromEnvironment } from "./Cache.ts"
 import * as CacheAdmin from "./CacheAdmin.ts"
-import * as CreateApp from "./CreateApp.ts"
 import * as Diagnostic from "./Diagnostic.ts"
 import * as Executor from "./Executor.ts"
 import * as GitHooks from "./GitHooks.ts"
@@ -1482,30 +1481,6 @@ const makeCommands = (config: RuntimeConfig) =>
           })
         } finally {
           reporter.close()
-        }
-      }
-    })
-    .command("create-app", {
-      description: "Scaffold a Smithers app from a @smthrs/create-app template",
-      mcp: { annotations: { readOnlyHint: false } },
-      args: z.object({ dir: z.string().describe("Directory to create; its name becomes the app name") }),
-      options: z.object({
-        template: z.string().default("default").describe("Template name")
-      }),
-      alias: { template: "t" },
-      async run(context) {
-        try {
-          return await CreateApp.scaffold({
-            directory: context.args.dir,
-            template: context.options.template
-          })
-        } catch (cause) {
-          return context.error({
-            code: "create_app_failed",
-            exitCode: 1,
-            message: failureText(context, cause),
-            retryable: false
-          })
         }
       }
     })

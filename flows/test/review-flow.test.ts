@@ -6,8 +6,10 @@ import { join } from "node:path"
 import { test } from "node:test"
 
 test("review body instructs jj diff that yields output in a jj repo", async (t) => {
-  const body = await readFile(new URL("../review/flow.mdx", import.meta.url), "utf8")
-  assert.match(body, /jj diff --git/)
+  const body = await readFile(new URL("../review/flow.ts", import.meta.url), "utf8")
+  assert.match(body, /Flow\.make\("review"/)
+  const reader = await readFile(new URL("../review/src/git/loadDiffs.ts", import.meta.url), "utf8")
+  assert.match(reader, /"jj", \["diff", "--git"/)
 
   const parent = await mkdtemp(join(tmpdir(), "smithers-1884-"))
   const repo = join(parent, "repo")

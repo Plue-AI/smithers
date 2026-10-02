@@ -7,7 +7,6 @@ sidebar:
 
 import { Code } from "@astrojs/starlight/components"
 import logsHelp from "../../../../../data/help/runs/logs.txt?raw"
-import rewindHelp from "../../../../../data/help/runs/rewind.txt?raw"
 
 `smthrs runs` operates executions already stored in a project. Supply the run ID returned at launch or shown by `runs list`.
 
@@ -57,14 +56,3 @@ Current-state commands accept the connection options `--root` and `--remote`, an
 
 Without a run, `runs verify` reports every run the store holds (settled runs are listed under `settled`) and exits `1` when any diverges. `--against <engine.db>` verifies the store at that path, with the `control.db` beside it, under the project's current flows.
 
-## Fork or rewind
-
-`runs fork <run> --at <sequence>` creates an isolated child from an eligible parked or terminal agent run. It requires an approved plan and `jj`. The child workspace is retained under `.flows/forks/`; use `runs resume` with the returned child ID to continue it.
-
-Add `--step <digest> --result <json>` to fork with one recorded step result edited. The child replays every step up to the frame, serves that step with the edited value, and runs the steps after the frame again. `runs verify` lists each recorded step's digest. `--result` takes inline JSON or `@file`. The frame must be at or after the step's completion; the parent keeps its own result.
-
-Rewind archives a history suffix and restores the run and workspace to an earlier frame. It requires an exact sequence and either `--preview` or `--yes`:
-
-<Code lang="text" code={rewindHelp} />
-
-Preview before applying a rewind. Compensation only covers declared effect boundaries, and an irreversible boundary can prevent the operation. [Time travel](/docs/concepts/time-travel/) explains the difference between inspection, fork, and rewind.

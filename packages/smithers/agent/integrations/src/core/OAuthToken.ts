@@ -1,7 +1,7 @@
 /**
  * Short-lived OAuth access tokens minted from a stored refresh token.
  *
- * A provider that speaks OAuth 2.0 (Google Calendar, Gmail, X) hands out a
+ * A provider that speaks OAuth 2.0 (a hosted API) hands out a
  * long-lived refresh token once, at consent, and expects the client to trade
  * it for an access token that expires within the hour. This module is that
  * trade, behind the {@link AccessTokenSource} every client already asks for a

@@ -1,124 +1,16 @@
 ---
-title: "Review pull requests with the Smithers action"
-description: "Add the Smithers review GitHub Action to a repository, trigger agent reviews with a PR comment, and run the same review from a terminal."
-sidebar:
-  order: 24
+title: Review a change
+description: Run the ordinary review flow over a repository change.
 ---
 
-Get an agent review with a narrated HTML walkthrough on your pull requests, without running inference yourself.
+Start `/review` in the repository chat, or use the same registered flow from the CLI:
 
-The Smithers review service runs one review agent per changed file, then a narrator agent writes a walkthrough of the whole change: chapters in logical reading order, prose explaining why each group of files changed, diffs embedded at the right point in the narrative, and Mermaid diagrams wherever structure changed. The output is a single self-contained HTML file you can open, share, or publish to a hosted URL.
-
-Pointed at a GitHub pull request, it also posts the review onto the PR: the narrative summary as the review body, and every finding as an inline comment with a `suggestion` block when there is replacement code to apply.
-
-Findings never fail the build. The review service reports; humans decide.
-
-This guide covers the review action and the separate `smithers-review` executable.
-The `smthrs review <pattern>` command executes workspace model-review targets;
-use `smithers-review` for the pull-request service described here. See the
-[CLI reference](/docs/reference/cli/) for target execution.
-
-## Before you start
-
-- Register your repository. Accounts are operator-issued: open an issue titled `review access: <org>/<repo>` on [smithersai/smithers](https://github.com/smithersai/smithers/issues) or contact the maintainers.
-- No secrets, no Anthropic account, no smithers checkout are needed. The service authenticates your repository through GitHub OIDC, runs the agents on its metered inference, posts the review, and hosts the walkthrough.
-
-## 1. Add the workflow file
-
-Create `.github/workflows/smithers-review.yml`:
-
-```yaml
-name: smthrs review
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  issue_comment:
-    types: [created]
-
-permissions: {}
-
-concurrency:
-  group: smithers-review-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
-
-jobs:
-  review:
-    permissions:
-      id-token: write       # proves your repo's identity to the review service
-      contents: read        # check out the PR
-      pull-requests: write  # post the review
-    uses: smithersai/smithers/.github/workflows/review.yml@main
+```sh
+smthrs flow start review --payload '{"repo":"."}'
 ```
 
-The three permissions are the whole set the review needs: `id-token: write` proves your repository's identity to the review service, `contents: read` checks out the PR, and `pull-requests: write` posts the review.
+The flow reviews the working copy, including jj changes. Supply `commit`, or both `from` and `to`, to review pinned revisions. It independently verifies findings, marks incomplete reviews, and returns a walkthrough in the embedded run card. The host supplies authentication, model aliases, permissions and budgets just as it does for other flows. Cancellation and execution history use the normal run controls.
 
-The job calls Smithers' reusable review workflow instead of listing steps. On `pull_request`, GitHub runs this file as the pull request has it, so anyone who can push a branch could edit it. The service accepts only a token whose `job_workflow_ref` is `smithersai/smithers/.github/workflows/review.yml@refs/heads/main`, which a job gets only by calling that workflow; any other token is refused with `403 oidc: untrusted workflow`. To trust a different workflow, ask the operator to set your registration's allowed workflow refs.
+`narrate: false` keeps the deterministic reading order; `verify: false` skips independent adjudication. Review and verification use the configured `sol` alias, and narration uses `luna`.
 
-:::caution
-Keep the workflow on `pull_request`. Never switch it to `pull_request_target`: the review agents execute the PR's code, and `pull_request_target` would hand that code elevated credentials.
-:::
-
-## 2. Trigger a review
-
-Comment on any pull request:
-
-```text
-@smithers review
-```
-
-Only accounts with write, maintain, or admin permission on the repository can trigger reviews; comments posted by bots or through GitHub Apps never do. The action reads the commenter's permission with the job's `GITHUB_TOKEN`, so the workflow needs no extra permission, and skips with a warning if GitHub does not answer. Repositories registered in `auto` mode skip the comment and review every non-draft PR push; `comment` mode is the default. The mode is a server-side setting on your registration, so switching never touches your workflow file.
-
-Subscriptions meter reviewed PRs as a monthly per-repo allotment, and the status comment shows remaining quota. Re-reviewing a PR that already counted this month is free. When the quota is spent, the action skips with a notice instead of failing your checks.
-
-## 3. Run the same review from a terminal
-
-The review package ships `smithers-review`, which runs its review flow against a repository. This is separate from `smthrs review`, which selects review-kind targets from `PACKAGE.ts`:
-
-```bash
-# review the working tree of a repo, write .smithers-review/walkthrough.html
-smithers-review /path/to/repo
-
-# review a branch against main, open the walkthrough when done
-smithers-review /path/to/repo --from main --to HEAD --open
-
-# review one commit
-smithers-review /path/to/repo --commit abc1234
-
-# review GitHub PR #123 and post the review onto it (via gh)
-smithers-review /path/to/repo --pr 123
-
-# publish the walkthrough to the share service and print an unlisted URL
-smithers-review /path/to/repo --pr 123 --publish
-
-# no seats: deterministic story, no review findings (works offline)
-smithers-review /path/to/repo --no-review --no-narrate --quiz off
-```
-
-The repository path defaults to the current directory. Provider keys are for this self-run use; Smithers Cloud does not offer bring-your-own-key. The bin reads the key from your own environment, as listed under [Configuration knobs](#configuration-knobs). `--publish` needs a publish service URL in `SMITHERS_REVIEW_PUBLISH_URL` and an operator-issued API key in `SMITHERS_REVIEW_PUBLISH_TOKEN`; both can also be set in `~/.smithers-review.json`.
-
-## Configuration knobs
-
-Seats are `provider:model` strings, and the provider ahead of the colon decides which credential is read:
-
-| Variable | What it sets |
-| --- | --- |
-| `SMITHERS_REVIEW_SEAT` | Reviewing and verifying seat. Default `anthropic:claude-sonnet-4-5`. |
-| `SMITHERS_REVIEW_CHEAP_SEAT` | Narrating and quizzing seat. Default `anthropic:claude-haiku-4-5`. |
-| `SMITHERS_REVIEW_VERIFY_SEAT` | Overrides the verifying seat alone. |
-| `SMITHERS_REVIEW_NARRATE_SEAT` | Overrides the narrating seat alone. |
-| `SMITHERS_REVIEW_QUIZ_SEAT` | Overrides the quizzing seat alone. |
-| `ANTHROPIC_API_KEY` | Credential for `anthropic:` seats. |
-| `OPENAI_API_KEY` | Credential for `openai:` seats. |
-| `OPENROUTER_API_KEY` | Credential for `openrouter:` seats. |
-| `ANTHROPIC_BASE_URL` | Sends `anthropic:` seats to a proxy origin instead of `api.anthropic.com`. |
-
-The `quiz` action input, and `--quiz on` / `--quiz off` on the bin, control the reviewer quiz: a short set of multiple-choice questions a reviewer can answer only after reading the change. It auto-triggers when the assessed impact is high or critical, and the walkthrough lists the reasons behind the assessment. Quiz generation uses a model independently of `--no-review` and `--no-narrate`. For offline use, pass all three: `--no-review --no-narrate --quiz off`. Nothing blocks a merge on the score.
-
-## Verify it worked
-
-Comment `@smithers review` on an open pull request. The action posts the narrative summary as the review body and every finding as an inline comment, the status comment shows remaining quota, and the service hosts the walkthrough HTML. Because findings never fail the build, a review full of findings still leaves the check green; a spent quota skips with a notice instead.
-
-## See also
-
-- [Run flows in CI](/docs/guides/cloud-ci/#launch-a-flow-from-a-ci-job): the Smithers CLI's own CI contract, with exit codes and secrets.
-- [Model seats](/docs/guides/model-seats/): what a `provider:model` seat string declares.
+`smthrs review <pattern>` runs declared model-review targets in the build graph. That build verb remains separate from the repository `/review` flow.

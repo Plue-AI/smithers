@@ -8,7 +8,7 @@ styled entirely through theme tokens so every component is correct in light and
 dark and honors `prefers-reduced-motion`.
 
 `@smthrs/ui` is `private: true` and workspace-only at `1.0.0-rc.0`. It is not
-published to any registry: `apps/app` and `apps/review` consume it through the
+published to any registry: `apps/app` and `flows/review` consume it through the
 workspace.
 Import it by its scoped name, `@smthrs/ui`; the unscoped `smthrs` package
 publishes only a deprecation notice whose module throws on import.

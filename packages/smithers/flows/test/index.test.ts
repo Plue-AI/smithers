@@ -151,8 +151,7 @@ describe("barrel", () => {
       "smithers/build",
       "smithers/build/build-cli",
       "smithers/build/infra",
-      "smithers/build/targets",
-      "smithers/create-app"
+      "smithers/build/targets"
     ])
     expect(expected.filter((name) => name.startsWith("Build"))).toEqual([])
   })

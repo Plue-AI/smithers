@@ -46,8 +46,7 @@ const scanned = ["packages", "apps", "flows", "examples"]
  * `build` is deliberately absent. Pruning that name at any depth would drop
  * `packages/smithers/build/` — @smthrs/build-cli, @smthrs/infra and
  * @smthrs/targets, three shipped packages holding one of the very sites this
- * gate exists for, `FetchExecutor.ts` — and the two `create-app` template
- * directories that are tracked source. Generated `build/` output is named by
+ * gate exists for, `FetchExecutor.ts`. Generated `build/` output is named by
  * path in {@link skippedPaths} instead.
  */
 const skippedDirectories = new Set([
@@ -196,7 +195,6 @@ describe("the outbound HTTP client shipped compositions install", () => {
     // and the first is one of the sites the gate was written for.
     for (const path of [
       "packages/smithers/build/build-cli/src/internal/rules/FetchExecutor.ts",
-      "packages/smithers/create-app/template/aomi/flows/build/flow.ts",
       "packages/smithers/src/internal/NodeControlHost.ts",
       "flows/repository/jev-checks.ts",
       "apps/app/src/bun/BrowserFetch.ts"

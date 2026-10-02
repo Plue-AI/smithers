@@ -88,7 +88,6 @@ RUN node distribution/build-cli.mjs /out/cli \
 RUN pnpm --dir flows run typecheck
 RUN node flows/coding/build.mjs /out/flow-hosts/smithers-coding-host \
   && node apps/model-host/build.mjs /out/flow-hosts/smithers-model-host \
-  && node packages/backend/chatconnector/build.mjs /out/flow-hosts/smithers-chat-connector \
   && node distribution/flow-host-manifest.mjs \
     /out/flow-hosts/flow-hosts.json \
     /out/flow-hosts/smithers-coding-host
@@ -131,12 +130,12 @@ ARG SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1
 RUN schema_version="$(find /opt/smithers/migrations -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1 | cut -c 1-4 | sed 's/^0*//')" \
   && test -n "$schema_version" \
   && sed -i "s/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=${SMITHERS_DISTRIBUTION_VERSION}/; s/^SMITHERS_SCHEMA_VERSION=.*/SMITHERS_SCHEMA_VERSION=${schema_version}/" /opt/smithers/version.env \
-  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-chat-connector /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
+  && chmod 0555 /opt/smithers/*.sh /opt/smithers/bin/node /opt/smithers/bin/smithers-backend /opt/smithers/bin/smithers-coding-host /opt/smithers/bin/smithers-model-host /opt/smithers/bin/smithers-jj-export /opt/smithers/bin/jj \
   && chmod 0444 /opt/smithers/bin/flow-hosts.json /opt/smithers/bin/*.sha256 \
   && ln -s ../cli/node_modules/@smthrs/cli/bin/smithers.mjs /opt/smithers/bin/smithers \
   && ln -s smithers /opt/smithers/bin/smthrs \
   && cd /opt/smithers/bin \
-  && sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 smithers-chat-connector.sha256 \
+  && sha256sum -c smithers-coding-host.sha256 smithers-model-host.sha256 \
   && ./node --version | grep -Eq '^v26\.' \
   && ./jj --version | grep -Fx 'jj 0.44.0-47589ada70c12b3e829b5c98ab32503abad49eac' \
   && /opt/smithers/git/bin/git --version | grep -Fx 'git version 2.50.1' \
@@ -148,7 +147,6 @@ ENV SMITHERS_WORKSPACE_CLI_PACKAGE=/opt/smithers/cli.tar \
     SMITHERS_FLOW_HOST_MANIFEST=/opt/smithers/bin/flow-hosts.json \
     SMITHERS_WORKSPACE_CODING_HOST_BINARY=/opt/smithers/bin/smithers-coding-host \
     SMITHERS_MODEL_HOST_BUNDLE=/opt/smithers/bin/smithers-model-host \
-    SMITHERS_CHAT_CONNECTOR_BUNDLE=/opt/smithers/bin/smithers-chat-connector \
     SMITHERS_NODE_BINARY=/opt/smithers/bin/node \
     SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/opt/smithers/bin/smithers-jj-export \
     SMITHERS_JJ_PATH=/opt/smithers/bin/jj \

@@ -1,7 +1,7 @@
 import type { TestDetails } from "@playwright/test"
 
-export const REAL_HOSTS = ["local", "production", "native"] as const
-export const DEPLOYMENT_MODES = ["web-selfhost", "web-plue", "local-own", "local-plue", "native-own", "native-plue"] as const
+export const REAL_HOSTS = ["local", "production"] as const
+export const DEPLOYMENT_MODES = ["web-selfhost", "web-plue", "local-own", "local-plue"] as const
 export const CRITICAL_PATHS = ["success", "permission", "error", "persistence", "keyboard"] as const
 export const DOORS = ["slash", "button", "agent", "user-only"] as const
 
@@ -79,7 +79,6 @@ export interface MatrixExecutionEvidence {
   readonly surfaceOrigin: string
   readonly startedAt: string
   readonly finishedAt: string
-  readonly native?: { readonly cdpEndpoint: string; readonly targetID: string; readonly windowURL: string }
 }
 
 export interface CoverageGap {

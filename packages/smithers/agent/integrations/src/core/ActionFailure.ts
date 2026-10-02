@@ -30,7 +30,7 @@ export const Reason = Schema.Literals(reasons)
  *
  * The clients only ever record a positive safe integer, so anything else in a
  * `deliveredMessageIds` list came from a forged or foreign error. Exported
- * because the Telegram refinement has to agree with the conversion about what
+ * because a provider refinement has to agree with the conversion about what
  * a delivered id is: a list one accepts and the other rejects is how a throw
  * gets back into `Effect.mapError`.
  *
@@ -83,7 +83,7 @@ export class IntegrationFailure extends Schema.TaggedError<IntegrationFailure>()
     /**
      * What a partially completed step already delivered.
      *
-     * A Telegram send over the length limit is several messages inside one
+     * An external send over the length limit is several messages inside one
      * step. When it fails partway through, these are the ids the chat already
      * shows, so a resend decision is made against what the reader has rather
      * than against a guess.

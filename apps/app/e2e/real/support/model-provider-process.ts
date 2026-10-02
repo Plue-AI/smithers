@@ -44,7 +44,7 @@ export const launchModelProvider = async (options: ModelProviderOptions): Promis
   const appDir = resolve(__dirname, "../../..")
   const mode = process.env.SMITHERS_REAL_E2E_MODE
   const dockerSelfhost = mode === "web-selfhost"
-  const hostedPlue = mode === "web-plue" || mode === "local-plue" || mode === "native-plue"
+  const hostedPlue = mode === "web-plue" || mode === "local-plue"
   const publicOrigin = process.env.SMITHERS_REAL_MODEL_PROVIDER_PUBLIC_ORIGIN?.trim()
   const publicPort = Number(process.env.SMITHERS_REAL_MODEL_PROVIDER_PORT)
   if (hostedPlue && (!publicOrigin || !/^https:\/\/[^/]+$/.test(publicOrigin) || !Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65_535)) {

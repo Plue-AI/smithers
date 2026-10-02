@@ -32,7 +32,6 @@ import { Package as buildCliPackage } from "../../packages/smithers/build/build-
 import { Package as buildPackage } from "../../packages/smithers/build/PACKAGE.ts"
 import { Package as targetsPackage } from "../../packages/smithers/build/targets/PACKAGE.ts"
 import { Package as controlPackage } from "../../packages/smithers/control/PACKAGE.ts"
-import { Package as createAppPackage } from "../../packages/smithers/create-app/PACKAGE.ts"
 import { Package as artifactsPackage } from "../../packages/smithers/flows/artifacts/PACKAGE.ts"
 import { Package as canonicalPackage } from "../../packages/smithers/flows/canonical/PACKAGE.ts"
 import { Package as capabilityPackage } from "../../packages/smithers/flows/capability/PACKAGE.ts"
@@ -120,10 +119,7 @@ const check = Smithers.ToolRun({
 
 /**
  * Build the site and verify its links against the CLI and release changelog.
- * Vite transforms the island's apps/app sources under apps/app/tsconfig.json,
- * which extends the projected Electrobun devkit, so a fresh checkout fails
- * with "Tsconfig not found .hutch/devkit/tsconfig.json" until that projection
- * exists: it is a prerequisite here as it is for the app's own typecheck.
+ * Vite transforms the browser app island under apps/app/tsconfig.json.
  */
 const build = Smithers.ToolBuild({
   tool: "astro",
@@ -131,7 +127,7 @@ const build = Smithers.ToolBuild({
   args: ["run", "build"],
   inputs: [...sources, Smithers.file("//CHANGELOG.md")],
   outputs: ["dist"],
-  deps: [cliPackage.docsSources, appSources, docsKit, uiPackage.devkit],
+  deps: [cliPackage.docsSources, appSources, docsKit],
   env: {},
   cache: true,
   cwd
@@ -205,7 +201,6 @@ const apiPackages = {
   cli: cliPackage,
   control: controlPackage,
   core: corePackage,
-  "create-app": createAppPackage,
   crypto: cryptoPackage,
   database: databasePackage,
   "engine-store": engineStorePackage,
@@ -462,8 +457,6 @@ const docsRuntimeTests = Smithers.Shell.Test({
     Smithers.file("//apps/server/scripts/canary/workers-manifest.ts"),
     Smithers.file("//apps/docs/README.md"),
     Smithers.file("//apps/bug-worker/README.md"),
-    Smithers.file("//apps/review/CONTRIBUTING.md"),
-    Smithers.file("//apps/review/package.json"),
     Smithers.file("//apps/bug-worker/package.json"),
     ...docsSites.flatMap((site) => [
       Smithers.file(`//apps/docs/${site.slug}/alchemy.run.ts`),

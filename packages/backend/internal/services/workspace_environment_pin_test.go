@@ -38,8 +38,6 @@ func TestRuntimeWorkspaceBootsItsPinnedImage(t *testing.T) {
 	closure := strings.Repeat("c", 32)
 	placed := nixTestImage("vm")
 	placed.ClosureHash, placed.Image = closure, "registry/env:"+closure
-	desktop := nixTestImage("desktop")
-	desktop.ClosureHash = closure
 	for _, tc := range []struct {
 		name     string
 		kind     string
@@ -51,17 +49,12 @@ func TestRuntimeWorkspaceBootsItsPinnedImage(t *testing.T) {
 	}{
 		{name: "the placed image", kind: "vm", closure: closure, images: true, resolver: &stubEnvironmentImageResolver{image: placed},
 			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "vm", Image: placed.Image, ClosureHash: closure}},
-		{name: "a placed desktop", kind: "desktop", closure: closure, images: true, resolver: &stubEnvironmentImageResolver{image: desktop},
-			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "desktop", Image: desktop.Image, ClosureHash: closure}},
 		{name: "a retired image", kind: "vm", closure: strings.Repeat("d", 32), images: true, resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
 		{name: "a runtime without images", kind: "vm", closure: closure, resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
 		{name: "no image registry", kind: "vm", closure: closure, images: true, refused: true},
 		{name: "an unpinned vm", kind: "vm", images: true, resolver: &stubEnvironmentImageResolver{image: placed},
 			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "vm", Image: placed.Image, ClosureHash: closure}},
-		{name: "an unpinned desktop", kind: "desktop", images: true, resolver: &stubEnvironmentImageResolver{image: desktop},
-			want: &workspaceapi.WorkspaceEnvironmentImage{Kind: "desktop", Image: desktop.Image, ClosureHash: closure}},
 		{name: "an unpinned vm without runtime images", kind: "vm", resolver: &stubEnvironmentImageResolver{image: placed}, refused: true},
-		{name: "an unpinned desktop without registry", kind: "desktop", images: true, refused: true},
 		{name: "an unpinned vm unavailable image", kind: "vm", images: true,
 			resolver: &stubEnvironmentImageResolver{err: pkgerrors.EnvironmentImageUnavailable("no ready image")}, refused: true},
 		{name: "an agent", kind: "agent", images: true, resolver: &stubEnvironmentImageResolver{image: placed}},
@@ -106,7 +99,7 @@ func TestRuntimeWorkspaceBootsItsPinnedImage(t *testing.T) {
 }
 
 func TestRuntimeWorkspaceImageResolutionPreservesRegistryFailure(t *testing.T) {
-	for _, kind := range []string{"vm", "desktop"} {
+	for _, kind := range []string{"vm"} {
 		for _, closure := range []string{"", strings.Repeat("c", 32)} {
 			t.Run(kind+"/"+closure, func(t *testing.T) {
 				failure := errors.New("image registry unavailable")

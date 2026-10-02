@@ -3,38 +3,20 @@
   "flows": [
     {
       "id": "review",
-      "description": "Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.",
+      "description": "Review a working-copy change or pinned revisions, independently verify findings, and render the change as a walkthrough.",
       "summary": "Review the uncommitted change and return a verdict.",
       "featured": true,
-      "kind": "mdx",
-      "path": "flows/review/flow.mdx",
+      "kind": "ts",
+      "path": "flows/review/flow.ts",
       "capabilities": [
         "fs:read:**",
-        "proc:spawn:*"
+        "fs:write:**",
+        "proc:spawn:*",
+        "model:call:*"
       ],
-      "model": "sol",
+      "model": null,
       "modelInvocable": true,
-      "inputSchema": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "args": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "args"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      },
-      "flows": [],
-      "budget": {
-        "tokens": 200000,
-        "milliseconds": 600000
-      }
+      "flows": []
     },
     {
       "id": "lint",
@@ -200,7 +182,8 @@
         "proc:spawn:codex *",
         "proc:spawn:codex-rr *",
         "proc:spawn:claude-rr *",
-        "proc:spawn:claude-as *"
+        "proc:spawn:claude-as *",
+        "model:call:typesafe-ai/jev"
       ],
       "model": null,
       "modelInvocable": false,
@@ -1198,22 +1181,6 @@
       "featured": false,
       "kind": "ts",
       "path": "flows/notes/calendar-events/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "fs:write:**",
-        "net:get:*"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
-      "id": "notes/telegram",
-      "description": "Add the messages a Telegram bot has received to a note's Telegram section.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/notes/telegram/flow.ts",
       "capabilities": [
         "fs:read:**",
         "fs:write:**",

@@ -344,34 +344,6 @@ describe("§3 the keyboard contract", () => {
     expect(invoked(view.store).some(row => row.name === "chat.send" || row.name.startsWith("search."))).toBe(false)
   })
 
-  /*
-   * Will typed `/model` on production and got the Models card AND a form: the
-   * menu for "model" led with another `model.*` row and Enter ran that row.
-   * A whole name typed outright is that flow.
-   */
-  test("/model named outright runs the bare door, never the row the menu led with", async () => {
-    const view = await mount()
-    await press(view, "k", { meta: true })
-    await view.act(() => view.controller.changeDraft("/model"))
-    const led = highlighted(view.host)?.getAttribute("data-flow")
-    expect(led).toStartWith("model.")
-    await press(view, "Enter")
-    expect(invoked(view.store).map(row => row.name)).toContain("model")
-    expect(invoked(view.store).some(row => row.name === led)).toBe(false)
-  })
-
-  test("a highlight the person moved is their choice: Enter runs that row, not the outright name", async () => {
-    const view = await mount()
-    await press(view, "k", { meta: true })
-    await view.act(() => view.controller.changeDraft("/model"))
-    await press(view, "ArrowDown")
-    const chosen = highlighted(view.host)?.getAttribute("data-flow")
-    expect(chosen).toStartWith("model.")
-    await press(view, "Enter")
-    expect(invoked(view.store).map(row => row.name)).toContain(chosen!)
-    expect(invoked(view.store).some(row => row.name === "model")).toBe(false)
-  })
-
   test("Escape dismisses the slash overlay, then closes the composer on the next press", async () => {
     const view = await mount()
     await press(view, "k", { meta: true })
@@ -395,7 +367,7 @@ describe("§3 the keyboard contract", () => {
     expect(view.store.session().paletteOpen).toBe(true)
     expect(palette(view.host)?.dataset["mode"]).toBe("all")
     // Files (both prefix matches, in listing order), then the flows: the one named compose, the ones whose summaries say it, then the run (contains).
-    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", "model.compose", "chat.send", "model.ask", "model.recall", runSearchRef("run-compose", "runs-1")])
+    expect(rows(view.host)).toEqual(["", "/will/smithers/src/Composer.tsx", "/will/smithers/src/Compose.css", "chat.send", runSearchRef("run-compose", "runs-1")])
     await press(view, "Escape")
     expect(view.store.session().paletteOpen).toBe(false)
     expect(palette(view.host)).toBeNull()

@@ -212,33 +212,34 @@ func TestWorkflowTrustPathsRefuseAnUnreadableWorkflow(t *testing.T) {
 	assert.Empty(t, derived)
 }
 
-// This repository's review action, and the files it imports, are protected
-// on main because a workflow runs it with the review identity.
-func TestWorkflowTrustPathsProtectTheReviewAction(t *testing.T) {
-	derived, err := workflowTrustPaths(context.Background(), repositoryRoot(t))
+// A privileged local action and its import closure remain protected even when
+// the product has no standalone review action.
+func TestWorkflowTrustPathsProtectPrivilegedLocalAction(t *testing.T) {
+	fixture := mapRevisionTree{}
+	for file, content := range workspaceFixture {
+		fixture[file] = content
+	}
+	fixture["tools/act/action/index.js"] = `import "../helpers/run.js"`
+	fixture["tools/act/helpers/run.js"] = `import "./policy.js"`
+	fixture["tools/act/helpers/policy.js"] = ""
+	derived, err := workflowTrustPaths(context.Background(), fixture)
 	require.NoError(t, err)
-	for _, want := range []string{"/apps/review", "/apps/review/action", "/apps/review/action/src/runAction.ts", "/apps/review/src/github/runGh.ts"} {
+	for _, want := range []string{"/tools/act", "/tools/act/action", "/tools/act/action/index.js", "/tools/act/helpers/run.js", "/tools/act/helpers/policy.js"} {
 		assert.Contains(t, derived, want)
 	}
-	entries, err := protectedPathsAt(context.Background(), repositoryRoot(t))
+	entries, err := protectedPathsAt(context.Background(), fixture)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"apps/review/action/action.yml", "apps/review/src/cli/main.ts"},
-		protectedPathsTouched([]string{"apps/review/action/action.yml", "apps/review/src/cli/main.ts", "apps/site/README.md"}, entries),
-		"the review command the action runs is in the action's package")
+	assert.Equal(t, []string{"tools/act/action/action.yml", "tools/act/helpers/run.js"},
+		protectedPathsTouched([]string{"tools/act/action/action.yml", "tools/act/helpers/run.js", "apps/site/README.md"}, entries))
 }
 
-// The review command imports workspace packages by name after an install,
-// so an outsider's change to one of them, or to the root install files, is
-// refused like a change to the action.
-func TestProtectedPathsFollowTheReviewActionsWorkspaceDependencies(t *testing.T) {
-	entries, err := protectedPathsAt(context.Background(), repositoryRoot(t))
+// Workspace dependencies and root install inputs retain the same trust fence.
+func TestProtectedPathsFollowPrivilegedActionsWorkspaceDependencies(t *testing.T) {
+	entries, err := protectedPathsAt(context.Background(), workspaceFixture)
 	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"package.json", "packages/smithers/agent/src/index.ts", "packages/smithers/flows/engine/src/x.ts", "patches/p.patch", "pnpm-lock.yaml",
-	}, protectedPathsTouched([]string{
-		"packages/smithers/agent/src/index.ts", "packages/smithers/flows/engine/src/x.ts", "apps/site/README.md",
-		"package.json", "pnpm-lock.yaml", "patches/p.patch", "apps/site/package.json",
-	}, entries), "apps/review depends on @smthrs/agent and @smthrs/engine through the workspace")
+	assert.Equal(t, []string{"package.json", "packages/lib-a/src/index.ts", "packages/lib-b/src/index.ts", "patches/p.patch", "pnpm-lock.yaml"},
+		protectedPathsTouched([]string{"packages/lib-a/src/index.ts", "packages/lib-b/src/index.ts", "apps/site/README.md", "package.json", "pnpm-lock.yaml", "patches/p.patch", "apps/site/package.json"}, entries),
+		"privileged action dependencies and root installation inputs remain protected")
 }
 
 var workspaceFixture = mapRevisionTree{

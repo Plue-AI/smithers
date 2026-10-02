@@ -431,7 +431,6 @@ func buildWorkflowCIRouter(q *db.Queries, pool *pgxpool.Pool, cache *routes.Work
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
 		nil, // deployKeyHandler
 		&routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{},
-		nil, // changesetHandler
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},

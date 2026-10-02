@@ -77,15 +77,6 @@ func TestProductRepositoryCreationSurvivesCrashes(t *testing.T) {
 		t.Fatalf("create org repository: %+v, %v", orgRepo, err)
 	}
 	assertNoProductCreationJobs(t, ctx, pool)
-	// A second owner asks for a real fork through the product service.
-	fork, err := service.ForkRepo(ctx, &forker, owner.Username, source.Name, "copy", "")
-	if err != nil {
-		t.Fatalf("fork source: %v", err)
-	}
-	if !fork.Created || !fork.Repository.IsFork || !fork.Repository.ForkID.Valid || fork.Repository.ForkID.Int64 != source.ID {
-		t.Fatalf("fork result: %+v", fork)
-	}
-	assertNoProductCreationJobs(t, ctx, pool)
 	// An exact HTTP retry adopts the pre-crash reservation and its token.
 	retryID := insertProductCreationJob(t, ctx, pool, local, owner, "exact-retry", false, "")
 	if _, err := pool.Exec(ctx, `UPDATE repository_creation_jobs SET is_public=false WHERE repository_id=$1`, retryID); err != nil {

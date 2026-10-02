@@ -69,13 +69,6 @@ const argumentItems = (name: string, typed: string, sources: Sources): Array<Sug
       submit: true
     }))
   }
-  if (name === "thinking") {
-    return Fuzzy.filter(["default", ...Editor.thinkingLevels], typed, (level) => level).map((level) => ({
-      label: level,
-      insert: `/thinking ${level}`,
-      submit: true
-    }))
-  }
   if (name === "flow") return flowItems(typed, sources)
   return undefined
 }

@@ -1,3 +1,1 @@
-export const app = [
-  "app.download",
-] as const
+export const app = [] as const

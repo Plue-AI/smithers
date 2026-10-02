@@ -14,7 +14,6 @@ import {
   migrationProfiles,
   minimalProfiles,
   runConsumerProfile,
-  templateProfile
 } from "./release-consumers.mjs"
 import { releaseRegistry } from "./release-registry.mjs"
 
@@ -58,7 +57,7 @@ test("every library, adapter and migration profile selects the supplied candidat
   for (const version of ["1.0.0", "1.1.0-rc.7"]) {
     const entries = [{ name: "@smthrs/database", version }]
     const profiles = [...minimalProfiles(entries), ...adapterProfiles(entries), ...migrationProfiles(entries)]
-    assert.equal(profiles.length, 12)
+    assert.equal(profiles.length, 10)
     for (const profile of profiles) {
       const firstParty = Object.entries(profile.dependencies).filter(([name]) => name.startsWith("@smthrs/"))
       assert.ok(firstParty.length > 0, profile.name)
@@ -123,16 +122,16 @@ test("candidate selection rejects empty, mixed and non-exact versions", () => {
   }
 })
 
-test("consumer and packed template requests resolve against a stable-only candidate registry", async () => {
+test("consumer requests resolve against a stable-only candidate registry", async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-consumer-version-"))
   let registry
   const previousRegistry = process.env.npm_config_registry
   try {
     const version = "1.0.0"
     const entries = []
-    for (const name of ["database", "create-app"]) {
+    for (const name of ["database"]) {
       const directory = join(root, name)
-      mkdirSync(join(directory, "package/template/default"), { recursive: true })
+      mkdirSync(join(directory, "package"), { recursive: true })
       writeFileSync(
         join(directory, "package/package.json"),
         JSON.stringify({
@@ -144,14 +143,6 @@ test("consumer and packed template requests resolve against a stable-only candid
         })
       )
       writeFileSync(join(directory, "package/index.js"), "export const installed = true\n")
-      writeFileSync(
-        join(directory, "package/template/default/package.json"),
-        JSON.stringify({
-          private: true,
-          dependencies: { "@smthrs/database": version },
-          devDependencies: { "@smthrs/create-app": version }
-        })
-      )
       const filename = name + ".tgz"
       execFileSync("tar", ["-czf", join(root, filename), "-C", directory, "package"])
       entries.push({ name: "@smthrs/" + name, version, filename })
@@ -185,7 +176,7 @@ test("consumer and packed template requests resolve against a stable-only candid
     // All package bytes, including the minimal Effect identity fixture, come
     // from loopback. No existing publication or external install is needed.
     process.env.npm_config_registry = registry.url
-    const profiles = [minimalProfiles(entries)[0], templateProfile(root, entries)]
+    const profiles = [minimalProfiles(entries)[0]]
     for (const profile of profiles) {
       for (const [name, requested] of Object.entries(profile.dependencies)) {
         if (!name.startsWith("@smthrs/")) continue
@@ -200,18 +191,6 @@ test("consumer and packed template requests resolve against a stable-only candid
       const installed = await runConsumerProfile(profiles[0], manager, registry.url, { runtime: true })
       assert.equal(installed.effectCopies.length, 1)
     }
-    writeFileSync(
-      join(root, "create-app/package/template/default/package.json"),
-      JSON.stringify({
-        private: true,
-        dependencies: { "@smthrs/database": "1.0.0-rc.0" }
-      })
-    )
-    execFileSync("tar", ["-czf", join(root, "create-app.tgz"), "-C", join(root, "create-app"), "package"])
-    assert.throws(
-      () => templateProfile(root, entries),
-      /shipped template @smthrs\/database must select candidate 1\.0\.0/
-    )
   } finally {
     if (previousRegistry === undefined) delete process.env.npm_config_registry
     else process.env.npm_config_registry = previousRegistry

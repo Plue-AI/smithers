@@ -84,7 +84,7 @@ const revisionsSince = (currentSeq: number | null, seq: number | null): string |
 
 /*
  * The landing request's state on this card's pill vocabulary (done / failed /
- * pending, as the changeset and check pills already use): `merged` is done,
+ * pending, as the check pills already use): `merged` is done,
  * `failed` is failed, `closed` is a neutral end (the cancelled tint, plue's
  * own word as the label — the shared table would tint "closed" green), and
  * open / draft / queued / landing are pending.
@@ -151,21 +151,13 @@ interface LandAct {
 /*
  * The Land act's label, scope, and blocking reason from the card's own state
  * (ADR 0003: "Land (confirm; disabled with the blocking reason)"). A
- * changeset lands every member together: `landing` and `landed` block,
- * `failed` re-lands as "Retry land" with the failure reason in Details. A
  * landing request lands its WHOLE stack, so the label names the scope
  * (`Land 1 → N`), only the top change may land (a prefix land is plue#452),
  * plue lands a request only while it is open or failed, and the gate's own
  * blocks (open threads, checks, owners) read on the button.
  */
 const landAct = (payload: ChangePayload): LandAct => {
-  const { changeset, stack } = payload
-  if (changeset !== null) {
-    const ariaLabel = "Land the changeset"
-    if (changeset.state === "landing") return { label: "Land", ariaLabel, blocked: "landing…" }
-    if (changeset.state === "landed") return { label: "Land", ariaLabel, blocked: "landed" }
-    return { label: changeset.state === "failed" ? "Retry land" : "Land", ariaLabel, blocked: null }
-  }
+  const { stack } = payload
   if (stack === null) return { label: "Land", ariaLabel: "Land the change", blocked: null }
   const scope = stack.size <= 1 ? ` ${payload.changeId} alone` : ` 1 → ${stack.size} together`
   const ariaLabel = `Land the change: lands${scope}`
@@ -779,7 +771,7 @@ const ChangeOwnersFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
   )
 }
 
-/* The walkthrough facet (plue#465): the artifact's sections, a diagram's source when one rides, and the quiz count. */
+/* The walkthrough facet (plue#465): the artifact's sections, a diagram's source when one rides. */
 const ChangeWalkthroughFacet = ({ card }: { readonly card: ChangeCard }) => {
   const walkthrough = card.payload.walkthrough
   if (walkthrough === null || walkthrough === undefined) return null
@@ -797,9 +789,7 @@ const ChangeWalkthroughFacet = ({ card }: { readonly card: ChangeCard }) => {
           ))}
         </ul>
       )}
-      {walkthrough.quiz.length > 0 ?
-        <p className="world-card-path">Quiz · {walkthrough.quiz.length} question{walkthrough.quiz.length === 1 ? "" : "s"}</p> :
-        null}
+
     </div>
   )
 }
@@ -906,7 +896,7 @@ export const ChangeCardBody = ({
   const wanted: ChangeFacet = payload.facet ?? "diff"
   /* A facet whose data is absent (a walkthrough that vanished, no owners) falls back to the diff rather than an empty tab. */
   const facet: ChangeFacet = facets.some(([name]) => name === wanted) ? wanted : "diff"
-  const landed = payload.changeset?.state === "landed" || payload.stack?.state === "merged"
+  const landed = payload.stack?.state === "merged"
   const land = landAct(payload)
   const turn = payload.turn ?? null
   const agentReviews = (payload.reviews ?? []).filter((review) => review.reviewerKind === "agent")
@@ -990,40 +980,6 @@ export const ChangeCardBody = ({
           </ul>
         ) :
         null}
-      {payload.unread?.changeset !== undefined ?
-        <p className="world-card-empty">changesets not read ({payload.unread.changeset})</p> :
-        null}
-      {payload.changeset !== null ?
-        (
-          <div className="world-card-list">
-            <p className="world-card-row">
-              <span className="world-card-path">
-                Changeset {payload.changeset.id} → {payload.changeset.targetBookmark} · {payload.changeset.members.length} member
-                {payload.changeset.members.length === 1 ? "" : "s"}
-              </span>
-              <StatusPill
-                status={payload.changeset.state === "landed" ? "done" : payload.changeset.state === "failed" ? "failed" : "pending"}
-              />
-            </p>
-            {/* The members an atomic land moves together: `repository · path` (ADR 0003's live DTO), visible before the confirm. */}
-            {payload.changeset.members.length > 0 ?
-              (
-                <ul className="world-card-list" aria-label="Changeset members">
-                  {payload.changeset.members.map((member) => (
-                    <li key={`${member.repository}:${member.path}`} className="world-card-row">
-                      <span className="world-card-path">{member.repository} · {member.path}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) :
-              null}
-            {payload.changeset.state === "failed" && payload.changeset.failureReason !== null ?
-              <RecordedFailureDetails detail={payload.changeset.failureReason} testId="changeset-failure"
-                announcement="Landing failed. Open Details for the reason." /> :
-              null}
-          </div>
-        ) :
-        null}
       {payload.unread?.stack !== undefined ?
         <p className="world-card-empty">landing request not read ({payload.unread.stack})</p> :
         null}
@@ -1059,6 +1015,7 @@ export const ChangeCardBody = ({
       </div>
       <ChangeFacetBody card={card} facet={facet} onRunCommand={onRunCommand} />
       <div className="world-card-row">
+        {payload.changeset !== null && payload.stack === null ? null : (
         <Button
           size="sm"
           aria-label={land.ariaLabel}
@@ -1067,6 +1024,7 @@ export const ChangeCardBody = ({
         >
           <GitMerge size={12} aria-hidden="true" /> {land.label}
         </Button>
+        )}
         {land.blocked !== null ? <span className="world-card-path">{land.blocked}</span> : null}
         {/* A person's requested changes hold the landing until they review again: ask them. */}
         {changesRequestedBy(payload).map((login) => (

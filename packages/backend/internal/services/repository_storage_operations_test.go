@@ -198,66 +198,6 @@ func TestDeleteRepoRetainsIntentWhenFinalizationFails(t *testing.T) {
 	assert.Equal(t, 2, host.finalizeDeleteCalls, "idempotent completion gets one immediate retry")
 }
 
-func TestTransferRepoPersistsPreparedHandleBeforeStorageMutation(t *testing.T) {
-	actor := &db.User{ID: 21, Username: "Alice", LowerUsername: "alice"}
-	repository := db.Repository{
-		ID: 101, UserID: pgtype.Int8{Int64: actor.ID, Valid: true},
-		Name: "Demo", LowerName: "demo", IsPublic: true,
-	}
-	lookupCalls := 0
-	baseQ := &mockRepoQuerier{
-		getRepoByOwnerAndLowerNameFn: func(_ context.Context, _ db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-			lookupCalls++
-			if lookupCalls == 1 {
-				return repository, nil
-			}
-			return db.Repository{}, pgx.ErrNoRows
-		},
-		getUserByLowerUsernameFn: func(context.Context, string) (db.User, error) {
-			return db.User{ID: 22, Username: "Bob", LowerUsername: "bob"}, nil
-		},
-		transferRepoToUserFn: func(_ context.Context, arg db.TransferRepoToUserParams) (db.Repository, error) {
-			updated := repository
-			updated.UserID = arg.NewUserID
-			return updated, nil
-		},
-	}
-	q := &canonicalRepoQuerier{mockRepoQuerier: baseQ, users: map[int64]db.User{actor.ID: *actor}}
-	tx := &fakeOwnershipTx{q: baseQ, getByIDFn: func(context.Context, int64) (db.Repository, error) { return repository, nil }}
-	events := make([]string, 0, 6)
-	store := &memoryRepositoryStorageOperationStore{events: &events}
-	token := strings.Repeat("c", 64)
-	host := &preparedRepoHost{
-		mockRepoHostClient: &mockRepoHostClient{finalizeMoveRepoFn: func(context.Context, repohost.StagedMove) error {
-			events = append(events, "finalize-move")
-			return nil
-		}},
-		prepareMoveFn: func(_ context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) (repohost.StagedMove, error) {
-			events = append(events, "prepare-move")
-			assert.Equal(t, "Alice", srcOwner)
-			assert.Equal(t, "Bob", dstOwner)
-			return repohost.StagedMove{BaseURL: "http://s1.test", StorageRouteKey: "s1", Token: token, SrcOwner: srcOwner, SrcRepo: srcRepo, DstOwner: dstOwner, DstRepo: dstRepo}, nil
-		},
-		executeMoveFn: func(context.Context, repohost.StagedMove) error {
-			events = append(events, "execute-move")
-			assert.True(t, store.active)
-			return nil
-		},
-	}
-	svc := NewRepoService(q, host, "s1")
-	svc.ownershipTx = &fakeOwnershipTxManager{tx: tx}
-	svc.storageOperations = store
-
-	_, err := svc.transferRepoSerialized(context.Background(), repository, actor.Username, repository.Name, repoTransferTarget{
-		ownerName: "Bob", userID: pgtype.Int8{Int64: 22, Valid: true},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"prepare-move", "persist-intent", "execute-move", "finalize-move", "complete-intent",
-	}, events)
-	assert.False(t, store.active)
-}
-
 func TestRepositoryStorageReconcilerUsesOnlyStableExactIdentity(t *testing.T) {
 	host := &mockRepoHostClient{}
 	reconciler := &RepositoryStorageOperationReconciler{repoHost: host}

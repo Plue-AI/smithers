@@ -24,7 +24,7 @@ func TestWorkspaceCreateRequestDoesNotMaterializeArtifacts(t *testing.T) {
 	t.Setenv(workspaceCLIPackageEnv, artifact)
 	t.Setenv(workspaceCodingHostBinaryEnv, artifact)
 	t.Setenv(workspaceJJExportBinaryEnv, artifact)
-	for _, kind := range []string{"container", "vm", "desktop"} {
+	for _, kind := range []string{"container", "vm"} {
 		t.Run(kind, func(t *testing.T) {
 			svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage(kind)}))
 			req, err := svc.buildWorkspaceVMRequest(context.Background(), "", nil, 0, "", kind)

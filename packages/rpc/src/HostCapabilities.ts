@@ -37,7 +37,6 @@ export interface CloudCapabilityEnv {
 }
 
 /** What a Bun launch has configured. `cloud` is the cloud upstream; offline launches have none.
- * `nativeShell` is true only when the desktop shell (`src/bun/NativeApp.ts`) started this host as its renderer origin.
  * @since 1.0.0
  * @category models
  */
@@ -51,7 +50,6 @@ export interface LocalCapabilityOptions {
   readonly identity: boolean
   readonly cloud: boolean
   readonly recommend?: boolean
-  readonly nativeShell?: boolean
 }
 
 const present = (rows: ReadonlyArray<readonly [RuntimeCapability, boolean]>): Array<RuntimeCapability> =>
@@ -98,6 +96,5 @@ export const localCapabilities = (opts: LocalCapabilityOptions): Array<RuntimeCa
     ["cloud.terminal", opts.cloud],
     ["cloud.pat", opts.cloud],
     ["recommend", opts.recommend === true],
-    ["commands.select", opts.recommend === true],
-    ["native.shell", opts.nativeShell === true]
+    ["commands.select", opts.recommend === true]
   ])

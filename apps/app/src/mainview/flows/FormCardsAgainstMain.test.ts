@@ -300,7 +300,7 @@ interface DeclaredMove {
 }
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
-  ...(["runs.list", "github.mirror.retry-ref", "box.open", "box.desktop.open", "desktop", "flow.create", "feature.prototype"] as const).map(flow => ({
+  ...(["runs.list", "github.mirror.retry-ref", "box.open", "flow.create", "feature.prototype"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
@@ -339,10 +339,6 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
   {
     flow: "triggers.approve", kind: "card", rows: 12,
     because: "The same skip on the approval's own optional repository. The door is hidden, so no one types these lines; the rows move because the rule is the schema's, not the door's."
-  },
-  {
-    flow: "model.save", kind: "card", rows: 6,
-    because: "The same skip over the optional base URL and path, which sit in front of the required credential, so a four-word line fills the required slots rather than the decorative ones."
   },
   {
     flow: "files.open-diff", kind: "sentence", rows: 1,

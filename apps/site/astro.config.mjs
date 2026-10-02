@@ -85,7 +85,6 @@ export default defineConfig({
     resolve: {
       dedupe: ["react", "react-dom", "effect"],
       alias: {
-        "electrobun/view": fileURLToPath(new URL("../app/src/mainview/native/electrobun-view.web.ts", import.meta.url))
       }
     },
     define: {

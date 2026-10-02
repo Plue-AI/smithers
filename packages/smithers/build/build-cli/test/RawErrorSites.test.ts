@@ -33,7 +33,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number]> = [
   ["src/Cache.ts", 6],
   ["src/CacheAdmin.ts", 4],
   ["src/Cli.ts", 18],
-  ["src/CreateApp.ts", 4],
   ["src/Diagnostic.ts", 1],
   ["src/Entry.ts", 1],
   ["src/Executor.ts", 23],

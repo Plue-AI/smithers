@@ -71,9 +71,6 @@ export interface RunsController {
   readonly rerunRun: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly signalRun: (runId: string, name: string, payload?: string, sourceCard?: string) => Promise<CommandResult>
   readonly steerRun: (runId: string, body: string, sourceCard?: string) => Promise<CommandResult>
-  readonly steerRunSeat: (runId: string, seat: string, sourceCard?: string) => Promise<CommandResult>
-  readonly steerRunThinking: (runId: string, thinking: string, sourceCard?: string) => Promise<CommandResult>
-  readonly steerRunTools: (runId: string, toolNames: string, sourceCard?: string) => Promise<CommandResult>
   readonly showRunLogs: (runId: string, follow?: boolean, sourceCard?: string) => Promise<CommandResult>
   readonly showRunSteps: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly showRunEvents: (runId: string, sourceCard?: string) => Promise<CommandResult>
@@ -661,23 +658,6 @@ export const createRunsController = (
     body.trim() === ""
       ? Promise.resolve("runs.steer needs the message to deliver.")
       : steer(runId, { kind: "Message", body }, sourceCard)
-
-  const steerRunSeat = (runId: string, seat: string, sourceCard?: string): Promise<CommandResult> =>
-    seat.trim() === ""
-      ? Promise.resolve("runs.seat needs the seat to move the run to.")
-      : steer(runId, { kind: "Seat", seat: seat.trim() }, sourceCard)
-
-  const steerRunThinking = (runId: string, thinking: string, sourceCard?: string): Promise<CommandResult> =>
-    thinking.trim() === ""
-      ? Promise.resolve("runs.thinking needs the thinking level.")
-      : steer(runId, { kind: "Thinking", thinking: thinking.trim() }, sourceCard)
-
-  const steerRunTools = (runId: string, toolNames: string, sourceCard?: string): Promise<CommandResult> => {
-    const names = toolNames.split(",").map((name) => name.trim()).filter((name) => name !== "")
-    return names.length === 0
-      ? Promise.resolve("runs.tools needs the tool names, comma-separated.")
-      : steer(runId, { kind: "Tools", toolNames: names }, sourceCard)
-  }
 
   type RunCard = Extract<Card, { kind: "run-trace" }>
   type FacetRequest = NonNullable<RunCard["payload"]["facetRequest"]>
@@ -1400,9 +1380,6 @@ export const createRunsController = (
     rerunRun,
     signalRun,
     steerRun,
-    steerRunSeat,
-    steerRunThinking,
-    steerRunTools,
     showRunLogs,
     showRunSteps,
     showRunEvents,

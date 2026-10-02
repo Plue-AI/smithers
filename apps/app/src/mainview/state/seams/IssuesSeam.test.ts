@@ -1162,24 +1162,6 @@ test("a restored chat card refreshes remote edits and deletes without a second t
   } finally { await controller.dispose(); await store.dispose?.() }
 }, 10_000)
 
-test.each(["slack", "telegram"] as const)("%s mapping uses generic settings and projects delivery state", async provider => {
-  const requests: unknown[] = []
-  const { store, controller } = await issuesController(backend({
-    "PUT /api/repos/will/flows/issues/8/sync": async request => { requests.push(await request.json()); return json(200, {}) },
-    "GET /api/repos/will/flows/issues/8": json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
-    "GET /api/repos/will/flows/issues/8/comments": json(200, []),
-    "GET /api/repos/will/flows/issues/8/sync": json(200, { provider, connection_id: "connection", scope_id: "scope", conversation_id: "conversation", thread_id: "thread", state: "pending", error: null })
-  }))
-  try {
-    await controller.commands.run("issues.view", "8 will/flows")
-    const mapping = { provider, connectionId: "connection", scopeId: "scope", conversationId: "conversation", threadId: "thread", externalUserId: "user" }
-    expect(await controller.mapIssueSync(8, mapping, "will/flows")).toBeUndefined()
-    expect(requests).toEqual([{ provider, connection_id: "connection", scope_id: "scope", conversation_id: "conversation", thread_id: "thread", external_user_id: "user" }])
-    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
-    expect(card.kind === "issue" && card.payload.sync).toEqual({ provider, connectionId: "connection", scopeId: "scope", conversationId: "conversation", threadId: "thread", state: "pending", error: null })
-  } finally { await controller.dispose(); await store.dispose?.() }
-})
-
 test("chat sends persist and acknowledge before an unresolved POST, dedupe repeated input, and settle the shared toast from completion", async () => {
   let finish!: () => void
   let posted = false
@@ -1315,30 +1297,6 @@ test("restored requested messages replay once through their persisted backend id
   } finally { await controller.dispose(); await store.dispose?.() }
 })
 
-test.each(["slack", "telegram"] as const)("%s delivery remains running through dispatch and exposes an unknown outcome without reposting", async provider => {
-  let state = "pending"
-  let posts = 0
-  const { store, controller } = await issuesController(backend({
-    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
-    "GET /api/repos/will/flows/issues/8/comments": () => json(200, []),
-    "GET /api/repos/will/flows/issues/8/sync": () => json(200, { issue_id: 800, provider, connection_id: "connection", scope_id: "T1", conversation_id: "C1", thread_id: "1.1", state, error: null }),
-    "POST /api/repos/will/flows/issues/8/comments": () => { posts++; return json(201, {}) }
-  }))
-  try {
-    await controller.commands.run("issues.view", "8 will/flows")
-    await new Promise(resolve => setTimeout(resolve, 350))
-    const toast = [...store.collections.toasts.values()].find(row => row.key.startsWith("issue.delivery:"))!
-    expect(toast.status).toBe("running")
-    await signedIn(store)
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(store.collections.toasts.get(toast.id)?.status).toBe("running")
-    state = "outcome_unknown"
-    await new Promise(resolve => setTimeout(resolve, 2_000))
-    expect(store.collections.toasts.get(toast.id)).toMatchObject({ status: "failed", detail: "Delivery unconfirmed. Resolve to continue." })
-    expect(posts).toBe(0)
-  } finally { await controller.dispose(); await store.dispose?.() }
-}, 5_000)
-
 test("an account switch retires a delayed chat creation receipt and never sends the previous owner's pending text", async () => {
   let release!: () => void
   let reading!: () => void
@@ -1411,36 +1369,6 @@ test("a delayed poll cannot replace a newer mutation receipt and does not overla
     expect((store.collections.cards.get(card.id) as typeof card).payload.comments[0]?.commentBody).toBe("edited")
   } finally { release?.(); await controller.dispose(); await store.dispose?.() }
 }, 10_000)
-
-test("owner resolution persists and returns before the receipt, deduplicates and exposes failure", async () => {
-  let release!: () => void
-  const held = new Promise<void>(resolve => { release = resolve })
-  const receipts: unknown[] = []
-  const { store, controller } = await issuesController(backend({
-    "GET /api/repos/will/flows/issues/8": () => json(200, wireIssue(8, { kind: "chat", visibility: "private" })),
-    "GET /api/repos/will/flows/issues/8/comments": () => json(200, []),
-    "GET /api/repos/will/flows/issues/8/sync": () => json(200, { provider: "telegram", connection_id: "bot", scope_id: "123", conversation_id: "-100", state: "outcome_unknown", delivery_id: 41, resolution_token: "claim" }),
-    "PUT /api/repos/will/flows/issues/sync/deliveries/41": async request => { receipts.push(await request.json()); await held; return json(503, { message: "offline" }) }
-  }))
-  try {
-    await signedIn(store)
-    await controller.commands.run("issues.view", "8 will/flows")
-    const card = [...store.collections.cards.values()].find(row => row.kind === "issue")!
-    expect(await controller.resolveIssueSync(card.id, 41, "retry", "Accept duplicate risk", "")).toBe("Resolution requested.")
-    expect(await controller.resolveIssueSync(card.id, 41, "retry", "Accept duplicate risk", "")).toBe("Resolution requested.")
-    await new Promise(resolve => setTimeout(resolve, 350))
-    expect(receipts).toEqual([{ resolution: "retry", expected_token: "claim", state: "pending", error: "Accept duplicate risk", message_id: "" }])
-    const persisted = store.collections.cards.get(card.id)!
-    expect(persisted.kind === "issue" && persisted.payload.sync?.resolution?.status).toBe("requested")
-    const toast = [...store.collections.toasts.values()].find(row => row.key === `issue.resolve:${card.id}`)!
-    expect(toast.status).toBe("running")
-    release()
-    await new Promise(resolve => setTimeout(resolve, 100))
-    const failed = store.collections.cards.get(card.id)!
-    expect(failed.kind === "issue" && failed.payload.sync?.resolution?.status).toBe("failed")
-    expect(store.collections.toasts.get(toast.id)?.status).toBe("failed")
-  } finally { release(); await controller.dispose(); await store.dispose?.() }
-})
 
 // Public helper units use exactly their declared HTTP/base URL authority, not a
 // fabricated controller context or partial AppStore.

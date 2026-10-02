@@ -69,7 +69,7 @@ const localBootstrap: AppBootstrap = {
   host: "local",
   version: "1.0.0",
   buildSha: "abcdef1234567890",
-  capabilities: localCapabilities({ agent: true, identity: true, cloud: true, nativeShell: true }),
+  capabilities: localCapabilities({ agent: true, identity: true, cloud: true }),
   authFlow: "none",
   sandbox: null
 }
@@ -115,7 +115,7 @@ describe("onboarding — the opening entry", () => {
     expect(details?.hasAttribute("open")).toBe(true)
     expect(text(detailContent)).toContain("Host: local (1.0.0 abcdef1)")
     // The surviving vocabulary: the rows this host and the Worker both emit.
-    expect(text(detailContent)).toContain("Capabilities: agent, model.turn, identity, cloud, cloud.terminal, cloud.pat, native.shell")
+    expect(text(detailContent)).toContain("Capabilities: agent, model.turn, identity, cloud, cloud.terminal, cloud.pat")
     expect(text(detailContent)).toContain(`Flows registered: ${controller.commands.all().length}`)
     expect(text(detailContent)).toContain("Repositories: none open")
 
@@ -394,11 +394,10 @@ describe("onboarding — the first app screen", () => {
     expect(footer(late)?.hasAttribute("data-arriving")).toBe(false)
   })
 
-  test("local, desktop and cloud desktop-shell hosts never withhold Chat", async () => {
+  test("local browser hosts never withhold Chat", async () => {
     for (const bootstrap of [
       localBootstrap,
       { ...cloudBootstrap, host: "local" as const },
-      { ...cloudBootstrap, capabilities: ["identity" as const, "native.shell" as const] },
     ]) {
       const { controller } = await pastSignup(bootstrap)
       const host = await view(mount(controller))

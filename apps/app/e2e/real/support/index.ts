@@ -2,7 +2,6 @@ import { expect, type APIRequestContext, type APIResponse, type Page } from "@pl
 // Share the isolated persistent WebKit context; it supplies real OPFS and
 // contains no API or product doubles. Chromium keeps its standard context.
 import { test as base } from "../../playwright/browserTest"
-import { nativeTarget } from "../native-target"
 import { appEntryPath } from "./app-entry"
 import { realHost } from "./host"
 
@@ -17,30 +16,6 @@ export type RealScenarioMetadata = {
   readonly coverage: readonly string[]
   readonly description?: string
 }
-
-const nativeCDPEndpoint = process.env.SMITHERS_REAL_NATIVE_CDP_ENDPOINT?.trim()
-const nativeWindowUrl = process.env.SMITHERS_REAL_NATIVE_WINDOW_URL?.trim()
-const nativeTargetId = process.env.SMITHERS_REAL_NATIVE_TARGET_ID?.trim()
-const selectedBase = nativeCDPEndpoint === undefined || nativeCDPEndpoint === "" ? base : base.extend({
-  browser: [async ({ playwright }, use) => {
-    const browser = await playwright.chromium.connectOverCDP(nativeCDPEndpoint)
-    await use(browser)
-    // Electrobun owns the browser process. Its launcher performs teardown.
-  }, { scope: "worker" }],
-  context: async ({ browser }, use) => {
-    if (!nativeWindowUrl || !nativeTargetId) {
-      throw new Error("Native CDP attachment requires the packaged window URL and CDP target ID.")
-    }
-    const target = await nativeTarget(browser.contexts(), nativeWindowUrl, nativeTargetId)
-    await use(target.context)
-  },
-  page: async ({ context }, use) => {
-    if (!nativeWindowUrl || !nativeTargetId) {
-      throw new Error("Native CDP attachment requires the packaged window URL and CDP target ID.")
-    }
-    await use((await nativeTarget([context], nativeWindowUrl, nativeTargetId)).page)
-  }
-})
 
 const selectedApiOrigin = (page: Page): string =>
   new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? page.url()).origin
@@ -238,14 +213,8 @@ export const openComposer = async (page: Page): Promise<void> => {
   // Focus its real input; Command-K would instead toggle the guide dock closed.
   else if (!(await input.evaluate((element) => element === document.activeElement))) await input.click()
   await expect(input).toBeVisible()
-  if (nativeCDPEndpoint) {
-    // A hidden CEF window cannot reliably become the OS key window. Assert
-    // that the product opened an interactive composer; fill and press below
-    // prove its input accepts the command.
-    await expect.poll(() => input.evaluate((element) => element.closest('[inert], [aria-hidden="true"]') === null)).toBe(true)
-  } else {
-    await expect(input).toBeFocused()
-  }
+  await expect(input).toBeFocused()
+
 }
 
 /** Submit one slash command or natural-language turn through the visible composer. */
@@ -318,7 +287,7 @@ type RealFixtures = { readonly realScenario: RealScenarioMetadata | undefined; r
  * ../coverage/types. `test.use({ realScenario })` remains a suite-level
  * fallback for a describe containing exactly one scenario.
  */
-export const test = selectedBase.extend<RealFixtures>({
+export const test = base.extend<RealFixtures>({
   realScenario: [undefined, { option: true }],
   _realLifecycle: [async ({ page, realScenario }, use, testInfo) => {
     const scenario = scenarioFromAnnotations(testInfo.annotations, realScenario)
@@ -345,7 +314,7 @@ export const test = selectedBase.extend<RealFixtures>({
     if (!bootstrap.ok()) throw new Error(`Real host bootstrap preflight failed: HTTP ${bootstrap.status()} ${await bootstrap.text()}`)
     const body = await bootstrap.json() as { host?: unknown; authFlow?: unknown; capabilities?: unknown; buildSha?: unknown }
     const verifiedHost = realHost(body)
-    if (verifiedHost !== "local" && verifiedHost !== "production" && verifiedHost !== "native") {
+    if (verifiedHost !== "local" && verifiedHost !== "production") {
       throw new Error(`Real host bootstrap returned an unsupported host identity: ${JSON.stringify(body.host)}`)
     }
     const expectedHost = process.env.SMITHERS_REAL_E2E_HOST

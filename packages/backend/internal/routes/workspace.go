@@ -64,9 +64,6 @@ type workspacePreviewRouteService interface {
 type WorkspaceHandler struct {
 	Service     WorkspaceRouteService
 	EgressAudit SandboxEgressAuditRouteService
-	// Desktop serves kind=desktop stream sessions and the token relay; nil
-	// disables the desktop routes.
-	Desktop *WorkspaceDesktopHandler
 	// EnvironmentImages serves the NixOS environment image registry; nil
 	// disables those routes.
 	EnvironmentImages *SandboxEnvironmentImageHandler

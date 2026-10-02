@@ -101,32 +101,16 @@ for (const mode of selectedModes) {
   const ownerProfile = resolve(outputDirectory, mode, "owner-profile")
   const selectedScenarios = applicableScenarioIds(state.capabilities)
   if (selectedScenarios.length === 0) continue
-  const nativeDriver = modeConfig.surfaceDriver
-  const prelaunchedNative = nativeDriver !== undefined && process.env.SMITHERS_NATIVE_MATRIX_PRELAUNCHED === mode
-  const invocation = nativeDriver === undefined || prelaunchedNative
-    ? ["bun", "scripts/run-real-e2e.ts"]
-    : ["bun", "scripts/run-native-mode-matrix.ts"]
+  const invocation = ["bun", "scripts/run-real-e2e.ts"]
   const childEnvironment = { ...process.env }
   delete childEnvironment.SMITHERS_REAL_GIT_ORIGIN
   delete childEnvironment.SMITHERS_REAL_E2E_BUILD_SHA
-  if (nativeDriver === undefined) {
-    delete childEnvironment.SMITHERS_REAL_NATIVE_CDP_ENDPOINT
-    delete childEnvironment.SMITHERS_REAL_NATIVE_WINDOW_URL
-    delete childEnvironment.SMITHERS_REAL_NATIVE_TARGET_ID
-    delete childEnvironment.SMITHERS_NATIVE_MATRIX_PRELAUNCHED
-  }
   record!.startedAt = new Date().toISOString()
   const child = Bun.spawn(invocation, {
     cwd: appDir,
     env: {
       ...childEnvironment,
-      ...(nativeDriver === undefined
-        ? { SMITHERS_REAL_BASE_URL: modeConfig.origin }
-        : {
-          SMITHERS_REAL_API_ORIGIN: modeConfig.origin,
-          SMITHERS_NATIVE_MATRIX_DRIVER_ENVIRONMENT: nativeDriver.environment,
-          ...(prelaunchedNative ? { SMITHERS_REAL_BASE_URL: new URL(process.env.SMITHERS_REAL_NATIVE_WINDOW_URL!).origin } : {})
-        }),
+      SMITHERS_REAL_BASE_URL: modeConfig.origin,
       SMITHERS_REAL_E2E_MODE: mode,
       ...(mode === "local-own" && process.env.SMITHERS_LOCAL_GIT_ORIGIN ? { SMITHERS_REAL_GIT_ORIGIN: process.env.SMITHERS_LOCAL_GIT_ORIGIN } : {}),
       ...(MODE_DESCRIPTORS[mode].provider === "plue" ? { SMITHERS_REAL_GIT_ORIGIN: modeConfig.endpoint } : {}),
@@ -137,7 +121,6 @@ for (const mode of selectedModes) {
       SMITHERS_REAL_E2E_RESULTS: childEvidence,
       SMITHERS_REAL_E2E_REPORT: resolve(outputDirectory, mode, "playwright-report.json"),
       SMITHERS_REAL_E2E_ARTIFACTS: resolve(outputDirectory, mode, "playwright"),
-      SMITHERS_REAL_NATIVE_ARTIFACTS: resolve(outputDirectory, mode, "native"),
       SMITHERS_REAL_MATRIX_EXECUTION_ID: executionID,
       SMITHERS_REAL_MATRIX_ORIGIN: modeConfig.origin,
       SMITHERS_REAL_MATRIX_ENDPOINT: modeConfig.endpoint,

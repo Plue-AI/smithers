@@ -25,10 +25,10 @@ Capture "Insert a path and line number into the prompt."
 Use "basic"
 Type "/"
 Capture "Browse slash commands."
-Type "thinking"
+Type "model"
 Press Tab
-Type "high"
+Type "replay:docs"
 Press Enter
-Wait for "Thinking level: high"
+Wait for "replay:docs"
 Capture "Complete a command and its argument."
 ```

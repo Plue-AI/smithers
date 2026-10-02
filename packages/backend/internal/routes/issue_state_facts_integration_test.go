@@ -90,35 +90,3 @@ func TestIssueStateFactsHTTPPagedReplayIsolationAndRevocation(t *testing.T) {
 
 // Reaction deliveries have no comment fact. Their committed notify must travel
 // through the real broker/stream without waiting for a client repair poll.
-func TestIssueSyncDeliveryStreamWake(t *testing.T) {
-	f := setupSSETicketRevocationFixture(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	owner := routesIntegrationCreateUser(t, f.pool, "sync_wake_owner")
-	repo := routesIntegrationCreateRepo(t, f.pool, owner, "sync_wake", false)
-	var issueID, eventID int64
-	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO issues(repository_id,number,title,author_id,kind) VALUES($1,1,'chat',$2,'chat') RETURNING id`, repo.ID, owner.ID).Scan(&issueID))
-	_, err := f.pool.Exec(ctx, `INSERT INTO issue_sync_threads(issue_id,owner_id,provider,connection_id,scope_id,conversation_id) VALUES($1,$2,'slack','conn','T001','C001')`, issueID, owner.ID)
-	require.NoError(t, err)
-	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO issue_events(issue_id,actor_id,event_type,payload) VALUES($1,$2,'comment.reaction','{}') RETURNING id`, issueID, owner.ID).Scan(&eventID))
-	pat, err := f.auth.CreateToken(ctx, owner.ID, services.CreateTokenRequest{Name: "bootstrap", Scopes: []string{string(middleware.ScopeWriteRepository)}})
-	require.NoError(t, err)
-	syncToken, revoke, err := services.NewIssueService(f.queries).IssueChatConnectorCredential(ctx, f.queries, repo.Owner, repo.Name, pat.Token)
-	require.NoError(t, err)
-	defer revoke()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/api/repos/%s/%s/issues/state-events/stream", f.server.URL, repo.Owner, repo.Name), nil)
-	require.NoError(t, err)
-	req.Header.Set("Authorization", "token "+syncToken)
-	response, err := f.client.Do(req)
-	require.NoError(t, err)
-	defer response.Body.Close()
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	stream := bufio.NewReader(response.Body)
-	started := time.Now()
-	_, err = f.pool.Exec(ctx, `INSERT INTO issue_sync_deliveries(issue_id,event_id) VALUES($1,$2)`, issueID, eventID)
-	require.NoError(t, err)
-	frame := readAgentSSEFrameFromReader(t, stream, response.Body, time.Second)
-	require.Equal(t, "issue.sync", frame["event"])
-	require.Equal(t, "{}", frame["data"])
-	require.Less(t, time.Since(started), time.Second)
-}

@@ -31,23 +31,27 @@ test("CI command discovery retains diagnostic options and refuses unknown select
   assert.throws(() => targetInvocation("pnpm exec smthrs test //packages/..."), /Unrecognized CI target/)
 })
 
-test("UI typecheck plans strict devkit preparation as an uncached prerequisite", async () => {
+test("browser typecheck plans its direct configuration without a native prerequisite", async () => {
   const plan = planned("build", "//apps/app:check")
   assert.deepEqual(plan.roots, ["//apps/app:check"])
-  const check = plan.targets.find((target) => target.label === "//apps/app:check")
-  const devkit = plan.targets.find((target) => target.label === "//apps/app:devkit")
-  assert.ok(check)
-  assert.ok(devkit, "a clean checkout has no ignored devkit for TypeScript to extend")
-  assert.ok(check.dependencies.includes(devkit.label))
-  assert.equal(devkit.rule, "NodeBinary")
-  assert.equal(devkit.cacheable, false, "a previous result cannot restore the SDK projection")
-  assert.equal(check.cacheable, false)
+  assert.deepEqual(plan.targets.map((target) => target.label), plan.roots)
+  const check = plan.targets[0]
+  assert.equal(check.rule, "Typecheck")
+  assert.deepEqual(check.dependencies, [])
+  assert.equal(check.cacheable, false, "a semantic check must run without an output restoration contract")
   const index = await openPackageIndex({ workspace: root })
-  const declaration = index.targets().find((target) => target.label === devkit.label)
+  const declaration = index.targets().find((target) => target.label === check.label)
   assert.ok(declaration)
-  assert.deepEqual(runnerFor(Target.metadata(declaration.target), index.workspace, "build"), [
-    "node", "scripts/ensure-devkit.mjs"
-  ], "the CI prerequisite must use Node and strict preparation, without --soft")
+  const metadata = Target.metadata(declaration.target)
+  assert.equal(metadata.target, "Typecheck")
+  assert.equal(metadata.attrs.cwd, "apps/app")
+  assert.equal(metadata.attrs.tsconfig.path, "tsconfig.json")
+  assert.equal(metadata.attrs.buildMode, false)
+  assert.equal(metadata.attrs.incremental, false)
+  const config = JSON.parse(readFileSync(join(root, "apps/app", metadata.attrs.tsconfig.path), "utf8"))
+  assert.equal(config.extends, undefined, "browser TypeScript configuration is independent of an ignored SDK projection")
+  assert.ok(config.include.includes("src"))
+  assert.ok(config.include.includes("e2e"))
 })
 
 test("CI inventory plans without building packages or the site", async () => {
@@ -180,8 +184,8 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
     ["//apps/app:check", "apps-e2e"], ["//apps/app:unitTests", "apps-e2e"], ["//apps/app:browserE2e", "apps-e2e"],
     ["//apps/tui:check", "apps-e2e"], ["//apps/tui:unitTests", "apps-e2e"], ["//apps/tui:e2eTests", "apps-e2e"],
     ["//apps/server:check", "repository"], ["//apps/server:unitTests", "repository"],
-    ["//apps/review:unitTests", "repository"], ["//apps/bug-worker:unitTests", "repository"],
-    ["//apps/review:check", "repository"], ["//apps/review:checkTests", "repository"],
+    ["//flows/review:unitTests", "repository"], ["//apps/bug-worker:unitTests", "repository"],
+    ["//flows/review:check", "repository"], ["//flows/review:checkTests", "repository"],
     ["//apps/bug-worker:check", "repository"],
     ["//evals/agent:test", "repository"], ["//evals/authoring:test", "repository"],
     ["//evals/agent:check", "repository"], ["//evals/authoring:check", "repository"], ["//evals/swebench:check", "repository"],
@@ -252,9 +256,10 @@ test("required CI resolves package, app, script, evaluation and fault suites to 
     // while the general NodeTest/Vitest runners always execute fresh work.
     if (["NodeTest", "Vitest"].includes(row.rule)) assert.equal(row.cacheable, false, `${row.label}: review all effective inputs before enabling result reuse`)
   }
-  for (const app of ["server", "app", "review", "bug-worker"]) {
+  for (const app of ["server", "app", "bug-worker"]) {
     assert.match(readFileSync(join(root, `apps/${app}/PACKAGE.ts`), "utf8"), /Coverage policy: assertion-only/)
   }
+  assert.match(readFileSync(join(root, "flows/review/PACKAGE.ts"), "utf8"), /Coverage policy: assertion-only/)
   if (process.env.SMITHERS_CI_INVENTORY === undefined) rmSync(dirname(artifact), { recursive: true, force: true })
 })
 

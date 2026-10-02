@@ -2,9 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { realHost } from "./host"
 
 describe("real host bootstrap classification", () => {
-  test("recognizes the hosted native-handoff response served by smithers.sh", () => {
-    expect(realHost({ host: "cloud", authFlow: "native-handoff" })).toBe("production")
-  })
 
   test("keeps hosted redirect and combined sign-in flows in production", () => {
     for (const authFlow of ["redirect", "both"]) {
@@ -17,11 +14,6 @@ describe("real host bootstrap classification", () => {
     for (const authFlow of ["none", undefined, "future-auth-flow"]) {
       expect(realHost({ host: "cloud", authFlow })).toBe("production")
     }
-  })
-
-  test("preserves legacy local and native hosts", () => {
-    expect(realHost({ host: "local", authFlow: "none" })).toBe("local")
-    expect(realHost({ host: "native" })).toBe("native")
   })
 
   test("refuses unsupported identities even when credentials are advertised", () => {

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
 import { fixtureCards } from "./fixtures/UiSurfaces"
 import { IssueCardBody, IssueListCardBody } from "./IssueCards"
-import { dueWords, reactionChips, stateActions, syncUrl } from "./IssueThread"
+import { dueWords, reactionChips, stateActions } from "./IssueThread"
 
 const noop = () => {}
 const issue = () => fixtureCards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue")!
@@ -25,8 +25,6 @@ describe("a conversation renders inside the issue card (smithers-ui-DESIGN.md §
     expect(html).toContain("P1")
     expect(html).toContain("#2088 Wiki freshness")
     expect(html).toContain("fixed by")
-    expect(html).toContain(syncUrl({ provider: "slack", scopeId: "T0000000000", conversationId: "C0000000000", threadId: "1700000000.000100" })!)
-    expect(syncUrl({ provider: "telegram", scopeId: "s", conversationId: "c" })).toBeUndefined()
     // A persona that names a configured profile is a door to the roster; here no roster is loaded, so the username is text.
     expect(html).toContain("assistant")
     // The GitHub-shaped layout does not render for a chat.
@@ -108,10 +106,3 @@ describe("chat origin (#2489)", () => {
   })
 })
 
-test("an unknown delivery offers owner resolution and shows its evidence", () => {
-  const card = issue()
-  card.payload.sync = { ...card.payload.sync!, state: "outcome_unknown", error: "connection lost", deliveryId: 41 }
-  const html = renderToStaticMarkup(<IssueCardBody card={card} onRunCommand={noop} />)
-  expect(html).toContain('data-flow="issues.sync.resolve"')
-  expect(html).toContain("connection lost")
-})

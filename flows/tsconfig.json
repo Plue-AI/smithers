@@ -27,6 +27,7 @@
   ],
   "exclude": [
     "node_modules",
-    "migrate-smithers-v1/test/fixtures"
+    "migrate-smithers-v1/test/fixtures",
+    "review/tests"
   ]
 }

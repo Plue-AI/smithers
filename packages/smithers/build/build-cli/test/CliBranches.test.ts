@@ -134,6 +134,15 @@ afterEach(() => {
 })
 
 describe("PACKAGE.ts branches", () => {
+  it("refuses the retired application scaffold without creating files", async () => {
+    const root = await packageFixture()
+    const before = await Fs.readdir(root)
+    const result = await serve(root, ["create-app", "retired-app"], false)
+    expect(result.exitCode).not.toBe(0)
+    expect(await Fs.readdir(root)).toEqual(before)
+    await expect(Fs.stat(NodePath.join(root, "retired-app"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("shows human watch progress without duplicating successful child envelopes", async () => {
     const root = await packageFixture()
     const good = await serve(root, ["watch", "test", "//:good", "--once"], true)

@@ -4,7 +4,7 @@
  * Three claims: the required PR workflow runs the UI typecheck, units and
  * Playwright once each in their own Ubuntu job; the browser target's wrapper
  * installs its browser, runs Playwright and propagates its failure; and the
- * real scheduler skips TypeScript when strict devkit preparation fails.
+ * real scheduler runs the browser typecheck and propagates compiler failures.
  *
  * Run it with `node --test scripts/repo-contract/ui-ci-tier.test.mjs`.
  */
@@ -90,8 +90,8 @@ it("the selected browser executable installs its matching browser, runs every ti
   } finally { rmSync(temporary, { recursive: true, force: true }) }
 })
 
-it("UI typecheck skips TypeScript when strict devkit preparation fails in a clean projection", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "smithers-ui-devkit-refusal-"))
+it("browser typecheck executes after security validation and propagates compiler failure in a clean projection", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "smithers-ui-typecheck-refusal-"))
   const write = (path, contents) => {
     const destination = join(temporary, path)
     mkdirSync(dirname(destination), { recursive: true })
@@ -101,7 +101,7 @@ it("UI typecheck skips TypeScript when strict devkit preparation fails in a clea
   try {
     symlinkSync(join(root, "node_modules"), join(temporary, "node_modules"), "dir")
     write("package.json", JSON.stringify({
-      name: "ui-devkit-refusal", private: true, type: "module", packageManager: rootManifest.packageManager
+      name: "ui-typecheck-refusal", private: true, type: "module", packageManager: rootManifest.packageManager
     }))
     copyFileSync(join(root, "pnpm-lock.yaml"), join(temporary, "pnpm-lock.yaml"))
     // Every host binary a projected declaration names must be declared by the
@@ -114,8 +114,8 @@ it("UI typecheck skips TypeScript when strict devkit preparation fails in a clea
     assert.ok(hostBins.includes("bun"), "the projected declarations name S.Host.bin(\"bun\")")
     write("WORKSPACE.ts", `import { Smithers as S } from "@smthrs/targets"
 const packageJson = S.file("//package.json")
-export const Workspace = S.Workspace("ui-devkit-refusal", {
-  repository: "git+https://example.invalid/ui-devkit-refusal.git",
+export const Workspace = S.Workspace("ui-typecheck-refusal", {
+  repository: "git+https://example.invalid/ui-typecheck-refusal.git",
   cache: S.Cache({ directory: ".flows" }),
   runtime: S.Runtime.Node({ version: ">=26.4.0" }),
   packageManager: S.PackageManager.Pnpm({ manifest: packageJson, lockfile: S.file("//pnpm-lock.yaml") }),
@@ -124,14 +124,13 @@ export const Workspace = S.Workspace("ui-devkit-refusal", {
   sandboxes: S.Sandboxes({ default: S.Sandbox.None() })
 })
 `)
-    // The declaration and strict preparer are the production files. The
-    // fixture supplies no SDK and never compiles substitute SDK declarations.
-    for (const path of ["PACKAGE.ts", "scripts/ensure-devkit.mjs", "package.json", "tsconfig.json", "electrobun.config.ts", "hutch.config.ts"]) {
+    // Copy the real retained browser declaration and compiler configuration.
+    for (const path of ["PACKAGE.ts", "package.json", "tsconfig.json"]) {
       const destination = write(`apps/app/${path}`, "")
       copyFileSync(join(root, "apps/app", path), destination)
     }
     // The app declaration imports package targets. Project their real declarations
-    // as well, so this fixture reaches the SDK prerequisite after graph discovery.
+    // as well, so graph discovery and its security checks precede compilation.
     const libraryDeclarations = libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`).filter((path) => existsSync(join(root, path)))
     for (const path of libraryDeclarations) {
       const destination = write(path, "")
@@ -141,15 +140,10 @@ export const Workspace = S.Workspace("ui-devkit-refusal", {
       const destination = write(path, "")
       copyFileSync(join(root, path), destination)
     }
-    // These are declared inputs of the unreachable compiler, not test doubles
-    // for its output. Only preparation is allowed to execute in this schedule.
-    for (const path of ["vite.config.ts", "tailwind.config.js", "postcss.config.js", "playwright.config.ts"])
+    // The compiler is the only test double: the real scheduler must invoke it
+    // after graph discovery validates the retained production security paths.
+    for (const path of ["vite.config.ts", "tailwind.config.js", "postcss.config.js", "playwright.config.ts", "playwright.showcase.config.ts"])
       write(`apps/app/${path}`, "export {}\n")
-    write("apps/app/node_modules/electrobun/package.json", JSON.stringify({ version: "2.0.1" }))
-    write("apps/app/node_modules/electrobun/bin/electrobun.cjs", `const fs = require("node:fs")
-fs.writeFileSync("preparer-called.json", JSON.stringify({ args: process.argv.slice(2), noUpdate: process.env.HUTCH_NO_UPDATE_CHECK }))
-process.exit(23)
-`)
     const tscMarker = join(temporary, "tsc-called")
     const pnpm = write("bin/pnpm", `#!/usr/bin/env node
 import { writeFileSync } from "node:fs"
@@ -178,24 +172,33 @@ else { writeFileSync(${JSON.stringify(tscMarker)}, JSON.stringify(process.argv.s
         }
       }
     }
-    assert.equal(existsSync(join(temporary, "apps/app/.hutch")), false)
-    let failure
-    try {
-      execFileSync(process.execPath, [join(root, "packages/smithers/src/bin.ts"), "build", "//apps/app:check", "--workspace", temporary, "--no-cache", "--verbose"], {
-        cwd: temporary, encoding: "utf8", timeout: 60_000, maxBuffer: 1024 * 1024,
-        env: { ...process.env, PATH: `${join(temporary, "bin")}${delimiter}${process.env.PATH}`, SMITHERS_CACHE_URL: "", SMITHERS_CACHE_TOKEN: "" },
-        stdio: "pipe"
-      })
-    } catch (error) { failure = error }
-    assert.ok(failure, "failed preparation must fail the selected build")
+    const selectedCheck = () => {
+      try {
+        execFileSync(process.execPath, [join(root, "packages/smithers/src/bin.ts"), "build", "//apps/app:check", "--workspace", temporary, "--no-cache", "--verbose"], {
+          cwd: temporary, encoding: "utf8", timeout: 60_000, maxBuffer: 1024 * 1024,
+          env: { ...process.env, PATH: `${join(temporary, "bin")}${delimiter}${process.env.PATH}`, SMITHERS_CACHE_URL: "", SMITHERS_CACHE_TOKEN: "" },
+          stdio: "pipe"
+        })
+      } catch (error) { return error }
+    }
+    const failure = selectedCheck()
+    assert.ok(failure, "a compiler failure must fail the selected build")
     const output = `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`
     assert.equal(failure.status, 1, output)
-    assert.ok(existsSync(join(temporary, "apps/app/preparer-called.json")), output)
-    assert.deepEqual(readManifest(join(temporary, "apps/app/preparer-called.json")), { args: ["prepare"], noUpdate: "1" })
-    assert.match(output, /electrobun prepare exited 23/)
-    assert.match(output, /\/\/apps\/app:devkit  failed/)
-    assert.match(output, /\/\/apps\/app:check  skipped/)
-    assert.equal(existsSync(tscMarker), false, "the real scheduler must not launch TypeScript after preparation fails")
+    assert.ok(existsSync(tscMarker), output)
+    assert.deepEqual(readManifest(tscMarker), ["exec", "tsc", "-p", "tsconfig.json", "--noEmit"])
+    assert.match(output, /\/\/apps\/app:check  failed/)
+    assert.doesNotMatch(output, /module_import_failed|devkit|electrobun|hutch/i)
     assert.equal(existsSync(join(temporary, "apps/app/.hutch")), false)
+    // SecurityReview validates production trust-boundary paths before the
+    // compiler may start. A missing authorization input must fail closed.
+    rmSync(tscMarker)
+    rmSync(join(temporary, "apps/app/src/bun/CloudAuth.ts"))
+    const refused = selectedCheck()
+    assert.ok(refused, "a missing security input must refuse the selected build")
+    const refusalOutput = `${refused.stdout ?? ""}\n${refused.stderr ?? ""}`
+    assert.equal(refused.status, 1, refusalOutput)
+    assert.match(refusalOutput, /security check loopback-origin-gate.*CloudAuth\.ts.*matches no file/)
+    assert.equal(existsSync(tscMarker), false, "security validation must precede compiler execution")
   } finally { rmSync(temporary, { recursive: true, force: true }) }
 })

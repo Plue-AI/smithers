@@ -110,14 +110,11 @@ An adapter must remove credentials before it constructs the error:
 - Bot tokens, API keys, and webhook secrets must not appear in the summary, in
   `details`, or in `cause`.
 - Provider text is the dangerous case, because a message from `fetch` or the
-  platform may quote a URL your code never formatted. The Telegram client in
-  [`@smthrs/integrations`](https://integrations.smithers.sh/reference/api/) exports `redactBotToken` and runs
-  it over every provider string before it reaches a constructor. It replaces
-  both the literal token and any `/bot<id>:<secret>` path segment.
+  platform may quote a URL your code never formatted. Redact provider text
+  before attaching it, or use a fixed summary and explicitly safe fields.
 - Verification failures must not describe why they failed beyond the fact that
-  they did. The init-data verifier reports `initData HMAC signature does not
-  match.` and nothing about which bytes differed, because a more specific
-  message is a verification oracle.
+  they did. A signature refusal must not identify which bytes differed,
+  because a more specific message is a verification oracle.
 
 The consequence for a caller: `details` from a Smithers integration adapter is
 already provider-safe and can go straight into a log. `details` on an error you

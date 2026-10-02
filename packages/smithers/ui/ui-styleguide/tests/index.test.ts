@@ -69,7 +69,7 @@ describe("ui styleguide", () => {
     // Every palette's light variant reports `colorScheme: "light"`, so keying
     // the font block off that field emitted it in all eight `:root` rules. The
     // palette rules are (0,2,0), which beat a consumer's own bare `:root`
-    // overrides -- `@smthrs/create-app`'s template writes exactly those.
+    // overrides on the host application's own root.
     expect(workflowUiThemeCss.match(/--font-sans:Inter/g)).toHaveLength(1);
     expect(workflowUiThemeCss.match(/font-family:var\(--font-sans\)/g)).toHaveLength(1);
     expect(workflowUiThemeCss.match(/--font-mono:ui-monospace/g)).toHaveLength(1);

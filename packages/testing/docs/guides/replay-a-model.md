@@ -158,5 +158,3 @@ Two calls never reach a fixture, and both refusals protect the replay:
 - [Fixtures and replay identity](../concepts/fixtures.md) explains the
   canonical digest, the memoized index, and why the doubles die rather than
   fail.
-- [`@smthrs/create-app`](/api/create-app) wraps this loop as one call for a
-  routed flow; see [its guide](/pkg/create-app/guides/test-a-flow).

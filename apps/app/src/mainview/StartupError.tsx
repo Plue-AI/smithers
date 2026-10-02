@@ -80,12 +80,6 @@ const startupFailure = (reason: unknown): StartupFailure =>
 /** Points this shell at another backend; resolves once the page is leaving for it. */
 export type BackendSwitch = (origin: string, token: string) => Promise<void>
 
-const nativeBackendSwitch: BackendSwitch = async (origin, token) => {
-  const { nativeSwitchBackendTarget } = await import("./native/NativeBridge")
-  await nativeSwitchBackendTarget(origin, token)
-  window.location.reload()
-}
-
 /** The backend address is not a bare http(s) origin. */
 export class BackendOriginInvalid extends Data.TaggedError("BackendOriginInvalid")<{ readonly origin: string }> {}
 
@@ -142,8 +136,7 @@ export const presentBootstrapFailure = (failure: BootstrapFailure): UserFailure 
 
 /** Hosted builds offer Retry only; switching backends is a native and dev tool. */
 const shellBackendSwitch = (): BackendSwitch | undefined =>
-  window.__electrobun !== undefined ? nativeBackendSwitch
-  : (import.meta.env?.DEV as boolean | string | undefined) === true ? webBackendSwitch
+  (import.meta.env?.DEV as boolean | string | undefined) === true ? webBackendSwitch
   : undefined
 
 function BootstrapErrorPanel({ failure, switchBackend }: {

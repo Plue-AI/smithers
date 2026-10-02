@@ -1191,7 +1191,7 @@ func TestRepositoryJobNativeIssueTextNamesItsLastWriter(t *testing.T) {
 
 // A native comment is its author's text only while a maintainer person last
 // wrote it: a run credential creates and edits comments under the owner's
-// name, and the issue-sync intake writes an external account's text under it.
+// name. Historical provider comment identities stay reserved.
 func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
 	pool, q, _, g, _ := repositoryJobFixture(t)
 	ctx := context.Background()
@@ -1274,16 +1274,14 @@ func TestRepositoryJobNativeCommentTextNamesItsLastWriter(t *testing.T) {
 	approved, _ = last("created")
 	require.False(t, approved, "a run credential's comment is not the owner's text")
 
-	external, err := issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number,
-		CreateIssueCommentInput{externalCommenter: "U0EXTERNAL", Body: "from a chat channel"})
-	require.NoError(t, err)
-	approved, _ = last("created")
-	require.False(t, approved, "the issue-sync intake writes an external account's text")
-	_, err = issues.UpdateIssueComment(session(&owner), &owner, owner.Username, repoName, external.ID,
-		UpdateIssueCommentInput{externalCommenter: true, Body: "edited in a chat channel"})
-	require.NoError(t, err)
-	approved, _ = last("edited")
-	require.False(t, approved, "an external account's edit")
+	// Retired provider origin identities cannot be authored through normal
+	// comment APIs, even by an owner: historical provenance cannot be spoofed.
+	for _, key := range []string{"slack:100.000001", "telegram:42"} {
+		_, err = issues.CreateIssueComment(session(&owner), &owner, owner.Username, repoName, created.Number,
+			CreateIssueCommentInput{Body: "spoofed provider text", IdempotencyKey: key})
+		require.ErrorContains(t, err, "reserved")
+	}
+
 }
 
 // A run reads the text that was approved, not the live issue: the dispatch

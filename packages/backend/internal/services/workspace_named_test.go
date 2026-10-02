@@ -62,7 +62,7 @@ func TestCreateWorkspaceNamedIdentity(t *testing.T) {
 	require.NotEqual(t, one.ID, branch.ID)
 	require.NotEqual(t, branch.ID, create("issue-two", "feature/one", "vm").ID)
 	require.Equal(t, branch.ID, create("issue-one", "feature/one", "vm").ID)
-	require.NotEqual(t, one.ID, create("issue-one", "main", "desktop").ID)
+	require.NotEqual(t, one.ID, create("issue-one", "main", "container").ID)
 	unnamed := create("", "main", "vm")
 	require.NotEqual(t, one.ID, unnamed.ID)
 	require.Equal(t, unnamed.ID, create("", "main", "vm").ID)

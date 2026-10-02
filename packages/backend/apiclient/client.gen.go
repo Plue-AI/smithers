@@ -155,30 +155,6 @@ type AppBootstrap struct {
 	Sandbox      json.RawMessage `json:"sandbox"`
 }
 
-// RepositoryTransferRequest is generated from docs/api/openapi.yaml.
-type RepositoryTransferRequest struct {
-	ID           int64      `json:"id"`
-	RepositoryID int64      `json:"repository_id"`
-	SenderID     int64      `json:"sender_id"`
-	RecipientID  int64      `json:"recipient_id"`
-	SourceUserID *int64     `json:"source_user_id,omitempty"`
-	SourceOrgID  *int64     `json:"source_org_id,omitempty"`
-	SourceOwner  string     `json:"source_owner"`
-	SourceName   string     `json:"source_name"`
-	Status       string     `json:"status"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ExpiresAt    time.Time  `json:"expires_at"`
-	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
-}
-
-// RepositoryTransferResponse — Repository response using its current owner. pending_transfer is present while a user transfer awaits acceptance.
-type RepositoryTransferResponse struct {
-	Owner           *string                    `json:"owner,omitempty"`
-	FullName        *string                    `json:"full_name,omitempty"`
-	CloneURL        *string                    `json:"clone_url,omitempty"`
-	PendingTransfer *RepositoryTransferRequest `json:"pending_transfer,omitempty"`
-}
-
 // BillingPlan is generated from docs/api/openapi.yaml.
 type BillingPlan struct {
 	Key               string            `json:"key"`
@@ -1202,11 +1178,6 @@ type GetAPIReposOwnerRepoIssuesStateEventsStreamParams struct {
 type GetAPIReposOwnerRepoWorkspacesIDEgressParams struct {
 	Cursor *string
 	Limit  *int64
-}
-
-// PostAPIReposOwnerRepoTransferBody is generated from docs/api/openapi.yaml.
-type PostAPIReposOwnerRepoTransferBody struct {
-	NewOwner string `json:"new_owner"`
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDLandBody is generated from docs/api/openapi.yaml.
@@ -2378,27 +2349,6 @@ func (c *Client) GetAPIOrgsOrgBilling(ctx context.Context, org string) (AnyJSON,
 	return out, err
 }
 
-// GetAPIOrgsOrgChangesets calls GET /api/orgs/{org}/changesets.
-func (c *Client) GetAPIOrgsOrgChangesets(ctx context.Context, org string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/orgs/"+url.PathEscape(org)+"/changesets", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIOrgsOrgChangesets calls POST /api/orgs/{org}/changesets.
-func (c *Client) PostAPIOrgsOrgChangesets(ctx context.Context, org string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/changesets", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIOrgsOrgChangesetsID calls GET /api/orgs/{org}/changesets/{id}.
-func (c *Client) GetAPIOrgsOrgChangesetsID(ctx context.Context, org string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/orgs/"+url.PathEscape(org)+"/changesets/"+url.PathEscape(id), nil, nil, &out)
-	return out, err
-}
-
 // GetAPIOrgsOrgMembers calls GET /api/orgs/{org}/members.
 func (c *Client) GetAPIOrgsOrgMembers(ctx context.Context, org string) (AnyJSON, error) {
 	var out AnyJSON
@@ -2522,13 +2472,6 @@ func (c *Client) PostAPIOrgsOrgBillingPortal(ctx context.Context, org string) (A
 func (c *Client) PostAPIOrgsOrgBillingRefresh(ctx context.Context, org string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/billing/refresh", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIOrgsOrgChangesetsIDLand calls POST /api/orgs/{org}/changesets/{id}/land.
-func (c *Client) PostAPIOrgsOrgChangesetsIDLand(ctx context.Context, org string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/changesets/"+url.PathEscape(id)+"/land", nil, nil, &out)
 	return out, err
 }
 
@@ -4010,30 +3953,6 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDStream(ctx context.Context, own
 	return c.raw(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/stream", nil, nil, "text/event-stream")
 }
 
-// GetAPIUserRepositoryTransfers calls GET /api/user/repository-transfers.
-func (c *Client) GetAPIUserRepositoryTransfers(ctx context.Context) ([]RepositoryTransferRequest, error) {
-	var out []RepositoryTransferRequest
-	err := c.do(ctx, "GET", "/api/user/repository-transfers", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIUserRepositoryTransfersTransferIDAccept calls POST /api/user/repository-transfers/{transfer_id}/accept.
-func (c *Client) PostAPIUserRepositoryTransfersTransferIDAccept(ctx context.Context, transferID int64) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/user/repository-transfers/"+url.PathEscape(strconv.FormatInt(transferID, 10))+"/accept", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIUserRepositoryTransfersTransferIDDecline calls POST /api/user/repository-transfers/{transfer_id}/decline.
-func (c *Client) PostAPIUserRepositoryTransfersTransferIDDecline(ctx context.Context, transferID int64) error {
-	return c.do(ctx, "POST", "/api/user/repository-transfers/"+url.PathEscape(strconv.FormatInt(transferID, 10))+"/decline", nil, nil, nil)
-}
-
-// PostAPIUserRepositoryTransfersTransferIDCancel calls POST /api/user/repository-transfers/{transfer_id}/cancel.
-func (c *Client) PostAPIUserRepositoryTransfersTransferIDCancel(ctx context.Context, transferID int64) error {
-	return c.do(ctx, "POST", "/api/user/repository-transfers/"+url.PathEscape(strconv.FormatInt(transferID, 10))+"/cancel", nil, nil, nil)
-}
-
 // PatchAPIReposOwnerRepoLandingsNumberReviewsReviewID calls PATCH /api/repos/{owner}/{repo}/landings/{number}/reviews/{review_id}.
 func (c *Client) PatchAPIReposOwnerRepoLandingsNumberReviewsReviewID(ctx context.Context, owner string, repo string, number string, reviewID string) (AnyJSON, error) {
 	var out AnyJSON
@@ -4136,20 +4055,6 @@ func (c *Client) PostAPIReposOwnerRepoChangesChangeIDRevert(ctx context.Context,
 func (c *Client) PostAPIReposOwnerRepoChangesChangeIDSplit(ctx context.Context, owner string, repo string, changeID string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/changes/"+url.PathEscape(changeID)+"/split", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoFork calls POST /api/repos/{owner}/{repo}/fork.
-func (c *Client) PostAPIReposOwnerRepoFork(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/fork", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoForks calls POST /api/repos/{owner}/{repo}/forks.
-func (c *Client) PostAPIReposOwnerRepoForks(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/forks", nil, nil, &out)
 	return out, err
 }
 
@@ -4298,13 +4203,6 @@ func (c *Client) PostAPIReposOwnerRepoSync(ctx context.Context, owner string, re
 	return out, err
 }
 
-// PostAPIReposOwnerRepoTransfer calls POST /api/repos/{owner}/{repo}/transfer.
-func (c *Client) PostAPIReposOwnerRepoTransfer(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoTransferBody) (RepositoryTransferResponse, error) {
-	var out RepositoryTransferResponse
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/transfer", nil, body, &out)
-	return out, err
-}
-
 // PostAPIReposOwnerRepoUnarchive calls POST /api/repos/{owner}/{repo}/unarchive.
 func (c *Client) PostAPIReposOwnerRepoUnarchive(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
@@ -4358,27 +4256,6 @@ func (c *Client) PostAPIReposOwnerRepoWorkspaceSessionsIDDestroy(ctx context.Con
 func (c *Client) PostAPIReposOwnerRepoWorkspacesIDCodingOperations(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/coding/operations", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoWorkspacesIDDesktopInput calls POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/input.
-func (c *Client) PostAPIReposOwnerRepoWorkspacesIDDesktopInput(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/desktop/input", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoWorkspacesIDDesktopObserve calls POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/observe.
-func (c *Client) PostAPIReposOwnerRepoWorkspacesIDDesktopObserve(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/desktop/observe", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoWorkspacesIDDesktopSession calls POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/session.
-func (c *Client) PostAPIReposOwnerRepoWorkspacesIDDesktopSession(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/desktop/session", nil, nil, &out)
 	return out, err
 }
 
@@ -4466,27 +4343,6 @@ func (c *Client) GetAPIReposOwnerRepoHome(ctx context.Context, owner string, rep
 	return out, err
 }
 
-// GetAPIReposOwnerRepoIssuesSyncChannels calls GET /api/repos/{owner}/{repo}/issues/sync/channels.
-func (c *Client) GetAPIReposOwnerRepoIssuesSyncChannels(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/channels", nil, nil, &out)
-	return out, err
-}
-
-// PutAPIReposOwnerRepoIssuesSyncChannels calls PUT /api/repos/{owner}/{repo}/issues/sync/channels.
-func (c *Client) PutAPIReposOwnerRepoIssuesSyncChannels(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/channels", nil, body, &out)
-	return out, err
-}
-
-// GetAPIReposOwnerRepoIssuesSyncDeliveries calls GET /api/repos/{owner}/{repo}/issues/sync/deliveries.
-func (c *Client) GetAPIReposOwnerRepoIssuesSyncDeliveries(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/deliveries", nil, nil, &out)
-	return out, err
-}
-
 // GetAPIReposOwnerRepoIssuesNumberCommentsCommentReactions calls GET /api/repos/{owner}/{repo}/issues/{number}/comments/{comment}/reactions.
 func (c *Client) GetAPIReposOwnerRepoIssuesNumberCommentsCommentReactions(ctx context.Context, owner string, repo string, number string, comment string) (AnyJSON, error) {
 	var out AnyJSON
@@ -4498,20 +4354,6 @@ func (c *Client) GetAPIReposOwnerRepoIssuesNumberCommentsCommentReactions(ctx co
 func (c *Client) PutAPIReposOwnerRepoIssuesNumberCommentsCommentReactions(ctx context.Context, owner string, repo string, number string, comment string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/comments/"+url.PathEscape(comment)+"/reactions", nil, body, &out)
-	return out, err
-}
-
-// GetAPIReposOwnerRepoIssuesNumberSync calls GET /api/repos/{owner}/{repo}/issues/{number}/sync.
-func (c *Client) GetAPIReposOwnerRepoIssuesNumberSync(ctx context.Context, owner string, repo string, number string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/sync", nil, nil, &out)
-	return out, err
-}
-
-// PutAPIReposOwnerRepoIssuesNumberSync calls PUT /api/repos/{owner}/{repo}/issues/{number}/sync.
-func (c *Client) PutAPIReposOwnerRepoIssuesNumberSync(ctx context.Context, owner string, repo string, number string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/"+url.PathEscape(number)+"/sync", nil, body, &out)
 	return out, err
 }
 
@@ -4645,27 +4487,6 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDServicesPortVisibility(ctx cont
 func (c *Client) PutAPIReposOwnerRepoWorkspacesIDServicesPortVisibility(ctx context.Context, owner string, repo string, id string, port string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/services/"+url.PathEscape(port)+"/visibility", nil, body, &out)
-	return out, err
-}
-
-// PutAPIReposOwnerRepoIssuesSyncDeliveriesID calls PUT /api/repos/{owner}/{repo}/issues/sync/deliveries/{id}.
-func (c *Client) PutAPIReposOwnerRepoIssuesSyncDeliveriesID(ctx context.Context, owner string, repo string, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/deliveries/"+url.PathEscape(id), nil, body, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoIssuesSyncDeliveriesID calls POST /api/repos/{owner}/{repo}/issues/sync/deliveries/{id}.
-func (c *Client) PostAPIReposOwnerRepoIssuesSyncDeliveriesID(ctx context.Context, owner string, repo string, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/deliveries/"+url.PathEscape(id), nil, body, &out)
-	return out, err
-}
-
-// PostAPIReposOwnerRepoIssuesSyncEvents calls POST /api/repos/{owner}/{repo}/issues/sync/events.
-func (c *Client) PostAPIReposOwnerRepoIssuesSyncEvents(ctx context.Context, owner string, repo string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/issues/sync/events", nil, body, &out)
 	return out, err
 }
 

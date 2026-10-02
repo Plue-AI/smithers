@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -50,32 +49,4 @@ func TestReviewQuotaStoreReclaimsIdleRouteKeysWithoutResettingDebt(t *testing.T)
 	}
 	allowed, _ = store.Take(context.Background(), "repo_api_requests|repo:alice/missing-0|ip:192.0.2.1", 1000, time.Hour)
 	assert.False(t, allowed)
-}
-
-func TestReviewDesktopQuotaUsesWorkspaceUUIDIdentity(t *testing.T) {
-	clock := NewFakeClock(time.Unix(1_800_000_000, 0))
-	store := NewTokenBucketStoreWithClock(clock)
-	handler := quotaTestRouter(PerWorkspaceDesktopControl(store), http.MethodPost, "/workspaces/{id}/desktop/input")
-	const id = "aabbccdd-1122-3344-5566-778899aabbcc"
-	drainQuota(t, handler, http.MethodPost, "/workspaces/"+id+"/desktop/input", 1800)
-	// PostgreSQL UUID input accepts case, omitted hyphens, braces and hyphens
-	// after groups of four digits; all identify the same workspace row.
-	for _, spelling := range []string{
-		id,
-		strings.ToUpper(id),
-		strings.ReplaceAll(id, "-", ""),
-		"{" + id + "}",
-		"aabb-ccdd-1122-3344-5566-7788-99aa-bbcc",
-	} {
-		t.Run(spelling, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/workspaces/"+spelling+"/desktop/input", nil)
-			req.RemoteAddr = "10.0.0.1:1"
-			handler.ServeHTTP(rec, req)
-			assert.Equal(t, http.StatusTooManyRequests, rec.Code, "an alternate UUID spelling must not restore capacity")
-		})
-	}
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/workspaces/aabbccdd-1122-3344-5566-778899aabbcd/desktop/input", nil))
-	assert.Equal(t, http.StatusNoContent, rec.Code, "a different workspace keeps its independent budget")
 }

@@ -1,11 +1,11 @@
 /**
  * Targets for the UI application: typecheck, unit suite and browser tier.
  *
- * Playwright T1 runs in the dedicated PR browser job. Packaged Electrobun
- * remains a separate operator tier; see docs/LOCAL-APP.md "Test tiers".
+ * Playwright T1 exercises the browser application; see
+ * docs/LOCAL-APP.md "Test tiers".
  *
- * The unit suite uses the declared Bun runtime. SDK preparation and typecheck
- * use the workspace's Node runtime and package manager.
+ * The unit suite uses the declared Bun runtime. Typecheck
+ * uses the workspace's Node runtime and package manager.
  */
 import { Smithers } from "@smthrs/targets"
 import { Package as rpcPackage } from "../../packages/rpc/PACKAGE.ts"
@@ -45,37 +45,6 @@ const suiteSources = Smithers.glob("//apps/app/e2e/**/*")
 const contractSources = Smithers.glob("//apps/app/e2e/contracts/**/*.ts")
 
 /**
- * Projects the pinned Electrobun SDK before a fresh checkout can typecheck.
- * CI installs with scripts disabled, and the SDK is generated outside the
- * build cache, so this prerequisite always checks the local projection.
- *
- * @since 1.0.0-rc.0
- * @category build
- */
-const devkit = Smithers.NodeBinary({
-  entry: Smithers.file("scripts/ensure-devkit.mjs"),
-  args: [],
-  srcs: [
-    Smithers.file("package.json"),
-    Smithers.file("electrobun.config.ts"),
-    Smithers.file("hutch.config.ts"),
-    Smithers.file("//pnpm-lock.yaml")
-  ],
-  deps: [],
-  env: { HUTCH_NO_UPDATE_CHECK: "1" },
-  cwd,
-  // The Hutch and Electrobun release hosts, and GitHub's release asset hosts
-  // their downloads redirect to.
-  destinations: [
-    "github.com",
-    "objects.githubusercontent.com",
-    "release-assets.githubusercontent.com",
-    "hutch.blackboard.sh",
-    "electrobun-artifacts.blackboard.sh"
-  ]
-})
-
-/**
  * Checks the application against its own tsconfig.
  *
  * @since 0.1.0
@@ -84,7 +53,7 @@ const devkit = Smithers.NodeBinary({
 const check = Smithers.Typecheck({
   /*
    * Everything this tsconfig includes: `scripts`, `e2e`, `lint`, and the
-   * bundler and Electrobun configs are compiled by this target, so a key made of `src`
+   * bundler and Playwright configs are compiled by this target, so a key made of `src`
    * alone would serve a green cache entry over an edit that breaks the
    * typecheck.
    */
@@ -95,12 +64,10 @@ const check = Smithers.Typecheck({
     suiteSources,
     lintSources,
     ...buildConfigs,
-    Smithers.file("electrobun.config.ts"),
-    Smithers.file("hutch.config.ts"),
     Smithers.file("playwright.config.ts"),
     Smithers.file("playwright.showcase.config.ts")
   ],
-  deps: [devkit],
+  deps: [],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
@@ -240,7 +207,7 @@ const solidCodegenInputs = Smithers.Filegroup({
 })
 
 /**
- * Security review of the desktop host, the renderer and the packaging scripts.
+ * Security review of browser hosts, the renderer and build scripts.
  * `security` reviews the diff against origin/main; `securityAudit` reviews all
  * of `include`. The e2e tree (with its nested fixture packages) is left out.
  *
@@ -249,7 +216,7 @@ const solidCodegenInputs = Smithers.Filegroup({
  */
 const securityReview = Smithers.SecurityReview({
   cwd,
-  include: ["src/**", "scripts/**", "electrobun.config.ts"],
+  include: ["src/**", "scripts/**"],
   checks: [
     {
       id: "loopback-origin-gate",
@@ -261,7 +228,7 @@ const securityReview = Smithers.SecurityReview({
         "A renderer relay that exposes a readable __csrf cookie to any origin that reaches the port.",
         "A WebSocket upgrade accepted when Origin is absent or differs from the served origin."
       ],
-      paths: ["src/bun/server.ts", "src/bun/NativeRendererServer.ts", "src/bun/CloudAuth.ts", "src/bun/PackagedE2EBridge.ts"]
+      paths: ["src/bun/server.ts", "src/bun/CloudAuth.ts"]
     },
     {
       id: "relay-credential-scope",
@@ -273,19 +240,7 @@ const securityReview = Smithers.SecurityReview({
         "A cookie jar, bearer or in-flight stream that survives setTarget or a backend generation change.",
         "A redirect followed by fetch that resends the bearer to another origin."
       ],
-      paths: ["src/bun/NativeRendererServer.ts", "src/bun/server.ts"]
-    },
-    {
-      id: "native-rpc-authority",
-      title: "Native RPC requests the renderer can call are validated in the Bun process",
-      threat: "Script running in the WebView (an XSS or a loaded remote page) reads tokens, re-points the backend at an attacker host, or opens non-http schemes.",
-      lookFor: [
-        "switchApplicationTarget accepting an origin that is not an allowlisted or user-confirmed backend.",
-        "applicationToken or applicationBootstrapToken answered to a page whose URL is not the local renderer origin.",
-        "openExternal passing a scheme other than http(s) to the OS.",
-        "The window or a deep link navigating to a URL outside the renderer origin while the RPC bridge stays attached."
-      ],
-      paths: ["src/bun/NativeApp.ts", "src/bun/NativeApiOrigin.ts", "src/bun/DeepLink.ts", "src/mainview/native/**"]
+      paths: ["src/bun/server.ts"]
     },
     {
       id: "cloud-login-callback",
@@ -309,7 +264,7 @@ const securityReview = Smithers.SecurityReview({
         "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
         "The owned backend origin allowed to be non-loopback."
       ],
-      paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/build-native.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
+      paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
     },
     {
       id: "browser-fetch-ssrf",
@@ -364,7 +319,7 @@ const securityReview = Smithers.SecurityReview({
         "A decoded path joined to distDir without a resolve plus prefix check against distDir + '/'.",
         "A symlink inside dist followed out of it."
       ],
-      paths: ["src/bun/server.ts", "src/bun/NativeRendererServer.ts"]
+      paths: ["src/bun/server.ts"]
     },
     {
       id: "journal-and-log-redaction",
@@ -380,5 +335,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, devkit, check, unitTests, conformance, browserE2e, webSources, ...securityReview }
+  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, webSources, ...securityReview }
 })

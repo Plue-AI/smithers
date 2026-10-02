@@ -325,21 +325,20 @@ describe("a landed change's provenance (plue#464)", () => {
 })
 
 describe("a walkthrough artifact (plue#465)", () => {
-  test("carries the sections verbatim, a section without a diagram is null, and the quiz rides untouched", () => {
+  test("carries the sections verbatim, a section without a diagram is null, and ignores retired quiz data", () => {
     const walkthrough = {
       seq: 5,
       sections: [
         { title: "The route", markdown: "one bounded read", diagram: "graph TD; a-->b" },
         { title: "The cap", markdown: "400 patch lines", diagram: null }
       ],
-      quiz: [{ question: "what is the cap?", answers: ["400"] }]
     }
-    expect(ChangeWalkthroughSchema.parse(walkthrough)).toEqual(walkthrough)
+    expect(ChangeWalkthroughSchema.parse({ ...walkthrough, quiz: [{ question: "retired" }] })).toEqual(walkthrough)
   })
 
   test("an artifact the server pinned to no revision is null, and seq is 1-based", () => {
-    expect(ChangeWalkthroughSchema.parse({ seq: null, sections: [], quiz: [] }).seq).toBeNull()
-    expect(ChangeWalkthroughSchema.safeParse({ seq: 0, sections: [], quiz: [] }).success).toBe(false)
+    expect(ChangeWalkthroughSchema.parse({ seq: null, sections: [] }).seq).toBeNull()
+    expect(ChangeWalkthroughSchema.safeParse({ seq: 0, sections: [] }).success).toBe(false)
   })
 })
 

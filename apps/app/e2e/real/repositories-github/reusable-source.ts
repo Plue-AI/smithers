@@ -9,4 +9,4 @@ export const assertRetainedSource = (repo: string, id: string): void => {
 }
 
 export const isPlueImportMode = (mode: string | undefined): boolean =>
-  mode === "web-plue" || mode === "local-plue" || mode === "native-plue"
+  mode === "web-plue" || mode === "local-plue"

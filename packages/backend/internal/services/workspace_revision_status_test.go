@@ -39,7 +39,7 @@ func TestWorkspaceResponseIncludesRevisionEnvironmentAndLifecycle(t *testing.T) 
 }
 
 func TestWorkspaceVMRequestCarriesSelectedKind(t *testing.T) {
-	// vm/desktop kinds boot a registered NixOS closure image (see
+	// vm kinds boot a registered NixOS closure image (see
 	// workspace_nix_test.go); without a registry they are refused.
 	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{})
 	WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage("vm")})(service)
@@ -47,8 +47,8 @@ func TestWorkspaceVMRequestCarriesSelectedKind(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "vm", vmReq.Kind)
 	desktopReq, err := service.buildWorkspaceVMRequest(context.Background(), "", nil, 101, "", "desktop")
-	require.NoError(t, err)
-	assert.Equal(t, "desktop", desktopReq.Kind)
+	require.Error(t, err)
+	assert.Empty(t, desktopReq.Kind)
 }
 
 func TestWorkspaceServiceUpdateWorkspaceHead(t *testing.T) {

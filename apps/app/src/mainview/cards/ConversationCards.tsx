@@ -3,8 +3,7 @@ import { MarkdownEditorSurface } from "../ViewModules"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { Badge, Button, FileTree } from "@smthrs/ui"
-import { ExternalLink, GitPullRequest, Hash, Server } from "lucide-react"
-import { ageLabel } from "../Timestamps"
+import { ExternalLink, GitPullRequest, Server } from "lucide-react"
 import { Suspense, useId, useContext, useSyncExternalStore, type ReactNode } from "react"
 import { parseOutline } from "@smthrs/ui/vault"
 import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
@@ -20,7 +19,6 @@ import { WikiTree, useWikiScope } from "../wiki/WikiNavigation"
 import { pageLinksOf, WikiPageView } from "../wiki/WikiPageView"
 import { cloudWikiPageFailure } from "../wiki/CloudWikiFailure"
 import { describedFailure, FailureNotice } from "../FailureNotice"
-import type { IntegrationRow } from "@smthrs/rpc/Threads"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 
 
@@ -67,38 +65,9 @@ export const ConnectCardBody = ({
         Import
       </Button>
     </li>
-    {/* Integrations (smithers-ui-DESIGN.md §3.6): Slack for conversations, read from the registered route by integrations.list. */}
-    {card.payload.integrations?.rows.map((row) => (
-      <li key={row.id} className="connect-store-row" data-integration={row.id} data-state={row.state}>
-        <span className="connect-store-icon">
-          <Hash size={16} aria-hidden="true" />
-        </span>
-        <span className="connect-store-text">
-          <strong>{INTEGRATION_NAMES[row.id]}</strong>
-          <span className="connect-store-detail">
-            {INTEGRATION_SYNCS[row.id]}{row.detail === undefined ? "" : <> ↔ <code>{row.detail}</code></>}
-            {row.lastSyncAt === undefined ? null : <> · synced {ageLabel(row.lastSyncAt)}</>}
-          </span>
-          {row.error === undefined ? null : <FailureNotice className="connect-store-error" data-testid={`integration-failure-${row.id}`}
-            failure={describedFailure(`IntegrationFailed.${row.id}`, INTEGRATION_FAILURES[row.id], row.error)}
-            actions={{ retry: flowAction(onRunCommand, "integrations.list", flowArgs("integrations.list", { repo: card.payload.integrations!.repo })) }} />}
-        </span>
-        {row.id === "slack" && row.state === "not-connected" ? <Button size="sm" {...flowAction(onRunCommand, "integrations.admit", flowArgs("integrations.admit", { repo: card.payload.integrations!.repo }))}>Connect</Button>
-          : row.state === "connected" ? <Badge variant="success">Connected ✓</Badge>
-          : row.state === "unavailable" ? <Badge variant="outline">Unavailable</Badge>
-          : row.state === "error" ? <Badge variant="destructive">Error</Badge>
-          : null}
-      </li>
-    ))}
   </ul>
 )
 
-const INTEGRATION_NAMES = { slack: "Slack" } as const
-const INTEGRATION_SYNCS = { slack: "conversations" } as const
-/** A row in `error` names its service; the server's words are only its Details. */
-export const INTEGRATION_FAILURES: Readonly<Record<IntegrationRow["id"], UserFailureCopy>> = {
-  slack: { fault: "infra", sentence: "Smithers can't sync Slack right now. Not your fault.", actions: ["retry"] }
-}
 /** A browser card's error is a refusal whose type did not survive; the page's words are only its Details. */
 export const BROWSER_READ_FAILURE: UserFailureCopy = { fault: "infra", sentence: "That page couldn't be read. Not your fault.", actions: [] }
 

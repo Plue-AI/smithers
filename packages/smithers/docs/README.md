@@ -138,7 +138,6 @@ line.
 | [`@smthrs/gateway`](/api/gateway) | The server `smthrs serve` hosts, and the projections a client subscribes to. |
 | [`@smthrs/mcp`](/api/mcp) | The MCP client that projects a remote server's tools into a run's flow catalog. |
 | [`@smthrs/migrate`](/api/migrate) | The Smithers 0.x project upgrade behind `smthrs migrate`. |
-| [`@smthrs/create-app`](/api/create-app) | Declaring a Smithers app: file-routed flows, panes, and deploy targets. |
 | [`@smthrs/testing`](/api/testing) | The testing and conformance library for flows. |
 
 ## Where to go next

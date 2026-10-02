@@ -4,7 +4,6 @@ import {
   DEFAULT_WORKSPACE_ID,
   rootFrameId
 } from "../AppState"
-import type { Branch, Frame, FrameSnapshot } from "../AppState"
 import type { FrameHistoryPort, FrameLocation } from "../../runtime/FrameHistory"
 import type { ControllerContext } from "./context"
 import { knowledgeCardAvailable } from "../KnowledgeFeatures"
@@ -14,7 +13,6 @@ export interface FramesController {
   readonly minimizeCard: () => void
   readonly frameBack: () => void
   readonly frameForward: () => void
-  readonly forkFrame: () => Promise<string | void>
 }
 
 const sessionLocation = (ctx: ControllerContext): FrameLocation => {
@@ -92,89 +90,10 @@ export const createFramesController = (
     history?.push({ workspaceId, branchId, frameId: rootFrameId(branchId) })
   }
 
-  const forkFrame: FramesController["forkFrame"] = async () => {
-    if (ctx.store.session().phase === "responding") return "Wait for the current turn to finish before forking."
-    const accountEpoch = ctx.accountEpoch
-    const accountOwner = ctx.accountOwner()
-    // The address bar is updated in the same browser gesture as the store
-    // dispatch. Prefer it while the live projection catches up so a fork made
-    // immediately after maximize captures the card frame rather than the old
-    // root frame.
-    const sourceLocation = history?.current() ?? sessionLocation(ctx)
-    const source = ctx.store.collections.frames.get(sourceLocation.frameId)
-    if (source === undefined) return "The current frame no longer exists."
-    const id = `branch-${crypto.randomUUID()}`
-    const rootId = rootFrameId(id)
-    const createdAt = Date.now()
-    const revision = ctx.store.session().revision + 1
-    // Historical frames keep their recorded state; the live collections are
-    // only the active branch's projection, never an authority for another branch.
-    const snapshot: FrameSnapshot = source.snapshot ?? {
-      revision: ctx.store.session().revision,
-      messages: [...ctx.store.collections.messages.values()],
-      cards: [...ctx.store.collections.cards.values()],
-      worldDocuments: [...ctx.store.collections.worldDocuments.values()],
-      draft: ctx.store.session().draft,
-      selectedWorldDocumentId: ctx.store.session().selectedWorldDocumentId
-    }
-    const branch: Branch = {
-      id,
-      workspaceId: source.workspaceId,
-      title: `Fork ${ctx.store.collections.branches.size}`,
-      parentBranchId: source.branchId,
-      forkedFromFrameId: source.id,
-      forkedAtRevision: snapshot.revision,
-      snapshot,
-      createdAt,
-      revision
-    }
-    const rootFrame: Frame = {
-      id: rootId,
-      workspaceId: source.workspaceId,
-      branchId: id,
-      kind: "root",
-      parentFrameId: null,
-      cardId: null,
-      presentation: "embedded",
-      stateRevision: snapshot.revision,
-      snapshot,
-      createdAt,
-      updatedAt: createdAt,
-      revision
-    }
-    const selectedFrame: Frame = source.kind === "root"
-      ? rootFrame
-      : {
-        id: cardFrameId(id, source.cardId!),
-        workspaceId: source.workspaceId,
-        branchId: id,
-        kind: "card",
-        parentFrameId: rootId,
-        cardId: source.cardId,
-        presentation: "maximized",
-        stateRevision: snapshot.revision,
-        snapshot,
-        createdAt,
-        updatedAt: createdAt,
-        revision
-      }
-    await ctx.store.dispatch({ type: "frame.forked", actor: "user", branch, rootFrame, selectedFrame }).isPersisted.promise
-    // A failed write cannot publish a durable address or a completion notice.
-    // A later navigation or owner teardown also owns its own presentation.
-    if (ctx.disposed || ctx.accountEpoch !== accountEpoch || ctx.accountOwner() !== accountOwner || !sameLocation(sessionLocation(ctx), {
-      workspaceId: source.workspaceId, branchId: id, frameId: selectedFrame.id
-    })) return
-    history?.push({ workspaceId: source.workspaceId, branchId: id, frameId: selectedFrame.id })
-    const key = "frame.fork"
-    ctx.store.dispatch({ type: "toast.shown", actor: "system", key, title: `Created ${branch.title}` })
-    ctx.resolveToast(key, { status: "ok", detail: "" })
-  }
-
   return {
     maximizeCard,
     minimizeCard,
     frameBack: () => history?.back(),
-    frameForward: () => history?.forward(),
-    forkFrame
+    frameForward: () => history?.forward()
   }
 }

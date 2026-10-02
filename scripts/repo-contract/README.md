@@ -20,8 +20,8 @@ Playwright or serial fault runner.
 Linux on Node 26.4.0 is the required release-candidate package platform.
 macOS and Windows package rows are advisory, so the generated root README
 explicitly makes no support guarantee for them. The required web UI scope is
-offline Chromium. Packaged Electrobun and live hosted/provider journeys remain
-separate acceptance tiers. Node 26.10.0 is the additional local gateway baseline,
+offline Chromium. Live hosted/provider journeys remain separate acceptance
+tiers. Node 26.10.0 is the additional local gateway baseline,
 not a claim that every package was re-certified here on every newer Node.
 
 ### Bun coverage exceptions
@@ -34,8 +34,8 @@ production denominator across Worker, CLI, React and static assets.
 | Owner | Required behavior | Missing coverage evidence |
 | --- | --- | --- |
 | `apps/server` | Worker unit and canary-wiring assertions | Whole Worker/script source denominator and failure-branch measurement. |
-| `apps/app` | Typecheck, Bun units, offline Playwright | TSX/host/React denominator; packaged native host and live provider acceptance. |
-| `apps/review` | Node/Bun typechecks and unit contracts | Mixed CLI/Worker denominator; credentialed review case is optional and cannot close offline coverage. |
+| `apps/app` | Typecheck, Bun units, offline Playwright | TSX/host/React denominator and live provider acceptance. |
+| `flows/review` | Strict source/test typechecks, host registry integration and seeded review contracts | Live model review quality remains separate from deterministic coverage. |
 | `apps/tui` | Bun unit and terminal assertions | Explicit source roster is measured by the Istanbul collector; no numeric floor until TUI child-launch paths and complete behavior coverage are qualified. |
 | `apps/bug-worker` | Real fetch handler against in-memory KV | Complete Worker branch measurement, including transport failures. |
 

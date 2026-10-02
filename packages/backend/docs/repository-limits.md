@@ -4,11 +4,10 @@ description: "How plan limits cap repositories, organizations, and storage."
 ---
 
 Every repository counts toward its owner's repository limit, public or
-private. Creating, forking, or importing a repository at that limit fails with
+private. Creating or importing a repository at that limit fails with
 `402 plan_limit_exceeded` and `limit_kind` `repositories`. A private
 repository also counts toward the private-repository limit; creating one at
-that limit fails with `403`. Transferring a repository checks the new owner's
-limits the same way.
+that limit fails with `403`.
 
 Each organization a user owns counts toward that user's organization limit.
 Creating an organization at the limit fails with `402 plan_limit_exceeded` and
@@ -19,11 +18,9 @@ may send a pack no larger than the storage the owner has left; a larger pack
 is refused before it is written, and HTTPS answers `402 plan_limit_exceeded`
 with `limit_kind` `storage_bytes`. An owner at the limit can still move
 branches to commits the repository already has. Pushes Smithers makes for the
-owner, such as GitHub sync, are refused the same way. A fork whose source is
-larger than the storage its new owner has left fails with the same `402`; a
-GitHub import whose repository is larger fails before anything is stored.
+owner, such as GitHub sync, are refused the same way. A GitHub import whose repository is larger fails before anything is stored.
 After each push the repository's git size is measured and replaces its
-previous measurement; a fork or import is measured when it is created. History
+previous measurement; an import is measured when it is created. History
 a push deletes counts until repository maintenance removes it and a later push
 measures again.
 
@@ -39,7 +36,7 @@ The billing overview reports `repositories` for every owner and
 `organizations` for users. Concurrent creates for one owner are admitted one
 at a time, so they cannot pass a limit together. A push measures its
 repository before it accepts a pack, so one repository cannot pass the
-storage limit through pushes. Pushes, forks, and imports to different
+storage limit through pushes. Pushes and imports to different
 repositories at the same time can each use the storage left, and git copies
 objects the repository already has into a pack that needs them, so the owner
 can pass the limit by that much; later pushes are refused. Self-hosted

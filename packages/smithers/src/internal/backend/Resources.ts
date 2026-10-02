@@ -259,31 +259,6 @@ for (const kind of ["member", "repo"]) {
     })
   }
 }
-for (const action of ["create", "get", "list", "land"]) {
-  add(`changeset ${action}`, (c, _a, o) => {
-    const path = `/api/orgs/${esc(o.org)}/changesets`
-    if (action === "list") return c.request("GET", path + query(page(o)))
-    if (action !== "create") {
-      return c.request(
-        action === "land" ? "POST" : "GET",
-        `${path}/${positive(o.id)}${action === "land" ? "/land" : ""}`
-      )
-    }
-    const members = list(o.member).flatMap((item) => str(item).split(",")).filter((item) => item.trim()).map((item) => {
-      const equals = item.indexOf("=")
-      const repo = item.slice(0, equals).trim(), change_id = item.slice(equals + 1).trim()
-      if (equals < 1 || !repo || !change_id) throw new UsageError({ message: "Member must be REPO=CHANGE_ID" })
-      return { repo, change_id }
-    })
-    if (!members.length) throw new UsageError({ message: "At least one --member is required" })
-    return c.request("POST", path, {
-      description: str(o.description),
-      target_bookmark: o.target,
-      members,
-      ...(o.parent ? { parent_change_id: o.parent } : {})
-    })
-  })
-}
 for (const action of ["create", "list", "view", "update", "delete", "deliveries"]) {
   add(`webhook ${action}`, async (c, a, o) => {
     const path = repo(c, o, "/hooks") +

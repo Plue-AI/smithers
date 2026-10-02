@@ -186,7 +186,7 @@ const securityReview = Smithers.SecurityReview({
         "A repository or upstream author puts a javascript: or data: URL on a card that runs script in the app origin when clicked.",
       lookFor: [
         "A url, htmlUrl, avatarUrl, iconUrl, installUrl or streamUrl field typed z.string() with no scheme refinement.",
-        "A link schema in RepositoryHome or AppLinks that accepts a scheme other than http or https.",
+        "A link schema in RepositoryHome that accepts a scheme other than http or https.",
         "MythicalIssueSchema.url or MythicalPullRequestSchema.url typed bare z.string() and rendered as an issue or pull request link.",
         "CloudAuthStartResponseSchema.url typed bare z.string() so a hostile or spoofed backend answer opens a non-https sign-in URL."
       ],
@@ -194,7 +194,6 @@ const securityReview = Smithers.SecurityReview({
         "src/Cards.ts",
         "src/SubagentCard.ts",
         "src/RepositoryHome.ts",
-        "src/AppLinks.ts",
         "src/Mythical.ts",
         "src/CloudTunnel.ts",
         "src/WebUrl.ts"

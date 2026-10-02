@@ -74,7 +74,6 @@ export const groups: Record<string, string> = {
   "cache cloud": "Inspect and clear a repository's Cloud caches",
   "cache token": "Manage public read tokens for the build cache",
   "change": "Inspect local jj changes",
-  "changeset": "Land one change per repository as a single transaction",
   "config": "Read and set CLI configuration",
   "egress": "Manage repository egress policies",
   "history": "Follow each issue's lane, checks and pull request",

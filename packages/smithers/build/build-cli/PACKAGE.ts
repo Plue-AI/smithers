@@ -226,15 +226,13 @@ const securityReview = Smithers.SecurityReview({
       id: "workspace-path-confinement",
       title: "CLI reads and writes stay inside the workspace",
       threat:
-        "A committed symlink, a create-app name typed by a user, or a known-red or overlay file path makes the CLI read a maintainer's private files or overwrite files outside the workspace.",
+        "A committed symlink or a known-red or overlay file path makes the CLI read a maintainer's private files or overwrite files outside the workspace.",
       lookFor: [
         "A declared path, overlay target, or output joined to the root without rejecting '..', absolute paths, and symlinks that resolve outside.",
-        "A create-app directory name or template entry name that escapes the target directory, or a scaffold that overwrites existing files.",
         "A symlink inside the workspace followed by a read or write that then lands outside the root.",
         "A Workspace repos path or cache directory that resolves outside the workspace root and is still used."
       ],
       paths: [
-        "src/CreateApp.ts",
         "src/OverlayExec.ts",
         "src/PackageDiscovery.ts",
         "src/KnownRed.ts",

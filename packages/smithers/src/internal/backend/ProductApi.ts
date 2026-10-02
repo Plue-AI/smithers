@@ -33,29 +33,6 @@ export type AppBootstrap = {
   }
 }
 
-export type RepositoryTransferRequest = {
-  id: number
-  repository_id: number
-  sender_id: number
-  recipient_id: number
-  source_user_id?: number | null
-  source_org_id?: number | null
-  source_owner: string
-  source_name: string
-  status: "pending" | "accepted" | "declined" | "cancelled" | "expired"
-  created_at: string
-  expires_at: string
-  resolved_at?: string | null
-}
-
-/** Repository response using its current owner. pending_transfer is present while a user transfer awaits acceptance. */
-export type RepositoryTransferResponse = {
-  owner?: string
-  full_name?: string
-  clone_url?: string
-  pending_transfer?: RepositoryTransferRequest
-}
-
 export type BillingPlan = {
   key: "free" | "pro" | "max"
   display_name: string
@@ -1715,36 +1692,6 @@ export interface GetApiOrgsOrgBillingInput {
 export const getApiOrgsOrgBilling = (transport: Transport, input: GetApiOrgsOrgBillingInput): Promise<GetApiOrgsOrgBillingResponse> =>
   transport.request("GET", `/api/orgs/${segment(input.path.org)}/billing`) as Promise<GetApiOrgsOrgBillingResponse>
 
-export type GetApiOrgsOrgChangesetsResponse = AnyJSON
-
-export interface GetApiOrgsOrgChangesetsInput {
-  readonly path: { readonly org: string }
-}
-
-/** GET /api/orgs/{org}/changesets */
-export const getApiOrgsOrgChangesets = (transport: Transport, input: GetApiOrgsOrgChangesetsInput): Promise<GetApiOrgsOrgChangesetsResponse> =>
-  transport.request("GET", `/api/orgs/${segment(input.path.org)}/changesets`) as Promise<GetApiOrgsOrgChangesetsResponse>
-
-export type PostApiOrgsOrgChangesetsResponse = AnyJSON
-
-export interface PostApiOrgsOrgChangesetsInput {
-  readonly path: { readonly org: string }
-}
-
-/** POST /api/orgs/{org}/changesets */
-export const postApiOrgsOrgChangesets = (transport: Transport, input: PostApiOrgsOrgChangesetsInput): Promise<PostApiOrgsOrgChangesetsResponse> =>
-  transport.request("POST", `/api/orgs/${segment(input.path.org)}/changesets`) as Promise<PostApiOrgsOrgChangesetsResponse>
-
-export type GetApiOrgsOrgChangesetsIdResponse = AnyJSON
-
-export interface GetApiOrgsOrgChangesetsIdInput {
-  readonly path: { readonly org: string; readonly id: string }
-}
-
-/** GET /api/orgs/{org}/changesets/{id} */
-export const getApiOrgsOrgChangesetsId = (transport: Transport, input: GetApiOrgsOrgChangesetsIdInput): Promise<GetApiOrgsOrgChangesetsIdResponse> =>
-  transport.request("GET", `/api/orgs/${segment(input.path.org)}/changesets/${segment(input.path.id)}`) as Promise<GetApiOrgsOrgChangesetsIdResponse>
-
 export type GetApiOrgsOrgMembersResponse = AnyJSON
 
 export interface GetApiOrgsOrgMembersInput {
@@ -1920,16 +1867,6 @@ export interface PostApiOrgsOrgBillingRefreshInput {
 /** POST /api/orgs/{org}/billing/refresh */
 export const postApiOrgsOrgBillingRefresh = (transport: Transport, input: PostApiOrgsOrgBillingRefreshInput): Promise<PostApiOrgsOrgBillingRefreshResponse> =>
   transport.request("POST", `/api/orgs/${segment(input.path.org)}/billing/refresh`) as Promise<PostApiOrgsOrgBillingRefreshResponse>
-
-export type PostApiOrgsOrgChangesetsIdLandResponse = AnyJSON
-
-export interface PostApiOrgsOrgChangesetsIdLandInput {
-  readonly path: { readonly org: string; readonly id: string }
-}
-
-/** POST /api/orgs/{org}/changesets/{id}/land */
-export const postApiOrgsOrgChangesetsIdLand = (transport: Transport, input: PostApiOrgsOrgChangesetsIdLandInput): Promise<PostApiOrgsOrgChangesetsIdLandResponse> =>
-  transport.request("POST", `/api/orgs/${segment(input.path.org)}/changesets/${segment(input.path.id)}/land`) as Promise<PostApiOrgsOrgChangesetsIdLandResponse>
 
 export type GetApiPairSessionsIdInvitesResponse = AnyJSON
 
@@ -3998,38 +3935,6 @@ export interface GetApiReposOwnerRepoWorkspacesIdStreamInput {
 export const getApiReposOwnerRepoWorkspacesIdStream = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdStreamInput): Promise<Response> =>
   transport.response("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/stream`)
 
-export type GetApiUserRepositoryTransfersResponse = Array<RepositoryTransferRequest>
-
-/** GET /api/user/repository-transfers: List incoming and outgoing pending repository transfers */
-export const getApiUserRepositoryTransfers = (transport: Transport): Promise<GetApiUserRepositoryTransfersResponse> =>
-  transport.request("GET", `/api/user/repository-transfers`) as Promise<GetApiUserRepositoryTransfersResponse>
-
-export type PostApiUserRepositoryTransfersTransferIdAcceptResponse = AnyJSON
-
-export interface PostApiUserRepositoryTransfersTransferIdAcceptInput {
-  readonly path: { readonly transfer_id: number }
-}
-
-/** POST /api/user/repository-transfers/{transfer_id}/accept: Accept an incoming repository transfer */
-export const postApiUserRepositoryTransfersTransferIdAccept = (transport: Transport, input: PostApiUserRepositoryTransfersTransferIdAcceptInput): Promise<PostApiUserRepositoryTransfersTransferIdAcceptResponse> =>
-  transport.request("POST", `/api/user/repository-transfers/${segment(input.path.transfer_id)}/accept`) as Promise<PostApiUserRepositoryTransfersTransferIdAcceptResponse>
-
-export interface PostApiUserRepositoryTransfersTransferIdDeclineInput {
-  readonly path: { readonly transfer_id: number }
-}
-
-/** POST /api/user/repository-transfers/{transfer_id}/decline: Decline an incoming repository transfer */
-export const postApiUserRepositoryTransfersTransferIdDecline = (transport: Transport, input: PostApiUserRepositoryTransfersTransferIdDeclineInput): Promise<void> =>
-  transport.request("POST", `/api/user/repository-transfers/${segment(input.path.transfer_id)}/decline`).then(() => undefined)
-
-export interface PostApiUserRepositoryTransfersTransferIdCancelInput {
-  readonly path: { readonly transfer_id: number }
-}
-
-/** POST /api/user/repository-transfers/{transfer_id}/cancel: Cancel an outgoing repository transfer */
-export const postApiUserRepositoryTransfersTransferIdCancel = (transport: Transport, input: PostApiUserRepositoryTransfersTransferIdCancelInput): Promise<void> =>
-  transport.request("POST", `/api/user/repository-transfers/${segment(input.path.transfer_id)}/cancel`).then(() => undefined)
-
 export type PatchApiReposOwnerRepoLandingsNumberReviewsReviewIdResponse = AnyJSON
 
 export interface PatchApiReposOwnerRepoLandingsNumberReviewsReviewIdInput {
@@ -4182,26 +4087,6 @@ export interface PostApiReposOwnerRepoChangesChangeIdSplitInput {
 /** POST /api/repos/{owner}/{repo}/changes/{change_id}/split */
 export const postApiReposOwnerRepoChangesChangeIdSplit = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdSplitInput): Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/split`) as Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse>
-
-export type PostApiReposOwnerRepoForkResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoForkInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/fork */
-export const postApiReposOwnerRepoFork = (transport: Transport, input: PostApiReposOwnerRepoForkInput): Promise<PostApiReposOwnerRepoForkResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/fork`) as Promise<PostApiReposOwnerRepoForkResponse>
-
-export type PostApiReposOwnerRepoForksResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoForksInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/forks */
-export const postApiReposOwnerRepoForks = (transport: Transport, input: PostApiReposOwnerRepoForksInput): Promise<PostApiReposOwnerRepoForksResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/forks`) as Promise<PostApiReposOwnerRepoForksResponse>
 
 export type PostApiReposOwnerRepoGithubProxyResponse = AnyJSON
 
@@ -4411,21 +4296,6 @@ export interface PostApiReposOwnerRepoSyncInput {
 export const postApiReposOwnerRepoSync = (transport: Transport, input: PostApiReposOwnerRepoSyncInput): Promise<PostApiReposOwnerRepoSyncResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/sync`) as Promise<PostApiReposOwnerRepoSyncResponse>
 
-export type PostApiReposOwnerRepoTransferBody = {
-  new_owner: string
-}
-
-export type PostApiReposOwnerRepoTransferResponse = RepositoryTransferResponse
-
-export interface PostApiReposOwnerRepoTransferInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body: PostApiReposOwnerRepoTransferBody
-}
-
-/** POST /api/repos/{owner}/{repo}/transfer: Request a repository transfer */
-export const postApiReposOwnerRepoTransfer = (transport: Transport, input: PostApiReposOwnerRepoTransferInput): Promise<PostApiReposOwnerRepoTransferResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/transfer`, input.body) as Promise<PostApiReposOwnerRepoTransferResponse>
-
 export type PostApiReposOwnerRepoUnarchiveResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoUnarchiveInput {
@@ -4505,36 +4375,6 @@ export interface PostApiReposOwnerRepoWorkspacesIdCodingOperationsInput {
 /** POST /api/repos/{owner}/{repo}/workspaces/{id}/coding/operations */
 export const postApiReposOwnerRepoWorkspacesIdCodingOperations = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdCodingOperationsInput): Promise<PostApiReposOwnerRepoWorkspacesIdCodingOperationsResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/coding/operations`) as Promise<PostApiReposOwnerRepoWorkspacesIdCodingOperationsResponse>
-
-export type PostApiReposOwnerRepoWorkspacesIdDesktopInputResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoWorkspacesIdDesktopInputInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/input */
-export const postApiReposOwnerRepoWorkspacesIdDesktopInput = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdDesktopInputInput): Promise<PostApiReposOwnerRepoWorkspacesIdDesktopInputResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/desktop/input`) as Promise<PostApiReposOwnerRepoWorkspacesIdDesktopInputResponse>
-
-export type PostApiReposOwnerRepoWorkspacesIdDesktopObserveResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoWorkspacesIdDesktopObserveInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/observe */
-export const postApiReposOwnerRepoWorkspacesIdDesktopObserve = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdDesktopObserveInput): Promise<PostApiReposOwnerRepoWorkspacesIdDesktopObserveResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/desktop/observe`) as Promise<PostApiReposOwnerRepoWorkspacesIdDesktopObserveResponse>
-
-export type PostApiReposOwnerRepoWorkspacesIdDesktopSessionResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoWorkspacesIdDesktopSessionInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/workspaces/{id}/desktop/session */
-export const postApiReposOwnerRepoWorkspacesIdDesktopSession = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdDesktopSessionInput): Promise<PostApiReposOwnerRepoWorkspacesIdDesktopSessionResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/desktop/session`) as Promise<PostApiReposOwnerRepoWorkspacesIdDesktopSessionResponse>
 
 export type PostApiReposOwnerRepoWorkspacesIdForkResponse = AnyJSON
 
@@ -4652,39 +4492,6 @@ export interface GetApiReposOwnerRepoHomeInput {
 export const getApiReposOwnerRepoHome = (transport: Transport, input: GetApiReposOwnerRepoHomeInput): Promise<GetApiReposOwnerRepoHomeResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/home`) as Promise<GetApiReposOwnerRepoHomeResponse>
 
-export type GetApiReposOwnerRepoIssuesSyncChannelsResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoIssuesSyncChannelsInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/issues/sync/channels */
-export const getApiReposOwnerRepoIssuesSyncChannels = (transport: Transport, input: GetApiReposOwnerRepoIssuesSyncChannelsInput): Promise<GetApiReposOwnerRepoIssuesSyncChannelsResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/channels`) as Promise<GetApiReposOwnerRepoIssuesSyncChannelsResponse>
-
-export type PutApiReposOwnerRepoIssuesSyncChannelsBody = AnyJSON
-
-export type PutApiReposOwnerRepoIssuesSyncChannelsResponse = AnyJSON
-
-export interface PutApiReposOwnerRepoIssuesSyncChannelsInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body?: PutApiReposOwnerRepoIssuesSyncChannelsBody
-}
-
-/** PUT /api/repos/{owner}/{repo}/issues/sync/channels */
-export const putApiReposOwnerRepoIssuesSyncChannels = (transport: Transport, input: PutApiReposOwnerRepoIssuesSyncChannelsInput): Promise<PutApiReposOwnerRepoIssuesSyncChannelsResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/channels`, input.body) as Promise<PutApiReposOwnerRepoIssuesSyncChannelsResponse>
-
-export type GetApiReposOwnerRepoIssuesSyncDeliveriesResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoIssuesSyncDeliveriesInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/issues/sync/deliveries */
-export const getApiReposOwnerRepoIssuesSyncDeliveries = (transport: Transport, input: GetApiReposOwnerRepoIssuesSyncDeliveriesInput): Promise<GetApiReposOwnerRepoIssuesSyncDeliveriesResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/deliveries`) as Promise<GetApiReposOwnerRepoIssuesSyncDeliveriesResponse>
-
 export type GetApiReposOwnerRepoIssuesNumberCommentsCommentReactionsResponse = AnyJSON
 
 export interface GetApiReposOwnerRepoIssuesNumberCommentsCommentReactionsInput {
@@ -4707,29 +4514,6 @@ export interface PutApiReposOwnerRepoIssuesNumberCommentsCommentReactionsInput {
 /** PUT /api/repos/{owner}/{repo}/issues/{number}/comments/{comment}/reactions */
 export const putApiReposOwnerRepoIssuesNumberCommentsCommentReactions = (transport: Transport, input: PutApiReposOwnerRepoIssuesNumberCommentsCommentReactionsInput): Promise<PutApiReposOwnerRepoIssuesNumberCommentsCommentReactionsResponse> =>
   transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/comments/${segment(input.path.comment)}/reactions`, input.body) as Promise<PutApiReposOwnerRepoIssuesNumberCommentsCommentReactionsResponse>
-
-export type GetApiReposOwnerRepoIssuesNumberSyncResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoIssuesNumberSyncInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly number: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/issues/{number}/sync */
-export const getApiReposOwnerRepoIssuesNumberSync = (transport: Transport, input: GetApiReposOwnerRepoIssuesNumberSyncInput): Promise<GetApiReposOwnerRepoIssuesNumberSyncResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/sync`) as Promise<GetApiReposOwnerRepoIssuesNumberSyncResponse>
-
-export type PutApiReposOwnerRepoIssuesNumberSyncBody = AnyJSON
-
-export type PutApiReposOwnerRepoIssuesNumberSyncResponse = AnyJSON
-
-export interface PutApiReposOwnerRepoIssuesNumberSyncInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly number: string }
-  readonly body?: PutApiReposOwnerRepoIssuesNumberSyncBody
-}
-
-/** PUT /api/repos/{owner}/{repo}/issues/{number}/sync */
-export const putApiReposOwnerRepoIssuesNumberSync = (transport: Transport, input: PutApiReposOwnerRepoIssuesNumberSyncInput): Promise<PutApiReposOwnerRepoIssuesNumberSyncResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/${segment(input.path.number)}/sync`, input.body) as Promise<PutApiReposOwnerRepoIssuesNumberSyncResponse>
 
 export type GetApiReposOwnerRepoMythicalResponse = AnyJSON
 
@@ -4926,45 +4710,6 @@ export interface PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityInput {
 /** PUT /api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility */
 export const putApiReposOwnerRepoWorkspacesIdServicesPortVisibility = (transport: Transport, input: PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityInput): Promise<PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityResponse> =>
   transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/services/${segment(input.path.port)}/visibility`, input.body) as Promise<PutApiReposOwnerRepoWorkspacesIdServicesPortVisibilityResponse>
-
-export type PutApiReposOwnerRepoIssuesSyncDeliveriesIdBody = AnyJSON
-
-export type PutApiReposOwnerRepoIssuesSyncDeliveriesIdResponse = AnyJSON
-
-export interface PutApiReposOwnerRepoIssuesSyncDeliveriesIdInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-  readonly body?: PutApiReposOwnerRepoIssuesSyncDeliveriesIdBody
-}
-
-/** PUT /api/repos/{owner}/{repo}/issues/sync/deliveries/{id} */
-export const putApiReposOwnerRepoIssuesSyncDeliveriesId = (transport: Transport, input: PutApiReposOwnerRepoIssuesSyncDeliveriesIdInput): Promise<PutApiReposOwnerRepoIssuesSyncDeliveriesIdResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/deliveries/${segment(input.path.id)}`, input.body) as Promise<PutApiReposOwnerRepoIssuesSyncDeliveriesIdResponse>
-
-export type PostApiReposOwnerRepoIssuesSyncDeliveriesIdBody = AnyJSON
-
-export type PostApiReposOwnerRepoIssuesSyncDeliveriesIdResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoIssuesSyncDeliveriesIdInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
-  readonly body?: PostApiReposOwnerRepoIssuesSyncDeliveriesIdBody
-}
-
-/** POST /api/repos/{owner}/{repo}/issues/sync/deliveries/{id} */
-export const postApiReposOwnerRepoIssuesSyncDeliveriesId = (transport: Transport, input: PostApiReposOwnerRepoIssuesSyncDeliveriesIdInput): Promise<PostApiReposOwnerRepoIssuesSyncDeliveriesIdResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/deliveries/${segment(input.path.id)}`, input.body) as Promise<PostApiReposOwnerRepoIssuesSyncDeliveriesIdResponse>
-
-export type PostApiReposOwnerRepoIssuesSyncEventsBody = AnyJSON
-
-export type PostApiReposOwnerRepoIssuesSyncEventsResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoIssuesSyncEventsInput {
-  readonly path: { readonly owner: string; readonly repo: string }
-  readonly body?: PostApiReposOwnerRepoIssuesSyncEventsBody
-}
-
-/** POST /api/repos/{owner}/{repo}/issues/sync/events */
-export const postApiReposOwnerRepoIssuesSyncEvents = (transport: Transport, input: PostApiReposOwnerRepoIssuesSyncEventsInput): Promise<PostApiReposOwnerRepoIssuesSyncEventsResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/issues/sync/events`, input.body) as Promise<PostApiReposOwnerRepoIssuesSyncEventsResponse>
 
 export type PostApiReposOwnerRepoMythicalBackfillBody = AnyJSON
 

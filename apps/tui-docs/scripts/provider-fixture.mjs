@@ -36,9 +36,7 @@ export async function providerFixture({ judge = false } = {}) {
     } else if (judge && kind === "coordinator") {
       content = `\`\`\`cell\n${monitorCell}\n\`\`\``
     } else {
-      content = JSON.stringify(body).includes("You estimate how long")
-        ? JSON.stringify({ minutes: 0.1, tokens: 800, low_minutes: 0.05, high_minutes: 0.3 })
-        : "Addition checks passed."
+      content = "Addition checks passed."
     }
     response.setHeader("Content-Type", "text/event-stream")
     response.end([

@@ -138,7 +138,7 @@ const securityReview = Smithers.SecurityReview({
       lookFor: [
         "run.ts building the --live layer with anything other than layerMemory over reviewSeatResolver, so the tool-less agentHost (empty registry, calls limit, model-only capabilityEnvelope) is bypassed.",
         "run.ts passing layerMemory an environment other than process.env's seat settings, which widens the model-host capability envelope.",
-        "The Review.execute payload in runFixture enabling verify, narrate, or quiz seats that are not bound by the same host."
+        "The Review.execute payload in runFixture enabling verification or narration aliases that are not bound by the same host."
       ],
       paths: ["run.ts"]
     },

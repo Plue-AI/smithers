@@ -175,7 +175,6 @@ describe("NO_COLOR frames", () => {
         active="tab:b"
         models={[]}
         now={0}
-        eta={() => ""}
         onSelect={() => {}}
       />,
       24,

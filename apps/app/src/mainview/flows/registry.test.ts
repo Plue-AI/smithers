@@ -20,7 +20,6 @@ slashItems,
 slashTree,
 SURFACE_FLOWS
 } from "./registry"
-import { payloadFor } from "./SlashPayload"
 
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
@@ -195,50 +194,6 @@ describe("command registry pure model", () => {
       expect(recent.map((item) => item.flow.name)).toContain("a19")
       expect(recent.map((item) => item.flow.name)).toContain("a18")
     })
-  })
-
-  /*
-   * §6.4 vs §5.7: `data-flows` on the app shell is the whole registry
-   * manifest — hidden id-scoped actions included, because the agent's tool
-   * catalog is not a secret — while `/flows` is what a person can ask for.
-   * The two lists differ by exactly the hidden set and by nothing else.
-   */
-  /*
-   * The namespace tree. A flow's namespace is its dotted head; the only bare
-   * names are the four surface switches.
-   */
-  /*
-   * Will renamed World to Wiki (2026-09-07). The wiki.* names are canonical
-   * and the world.* names stay registered as hidden aliases, so a saved
-   * transcript or a parked command still resolves while nothing lists them.
-   */
-  /*
-   * `/desktop` is the one-command open (entries/box.ts). The needle
-   * "desktop" is a NAME SUBSTRING of several flows, so the door has to win by
-   * rank, not by luck: `box.desktop.open` is the only VISIBLE flow the
-   * needle reaches, and the mint on a card's own id
-   * (`box.desktop`/`.rotate`/`.stop`) is hidden beside it. Typed with
-   * arguments the line never opens the overlay at all, and parseSubmit's
-   * exact, hidden-inclusive match lands on the bare `desktop` alias. Both
-   * doors run the same handler, so either resolution is the same act.
-   */
-  test("/desktop resolves to the one-command open, from the overlay and from the typed line", async () => {
-    const { controller } = await freshController()
-    const rows = controller.slashTree("desktop").filter((row) => row.kind === "flow")
-    expect(rows.map((row) => row.kind === "flow" ? row.flow.name : "")).toEqual(["box.desktop.open"])
-    /* The mint-again doors stay off the menu: they act on an id a card already holds. */
-    const visibleNames = visibleItems(controller.commands).map((command) => command.name)
-    for (const hidden of ["desktop", "box.desktop", "box.desktop.rotate", "box.desktop.stop"]) {
-      expect(visibleNames).not.toContain(hidden)
-      expect(controller.commands.find(hidden)).toBeDefined()
-    }
-    /* The typed line, with and without arguments, is a command and never a prompt. */
-    expect(parseSubmit("/desktop", controller.commands.all())).toEqual({ kind: "command", name: "desktop" })
-    expect(parseSubmit("/desktop main will/smithers", controller.commands.all()))
-      .toEqual({ kind: "command", name: "desktop", args: "main will/smithers" })
-    expect(payloadFor("desktop", "main will/smithers")).toEqual({ payload: { bookmark: "main", repo: "will/smithers" } })
-    expect(payloadFor("desktop", undefined)).toEqual({ payload: {} })
-    controller.dispose()
   })
 
   test("/wiki is the visible surface switch and /world its hidden alias", async () => {

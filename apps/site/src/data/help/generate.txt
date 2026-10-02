@@ -1,9 +1,8 @@
-smthrs generate — Scaffold apps, flows, packages, and CI configuration
+smthrs generate — Scaffold flows, packages, and CI configuration
 
 Usage: smthrs generate <command>
 
 Commands:
-  app      Create an application from a bundled template
   ci       Generate CI files using the workspace's declared GitHub workflow target
   flow     Create a durable Markdown flow without replacing an existing flow
   package  Run the workspace's declared package scaffold with its configured defaults

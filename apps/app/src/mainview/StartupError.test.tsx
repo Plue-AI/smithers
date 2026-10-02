@@ -238,20 +238,6 @@ for (const kind of ["unreachable", "missing", "server", "invalid"] as const) {
     expect(buttonLabels(host)).toEqual(["Retry"])
     expect(host.querySelector("form")).toBeNull()
   })
-
-  test(`bootstrap ${kind} in the native shell keeps backend switching`, () => {
-    window.__electrobun = {} as NonNullable<typeof window.__electrobun>
-    try {
-      const host = renderBootstrapFailure(kind)
-      expect(host.textContent).toContain("Not your fault.")
-      expect(buttonLabels(host)).toEqual(["Retry", "Switch backend"])
-      flushSync(() => host.querySelector<HTMLButtonElement>("button:last-of-type")!.click())
-      expect(host.querySelector('input[name="origin"]')).not.toBeNull()
-      expect(host.querySelector('input[name="token"]')).not.toBeNull()
-    } finally {
-      delete window.__electrobun
-    }
-  })
 }
 
 /*

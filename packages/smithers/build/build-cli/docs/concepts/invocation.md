@@ -70,7 +70,7 @@ structured error instead.
 
 ## 4. The workspace index
 
-Every command except `create-app` opens the target index before doing its own
+Every workspace command opens the target index before doing its own
 work:
 
 1. Resolve `--workspace` to an absolute path and walk up for the nearest

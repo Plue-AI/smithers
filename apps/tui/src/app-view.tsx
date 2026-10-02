@@ -175,15 +175,14 @@ export function FlowFormView(props: {
   )
 }
 
-/** The composer's completion menu; an argument row marks the current model or thinking level. */
+/** The composer's completion menu; an argument row marks the current model. */
 export function CompletionMenu(props: {
   readonly menu: Complete.Completion
   readonly selected: number
   readonly seat: string
-  readonly thinking: Editor.Thinking
   readonly rows?: number
 }) {
-  const { menu, seat, thinking } = props
+  const { menu, seat } = props
   return (
     <box
       style={{ border: ["left"], marginTop: 1, flexShrink: 0 }}
@@ -198,7 +197,7 @@ export function CompletionMenu(props: {
             ...(item.hint === undefined ? {} : { hint: item.hint }),
             ...(item.detail === undefined ? {} : { detail: item.detail }),
             ...(menu.kind === "argument" &&
-                (item.insert === `/model ${seat}` || item.insert === `/thinking ${thinking ?? "default"}`)
+                item.insert === `/model ${seat}`
               ? { current: true }
               : {})
           }))}

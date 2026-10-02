@@ -15,8 +15,13 @@
     "@smthrs/scorers": "workspace:*",
     "@smthrs/core": "workspace:*",
     "@smthrs/model": "workspace:*",
-    "@smthrs/review": "workspace:*",
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.115",
+    "@smthrs/cli": "workspace:*",
+    "@smthrs/engine": "workspace:*",
+    "@smthrs/flow": "workspace:*",
+    "@smthrs/flows": "workspace:*",
+    "@smthrs/registry": "workspace:*",
+    "@effect/platform-node": "4.0.0-rc.115"
   },
   "devDependencies": {
     "@smthrs/targets": "workspace:*",

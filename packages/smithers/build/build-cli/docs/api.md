@@ -620,18 +620,6 @@ The deterministic replacement for a real agent CLI. From
 | `ScriptedGateCall`              | `{ round: number; gates; files }`                                | One recorded scripted gate-runner call.                                                       |
 | `promptFilesOf`                 | `(prompt: string) => ReadonlyArray<string>`                      | The paths under a prompt's `=== FILES ===` section, for cross-process proofs.                 |
 
-## CreateApp
-
-The `create-app` implementation. From `@smthrs/build-cli/CreateApp`.
-
-| Export            | Signature                                               | What it is                                                              |
-| ----------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `scaffold`        | `(options: ScaffoldOptions) => Promise<ScaffoldReport>` | Copies one template into a new directory.                               |
-| `ScaffoldOptions` | `{ directory; template?; templateRoot? }`               | `template` defaults to `default`.                                       |
-| `ScaffoldReport`  | `{ directory; name; template; files }`                  | What one scaffold copied.                                               |
-| `templateRoot`    | `() => string`                                          | Locates the `template` directory of the installed `@smthrs/create-app`. |
-| `templates`       | `(root: string) => Promise<ReadonlyArray<string>>`      | The template names a directory offers, sorted.                          |
-
 ## GitCommit
 
 The `Git.Commit` implementation. From `@smthrs/build-cli/GitCommit`.

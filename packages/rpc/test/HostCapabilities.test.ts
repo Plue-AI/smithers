@@ -21,7 +21,6 @@ test("recommendations and command selection require the same explicitly configur
           identity: otherFeatures,
           cloud: otherFeatures,
           agent: otherFeatures,
-          nativeShell: otherFeatures,
           ...(recommend === undefined ? {} : { recommend })
         })
       ]
@@ -132,23 +131,6 @@ describe("localCapabilities (the Bun server, host local)", () => {
           for (const capability of localCapabilities({ agent, identity, cloud })) {
             expect(capability.startsWith("local.")).toBe(false)
           }
-        }
-      }
-    }
-  })
-
-  test("native.shell is emitted last, only when the desktop shell started the host", () => {
-    expect(localCapabilities({ agent: true, identity: false, cloud: false, nativeShell: true })).toEqual([
-      "agent",
-      "model.turn",
-      "native.shell"
-    ])
-    for (const agent of booleans) {
-      for (const identity of booleans) {
-        for (const cloud of booleans) {
-          expect(localCapabilities({ agent, identity, cloud })).not.toContain("native.shell")
-          expect(localCapabilities({ agent, identity, cloud, nativeShell: false })).not.toContain("native.shell")
-          expect(localCapabilities({ agent, identity, cloud, nativeShell: true }).at(-1)).toBe("native.shell")
         }
       }
     }

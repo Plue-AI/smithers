@@ -131,13 +131,6 @@ describe("tagged failures read as one plain sentence", () => {
 })
 
 describe("unknown failures", () => {
-  it("get the act's sentence, a details pointer, and a log record with the raw text", () => {
-    const error = new Error(RAW)
-    const line = Failures.line("fork", error)
-    expect(line).toBe("This conversation could not be forked. Details: /conversation")
-    expect(Failures.present("fork", "a thrown string").tag).toBeNull()
-    expect(logged()).toContain(RAW)
-  })
 
   it("a failure the person caused names no details and writes no log", () => {
     const before = logged()

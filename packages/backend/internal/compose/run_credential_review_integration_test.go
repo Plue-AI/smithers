@@ -96,7 +96,7 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{},
 		&routes.LandingHandler{Service: services.NewLandingService(q, reviewTestRepoHost{changeID: changeID, commitID: commitID})},
-		nil, nil, nil,
+		nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil,
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},

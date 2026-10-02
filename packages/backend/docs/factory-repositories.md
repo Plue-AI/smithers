@@ -62,8 +62,8 @@ declaration is written and again at reconciliation, because an event starts its
 flow with the event itself. A Markdown flow takes only `{ args: string }`, and
 the projection refuses anything else; a module flow's payload is decoded
 against its `payload` schema when the run is admitted, so a mismatch fails that
-run by name. Secrets never belong in a payload: the `notes/telegram` flow reads
-its bot token from `TELEGRAM_BOT_TOKEN` where the host runs.
+run by name. Secrets never belong in a payload; the host resolves credentials
+when dispatching the operation.
 
 ## Keep authority local
 

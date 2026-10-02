@@ -25,7 +25,7 @@ import { workspacePackages, isMain, repoRoot } from "./workspace-packages.mjs"
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
 
 /** Shipped consumer manifests are not workspace members, but their pins ship. */
-export const versionedTemplates = ["packages/smithers/create-app/template/default/package.json"]
+export const versionedTemplates = []
 
 /**
  * Source declarations that repeat the release version as a literal.

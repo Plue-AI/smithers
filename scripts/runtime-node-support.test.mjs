@@ -12,10 +12,6 @@ test("every published package declares the supported Node range", () => {
   const manifests = readWorkspaceManifests()
   assert.ok([...manifests.values()].some((manifest) => manifest.name === "@smthrs/cli"))
   for (const manifest of manifests.values()) assert.equal(manifest.engines.node, supported, manifest.name)
-  for (const template of ["default", "aomi"]) {
-    const manifest = JSON.parse(readFileSync(new URL(`../packages/smithers/create-app/template/${template}/package.json`, import.meta.url), "utf8"))
-    assert.equal(manifest.engines.node, supported, template)
-  }
 })
 
 test("the cell compiler's parser accepts the supported Node floor", () => {

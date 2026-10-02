@@ -16,8 +16,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-// NixOS compute path for kind=vm and kind=desktop workspaces. The container
-// kind keeps the OCI base image + apt bootstrap; vm/desktop boot the NixOS
+// NixOS compute path for kind=vm workspaces. The container
+// kind keeps the OCI base image + apt bootstrap; vm boot the NixOS
 // closure image registered for the repository (or the platform base image)
 // with the worker's PID-1 init handoff, skip apt entirely, and run a slimmer
 // bootstrap because the toolchain is part of the closure.
@@ -94,7 +94,7 @@ func buildWorkspaceNixBootstrapScript() string {
 	return buf.String()
 }
 
-// resolveWorkspaceImage returns the NixOS image for a vm/desktop workspace.
+// resolveWorkspaceImage returns the NixOS image for a vm workspace.
 func (s *WorkspaceService) resolveWorkspaceImage(ctx context.Context, repositoryID int64, kind string) (runtimeports.SandboxEnvironmentImage, error) {
 	if s.environmentImages == nil {
 		return runtimeports.SandboxEnvironmentImage{}, pkgerrors.EnvironmentImageUnavailable("kind " + normalizeWorkspaceKind(kind) + " workspaces need a registered NixOS environment image; this deployment has no image registry")
@@ -105,7 +105,7 @@ func (s *WorkspaceService) resolveWorkspaceImage(ctx context.Context, repository
 // applyNixGuest turns the container request into the NixOS boot for the
 // given image: closure image, no apt packages, golden snapshot keyed by the
 // closure (only when the caller asked for a snapshot boot), the NixOS
-// bootstrap script, and for desktops the streamed session bootstrap.
+// bootstrap script, the guest bootstrap.
 func (s *WorkspaceService) applyNixGuest(req *sandbox.CreateRequest, image runtimeports.SandboxEnvironmentImage, wantSnapshot bool, snapshotID string) {
 	req.Kind = sandboxKindForWorkspace(req.Kind)
 	req.Image = strings.TrimSpace(image.Image)
@@ -126,9 +126,7 @@ func (s *WorkspaceService) applyNixGuest(req *sandbox.CreateRequest, image runti
 			req.Init.Services[i].Exec = []string{"/bin/sh", "-lc", workspaceNixActivationWaitCommand}
 		}
 	}
-	if req.Kind == "desktop" {
-		applyWorkspaceDesktopBoot(req, s.desktopMemoryMB, s.desktopVCPUCount)
-	}
+
 }
 
 // nixGoldenSnapshotsEnabled gates closure-keyed golden snapshots for NixOS
@@ -160,7 +158,7 @@ func (s *WorkspaceService) nixGoldenSnapshotFor(ctx context.Context, image runti
 }
 
 // NixBakeVMRequest is the builder request for a closure image's golden
-// snapshot: the exact kind=vm/desktop workspace request booting that image,
+// snapshot: the exact kind=vm workspace request booting that image,
 // repository-agnostic (repositoryID 0 binds no secret), bare (no snapshot).
 func (s *WorkspaceService) NixBakeVMRequest(image runtimeports.SandboxEnvironmentImage) sandbox.CreateRequest {
 	req, _ := s.buildWorkspaceVMRequestWithImage(context.Background(), "", nil, 0, "", image.Kind, &image)
@@ -182,7 +180,7 @@ func (s *WorkspaceService) recordWorkspaceEnvironment(ctx context.Context, works
 }
 
 // recordResolvedWorkspaceEnvironment resolves and records the image for a
-// freshly created vm/desktop workspace VM. Container workspaces are untouched.
+// freshly created vm workspace VM. Container workspaces are untouched.
 func (s *WorkspaceService) recordResolvedWorkspaceEnvironment(ctx context.Context, workspace db.Workspace) {
 	if sandboxKindForWorkspace(workspace.Kind) == "container" {
 		return

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Deferred Linear, Slack, Telegram, Gmail, Google Calendar, and X adapters
+  from the MVP. GitHub, shared webhook channels, durable dispatch, and stored
+  integration data remain. Earlier entries below describe pre-cut behavior.
+  Restoration source: `0448786fcd3634143161c29117cf6dbedef1be33`
+  ([#3389](https://github.com/smithersai/smithers/issues/3389)).
+
 ### Added
 
 - `GitHub.Proxy` and `GitHub.RateLimit`: one reverse proxy per machine that

@@ -44,16 +44,6 @@ describe("commands", () => {
     expect(Editor.parseCommand("/new")).toEqual({ name: "new", argument: "" })
   })
 
-  it("cycles reasoning effort through every level and back to the provider default", () => {
-    const seen: Array<Editor.Thinking> = []
-    let level: Editor.Thinking = undefined
-    do {
-      level = Editor.nextThinking(level)
-      seen.push(level)
-    } while (level !== undefined)
-    expect(seen).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", undefined])
-  })
-
   it("formats token counts like pi's footer", () => {
     expect([950, 1234, 45_000, 1_234_567].map(Editor.tokens)).toEqual(["950", "1.2k", "45k", "1.2M"])
   })

@@ -8,7 +8,6 @@ Commands:
   continue    Continue a run a budget or time limit parked, under the allowance it recorded
   count       Count durable runs
   devtools    Inspect a run's node tree: state, timings, inputs, outputs and journal frames
-  fork        Branch a parked run at a historical frame into a durable, isolated workspace
   inspect     Inspect the state and event counts recorded at one historical frame
   list        List durable runs
   logs        Read run events or follow new events as they commit
@@ -16,7 +15,6 @@ Commands:
   replay      Replay committed history and sealed results without re-executing any actions
   rerun       Rerun a workflow
   resume      Resume a parked durable run
-  rewind      Preview or archive a run's suffix and restore an earlier frame; requires --yes to mutate
   show        Show a run's current status and diagnosis
   signal      Deliver a durable JSON signal
   steer       Send an attributed operator message

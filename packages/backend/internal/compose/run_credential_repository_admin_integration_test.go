@@ -82,7 +82,7 @@ func TestRunCredentialCannotAdministerRepositoryPostgres(t *testing.T) {
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
 		&routes.DeployKeyHandler{Service: services.NewDeployKeyService(q)},
 		&routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{},
-		nil, nil, nil,
+		nil, nil,
 		&routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil,
 		&routes.GitSmartHandler{Service: &mockRouterGitService{}},

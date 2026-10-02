@@ -128,7 +128,7 @@ const startGateway = async (): Promise<{
 
 const buildSpa = async (): Promise<void> => {
   if (process.env.SMITHERS_SKIP_SPA_BUILD === "1") return
-  for (const command of [[process.execPath, "scripts/ensure-devkit.mjs"], ["pnpm", "exec", "vite", "build", "--configLoader", "runner"]]) {
+  for (const command of [["pnpm", "exec", "vite", "build", "--configLoader", "runner"]]) {
     const code = await startChild(command).exited
     if (code !== 0) throw new Error(`[flow-graph] ${command.join(" ")} exited ${code}`)
   }

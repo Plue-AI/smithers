@@ -317,15 +317,6 @@ const LIVE_RUN_PHASES: ReadonlySet<string> = new Set(["launching", "running", "w
 // "stopped" is the phase a REFUSED cancel leaves (workflow-pump stopWatchingRun): the run may still be live, so it is not terminal;
 // TERMINAL_RUN_PHASES (RunTraceCard.tsx) is the set a Run again answers.
 
-/** The thinking levels a steer may name — the wire's own vocabulary (@smthrs/notifications). */
-const THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const
-
-/*
- * Lane runs §5 — the steer row: an operator message into the next turn, and
- * the mono strip of the other three steer kinds. Every submit is the flow
- * (runs.steer / runs.seat / runs.thinking / runs.tools); the text under the
- * pointer is presentation state, cleared the moment its flow takes it.
- */
 const RunSteerRow = ({
   runId,
   onRunCommand
@@ -334,25 +325,11 @@ const RunSteerRow = ({
   readonly onRunCommand: RunCommand
 }) => {
   const [message, setMessage] = useState("")
-  const [seat, setSeat] = useState("")
-  const [tools, setTools] = useState("")
   const sendMessage = (): void => {
     const body = message.trim()
     if (body === "") return
     onRunCommand("runs.steer", flowArgs("runs.steer", { runId, body }))
     setMessage("")
-  }
-  const sendSeat = (): void => {
-    const value = seat.trim()
-    if (value === "") return
-    onRunCommand("runs.seat", flowArgs("runs.seat", { runId, seat: value }))
-    setSeat("")
-  }
-  const sendTools = (): void => {
-    const value = tools.trim()
-    if (value === "") return
-    onRunCommand("runs.tools", flowArgs("runs.tools", { runId, toolNames: value }))
-    setTools("")
   }
   const onEnter = (submit: () => void) => (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
@@ -384,43 +361,6 @@ const RunSteerRow = ({
         >
           Steer
         </Button>
-      </div>
-      <div className="flow-run-actions flow-run-steer-strip">
-        <Input
-          className="flow-run-steer-input flow-run-steer-small"
-          aria-label="Move the run to a seat"
-          placeholder="seat — provider:model"
-          value={seat}
-          onInput={(event) => setSeat(event.currentTarget.value)}
-          onKeyDown={onEnter(sendSeat)}
-        />
-        <select
-          className="sui-input flow-run-steer-select"
-          aria-label="Change the thinking level"
-          data-testid={`flow-run-thinking-${runId}`}
-          value=""
-          onChange={(event) => {
-            const level = event.currentTarget.value
-            if (level !== "") onRunCommand("runs.thinking", flowArgs("runs.thinking", { runId, thinking: level }))
-          }}
-        >
-          <option value="" disabled>
-            thinking ▾
-          </option>
-          {THINKING_LEVELS.map((level) => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
-        </select>
-        <Input
-          className="flow-run-steer-input flow-run-steer-small"
-          aria-label="Add tools to the run"
-          placeholder="tools — comma-separated"
-          value={tools}
-          onInput={(event) => setTools(event.currentTarget.value)}
-          onKeyDown={onEnter(sendTools)}
-        />
       </div>
     </div>
   )

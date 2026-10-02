@@ -172,7 +172,6 @@ const PRESENTATION_ONLY = [
   "onMinimize(", // delegated: App.tsx binds it to card.minimize
   "onFrameBack", // delegated: App.tsx binds it to frame.back
   "onFrameForward", // delegated: App.tsx binds it to frame.forward
-  "onForkFrame", // delegated: App.tsx binds it to frame.fork
   "onOpenInTab(", // delegated: App.tsx and tabs/CardTabBody.tsx bind it to runCommand("tab.card", ...)
   "onInstall(", // delegated: PluginsSurface.tsx bind it to runCommand("plugins.install", ...)
   "onRemove(", // delegated: PluginsSurface.tsx binds it to runCommand("plugins.remove", ...)
@@ -254,7 +253,7 @@ describe("launch-law parity: every affordance is a command", () => {
 
   test("the focused guide and run-card indirections retain their bindings", () => {
     const startup = files["../StartupError.tsx"]!
-    expect(startup).toContain("await nativeSwitchBackendTarget(origin, token)")
+    expect(startup).toContain("await switchBackend(origin, token)")
     expect(startup).toContain("switchBackendTarget(target, token, window.location.origin)")
     expect(files["../LocalAuthPanel.tsx"]).toContain("void auth.submit({")
     expect(files["../LocalAuthPanel.tsx"]).toContain("auth.close()")
@@ -345,7 +344,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * Restore and Maximize. Every card body lives in its family file under
        * cards/ and is pinned there.
        */
-      "../ChatCards.tsx": 10, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
+      "../ChatCards.tsx": 9, // Includes the card error boundary's Reload app, a FailureNotice action (chat.reload).
       "../ChatRunTimeline.tsx": 1,
       /* The turn's approval card: approve and deny. */
       "../cards/ApprovalCard.tsx": 2,
@@ -375,12 +374,10 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
       
       "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles
-      "../cards/IssueThread.tsx": 6, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
+      "../cards/IssueThread.tsx": 5, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
       "../cards/FileCards.tsx": 3,
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
-      "../cards/ModelCallCard.tsx": 10,
-      "../cards/ModelCards.tsx": 11,
       /* Mark-all-read. */
       "../cards/NotificationsCard.tsx": 1,
     "../cards/RegistrationCard.tsx": 3, // Failure Retry, completed Open, and cached Analyze again; each uses the canonical flow binding.
@@ -405,15 +402,9 @@ describe("launch-law parity: every affordance is a command", () => {
        * rides the allowlist above. 15 = 13 + lane L3's ssh-host Copy (through
        * chat.copy-message) and the Egress facet's "Load older"; the Files
        * facet's rows belong to the imported FileListCardBody and are counted
-       * in ITS file. 17 = 15 + lane L3b's Desktop facet: Rotate session and
-       * the 409's Resume. The create affordance's three kind buttons share one
-       * handler, and so does the facet strip (the Desktop tab mints through
-       * box.desktop, every other tab switches through box.facet).
-       * 20 = 19 + the Desktop facet's "Open a new box": the only door for a
-       * box whose image predates the desktop tools, where a Retry is a door
-       * onto a wall.
+       * in its file. Retained facets: terminal, browser, editor, files and status.
        */
-      "../cards/WorkspaceCard.tsx": 19,
+      "../cards/WorkspaceCard.tsx": 14,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
@@ -499,7 +490,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * pager's onSelect, the view-mode pickers (wiki.card.view), cloud
        * Open page, and Refresh (wiki.sync) — all through onRunCommand.
        */
-      "../cards/ConversationCards.tsx": 14, // The empty Wiki offers wiki.create; a cloud page offers History (wiki.history); the index card's fallback tree; the Slack row's Connect (integrations.admit).
+      "../cards/ConversationCards.tsx": 13, // Wiki actions and the GitHub connection card.
       /* The factory card: one Open per present infra file, one shared handler through onRunCommand (files.read). */
       /*
        * The dispatcher card's Register door, the button door of
@@ -543,7 +534,6 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(actions).toContain("runCommand(\"card.minimize\"")
     expect(actions).toContain("runCommand(\"frame.back\"")
     expect(actions).toContain("runCommand(\"frame.forward\"")
-    expect(actions).toContain("runCommand(\"frame.fork\"")
     expect(actions).toContain("runCommand(\"tab.card\"")
     expect(actions).toContain("runCommand(\"auth.sign-in\"")
     expect(actions).toContain("runCommand(\"flow.run\"")

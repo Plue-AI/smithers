@@ -39,7 +39,6 @@ const entries = [
   ["std", "@smthrs/std", "packages/smithers/agent/std"],
   ["triggers", "@smthrs/triggers", "packages/smithers/agent/triggers"],
   ["control", "@smthrs/control", "packages/smithers/control"],
-  ["create-app", "@smthrs/create-app", "packages/smithers/create-app"],
   ["cli", "@smthrs/cli", "packages/smithers"],
   ["artifacts", "@smthrs/artifacts", "packages/smithers/flows/artifacts"],
   ["canonical", "@smthrs/canonical", "packages/smithers/flows/canonical"],

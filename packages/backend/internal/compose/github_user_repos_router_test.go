@@ -71,7 +71,6 @@ func githubUserReposSecurityRouter(service routes.GitHubUserReposRouteService) h
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},

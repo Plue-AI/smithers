@@ -43,12 +43,8 @@ type mockRouterSearchService struct{}
 
 type mockRouterAuthService struct{}
 type mockRouterRepoService struct {
-	getRepoCalls      int
-	forkRepoCalls     int
-	listTransfersFn   func(context.Context, *db.User) ([]db.RepositoryTransferRequest, error)
-	acceptTransferFn  func(context.Context, *db.User, int64) (db.Repository, error)
-	declineTransferFn func(context.Context, *db.User, int64) error
-	cancelTransferFn  func(context.Context, *db.User, int64) error
+	getRepoCalls  int
+	forkRepoCalls int
 }
 type mockRouterCommitStatusService struct {
 	listCommitStatusesFn func(ctx context.Context, repositoryID int64, ref string, page, perPage int) ([]db.CommitStatus, int64, error)
@@ -224,39 +220,6 @@ func (m *mockRouterRepoService) ArchiveRepo(ctx context.Context, actor *db.User,
 
 func (m *mockRouterRepoService) UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error) {
 	return db.Repository{}, nil
-}
-
-func (m *mockRouterRepoService) TransferRepo(ctx context.Context, actor *db.User, owner, repo, newOwner string) (services.RepoTransferResult, error) {
-	return services.RepoTransferResult{}, nil
-}
-func (m *mockRouterRepoService) ListRepoTransfers(ctx context.Context, actor *db.User) ([]db.RepositoryTransferRequest, error) {
-	if m.listTransfersFn != nil {
-		return m.listTransfersFn(ctx, actor)
-	}
-	return nil, nil
-}
-func (m *mockRouterRepoService) AcceptRepoTransfer(ctx context.Context, actor *db.User, id int64) (db.Repository, error) {
-	if m.acceptTransferFn != nil {
-		return m.acceptTransferFn(ctx, actor, id)
-	}
-	return db.Repository{}, nil
-}
-func (m *mockRouterRepoService) DeclineRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
-	if m.declineTransferFn != nil {
-		return m.declineTransferFn(ctx, actor, id)
-	}
-	return nil
-}
-func (m *mockRouterRepoService) CancelRepoTransfer(ctx context.Context, actor *db.User, id int64) error {
-	if m.cancelTransferFn != nil {
-		return m.cancelTransferFn(ctx, actor, id)
-	}
-	return nil
-}
-
-func (m *mockRouterRepoService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (services.ForkOutcome, error) {
-	m.forkRepoCalls++
-	return services.ForkOutcome{Repository: db.Repository{Name: "demo-fork", LowerName: "demo-fork"}, Created: true}, nil
 }
 
 func (m *mockRouterRepoService) GetRepoView(ctx context.Context, viewer *db.User, owner, repo string) (services.RepoView, error) {
@@ -578,7 +541,6 @@ func longTimeoutJSONCSRFCoverageRouter() http.Handler {
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		nil, // buildCacheHandler
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},
@@ -646,7 +608,6 @@ func buildCacheCSRFCoverageRouter() http.Handler {
 
 		&routes.OrgHandler{},
 		&routes.LandingHandler{},
-		nil,
 		&routes.BuildCacheHandler{},
 		nil, // stackHandler
 		&routes.SearchHandler{Service: &mockRouterSearchService{}},
@@ -1654,111 +1615,6 @@ func TestServerRouter_CommitStatusPostRoute_UsesWriteRepoMiddleware(t *testing.T
 	})
 
 	assert.False(t, called, "middleware should block unauthorized/insufficient-scope requests before handler")
-}
-
-func TestServerRouter_RepoForkRoute_RequiresWriteRepositoryScope(t *testing.T) {
-	t.Parallel()
-
-	repoSvc := &mockRouterRepoService{}
-	router := buildRouterCompat(
-		testCORSConfig(),
-		nil,
-		nil,
-		&routes.RepoHandler{Service: repoSvc},
-		&routes.AuthHandler{},
-		&routes.UserHandler{},
-		&routes.SSHKeyHandler{},
-		&routes.LabelHandler{},
-
-		&routes.OrgHandler{},
-		&routes.LandingHandler{},
-		&routes.SearchHandler{Service: &mockRouterSearchService{}},
-		&routes.IssueHandler{},
-		nil, // wikiService
-		&routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, // adminRunnerHandler
-		nil, // adminUserHandler
-		nil, // adminOrgHandler
-		nil, // adminSystemHealthHandler
-		nil, // adminGitHubAppHandler
-		nil, // adminAuditHandler
-		nil, // webhookHandler
-		nil, // secretHandler
-		nil, // variableHandler
-		nil, // commitStatusHandler
-		nil, // lfsHandler
-		nil, // jjVCSHandler
-		nil, // agentInternalHandler
-		nil, // agentSessionHandler
-		nil, // agentSessionStreamHandler
-		nil, // pushHookHandler
-		nil, // workflowHandler
-		nil, // workspaceHandler
-		nil, // workspaceInternalHandler
-		nil, // workspaceTerminalHandler
-		nil, // telemetryHandler
-		nil, // featureFlagHandler
-		nil, // oauth2Handler
-		nil, // smithersMetrics
-	)
-
-	readReq := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/forks", strings.NewReader(`{"name":"demo-fork"}`))
-	readReq.Header.Set("Content-Type", "application/json")
-	readReq = withRouterTokenAuth(readReq, middleware.ScopeReadRepository)
-	readRec := httptest.NewRecorder()
-	router.ServeHTTP(readRec, readReq)
-
-	require.Equal(t, http.StatusForbidden, readRec.Code)
-	assert.Equal(t, 0, repoSvc.forkRepoCalls, "read-scoped token must not reach the fork handler")
-
-	writeReq := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/forks", strings.NewReader(`{"name":"demo-fork"}`))
-	writeReq.Header.Set("Content-Type", "application/json")
-	writeReq = withRouterTokenAuth(writeReq, middleware.ScopeWriteRepository)
-	writeRec := httptest.NewRecorder()
-	router.ServeHTTP(writeRec, writeReq)
-
-	require.Equal(t, http.StatusAccepted, writeRec.Code)
-	assert.Equal(t, 1, repoSvc.forkRepoCalls, "write-scoped token should reach the fork handler")
-
-	// /fork is the documented spelling; /forks stays registered for clients
-	// that already call it. Both reach the same handler.
-	singularReq := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/fork", strings.NewReader(`{"name":"demo-fork"}`))
-	singularReq.Header.Set("Content-Type", "application/json")
-	singularReq = withRouterTokenAuth(singularReq, middleware.ScopeWriteRepository)
-	singularRec := httptest.NewRecorder()
-	router.ServeHTTP(singularRec, singularReq)
-
-	require.Equal(t, http.StatusAccepted, singularRec.Code)
-	assert.Equal(t, 2, repoSvc.forkRepoCalls, "POST /fork reaches the same handler as /forks")
-
-	singularReadReq := httptest.NewRequest(http.MethodPost, "/api/repos/alice/demo/fork", strings.NewReader(`{"name":"demo-fork"}`))
-	singularReadReq.Header.Set("Content-Type", "application/json")
-	singularReadReq = withRouterTokenAuth(singularReadReq, middleware.ScopeReadRepository)
-	singularReadRec := httptest.NewRecorder()
-	router.ServeHTTP(singularReadRec, singularReadReq)
-
-	require.Equal(t, http.StatusForbidden, singularReadRec.Code)
-	assert.Equal(t, 2, repoSvc.forkRepoCalls, "read-scoped token must not reach POST /fork either")
-
-	for _, endpoint := range []struct {
-		path string
-		body string
-	}{
-		{path: "/api/repos/alice/demo/fork", body: `{"name":"demo-fork"}`},
-		{path: "/api/repos/alice/demo/forks", body: `{"name":"demo-fork"}`},
-		{path: "/api/repos/alice/demo/transfer", body: `{"new_owner":"bob"}`},
-	} {
-		req := httptest.NewRequest(http.MethodPost, endpoint.path, strings.NewReader(endpoint.body))
-		req.Header.Set("Content-Type", "application/json")
-		req = withRouterTokenAuth(req, middleware.ScopeWriteRepository)
-		authInfo := middleware.AuthInfoFromContext(req.Context())
-		authInfo.RawScopes = string(middleware.ScopeWriteRepository) + "," + middleware.RepositoryRestrictionScope(101)
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-
-		require.Equal(t, http.StatusForbidden, rec.Code, "repo-bound token reached %s", endpoint.path)
-	}
-	assert.Equal(t, 2, repoSvc.forkRepoCalls, "repo-bound token must not create a fork in another namespace")
 }
 
 func TestServerRouter_RepoRoutesAreGroupedWithRepoContextMiddleware(t *testing.T) {

@@ -36,7 +36,6 @@ import * as Contributions from "./contributions.ts"
 import * as Cursor from "./cursor.ts"
 import * as DevTools from "./devtools.ts"
 import * as Editor from "./editor.ts"
-import * as Estimate from "./estimate.ts"
 import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Factory from "./factory.ts"
@@ -50,7 +49,6 @@ import {
 } from "./flows.ts"
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
-import * as Improve from "./improve.ts"
 import * as Inbox from "./inbox.ts"
 import * as Dispatch from "./key-dispatch.ts"
 import * as Keys from "./keys.ts"
@@ -111,8 +109,6 @@ interface TurnState {
   readonly handle: Host.Turn
   readonly startedAt: number
   readonly steering: Steering.Queue
-  /** The turn's id in the estimate ledger. */
-  readonly estimate: string
 }
 
 type Picker = Pickers.Picker
@@ -144,7 +140,6 @@ export function App(props: AppProps) {
   })
   const [transcript, setTranscript] = useState(restored.current?.transcript ?? Transcript.empty)
   const [seat, setSeat] = useState(props.seat)
-  const [thinking, setThinking] = useState<Editor.Thinking>(undefined)
   const [turn, setTurn] = useState<TurnState | undefined>()
   const [shell, setShell] = useState<Shell.Running | undefined>()
   /** When an undo started; set from the confirm until its real settlement. */
@@ -267,19 +262,6 @@ export function App(props: AppProps) {
   useEffect(() => () => {
     void monitors.dispose()
   }, [monitors])
-  // One ledger per directory: every session's work calibrates the next estimate.
-  // Its failures toast once each, through a ref the render sets.
-  const estimateProblem = useRef((_: string) => {})
-  const [estimator] = useState(() => {
-    const complete = props.host.complete
-    const seat = Models.estimateSeat(props.models)
-    return new Estimate.Estimator({
-      ledger: new Improve.Ledger(Estimate.ledgerFile(props.host.cwd), {
-        onWriteError: (error) => estimateProblem.current(Failures.line("estimates", error))
-      }),
-      model: complete === undefined || seat === undefined ? undefined : (request) => complete({ ...request, seat })
-    })
-  })
   runsRef.current = runs
   workspaceRef.current = workspace
   const files = useRef(Files.lister(props.host.cwd, Date.now, () => setRevision((value) => value + 1)))
@@ -390,15 +372,6 @@ export function App(props: AppProps) {
     return () => watcher.dispose()
   }, [runs, props.flows, props.host.cwd])
   const flowRuns = runs.snapshot()
-  useEffect(() => estimator.subscribe(() => setRevision((value) => value + 1)), [estimator])
-  useEffect(() => {
-    const timer = setTimeout(() => estimator.seed(join(Session.directory(props.host.cwd), "workers")), 0)
-    return () => clearTimeout(timer)
-  }, [estimator, props.host.cwd])
-  useEffect(() => {
-    estimator.tabs(workspace.snapshot().tabs)
-    estimator.flows(runs.snapshot(), (flow) => runs.listed().find((listed) => listed.name === flow)?.description)
-  }, [estimator, workspace, runs, revision])
   /** Opens a run's form for its missing input. */
   const openForm = useCallback((id: string) => {
     const run = runs.get(id)
@@ -501,14 +474,6 @@ export function App(props: AppProps) {
     search?.status === "running" ||
     snapshot.tabs.some((tab) => tab.endedAt !== undefined && sampledAt - tab.endedAt < NOTICE_SETTLE_MS)
   const now = useClock(clockRunning, 100)
-  const eta = (id: string, status: string, startedAt: number) => {
-    if (
-      status === "done" || status === "failed" || status === "cancelled" || status === "parked" || status === "waiting"
-    ) return ""
-    // Queued work has not started: its label is the whole estimate.
-    const text = Estimate.label(estimator.get(id), status === "queued" ? now : startedAt, now)
-    return text === "" ? "" : ` ${text}`
-  }
   const cardIds = new Set(snapshot.cards ?? [])
   /**
    * A repository flow's latest run or agent tab, as the status item
@@ -667,15 +632,13 @@ export function App(props: AppProps) {
       showRun(run.id, run.flow)
     }
   }, [revision, runs, cardFlows])
-  const tabEta = (tab: Tab) => eta(Estimate.tabId(tab), tab.status, Estimate.tabStart(tab)).trim()
   const tick = spinner[Math.floor(now / 100) % spinner.length]!
   const surfaces = Surfaces.chips({
     workspace: snapshot,
     runs: flowRuns,
     plugins: pluginTabs,
     views: uiPanels.filter((panel) => !pluginPanels.includes(panel)),
-    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now, tabEta(tab)),
-    runEta: (run) => eta(Estimate.runId(run), run.status, run.launchedAt ?? run.startedAt)
+    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now),
   })
   const clickTab = (id: string) => {
     flushSync(() => {
@@ -912,7 +875,6 @@ export function App(props: AppProps) {
   useEffect(() => {
     if (restored.damaged !== undefined) setStatus(restored.damaged, "danger")
   }, [])
-  estimateProblem.current = (text) => setStatus(text, "warning")
 
   // A dialog's rows follow the dialog and its sources, never the 100 ms clock: the palette ranks every file.
   const tabsKey = snapshot.tabs.map((tab) => `${tab.id}\0${tab.title}\0${tab.status}`).join("\n")
@@ -983,7 +945,6 @@ export function App(props: AppProps) {
     undoing,
     followUps,
     seat,
-    thinking,
     picker,
     approvals,
     now,
@@ -999,7 +960,6 @@ export function App(props: AppProps) {
     undoing,
     followUps,
     seat,
-    thinking,
     picker,
     approvals,
     now,
@@ -1130,9 +1090,6 @@ export function App(props: AppProps) {
     const steering = Steering.make()
     const steered: Array<string> = []
     const startedAt = Date.now()
-    const estimate = `turn:${writer.current.file}:${startedAt}`
-    let tokens: number | undefined
-    estimator.request({ id: estimate, kind: "turn", key: `turn:${live.current.seat}`, subject: prompt, startedAt })
     writer.current.append({ type: "user", at: startedAt, text: prompt })
     setTranscript((current) => Transcript.user(current, prompt, false, startedAt))
     const handle = props.host.run({
@@ -1165,7 +1122,6 @@ export function App(props: AppProps) {
         list: () => [...workspace.snapshot().tabs, ...runs.snapshot()],
         retry: (id) => (runs.has(id) ? runs.retry(id) : workspace.retry(id)),
         monitors,
-        eta: () => estimator.eta(Estimate.active(workspace.snapshot().tabs, runs.snapshot()), Date.now(), seats),
         ...(props.flows === undefined ? {} : {
           flows: {
             list: () => runs.describe((flow) => flow.modelInvocable),
@@ -1184,13 +1140,10 @@ export function App(props: AppProps) {
         setTranscript((current) => Transcript.patched(current, receipt))
       },
       steering: steering.source,
-      ...(live.current.thinking === undefined ? {} : { thinking: live.current.thinking }),
       onEvent: (event) => {
         const at = Date.now()
         if (event._tag !== "model-delta") writer.current.append({ type: "event", at, event })
-        if (event._tag === "model-settled") {
-          tokens = (tokens ?? 0) + (Estimate.usage([{ type: "event", at, event }]) ?? 0)
-        }
+
         if (event._tag === "steering-drained") {
           for (const message of event.messages) {
             steered.push(message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""))
@@ -1199,7 +1152,7 @@ export function App(props: AppProps) {
         setTranscript((current) => Transcript.apply(current, event, at))
       }
     })
-    const state: TurnState = { handle, startedAt, steering, estimate }
+    const state: TurnState = { handle, startedAt, steering }
     live.current.turn = state
     setTurn(state)
     void handle.done.then((outcome) => {
@@ -1216,7 +1169,6 @@ export function App(props: AppProps) {
         prompt: said,
         outcome: headline === undefined ? outcome : { ...outcome, headline }
       })
-      estimator.settle(estimate, { ms: at - startedAt, ...(tokens === undefined ? {} : { tokens }) }, outcome._tag, at)
       if (outcome._tag === "done") entries.current.push({ kind: "exchange", user: said, answer: outcome.answer })
       if (headline !== undefined) setTranscript((current) => Transcript.failure(current, headline, at))
       if (outcome._tag === "cancelled") setTranscript((current) => Transcript.stopped(current, at))
@@ -1228,7 +1180,7 @@ export function App(props: AppProps) {
       const next = undelivered.length > 0 ? undelivered.join("\n\n") : dequeue()
       if (next !== undefined) startTurnRef.current(next)
     })
-  }, [props.host, props.flows, workspace, runs, monitors, estimator, contribute, dequeue])
+  }, [props.host, props.flows, workspace, runs, monitors, contribute, dequeue])
   const startTurnRef = useRef(startTurn)
   startTurnRef.current = startTurn
 
@@ -1417,20 +1369,7 @@ export function App(props: AppProps) {
     setStatus(`Resumed ${state.name ?? basename(file)}`)
   }, [adopt, setStatus])
 
-  const forkSession = useCallback((turn: Session.Turn) => {
-    let result: Session.Fork
-    try {
-      result = Session.fork(writer.current.file, props.host.cwd, turn)
-    } catch (error) {
-      return setStatus(Failures.line("fork", error), "danger")
-    }
-    if (result._tag === "Stale") return setStatus("Session changed; fork again", "warning")
-    adopt(result.writer, result.records)
-    setText(result.text)
-    setStatus("Forked to a new conversation")
-  }, [adopt, setText, setStatus, props.host.cwd])
-
-  /** `/new`, `/resume` and `/fork` wait for a turn, a `!cmd`, an undo, workers and flow runs, from any door. */
+  /** `/new` and `/resume` wait for a turn, a `!cmd`, an undo, workers and flow runs, from any door. */
   const occupied = () =>
     live.current.turn !== undefined || live.current.shell !== undefined || live.current.undoing !== undefined ||
     workspace.busy || runs.busy
@@ -1620,16 +1559,6 @@ export function App(props: AppProps) {
       case "theme":
         setPicker({ kind: "theme", query: "", selected: 0 })
         return true
-      case "thinking": {
-        const level = argument === "" || argument === "default" ? undefined : argument
-        if (level !== undefined && !(Editor.thinkingLevels as ReadonlyArray<string>).includes(level)) {
-          setStatus(`Thinking levels: default, ${Editor.thinkingLevels.join(", ")}`, "warning")
-          return true
-        }
-        setThinking(level as Editor.Thinking)
-        setStatus(`Thinking level: ${level ?? "default"}`)
-        return true
-      }
       case "new":
         if (occupied()) {
           setStatus("Stop running work first", "warning")
@@ -1638,22 +1567,6 @@ export function App(props: AppProps) {
       case "resume":
         setPicker({ kind: "resume", query: "", selected: 0, sessions: Session.list(props.host.cwd) })
         return true
-      case "fork": {
-        if (occupied()) {
-          setStatus("Stop running work first", "warning")
-          return true
-        }
-        let turns: ReadonlyArray<Session.Turn>
-        try {
-          turns = existsSync(writer.current.file) ? Session.turns(Session.load(writer.current.file)) : []
-        } catch (error) {
-          setStatus(Failures.line("fork", error), "danger")
-          return true
-        }
-        if (turns.length === 0) setStatus("No messages to fork from")
-        else setPicker({ kind: "fork", query: "", selected: 0, turns })
-        return true
-      }
       case "conversation": {
         const usage = transcript.usage
         setTranscript((current) =>
@@ -1887,14 +1800,7 @@ export function App(props: AppProps) {
     if (open.kind === "flows" && runs.unloaded(value)) return
     setPicker(undefined)
     if (open.kind === "undo") return
-    if (open.kind === "fork") {
-      const turn = open.turns.find((each) => String(each.index) === value)
-      if (turn === undefined) return
-      if (occupied()) {
-        return setStatus("Stop running work first", "warning")
-      }
-      return forkSession(turn)
-    }
+
     if (open.kind === "model") return switchSeat(value)
     if (open.kind === "worker-model") return workspace.retry(open.id, value)
     if (open.kind === "flows") {
@@ -1954,7 +1860,7 @@ export function App(props: AppProps) {
       }
     }
     resumeGuarded(value)
-  }, [switchSeat, openSession, forkSession, setStatus, workspace, runs, setText, command])
+  }, [switchSeat, openSession, setStatus, workspace, runs, setText, command])
 
   /** Which keys act right now, in the order `handleKey` tries them. */
   const keyContext = (): Keys.KeyContext =>
@@ -2474,11 +2380,6 @@ export function App(props: AppProps) {
       quit,
       submit: (followUp) => submit(followUp),
       restoreQueued: () => restoreQueued(),
-      nextThinking: () => {
-        const next = Editor.nextThinking(live.current.thinking)
-        setThinking(next)
-        setStatus(`Thinking level: ${next ?? "default"}`)
-      },
       pickModel: () => flushSync(() => setPicker({ kind: "model", query: "", selected: 0 })),
       cycleModel,
       toggleExpanded: () => setExpanded((value) => !value),
@@ -2661,7 +2562,6 @@ export function App(props: AppProps) {
                 active={surface}
                 models={props.models}
                 now={now}
-                eta={tabEta}
                 onSelect={clickTab}
               />
             </box>
@@ -2920,7 +2820,6 @@ export function App(props: AppProps) {
                 menu={menu}
                 selected={menuIndex}
                 seat={seat}
-                thinking={thinking}
                 rows={short ? Math.max(1, Math.floor(chatHeight / 4)) : undefined}
               />
             )}
@@ -3003,7 +2902,6 @@ export function App(props: AppProps) {
                     )
                     : null}
                   <AppView.ComposerModel seat={seat} models={props.models} worker={driven ?? steered} />
-                  {thinking === undefined ? null : <span fg={color.warning}>{"  "}{thinking}</span>}
                 </text>
               </box>
             </box>
@@ -3013,7 +2911,6 @@ export function App(props: AppProps) {
               ? (
                 <>
                   <span fg={color.brand}>{tick} {Transcript.duration(now - turn.startedAt)}</span>
-                  <span fg={color.faint}>{eta(turn.estimate, "running", turn.startedAt)}</span>
                 </>
               )
               : (

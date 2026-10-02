@@ -243,4 +243,4 @@ Returns the frozen table entry itself, not a copy.
 - [The shape of a SmithersError](./concepts/error-shape.md): the guarantee
   behind each field.
 - [`@smthrs/integrations`](/api/integrations): the only consumer, and the source
-  of the `IntegrationError` and `TelegramApiError` subclasses.
+  of the `IntegrationError` subclass.

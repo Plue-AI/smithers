@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -178,21 +177,6 @@ func TestRepoService_ForkAndOrgRepo_UseRepositoryCap(t *testing.T) {
 		assert.Equal(t, db.CountReposByOwnerParams{OwnerType: BillingOwnerTypeOrg, OwnerID: 77}, counted)
 	})
 
-	t.Run("public fork", func(t *testing.T) {
-		billing, _ := billingAtRepoCounts(200, 0, 0)
-		source := testRepo(func(repository *db.Repository) {
-			repository.UserID = pgtype.Int8{Int64: 99, Valid: true}
-			repository.IsPublic = true
-		})
-		q := &mockRepoQuerier{
-			getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-				return source, nil
-			},
-		}
-		_, err := NewRepoService(q, &mockRepoHostClient{}, "s1", WithRepoBillingPolicy(billing)).
-			ForkRepo(context.Background(), testUser(), "someone", "src", "copy", "")
-		requirePlanLimit(t, err, BillingMetricRepos, 200)
-	})
 }
 
 func TestOrgService_CreateOrg_OwnedOrganizationCap(t *testing.T) {

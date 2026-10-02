@@ -19,7 +19,7 @@ import { isEventName } from "./SignalName.ts"
  * @since 1.0.0
  */
 export const ExternalEvent = Schema.Struct({
-  /** The source that produced it: `github`, `linear`, `telegram`. */
+  /** The source that produced it: `github`. */
   source: Schema.NonEmptyString,
   /**
    * The signal name, `integration:<service>:<event>`.

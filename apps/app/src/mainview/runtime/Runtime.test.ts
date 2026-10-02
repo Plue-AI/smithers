@@ -144,17 +144,6 @@ for (const [capabilities, available] of [
   expect(runtime.backend.agent?.journal !== undefined).toBe(available === true)
 })
 
-test("native shell retains and invokes the exact host callback", async () => {
-  const calls: string[] = []
-  const openExternal = async (url: string) => { calls.push(url); return false }
-  const runtime = createRuntime({ bootstrap: cloud, http: async () => new Response(null, { status: 204 }), nativeOpenExternal: openExternal })
-  expect(runtime.shell.kind).toBe("native")
-  if (runtime.shell.kind !== "native") throw new Error("Native shell was not composed")
-  expect(runtime.shell.openExternal).toBe(openExternal)
-  expect(await runtime.shell.openExternal("https://example.test/settings")).toBe(false)
-  expect(calls).toEqual(["https://example.test/settings"])
-})
-
 test("the unavailable adapter remains callable without emitting or retaining listeners", async () => {
   const first = unavailableAgent(), second = unavailableAgent()
   let deliveries = 0

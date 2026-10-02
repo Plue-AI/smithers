@@ -281,39 +281,3 @@ test("plain repository chat carries no practice priming or hidden tutorial obser
   expect((JSON.stringify(requests[0]?.context?.repositoryUpdate) ?? "")).not.toContain("practice:")
   expect(requests[0]?.context?.onboarding).toBeUndefined()
 })
-
-test("browser chat sees a desktop opened outside chat and refreshes its stream state without credentials", async () => {
-  const { holdDesktopStream, dropDesktopStream } = await import('./seams/DesktopStream')
-  const { AgentRuntimeContextSchema } = await import('@smthrs/rpc/AgentContext')
-  const store = await webStore()
-  const requests: StartAgentTurnRequest[] = []
-  const controller = createAppController(store, recordingAgent(requests), {
-    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "redirect", sandbox: null },
-  })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
-  await store.dispatch({ type: "card.upsert", actor: "user", card: {
-    id: "desktop-context", kind: "workspace", title: "My desktop", status: "active", ordinal: 1, createdAt: 1,
-    payload: { workspaceId: "ws-context", repo: "acme/api", name: "My desktop", targetBookmark: "main", status: "running",
-      provisioningStage: null, suspendedAt: null, bookmarkHead: null, sessions: [], workspaceKind: "desktop", facet: "desktop" },
-  } }).isPersisted.promise
-  holdDesktopStream({ workspaceId: "ws-context", url: "https://desktop.invalid/?token=secret-fixture", sessionId: "private-session", expiresAt: null })
-  try {
-    controller.send("What did I just open?")
-    await settled()
-    const context = AgentRuntimeContextSchema.parse(requests[0]?.context)
-    expect(context.recentCards).toContainEqual({ id: "desktop-context", kind: "workspace", title: "My desktop", status: "active", maximized: false,
-      workspace: { id: "ws-context", repo: "acme/api", kind: "desktop", status: "running", facet: "desktop", streaming: true } })
-    expect(context.capabilities.join(' ')).toContain('box.desktop.open')
-    expect(context.capabilities.join(' ')).toContain('does not require the native app')
-    const rendered = renderAgentRuntimeContext(context)
-    expect(rendered).toContain('desktop stream=attached')
-    expect(rendered).toContain('embedded in chat')
-    expect(JSON.stringify(requests[0])).not.toContain('secret-fixture')
-    expect(JSON.stringify(requests[0])).not.toContain('private-session')
-    dropDesktopStream()
-    controller.send("Is it still connected?")
-    await settled()
-    expect(requests[1]?.context?.recentCards?.find(card => card.id === 'desktop-context')?.workspace?.streaming).toBe(false)
-    expect(requests[1]?.messages.some(message => 'content' in message && message.content === 'What did I just open?')).toBe(true)
-  } finally { dropDesktopStream() }
-})

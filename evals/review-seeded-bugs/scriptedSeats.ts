@@ -1,7 +1,7 @@
 /**
  * A seat resolver that answers from a function instead of a provider.
  *
- * Copied deliberately rather than imported from `apps/review/tests`: an eval
+ * Copied deliberately rather than imported from `flows/review/tests`: an eval
  * that reaches into another package's test tree breaks the moment those tests
  * are reorganised, and this file is the eval's own harness.
  *

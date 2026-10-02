@@ -108,11 +108,10 @@ root is the marketing site. `SMITHERS_REAL_APP_PATH` selects a same-origin app
 repository path; its production default is
 `/codeplanesmithers/canary-sandbox`.
 
-## Six-mode release matrix
+## Four-mode release matrix
 
 `scripts/run-mode-matrix.ts` applies one obligation catalog to
-`web-selfhost`, `web-plue`, `local-own`, `local-plue`, `native-own`, and
-`native-plue`. It selects scenarios by their stable `real-scenario` tag, not
+`web-selfhost`, `web-plue`, `local-own`, and `local-plue`. It selects scenarios by their stable `real-scenario` tag, not
 their old host tag, so a mode cannot get a smaller copied suite. `audit`
 records readiness only; `run` also runs the deterministic nonblocking/toast
 specs and every currently implemented real scenario in the catalog.
@@ -127,11 +126,11 @@ one exact source revision and an array of mode records:
 {
   "revision": "0123456789012345678901234567890123456789",
   "modes": [{
-    "mode": "native-own",
+    "mode": "local-own",
     "origin": "http://127.0.0.1:47321",
     "endpoint": "http://127.0.0.1:47321",
     "auth": { "kind": "owner-session", "environment": "SMITHERS_OWNER_SESSION" },
-    "executionReceipt": "/absolute/path/to/native-own.json"
+    "executionReceipt": "/absolute/path/to/local-own.json"
   }]
 }
 ```
@@ -141,8 +140,8 @@ the report. `browser-profile` is wired to the current real fixture;
 `owner-session` remains explicitly unavailable until issue 05 supplies its
 real injection seam. The launcher receipt binds mode, origin, backend endpoint, revision, readiness, and
 started process roles. Own modes must prove fresh launch and data-preserving
-restart. `native-own` must prove its supervisor, app, and PostgreSQL;
-Plue-backed local/native modes fail if they started any of those processes.
+restart. `local-own` must prove its app and PostgreSQL;
+Plue-backed local modes fail if they started either process.
 
 Readiness reads `/api/bootstrap` for every mode and records its `buildSha`.
 A mode owes each scenario whose capabilities are all core features of its
@@ -181,12 +180,12 @@ The `web-plue` launcher runs nothing from the checkout: it observes the
 Worker's bootstrap and app document. Scenario runs receive the certified
 `buildSha`, and a Plue attempt against any other build fails its obligation.
 
-The default run selects all six modes. Missing Plue configuration appears as
+The default run selects all four modes. Missing Plue configuration appears as
 `not-configured` and fails the gate. For a developer run, `--modes own-only`
-selects the three owned modes; an explicit comma-separated list can select
+selects the two owned modes; an explicit comma-separated list can select
 other subsets. A passing subset report has `scope: "partial"`, lists its modes,
-and has `sixModeAccepted: false`. Only a passing full selection sets
-`sixModeAccepted: true`.
+and has `allModesAccepted: false`. Only a passing full selection sets
+`allModesAccepted: true`.
 
 Rows are `passed`, `failed`, `unavailable`, or `not-configured`; there is no
 skip state. A scenario row is `failed` when the mode's launch or readiness
@@ -206,7 +205,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 2. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 3. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one

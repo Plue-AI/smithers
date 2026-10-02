@@ -38,8 +38,6 @@ repositories["repo list"] = (c, _a, o) =>
   c.request("GET", "/api/user/repos" + query({ page: o.page, per_page: o.limit }))
 repositories["repo view"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo))
 repositories["repo home"] = (c, a, o) => c.request("GET", c.repoPath(o.repo || a.repo) + "/home")
-repositories["repo fork"] = (c, a, o) =>
-  c.request("POST", c.repoPath(a.repo) + "/forks", pick(o, ["name", "organization"]))
 // The cached registration result (Registration.Report, #3239): another account's finished report of a
 // public repository at its current commit, or none; nothing is launched and no model runs.
 repositories["repo report"] = async (c, a, o) => {
@@ -57,7 +55,6 @@ repositories["repo report"] = async (c, a, o) => {
     ? { cached: true, repo, commit: shared.commit, recordedAt: shared.recordedAt, report: shared.report }
     : { cached: false, repo }
 }
-repositories["repo transfer"] = (c, a, o) => c.request("POST", c.repoPath(a.repo) + "/transfer", { new_owner: o.to })
 repositories["repo edit"] = (c, a, o) =>
   c.request("PATCH", c.repoPath(a.repo), pick(o, ["name", "description", "private"]))
 repositories["repo mirror-sync"] = (c, _a, o) => c.request("POST", c.repoPath(o.repo) + "/mirror-sync")

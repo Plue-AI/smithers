@@ -29,8 +29,9 @@ func TestChangeServiceGetWalkthroughReturnsRevisionArtifact(t *testing.T) {
 	assert.Equal(t, db.GetChangeWalkthroughParams{RepositoryID: 42, ChangeID: "change-1", RevisionSeq: 3}, queries.walkthroughGet)
 	require.Len(t, got.Sections, 1)
 	assert.Equal(t, ChangeWalkthroughSection{Title: "Data flow", Markdown: "Read **this** first.", Diagram: &diagram}, got.Sections[0])
-	require.Len(t, got.Quiz, 1)
-	assert.JSONEq(t, `{"question":"What is cached?","options":["A","B"],"correctIndex":1}`, string(got.Quiz[0]))
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "quiz")
 }
 
 func TestChangeServiceGetWalkthroughDefaultsToLatestAndReturnsNotFound(t *testing.T) {
@@ -63,12 +64,12 @@ func TestChangeServiceStoreWalkthroughPersistsAndNotifiesExactRevision(t *testin
 	diagram := "sequenceDiagram\nA->>B: review"
 	input := ChangeWalkthroughResponse{
 		Sections: []ChangeWalkthroughSection{{Title: "Review", Markdown: "Narrative", Diagram: &diagram}},
-		Quiz:     []json.RawMessage{json.RawMessage(`{"question":"Why?"}`)},
 	}
 
 	got, err := NewChangeService(queries, nil, nil).StoreWalkthrough(context.Background(), 42, "change-1", 5, input)
 	require.NoError(t, err)
 	assert.Equal(t, input.Sections, got.Sections)
+	assert.JSONEq(t, `[]`, string(queries.walkthroughUpserts[0].Quiz))
 	require.Len(t, queries.walkthroughUpserts, 1)
 	assert.Equal(t, int64(91), queries.walkthroughUpserts[0].ChangeRevisionID)
 	assert.JSONEq(t, `[{"title":"Review","markdown":"Narrative","diagram":"sequenceDiagram\nA->>B: review"}]`, string(queries.walkthroughUpserts[0].Sections))
@@ -114,4 +115,14 @@ func assertAPIStatus(t *testing.T, err error, status int) {
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, status, apiErr.Status)
+}
+
+func TestChangeWalkthroughHistoricalQuizDoesNotAffectSections(t *testing.T) {
+	t.Parallel()
+	for _, legacy := range []json.RawMessage{json.RawMessage(`[{"question":"old"}]`), json.RawMessage(`null`), json.RawMessage(`{"retired":"shape"}`)} {
+		got, err := decodeChangeWalkthrough(db.ChangeWalkthrough{Sections: json.RawMessage(`[{"title":"Kept","markdown":"Narrative"}]`), Quiz: legacy})
+		require.NoError(t, err)
+		require.Len(t, got.Sections, 1)
+		assert.Equal(t, "Kept", got.Sections[0].Title)
+	}
 }

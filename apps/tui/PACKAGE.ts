@@ -171,12 +171,12 @@ const securityReview = Smithers.SecurityReview({
       title: "Session, worker, eval and diagnostic files are owner-only and redacted before they reach disk",
       threat: "Another local user reads the person's prompts, diffs, shell output and tokens from ~/.smithers/tui.",
       lookFor: [
-        "A mkdir without mode 0o700 plus chmod, or a file write or append without mode 0o600, in session.ts, log.ts or improve.ts.",
+        "A mkdir without mode 0o700 plus chmod, or a file write or append without mode 0o600, in session.ts or log.ts.",
         "A `Session.Record` type written through `JSON.stringify` without `strings` redaction that can hold model or tool text rather than ids, paths or re-executed bytes.",
         "`directory` or `slug` letting a crafted cwd escape `root()` with `..` or an absolute component.",
         "Resume or fork reading a session file from another cwd's folder without matching its header cwd."
       ],
-      paths: ["src/session.ts", "src/log.ts", "src/improve.ts", "src/workspace.ts"]
+      paths: ["src/session.ts", "src/log.ts", "src/workspace.ts"]
     },
     {
       id: "undo-write-containment",

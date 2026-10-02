@@ -20,7 +20,7 @@ const report = checkRealE2E({
   deferred: UNSCENARIOED_ACTIONS,
   releaseCritical: RELEASE_CRITICAL_ACTIONS,
   expectedRevision: value("--expected-revision"),
-  expectedHost: value("--expected-host") as "local" | "production" | "native" | undefined
+  expectedHost: value("--expected-host") as "local" | "production" | undefined
 })
 
 mkdirSync(dirname(reportFile), { recursive: true })
@@ -37,7 +37,6 @@ function joinDefault(root: string, child: string): string {
 {
   const baseline = {
     browser: [
-      "app.download.prompt", "app.first-run.dismiss", "app.hint.dismiss", "chat", "chat.dictate",
       "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.queue",
       "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.queue.resume", "chat.reload",
       "cloud.prompt", "flow.plan.select", "flow.plan.tab", "flow.repo.choose", "history.view", "input.mode",
@@ -52,11 +51,9 @@ function joinDefault(root: string, child: string): string {
     owed: [
       "admin.grant.confirm", "agent.list",
       "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view",
-      "app.download", "approvals.open", "billing.plans", "billing.portal", "billing.upgrade",
       "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
       "change.revert", "change.split", "code.definition", "code.diagnostics",
-      "code.hover", "commits.list", "commits.read", "connect", "desktop",
-      "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
+      "code.hover", "commits.list", "commits.read", "connect", "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
       "files.list", "files.open-diff", "integrations.admit", "integrations.list", "issues.comment.react", "issues.comment.retry",
       "issues.fix", "issues.set", "issues.verify", "files.read", "findings.not-useful", "findings.please-fix",
       "flow.plan", "flow.run.retry", "flows", "github.app.choose", "github.app.open",
@@ -71,8 +68,7 @@ function joinDefault(root: string, child: string): string {
       "secrets.move", "search.targets", "search.wiki", "setup.ask", "setup.discard",
       "setup.discard.confirm", "setup.guide", "setup.retry", "setup.work", "secrets.scope",
       "history.backfill", "history.parallel", "history.retry", "history.show", "triggers.approve",
-      "triggers.pause", "triggers.resume", "triggers.run", "box.desktop", "box.desktop.open",
-      "box.desktop.rotate", "box.desktop.stop", "box.images", "box.list", "workspace.rename",
+      "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "workspace.rename",
       "box.session.destroy", "box.select",
     ],
   } as const

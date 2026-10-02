@@ -219,7 +219,6 @@ describe("WorkerList", () => {
         active="tab:a"
         models={models}
         now={4_000}
-        eta={() => ""}
         onSelect={(id) => opened.push(id)}
       />,
       24,

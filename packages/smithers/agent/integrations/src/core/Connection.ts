@@ -49,7 +49,7 @@ export const CredentialReference = Schema.Struct({
  */
 export const Connection = Schema.Struct({
   id: ConnectionId,
-  /** The provider: `github`, `slack`, `googlecalendar`. */
+  /** The provider: `github`. */
   provider: Schema.NonEmptyString,
   /** A human label for operators. */
   label: Schema.String,

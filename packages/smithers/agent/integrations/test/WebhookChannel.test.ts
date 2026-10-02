@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest"
 import * as Core from "../src/core/Channel.ts"
 import { readHeader } from "../src/core/JsonPath.ts"
 import { computeHmacSha256Hex, GITHUB_SIGNATURE_PREFIX, verifySignature } from "../src/core/Signature.ts"
-import * as LinearWebhook from "../src/linear/Webhook.ts"
 
 const SECRET = "shared-secret-correct"
 const WRONG_SECRET = "shared-secret-wrong"
@@ -252,88 +251,6 @@ describe("redelivery", () => {
   })
 })
 
-const linearBody = (timestampMs: number) =>
-  JSON.stringify({
-    action: "update",
-    type: "Issue",
-    data: { id: "issue-uuid", identifier: "ENG-123", team: { key: "ENG" } },
-    webhookId: "hook-1",
-    webhookTimestamp: timestampMs
-  })
-
-// Derived, not invented: the Linear fixture builds its key the way an ingress
-// must, through the helper the module exports.
-const linearDelivery = (body: string, signature: string): Channels.RawInbound => {
-  const raw = { body: bytes(body), headers: { "linear-signature": signature, "linear-delivery": "linear-delivery-1" } }
-  // An ingress derives the key before it knows whether the body is JSON, which
-  // is exactly why the helper falls back to the header on its own.
-  let payload: unknown
-  try {
-    payload = JSON.parse(body)
-  } catch {
-    payload = undefined
-  }
-  return { ...raw, idempotencyKey: LinearWebhook.idempotencyKey(raw, payload) }
-}
-
-describe("Linear channel", () => {
-  // The channel verifies against the live clock, so deliveries are stamped
-  // relative to it.
-  const now = Date.now()
-
-  const channel = (options: { readonly maxTimestampSkewMs?: number } = {}) =>
-    LinearWebhook.channel({
-      credential: Redacted.make({ id: "linear-webhook", name: "linear-webhook" }),
-      secret: Core.constantSecret(Redacted.make(SECRET)),
-      route: Core.startFlow("triage"),
-      ...options
-    })
-
-  it("accepts a fresh, correctly signed delivery", async () => {
-    const calls: Array<string> = []
-    const body = linearBody(now)
-    const exit = await ingest(channel(), linearDelivery(body, computeHmacSha256Hex(body, SECRET)), calls)
-    expect(exit._tag).toBe("Success")
-    expect(calls).toEqual(["plan", "run"])
-  })
-
-  it("refuses a delivery signed with a different secret", async () => {
-    const calls: Array<string> = []
-    const body = linearBody(now)
-    const exit = await ingest(channel(), linearDelivery(body, computeHmacSha256Hex(body, WRONG_SECRET)), calls)
-    expect(exit._tag).toBe("Failure")
-    expect(calls).toEqual([])
-  })
-
-  // A valid signature never expires, so without the freshness window a
-  // captured delivery could be replayed forever.
-  it("refuses a correctly signed delivery whose timestamp is stale", async () => {
-    const body = linearBody(now - 120_000)
-    const exit = await ingest(channel(), linearDelivery(body, computeHmacSha256Hex(body, SECRET)))
-    expect(exit._tag).toBe("Failure")
-  })
-
-  it("accepts a stale delivery when the caller widens the window", async () => {
-    const body = linearBody(now - 120_000)
-    const exit = await ingest(
-      channel({ maxTimestampSkewMs: 600_000 }),
-      linearDelivery(body, computeHmacSha256Hex(body, SECRET))
-    )
-    expect(exit._tag).toBe("Success")
-  })
-
-  it("refuses a correctly signed delivery with no timestamp, and one that is not JSON", async () => {
-    const noTimestamp = JSON.stringify({ action: "update", type: "Issue", data: { id: "x" } })
-    expect(
-      (await ingest(channel(), linearDelivery(noTimestamp, computeHmacSha256Hex(noTimestamp, SECRET))))._tag
-    ).toBe("Failure")
-    const notJson = "not json"
-    expect(
-      (await ingest(channel(), linearDelivery(notJson, computeHmacSha256Hex(notJson, SECRET))))._tag
-    ).toBe("Failure")
-  })
-})
-
 describe("secret resolution", () => {
   it("resolves through the control plane's credential store", async () => {
     const resolver = Core.credentialSecret({
@@ -359,26 +276,6 @@ describe("secret resolution", () => {
     })
     const failure = await Effect.runPromise(Effect.flip(resolver(CREDENTIAL)))
     expect(failure.message).toBe("denied")
-  })
-})
-
-// `Channels.ingest` drops a replayed `RawInbound.idempotencyKey`, and that is
-// the whole redelivery guarantee. Nothing derives the key for the caller, so
-// each provider exports the derivation an ingress has to use.
-describe("idempotency keys", () => {
-  it("prefers Linear's delivery header and falls back to the delivery's own identity", () => {
-    const body = linearBody(1_700_000_000_000)
-    const payload = JSON.parse(body) as unknown
-    const withHeader = { headers: { "linear-delivery": "d-9" } }
-    expect(LinearWebhook.idempotencyKey(withHeader, payload)).toBe("linear:d-9")
-    const withoutHeader = { headers: {} }
-    const derived = LinearWebhook.idempotencyKey(withoutHeader, payload)
-    expect(derived.startsWith("linear:")).toBe(true)
-    // Two deliveries of the same event produce the same key; a different
-    // action does not.
-    expect(LinearWebhook.idempotencyKey(withoutHeader, payload)).toBe(derived)
-    expect(LinearWebhook.idempotencyKey(withoutHeader, { ...(payload as object), action: "remove" }))
-      .not.toBe(derived)
   })
 })
 

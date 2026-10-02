@@ -56,7 +56,6 @@ func isReservedRepoName(name string) bool {
 type RepoQuerier interface {
 	CreateRepo(ctx context.Context, arg db.CreateRepoParams) (db.Repository, error)
 	CreateOrgRepo(ctx context.Context, arg db.CreateOrgRepoParams) (db.Repository, error)
-	CreateForkRepo(ctx context.Context, arg db.CreateForkRepoParams) (db.Repository, error)
 	DeleteRepo(ctx context.Context, id int64) error
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	GetRepoByOwnerAndLowerName(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
@@ -75,10 +74,6 @@ type RepoQuerier interface {
 	ArchiveRepo(ctx context.Context, id int64) (db.Repository, error)
 	UnarchiveRepo(ctx context.Context, id int64) (db.Repository, error)
 	GetUserByLowerUsername(ctx context.Context, lowerUsername string) (db.User, error)
-	TransferRepoToUser(ctx context.Context, arg db.TransferRepoToUserParams) (db.Repository, error)
-	TransferRepoToOrg(ctx context.Context, arg db.TransferRepoToOrgParams) (db.Repository, error)
-	DeleteCollaboratorsByRepo(ctx context.Context, repositoryID int64) error
-	DeleteTeamReposByRepo(ctx context.Context, repositoryID int64) error
 	ListCollaboratorsByRepo(ctx context.Context, repositoryID int64) ([]db.Collaborator, error)
 	ListTeamReposByRepo(ctx context.Context, repositoryID int64) ([]db.TeamRepo, error)
 	AddCollaborator(ctx context.Context, arg db.AddCollaboratorParams) (db.Collaborator, error)
@@ -89,8 +84,6 @@ type RepoQuerier interface {
 type RepoHostClient interface {
 	InitRepo(ctx context.Context, owner, repo, defaultBookmark string, autoInit bool) error
 	DeleteRepo(ctx context.Context, owner, repo string) error
-	ForkRepo(ctx context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) error
-	MoveRepo(ctx context.Context, srcOwner, srcRepo, dstOwner, dstRepo string) error
 	GetFileAtChange(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	ListFilesAtChange(ctx context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error)
 	ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
@@ -206,10 +199,6 @@ type repoOwnershipTx interface {
 	// transaction ends, so ownership-dependent writers that lock the same row
 	// (e.g. AddTeamRepoIfOrgRepo) serialize with the whole transaction.
 	GetRepoByIDForUpdate(ctx context.Context, id int64) (db.Repository, error)
-	DeleteCollaboratorsByRepo(ctx context.Context, repositoryID int64) error
-	DeleteTeamReposByRepo(ctx context.Context, repositoryID int64) error
-	TransferRepoToUser(ctx context.Context, arg db.TransferRepoToUserParams) (db.Repository, error)
-	TransferRepoToOrg(ctx context.Context, arg db.TransferRepoToOrgParams) (db.Repository, error)
 	UpdateRepo(ctx context.Context, arg db.UpdateRepoParams) (db.Repository, error)
 	DeleteRepo(ctx context.Context, id int64) error
 	AuthorizeStorageOperation(ctx context.Context, token string) error
@@ -256,22 +245,6 @@ func (t *pgxRepoOwnershipTx) OwnershipDBTX() db.DBTX {
 
 func (t *pgxRepoOwnershipTx) GetRepoByIDForUpdate(ctx context.Context, id int64) (db.Repository, error) {
 	return t.q.GetRepoByIDForUpdate(ctx, id)
-}
-
-func (t *pgxRepoOwnershipTx) DeleteCollaboratorsByRepo(ctx context.Context, repositoryID int64) error {
-	return t.q.DeleteCollaboratorsByRepo(ctx, repositoryID)
-}
-
-func (t *pgxRepoOwnershipTx) DeleteTeamReposByRepo(ctx context.Context, repositoryID int64) error {
-	return t.q.DeleteTeamReposByRepo(ctx, repositoryID)
-}
-
-func (t *pgxRepoOwnershipTx) TransferRepoToUser(ctx context.Context, arg db.TransferRepoToUserParams) (db.Repository, error) {
-	return t.q.TransferRepoToUser(ctx, arg)
-}
-
-func (t *pgxRepoOwnershipTx) TransferRepoToOrg(ctx context.Context, arg db.TransferRepoToOrgParams) (db.Repository, error) {
-	return t.q.TransferRepoToOrg(ctx, arg)
 }
 
 func (t *pgxRepoOwnershipTx) UpdateRepo(ctx context.Context, arg db.UpdateRepoParams) (db.Repository, error) {
@@ -1077,206 +1050,6 @@ func (s *RepoService) CreateOrgRepo(
 	_ = s.dispatchRepositoryEvent(ctx, repo, actor, webhooks.EventTypeCreate, "created")
 
 	return repo, nil
-}
-
-// ForkOutcome is the answer to an explicit fork request: the fork itself plus
-// whether this call is the one that created it.
-//
-// Created is false when the caller already owned this fork of this upstream.
-// Forking is a deliberate, user-initiated act, so asking twice must not
-// scatter `repo`, `repo-1`, `repo-2` across the caller's namespace — the
-// second request is answered with the repository the first one made.
-type ForkOutcome struct {
-	Repository db.Repository
-	Created    bool
-}
-
-// ForkRepo creates a fork of an existing repository under the authenticated user's namespace.
-// The fork inherits the parent's description (unless overridden), visibility, and default bookmark.
-// An optional name override can be provided; if empty, the parent repo's name is used.
-// An optional description override can be provided; if empty, the parent repo's description is used.
-//
-// Forking is never implicit. Nothing in plue forks on the caller's behalf: a
-// fork exists only because a user asked for this repository, by name, in their
-// own namespace. Two rules follow from that and are enforced here:
-//
-//   - A caller who can already write to the source is refused with
-//     CodeForkNotNeeded. Forks exist to give a reader a namespace they can
-//     write in; a writer already has one, and a silent second copy of a
-//     repository they can edit is exactly the accident this endpoint exists to
-//     prevent.
-//   - A caller who already holds this fork gets that repository back
-//     (Created=false), not a second one.
-func (s *RepoService) ForkRepo(ctx context.Context, actor *db.User, owner, repo string, nameOverride, descriptionOverride string) (ForkOutcome, error) {
-	requestStartedAt := time.Now().UTC()
-	if actor == nil {
-		return ForkOutcome{}, errors.Unauthorized("authentication required")
-	}
-
-	// Resolve the source repository (must be readable by the actor).
-	sourceRepo, err := s.resolveReadableRepo(ctx, actor, owner, repo)
-	if err != nil {
-		return ForkOutcome{}, err
-	}
-	sourceOwner, err := s.canonicalRepositoryOwner(ctx, sourceRepo, owner)
-	if err != nil {
-		return ForkOutcome{}, err
-	}
-
-	// A writer has nothing to fork: refuse before anything is created, and say
-	// why, so the caller edits the repository instead of shadowing it.
-	writable, err := s.canWriteRepo(ctx, sourceRepo, actor.ID)
-	if err != nil {
-		return ForkOutcome{}, err
-	}
-	if writable {
-		return ForkOutcome{}, errors.New(errors.CodeForkNotNeeded, fmt.Sprintf(
-			"you already have write access to %s/%s; edit it directly instead of forking it", sourceOwner, sourceRepo.Name))
-	}
-
-	// Determine fork name.
-	forkName := strings.TrimSpace(nameOverride)
-	if forkName == "" {
-		forkName = sourceRepo.Name
-	}
-	if err := validateRepoName(forkName); err != nil {
-		return ForkOutcome{}, err
-	}
-
-	// Idempotence: the caller already forked this upstream under this name.
-	if existing, found := s.existingForkOf(ctx, actor.Username, forkName, sourceRepo.ID); found {
-		return ForkOutcome{Repository: existing, Created: false}, nil
-	}
-
-	// Determine fork description.
-	forkDescription := sourceRepo.Description
-	if strings.TrimSpace(descriptionOverride) != "" {
-		forkDescription = descriptionOverride
-	}
-
-	createParams := db.CreateForkRepoParams{
-		UserID:          pgtype.Int8{Int64: actor.ID, Valid: true},
-		Name:            forkName,
-		LowerName:       strings.ToLower(forkName),
-		Description:     forkDescription,
-		IsPublic:        sourceRepo.IsPublic,
-		DefaultBookmark: sourceRepo.DefaultBookmark,
-		ForkID:          pgtype.Int8{Int64: sourceRepo.ID, Valid: true},
-	}
-	if s.productOnly {
-		repository, err := s.createProductRepository(ctx, productCreationSpec{
-			OperationType: repositoryProvisionFork, ActorID: actor.ID,
-			UserID: pgtype.Int8{Int64: actor.ID, Valid: true}, OwnerName: actor.Username,
-			Name: forkName, LowerName: createParams.LowerName, Description: forkDescription,
-			IsPublic: sourceRepo.IsPublic, DefaultBookmark: sourceRepo.DefaultBookmark,
-			SourceRepositoryID: pgtype.Int8{Int64: sourceRepo.ID, Valid: true},
-			SourceOwner:        sourceOwner, SourceRepo: sourceRepo.Name,
-		}, BillingOwnerTypeUser, actor.ID)
-		if err != nil {
-			return ForkOutcome{}, err
-		}
-		_ = s.dispatchRepositoryEvent(ctx, repository, actor, webhooks.EventTypeCreate, "created")
-		return ForkOutcome{Repository: repository, Created: true}, nil
-	}
-	if s.provisioner != nil {
-		if s.provisioning == nil || !s.provisioningEnabled {
-			return ForkOutcome{}, repositoryProvisioningRolloutError()
-		}
-		if s.placementResolver == nil {
-			return ForkOutcome{}, errors.Internal("repository placement resolver is not configured")
-		}
-		sourceStorageSet, placementErr := s.placementResolver.StorageSetForRepository(ctx, sourceRepo.ID)
-		if placementErr != nil || sourceStorageSet == "" {
-			return ForkOutcome{}, errors.Internal("failed to resolve repository placement")
-		}
-		staged, prepareErr := s.provisioner.PrepareStagedFork(
-			ctx, sourceStorageSet, sourceOwner, sourceRepo.Name, actor.Username, forkName)
-		if prepareErr != nil {
-			return ForkOutcome{}, errors.Internal("failed to prepare fork storage").WithCause(prepareErr)
-		}
-		wanted := newForkProvisioningOperation(
-			actor, actor.Username,
-			repositoryProvisionParams{
-				Name: forkName, LowerName: createParams.LowerName, Description: forkDescription,
-				IsPublic: sourceRepo.IsPublic, DefaultBookmark: sourceRepo.DefaultBookmark,
-			}, sourceRepo, sourceOwner, staged,
-		)
-		repository, provisionErr := s.finishDurableRepositoryProvision(
-			ctx, wanted, BillingOwnerTypeUser, actor.ID)
-		if provisionErr != nil {
-			return ForkOutcome{}, provisionErr
-		}
-		_ = s.dispatchRepositoryEvent(ctx, repository, actor, webhooks.EventTypeCreate, "created")
-		return ForkOutcome{Repository: repository, Created: true}, nil
-	}
-	expected := repositoryCreateExpectation{
-		UserID:          createParams.UserID,
-		Name:            createParams.Name,
-		LowerName:       createParams.LowerName,
-		Description:     createParams.Description,
-		IsPublic:        createParams.IsPublic,
-		DefaultBookmark: createParams.DefaultBookmark,
-		IsFork:          true,
-		ForkID:          createParams.ForkID,
-		NotBefore:       requestStartedAt,
-	}
-
-	// A private fork consumes one private-repository slot. Keep the owner lock
-	// across both the DB insert and storage compensation so concurrent creates
-	// observe only a successfully provisioned repository.
-	var forkedRepo db.Repository
-	err = authorizeRepoCreateThenCommit(ctx, s.billing, BillingOwnerTypeUser, actor.ID, !sourceRepo.IsPublic, func(commitCtx context.Context) error {
-		var createErr error
-		forkedRepo, createErr = s.queries.CreateForkRepo(commitCtx, createParams)
-		adopted := false
-		if createErr != nil {
-			switch classifyRepositoryCreateError(createErr) {
-			case repositoryCreateErrorConflict:
-				return errors.Conflict(fmt.Sprintf("repository '%s' already exists", forkName))
-			case repositoryCreateErrorDefinitive:
-				slog.Error("failed to create fork repository record", "owner", actor.Username, "repo_name", forkName, "error", createErr)
-				return errors.Internal("failed to create fork").WithCause(createErr)
-			case repositoryCreateErrorAmbiguous:
-				recovered, state, lookupErr := reconcileAmbiguousRepositoryCreate(commitCtx, s.queries.GetRepoByOwnerAndLowerName, actor.Username, expected)
-				if state == repositoryCreateConflicting {
-					return errors.Conflict(fmt.Sprintf("repository '%s' already exists", forkName))
-				}
-				if state != repositoryCreateAdopted {
-					slog.Error("failed to reconcile ambiguous fork creation",
-						"owner", actor.Username, "repo_name", forkName, "create_error", createErr, "lookup_error", lookupErr)
-					return errors.Internal("failed to create fork")
-				}
-				forkedRepo = recovered
-				adopted = true
-			}
-		}
-
-		if forkErr := runRepoHostMutation(commitCtx, func(mutationCtx context.Context) error {
-			return s.repoHost.ForkRepo(mutationCtx, sourceOwner, sourceRepo.Name, actor.Username, forkName)
-		}); forkErr != nil {
-			if adopted && isRepoHostAlreadyExists(forkErr) {
-				return nil
-			}
-			slog.Error("failed to copy fork repository data", "src_owner", sourceOwner, "src_repo", sourceRepo.Name, "dst_owner", actor.Username, "dst_repo", forkName, "error", forkErr)
-			if adopted {
-				return errors.Internal("failed to copy repository data for fork")
-			}
-			s.rollbackProvisionedRepo(commitCtx, forkedRepo.ID, actor.Username, forkName)
-			return errors.Internal("failed to copy repository data for fork").WithCause(forkErr)
-		}
-		return nil
-	})
-	if err != nil {
-		return ForkOutcome{}, err
-	}
-
-	// The source repository's num_forks is maintained by the
-	// trg_repositories_fork_count_* triggers on the fork row itself, so both
-	// this creation and any later fork deletion are counted exactly once.
-
-	_ = s.dispatchRepositoryEvent(ctx, forkedRepo, actor, webhooks.EventTypeCreate, "created")
-
-	return ForkOutcome{Repository: forkedRepo, Created: true}, nil
 }
 
 func (s *RepoService) GetRepo(ctx context.Context, viewer *db.User, owner, repo string) (db.Repository, error) {
@@ -2546,26 +2319,6 @@ func (s *RepoService) canReadRepo(ctx context.Context, repository db.Repository,
 
 func (s *RepoService) canWriteRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {
 	return canWriteRepo(ctx, s.queries, repository, userID)
-}
-
-// existingForkOf reports the caller's repository at owner/name when it is
-// already a fork of sourceID. Any other answer — no such repository, or a
-// repository of that name that is not a fork of this upstream — is reported as
-// "not found" so the caller proceeds to the normal create path, where a name
-// collision surfaces as a conflict instead of silently adopting someone
-// else's repository.
-func (s *RepoService) existingForkOf(ctx context.Context, owner, name string, sourceID int64) (db.Repository, bool) {
-	existing, err := s.queries.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{
-		Owner:     owner,
-		LowerName: strings.ToLower(name),
-	})
-	if err != nil {
-		return db.Repository{}, false
-	}
-	if !existing.ForkID.Valid || existing.ForkID.Int64 != sourceID {
-		return db.Repository{}, false
-	}
-	return existing, true
 }
 
 func (s *RepoService) canAdminRepo(ctx context.Context, repository db.Repository, userID int64) (bool, error) {

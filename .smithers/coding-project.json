@@ -478,7 +478,7 @@
     {
       "id": "app",
       "title": "Smithers application",
-      "purpose": "Describe apps/app's React renderer, Electrobun desktop host, and workspace coding interactions.",
+      "purpose": "Describe apps/app's React renderer, local HTTP host, and workspace coding interactions.",
       "kind": "current",
       "document": "factory/wiki/pages/app-workspace.md",
       "inputs": [

@@ -130,7 +130,3 @@ explains the contract.
 
 - [GitHub guide](/guides/github/): receive webhooks, reconcile declared
   hooks, and paginate.
-- [Linear guide](/guides/linear/) and [Telegram guide](/guides/telegram/):
-  the other two adapters.
-- [How adapters sit on the control plane](/concepts/control-plane/): the
-  webhook half of the package this tutorial skipped.

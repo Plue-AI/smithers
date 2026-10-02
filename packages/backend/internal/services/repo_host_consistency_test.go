@@ -6,11 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 type controlledDeadlineContext struct {
@@ -109,39 +106,6 @@ func TestCreateRepo_CancellationAfterStorageStartsDoesNotRollbackSuccessfulMutat
 	require.NoError(t, err)
 	assert.Equal(t, "demo", repo.Name)
 	assert.False(t, q.deleteCalled, "a truthful repo-host success must keep the coordinated DB row")
-}
-
-func TestForkRepo_CancellationAfterCopyStartsKeepsSuccessfulForkRow(t *testing.T) {
-	t.Parallel()
-
-	requestCtx, cancelRequest := context.WithCancel(context.Background())
-	// Forking is only legal for a caller who cannot already write here, so the
-	// source belongs to somebody else and is public.
-	source := testRepo(func(repository *db.Repository) {
-		repository.UserID = pgtype.Int8{Int64: 99, Valid: true}
-		repository.IsPublic = true
-	})
-	q := &mockRepoQuerier{
-		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
-			return source, nil
-		},
-		createForkRepoFn: func(_ context.Context, arg db.CreateForkRepoParams) (db.Repository, error) {
-			return db.Repository{ID: 99, UserID: arg.UserID, Name: arg.Name, LowerName: arg.LowerName}, nil
-		},
-	}
-	rh := &mockRepoHostClient{
-		forkRepoFn: func(ctx context.Context, _, _, _, _ string) error {
-			cancelRequest()
-			require.ErrorIs(t, requestCtx.Err(), context.Canceled)
-			require.NoError(t, ctx.Err())
-			return nil
-		},
-	}
-
-	forked, err := NewRepoService(q, rh, "s1").ForkRepo(requestCtx, testUser(), "alice", "demo", "demo-fork", "")
-	require.NoError(t, err)
-	assert.Equal(t, int64(99), forked.Repository.ID)
-	assert.False(t, q.deleteCalled)
 }
 
 type cancelingImportRepoHost struct {

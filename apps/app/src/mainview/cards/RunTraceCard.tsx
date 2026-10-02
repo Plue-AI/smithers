@@ -1,3 +1,4 @@
+import { RunResult } from "./RunResult.tsx"
 import type { ReactNode } from "react"
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
@@ -9,7 +10,7 @@ import { describedFailure, FailureNotice } from "../FailureNotice"
  * Every view choice enters an existing runs.trace flow; this card owns no state.
  */
 import { runSourceCommand } from "@smthrs/ui/run-command"
-import { Markdown, StatusPill } from "@smthrs/ui"
+import { StatusPill } from "@smthrs/ui"
 import { PhaseStrip } from "./RunTracePhaseStrip"
 export { phasePins } from "./RunTracePhaseStrip"
 import { codingEvidenceOf } from "./CodingPlan"
@@ -277,12 +278,7 @@ export const RunTraceBody = ({
       {card.payload.workflow === "issue-sweep"
         ? <BurndownBody card={card} onRunCommand={sendRunCommand} presentation={presentation} notices={notices} />
         : <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />}
-      {result !== null ? repositoryRun ? (
-        <details className="run-progress-fold">
-          <summary>Technical details</summary>
-          <pre className="run-trace-code" tabIndex={0} aria-label="Run output">{result}</pre>
-        </details>
-      ) : <Markdown className="smithers-card-markdown run-result" content={result} /> : null}
+      {result !== null ? <RunResult result={result} technical={repositoryRun} /> : null}
       <CodingPlanBody model={whole} card={card} onRunCommand={onRunCommand} workflowCatalogs={workflowCatalogs} />
       <CodingPocBody card={card} onRunCommand={onRunCommand} />
       <CodingVibeBody card={card} onRunCommand={onRunCommand} />

@@ -823,8 +823,7 @@ var authRandomRead = rand.Read
 // sanitized.
 func isSafe5xxMessageCode(code errors.Code) bool {
 	switch code {
-	case errors.CodeDesktopNotReady,
-		errors.CodeNoCapacity,
+	case errors.CodeNoCapacity,
 		errors.CodeEgressProxyUnavailable,
 		errors.CodeSecretDeliveryUnavailable,
 		// Its message is a written constant naming an environment variable and

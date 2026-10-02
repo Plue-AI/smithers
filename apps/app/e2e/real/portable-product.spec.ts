@@ -52,7 +52,7 @@ authenticatedTest("an owner opens an issue on a product repository through the U
 
 authenticatedTest("an owned issue remains after a reload of the same product window", scenario("issues.product-reload-readback", {
   capabilities: ["identity"],
-  coverage: ["action:issues.create", "action:issues.view", "host:local", "host:production", "host:native", "path:persistence", "door:slash", "evidence:reload-and-api-readback"]
+  coverage: ["action:issues.create", "action:issues.view", "host:local", "host:production", "path:persistence", "door:slash", "evidence:reload-and-api-readback"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const title = `Reload issue ${crypto.randomUUID()}`

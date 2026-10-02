@@ -45,12 +45,11 @@ func forkKindQuerier() *mockWorkspaceQuerier {
 // The controller's fork child carries no kind and no size: it reserves and
 // boots the CONTAINER defaults (512 MiB, 1 vCPU) under the container sleep-loop
 // entrypoint. A NixOS guest booted that way is dead on arrival whatever its
-// size, and a desktop also silently loses the sizing applyWorkspaceDesktopBoot
-// gives it. Services must decline the fork and take the cold sized create path.
+// size, Services must decline the fork and take the cold sized create path.
 func TestTryForkDerivedFromPrimary_DeclinesNonContainerSource(t *testing.T) {
 	t.Parallel()
 
-	for _, kind := range []string{"vm", "desktop"} {
+	for _, kind := range []string{"vm"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 
@@ -109,44 +108,6 @@ func TestTryForkDerivedFromPrimary_ContainerSourceStillForks(t *testing.T) {
 // The pair/explicit fork path has the same defect and the same remedy: cold
 // create, which is the only path that applies the desktop size and the NixOS
 // boot.
-func TestForkWorkspaceVM_DesktopSourceTakesColdSizedPath(t *testing.T) {
-	t.Parallel()
-
-	source := sampleDBWorkspace("ws-desktop-source")
-	source.Kind = "desktop"
-	source.VmID = "vm-desktop-primary"
-
-	fork := sampleDBWorkspace("ws-desktop-fork")
-	fork.Kind = "desktop"
-	fork.VmID = ""
-
-	probe := &forkKindProbe{}
-	svc := newWorkspaceServiceForTests(forkKindQuerier(),
-		WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage("desktop")}),
-		WithWorkspaceDesktopResources(6144, 4),
-		WithWorkspaceSandboxClient(probe.client()))
-
-	got, err := svc.forkWorkspaceVM(context.Background(), fork, source)
-	require.NoError(t, err)
-	assert.Empty(t, probe.forkedFrom, "a desktop source must never be forked")
-	assert.Equal(t, "vm-cold", got.VmID)
-
-	require.Len(t, probe.created, 1)
-	req := probe.created[0]
-	assert.Equal(t, "desktop", req.Kind, "the cold path boots a NixOS desktop guest, not a container")
-	require.NotNil(t, req.MemSizeMB, "commit 8c4f7f74's desktop sizing must survive the fork path")
-	assert.Equal(t, int32(6144), *req.MemSizeMB)
-	require.NotNil(t, req.VCPUCount)
-	assert.Equal(t, int32(4), *req.VCPUCount)
-	require.NotNil(t, req.Init)
-	var hasDesktopService bool
-	for _, service := range req.Init.Services {
-		if service.Name == workspaceDesktopService {
-			hasDesktopService = true
-		}
-	}
-	assert.True(t, hasDesktopService, "the desktop bootstrap must be in the create request")
-}
 
 // Control: a container pair fork is untouched.
 func TestForkWorkspaceVM_ContainerSourceStillForks(t *testing.T) {
@@ -187,7 +148,7 @@ func (a *agentForkKindQuerier) GetActiveWorkspaceForUserRepo(context.Context, db
 	return a.primary, nil
 }
 
-// An agent run's computer is a container guest. Forking a vm/desktop box into
+// An agent run's computer is a container guest. Forking a vm box into
 // it produces the same dead 512 MiB container, so both the bookmark candidate
 // and the primary fallback must be rejected on kind.
 func TestAgentForkSource_DeclinesNonContainerSources(t *testing.T) {

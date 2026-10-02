@@ -163,85 +163,25 @@ test("cycling a single available model refuses without changing the draft or sea
   expect(turns[0]!.input.seat).toBe("replay:one")
 })
 
-test.each(["none", "minimal", "low", "medium", "high", "xhigh"] as const)(
-  "reasoning level %s reaches the next Host admission without becoming a prompt",
-  async (level) => {
-    await mount()
-    await command(`/thinking ${level}`)
-    expect(turns).toHaveLength(0)
-    expect(frame()).toContain(`Thinking level: ${level}`)
-    expect(records().filter((record) => record.type === "user").map((record) => record.text))
-      .toEqual(["Old question", "Recent question"])
-    await command("Use selected reasoning")
-    expect(turns[0]!.input.thinking).toBe(level)
-    expect(turns[0]!.input.prompt).toBe("Use selected reasoning")
-  }
-)
-
-test.each(["/thinking", "/thinking default"])("%s resets an explicit level to provider default", async (reset) => {
+test("model changes leave the running input unchanged and apply to the next queued admission", async () => {
   await mount()
-  await command("/thinking high")
-  await command(reset)
-  expect(frame()).toContain("Thinking level: default")
-  await command("Use provider default")
-  expect(Object.hasOwn(turns[0]!.input, "thinking")).toBe(false)
-  expect(turns[0]!.input.prompt).toBe("Use provider default")
-})
-
-test.each(["HIGH", "7", "unsupported"])(
-  "invalid reasoning level '%s' refuses and retains the prior valid level",
-  async (invalid) => {
-    await mount()
-    await command("/thinking medium")
-    await command(`/thinking ${invalid}`)
-    // The shared toast has a bounded width; assert its visible refusal prefix.
-    expect(frame()).toContain("Thinking levels: default, none, minimal, low, medium,")
-    expect(turns).toHaveLength(0)
-    await command("Retain valid reasoning")
-    expect(turns[0]!.input.thinking).toBe("medium")
-  }
-)
-
-test("model and reasoning changes leave the running input unchanged and apply to the next queued admission", async () => {
-  await mount()
-  await command("/thinking high")
   await command("First request")
   const running = turns[0]!.input
   await command("/model replay:two")
-  await command("/thinking low")
   await type("Queued request")
   await key("RETURN", { meta: true })
   expect(turns).toHaveLength(1)
-  expect({ prompt: running.prompt, seat: running.seat, thinking: running.thinking })
-    .toEqual({ prompt: "First request", seat: "replay:one", thinking: "high" })
+  expect({ prompt: running.prompt, seat: running.seat })
+    .toEqual({ prompt: "First request", seat: "replay:one" })
   await finish(0, "First answer")
-  expect({ prompt: turns[1]!.input.prompt, seat: turns[1]!.input.seat, thinking: turns[1]!.input.thinking })
-    .toEqual({ prompt: "Queued request", seat: "replay:two", thinking: "low" })
+  expect({ prompt: turns[1]!.input.prompt, seat: turns[1]!.input.seat })
+    .toEqual({ prompt: "Queued request", seat: "replay:two" })
   expect(turns[1]!.input.history).toEqual([
     { kind: "exchange", user: "Old question", answer: "Old answer" },
     { kind: "exchange", user: "Recent question", answer: "Recent answer" },
     { kind: "exchange", user: "First request", answer: "First answer" }
   ])
 })
-
-test.each([
-  { start: undefined, expected: "none" },
-  { start: "xhigh", expected: undefined }
-])(
-  "Shift+Tab cycles reasoning from $start to $expected without consuming the composer draft",
-  async ({ start, expected }) => {
-    await mount()
-    if (start !== undefined) await command(`/thinking ${start}`)
-    await type("Reasoning draft")
-    await key("TAB", { shift: true })
-    expect(turns).toHaveLength(0)
-    expect(frame()).toContain("Reasoning draft")
-    await type(" retained")
-    await key("RETURN")
-    expect(turns[0]!.input.prompt).toBe("Reasoning draft retained")
-    expect(turns[0]!.input.thinking).toBe(expected)
-  }
-)
 
 test(
   "/compact with nothing to compact leaves context and journal unchanged",

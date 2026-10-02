@@ -7,7 +7,7 @@
  *
  * 1. A hand edit to a generated file survives until the next regeneration
  *    silently reverts it. The extension on the emitted import specifier is
- *    exactly that case: `apps/review` loads this package under Node ESM, where
+ *    exactly that case: `flows/review` loads this package under Node ESM, where
  *    a relative specifier without `.ts` does not resolve, and a fix applied to
  *    the files instead of to the generator lasts until someone re-runs it.
  * 2. The upstream themes move and the checked-in registry stops matching what

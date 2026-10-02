@@ -42,6 +42,32 @@ The [product audit](implementation/product-audit-20260929.md) records observed
 GUI/TUI behavior, the immediate repair, and existing issues owning the remaining
 work. The complete loop remains tracked in [#1780](https://github.com/smithersai/smithers/issues/1780).
 
+### Owner-approved scope revision, 2026-10-01
+
+This decision supersedes conflicting retained-feature and release-gate entries
+below. It authorizes removal work; completion requires implementation and
+validation receipts.
+
+- Retain issues, PR review, CI, features and chores. Streamline their setup
+  without dropping any of the five responsibilities.
+- Retain the general-purpose build system and independently publishable public
+  libraries. Their architecture and authoring scope are part of the product.
+- Retain the collaborative wiki as agent memory and a source of truth for
+  runtime decisions outside the source repository, alongside Mythical history.
+- Remove separable legacy forge product controls, cloud desktop streaming,
+  non-GitHub integrations, create-app and native Electrobun distribution.
+  Internal mirrors, Git/LFS/SSH needed by workers, jj, Mythical, native factory
+  issues/landings, permissions and historical data remain supported.
+- Remove user-facing historical fork/rewind controls across product clients;
+  preserve their core library functionality, durable recovery/replay and
+  compatibility with existing saved histories.
+- Remove TUI predictive estimates and the ordinary-user model laboratory.
+  Actual usage, budgets, monitors, custom flow UI, model APIs and host
+  configuration/routing/credentials remain supported.
+- `/review` is an ordinary repository flow using shared execution and custom
+  UI. Remove its separate service/account/billing/runtime and reviewer quizzes;
+  retain useful review, verification, findings and explanations.
+
 ## Decision record
 
 The following are user decisions, not implementation defaults:
@@ -62,7 +88,7 @@ The following are user decisions, not implementation defaults:
 | D-10 | Plugin Library remains implemented behind a default-off flag. |
 | D-11 | Delete repository welcome/explore/contribute/maintain modes, the dedicated Factory inspection screen, user snapshot/template/fork controls, revision-computer forks, Linear integration, custom-agent configuration, and repository-defined home panes. “Remove” means delete, not flag. |
 | D-11a (Will, 2026-09-24, #1711) | Supersedes D-11 only for repository homepages: the factory declares typed homepage blocks, rendered as the first workspace chat message; otherwise show README.md, then the normal composer. The separate welcome modes and Factory screen remain removed. |
-| D-12 | Preserve cloud desktops, Vim input, local build tooling, flow authoring, and trigger registration. |
+| D-12 (revised by Will, 2026-10-01) | Defer cloud desktops and native desktop distribution. Preserve Vim input, local build tooling, flow authoring, trigger registration, Cloud worker execution and headless self-hosting. |
 | D-13 | Existing functionality is cut only when the result is a better product, not to meet an arbitrary MVP feature count. |
 | D-14 | For AI checks, inspect the working Artsy examples and verify compatibility with current breaking Smithers changes. An observability lint is a concrete initial example. |
 | D-15 | Deliver product, design, and engineering documents; implement the complete experience; deploy it; then test, review, and polish the deployed result for friendly alpha users. Deployment is already authorized. |
@@ -93,7 +119,7 @@ These fill decisions Will delegated to the team. They are defaults chosen for im
 | O-08 | Investigation, POCs, correction loops, and backlog batches have explicit finite run/time/spend limits. Setup proposes bounds appropriate to the repository and shows them before activation. | Autonomous work must stop predictably and report partial progress. Exact bounds belong to tested configuration, not an invented universal budget. |
 | O-09 | When history is too sparse to support a pattern, offer a plain editable default or a direct feature request. | No invented repository convention or prerequisite research marathon. |
 
-Further proposed cuts remain distinct from D-11: fold the separate Explainer choice into chat; flag historical UI-frame forking; move mid-run model/thinking/tool overrides into operator controls. The owner should record adoption explicitly before removing them. Raw protocol inspectors already have substantial admin gating in the inspected app. Ordinary error history, logs, approvals, stop/retry, and useful evidence remain accessible.
+The 2026-10-01 scope revision authorizes removing historical UI-frame forking and ordinary-user model/thinking/tool laboratory controls. Folding the separate Explainer choice into chat remains an unapproved proposal. Raw protocol inspectors already have substantial admin gating in the inspected app. Ordinary error history, logs, approvals, stop/retry, and useful evidence remain accessible.
 
 The current app instructions already remove scripted global onboarding. Preserve the practice repository and reusable HelpBubble guidance; do not create a second onboarding-removal project from a stale proposal.
 
@@ -242,7 +268,7 @@ An AI code check judges a proposed change. An eval measures whether that check o
 
 This is a product inventory, grouping related controls rather than counting every selection, tab switch, alias, or form setter as a separate feature. It covers the current registry modules and inspected UI surfaces. **Source-confirmed** means a declaration is composed into the app registry with a controller action and corresponding source surface; it is not a production canary. Availability is filtered by actual host capabilities and account access.
 
-The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Flows.ts), with availability and invocation in [Commands.ts](../../apps/app/src/mainview/flows/Commands.ts) and [registry.ts](../../apps/app/src/mainview/flows/registry.ts). Individual entries below link to their source. Every retained family needs release regression evidence at the appropriate host; native-only tools must not be advertised as web capabilities.
+The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Flows.ts), with availability and invocation in [Commands.ts](../../apps/app/src/mainview/flows/Commands.ts) and [registry.ts](../../apps/app/src/mainview/flows/registry.ts). Individual entries below link to their source. Every retained family needs release regression evidence at the appropriate host. The native desktop shell is deferred; headless host services remain available where configured.
 
 | # | Retained feature family | Source and current boundary |
 | --- | --- | --- |
@@ -250,7 +276,7 @@ The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Fl
 | 2 | Normal, Vim, and dictation input; keyboard chat invocation | [guide](../../apps/app/src/mainview/flows/entries/guide.ts), [chat](../../apps/app/src/mainview/flows/entries/chat.ts). Microphone use remains a human gesture. |
 | 3 | Light/dark appearance | [appearance](../../apps/app/src/mainview/flows/entries/appearance.ts). |
 | 4 | Commands, search palette, recent items, contextual actions, sidebar visibility | [palette](../../apps/app/src/mainview/flows/entries/palette.ts), [search](../../apps/app/src/mainview/flows/entries/search.ts). Search must exclude disabled/removed feature entries. |
-| 5 | Embedded cards, explicit maximize/minimize, card history and browser/frame back/forward | [card](../../apps/app/src/mainview/flows/entries/card.ts), [frame](../../apps/app/src/mainview/flows/entries/frame.ts). Historical frame forking is a separate proposed flag, not normal history. |
+| 5 | Embedded cards, explicit maximize/minimize, card history and browser/frame back/forward | [card](../../apps/app/src/mainview/flows/entries/card.ts), [frame](../../apps/app/src/mainview/flows/entries/frame.ts). Historical frame forking is deferred by the 2026-10-01 scope revision; normal card navigation remains. |
 | 6 | Typed missing-input forms and shared button/slash/agent invocation | [form](../../apps/app/src/mainview/flows/entries/form.ts), [FlowFormCards](../../apps/app/src/mainview/cards/FlowFormCards.tsx), Commands.ts. |
 | 7 | Shared progress/error notifications, dismissal, readable error/toast history | [toast](../../apps/app/src/mainview/flows/entries/toast.ts), [debug](../../apps/app/src/mainview/flows/entries/debug.ts). Preserve ordinary recovery diagnostics. |
 | 8 | Recommended first actions, dismissible hints, signed-out practice repository | [SetupChecklist](../../apps/app/src/mainview/cards/SetupChecklist.tsx), [practice](../../apps/app/src/mainview/state/practice/PracticeRepository.ts). Existing first actions currently enumerate visible commands; UX-01 changes their selection. Practice evidence is explicitly illustrative. |
@@ -260,8 +286,8 @@ The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Fl
 | 12 | GitHub App installation status, installation choice, wiring reconciliation, mirror sync and failed-ref retry | [github](../../apps/app/src/mainview/flows/entries/github.ts). Preserve actual event and mirror support needed for jobs. |
 | 13 | Local repository connection, read-only downgrade, disconnect; open/create local repository | [connector](../../apps/app/src/mainview/flows/entries/connector.ts), [repo](../../apps/app/src/mainview/flows/entries/repo.ts). Native host only where local services are required. |
 | 14 | File/directory browsing, file reading, diff-linked source, conversation file attachments | [files](../../apps/app/src/mainview/flows/entries/files.ts), [FileCards](../../apps/app/src/mainview/cards/FileCards.tsx). No dedicated Factory screen required for file access. |
-| 15 | Code type/hover, go-to-definition, diagnostics | [code](../../apps/app/src/mainview/flows/entries/code.ts). Explicitly native local language-server functionality. |
-| 16 | Branch/bookmark listing and commit history/detail/diffs | [branches](../../apps/app/src/mainview/flows/entries/branches.ts), [commits](../../apps/app/src/mainview/flows/entries/commits.ts). Ordinary code history stays when Mythical history is off. |
+| 15 | Code type/hover, go-to-definition, diagnostics | [code](../../apps/app/src/mainview/flows/entries/code.ts). Uses the configured Cloud workspace language server. |
+| 16 | Branch/bookmark listing and commit history/detail/diffs | [branches](../../apps/app/src/mainview/flows/entries/branches.ts), [commits](../../apps/app/src/mainview/flows/entries/commits.ts). Ordinary code history and the core Mythical history remain available. |
 | 17 | Issue list/detail/comments; create, comment, close, reopen | [issues](../../apps/app/src/mainview/flows/entries/issues.ts), [IssueCards](../../apps/app/src/mainview/cards/IssueCards.tsx). GitHub and Smithers Cloud sources must remain correctly distinguished. This is separate from automatic handling. |
 | 18 | PR list/detail; conversation, commits, checks, files; create, review, queue landing | [prs](../../apps/app/src/mainview/flows/entries/prs.ts), [LandingCards](../../apps/app/src/mainview/cards/LandingCards.tsx). Review submission exists; automated setup is new work. |
 | 19 | Change inspection, pinned diffs and checks, opening changes from selected commits | [change](../../apps/app/src/mainview/flows/entries/change.ts), [ChangeCards](../../apps/app/src/mainview/cards/ChangeCards.tsx). |
@@ -281,7 +307,6 @@ The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Fl
 | 33 | One-off feature prototype as an exploratory run | [feature](../../apps/app/src/mainview/flows/entries/feature.ts). Explicitly never promoted; full reusable feature setup is additional work. |
 | 34 | Cloud Linux workspace creation/reuse, view, suspend/resume/delete, rename | [workspace](../../apps/app/src/mainview/flows/entries/box.ts), [WorkspaceCard](../../apps/app/src/mainview/cards/WorkspaceCard.tsx). Preserve internal execution snapshots without restoring deleted user management. |
 | 35 | Workspace terminal, sessions, session termination, files, services | [workspace](../../apps/app/src/mainview/flows/entries/box.ts). Needs live workspace/terminal integration. |
-| 36 | Cloud desktop creation/reuse, streamed screen, stop-wait, reconnect/rotate session | [box.desktop](../../apps/app/src/mainview/flows/entries/box.ts). Retained major capability; require real interactive verification. |
 | 37 | Environment image list for repository workspaces | [box.images](../../apps/app/src/mainview/flows/entries/box.ts). This is not the removed user-facing template/fork suite. |
 | 38 | Workspace/session network egress inspection | [workspace](../../apps/app/src/mainview/flows/entries/box.ts), [egress](../../apps/app/src/mainview/flows/entries/egress.ts). Show secret names/bindings, not values. |
 | 39 | Agent environment view/edit and secret-name/binding inspection | [env](../../apps/app/src/mainview/flows/entries/env.ts), [secrets](../../apps/app/src/mainview/flows/entries/secrets.ts). |
@@ -324,13 +349,13 @@ The authoritative composition is [Flows.ts](../../apps/app/src/mainview/flows/Fl
 
 **FLAG-01 — Disable features consistently.** Plugin Library has an explicit default-off flag (Mythical history and the Wiki are core, D-09a and D-09b). Direct commands, old deep links/cards, agent tools, recommendations, search results, setup, background listeners, and implicit generation obey the flag. Required ordinary operations cannot fail merely because these optional artifacts are absent.
 
-**KEEP-01 — Preserve protected functionality.** Cloud desktops, Vim, local builds, authoring, and trigger registration remain in scope. Backend endpoints used by automation are retained even if no frontend component calls them directly. Labels, comments, issue links, checks, and workflow control may be essential to the factory.
+**KEEP-01 — Preserve protected functionality.** Vim, local builds, authoring, trigger registration, Cloud workers, headless self-hosting, GitHub mirrors, jj, Mythical and wiki memory remain in scope. Cloud desktops and native distribution are deferred. Backend endpoints used by automation are retained even if no frontend component calls them directly. Labels, comments, issue links, checks, and workflow control may be essential to the factory.
 
 **BOUND-01 — No new general project-management product.** Do not add boards, cycles, estimates, workload planning, or a Linear replacement. Simple issue links and decomposition support the issue-handling job.
 
 **BOUND-02 — No new orchestration language.** Setup produces the current repository-native framework's workflows, prompts, and evals. Users can read/edit them and use the library directly. Avoid a parallel settings system that cannot round-trip to that representation.
 
-**BOUND-03 — Scope changes need a reason.** Advanced CI optimization, autonomous backlog reprioritization, Wiki/Mythical reintroduction, and Plugin Library activation are future design-partner work. Do not present their absence as proof that the current MVP needs fewer of its required behaviors.
+**BOUND-03 — Scope changes need a reason.** Advanced CI optimization, autonomous backlog reprioritization, and Plugin Library activation are future design-partner work. Do not present their absence as proof that the current MVP needs fewer of its required behaviors.
 
 ## Release acceptance and evidence
 
@@ -346,7 +371,7 @@ Every requirement ID above is part of the release acceptance contract. Engineeri
 | REL-06 — PR review | A scoped real PR receives useful review; clean/defective evals, changed-commit re-review, feedback deduplication, existing-bot responsibility, and configured permissions are verified. |
 | REL-07 — Features and chores | A direct feature and a repository-specific authored flow execute with real checks. A chore completes its trial and demonstrates selected event/scheduled operation, bounds, pause, and restart behavior. Resulting .smithers files are inspectable and reusable. |
 | REL-08 — Evals and policy replacement | Runtime-authored cases, editable reviewed expectations, real expected/observed/evidence views, stale-result behavior, human judgment, and tested candidate activation are demonstrated. Editing an active policy does not silently replace it. |
-| REL-09 — Retained inventory | Relevant regression coverage for all retained feature families is reviewed. Real web smoke covers files, repository context, chat, runs/approvals, issues/PRs/changes, workspace terminal and desktop. Native-only tooling has native evidence and is not advertised on the web. Any unverified family is named; a narrow unit test cannot support a broad release claim. |
+| REL-09 — Retained inventory | Relevant regression coverage for all retained feature families is reviewed. Real web smoke covers files, repository context, chat, runs/approvals, issues/PRs/changes, workspace terminal and headless self-hosting. Deferred desktop products are excluded from release gates. Any unverified family is named; a narrow unit test cannot support a broad release claim. |
 | REL-10 — Cuts and flags | Approved deletions are checked through UI/catalog/deep-link/agent/docs paths. Plugin Library is off by default; Mythical history and the Wiki are on (D-09a, D-09b); core jobs run without generated artifacts. Protected functionality remains accessible at its proper host. |
 | REL-11 — Access and outward effects | Real sign-in/access and repository identity are verified. Trial scope, external contributor input, approval boundaries, public posting, duplicate delivery, and failure behavior pass. No cross-repository or stale-account action is allowed. |
 | REL-12 — Deployment and polish | Record the deployed app/backend revisions and actual URLs; verify the complete user path against that deployment. Review responsive and keyboard behavior, copy, errors, reload/reconnect, and required integrations. Fix and redeploy material failures, then rerun affected verification. |
@@ -354,6 +379,9 @@ Every requirement ID above is part of the release acceptance contract. Engineeri
 The release is ready for Will's final review when these gates are supported by current evidence. An unresolved gate stays visible and work continues. The team should not call a compatible scaffold, successful build, green mockup, or deployment acknowledgment a ready MVP.
 
 ### Gate state as of 2026-09-19 00:01 UTC
+
+Historical evidence below predates the 2026-10-01 scope revision. It is retained
+as a record, not a requirement to restore the deferred desktop products.
 
 Against web `42b8abbc1cf63065869ac26d7e0b7480cd50f4d1` (serving, read from `/__build.json` at the stamp), Plue `c0bd4c8218c3` at Helm revision 435, and the coding host `01db3ae7…227b` built from Smithers `f6b42949c705`. The [release ledger](implementation/release-20260916.md#release-state-as-of-2026-09-19-0001-utc) carries the receipts and the open gates with their owners.
 
