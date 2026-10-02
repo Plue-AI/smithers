@@ -474,9 +474,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const owner = shared.login()
     const epoch = ctx.accountEpoch
     const branch = shared.branch()
+    // A page the person opens while the index loads is their choice: the space's first page must not replace it.
+    const chosen = ctx.store.session().selectedWorldDocumentId
     const current = () => generation === paneRead && !ctx.disposed && !shared.disposed() &&
       ctx.accountEpoch === epoch && shared.login() === owner && shared.branch() === branch &&
-      ctx.store.session().surface === "world" && shared.space() === space && targetRepo(undefined) === repo
+      ctx.store.session().surface === "world" && shared.space() === space && targetRepo(undefined) === repo &&
+      ctx.store.session().selectedWorldDocumentId === chosen
     await loadWikiIndex(repo, space)
     if (!current()) return
     const first = shared.wikiIndexes.get(repo, space)?.pages[0]
