@@ -156,7 +156,9 @@ await Effect.runPromise(withCrypto(Effect.scoped(
       yield* engine.execute(Caller, { executionId: "external-job-root", payload: {}, discard: true })
     }
     const runs = yield* RunStore.RunStore
-    for (let count = 0; count < 600; count++) {
+    // Allow startup/recovery scheduling overhead around the real 15s job probe.
+    const settleDeadline = Date.now() + 60_000
+    while (Date.now() < settleDeadline) {
       const row = yield* runs.get("external-job-root")
       if (mode === "start" && row.status === "suspended") {
         process.stdout.write(`${JSON.stringify({ status: "parked" })}\n`)

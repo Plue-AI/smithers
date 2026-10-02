@@ -354,7 +354,13 @@ test("a microVM waits to boot while the host disk is below the floor", async () 
   await Effect.runPromise(Fiber.join(fiber))
   assert.equal(done, true)
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, holder: "test:1", freeBytes: () => 0, minFreeBytes: 1 })
+  const provider = make({
+    sdk: fake.sdk,
+    holder: "test:1",
+    freeBytes: () => 0,
+    minFreeBytes: 1,
+    diskCleanup: { cleanGo: Effect.void, prunePnpm: Effect.void, reapSettled: Effect.void }
+  })
   const waiting = Effect.runFork(Effect.scoped(provider.acquire("disk")))
   await Effect.runPromise(Effect.sleep("40 millis"))
   assert.equal(fake.created.length, 0, "acquire boots nothing below the floor")
@@ -839,7 +845,15 @@ test("durable capacity ignores ordinary issue machines and enforces disk only fo
   const fake = fakeSdk(() => ok)
   const ordinary = await held(make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false }), "ordinary")
   let free = 0
-  const provider = makeJob({ sdk: fake.sdk, freeBytes: () => free, minFreeBytes: 1, maxVms: 1, refresh: false })
+  const provider = makeJob({
+    sdk: fake.sdk,
+    freeBytes: () => free,
+    minFreeBytes: 1,
+    diskInterval: "5 millis",
+    diskCleanup: { cleanGo: Effect.void, prunePnpm: Effect.void, reapSettled: Effect.void },
+    maxVms: 1,
+    refresh: false
+  })
   const ready = await Effect.runPromise(Deferred.make<void>())
   const queued = Effect.runFork(Effect.scoped(Effect.gen(function*() {
     yield* provider.acquire("disk#g0")

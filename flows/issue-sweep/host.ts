@@ -25,10 +25,11 @@ export class HostFailed extends Schema.TaggedError<HostFailed>()("issue-sweep/Ho
 Fault.register("issue-sweep/HostFailed", { unreachable: "infra", refused: "dependency" })
 
 /** Classify host diagnostics while retaining the host failure codec. */
-export const hostFailed = (message: string) => new HostFailed({
-  message,
-  code: Unreachable.classifyExit(message) === undefined ? "refused" : "unreachable"
-})
+export const hostFailed = (message: string) =>
+  new HostFailed({
+    message,
+    code: Unreachable.classifyExit(message) === undefined ? "refused" : "unreachable"
+  })
 
 /** What one finished process printed, and how it exited. */
 export interface Exited {

@@ -14,6 +14,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { HostFailed } from "../host.ts"
 import { goCache } from "../land.ts"
 import { sh, toolchainEnv } from "../vm.ts"
 import {
@@ -251,8 +252,17 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
   assert.equal(existsSync(place.directory), false)
   assert.doesNotMatch(jjHost("workspace", "list"), /sweep-7/)
 
+  await assert.rejects(
+    Effect.runPromise(
+      checkout(place, report.change, Effect.fail(new HostFailed({ message: "disk probe unavailable" })))
+    ),
+    /disk probe unavailable/
+  )
+  assert.equal(existsSync(place.directory), false, "failed disk admission creates no landing workspace")
+  assert.doesNotMatch(jjHost("workspace", "list"), /sweep-7/)
+
   // Landing checks it out: the workspace stands on the change, as a local agent's does.
-  assert.equal(await Effect.runPromise(checkout(place, report.change)), place.directory)
+  assert.equal(await Effect.runPromise(checkout(place, report.change, Effect.void)), place.directory)
   assert.equal(
     cmd(place.directory, "jj", "log", "--no-graph", "-r", "@-", "-T", "change_id").trim(),
     report.change
@@ -260,8 +270,20 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
   assert.equal(readFileSync(join(place.directory, "added.txt"), "utf8"), "new\n")
   // A workspace already on the change is kept, edits and all.
   writeFileSync(join(place.directory, "kept.txt"), "kept\n")
-  await Effect.runPromise(checkout(place, report.change))
+  await Effect.runPromise(checkout(place, report.change, Effect.fail(new HostFailed({ message: "must bypass gate" }))))
   assert.equal(existsSync(join(place.directory, "kept.txt")), true)
+
+  await assert.rejects(
+    Effect.runPromise(checkout(place, "main", Effect.fail(new HostFailed({ message: "disk admission refused" })))),
+    /disk admission refused/
+  )
+  assert.equal(
+    readFileSync(join(place.directory, "kept.txt"), "utf8"),
+    "kept\n",
+    "refused replacement preserves existing edits"
+  )
+  assert.match(jjHost("workspace", "list"), /sweep-7/, "refused replacement keeps workspace registration")
+  assert.equal(cmd(place.directory, "jj", "log", "--no-graph", "-r", "@-", "-T", "change_id").trim(), report.change)
 
   // Replaying the adoption of the same journaled work answers the same change.
   const again = await Effect.runPromise(adoptWork(adoption, place))

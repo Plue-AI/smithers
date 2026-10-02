@@ -13,10 +13,11 @@ const launch = (directory: string, mode: string) =>
 const receipt = (child: ChildProcessWithoutNullStreams, status: string): Promise<Record<string, unknown>> =>
   new Promise((resolve, reject) => {
     let output = "", errors = ""
+    // Module startup and the durable job's real 15s probe both consume this budget.
     const timeout = setTimeout(() => {
       child.kill("SIGKILL")
       reject(new Error(`missing ${status}: ${output}\n${errors}`))
-    }, 20_000)
+    }, 60_000)
     child.stderr.on("data", (chunk) => {
       errors += String(chunk)
     })
@@ -53,7 +54,7 @@ const stop = async (children: ChildProcessWithoutNullStreams[]) => {
 
 test(
   "RemoteFix durable host SIGKILL mid-poll reattaches once and collects original caller's work",
-  { timeout: 40_000 },
+  { timeout: 150_000 },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "remote-fix-restart-"))
     const children: ChildProcessWithoutNullStreams[] = []
@@ -87,7 +88,7 @@ test(
   }
 )
 
-test("RemoteFix durable caller cancellation cancels and destroys retained worker", { timeout: 30_000 }, async () => {
+test("RemoteFix durable caller cancellation cancels and destroys retained worker", { timeout: 90_000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "remote-fix-cancel-"))
   const children: ChildProcessWithoutNullStreams[] = []
   try {

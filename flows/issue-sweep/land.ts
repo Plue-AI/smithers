@@ -13,6 +13,7 @@ import { Cause, Deferred, Duration, Effect, Option, Result, Schema, Semaphore } 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { matchesGlob } from "node:path"
+import { awaitHostDisk, workspaceBytes } from "./disk.ts"
 import { type Exited, type HostFailed, output, repository, ridingOutages, run, tail, workspaces } from "./host.ts"
 
 export class LandFailed extends Schema.TaggedError<LandFailed>()("issue-sweep/LandFailed", {
@@ -319,6 +320,7 @@ const measureOnMain = (revision: string, labels: ReadonlyArray<string>) =>
     baselineTurn,
     asLand(Effect.gen(function*() {
       if (!existsSync(baseline)) {
+        yield* asLand(awaitHostDisk(workspaceBytes))
         yield* jjWrite(repository, ["workspace", "add", baseline, "--name", "sweep-baseline", "-r", revision])
       } else {
         yield* jjWrite(baseline, ["new", revision])

@@ -1,3 +1,4 @@
+import { awaitHostDisk, workspaceBytes } from "../disk.ts"
 /**
  * `issue-sweep/work`: one coding agent fixes one issue in its own jj workspace,
  * on the next ready subscription account. The parent sweep already holds the
@@ -28,7 +29,16 @@ import {
   restoreJobAccount
 } from "../accounts.ts"
 import { issue } from "../github.ts"
-import { output, repository, ridingOutages, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
+import {
+  type HostFailed,
+  output,
+  repository,
+  ridingOutages,
+  run as onHost,
+  tail,
+  workspaceName,
+  workspaceOf
+} from "../host.ts"
 import { goCache, install } from "../land.ts"
 import { vmFields, vmOptions } from "../vm-options.ts"
 import * as LocalVm from "../vm.ts"
@@ -70,10 +80,11 @@ export class AgentFailed extends Schema.TaggedError<AgentFailed>()("issue-sweep/
 Fault.register("issue-sweep/AgentFailed", { unreachable: "infra", refused: "dependency" })
 
 /** Only issue reads classify connectivity; ordinary agent failures keep their own meaning. */
-export const issueReadFailed = (message: string) => new AgentFailed({
-  message,
-  code: classifyExit(message) === undefined ? "refused" : "unreachable"
-})
+export const issueReadFailed = (message: string) =>
+  new AgentFailed({
+    message,
+    code: classifyExit(message) === undefined ? "refused" : "unreachable"
+  })
 
 /**
  * The agent finished and edited nothing. `report` is its whole reply, which
@@ -317,12 +328,13 @@ const agentFailed = (cause: { readonly message: string }) =>
   cause instanceof AgentFailed ? cause : new AgentFailed({ message: cause.message })
 
 /** Issue-read implementation, with a replaceable reader for engine regression tests. */
-export const fetchIssueWith = (read: typeof issue) => FetchIssue.toLayer((input) =>
-  read(input.repo, input.issue).pipe(
-    Effect.map(({ title, body, comments }) => ({ title, body, comments })),
-    Effect.mapError((cause) => issueReadFailed(String((cause as { message?: unknown }).message ?? cause)))
+export const fetchIssueWith = (read: typeof issue) =>
+  FetchIssue.toLayer((input) =>
+    read(input.repo, input.issue).pipe(
+      Effect.map(({ title, body, comments }) => ({ title, body, comments })),
+      Effect.mapError((cause) => issueReadFailed(String((cause as { message?: unknown }).message ?? cause)))
+    )
   )
-)
 
 const fetchIssue = fetchIssueWith(issue)
 
@@ -368,12 +380,18 @@ export const removeWorkspace = (issue: number) => forget(placeOf(issue))
  * Adds the workspace at `place` with its working copy on top of `revision`.
  * A workspace left by an earlier attempt is removed first.
  */
-const addWorkspace = (place: Place, revision: string) =>
-  Effect.gen(function*() {
-    yield* forget(place)
-    yield* jj(place.repository, ["workspace", "add", place.directory, "--name", place.name, "-r", revision])
-  }).pipe(
-    Effect.tapError(() => forget(place)),
+const addWorkspace = <R = never>(
+  place: Place,
+  revision: string,
+  disk: Effect.Effect<void, HostFailed, R> = awaitHostDisk(workspaceBytes)
+) =>
+  Effect.andThen(
+    disk,
+    Effect.gen(function*() {
+      yield* forget(place)
+      yield* jj(place.repository, ["workspace", "add", place.directory, "--name", place.name, "-r", revision])
+    }).pipe(Effect.tapError(() => forget(place)))
+  ).pipe(
     Effect.mapError((cause) => new WorkspaceFailed({ message: cause.message }))
   )
 
@@ -383,7 +401,11 @@ const addWorkspace = (place: Place, revision: string) =>
  * workspace exists only while its change works or lands, because each one
  * with dependencies installed holds about 3 GB.
  */
-export const checkout = (place: Place, change: string) =>
+export const checkout = <R = never>(
+  place: Place,
+  change: string,
+  disk: Effect.Effect<void, HostFailed, R> = awaitHostDisk(workspaceBytes)
+) =>
   Effect.gen(function*() {
     if (existsSync(place.directory)) {
       const on = yield* jj(place.directory, ["log", "--no-graph", "-r", "@-", "-T", "change_id"]).pipe(
@@ -391,23 +413,28 @@ export const checkout = (place: Place, change: string) =>
       )
       if (on.trim() === change) return place.directory
     }
-    yield* addWorkspace(place, change)
+    yield* addWorkspace(place, change, disk)
     return place.directory
   })
 
 /** {@link checkout} at the issue's own place beside the sweep's checkout. */
-export const checkoutIssue = (issue: number, change: string) => checkout(placeOf(issue), change)
+export const checkoutIssue = <R = never>(
+  issue: number,
+  change: string,
+  disk: Effect.Effect<void, HostFailed, R> = awaitHostDisk(workspaceBytes)
+) => checkout(placeOf(issue), change, disk)
 
 /** The issue's workspace at `main`, with its locked dependencies installed for the agent. */
 const prepareWorkspace = PrepareWorkspace.toLayer((input) => {
   const place = placeOf(input.issue)
-  return Effect.gen(function*() {
-    yield* addWorkspace(place, "main")
-    const base = (yield* jj(place.directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
-    yield* install(place.directory)
-    return { directory: place.directory, base }
-  }).pipe(
-    Effect.tapError(() => forget(place)),
+  return Effect.andThen(
+    addWorkspace(place, "main"),
+    Effect.gen(function*() {
+      const base = (yield* jj(place.directory, ["log", "--no-graph", "-r", "@-", "-T", "commit_id"])).trim()
+      yield* install(place.directory)
+      return { directory: place.directory, base }
+    }).pipe(Effect.tapError(() => forget(place)))
+  ).pipe(
     Effect.mapError((cause) =>
       cause instanceof WorkspaceFailed ? cause : new WorkspaceFailed({ message: cause.message })
     )

@@ -31,7 +31,11 @@ execution can be removed once its holder is gone.
 
 The default shape is 2 CPUs and 4 GiB. The sizing fields `memoryBaseMib`,
 `memoryPerAgentMib`, `cpusPerAgent` and `maxCpus` remain available. A new VM
-waits below 25 GiB host free disk. Do not raise production concurrency on a
+waits below 25 GiB host free disk. Before waiting, admission bounds each
+Go cache trim and pnpm store prune to two minutes, reaps proven settled
+workspaces, then checks disk again. New landing and recovery workspaces
+reserve another 3 GiB above that floor. Existing retained workspaces and
+jobs reattach without allocating another checkout. Do not raise production concurrency on a
 full host; real restart tests use one VM with a test-only disk floor.
 
 ## Validation
@@ -54,6 +58,9 @@ machine. Live Cloud creation returned HTTP 500 after admitting a workspace,
 including with 2 CPU / 4 GiB / 32 GiB; all test workspaces were removed.
 [#3379](https://github.com/smithersai/smithers/issues/3379) tracks the blocked
 Cloud restart qualification. This is not evidence of a successful Cloud job.
+
+Use `placement: "cloud"` with `cloudAgents` for Cloud-only work even when
+local disk has recovered above the VM floor.
 
 ## Operator cutover
 

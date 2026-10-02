@@ -239,7 +239,6 @@ test("a sweep that fails settles with a typed, encodable failure", () => {
   }
 })
 
-
 test("host diagnostics classify connectivity without reclassifying ordinary agent failures", () => {
   for (const message of [proxy502, "HTTP 503: Service Unavailable", "HTTP 429: Retry-After: 60", "ENOTFOUND"]) {
     assert.equal(Fault.of(hostFailed(message)).class, "infra")
@@ -261,16 +260,23 @@ const fetchEngine = (message: string, failures: number) => {
     body: (input) => FetchIssue.call(input)
   })
   const { clock, delays } = retryClock()
-  const runtime = ManagedRuntime.make(Layer.mergeAll(
-    Interpreter.layer(ReadFlow),
-    fetchIssueWith(() => Effect.suspend(() => ++calls <= failures
-      ? Effect.fail(hostFailed(message)) : Effect.succeed(found)))
-  ).pipe(
-    Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(FlowEngine.layerMemory),
-    Layer.provideMerge(NodeCrypto.layer),
-    Layer.provideMerge(Layer.succeed(Clock.Clock, clock))
-  ))
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(
+      Interpreter.layer(ReadFlow),
+      fetchIssueWith(() =>
+        Effect.suspend(() =>
+          ++calls <= failures
+            ? Effect.fail(hostFailed(message)) :
+            Effect.succeed(found)
+        )
+      )
+    ).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer),
+      Layer.provideMerge(Layer.succeed(Clock.Clock, clock))
+    )
+  )
   return { runtime, flow: ReadFlow, calls: () => calls, delays }
 }
 
@@ -283,7 +289,9 @@ test("FetchIssue retries two proxy 502s then succeeds through the engine", async
     assert.deepEqual(result, { title: "fix discovery", body: "issue", comments: [] })
     assert.equal(fixture.calls(), 3)
     assert.deepEqual(fixture.delays, [5000, 10000])
-  } finally { await fixture.runtime.dispose() }
+  } finally {
+    await fixture.runtime.dispose()
+  }
 })
 
 test("FetchIssue exhausted retries encode and replay AgentFailed through Work's declared codec", async () => {
@@ -298,44 +306,59 @@ test("FetchIssue exhausted retries encode and replay AgentFailed through Work's 
     assert.ok(calls > 3)
     assert.deepEqual(await fixture.runtime.runPromise(Effect.flip(run)), failure)
     assert.equal(fixture.calls(), calls)
-  } finally { await fixture.runtime.dispose() }
+  } finally {
+    await fixture.runtime.dispose()
+  }
 })
 
-for (const message of ["HTTP 401: Bad credentials", "HTTP 403: Forbidden", "HTTP 404: Not Found", "HTTP 422: Invalid"]) {
+for (
+  const message of ["HTTP 401: Bad credentials", "HTTP 403: Forbidden", "HTTP 404: Not Found", "HTTP 422: Invalid"]
+) {
   test(`FetchIssue refuses without retry: ${message}`, async () => {
     const fixture = fetchEngine(message, Infinity)
     try {
       const failure = await fixture.runtime.runPromise(Effect.flip(fixture.flow.execute(
-        { repo: "acme/app", issue: 1 }, { executionId: "fetch-refused" }
+        { repo: "acme/app", issue: 1 },
+        { executionId: "fetch-refused" }
       )))
       assert.ok(failure instanceof AgentFailed)
       assert.equal(failure.code, "refused")
       assert.equal(fixture.calls(), 1)
       assert.deepEqual(fixture.delays, [])
-    } finally { await fixture.runtime.dispose() }
+    } finally {
+      await fixture.runtime.dispose()
+    }
   })
 }
 
-
 test("Accounts retries classified host connectivity before discovery", async () => {
   let calls = 0
-  const fixture = engine(() => Effect.succeed([]), () => Effect.suspend(() => ++calls <= 2
-    ? Effect.fail(hostFailed(proxy502)) : Effect.succeed(Burndown.available(1))))
+  const fixture = engine(() => Effect.succeed([]), () =>
+    Effect.suspend(() =>
+      ++calls <= 2
+        ? Effect.fail(hostFailed(proxy502)) :
+        Effect.succeed(Burndown.available(1))
+    ))
   try {
-    const result = await fixture.runtime.runPromise(Sweep.execute({ repo: "acme/app" }, { executionId: "accounts-recovery" }))
+    const result = await fixture.runtime.runPromise(
+      Sweep.execute({ repo: "acme/app" }, { executionId: "accounts-recovery" })
+    )
     assert.equal(result.stopped, "drained")
     assert.equal(calls, 3)
     assert.deepEqual(fixture.delays, [5000, 10000])
     assert.equal(fixture.dispatches(), 1)
-  } finally { await fixture.runtime.dispose() }
+  } finally {
+    await fixture.runtime.dispose()
+  }
 })
 
 test("Accounts exhaustion settles and replays classified HostFailed", async () => {
   let calls = 0
-  const fixture = engine(() => Effect.succeed([]), () => Effect.suspend(() => {
-    calls++
-    return Effect.fail(hostFailed(proxy502))
-  }))
+  const fixture = engine(() => Effect.succeed([]), () =>
+    Effect.suspend(() => {
+      calls++
+      return Effect.fail(hostFailed(proxy502))
+    }))
   try {
     const run = Sweep.execute({ repo: "acme/app" }, { executionId: "accounts-exhausted" })
     const failure = await fixture.runtime.runPromise(Effect.flip(run))
@@ -346,14 +369,22 @@ test("Accounts exhaustion settles and replays classified HostFailed", async () =
     assert.deepEqual(await fixture.runtime.runPromise(Effect.flip(run)), failure)
     assert.equal(calls, settled)
     assert.equal(fixture.dispatches(), 0)
-  } finally { await fixture.runtime.dispose() }
+  } finally {
+    await fixture.runtime.dispose()
+  }
 })
 
-
 test("host output classifies actual failed command diagnostics", async () => {
-  for (const [message, expected] of [[proxy502, "infra"], ["HTTP 429: Retry-After: 60", "infra"], ["HTTP 401: Bad credentials", "dependency"], ["HTTP 404: Not Found", "dependency"]] as const) {
+  for (
+    const [message, expected] of [[proxy502, "infra"], ["HTTP 429: Retry-After: 60", "infra"], [
+      "HTTP 401: Bad credentials",
+      "dependency"
+    ], ["HTTP 404: Not Found", "dependency"]] as const
+  ) {
     const failure = await Effect.runPromise(Effect.flip(output(process.execPath, [
-      "-e", "process.stderr.write(process.argv[1]); process.exit(1)", message
+      "-e",
+      "process.stderr.write(process.argv[1]); process.exit(1)",
+      message
     ])))
     assert.ok(failure instanceof HostFailed)
     assert.equal(Fault.of(failure).class, expected)

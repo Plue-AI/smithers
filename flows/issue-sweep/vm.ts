@@ -25,11 +25,13 @@
  * Build the snapshot once per Smithers main (about two minutes):
  *   node flows/issue-sweep/test/vm-image.ts
  */
+import { makeDiskGate } from "./disk.ts"
+export { statfsFree } from "./disk.ts"
 import { RunStore } from "@smthrs/run-store"
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
 import { type Duration, Effect, Option, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
-import { existsSync, readdirSync, statfsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { homedir, hostname } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -265,12 +267,9 @@ export interface Options {
   readonly minFreeBytes?: number | undefined
   /** Reads free host disk in bytes. Default: `statfs` of the Microsandbox home. */
   readonly freeBytes?: (() => number) | undefined
-}
-
-const microsandboxHome = join(homedir(), ".microsandbox")
-export const statfsFree = () => {
-  const stats = statfsSync(existsSync(microsandboxHome) ? microsandboxHome : homedir())
-  return stats.bavail * stats.bsize
+  /** Optional bounded cleanup seams for disk admission tests. */
+  readonly diskInterval?: Duration.Input | undefined
+  readonly diskCleanup?: Pick<import("./disk.ts").DiskOptions, "cleanGo" | "prunePnpm" | "reapSettled"> | undefined
 }
 
 /** Waits, polling every `interval`, while the host has less than `minimum` bytes free. */
@@ -344,7 +343,16 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
     Effect.gen(function*() {
       // Held until machine teardown finishes, including a last-reference pool close.
       yield* Effect.acquireRelease(vmSlots.take(1), () => vmSlots.release(1))
-      yield* awaitDisk(options.freeBytes ?? statfsFree, options.minFreeBytes ?? 25 * 1024 ** 3)
+      yield* makeDiskGate({
+        ...options.diskCleanup,
+        interval: options.diskInterval,
+        freeBytes: options.freeBytes,
+        minimum: options.minFreeBytes
+      })().pipe(
+        Effect.mapError((cause) =>
+          new RemoteChildProcessSpawner.ProviderError({ code: "unavailable", message: cause.message })
+        )
+      )
       const snapshot = options.snapshot ?? (yield* latestImage(sdk))
       const session = yield* boots.withPermits(1)(machines(snapshot).acquire(sessionKey))
       if (options.refresh ?? true) yield* required(session, "refreshing the checkout", refreshLine)
@@ -499,7 +507,16 @@ export const makeJob = (options: Options = {}): Sandbox.Provider & { readonly sl
               retained = yield* jobMachines(sdk)
             }
             if (retained.length >= (options.maxVms ?? 24)) return undefined
-            if ((options.freeBytes ?? statfsFree)() < (options.minFreeBytes ?? 25 * 1024 ** 3)) return undefined
+            yield* makeDiskGate({
+              ...options.diskCleanup,
+              interval: options.diskInterval,
+              freeBytes: options.freeBytes,
+              minimum: options.minFreeBytes
+            })().pipe(
+              Effect.mapError((cause) =>
+                new RemoteChildProcessSpawner.ProviderError({ code: "unavailable", message: cause.message })
+              )
+            )
             const snapshot = options.snapshot ?? (yield* latestImage(sdk))
             const provider = machines(key, snapshot)
             const opened = yield* provider.acquire(key)

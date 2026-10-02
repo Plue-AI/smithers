@@ -532,3 +532,21 @@ test("two retained generations on one account release independently and ignore a
   next.release()
   final.release()
 })
+
+test("cloud placement never reserves a local or VM slot even with ample disk", () => {
+  const input = Schema.decodeUnknownSync(Input)({ repo: "acme/app", placement: "cloud", maxAgents: 1, cloudAgents: 2 })
+  assert.equal(localLimit(input, Infinity), 0)
+  assert.deepEqual(placementCapacity(input, { codex: pool("codex-1"), claude: none }, 8, Infinity), {
+    _tag: "Available",
+    slots: 2
+  })
+  const slots = makePlacementSlots()
+  const first = slots.reserve(input, Infinity)
+  const second = slots.reserve(input, Infinity)
+  assert.equal(first?.placement, "cloud")
+  assert.equal(second?.placement, "cloud")
+  assert.equal(slots.reserve(input, Infinity), undefined)
+  assert.equal(slots.reserve(input, Infinity, "vm"), undefined)
+  first?.release()
+  assert.equal(slots.reserve(input, Infinity)?.placement, "cloud")
+})

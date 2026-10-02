@@ -16,9 +16,11 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import { Burndown, PatternError } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Crypto from "effect/Crypto"
+import { randomUUID } from "node:crypto"
 import { appendFile, readdir } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { capacity, perAccount, type Pools, readPools } from "./accounts.ts"
+import { configureDiskReaper, DiskAdmission, diskLayer, makeSettledWorkspaceReaper, workspaceBytes } from "./disk.ts"
 import { api, issue as readIssue, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
@@ -50,7 +52,7 @@ export const Input = Schema.Struct({
   // reattaches to its children; a new attempt works failed issues afresh.
   attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   // Where agents run: on this Mac in their own sandbox (default), or in local microVMs.
-  placement: Schema.optional(Schema.Literals(["local", "vm"])),
+  placement: Schema.optional(Schema.Literals(["local", "vm", "cloud"])),
   // How many changes run their landing checks at once (default 6); pushes stay serial.
   landers: Schema.optional(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(maxLanders))
@@ -250,7 +252,9 @@ type Placement = "local" | "vm" | "cloud"
 const Placement = Schema.Literals(["local", "vm", "cloud"])
 
 export const localLimit = (input: typeof Input.Type, freeBytes: number): number =>
-  input.placement === "vm"
+  input.placement === "cloud"
+    ? 0
+    : input.placement === "vm"
     ? freeBytes < minFreeBytes
       ? 0
       : Math.min(maxLocalAgents, input.maxAgents ?? 4, (input.maxVms ?? 24) * (input.agentsPerVm ?? 1))
@@ -413,7 +417,7 @@ type Failure =
   | TriageFailed
   | Burndown.Stop
 /** What running the work child needs from the engine that executes the sweep. */
-type Engine = FlowRuntime.FlowRuntime | Crypto.Crypto
+type Engine = FlowRuntime.FlowRuntime | Crypto.Crypto | Action.Requirement<"issue-sweep/ensure-disk">
 const repoOf = (args: { readonly input: unknown }) => (args.input as typeof Input.Type).repo
 const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
 
@@ -570,6 +574,26 @@ const landGate = (landers: number) => {
   return gate
 }
 
+// Only journaled final rows are candidates; a fresh claim check protects a
+// workspace another run has since acquired. Failed/unknown checks keep it.
+const settledReaper = makeSettledWorkspaceReaper({
+  check: (repo, issue) =>
+    Effect.map(
+      run("node", [claimTool, "check", `${repo}#${issue}`, "--by", "issue-sweep-disk-reaper"]),
+      (checked) => {
+        if (checked.code !== 0) return false
+        try {
+          return JSON.parse(checked.stdout.trim()).free === true
+        } catch {
+          return false
+        }
+      }
+    ),
+  remove: removeWorkspace
+})
+export const rememberSettledWorkspaces = settledReaper.remember
+configureDiskReaper(settledReaper.reap)
+
 const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine, string> = {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
@@ -650,7 +674,15 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
             message: `#${item.number} is ${state.trim().toLowerCase()}; change ${output.change} not landed`
           })
         }
-        const workspace = yield* checkoutIssue(item.number, output.change).pipe(
+        // Disk clearance is fresh for each allocation, never replayed from a
+        // previous successful check while the host's free space has changed.
+        const workspace = yield* checkoutIssue(
+          item.number,
+          output.change,
+          DiskAdmission.execute({ reserveBytes: workspaceBytes }, { executionId: randomUUID() }).pipe(
+            Effect.mapError((cause) => cause instanceof HostFailed ? cause : new HostFailed({ message: cause.message }))
+          )
+        ).pipe(
           Effect.mapError((cause) => new LandFailed({ message: `checkout: ${cause.message}` }))
         )
         return yield* landChange(workspace, output.change)
@@ -697,8 +729,9 @@ export const sweepRound = <W, E, R, L, SE, SR>(
 
 const dispatch = Layer.unwrap(
   Effect.map(Effect.service(Evaluator.Evaluator), (judged) =>
-    Dispatch.toLayer((payload) =>
-      sweepRound({
+    Dispatch.toLayer((payload) => {
+      rememberSettledWorkspaces((payload.input as typeof Input.Type).repo, payload.rows ?? [])
+      return sweepRound({
         input: payload.input,
         round: payload.round,
         items: payload.items as ReadonlyArray<Item>,
@@ -718,12 +751,13 @@ const dispatch = Layer.unwrap(
       }, liveSeams(judged)).pipe(
         Effect.tap((result) => logRound(payload.input as typeof Input.Type, payload.round, result.rows))
       )
-    ))
+    }))
 ).pipe(Layer.provide(judge))
 
 // The rounds are a flow of their own that no file declares, so this module
 // registers them; the host registers only discovered file flows.
 export const layer = Layer.mergeAll(
+  diskLayer,
   listIssues,
   accounts,
   dispatch,
