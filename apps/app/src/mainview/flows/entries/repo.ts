@@ -46,7 +46,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ repo }) => actions.selectRepo(repo)
   }),
   /*
-   * The sidebar's file tree (docs/workbench-lanes/sidebar-tree.md): a repo
+   * The sidebar's file tree: a repo
    * row's caret expands the copy's root, a directory row its own path — the
    * row id grammar, `<copyId>#<path>`. Harmless, so every door has it; the
    * agent reads contents with files.list and files.read, the same route.

@@ -1105,7 +1105,7 @@
 	opacity: 0.55;
 }
 
-/* THE FORM LAW (docs/workbench-lanes/flow-forms.md): the generic flow form's rows; a required row marks itself. */
+/* THE FORM LAW (.specs/engineering/spec.md §6.1): the generic flow form's rows; a required row marks itself. */
 .flow-form {
 	display: flex;
 	flex-direction: column;

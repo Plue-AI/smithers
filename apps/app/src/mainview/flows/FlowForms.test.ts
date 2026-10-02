@@ -5,7 +5,7 @@ import { assembleArgs, draftFrom, formFieldsFor, missingFields, OPTION_PROVIDERS
 import type { FormHints } from "@smthrs/ui/flow-form"
 
 /*
- * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md): the
+ * THE FORM LAW (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1): the
  * form is DERIVED from the flow's own input schema, never a second
  * hand-written form. These pin the derivation per schema kind, the hint
  * overlay, the prefill from a partial slash line, and the args assembly that

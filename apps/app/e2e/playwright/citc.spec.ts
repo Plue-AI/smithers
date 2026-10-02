@@ -3,7 +3,7 @@ import { expect, test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
- * Lane citc T1 (docs/workbench-lanes/citc.md "Exit", ADR 0002): against a
+ * Lane citc T1 (ADR 0002): against a
  * fake cloud upstream the app opens a box, the card streams
  * starting→running (the seam's settle watch), the box facets show what
  * the upstream answered, and a degraded sign-in refuses a box act with

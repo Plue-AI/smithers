@@ -121,7 +121,7 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId }) => actions.revertChange(changeId)
   }),
   flow({
-    /* The card's body tab: showing a facet is how the agent answers "show me the diff / the checks" (agent-parity.md). */
+    /* The card's body tab: showing a facet is how the agent answers "show me the diff / the checks" (.specs/engineering/spec.md §6.1). */
     name: "change.facet",
     summary: "Switch a change card's facet",
     runtime: ["cloud"],
@@ -136,7 +136,7 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   /*
    * Lane L1 (ADR 0004, the live plue routes): the Diff facet's revision
    * pickers and the Checks facet's picker are the card's controls AND the
-   * agent's answer to "show me the diff since rev 2" (agent-parity.md); the
+   * agent's answer to "show me the diff since rev 2" (.specs/engineering/spec.md §6.1); the
    * thread transitions, the since-my-review pin, and the two finding acts are
    * flows with the same slash, agent, and button path; opening a computer
    * from a revision's snapshot is an outbound act.

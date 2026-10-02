@@ -185,8 +185,8 @@ export const egressLine = (row: SandboxEgressRow): string =>
 export interface EgressSeam {
   /**
    * `egress.session <sessionId> [owner/repo]`: one agent session's audit as a
-   * transcript listing. The app has no agent-session card to hang a facet on
-   * (see docs/workbench-lanes/L3-workspace-card.REPORT.md), so the route
+   * transcript listing. The app has no agent-session card to hang a facet on,
+   * so the route
    * answers where every other list act answers.
    */
   readonly listSessionEgress: (

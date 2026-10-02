@@ -118,7 +118,7 @@ describe("wave 10 — admin-only affordances are absent, not hidden (§2/§2b)",
     const manifest = host.querySelector(".app-shell")?.getAttribute("data-flows") ?? ""
     expect(manifest).not.toContain("admin.")
     expect(manifest).not.toContain("admin.reset")
-    /* `/debug.reset` is every user's own fresh-start door (ONBOARDING.md), never the admin reset. */
+    /* `/debug.reset` is every user's own fresh-start door, never the admin reset. */
     expect(manifest).not.toContain("corner-reset")
     // The admin plugin's debug flows; `debug.verbose` is every session's own switch.
     expect(manifest).not.toContain("debug.snapshot")

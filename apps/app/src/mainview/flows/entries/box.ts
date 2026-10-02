@@ -148,7 +148,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId, confirmName }) => actions.deleteWorkspace(workspaceId, confirmName)
   }),
   flow({
-    /* The card's body tab: showing a facet is how the agent answers "show me the files" too (agent-parity.md). */
+    /* The card's body tab: showing a facet is how the agent answers "show me the files" too (.specs/engineering/spec.md §6.1). */
     name: "box.facet",
     form: { fields: { workspaceId: { optionsFrom: "workspaces" } } },
     summary: "Switch a box card's facet",

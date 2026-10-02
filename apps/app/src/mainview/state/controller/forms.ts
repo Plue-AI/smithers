@@ -22,7 +22,7 @@ import { claimedSpokenLines,claimSpokenLine, forgetVanishedClaims,latestOrdinal 
 import { presentAppFailure } from "./AppFailure"
 
 /*
- * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md), the
+ * THE FORM LAW (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1), the
  * controller half. A flow invoked without its required input renders the
  * `flow-form` card: its fields derive from the flow's input schema
  * (flows/FlowForms.ts), its options come from the seams named below and

@@ -167,7 +167,7 @@ describe("per-turn runtime context", () => {
   })
 
   /*
-   * agent-parity.md: the agent tried /box.terminal, failed on the
+   * .specs/engineering/spec.md §6.1: the agent tried /box.terminal, failed on the
    * missing cloud session, and ran /auth.prompt — GitHub, already connected —
    * because the context stated GitHub and never the Smithers Cloud session.
    */

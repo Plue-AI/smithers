@@ -548,7 +548,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
      * Lane runs changed flow.run.stop's stance deliberately: stopping a run
      * is consequential rather than browser mechanics, so the model may ASK
      * (confirm turns its invocation into a confirmation message; nothing runs
-     * until the human clicks). The three-door law (agent-parity.md) moved
+     * until the human clicks). The three-door law (.specs/engineering/spec.md §6.1) moved
      * flow.run.retry to the same stance — a retry spends, so it confirms —
      * while flow.repo.choose stays user-only: it is the human's ANSWER.
      */

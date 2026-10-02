@@ -12,6 +12,8 @@ durable, scoped to their conversation, and editable without blocking Chat.
 
 Users must be able to operate all of Smithers without a mouse. Every action needs an accessible keyboard path, visible focus, and predictable focus movement. Use native control semantics, Tab/Shift-Tab navigation, Enter/Space activation, Escape dismissal, and appropriate arrow-key navigation. Preserve normal text editing. No hover-only, drag-only, or pointer-only required action. Keyboard-only completion is a release check for every new workflow, including onboarding.
 
+Mark panes with `data-keyboard-pane="Descriptive name"`; the shell discovers them without component registration or focus state. Exclude hidden/inert panes, respect modal boundaries, and restore each pane’s last control and cursor. Keep Ctrl+B pane navigation available in editors and terminals; Escape cancels its prefix and a second Ctrl+B passes through. Vim fields retain their editing mode across pane moves; Escape enters Normal mode without closing Chat or blurring. Dispatch edits through native input events and existing flows; keyboard state stays transient. Terminals keep their own editing keys. Vim Markdown edits use the source textarea and the existing save handler.
+
 ## Signup onboarding (Will, 2026-09-20; amended 2026-10-01)
 
 > Superseded by the MVP spec (Will, 2026-10-02): mvp.md §8 cuts the signup poll and the practice repository, and J1 replaces signup with one setup card on the install. Sign-in is GitHub (§6.2). Don't extend this surface. Stage 1 removes it (mvp.md §11, item 8: §8 applied in code), and this rule goes with it.
@@ -32,7 +34,7 @@ Open the app directly. New sessions show ONE first-run card, the setup checklist
 
 ## Current onboarding brief (Will, 2026-09-08)
 
-The new shell opens with a one-second SMITHERS entrance and progressively introduces capabilities. The UI is the default view: full-screen, no composer, and a composer left open is never restored on load. Command-K summons ONLY the composer — one solid floating card in a transparent layer over the content at the top of the page; the chat history lives in the full-screen UI underneath. Escape, a press outside the card, or a second Command-K dismisses it (Will, 2026-09-14: this restores the pre-dock overlay and supersedes the 2026-09-09 bottom dock). The guide's lessons keep their own bottom Chat dock, documented in `docs/ONBOARDING.md`. This explicit brief supersedes the always-visible-chat and fixed-sidebar requirements below. Outputs still use the existing flows and shared state.
+The new shell opens with a one-second SMITHERS entrance and progressively introduces capabilities. The UI is the default view: full-screen, no composer, and a composer left open is never restored on load. Command-K summons ONLY the composer — one solid floating card in a transparent layer over the content at the top of the page; the chat history lives in the full-screen UI underneath. Escape, a press outside the card, or a second Command-K dismisses it (Will, 2026-09-14: this restores the pre-dock overlay and supersedes the 2026-09-09 bottom dock). This explicit brief supersedes the always-visible-chat and fixed-sidebar requirements below. Outputs still use the existing flows and shared state.
 
 
 ## ⚖️ THE EMBED LAW — read this before anything else (will, 2026-08-09, permanent)

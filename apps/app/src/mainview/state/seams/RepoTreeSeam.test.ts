@@ -206,7 +206,7 @@ describe("repo tree seam — one directory per request, the route's answer verba
 })
 
 /*
- * A cloud workspace copy (a box, docs/workbench-lanes/sidebar-tree.md) lists
+ * A cloud workspace copy (a box) lists
  * through the route its Files facet reads, forwarded by the Worker with the
  * visitor's own session: `GET /api/repos/{o}/{r}/workspaces/{id}/files?path=`.
  * The row holds plue's entries mapped to the tree's `{ name, kind }`, or the

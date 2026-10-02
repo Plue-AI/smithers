@@ -1,5 +1,5 @@
 /*
- * The three-door law (apps/app/AGENTS.md; docs/workbench-lanes/agent-parity.md):
+ * The three-door law (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
  * every act is ONE flow with three doors — slash, button, agent. `userOnly`
  * is an enumerated exception for acts that are physically the human's
  * gesture or that the human alone may answer, and every such flow names its
@@ -91,7 +91,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "runs.continue": "approvals belong to the human"
 }
 
-/** The policy table's agent rows (agent-parity.md): the args exercised and whether the act confirms. */
+/** The policy table's agent rows (.specs/engineering/spec.md §6.1): the args exercised and whether the act confirms. */
 const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean }> = [
   { name: "runs.trace.filter", args: "run-1 failed", confirm: false },
   { name: "runs.trace.select", args: "run-1 frame-1", confirm: false },

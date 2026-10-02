@@ -9,7 +9,7 @@ import { FIXTURE_BOX, installCloudFixture, runningBox } from "./cloudFixture.ts"
 import { prepareHealthPage,sendHealthCommand } from "./healthFixture"
 
 /*
- * Lane runs T1 (docs/workbench-lanes/runs.md "Exit"): launch a fixture flow,
+ * Lane runs T1 (.specs/engineering/spec.md §11.6): launch a fixture flow,
  * steer it, stop it, and see it in the run inbox — the whole lifecycle over
  * the workspace gateway, with the server as a double: the shared cloud
  * fixture (cloudFixture.ts) answers the bootstrap, the sessions and the

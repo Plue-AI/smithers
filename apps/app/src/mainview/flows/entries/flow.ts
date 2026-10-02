@@ -97,7 +97,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ cardId, reason }) => actions.stopWatchingRun(cardId, reason)
   }),
   flow({
-    /* A retry spends (agent-parity.md): the model may ask, the human confirms. */
+    /* A retry spends (.specs/engineering/spec.md §6.1): the model may ask, the human confirms. */
     name: "flow.run.retry",
     summary: "Check a run again",
     runtime: ["cloud"],

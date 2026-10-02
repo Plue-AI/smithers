@@ -340,11 +340,11 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
   readonly selectRepo: TabsController["selectRepo"]
   readonly selectBox: TabsController["selectBox"]
-  /* The sidebar's file tree and workspace heading (docs/workbench-lanes/sidebar-tree.md); see controller/sidebar.ts. */
+  /* The sidebar's file tree and workspace heading; see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
   readonly renameWorkspace: SidebarController["renameWorkspace"]
   readonly toggleWorkspaceRename: SidebarController["toggleWorkspaceRename"]
-  /* Agents as data (docs/workbench-lanes/custom-agents.md); see controller/agents.ts. */
+  /* Agents as data; see controller/agents.ts. */
   readonly listAgents: AgentsController["listAgents"]
   /* THE FORM LAW (apps/app/AGENTS.md): the flow-form card's render, field commits, submit, and dismiss; see controller/forms.ts. */
   readonly renderFlowForm: FormsController["renderFlowForm"]
@@ -1343,7 +1343,7 @@ export const createAppController = (
   }
 
   /*
-   * cloud.prompt, mirroring auth.prompt (agent-parity.md): the agent cannot
+   * cloud.prompt, mirroring auth.prompt (.specs/engineering/spec.md §6.1): the agent cannot
    * run cloud.sign-in (the browser login is the human's gesture), but it CAN
    * hand the step over — one message whose action IS the Smithers Cloud
    * sign-in button. A host without the PAT door (the web) has no

@@ -43,7 +43,7 @@ test("a disabled write-only field keeps Submit disabled and shows its reason", (
 })
 
 /*
- * THE FORM LAW (flow-forms.md): the generic form card. One control per
+ * THE FORM LAW (.specs/engineering/spec.md §6.1): the generic form card. One control per
  * field kind, an unpickable option disabled with its reason, every field
  * commit through form.set with the card id, Submit as form.submit (disabled
  * until the required fields are filled), Cancel as card.dismiss, and a

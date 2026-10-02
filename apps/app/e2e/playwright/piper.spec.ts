@@ -4,7 +4,7 @@ import type { Page } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
- * Lane piper T1 (docs/workbench-lanes/piper.md "Exit", ADR 0001): repositories
+ * Lane piper T1 (ADR 0001): repositories
  * share one address space, and /files.read README.md renders the card whose
  * header carries the global address and the position the read was taken at.
  * Local checkouts no longer join it: ac9e0cccfd retired the local repository

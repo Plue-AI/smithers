@@ -14,7 +14,7 @@ import { parseRepoSelection } from "../state/AppState"
 import type { AppController } from "../state/AppController"
 
 /*
- * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md): the
+ * THE FORM LAW (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1): the
  * one form card every flow shares. Its fields derive from the flow's input
  * schema, its options come from the seams (controller/forms.ts), and its
  * draft IS the card payload: a field commits through `form.set` on every

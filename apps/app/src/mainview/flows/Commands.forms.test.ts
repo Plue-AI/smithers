@@ -1,5 +1,5 @@
 /*
- * THE FORM LAW at the door (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md):
+ * THE FORM LAW at the door (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
  * a flow invoked without its required input — by the agent or by a typed
  * slash — renders its form card, prefilled with what the line gave, and
  * answers "rendered a form for <fields>"; never a usage sentence. A button

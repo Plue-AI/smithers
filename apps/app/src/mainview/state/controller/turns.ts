@@ -197,7 +197,7 @@ export const createTurnController = (
    * transcript; it carries no secrets (only state the client already holds).
    */
   /*
-   * The Smithers Cloud session as the model must know it (agent-parity.md):
+   * The Smithers Cloud session as the model must know it (.specs/engineering/spec.md §6.1):
    * the native app holds a PAT session of its own (cloudSessions, mirrored
    * from the Bun side); on the web the GitHub sign-in IS the Cloud sign-in
    * (WEB_HOST_LINE), so the identity answers. A host with neither door is

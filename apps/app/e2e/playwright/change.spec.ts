@@ -4,7 +4,7 @@ import { expect,test } from "./browserTest"
 import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
- * Lane change T1 (docs/workbench-lanes/change.md "Exit", ADR 0003): against
+ * Lane change T1 (ADR 0003): against
  * a fake cloud upstream the app opens a landing request's change end to end —
  * the change card carries the DTO, the stat, the stack position, and the
  * checks; the History facet lists the recorded revision with its provenance

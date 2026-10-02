@@ -111,7 +111,7 @@ export const RepositoryJobObservationSchema = z.object({
 export type RepositoryJobObservation = z.infer<typeof RepositoryJobObservationSchema>
 
 /*
- * The sidebar's repository file tree (docs/workbench-lanes/sidebar-tree.md):
+ * The sidebar's repository file tree:
  * one row per directory the user expanded in a working copy, keyed
  * `<copyId>#<path>` (`""` is the copy's root). `expanded` is the caret;
  * `state` is the listing's honest state — `loading` until the local route
@@ -961,7 +961,7 @@ export const SessionSchema = z.object({
   repositoryEntry: RepositoryEntrySchema.nullable().optional(),
   repositoryCommandEntry: RepositoryCommandEntrySchema.optional(),
   /*
-   * The sidebar heading's name (docs/workbench-lanes/sidebar-tree.md):
+   * The sidebar heading's name:
    * `workspace.rename <name>` writes it; the heading renders "Workspace"
    * until it is set. `workspaceRenameOpen` is the inline editor the pencil
    * opens (workspace.rename.edit) — session state like every other menu,
@@ -1750,7 +1750,7 @@ export type AppTransition =
   | { type: "repository.entry.changed"; actor: "system"; entry: RepositoryEntry | null }
   | { type: "repository.command.changed"; actor: "system"; entry: RepositoryCommandEntry }
   /*
-   * The sidebar's file tree (docs/workbench-lanes/sidebar-tree.md): a caret
+   * The sidebar's file tree: a caret
    * toggles a directory row; a first expand (or a retry of a failed one)
    * marks it loading, and the local route's answer lands as loaded or failed.
    */

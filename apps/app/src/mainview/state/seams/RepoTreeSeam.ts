@@ -1,5 +1,5 @@
 /*
- * The sidebar's file tree seam (docs/workbench-lanes/sidebar-tree.md): one
+ * The sidebar's file tree seam: one
  * directory of a working copy, written to the `app-repo-tree` row for that
  * directory. A cloud WORKSPACE copy (a box) reads through the route its
  * Files facet uses (`GET /api/repos/{o}/{r}/workspaces/{id}/files?path=`,

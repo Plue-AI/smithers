@@ -63,7 +63,7 @@ export const agentVisibleCatalog = (
  * `userOnlyReason` says WHY the act is the human's; this table says what the
  * model does INSTEAD, where an instead exists — a prompt flow that renders the
  * human's button in the chat, or the text answer that replaces the gesture.
- * A flow that stops being user-only leaves this table (agent-parity.md).
+ * A flow that stops being user-only leaves this table (.specs/engineering/spec.md §6.1).
  */
 const USER_ONLY_ALTERNATIVES: Readonly<Record<string, string>> = {
   "auth.sign-in": "invoke auth.prompt, which renders that button in the chat",
@@ -99,7 +99,7 @@ const CLOUD_SIGN_IN_INSTRUCTION = /(\bsign in\b[^.]*?)\/cloud\.sign-in\b/giu
  * A handler's refusal, worded for the agent. The seams answer a missing
  * Smithers Cloud session with the human's slash (`/cloud.sign-in`), which the
  * model cannot invoke; its next act is the prompt flow that renders that
- * button, so the failure text names it (agent-parity.md: the model ran
+ * button, so the failure text names it (.specs/engineering/spec.md §6.1: the model ran
  * `/auth.prompt`, the wrong prompt, because nothing named the right one).
  */
 export const agentFailureText = (error: string): string => {

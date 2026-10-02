@@ -924,7 +924,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
-      // THE FORM LAW (flow-forms.md): Cancel (card.dismiss), Submit (form.submit), and the retained PR Review (form.submit); fields commit on blur/change.
+      // THE FORM LAW (.specs/engineering/spec.md §6.1): Cancel (card.dismiss), Submit (form.submit), and the retained PR Review (form.submit); fields commit on blur/change.
       "../cards/FlowFormCards.tsx": 3,
       // The plan card's one door, in its two states: Run once a plan exists, Plan again once one was refused.
       "../cards/FlowPlanCard.tsx": 2,
