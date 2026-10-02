@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"io"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -13,13 +15,315 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 )
+
+// Only the ordering is controlled: every document/receipt still comes from
+// PostgreSQL and every merge still crosses the actual HTTP/native boundary.
+type wikiHeldDocumentRead struct {
+	WikiCollaborationStore
+	documents *db.Queries
+	reads     int
+	once      sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (s *wikiHeldDocumentRead) GetWikiDocument(ctx context.Context, args db.GetWikiDocumentParams) (db.GetWikiDocumentRow, error) {
+	row, err := s.documents.GetWikiDocument(ctx, args)
+	s.reads++
+	if err != nil {
+		return row, err
+	}
+	s.once.Do(func() {
+		close(s.entered)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+		}
+	})
+	return row, ctx.Err()
+}
+
+func TestWikiCollaboration_DuplicateResponseUsesAcceptedDocument(t *testing.T) {
+	library := os.Getenv("SMITHERS_WIKI_TEST_FFI")
+	if library == "" {
+		t.Skip("SMITHERS_WIKI_TEST_FFI opts into native+Postgres integration")
+	}
+	pool := getAgentTestPool(t)
+	for _, scenario := range []string{"duplicate", "different bytes", "different author", "stale snapshots"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			q := db.New(pool)
+			userID, repoID := setupTestUserAndRepo(t, pool)
+			actor, err := q.GetUserByID(ctx, userID)
+			require.NoError(t, err)
+			repository, err := q.GetRepoByID(ctx, repoID)
+			require.NoError(t, err)
+			native := repohostffi.New(library)
+			require.NoError(t, native.Load())
+			backend, err := repohostserver.NewWithFFI(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "wiki-test-secret", PushHookCallbackToken: "test-callback"}, native)
+			require.NoError(t, err)
+			server := httptest.NewServer(backend.Handler())
+			defer server.Close()
+			host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "wiki-test-secret")
+			content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: server.URL})
+			require.NoError(t, err)
+			defer content.Close()
+			service := newTestWikiService(q, nil, WithWikiCollaboration(q, host), WithWikiContent(content))
+			page, err := service.CreateWikiPage(ctx, &actor, actor.Username, repository.Name, CreateWikiPageInput{Title: "Home", Body: "Before 🌎"})
+			require.NoError(t, err)
+			before, err := service.GetWikiDocument(ctx, &actor, actor.Username, repository.Name, page.Slug)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), before.Page.Revision)
+			replacement := "Accepted 🌎"
+			edit, err := host.MergeWikiDocument(ctx, actor.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "replace", State: before.State, Markdown: &replacement})
+			require.NoError(t, err)
+			updateID := uuid.New()
+			input := WikiUpdateInput{PageID: page.ID, UpdateID: updateID.String(), Update: edit.State}
+			duplicateInput := input
+			duplicateActor := actor
+			if scenario == "different bytes" {
+				duplicateInput.Update = before.State
+			}
+			if scenario == "different author" {
+				collaboratorID, _ := setupTestUserAndRepo(t, pool)
+				duplicateActor, err = q.GetUserByID(ctx, collaboratorID)
+				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repoID, collaboratorID)
+				require.NoError(t, err)
+			}
+			documents := q
+			if scenario == "stale snapshots" {
+				// A real repeatable-read snapshot keeps returning the old row;
+				// receipt reads still use the ordinary committed PostgreSQL view.
+				tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+				require.NoError(t, err)
+				defer tx.Rollback(context.Background())
+				documents = db.New(tx)
+			}
+			held := &wikiHeldDocumentRead{WikiCollaborationStore: q, documents: documents, entered: make(chan struct{}), release: make(chan struct{})}
+			var release sync.Once
+			unblock := func() { release.Do(func() { close(held.release) }) }
+			defer unblock()
+			duplicateService := newTestWikiService(q, nil, WithWikiCollaboration(held, host), WithWikiContent(content))
+			type outcome struct {
+				response WikiUpdateResponse
+				err      error
+			}
+			done := make(chan outcome, 1)
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				response, err := duplicateService.ApplyWikiUpdate(ctx, &duplicateActor, actor.Username, repository.Name, page.Slug, duplicateInput)
+				done <- outcome{response, err}
+			}()
+			defer func() {
+				cancel()
+				unblock()
+				<-finished
+			}()
+			select {
+			case <-held.entered:
+			case <-ctx.Done():
+				t.Fatal("duplicate did not read the pre-commit document")
+			}
+			accepted, err := service.ApplyWikiUpdate(ctx, &actor, actor.Username, repository.Name, page.Slug, input)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), accepted.AcceptedRevision)
+			unblock()
+			var duplicate outcome
+			select {
+			case duplicate = <-done:
+			case <-ctx.Done():
+				t.Fatal("duplicate did not finish after the accepted commit")
+			}
+
+			// Read durable state independently before checking the response, so a
+			// stale-response failure cannot be mistaken for durable data loss.
+			stored, err := q.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Slug: page.Slug})
+			require.NoError(t, err)
+			receipt, err := q.GetWikiUpdateReceipt(ctx, db.GetWikiUpdateReceiptParams{PageID: page.ID, UpdateID: pgtype.UUID{Bytes: updateID, Valid: true}})
+			require.NoError(t, err)
+			count, err := q.CountWikiRevisions(ctx, db.CountWikiRevisionsParams{RepositoryID: repoID, PageID: page.ID})
+			require.NoError(t, err)
+			require.Equal(t, int64(2), count, "a duplicate must not write another revision")
+			require.Equal(t, int64(2), stored.Revision)
+			require.Equal(t, stored.Revision, receipt.Revision)
+			require.Equal(t, replacement, stored.Body)
+			require.Equal(t, "explicit", stored.TitleSource)
+			require.Equal(t, accepted.Document.State, base64.StdEncoding.EncodeToString(stored.CrdtState))
+			require.Equal(t, accepted.Document.StateVector, base64.StdEncoding.EncodeToString(stored.CrdtVector))
+			rendered, err := host.MergeWikiDocument(ctx, actor.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "apply", State: accepted.Document.State, Update: accepted.Document.State})
+			require.NoError(t, err)
+			require.Equal(t, replacement, rendered.Markdown)
+			require.Equal(t, accepted.Document.StateVector, rendered.StateVector)
+			reader, err := content.NewReader(ctx, wikiContentKey(repoID, "public", stored.ContentDigest))
+			require.NoError(t, err)
+			body, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			require.NoError(t, reader.Close())
+			require.Equal(t, replacement, string(body))
+			if scenario == "stale snapshots" {
+				require.Equal(t, 409, apiStatus(t, duplicate.err))
+				require.Equal(t, 8, held.reads, "stale document retries must exhaust the existing bounded loop")
+				return
+			}
+			if scenario != "duplicate" {
+				require.Equal(t, 409, apiStatus(t, duplicate.err), "receipt ownership/content rejection must precede stale-document retry")
+				require.Equal(t, 1, held.reads)
+				return
+			}
+			require.NoError(t, duplicate.err)
+			require.Equal(t, accepted.AcceptedRevision, duplicate.response.AcceptedRevision)
+			require.Equal(t, stored.Revision, duplicate.response.Document.Page.Revision)
+			require.Equal(t, stored.Body, duplicate.response.Document.Page.Body)
+			require.Equal(t, stored.TitleSource, duplicate.response.Document.Page.TitleSource)
+			require.Equal(t, accepted.Document.State, duplicate.response.Document.State)
+			require.Equal(t, accepted.Document.StateVector, duplicate.response.Document.StateVector)
+			replay, err := duplicateService.ApplyWikiUpdate(ctx, &actor, actor.Username, repository.Name, page.Slug, input)
+			require.NoError(t, err)
+			require.Equal(t, duplicate.response, replay)
+			// A later distinct edit is valid in a replay document: keep the
+			// original accepted receipt rather than requiring revision equality.
+			laterBody := "Later distinct edit 🌎"
+			laterEdit, err := host.MergeWikiDocument(ctx, actor.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "replace", State: replay.Document.State, Markdown: &laterBody})
+			require.NoError(t, err)
+			later, err := service.ApplyWikiUpdate(ctx, &actor, actor.Username, repository.Name, page.Slug, WikiUpdateInput{PageID: page.ID, UpdateID: uuid.NewString(), Update: laterEdit.State})
+			require.NoError(t, err)
+			require.Equal(t, int64(3), later.AcceptedRevision)
+			require.Equal(t, "explicit", later.Document.Page.TitleSource)
+			replay, err = duplicateService.ApplyWikiUpdate(ctx, &actor, actor.Username, repository.Name, page.Slug, input)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), replay.AcceptedRevision)
+			require.Equal(t, "explicit", replay.Document.Page.TitleSource)
+			require.Equal(t, later.Document, replay.Document)
+			count, err = q.CountWikiRevisions(ctx, db.CountWikiRevisionsParams{RepositoryID: repoID, PageID: page.ID})
+			require.NoError(t, err)
+			require.Equal(t, int64(3), count)
+		})
+	}
+}
+
+func TestWikiCollaboration_DuplicateRetryRechecksRevokedWriteAccess(t *testing.T) {
+	library := os.Getenv("SMITHERS_WIKI_TEST_FFI")
+	if library == "" {
+		t.Skip("SMITHERS_WIKI_TEST_FFI opts into native+Postgres integration")
+	}
+	pool := getAgentTestPool(t)
+	deadline, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ctx, err := WithWikiVisibility(deadline, "private")
+	require.NoError(t, err)
+	q := db.New(pool)
+	ownerID, repoID := setupTestUserAndRepo(t, pool)
+	writerID, _ := setupTestUserAndRepo(t, pool)
+	owner, err := q.GetUserByID(ctx, ownerID)
+	require.NoError(t, err)
+	writer, err := q.GetUserByID(ctx, writerID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repositories SET is_public=false WHERE id=$1`, repoID)
+	require.NoError(t, err)
+	repository, err := q.GetRepoByID(ctx, repoID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repoID, writerID)
+	require.NoError(t, err)
+	native := repohostffi.New(library)
+	require.NoError(t, native.Load())
+	backend, err := repohostserver.NewWithFFI(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "wiki-test-secret", PushHookCallbackToken: "test-callback"}, native)
+	require.NoError(t, err)
+	server := httptest.NewServer(backend.Handler())
+	defer server.Close()
+	host := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "wiki-test-secret")
+	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: server.URL})
+	require.NoError(t, err)
+	defer content.Close()
+	service := newTestWikiService(q, nil, WithWikiCollaboration(q, host), WithWikiContent(content))
+	page, err := service.CreateWikiPage(ctx, &owner, owner.Username, repository.Name, CreateWikiPageInput{Title: "Private", Body: "Admitted document"})
+	require.NoError(t, err)
+	before, err := service.GetWikiDocument(ctx, &writer, owner.Username, repository.Name, page.Slug)
+	require.NoError(t, err)
+	acceptedBody := "Writer's accepted edit"
+	edit, err := host.MergeWikiDocument(ctx, owner.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "replace", State: before.State, Markdown: &acceptedBody})
+	require.NoError(t, err)
+	updateID := uuid.New()
+	input := WikiUpdateInput{PageID: page.ID, UpdateID: updateID.String(), Update: edit.State}
+	held := &wikiHeldDocumentRead{WikiCollaborationStore: q, documents: q, entered: make(chan struct{}), release: make(chan struct{})}
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(held.release) }) }
+	duplicateService := newTestWikiService(q, nil, WithWikiCollaboration(held, host), WithWikiContent(content))
+	type outcome struct {
+		response WikiUpdateResponse
+		err      error
+	}
+	done := make(chan outcome, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		response, err := duplicateService.ApplyWikiUpdate(ctx, &writer, owner.Username, repository.Name, page.Slug, input)
+		done <- outcome{response, err}
+	}()
+	defer func() {
+		cancel()
+		unblock()
+		<-finished
+	}()
+	select {
+	case <-held.entered:
+	case <-ctx.Done():
+		t.Fatal("duplicate did not read the admitted document")
+	}
+	accepted, err := service.ApplyWikiUpdate(ctx, &writer, owner.Username, repository.Name, page.Slug, input)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), accepted.AcceptedRevision)
+	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repoID, writerID)
+	require.NoError(t, err)
+	secret := "Owner's secret after revocation 🌎"
+	ownerEdit, err := host.MergeWikiDocument(ctx, owner.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "replace", State: accepted.Document.State, Markdown: &secret})
+	require.NoError(t, err)
+	later, err := service.ApplyWikiUpdate(ctx, &owner, owner.Username, repository.Name, page.Slug, WikiUpdateInput{PageID: page.ID, UpdateID: uuid.NewString(), Update: ownerEdit.State})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), later.AcceptedRevision)
+	unblock()
+	var duplicate outcome
+	select {
+	case duplicate = <-done:
+	case <-ctx.Done():
+		t.Fatal("duplicate did not finish after revocation")
+	}
+	stored, err := q.GetWikiDocument(ctx, db.GetWikiDocumentParams{RepositoryID: repoID, Visibility: "private", Slug: page.Slug})
+	require.NoError(t, err)
+	receipt, err := q.GetWikiUpdateReceipt(ctx, db.GetWikiUpdateReceiptParams{PageID: page.ID, UpdateID: pgtype.UUID{Bytes: updateID, Valid: true}})
+	require.NoError(t, err)
+	count, err := q.CountWikiRevisions(ctx, db.CountWikiRevisionsParams{RepositoryID: repoID, PageID: page.ID})
+	require.NoError(t, err)
+	require.Equal(t, int64(3), count, "replay must not append a revision")
+	require.Equal(t, int64(2), receipt.Revision)
+	require.Equal(t, int64(3), stored.Revision)
+	require.Equal(t, secret, stored.Body)
+	require.Equal(t, later.Document, documentResponse(stored))
+	rendered, err := host.MergeWikiDocument(ctx, owner.Username, repository.Name, repohost.WikiDocumentRequest{Operation: "apply", State: later.Document.State, Update: later.Document.State})
+	require.NoError(t, err)
+	require.Equal(t, secret, rendered.Markdown)
+	require.Equal(t, later.Document.StateVector, rendered.StateVector)
+	reader, err := content.NewReader(ctx, wikiContentKey(repoID, "private", stored.ContentDigest))
+	require.NoError(t, err)
+	body, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	require.Equal(t, secret, string(body))
+	require.Equal(t, 2, held.reads, "the duplicate must retry into the post-revocation document")
+	require.Equal(t, 403, apiStatus(t, duplicate.err))
+	require.Equal(t, WikiUpdateResponse{}, duplicate.response, "revoked access must not expose the private document")
+}
 
 type wikiLostProjectionAck struct {
 	WikiHistoryHost

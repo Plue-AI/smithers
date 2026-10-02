@@ -170,6 +170,14 @@ func (s *WikiService) ApplyWikiUpdate(ctx context.Context, actor *db.User, owner
 			if receipt.RepositoryID != repository.ID || !receipt.AuthorID.Valid || receipt.AuthorID.Int64 != actor.ID || !bytes.Equal(receipt.UpdateBytes, update) {
 				return WikiUpdateResponse{}, pkgerrors.Conflict("update_id already belongs to a different edit")
 			}
+			// The receipt can commit after our document read. Reread without
+			// merging or writing until the returned state includes that edit.
+			if row.Revision < receipt.Revision {
+				continue
+			}
+			if err = s.wikiWriteStillAuthorized(ctx, actor, owner, repo, repository.ID); err != nil {
+				return WikiUpdateResponse{}, err
+			}
 			return WikiUpdateResponse{Document: documentResponse(row), UpdateID: id.String(), AcceptedRevision: receipt.Revision}, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -244,7 +252,7 @@ func documentWrite(row db.GetWikiDocumentRow, merged repohost.WikiDocumentResult
 
 func documentResponse(row db.GetWikiDocumentRow) WikiDocumentResponse {
 	return WikiDocumentResponse{
-		Page: WikiPageResponse{ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Slug: row.Slug, Title: row.Title, Body: row.Body, Revision: row.Revision,
+		Page: WikiPageResponse{ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Slug: row.Slug, Title: row.Title, TitleSource: row.TitleSource, Body: row.Body, Revision: row.Revision,
 			Author: WikiAuthorSummary{ID: row.AuthorID, Login: row.AuthorUsername}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt},
 		State: base64.StdEncoding.EncodeToString(row.CrdtState), StateVector: base64.StdEncoding.EncodeToString(row.CrdtVector),
 	}
