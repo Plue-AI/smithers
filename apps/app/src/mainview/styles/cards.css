@@ -2195,7 +2195,7 @@
 	.palette-foot { display: none; }}
 
 .view-skeleton { display: grid; gap: 14px; padding: 12px 0; min-height: 140px; }
-.view-skeleton > span { display: block; height: 14px; border-radius: 4px; background: var(--paper-300); animation: view-loading 1.2s ease-in-out infinite alternate; }
+.view-skeleton > span { display: block; height: 14px; border-radius: 4px; background: var(--surface-2); animation: view-loading 1.2s ease-in-out infinite alternate; }
 .view-skeleton > span:first-child { width: 60%; height: 20px; }
 .view-skeleton > span:last-child { width: 80%; }
 @keyframes view-loading { to { opacity: .45; } }
