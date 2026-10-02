@@ -67,11 +67,20 @@ test('headless serve entrypoint handles its lifecycle', async () => {
     expect(stopCalls).toBe(0)
 
     if (scenario === 'signal') {
+      let settled = false
+      void entry.then(() => { settled = true })
       process.emit('SIGTERM')
       process.emit('SIGINT')
       expect(stopCalls).toBe(1)
+      // Cleanup is held while repeated signals and a backend failure arrive.
+      failure.resolve(new Error('backend failed during shutdown'))
+      await Promise.resolve()
+      expect(stopCalls).toBe(1)
+      expect(settled).toBe(false)
+      expect(errors).toEqual([])
       stopped.resolve()
       await within(entry)
+      expect(settled).toBe(true)
       expect(errors).toEqual([])
       expect(process.exitCode).toBeUndefined()
     } else if (scenario === 'backend-failure') {

@@ -13,8 +13,6 @@ if (origin === undefined || origin === "") {
   throw new Error("SMITHERS_API_ORIGIN is required in Plue mode.")
 }
 
-console.log(`SMITHERS_LOCAL_ORIGIN=${origin}`)
-
 await new Promise<void>((resolveShutdown) => {
   let stopping = false
   const stop = (failure?: Error): void => {
@@ -35,4 +33,5 @@ await new Promise<void>((resolveShutdown) => {
   void backend.failure?.then((failure) => {
     if (failure !== undefined) stop(failure)
   })
+  console.log(`SMITHERS_LOCAL_ORIGIN=${origin}`)
 })
