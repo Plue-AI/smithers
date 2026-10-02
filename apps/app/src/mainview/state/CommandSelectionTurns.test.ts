@@ -227,8 +227,9 @@ describe("the web turn path (HTTP journal)", () => {
 
     fail = true
     controller.send("and light mode later")
+    // The latest Smithers line by ordinal: a collection's iteration order is not the transcript's.
     const refusal = () => {
-      const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").at(-1)
+      const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").sort((a, b) => a.ordinal - b.ordinal).at(-1)
       return failed?.text ?? failed?.statusDetail ?? ""
     }
     // The send settles asynchronously: an idle phase can be read before the second send leaves it, so wait for its refusal.
