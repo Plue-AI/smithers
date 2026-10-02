@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -35,10 +36,11 @@ type WorkspaceCommandInput struct {
 }
 
 type WorkspaceCommandResult struct {
-	ExitCode        int    `json:"exit_code"`
-	Stdout          string `json:"stdout"`
-	Stderr          string `json:"stderr"`
-	OutputTruncated bool   `json:"output_truncated"`
+	ExitCode        int                       `json:"exit_code"`
+	Stdout          string                    `json:"stdout"`
+	Stderr          string                    `json:"stderr"`
+	OutputTruncated bool                      `json:"output_truncated"`
+	Error           *microsandbox.RecipeError `json:"error,omitempty"`
 }
 
 type WorkspaceServiceLaunchInput struct {
@@ -861,12 +863,20 @@ func (s *WorkspaceService) executePreparedWorkspaceCommand(ctx context.Context, 
 	result, err := s.runtime.ExecuteCommand(ctx, row.ID, workspaceapi.Command{
 		Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
 	})
+	output := WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}
 	if err != nil {
-		return WorkspaceCommandResult{}, err
+		var recipe *microsandbox.RecipeError
+		// Missing-tool annotation accompanies a certified process exit. Keep
+		// the completed receipt and its evidence, but never override a runtime
+		// termination fence with an actionable diagnostic.
+		if result.ExitCode != 127 || !errors.As(err, &recipe) || recipe.Code != "missing_machine_tool" || recipe.Class != "user" || errors.Is(err, workspaceapi.ErrCommandTerminationUnconfirmed) || errors.Is(err, workspaceapi.ErrCommandCancelled) {
+			return output, err
+		}
+		output.Error = recipe
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
-	return WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}, nil
+	return output, nil
 }
 
 func cloneStringMap(source map[string]string) map[string]string {

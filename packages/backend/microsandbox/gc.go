@@ -171,6 +171,18 @@ func (e *environments) collect(ctx context.Context) (CollectReport, error) {
 	}
 	report.FreeBytesBefore, _ = e.runtime.freeBytes()
 	refs := e.runtime.referenced()
+	e.mu.Lock()
+	for name := range e.inflight {
+		refs[name] = true
+	}
+	e.mu.Unlock()
+	// A referenced dependency layer also protects its toolchain during the
+	// pressure pass, which may evict ordinary newest-family cache entries.
+	for _, record := range records {
+		if refs[record.Name] && record.ParentKey != "" {
+			refs[e.layerName(layerToolchain, record.ParentKey)] = true
+		}
+	}
 	families := map[string][]layerRecord{}
 	for _, record := range records {
 		families[record.Kind+"\x00"+record.Repository] = append(families[record.Kind+"\x00"+record.Repository], record)
@@ -192,6 +204,25 @@ func (e *environments) collect(ctx context.Context) (CollectReport, error) {
 	}
 	bytes := report.LayerBytesBefore
 	remove := func(record layerRecord) error {
+		// References may have been acquired since the collection scan. Keep
+		// registration and deletion atomic for active preparation/verification.
+		e.eviction.Lock()
+		defer e.eviction.Unlock()
+		e.mu.Lock()
+		pinned := e.inflight[record.Name] > 0
+		e.mu.Unlock()
+		if pinned {
+			return nil
+		}
+		if current := e.runtime.referenced(); current[record.Name] {
+			return nil
+		} else {
+			for _, child := range records {
+				if current[child.Name] && child.ParentKey != "" && e.layerName(layerToolchain, child.ParentKey) == record.Name {
+					return nil
+				}
+			}
+		}
 		if err := e.removeLayer(ctx, record.Name); err != nil {
 			return err
 		}

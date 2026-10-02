@@ -138,9 +138,9 @@ func TestToolchainRecipeRefusesUndeclaredData(t *testing.T) {
 	}
 }
 
-func TestTargetIndexIsRequired(t *testing.T) {
+func TestTargetIndexAbsentAllowsDetection(t *testing.T) {
 	_, err := readTargetIndex(fakeRepository(map[string]string{"Cargo.toml": "[package]\n", "go.mod": "module x\n"}))
-	require.EqualError(t, err, "environment layers need a committed .smithers/target-index.json")
+	require.NoError(t, err)
 	failure := &fs.PathError{Op: "read", Path: targetIndexPath, Err: fs.ErrPermission}
 	_, err = readTargetIndex(func(string) ([]byte, bool, error) { return nil, false, failure })
 	require.ErrorIs(t, err, failure)

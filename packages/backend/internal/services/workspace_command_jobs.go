@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -66,10 +67,11 @@ type WorkspaceCommandRun struct {
 // PostgreSQL JSONB cannot contain NUL. Byte fields use base64 in durable
 // receipts; only this service translates them back to the public strings.
 type workspaceCommandStoredResult struct {
-	ExitCode        int    `json:"exit_code"`
-	Stdout          []byte `json:"stdout"`
-	Stderr          []byte `json:"stderr"`
-	OutputTruncated bool   `json:"output_truncated"`
+	ExitCode        int                       `json:"exit_code"`
+	Stdout          []byte                    `json:"stdout"`
+	Stderr          []byte                    `json:"stderr"`
+	OutputTruncated bool                      `json:"output_truncated"`
+	Error           *microsandbox.RecipeError `json:"error,omitempty"`
 }
 
 type workspaceCommandPayload struct {
@@ -188,7 +190,7 @@ func commandRunReceipt(operation jobs.Operation) (WorkspaceCommandRun, error) {
 		if err := json.Unmarshal(operation.TerminalReceipt, &result); err != nil {
 			return run, fmt.Errorf("invalid command receipt: %w", err)
 		}
-		run.Result = &WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: string(result.Stdout), Stderr: string(result.Stderr), OutputTruncated: result.OutputTruncated}
+		run.Result = &WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: string(result.Stdout), Stderr: string(result.Stderr), OutputTruncated: result.OutputTruncated, Error: result.Error}
 	} else if operation.State == jobs.StateFailed || operation.State == jobs.StateUncertain {
 		var failure struct {
 			Code string `json:"code"`
@@ -372,7 +374,7 @@ func (s *WorkspaceService) handleWorkspaceCommandWithTimeout(ctx context.Context
 		result.Stderr = result.Stderr[:workspaceCommandOutputLimit]
 		result.OutputTruncated = true
 	}
-	receipt, err := json.Marshal(workspaceCommandStoredResult{ExitCode: result.ExitCode, Stdout: []byte(result.Stdout), Stderr: []byte(result.Stderr), OutputTruncated: result.OutputTruncated})
+	receipt, err := json.Marshal(workspaceCommandStoredResult{ExitCode: result.ExitCode, Stdout: []byte(result.Stdout), Stderr: []byte(result.Stderr), OutputTruncated: result.OutputTruncated, Error: result.Error})
 	if err != nil {
 		return err
 	}

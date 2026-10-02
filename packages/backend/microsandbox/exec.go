@@ -288,6 +288,9 @@ func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, comman
 				return result, errors.Join(resultErr, cleanupErr)
 			}
 		}
+		if resultErr == nil {
+			resultErr = MissingToolError(command, result)
+		}
 		return result, resultErr
 	}
 	select {

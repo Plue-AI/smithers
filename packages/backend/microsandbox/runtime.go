@@ -465,7 +465,8 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 			return workspaceapi.Workspace{}, err
 		}
 	}
-	layer, err := r.ResolveWorkspaceLayer(ctx, spec)
+	layer, release, err := r.resolveWorkspaceLayerForCreate(ctx, spec)
+	defer release()
 	if err != nil {
 		return workspaceapi.Workspace{}, fmt.Errorf("resolve workspace environment: %w", err)
 	}

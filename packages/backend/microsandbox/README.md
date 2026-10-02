@@ -62,10 +62,33 @@ built before the relay route refuses bindings until its disk is reclaimed.
 A workspace with a `Source` boots from content-addressed snapshots
 (`layers.go`):
 
-| Layer | Key |
-| --- | --- |
-| toolchain | pinned image + the index's one `Environment.Toolchain` row: each tool's version, artifact URL and SHA-256, the Rust toolchain and PostgreSQL major |
-| dependencies | toolchain key + the install nodes of `.smithers/target-index.json` (`Install`, `Go.ModDownload`, Cargo inputs, lockfile-built `NodeBinary` tools) and the content of their declared inputs, plus pnpm patches, hook and member manifests |
+| Layer        | Key                                                                                                                                                                               |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| toolchain    | pinned image + the committed index's `Environment.Toolchain` row or the detected tool versions, pinned artifact URLs and SHA-256, plus `main`'s `.smithers/machine.json` packages |
+| dependencies | toolchain key + the index's install nodes or the detected install commands and their input contents, including lockfiles and member manifests                                     |
+
+The committed `.smithers/target-index.json` takes precedence. Without an index,
+detection reads the Node version files, `package.json`, package-manager
+lockfiles, `go.mod`, Rust manifests, Python manifests and requirements files.
+It never runs repository code during detection. Tool versions
+resolve against the embedded `toolchains.json`: an unavailable exact version
+uses the nearest pinned patch in its minor, or fails naming its source file.
+Cargo's `rust-version` is a minimum; it selects the newest compatible pinned
+toolchain. An explicit `rust-toolchain.toml` channel takes precedence.
+The detector version is part of each layer key. A repository without recognized
+files or declared packages uses the base image.
+
+Reviewed image additions come from `main`:
+
+```json
+{ "packages": ["libssl-dev", "jq"] }
+```
+
+`.smithers/machine.json` accepts at most 64 Debian package names. The prepare
+VM installs them with `apt-get` as root; commands on a branch run as `agent`.
+Package names use Debian's current repositories; the declaration does not pin
+an apt snapshot. See [machine images](../docs/machine-images.md) for detection
+and setup readiness contracts.
 
 The layer's
 environment (`/opt/smithers/env.json`) also lands where each tool looks under
@@ -74,12 +97,13 @@ browsers, the Cargo and rustup homes, the pnpm store and cache, and dprint's
 cache), so a process that keeps only `PATH` and `HOME`, such as a coding host's
 least-authority tool, works offline too. Each key also covers the build script and network allowlist. Layers are built
 in prepare VMs whose domain allowlists are exactly the `destinations` the
-layer's index rows declare (CDN CNAME targets included: domain rules match the
-name a connection resolved through). A repository without a committed index,
-or a download-performing node that declares no destinations, is refused by
-name. Layers are verified in a fresh offline VM and kept as APFS clones. Caches live outside the workspace
-root; after the product checkout `LinkWorkspaceEnvironment` links `node_modules`
-offline. `collect` keeps referenced layers and the newest per family, then
+layer's index rows or detected recipe declare (CDN CNAME targets included:
+domain rules match the name a connection resolved through). A declared download
+node without destinations is refused by name. Detected installs support public
+registries; credential-bound private registries need the secrets integration.
+Layers are verified in a fresh offline VM and kept as APFS clones. Caches live
+outside the workspace root; after checkout `LinkWorkspaceEnvironment` installs
+from those caches offline. `collect` keeps referenced layers and the newest per family, then
 evicts the least recently used until the owner's layer bytes and the host
 free-disk floor are met.
 
@@ -94,7 +118,7 @@ workspace whose machine is gone reports `recovery_required`.
 
 ## Tests
 
-Unit tests need nothing. Real microVM tests need `SMITHERS_MICROSANDBOX_BIN`:
+Local tests need Node with npm and Python 3 with pip. Real microVM tests need `SMITHERS_MICROSANDBOX_BIN`:
 
 ```sh
 SMITHERS_MICROSANDBOX_BIN=/path/to/msb go test ./packages/backend/microsandbox -run TestRealMicroVM -v
@@ -104,3 +128,5 @@ SMITHERS_MICROVM_LAYER_ROOT=/path/to/state SMITHERS_MICROVM_SCREENSHOT=/tmp/app.
 ```
 
 Each test removes every machine and snapshot its owner created.
+The fresh repository layer tests use an isolated state root and its installation
+owner to scope workspace, prepare and verify machine names.

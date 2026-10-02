@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -201,5 +202,116 @@ func TestRealMicroVMLayerGarbageCollection(t *testing.T) {
 		for _, snapshot := range names {
 			require.NotEqual(t, removed, *snapshot.Name, "removed layer still indexed")
 		}
+	}
+}
+
+// diskFixtureSources exercises the real on-disk SourceFiles boundary without
+// using Git or inventing a target index. Each fixture is immutable for this test.
+type diskFixtureSources struct{ root, revision string }
+
+func (s diskFixtureSources) ResolveSourceRevision(_ context.Context, _ string, _ string) (string, error) {
+	return s.revision, nil
+}
+func (s diskFixtureSources) ReadSourceFile(_ context.Context, source workspaceapi.WorkspaceSource, name string) ([]byte, error) {
+	if source.Revision != s.revision {
+		return nil, fmt.Errorf("fixture revision mismatch: %s", source.Revision)
+	}
+	if filepath.IsAbs(name) || filepath.Clean(name) != name || strings.Contains(name, "..") {
+		return nil, fmt.Errorf("invalid fixture path %q", name)
+	}
+	return os.ReadFile(filepath.Join(s.root, name))
+}
+
+func detectedFixtureRuntime(t *testing.T) *Runtime {
+	t.Helper()
+	binary, layerRoot := os.Getenv("SMITHERS_MICROSANDBOX_BIN"), os.Getenv("SMITHERS_MICROVM_LAYER_ROOT")
+	if binary == "" || layerRoot == "" {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_MICROSANDBOX_BIN and SMITHERS_MICROVM_LAYER_ROOT required")
+		}
+		t.Skip("real detected layer fixtures require a qualified Microsandbox and a private layer root")
+	}
+	// Every VM and snapshot in this lane gets its own name and installation
+	// owner. Capacity checks never authorize cleaning someone else's resources.
+	root := filepath.Join(layerRoot, "detected-"+newExecID()[1:9])
+	runtime, err := New(t.Context(), Config{Binary: binary, Root: root, CPUs: 1, MemoryMiB: 1024, DiskMiB: 4096, MaxRunningVMs: 1,
+		Environments: &EnvironmentConfig{PrepareCPUs: 1, PrepareMemoryMiB: 1024, PrepareDiskMiB: 4096, MinFreeBytes: 8 << 30, LayerBudgetBytes: 8 << 30}})
+	require.NoError(t, err)
+	t.Cleanup(func() { sweepOwner(t, runtime) })
+	free, err := runtime.freeBytes()
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, free, int64(8<<30), "stop this lane below the 8 GiB disk floor")
+	return runtime
+}
+
+func TestRealMicroVMDetectedRepositoryLayers(t *testing.T) {
+	lifecycle := func(hook string) string {
+		return "node -e \"const fs=require('fs');if(process.getuid()===0)throw Error('root lifecycle hook');fs.appendFileSync('/var/cache/smithers/lifecycle.jsonl',JSON.stringify({hook:'" + hook + "',uid:process.getuid()})+'\\n')\""
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"name": "detected-layer-fixture", "version": "1.0.0", "packageManager": "pnpm@9.15.9",
+		"dependencies": map[string]string{"is-number": "7.0.0"},
+		"scripts":      map[string]string{"test": "node --test test.cjs", "postinstall": lifecycle("postinstall"), "prepare": lifecycle("prepare")},
+	})
+	require.NoError(t, err)
+	fixtures := []struct {
+		name  string
+		files map[string]string
+		argv  []string
+		want  string
+	}{
+		{name: "pnpm", files: map[string]string{
+			".node-version":  "22.14.0\n",
+			"package.json":   string(manifest),
+			"pnpm-lock.yaml": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .:\n    dependencies:\n      is-number:\n        specifier: 7.0.0\n        version: 7.0.0\npackages:\n  is-number@7.0.0:\n    resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}\n    engines: {node: '>=0.12.0'}\nsnapshots:\n  is-number@7.0.0: {}\n",
+			"test.cjs":       fmt.Sprintf(`const test=require('node:test');const assert=require('node:assert/strict');const fs=require('fs');const isNumber=require('is-number');test('real cached dependency and unprivileged lifecycle',()=>{assert.equal(isNumber(42),true);assert.equal(isNumber('hello'),false);const hooks=fs.readFileSync('/var/cache/smithers/lifecycle.jsonl','utf8').trim().split('\n').map(JSON.parse);assert.deepEqual(hooks.map(x=>x.hook),['postinstall','prepare']);for(const hook of hooks){assert.equal(hook.uid,%d);assert.notEqual(hook.uid,0)}});`, guestUID),
+		}, argv: []string{"pnpm", "test"}, want: "pass 1"},
+		{name: "go", files: map[string]string{
+			"go.mod":          "module example.com/detected\n\ngo 1.26.8\n\nrequire github.com/google/uuid v1.6.0\n",
+			"go.sum":          "github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\ngithub.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=\n",
+			"fixture_test.go": "package detected\nimport (\"testing\";\"github.com/google/uuid\")\nfunc TestCachedModule(t *testing.T){got:=uuid.MustParse(\"123e4567-e89b-12d3-a456-426614174000\");if got.String()!=\"123e4567-e89b-12d3-a456-426614174000\"{t.Fatal(got)}}\n",
+		}, argv: []string{"go", "test", "./..."}, want: "ok"},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			runtime := detectedFixtureRuntime(t)
+			repo := t.TempDir()
+			for name, content := range fixture.files {
+				require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644))
+			}
+			_, err := os.Stat(filepath.Join(repo, targetIndexPath))
+			require.ErrorIs(t, err, fs.ErrNotExist)
+			reader := diskFixtureSources{root: repo, revision: digest(fixture.name)[:40]}
+			runtime.BindSourceFiles(reader)
+			ctx := operation("detected-" + fixture.name)
+			id := "fixture-" + fixture.name
+			layer, err := runtime.ResolveWorkspaceLayer(ctx, workspaceapi.WorkspaceSpec{ID: id, Source: &workspaceapi.WorkspaceSource{Repository: "fixtures/" + fixture.name, Revision: "main"}})
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(layer.Snapshot, "smthrs-dp-"))
+			t.Logf("built and verified detected %s layer %s", fixture.name, layer.Snapshot)
+			workspace, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id, Source: &workspaceapi.WorkspaceSource{Repository: "fixtures/" + fixture.name, Revision: "main"}})
+			require.NoError(t, err)
+			require.Equal(t, workspaceapi.WorkspaceRunning, workspace.State)
+			for name := range fixture.files {
+				data, err := reader.ReadSourceFile(t.Context(), workspaceapi.WorkspaceSource{Revision: reader.revision}, name)
+				require.NoError(t, err)
+				require.NoError(t, runtime.WriteFile(ctx, id, name, data, 0o644))
+			}
+			if fixture.name == "pnpm" {
+				result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-ec", "test ! -e /var/cache/smithers/lifecycle.jsonl"}})
+				require.NoError(t, err)
+				require.Equal(t, 0, result.ExitCode, "dependency preparation must never bake lifecycle effects")
+			}
+			require.NoError(t, runtime.LinkWorkspaceEnvironment(ctx, id))
+			result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: fixture.argv})
+			require.NoError(t, err)
+			require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+			require.Contains(t, result.Stdout, fixture.want)
+			t.Logf("fresh offline VM %s: %s", strings.Join(fixture.argv, " "), strings.TrimSpace(result.Stdout))
+			network, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"curl", "-fsS", "--max-time", "3", "https://registry.npmjs.org"}})
+			require.NoError(t, err)
+			require.NotEqual(t, 0, network.ExitCode, "workspace must be offline")
+			require.NoError(t, runtime.DeleteWorkspace(operation("delete-detected"), id))
+		})
 	}
 }

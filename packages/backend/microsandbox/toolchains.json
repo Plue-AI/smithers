@@ -1,0 +1,124 @@
+{
+  "defaults": {
+    "bun": "1.4.1",
+    "go": "1.26",
+    "node": "22",
+    "npm": "10.9.2",
+    "pnpm": "9",
+    "python": "3.13",
+    "rust": "1.85.1",
+    "uv": "0.12.22",
+    "yarn": "1.22"
+  },
+  "schema": "smithers.toolchains/v1",
+  "tools": {
+    "bun": {
+      "1.4.1": {
+        "sha256": "580ce77533108dc6b10bec1721397e4f5aa44e909726da2451d483dfc5e581d6",
+        "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.1/bun-linux-aarch64.zip",
+        "version": "1.4.1"
+      }
+    },
+    "go": {
+      "1.22.12": {
+        "sha256": "fd017e647ec28525e86ae8203236e0653242722a7436929b1f775744e26278e7",
+        "url": "https://go.dev/dl/go1.22.12.linux-arm64.tar.gz",
+        "version": "1.22.12"
+      },
+      "1.23.12": {
+        "sha256": "52ce172f96e21da53b1ae9079808560d49b02ac86cecfa457217597f9bc28ab3",
+        "url": "https://go.dev/dl/go1.23.12.linux-arm64.tar.gz",
+        "version": "1.23.12"
+      },
+      "1.24.13": {
+        "sha256": "74d97be1cc3a474129590c67ebf748a96e72d9f3a2b6fef3ed3275de591d49b3",
+        "url": "https://go.dev/dl/go1.24.13.linux-arm64.tar.gz",
+        "version": "1.24.13"
+      },
+      "1.25.14": {
+        "sha256": "9bf234ea70ffec9347fdf6b22ce4add51717d3386a38a441e8c8743fceb5eaee",
+        "url": "https://go.dev/dl/go1.25.14.linux-arm64.tar.gz",
+        "version": "1.25.14"
+      },
+      "1.26.8": {
+        "sha256": "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0",
+        "url": "https://go.dev/dl/go1.26.8.linux-arm64.tar.gz",
+        "version": "1.26.8"
+      }
+    },
+    "node": {
+      "22.14.0": {
+        "sha256": "08bfbf538bad0e8cbb0269f0173cca28d705874a67a22f60b57d99dc99e30050",
+        "url": "https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-arm64.tar.xz",
+        "version": "22.14.0"
+      },
+      "26.5.0": {
+        "sha256": "036df0b49662ebb350eb56f1cac603699b1e9ed1e2603ee129fefda473479030",
+        "url": "https://nodejs.org/dist/v26.5.0/node-v26.5.0-linux-arm64.tar.xz",
+        "version": "26.5.0"
+      }
+    },
+    "npm": {
+      "10.9.2": {
+        "sha256": "5cd1e5ab971ea6333f910bc2d50700167c5ef4e66da279b2a3efc874c6b116e4",
+        "url": "https://registry.npmjs.org/npm/-/npm-10.9.2.tgz",
+        "version": "10.9.2"
+      }
+    },
+    "pnpm": {
+      "10.6.2": {
+        "sha256": "20072a1f6edd17646ea9234bf32c42d563dad37b2973e97a2dde5c17774a824d",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.6.2.tgz",
+        "version": "10.6.2"
+      },
+      "11.25.0": {
+        "sha256": "33dd0748f27e7916c4f1c8b6943461983e3453b06bbda6312a6280130b4881e5",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-11.25.0.tgz",
+        "version": "11.25.0"
+      },
+      "9.15.9": {
+        "sha256": "cf86a7ad764406395d4286a6d09d730711720acc6d93e9dce9ac7ac4dc4a28a7",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-9.15.9.tgz",
+        "version": "9.15.9"
+      }
+    },
+    "python": {
+      "3.12.15": {
+        "sha256": "0b35f4dc08d58534eb82e024989e2db9873885dccd4f2a316ff55c0cec146123",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261001/cpython-3.12.15%2B20261001-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "version": "3.12.15"
+      },
+      "3.13.16": {
+        "sha256": "f94c8f69f3e68b026b916b3aa32b9b3bfff63fd7c95b2affa8272b1601d668fa",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261001/cpython-3.13.16%2B20261001-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "version": "3.13.16"
+      },
+      "3.14.8": {
+        "sha256": "4395ae16388f9d3409cba7e20161753ed3359b13d959345415029f874f675162",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261001/cpython-3.14.8%2B20261001-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "version": "3.14.8"
+      }
+    },
+    "rust": {
+      "1.85.1": {
+        "sha256": "6945d648b19f62052ee619b05e79e8ab8a2e18b5d5310c6c0899d552669ee61b",
+        "url": "https://static.rust-lang.org/dist/rust-1.85.1-aarch64-unknown-linux-gnu.tar.xz",
+        "version": "1.85.1"
+      }
+    },
+    "uv": {
+      "0.12.22": {
+        "sha256": "6f66a14e8239871fb477f9746c941fedfa77e8fe28a8bc7c07e1dc7f53a66712",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.12.22/uv-aarch64-unknown-linux-gnu.tar.gz",
+        "version": "0.12.22"
+      }
+    },
+    "yarn": {
+      "1.22.22": {
+        "sha256": "c17d3797fb9a9115bf375e31bfd30058cac6bc9c3b8807a3d8cb2094794b51ca",
+        "url": "https://registry.npmjs.org/yarn/-/yarn-1.22.22.tgz",
+        "version": "1.22.22"
+      }
+    }
+  }
+}

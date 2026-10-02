@@ -19,15 +19,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // Environments are layered, content-addressed microVM disks:
 //
 //	L0 image        pinned OCI reference
-//	L1 toolchain    the index's Environment.Toolchain row: each pinned
+//	L1 toolchain    the authoritative index or detected recipe: each pinned
 //	                artifact fetched against its declared SHA-256
-//	L2 dependencies the build graph's install nodes (.smithers/target-index.json
+//	L2 dependencies detected installs or build graph nodes (.smithers/target-index.json
 //	                rules Install, Go.ModDownload and the Cargo inputs) keyed by
 //	                the content of their declared inputs; caches only, outside
 //	                the workspace root
@@ -36,7 +37,7 @@ import (
 // Each layer's key is a SHA-256 over its parent's key and its declared
 // inputs, so a change invalidates exactly the layers whose inputs changed.
 // Layers are Microsandbox snapshots (APFS clones), built once in a prepare VM
-// with a network allowlist of exactly the destinations its index rows declare,
+// with a network allowlist of exactly the destinations its recipe declares,
 // and verified in a fresh offline VM.
 
 const (
@@ -51,10 +52,13 @@ const (
 	toolHome = cacheRoot + "/home"
 )
 
-// EnvironmentConfig enables graph-keyed environment layers.
+// Debian 13 Chromium runtime libraries. This shipped apt command is the only
+// privileged part of browser dependency preparation; Playwright runs as agent.
+const playwrightSystemPackages = "set -e; apt-get update -qq; apt-get install -y -qq --no-install-recommends libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation fonts-noto-color-emoji; rm -rf /var/lib/apt/lists/*"
+
+// EnvironmentConfig enables recipe-keyed environment layers.
 type EnvironmentConfig struct {
-	// Image is the pinned L0 image. Default node:26-bookworm at the digest
-	// qualified on this host.
+	// Image is the pinned L0 image. Default DefaultImage.
 	Image string
 	// PrepareCPUs, PrepareMemoryMiB and PrepareDiskMiB shape prepare VMs.
 	PrepareCPUs      int
@@ -121,8 +125,40 @@ type environments struct {
 	config   EnvironmentConfig
 	sources  workspaceapi.SourceFiles
 	build    sync.Mutex
+	eviction sync.Mutex
 	mu       sync.Mutex
 	verified map[string]bool
+	inflight map[string]int
+}
+
+// pin protects a layer while it is built, verified or used as a preparation
+// parent. Counts also cover nested ensure/verify calls and concurrent readers.
+func (e *environments) pin(names ...string) func() {
+	// Serialize registration with the collector's final deletion decision.
+	// A pin acquired after deletion will make ensure rebuild the absent layer.
+	e.eviction.Lock()
+	defer e.eviction.Unlock()
+	e.mu.Lock()
+	if e.inflight == nil {
+		e.inflight = map[string]int{}
+	}
+	for _, name := range names {
+		if name != "" {
+			e.inflight[name]++
+		}
+	}
+	e.mu.Unlock()
+	return func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		for _, name := range names {
+			if e.inflight[name] > 1 {
+				e.inflight[name]--
+			} else {
+				delete(e.inflight, name)
+			}
+		}
+	}
 }
 
 // BindSourceFiles supplies the product's repository reader. Until it is
@@ -180,10 +216,32 @@ func (r *Runtime) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.W
 	if r.environments == nil || spec.Source == nil {
 		return Layer{}, nil
 	}
-	return r.environments.resolve(ctx, *spec.Source)
+	return r.environments.resolve(ctx, *spec.Source, nil)
 }
 
-func (e *environments) resolve(ctx context.Context, source workspaceapi.WorkspaceSource) (Layer, error) {
+// resolveWorkspaceLayerForCreate retains prepared snapshots until createFrom
+// records the workspace reference. Public resolution remains an unowned read.
+func (r *Runtime) resolveWorkspaceLayerForCreate(ctx context.Context, spec workspaceapi.WorkspaceSpec) (Layer, func(), error) {
+	var pins []func()
+	release := func() {
+		for _, unpin := range pins {
+			unpin()
+		}
+	}
+	if r.environments == nil || spec.Source == nil {
+		return Layer{}, release, nil
+	}
+	layer, err := r.environments.resolve(ctx, *spec.Source, func(name string) {
+		pins = append(pins, r.environments.pin(name))
+	})
+	if err != nil {
+		release()
+		return Layer{}, func() {}, err
+	}
+	return layer, release, nil
+}
+
+func (e *environments) resolve(ctx context.Context, source workspaceapi.WorkspaceSource, retain func(string)) (Layer, error) {
 	e.mu.Lock()
 	sources := e.sources
 	e.mu.Unlock()
@@ -215,20 +273,84 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	if err != nil {
 		return Layer{}, err
 	}
-	toolchain, err := toolchainRecipe(e.config.Image, targets)
+	mainCommit, err := sources.ResolveSourceRevision(ctx, source.Repository, "main")
+	if err != nil {
+		return Layer{}, fmt.Errorf("resolve machine additions from main: %w", err)
+	}
+	if !lowerHex(mainCommit, 40) {
+		return Layer{}, fmt.Errorf("repository reader resolved main to %q, not a commit id", mainCommit)
+	}
+	mainSource := source
+	mainSource.Revision = mainCommit
+	machine, err := ReadMachineJSON(func(name string) ([]byte, bool, error) {
+		contents, err := sources.ReadSourceFile(ctx, mainSource, name)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return contents, err == nil, err
+	})
 	if err != nil {
 		return Layer{}, err
+	}
+	var detected Recipe
+	var toolchain toolchainLayer
+	if targets == nil {
+		detected, err = DetectRecipe(read)
+		if err == nil {
+			toolchain, err = detectedToolchainRecipe(e.config.Image, detected, machine.Packages)
+		}
+		if err == nil && len(detected.Tools) == 0 && len(machine.Packages) == 0 {
+			return Layer{}, nil
+		}
+	} else {
+		toolchain, err = toolchainRecipe(e.config.Image, targets)
+		toolchain.Packages = machine.Packages
+		if len(machine.Packages) > 0 {
+			toolchain.Destinations = withAptDestinations(toolchain.Destinations)
+		}
+	}
+	if err != nil {
+		return Layer{}, err
+	}
+	toolchainKey, _, err := recipeKey("", toolchain)
+	if err != nil {
+		return Layer{}, err
+	}
+	// Keep the toolchain until dependency preparation is complete, including
+	// collection at admission to its separate prepare VM.
+	defer e.pin(e.layerName(layerToolchain, toolchainKey))()
+	if retain != nil {
+		retain(e.layerName(layerToolchain, toolchainKey))
 	}
 	toolchainLayer, err := e.ensure(ctx, layerToolchain, toolchain, "", source.Repository, nil)
 	if err != nil {
 		return Layer{}, err
 	}
-	dependencies, inputs, err := dependencyRecipe(toolchainLayer.Key, targets, read)
+	var dependencies dependencyLayer
+	var inputs map[string][]byte
+	if targets == nil {
+		dependencies, inputs, err = detectedDependencyRecipe(toolchainLayer.Key, detected, read)
+	} else {
+		dependencies, inputs, err = dependencyRecipe(toolchainLayer.Key, targets, read)
+	}
 	if err != nil {
 		return Layer{}, err
 	}
+	if len(dependencies.Nodes) == 0 {
+		return Layer{Snapshot: toolchainLayer.Name, Key: toolchainLayer.Key}, nil
+	}
+	if retain != nil {
+		key, _, err := recipeKey(toolchainLayer.Key, dependencies)
+		if err != nil {
+			return Layer{}, err
+		}
+		retain(e.layerName(layerDependency, key))
+	}
 	dependencyLayer, err := e.ensure(ctx, layerDependency, dependencies, toolchainLayer.Key, source.Repository, inputs)
 	if err != nil {
+		if targets == nil && !errors.Is(err, ErrUnavailable) && !strings.HasPrefix(err.Error(), "disk budget:") {
+			return Layer{}, &RecipeError{Code: "dependency_install_failed", Class: "user", Message: "Dependency install failed; S1 supports public registries only: " + err.Error(), Fix: "Change the dependency manifest or add required packages to .smithers/machine.json"}
+		}
 		return Layer{}, err
 	}
 	return Layer{Snapshot: dependencyLayer.Name, Key: dependencyLayer.Key, Link: dependencyLayer.Link}, nil
@@ -245,18 +367,32 @@ type recipe interface {
 func recipeKey(parent string, value recipe) (string, []byte, error) {
 	// The key covers the declared inputs and the exact build procedure, so
 	// changing how a layer is built invalidates it as surely as its inputs.
+	user, systemScript := recipePreparation(value)
 	encoded, err := json.Marshal(struct {
-		Schema    string   `json:"schema"`
-		Kind      string   `json:"kind"`
-		Parent    string   `json:"parent"`
-		Recipe    recipe   `json:"recipe"`
-		Script    string   `json:"script"`
-		Allowlist []string `json:"allowlist"`
-	}{layerSchema, value.kind(), parent, value, digest(value.script()), value.allowlist()})
+		Schema          string            `json:"schema"`
+		Kind            string            `json:"kind"`
+		Parent          string            `json:"parent"`
+		Recipe          recipe            `json:"recipe"`
+		Script          string            `json:"script"`
+		User            string            `json:"user"`
+		SystemScript    string            `json:"systemScript"`
+		RootEnvironment map[string]string `json:"rootEnvironment"`
+		Allowlist       []string          `json:"allowlist"`
+	}{layerSchema, value.kind(), parent, value, digest(value.script()), user, digest(systemScript), preparationEnvironment("root", "/root"), value.allowlist()})
 	if err != nil {
 		return "", nil, err
 	}
 	return digest(string(encoded)), encoded, nil
+}
+
+func recipePreparation(value recipe) (user, systemScript string) {
+	if value.kind() != layerDependency {
+		return "root", ""
+	}
+	if dependencies, ok := value.(dependencyLayer); ok && len(dependencies.Playwright) > 0 {
+		return guestUser, playwrightSystemPackages
+	}
+	return guestUser, ""
 }
 
 // ensure returns a verified layer, building it once when it does not exist.
@@ -266,6 +402,11 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 		return layerRecord{}, err
 	}
 	name := e.layerName(kind, key)
+	parentName := ""
+	if parentKey != "" {
+		parentName = e.layerName(layerToolchain, parentKey)
+	}
+	defer e.pin(name, parentName)()
 	if record, ok := e.usable(ctx, name); ok {
 		return record, nil
 	}
@@ -284,6 +425,7 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 		// repository and toolchain, so its stores are only topped up.
 		if warm := e.newestSibling(kind, repository, parentKey); warm != "" {
 			parent = warm
+			defer e.pin(warm)()
 		}
 	}
 	record := layerRecord{Schema: layerSchema, Kind: kind, Key: key, Name: name, ParentKey: parentKey, Repository: repository,
@@ -364,7 +506,7 @@ func (e *environments) newestSibling(kind, repository, parentKey string) string 
 }
 
 // buildLayer boots a prepare VM from the parent (image or snapshot) with the
-// layer's network allowlist, runs its recipe as root, records the inventory,
+// layer's network allowlist, runs dependency code as agent, records the inventory,
 // flushes, stops, and captures the disk as the layer snapshot.
 func (e *environments) buildLayer(ctx context.Context, record layerRecord, value recipe, parent string, inputs map[string][]byte) (map[string]string, error) {
 	buildCtx, cancel := context.WithTimeout(ctx, e.config.PrepareTimeout)
@@ -389,7 +531,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 	if err := e.runtime.installGuest(buildCtx, machine); err != nil {
 		return nil, err
 	}
-	if _, err := e.runtime.guest(buildCtx, machine, nil, "setup", guestUser, strconv.Itoa(guestUID), cacheRoot, layerMarkerDir); err != nil {
+	if _, err := e.runtime.guest(buildCtx, machine, nil, "setup", guestUser, strconv.Itoa(guestUID), cacheRoot); err != nil {
 		return nil, err
 	}
 	if len(inputs) > 0 {
@@ -397,18 +539,29 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		if err != nil {
 			return nil, err
 		}
-		plant := "set -e; rm -rf " + cacheRoot + "/prepare; mkdir -p " + cacheRoot + "/prepare/src; tar -x -C " + cacheRoot + "/prepare/src"
+		plant := "set -e; rm -rf " + cacheRoot + "/prepare; mkdir -p " + cacheRoot + "/prepare/src; tar -x -C " + cacheRoot + "/prepare/src; chown -R " + strconv.Itoa(guestUID) + ":" + strconv.Itoa(guestUID) + " " + cacheRoot + "/prepare"
 		if _, err := e.runtime.cli.run(buildCtx, archive, "exec", machine, "--", "sh", "-c", plant); err != nil {
 			return nil, fmt.Errorf("%w: plant layer inputs: %v", ErrUnavailable, err)
 		}
 	}
-	script := value.script() + "\n" + markerScript(record)
-	output, err := e.runRoot(buildCtx, machine, script)
+	user, systemScript := recipePreparation(value)
+	home := "/root"
+	if user == guestUser {
+		home = guestHome
+	}
+	if systemScript != "" {
+		// Only shipped apt argv has root authority. Browser installers and
+		// repository-selected JavaScript execute below as agent.
+		if _, err := e.runRoot(buildCtx, machine, systemScript); err != nil {
+			return nil, err
+		}
+	}
+	output, err := e.runRecipe(buildCtx, machine, value.script(), user, home)
 	if err != nil {
 		return nil, fmt.Errorf("build %s layer %s: %w", record.Kind, record.Key[:12], err)
 	}
 	inventory := parseInventory(output)
-	if _, err := e.runRoot(buildCtx, machine, "sync"); err != nil {
+	if _, err := e.runRoot(buildCtx, machine, markerScript(record)+"\nsync"); err != nil {
 		return nil, err
 	}
 	if err := e.runtime.stopMachine(buildCtx, machine); err != nil {
@@ -426,11 +579,26 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 // runRoot runs a shell script as root through the exec helper and returns
 // its stdout, failing with the tail of its output when it exits nonzero.
 func (e *environments) runRoot(ctx context.Context, machine, script string) (string, error) {
-	request, err := json.Marshal(execRequest{ID: newExecID(), Argv: []string{"/bin/bash", "-c", script}, Cwd: "/", User: "root",
-		Env: map[string]string{"HOME": "/root", "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive"}})
-	if err != nil {
-		return "", err
+	return e.runRecipe(ctx, machine, script, "root", "/root")
+}
+
+func preparationEnvironment(user, home string) map[string]string {
+	env := map[string]string{"HOME": home, "TMPDIR": "/var/tmp", "DEBIAN_FRONTEND": "noninteractive"}
+	if user == "root" {
+		// The helper merges env.json, whose PATH and PYTHONPATH deliberately
+		// include agent-writable dependency caches. Privileged preparation
+		// must resolve only shipped system executables and Python modules.
+		env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+		env["PYTHONPATH"] = ""
 	}
+	return env
+}
+
+func (e *environments) runRecipe(ctx context.Context, machine, script, user, home string) (string, error) {
+	// execRequest contains only strings, []string and map[string]string, with
+	// no custom marshalers or cyclic values, so JSON encoding cannot fail.
+	request, _ := json.Marshal(execRequest{ID: newExecID(), Argv: []string{"/bin/bash", "-c", script}, Cwd: "/", User: user,
+		Env: preparationEnvironment(user, home)})
 	cmd := e.runtime.cli.command(guestArgs(machine, nil, false, "exec")...)
 	cmd.Stdin = bytes.NewReader(request)
 	stdout := &limitedBuffer{limit: 16 << 20}
@@ -471,6 +639,14 @@ func markerScript(record layerRecord) string {
 // verify boots a fresh offline VM from the layer and checks its marker: the
 // quarry's rule that a captured base must still hold what was prepared.
 func (e *environments) verify(ctx context.Context, record layerRecord) error {
+	names := []string{record.Name}
+	if record.ParentKey != "" {
+		names = append(names, e.layerName(layerToolchain, record.ParentKey))
+	}
+	defer e.pin(names...)()
+	if err := e.admit(ctx); err != nil {
+		return err
+	}
 	machine := "smthrs-vfy-" + strings.TrimPrefix(e.runtime.owner, "smithers-backend-")[:8] + "-" + newExecID()[1:13]
 	args := []string{"run", "--from-snapshot", record.Name, "-d", "-n", machine, "-c", "1", "-m", "1024M", "-q", "--no-net",
 		"--label", providerLabel + "=" + providerName, "--label", ownerLabel + "=" + e.runtime.owner, "--label", layerLabel + "=verify"}
@@ -533,7 +709,7 @@ func parseInventory(output string) map[string]string {
 
 // ---- L1: toolchain ----
 
-// targetIndexPath is the committed declaration index every layer derives from.
+// targetIndexPath is the authoritative declaration index when present.
 const targetIndexPath = ".smithers/target-index.json"
 
 // indexTarget is one row of the committed target index, as far as layers read
@@ -562,19 +738,22 @@ type indexToolchain struct {
 	Postgres string `json:"postgres"`
 }
 
-// readTargetIndex reads the committed target index. A repository without one
-// is refused: layers are derived from the declaration graph only.
+// readTargetIndex returns nil only when the committed index is absent.
+// A present index is authoritative, including an invalid or empty index.
 func readTargetIndex(read func(string) ([]byte, bool, error)) ([]indexTarget, error) {
 	contents, ok, err := read(targetIndexPath)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		return nil, errors.New("environment layers need a committed " + targetIndexPath)
+		return nil, nil
 	}
-	var targets []indexTarget
+	targets := []indexTarget{}
 	if err := json.Unmarshal(contents, &targets); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", targetIndexPath, err)
+	}
+	if targets == nil {
+		return nil, fmt.Errorf("decode %s: expected a list", targetIndexPath)
 	}
 	return targets, nil
 }
@@ -593,14 +772,16 @@ var requiredTools = []string{"node", "pnpm", "bun", "go", "jj", "rg", "fd", "jq"
 const pgdgKeyFingerprint = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
 
 type toolchainLayer struct {
-	Image        string              `json:"image"`
-	Label        string              `json:"label"`
-	Downloads    map[string]download `json:"downloads"`
-	Rust         string              `json:"rust,omitempty"`
-	RustParts    []string            `json:"rustComponents,omitempty"`
-	RustTargs    []string            `json:"rustTargets,omitempty"`
-	Postgres     string              `json:"postgres,omitempty"`
-	Destinations []string            `json:"destinations"`
+	DetectorVersion string              `json:"detectorVersion,omitempty"`
+	Packages        []string            `json:"packages,omitempty"`
+	Image           string              `json:"image"`
+	Label           string              `json:"label"`
+	Downloads       map[string]download `json:"downloads"`
+	Rust            string              `json:"rust,omitempty"`
+	RustParts       []string            `json:"rustComponents,omitempty"`
+	RustTargs       []string            `json:"rustTargets,omitempty"`
+	Postgres        string              `json:"postgres,omitempty"`
+	Destinations    []string            `json:"destinations"`
 }
 
 var (
@@ -741,14 +922,53 @@ T=%[1]s; mkdir -p "$T/bin" /var/tmp/dl %[2]s
 fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | sha256sum -c - >/dev/null; }
 `, toolchainRoot, cacheRoot)
 	d := t.Downloads
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/node.tar.xz; mkdir -p $T/node; tar -xJf /var/tmp/dl/node.tar.xz -C $T/node --strip-components=1\n", shellQuote(d["node"].URL), d["node"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/pnpm.tgz; mkdir -p $T/pnpm; tar -xzf /var/tmp/dl/pnpm.tgz -C $T/pnpm --strip-components=1; chmod 0755 $T/pnpm/bin/*.cjs; ln -sf $T/pnpm/bin/pnpm.cjs $T/bin/pnpm; ln -sf $T/pnpm/bin/pnpx.cjs $T/bin/pnpx\n", shellQuote(d["pnpm"].URL), d["pnpm"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/bun.zip; python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' /var/tmp/dl/bun.zip /var/tmp/dl/bun; install -m 0755 /var/tmp/dl/bun/*/bun $T/bin/bun\n", shellQuote(d["bun"].URL), d["bun"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/go.tgz; tar -xzf /var/tmp/dl/go.tgz -C $T\n", shellQuote(d["go"].URL), d["go"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/jj.tgz; tar -xzf /var/tmp/dl/jj.tgz -C $T/bin ./jj\n", shellQuote(d["jj"].URL), d["jj"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/rg.tgz; tar -xzf /var/tmp/dl/rg.tgz -C $T/bin --strip-components=1 --wildcards '*/rg'\n", shellQuote(d["rg"].URL), d["rg"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/fd.tgz; tar -xzf /var/tmp/dl/fd.tgz -C $T/bin --strip-components=1 --wildcards '*/fd'\n", shellQuote(d["fd"].URL), d["fd"].SHA256)
-	fmt.Fprintf(&s, "fetch %s %s $T/bin/jq; chmod 0755 $T/bin/jq\n", shellQuote(d["jq"].URL), d["jq"].SHA256)
+	if _, ok := d["node"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/node.tar.xz; mkdir -p $T/node; tar -xJf /var/tmp/dl/node.tar.xz -C $T/node --strip-components=1\n", shellQuote(d["node"].URL), d["node"].SHA256)
+	}
+	if _, ok := d["pnpm"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/pnpm.tgz; mkdir -p $T/pnpm; tar -xzf /var/tmp/dl/pnpm.tgz -C $T/pnpm --strip-components=1; chmod 0755 $T/pnpm/bin/*.cjs; ln -sf $T/pnpm/bin/pnpm.cjs $T/bin/pnpm; ln -sf $T/pnpm/bin/pnpx.cjs $T/bin/pnpx\n", shellQuote(d["pnpm"].URL), d["pnpm"].SHA256)
+	}
+	if _, ok := d["bun"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/bun.zip; python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' /var/tmp/dl/bun.zip /var/tmp/dl/bun; install -m 0755 /var/tmp/dl/bun/*/bun $T/bin/bun\n", shellQuote(d["bun"].URL), d["bun"].SHA256)
+	}
+	if _, ok := d["go"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/go.tgz; tar -xzf /var/tmp/dl/go.tgz -C $T\n", shellQuote(d["go"].URL), d["go"].SHA256)
+	}
+	if _, ok := d["jj"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/jj.tgz; tar -xzf /var/tmp/dl/jj.tgz -C $T/bin ./jj\n", shellQuote(d["jj"].URL), d["jj"].SHA256)
+	}
+	if _, ok := d["rg"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/rg.tgz; tar -xzf /var/tmp/dl/rg.tgz -C $T/bin --strip-components=1 --wildcards '*/rg'\n", shellQuote(d["rg"].URL), d["rg"].SHA256)
+	}
+	if _, ok := d["fd"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/fd.tgz; tar -xzf /var/tmp/dl/fd.tgz -C $T/bin --strip-components=1 --wildcards '*/fd'\n", shellQuote(d["fd"].URL), d["fd"].SHA256)
+	}
+	if _, ok := d["jq"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s $T/bin/jq; chmod 0755 $T/bin/jq\n", shellQuote(d["jq"].URL), d["jq"].SHA256)
+	}
+	for _, manager := range []string{"npm", "yarn"} {
+		if pinned, ok := d[manager]; ok {
+			fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/%s.tgz; mkdir -p $T/%s; tar -xzf /var/tmp/dl/%s.tgz -C $T/%s --strip-components=1\n", shellQuote(pinned.URL), pinned.SHA256, manager, manager, manager, manager)
+			if manager == "npm" {
+				s.WriteString("ln -sf $T/npm/bin/npm-cli.js $T/bin/npm; ln -sf $T/npm/bin/npx-cli.js $T/bin/npx\n")
+			} else {
+				s.WriteString("ln -sf $T/yarn/bin/yarn.js $T/bin/yarn\n")
+			}
+		}
+	}
+	if pinned, ok := d["rust"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/rust.tar.xz; mkdir /var/tmp/dl/rust; tar -xJf /var/tmp/dl/rust.tar.xz -C /var/tmp/dl/rust --strip-components=1; /var/tmp/dl/rust/install.sh --disable-ldconfig --prefix=$T/rust\n", shellQuote(pinned.URL), pinned.SHA256)
+	}
+	if pinned, ok := d["python"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/python.tar.gz; tar -xzf /var/tmp/dl/python.tar.gz -C $T; ln -sf $T/python/bin/python3 $T/bin/python\n", shellQuote(pinned.URL), pinned.SHA256)
+	}
+	if pinned, ok := d["uv"]; ok {
+		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/uv.tar.gz; tar -xzf /var/tmp/dl/uv.tar.gz -C $T/bin --strip-components=1 --wildcards '*/uv'\n", shellQuote(pinned.URL), pinned.SHA256)
+	}
+
+	if len(t.Packages) > 0 {
+		s.WriteString("apt-get update -qq; apt-get install -y -qq --no-install-recommends " + shellArgv(t.Packages) + " >/dev/null\nrm -rf /var/lib/apt/lists/*\n")
+	}
 	if t.Rust != "" {
 		components := strings.Join(t.RustParts, ",")
 		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/rustup-init; chmod +x /var/tmp/dl/rustup-init\n", shellQuote(d["rustup"].URL), d["rustup"].SHA256)
@@ -761,7 +981,7 @@ fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | 
 		}
 		s.WriteString(" >/dev/null\n")
 	}
-	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", "/opt/smithers/rust/cargo/bin"}
+	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", toolchainRoot + "/rust/bin", toolchainRoot + "/python/bin", cacheRoot + "/python-site/bin", "/opt/smithers/rust/cargo/bin"}
 	if t.Postgres != "" {
 		fmt.Fprintf(&s, `curl -fsSL --retry 4 -o /var/tmp/dl/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
 gpg --batch --quiet --show-keys --with-colons /var/tmp/dl/pgdg.asc | grep -q '^fpr:::::::::%[1]s:$'
@@ -778,19 +998,21 @@ rm -rf /var/lib/apt/lists/*
 		"PATH": strings.Join(pathEntries, ":"), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly",
 		"GOMODCACHE": cacheRoot + "/gomod", "GOCACHE": cacheRoot + "/gocache", "RUSTUP_HOME": "/opt/smithers/rust/rustup",
 		"CARGO_HOME": cacheRoot + "/cargo", "pnpm_config_store_dir": cacheRoot + "/pnpm-store", "pnpm_config_cache_dir": cacheRoot + "/pnpm-cache", "PLAYWRIGHT_BROWSERS_PATH": cacheRoot + "/ms-playwright",
+		"npm_config_store_dir": cacheRoot + "/pnpm-store", "npm_config_cache": cacheRoot + "/npm", "YARN_CACHE_FOLDER": cacheRoot + "/yarn", "BUN_INSTALL_CACHE_DIR": cacheRoot + "/bun", "UV_CACHE_DIR": cacheRoot + "/uv", "UV_PYTHON_DOWNLOADS": "never", "PIP_CACHE_DIR": cacheRoot + "/pip", "PIP_FIND_LINKS": cacheRoot + "/wheels", "PIP_TARGET": cacheRoot + "/python-site", "PYTHONPATH": cacheRoot + "/python-site",
 		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "CI": "1", "LANG": "C.UTF-8", "DPRINT_CACHE_DIR": cacheRoot + "/dprint",
 	}
 	encoded, _ := json.Marshal(env)
 	fmt.Fprintf(&s, "printf '%%s' %s > /opt/smithers/env.json\n", shellQuote(string(encoded)))
 	// The toolchain's cargo binaries are shared read-only; each build's
 	// registry cache lives in the writable dependency cache.
-	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home %[1]s/dprint; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
-	s.WriteString(`export PATH="` + strings.Join(pathEntries, ":") + `"
-echo "inventory node $(node --version)"; echo "inventory pnpm $(pnpm --version)"; echo "inventory bun $(bun --version)"
-echo "inventory go $(go version | cut -d' ' -f3)"; echo "inventory jj $(jj --version)"; echo "inventory rg $(rg --version | head -1)"
-echo "inventory fd $(fd --version)"; echo "inventory jq $(jq --version)"; echo "inventory git $(git --version)"
-echo "inventory python3 $(python3 --version)"
-`)
+	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home %[1]s/dprint %[1]s/npm %[1]s/yarn %[1]s/bun %[1]s/uv %[1]s/pip %[1]s/wheels %[1]s/python-site; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
+	s.WriteString("export PATH=" + shellQuote(strings.Join(pathEntries, ":")) + "\n")
+	commands := map[string]string{"node": "node --version", "pnpm": "pnpm --version", "npm": "npm --version", "yarn": "yarn --version", "bun": "bun --version", "go": "go version", "jj": "jj --version", "rg": "rg --version | head -1", "fd": "fd --version", "jq": "jq --version", "rust": "rustc --version", "python": "python3 --version", "uv": "uv --version"}
+	for _, tool := range sortedDownloadKeys(d) {
+		if command, ok := commands[tool]; ok {
+			fmt.Fprintf(&s, "echo \"inventory %s $(%s)\"\n", tool, command)
+		}
+	}
 	if t.Postgres != "" {
 		s.WriteString(`echo "inventory postgres $(postgres --version)"
 `)
@@ -813,10 +1035,13 @@ type dependencyNode struct {
 }
 
 type dependencyLayer struct {
-	Toolchain  string           `json:"toolchain"`
-	Nodes      []dependencyNode `json:"nodes"`
-	Tools      []toolNode       `json:"tools,omitempty"`
-	Playwright []string         `json:"playwright,omitempty"`
+	DetectorVersion     string            `json:"detectorVersion,omitempty"`
+	Installs            []DetectedInstall `json:"installs,omitempty"`
+	UVBuildRequirements []string          `json:"uvBuildRequirements,omitempty"`
+	Toolchain           string            `json:"toolchain"`
+	Nodes               []dependencyNode  `json:"nodes"`
+	Tools               []toolNode        `json:"tools,omitempty"`
+	Playwright          []string          `json:"playwright,omitempty"`
 	// Dprint is the package that runs dprint and the plugins every Dprint
 	// node's config names; the layer fills dprint's cache with them.
 	Dprint        string   `json:"dprint,omitempty"`
@@ -1090,6 +1315,30 @@ func (d dependencyLayer) has(rule string) bool {
 }
 
 func (d dependencyLayer) link() []string {
+	if d.DetectorVersion != "" {
+		var commands []string
+		var direct []string
+		for _, install := range d.Installs {
+			if len(install.Offline) == 0 {
+				continue
+			}
+			command := shellArgv(install.Offline)
+			direct = install.Offline
+			if install.Offline[0] == "python" {
+				command = "rm -rf " + shellQuote(cacheRoot+"/python-site") + "; mkdir -p " + shellQuote(cacheRoot+"/python-site") + "; " + command
+				direct = nil
+			}
+			commands = append(commands, command)
+		}
+		if len(commands) == 0 {
+			return nil
+		}
+		if len(commands) == 1 && direct != nil {
+			return append([]string(nil), direct...)
+		}
+		return []string{"/bin/sh", "-ec", strings.Join(commands, "\n")}
+	}
+
 	if d.has("Install") {
 		return []string{"pnpm", "install", "--offline", "--frozen-lockfile"}
 	}
@@ -1118,6 +1367,35 @@ set -a; eval "$(python3 -c 'import json,shlex; [print(k+"="+shlex.quote(v)) for 
 mkdir -p %[1]s/prepare/src
 cd %[1]s/prepare/src
 `, cacheRoot)
+	for _, install := range d.Installs {
+		if len(install.Command) > 0 && install.Command[0] == "cargo" {
+			s.WriteString("for manifest in $(find . -name Cargo.toml); do dir=$(dirname \"$manifest\"); mkdir -p \"$dir/src\"; touch \"$dir/src/lib.rs\" \"$dir/src/main.rs\"; done\n")
+		}
+		if len(install.Command) >= 4 && install.Command[0] == "python" {
+			s.WriteString("python -m pip wheel --wheel-dir \"$PIP_FIND_LINKS\" " + shellArgv(install.Command[4:]) + "\n")
+			continue // Only wheels enter the shared layer; each workspace installs its own site.
+		}
+		argv := append([]string(nil), install.Command...)
+		if len(argv) > 0 {
+			switch argv[0] {
+			case "npm", "pnpm", "yarn", "bun":
+				argv = append(argv, "--ignore-scripts")
+			}
+		}
+		command := shellArgv(argv)
+		if len(install.Command) > 0 && install.Command[0] == "uv" {
+			command += " --no-install-project"
+			// Root-project sources belong to the checkout. Warm only its build
+			// requirements here so an offline checkout can run its backend.
+			if len(d.UVBuildRequirements) > 0 {
+				s.WriteString(shellArgv(append([]string{"uv", "pip", "install", "--python", "python", "--target", cacheRoot + "/prepare/build-system"}, d.UVBuildRequirements...)) + "\n")
+			}
+		}
+		if len(install.Command) > 0 && install.Command[0] == "go" {
+			command = "GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod " + command
+		}
+		s.WriteString(command + "\n")
+	}
 	if d.has("Install") {
 		// The offline install proves the store is complete for the lockfile
 		// and gives tool nodes the packages they run from.
@@ -1141,10 +1419,10 @@ cd %[1]s/prepare/src
 	for _, version := range d.Playwright {
 		// Outside the workspace tree, so npx fetches this exact release rather
 		// than resolving a workspace binary.
-		fmt.Fprintf(&s, "(mkdir -p /var/tmp/playwright && cd /var/tmp/playwright && npx --yes playwright@%s install --with-deps chromium)\n", version)
+		fmt.Fprintf(&s, "(mkdir -p /var/tmp/playwright && cd /var/tmp/playwright && npx --yes playwright@%s install chromium)\n", version)
 	}
 	if len(d.Playwright) > 0 {
-		s.WriteString("rm -rf /var/lib/apt/lists/* /root/.npm\necho \"inventory browsers $(ls $PLAYWRIGHT_BROWSERS_PATH | tr '\\n' ' ')\" >&3\n")
+		s.WriteString("echo \"inventory browsers $(ls $PLAYWRIGHT_BROWSERS_PATH | tr '\\n' ' ')\" >&3\n")
 	}
 	if d.has("Go.ModDownload") {
 		s.WriteString("GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod go mod download\necho \"inventory gomod $(du -sh $GOMODCACHE | cut -f1)\" >&3\n")
@@ -1156,7 +1434,7 @@ RUSTUP_HOME=/opt/smithers/rust/rustup cargo fetch --locked
 echo "inventory cargo-registry $(du -sh $CARGO_HOME | cut -f1)" >&3
 `)
 	}
-	fmt.Fprintf(&s, "cd /; rm -rf %[1]s/prepare /var/tmp/layer.log; chown -R %[2]d:%[2]d %[1]s\nexec 1>&3\n", cacheRoot, guestUID)
+	fmt.Fprintf(&s, "cd /; rm -rf %[1]s/prepare /var/tmp/layer.log\nexec 1>&3\n", cacheRoot)
 	return s.String()
 }
 
@@ -1187,3 +1465,222 @@ var (
 	_ workspaceapi.SourceFilesBinder          = (*Runtime)(nil)
 	_ workspaceapi.WorkspaceEnvironmentLinker = (*Runtime)(nil)
 )
+
+// Detected and indexed recipes share the same content-addressed layer backend.
+func detectedToolchainRecipe(image string, detected Recipe, packages []string) (toolchainLayer, error) {
+	layer := toolchainLayer{Image: image, DetectorVersion: detected.DetectorVersion, Label: "detected", Downloads: map[string]download{}, Packages: sortedCopy(packages)}
+	hosts := map[string]bool{}
+	for tool, requested := range detected.Tools {
+		pinned, err := resolveDetectedTool(tool, requested)
+		if err != nil {
+			return toolchainLayer{}, err
+		}
+		host, err := httpsHost(pinned.URL)
+		if err != nil || !versionPattern.MatchString(pinned.Version) || !sha256Pattern.MatchString(pinned.SHA256) {
+			return toolchainLayer{}, fmt.Errorf("invalid pinned %s artifact", tool)
+		}
+		hosts[host] = true
+		// Domain egress checks also see the official artifact's redirect targets.
+		if host == "go.dev" {
+			hosts["dl.google.com"] = true
+		}
+		if host == "github.com" {
+			hosts["release-assets.githubusercontent.com"] = true
+			hosts["objects.githubusercontent.com"] = true
+		}
+		layer.Downloads[tool] = pinned
+	}
+	layer.Destinations = sortedKeys(hosts)
+	if len(packages) > 0 {
+		layer.Destinations = withAptDestinations(layer.Destinations)
+	}
+	return layer, nil
+}
+
+func withAptDestinations(hosts []string) []string {
+	set := map[string]bool{}
+	for _, host := range hosts {
+		set[host] = true
+	}
+	for _, host := range []string{"deb.debian.org", "security.debian.org", "cdn-fastly.deb.debian.org", "debian.map.fastly.net", "debian.map.fastlydns.net", "dualstack.k.sni.global.fastly.net"} {
+		set[host] = true
+	}
+	return sortedKeys(set)
+}
+
+func sortedDownloadKeys(downloads map[string]download) []string {
+	keys := make([]string, 0, len(downloads))
+	for key := range downloads {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func shellArgv(argv []string) string {
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = shellQuote(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func detectedDependencyRecipe(toolchainKey string, detected Recipe, read func(string) ([]byte, bool, error)) (dependencyLayer, map[string][]byte, error) {
+	layer := dependencyLayer{Toolchain: toolchainKey, DetectorVersion: detected.DetectorVersion, Installs: detected.Installs}
+	inputs := map[string][]byte{}
+	for i, install := range detected.Installs {
+		hosts, err := destinationSet("detected dependency install", install.Destinations)
+		if err != nil {
+			return dependencyLayer{}, nil, err
+		}
+		node := dependencyNode{Label: fmt.Sprintf("detected:%d", i), Rule: "Detected.Install", Files: map[string]string{}, Destinations: sortedKeys(hosts)}
+		store := func(name string, data []byte) error {
+			if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
+				return fmt.Errorf("invalid detected dependency input %q", name)
+			}
+			node.Files[name] = digest(string(data))
+			inputs[name] = data
+			return nil
+		}
+		add := func(name string) error {
+			if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.Contains(name, "..") || strings.ContainsAny(name, "\\\x00") {
+				return fmt.Errorf("invalid detected dependency input %q", name)
+			}
+			data, ok, err := read(name)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				node.Files[name] = "absent"
+				return nil
+			}
+			if strings.ContainsAny(name, "*?[") {
+				var listing map[string]string
+				if err := json.Unmarshal(data, &listing); err != nil {
+					return fmt.Errorf("decode dependency input listing %s: %w", name, err)
+				}
+				for filename, contents := range listing {
+					matched, err := path.Match(name, filename)
+					if err != nil || !matched {
+						return fmt.Errorf("dependency input %q does not match %q", filename, name)
+					}
+					if err := store(filename, []byte(contents)); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			return store(name, data)
+		}
+		for _, name := range install.Files {
+			if name == "requirements*.txt" {
+				data, ok, err := read(name)
+				if err != nil {
+					return dependencyLayer{}, nil, err
+				}
+				if !ok {
+					continue
+				}
+				var requirements map[string]string
+				if err := json.Unmarshal(data, &requirements); err != nil {
+					return dependencyLayer{}, nil, fmt.Errorf("decode requirements file listing: %w", err)
+				}
+				for name, data := range requirements {
+					if path.Base(name) != name || !strings.HasPrefix(name, "requirements") || !strings.HasSuffix(name, ".txt") {
+						return dependencyLayer{}, nil, fmt.Errorf("invalid requirements filename %q", name)
+					}
+					node.Files[name] = digest(data)
+					inputs[name] = []byte(data)
+				}
+			} else if err := add(name); err != nil {
+				return dependencyLayer{}, nil, err
+			}
+		}
+		if len(install.Command) > 0 {
+			switch install.Command[0] {
+			case "uv":
+				var manifest struct {
+					BuildSystem struct {
+						Requires []string `toml:"requires"`
+					} `toml:"build-system"`
+				}
+				if err := toml.Unmarshal(inputs["pyproject.toml"], &manifest); err != nil {
+					return dependencyLayer{}, nil, fmt.Errorf("decode pyproject.toml: %w", err)
+				}
+				layer.UVBuildRequirements = sortedCopy(manifest.BuildSystem.Requires)
+			case "go":
+				if err := add("go.sum"); err != nil {
+					return dependencyLayer{}, nil, err
+				}
+			case "cargo":
+				if err := add("Cargo.lock"); err != nil {
+					return dependencyLayer{}, nil, err
+				}
+				var manifest struct {
+					Workspace struct {
+						Members []string `toml:"members"`
+					} `toml:"workspace"`
+					Dependencies      map[string]any `toml:"dependencies"`
+					DevDependencies   map[string]any `toml:"dev-dependencies"`
+					BuildDependencies map[string]any `toml:"build-dependencies"`
+				}
+				if err := toml.Unmarshal(inputs["Cargo.toml"], &manifest); err != nil {
+					return dependencyLayer{}, nil, fmt.Errorf("decode Cargo.toml: %w", err)
+				}
+				for _, member := range manifest.Workspace.Members {
+					if err := add(member + "/Cargo.toml"); err != nil {
+						return dependencyLayer{}, nil, err
+					}
+				}
+				for _, dependencies := range []map[string]any{manifest.Dependencies, manifest.DevDependencies, manifest.BuildDependencies} {
+					for _, dependency := range dependencies {
+						row, _ := dependency.(map[string]any)
+						localPath, _ := row["path"].(string)
+						if localPath != "" {
+							if err := add(localPath + "/Cargo.toml"); err != nil {
+								return dependencyLayer{}, nil, err
+							}
+						}
+					}
+				}
+			case "pnpm":
+				if err := add("pnpm-workspace.yaml"); err != nil {
+					return dependencyLayer{}, nil, err
+				}
+				for _, importer := range lockImporters(inputs["pnpm-lock.yaml"]) {
+					if importer != "." {
+						if err := add(importer + "/package.json"); err != nil {
+							return dependencyLayer{}, nil, err
+						}
+					}
+				}
+			case "npm", "yarn", "bun":
+				var manifest struct {
+					Workspaces json.RawMessage `json:"workspaces"`
+				}
+				if err := json.Unmarshal(inputs["package.json"], &manifest); err != nil {
+					return dependencyLayer{}, nil, fmt.Errorf("decode package.json: %w", err)
+				}
+				if len(manifest.Workspaces) > 0 {
+					var members []string
+					if json.Unmarshal(manifest.Workspaces, &members) != nil {
+						var object struct {
+							Packages []string `json:"packages"`
+						}
+						if err := json.Unmarshal(manifest.Workspaces, &object); err != nil {
+							return dependencyLayer{}, nil, fmt.Errorf("decode package.json workspaces: %w", err)
+						}
+						members = object.Packages
+					}
+					for _, member := range members {
+						if err := add(member + "/package.json"); err != nil {
+							return dependencyLayer{}, nil, err
+						}
+					}
+				}
+			}
+		}
+		layer.Nodes = append(layer.Nodes, node)
+	}
+	return layer, inputs, nil
+}

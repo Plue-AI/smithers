@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -781,4 +783,92 @@ func TestWorkspaceCommandJobsSetupRefusalBeforeExternalStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The process and its exit evidence are real. Only the microVM adapter's typed
+// missing-tool annotation is reproduced at the runtime boundary.
+type missingToolCommandRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	calls atomic.Int32
+}
+
+func (r *missingToolCommandRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	result, err := r.WorkspaceRuntime.ExecuteCommand(ctx, id, command)
+	if len(command.Args) == 4 && strings.HasPrefix(command.Args[3], "smithers-missing-tool-fixture") && err == nil {
+		r.calls.Add(1)
+		err = microsandbox.MissingToolError(command, result)
+		if strings.HasSuffix(command.Args[3], "-unconfirmed") {
+			err = errors.Join(err, workspaceapi.ErrCommandTerminationUnconfirmed)
+		}
+	}
+	return result, err
+}
+
+// Spec oracle (§8.6.2, §6.2.3, §19.4): a completed missing-tool command retains
+// exit127/stdout/stderr and its user-class diagnostic through durable readback.
+// §19.1 requires replay to reuse that receipt without another shell execution.
+func TestWorkspaceCommandJobsMissingToolCompletedReceipt(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := t.Context()
+	userID, repositoryID := setupTestUserAndRepo(t, pool)
+	id := uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,'missing-tool','container','running')`, id, repositoryID, userID)
+	require.NoError(t, err)
+	runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+	require.NoError(t, err)
+	_, err = runtime.StartWorkspace(ctx, id)
+	require.NoError(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	server := workspaceCommandGitServer(t, db.New(pool), repositoryID)
+	provider := &missingToolCommandRuntime{WorkspaceRuntime: runtime}
+	service := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(provider), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(server.URL+"/api"))
+	input := WorkspaceCommandInput{OperationID: uuid.NewString(), Args: []string{"/bin/sh", "-c", "printf 'before failure'; cargo", "smithers-missing-tool-fixture"}, Environment: map[string]string{"PATH": "/smithers-test-no-tools"}}
+	output, err := service.executeWorkspaceCommand(ctx, id, repositoryID, userID, input)
+	require.NoError(t, err)
+	require.Equal(t, 127, output.ExitCode)
+	require.Equal(t, "before failure", output.Stdout)
+	require.Contains(t, output.Stderr, "cargo")
+	raw, err := json.Marshal(output)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"code":"missing_machine_tool"`)
+	input.OperationID = uuid.NewString()
+	receipt, err := service.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, input)
+	require.NoError(t, err)
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- service.RunWorkspaceCommandWorker(workerCtx, jobs.WorkerConfig{WorkerID: "missing-tool", Capacity: 1, Lease: 2 * time.Second, PollInterval: 10 * time.Millisecond})
+	}()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	var run WorkspaceCommandRun
+	require.Eventually(t, func() bool {
+		run, err = service.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, receipt.OperationID)
+		return err == nil && run.State.Terminal()
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Equal(t, jobs.StateCompleted, run.State)
+	require.Empty(t, run.Error)
+	require.Equal(t, output, *run.Result, "durable readback retains all command evidence and its typed annotation")
+	recovered := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(provider), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(server.URL+"/api"))
+	replay, err := recovered.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, input)
+	require.NoError(t, err)
+	require.True(t, replay.Joined)
+	require.Equal(t, receipt.OperationID, replay.OperationID)
+	previous, err := recovered.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, replay.OperationID)
+	require.NoError(t, err)
+	require.Equal(t, run, previous)
+	require.Equal(t, int32(2), provider.calls.Load(), "replay must not execute a second command")
+	input.OperationID = uuid.NewString()
+	input.Args[3] += "-unconfirmed"
+	uncertain, err := service.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, input)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		run, err = service.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, uncertain.OperationID)
+		return err == nil && run.State.Terminal()
+	}, 10*time.Second, 10*time.Millisecond)
+	require.Equal(t, jobs.StateUncertain, run.State)
+	require.Nil(t, run.Result, "a typed annotation cannot override unconfirmed termination")
 }
