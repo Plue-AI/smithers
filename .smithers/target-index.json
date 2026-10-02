@@ -54489,6 +54489,41 @@
     }
   },
   {
+    "label": "//scripts:journeys",
+    "package": "scripts",
+    "name": "journeys",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/journeys/run.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/journeys/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": ".specs/engineering/tickets/T-REL-02.md"
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/engineering/checks/*.md",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:lint",
     "package": "scripts",
     "name": "lint",

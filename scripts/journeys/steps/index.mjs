@@ -1,0 +1,11 @@
+import j1 from "./j1.mjs"
+import j2 from "./j2.mjs"
+import j3 from "./j3.mjs"
+import j4 from "./j4.mjs"
+import j5 from "./j5.mjs"
+import j6 from "./j6.mjs"
+import j7 from "./j7.mjs"
+import j8 from "./j8.mjs"
+import j10 from "./j10.mjs"
+import j11 from "./j11.mjs"
+export const journeys = [j1, j2, j3, j4, j5, j6, j7, j8, j10, j11]

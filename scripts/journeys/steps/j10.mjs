@@ -1,0 +1,11 @@
+import { journey } from "./define.mjs"
+export default journey("J10", "Work with GitHub", [
+  ["pr", "C-J10-01", "A TODO reaches In review; verify its same-repo smithers/<slug> PR based on main contains prompt, evidence, included stack items and requester."],
+  ["review", "C-J10-02", "Ben posts an inline review comment via REST. Within 60 s it becomes his steer, the TODO works again and the verified fix updates the same PR.", { actorActions: ["reviewComment"] }],
+  ["push", "C-J10-03", "Alice pushes a REST-created commit to the TODO branch. Sample the ref: agent cannot overwrite it while Needs you is open. Bring in keeps her change; repeat while Working and test Member Discard refusal, then owner Discard retaining her SHA in kept history.", { actorActions: ["pushTodo"] }],
+  ["unrelated", "C-J10-04", "Alice creates and squash-merges an unrelated docs/unrelated.md PR via REST. main updates within 60 s; branches with people show Rebase pending, empty branches rebase. Test presence expiry and Rebase now with cleared approvals and rerun checks.", { actorActions: ["unrelatedMerge"] }],
+  ["merge", "C-J10-05", "Owner merges the TODO PR on GitHub via REST with its exact head SHA. TODO becomes Merged only after the GitHub event, from every unmerged state; its fixes issue closes with a link and requester attribution.", { actorActions: ["mergePr"] }],
+  ["network", "C-J10-06", "Drop the reference host's GitHub network through the operator's network control, without stopping the browser origin. Record synced Ns ago, gold after 120 s, Retry, reconnection/cursor recovery and no duplicate deltas."],
+  ["main-rewrite", "C-J10-07", "In this disposable canary only, the owner performs the check's external main rewrite. Before owner confirmation Smithers changes nothing; exercise confirmation and cancellation with captured-work recovery. The harness never rewrites Smithers main."],
+  ["close-reopen", "C-J10-08", "Alice closes an unmerged PR by REST: one Dropped transition names Alice and repeated delivery deduplicates. Reopen within seven days restores its former place; a separate aged PR reopened after seven days remains Dropped. Retain server-clock evidence without faking clocks.", { actorActions: ["setPrState"] }]
+])
