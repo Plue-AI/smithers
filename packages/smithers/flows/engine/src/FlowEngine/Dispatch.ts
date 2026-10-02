@@ -174,10 +174,13 @@ export const makeActionExecute = (options: Encoded) => {
       // the schedule-to-close budget to the true first attempt. The engine
       // keeps the in-process fallback — failing the run outright would
       // turn benign attempt-row retention pruning into spurious failures —
-      // but the restarted budget is worth a trace (issue #69).
-      yield* Effect.logWarning(
+      // but the restarted budget is worth a trace (issue #69). Only a budget
+      // the author declared warns: the implicit transient default (#3369)
+      // covers every repeat-safe action, whose first dispatch has no
+      // attempt row yet, so a warning there would fire on every run.
+      const restarted =
         `FlowEngine.actionExecute: no durable retry origin for "${action.name}"; the expirationMs budget restarts from the current clock`
-      )
+      yield* action.retryPolicy === undefined ? Effect.logDebug(restarted) : Effect.logWarning(restarted)
     }
     const now = yield* Clock.currentTimeMillis
     const origin = Option.getOrUndefined(durableOrigin)

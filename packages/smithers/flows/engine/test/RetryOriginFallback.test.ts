@@ -8,7 +8,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Action, Flow, FlowRuntime, RetryPolicy } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Cause, Effect, Exit, Fiber, Layer, Logger, Option, Schema } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Logger, Option, References, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { TestClock } from "effect/testing"
 import { FlowEngine } from "../src/index.ts"
@@ -89,6 +89,44 @@ describe("retry origin fallback when the durable hook yields none", () => {
       ),
       Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
       Effect.provide(Logger.layer([capture])),
+      Effect.provide(TestClock.layer())
+    )
+  })
+
+  effect("keeps the implicit transient budget's restart out of the warnings", () => {
+    const logs: Array<{ readonly message: unknown; readonly logLevel: string }> = []
+    const capture = Logger.make((options) => {
+      logs.push({ message: options.message, logLevel: options.logLevel })
+    })
+    // Repeat-safe and undeclared: the engine supplies RetryPolicy.transient,
+    // whose expirationMs consults the durable origin on the first dispatch.
+    const action = Action.make({
+      name: "RetryOriginFallback/implicit",
+      success: Schema.Number,
+      error: Schema.String,
+      idempotencyKey: "retry-origin-implicit",
+      execute: Effect.die("scripted driver dispatches instead")
+    })
+    let originRequests = 0
+    const engine = scriptedEngine({
+      actionExecute: () => Effect.succeed(new Flow.Complete({ exit: Exit.succeed(7) })),
+      actionRetryOrigin: () => Effect.sync(() => (originRequests++, Option.none()))
+    })
+    return Effect.gen(function*() {
+      const result = yield* engine.actionExecute(action, 1)
+      expect(result._tag).toBe("Complete")
+      expect(originRequests).toBe(1)
+      expect(logs.filter((entry) => entry.logLevel === "Warn")).toEqual([])
+      const restarted = logs.filter((entry) => String(entry.message).includes("no durable retry origin"))
+      expect(restarted.map((entry) => entry.logLevel)).toEqual(["Debug"])
+    }).pipe(
+      Effect.provideService(
+        FlowRuntime.FlowInstance,
+        FlowEngine.makeInstance(flow, "retry-origin-implicit-run")
+      ),
+      Effect.provide(Layer.succeed(FlowRuntime.FlowRuntime)(engine)),
+      Effect.provide(Logger.layer([capture])),
+      Effect.provideService(References.MinimumLogLevel, "Debug"),
       Effect.provide(TestClock.layer())
     )
   })
