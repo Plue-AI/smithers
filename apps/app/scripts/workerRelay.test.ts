@@ -249,14 +249,14 @@ test("a refusal with an already-broken HTTP body keeps its status and drops priv
   // Hold the real HTTP response until its stream has errored. This timing
   // adapter makes the socket-close-before-cancel ordering deterministic;
   // the upstream, Response, stream and cancellation remain real.
-  const fetchGate = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  const fetchGate = spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
     const response = await nativeFetch(input, init)
     const reader = response.body!.getReader()
     try { while (!(await reader.read()).done) {} }
     catch { /* The real socket closed before its response finished. */ }
     finally { reader.releaseLock() }
     return response
-  })
+  }) as typeof fetch)
   try {
     const address = server.address()
     if (address === null || typeof address === "string") throw new Error("Missing HTTP address")
@@ -286,7 +286,7 @@ for (const [status, body, headers, expected] of [
       const response = await fetch(`http://127.0.0.1:${address.port}`)
       expect(response.status).toBe(status)
       for (const [name, value] of Object.entries(headers)) expect(response.headers.get(name)).toBe(value)
-      expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(expected)
+      expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual([...expected])
     } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) }
   })
 }
