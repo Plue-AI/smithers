@@ -181,7 +181,7 @@ describe("Projections run-list pagination", () => {
       const projections = make(control({
         list: (request) => {
           if (request._tag === "runs" && request.filters?.runId) return Effect.succeed({ _tag: "runs", items: [run] })
-          limits.push(request.limit)
+          limits.push(request._tag === "runs" ? request.limit : undefined)
           return Effect.succeed(
             limits.length === 1
               ? { _tag: "runs", items: [run], nextCursor: "page-2" } satisfies ListResponse
@@ -201,7 +201,7 @@ describe("Projections run-list pagination", () => {
       const projections = make(control({
         list: (request) => {
           listCalls += 1
-          limits.push(request.limit)
+          limits.push(request._tag === "runs" ? request.limit : undefined)
           return Effect.succeed({ _tag: "runs", items: [run], nextCursor: "another-page" } satisfies ListResponse)
         }
       }))
