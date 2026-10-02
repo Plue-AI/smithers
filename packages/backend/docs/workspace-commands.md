@@ -16,7 +16,7 @@ Under `/api/repos/{owner}/{repo}/workspaces/{id}`:
   means cancellation is pending; poll until the state is terminal.
 
 ```json
-{"operation_id":"tests-1","args":["/bin/bash","-lc","pnpm test"]}
+{"operation_id":"tests-1","args":["/bin/bash","-c","pnpm test"]}
 ```
 
 Repeat admission with the same ID and input to obtain the same receipt.
