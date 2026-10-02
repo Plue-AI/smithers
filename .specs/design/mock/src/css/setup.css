@@ -1,0 +1,240 @@
+/*
+ * Install and administration: the Mac installer, Setup, Settings, Members and
+ * Secrets. Loaded after mock.css. PORT marks proposed product CSS; MOCK
+ * stages the journey.
+ */
+
+/* ════════════════════════════════════════════════════════════
+ * MOCK · J1's Mac installer: macOS Installer's window, drawn from the
+ * outside window by its title. Line 1 of each page is its heading. Its
+ * colours are tokens, so a dark screen gets a dark window.
+ * ════════════════════════════════════════════════════════════ */
+:root {
+	--mac-window: #ececec;
+	--mac-bar: #e4e4e4;
+	--mac-bar-line: #d3d3d3;
+	--mac-bar-text: #3c3c3e;
+	--mac-panel: #fff;
+	--mac-panel-line: #d6d6d6;
+	--mac-text: #1d1d1f;
+	--mac-shadow: 0 22px 70px rgb(0 0 0 / 32%), 0 0 0 0.5px rgb(0 0 0 / 28%);
+}
+:root[data-theme="dark"] {
+	--mac-window: #2b2b2d;
+	--mac-bar: #333335;
+	--mac-bar-line: #1b1b1d;
+	--mac-bar-text: #d8d8dc;
+	--mac-panel: #1f1f21;
+	--mac-panel-line: #3c3c3f;
+	--mac-text: #f2f2f7;
+	--mac-shadow: 0 22px 70px rgb(0 0 0 / 50%), 0 0 0 0.5px rgb(255 255 255 / 14%);
+}
+.mock-outside[aria-label="Install Smithers"] {
+	width: min(500px, calc(100% - 48px));
+	border-radius: 12px;
+	background: var(--mac-window);
+	box-shadow: var(--mac-shadow);
+	color: var(--mac-text);
+	font-family: -apple-system, BlinkMacSystemFont, var(--font-ui), sans-serif;
+}
+.mock-outside[aria-label="Install Smithers"] .mock-outside-bar {
+	position: relative;
+	height: 34px;
+	border-bottom: 1px solid var(--mac-bar-line);
+	background: var(--mac-bar);
+	color: var(--mac-bar-text);
+	font-size: 13px;
+	font-weight: 600;
+}
+.mock-outside[aria-label="Install Smithers"] .mock-outside-bar span {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+	pointer-events: none;
+}
+.mock-outside[aria-label="Install Smithers"] pre {
+	min-height: 0;
+	margin: 16px 18px 18px;
+	padding: 14px 22px 18px;
+	border: 1px solid var(--mac-panel-line);
+	border-radius: 8px;
+	background: var(--mac-panel);
+	color: var(--mac-text);
+	font-family: inherit;
+	font-size: 13.5px;
+	line-height: 1.85;
+	white-space: pre-wrap;
+}
+.mock-outside[aria-label="Install Smithers"] pre::first-line {
+	font-size: 17px;
+	font-weight: 600;
+	line-height: 2.3;
+}
+.mock-outside[aria-label="Install Smithers"] .mvp-term-cursor { display: none; }
+
+/* ════════════════════════════════════════════════════════════
+ * PORT · Setup
+ * ════════════════════════════════════════════════════════════ */
+
+/* The squash check on the chosen repository. Failed, its label becomes the link to its fix. */
+.mvp-check { display: inline-flex; min-width: 0; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-check > svg { flex: none; }
+.mvp-check[data-state="ok"] > svg { color: var(--success); }
+.mvp-check[data-state="off"] > svg { color: var(--danger); }
+.mvp-check a {
+	display: inline-flex;
+	min-width: 0;
+	align-items: center;
+	gap: 4px;
+	color: var(--danger);
+	font-weight: 500;
+	text-decoration: underline;
+	text-decoration-color: var(--danger-border);
+	text-underline-offset: 3px;
+}
+.mvp-check a:hover { text-decoration-color: currentColor; }
+
+/* Full width, so the address field's width resolves and it sits beside This Mac only and Network. */
+.mvp-setup-row { display: flex; flex-wrap: wrap; align-items: center; align-self: stretch; gap: var(--sp-2) var(--sp-3); }
+.mvp-setup-error { color: var(--danger); font-size: var(--fs-small); font-weight: 500; }
+.mvp-setup-mark[data-failed] { box-shadow: inset 0 0 0 1.5px var(--danger); color: var(--danger); }
+
+/* Model access (mvp.md §6.5): a row per role with its name, whose key, the key, and its state. */
+.mvp-models { display: flex; width: 100%; flex-direction: column; gap: 10px; container-type: inline-size; }
+.mvp-model {
+	display: grid;
+	grid-template-columns: 96px 124px minmax(0, 1fr) 92px;
+	align-items: center;
+	gap: 6px 10px;
+	font-size: var(--fs-small);
+}
+.mvp-model-role { font-weight: 500; }
+.mvp-model-name { min-width: 0; }
+span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
+.mvp-model .mvp-select { width: 100%; height: 30px; justify-content: space-between; }
+.mvp-model input {
+	min-width: 0;
+	height: 30px;
+	padding: 0 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-1);
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	letter-spacing: 0.08em;
+	outline: none;
+}
+.mvp-model input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+.mvp-model input::placeholder { color: var(--text-placeholder); font-family: var(--font-ui); letter-spacing: 0; }
+.mvp-model input[data-state="validating"] { color: var(--text-muted); }
+.mvp-model input[data-state="saved"] { border-color: var(--border); background: transparent; color: var(--text-muted); }
+.mvp-model input[data-state="failed"] { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.mvp-key-status { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.mvp-key-status[data-state="saved"] { color: var(--success); }
+.mvp-key-status[data-state="failed"] { color: var(--danger); }
+.mvp-key-error { grid-column: 3 / -1; margin: 0; color: var(--danger); font-size: var(--fs-caption); font-weight: 500; }
+/* The coding model's other way in: a ChatGPT sign-in in place of a key. */
+.mvp-model-alt { display: flex; grid-column: 2 / -1; align-items: center; gap: 8px; margin: 0; color: var(--text-faint); font-size: var(--fs-caption); }
+/* Narrow: the role and its state on one line, then whose key and the key. */
+@container (max-width: 440px) {
+	.mvp-model { grid-template-columns: 112px minmax(0, 1fr) auto; }
+	.mvp-model-role { grid-column: 1 / 3; }
+	.mvp-model > .mvp-key-status { grid-area: 1 / 3; }
+	.mvp-model-name { grid-row: 2; }
+	.mvp-model input { grid-area: 2 / 2 / auto / -1; }
+	.mvp-model .mvp-key-error,
+	.mvp-model-alt { grid-column: 1 / -1; }
+}
+
+/* A progress step that failed keeps its reason and offers Retry. */
+.mvp-progress[data-state="failed"] { align-items: flex-start; }
+.mvp-progress[data-state="failed"] .mvp-progress-head { color: var(--danger); }
+.mvp-progress-error { color: var(--danger); font-size: var(--fs-caption); }
+
+/* ════════════════════════════════════════════════════════════
+ * PORT · Settings: each row is a door to what it names
+ * ════════════════════════════════════════════════════════════ */
+.mvp-settings dd { flex-wrap: wrap; min-width: 0; }
+.mvp-settings .mvp-key-error { flex-basis: 100%; }
+/* A value the owner edits in place: the address the install serves at, the Obsidian folder. */
+.mvp-setting-input {
+	width: min(100%, 320px);
+	height: 30px;
+	padding: 0 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-1);
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	outline: none;
+}
+.mvp-setting-input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+/* Plain HTTP on the network: browser notifications need HTTPS, which only the owner can put in front. */
+.mvp-notify-https {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--attention-text);
+	font-weight: 500;
+	text-decoration: underline;
+	text-decoration-color: var(--attention-border);
+	text-underline-offset: 3px;
+}
+.mvp-notify-https:hover { text-decoration-color: currentColor; }
+/* Models: each role, then its provider with the key's state. Change sits under all three, not beside one. */
+.mvp-settings .mvp-models-setting { flex-direction: column; align-items: flex-start; gap: 8px; }
+.mvp-roles { display: grid; grid-template-columns: auto auto; align-items: center; gap: 4px 12px; }
+.mvp-roles > span:not(.mvp-setting-state) { color: var(--text-muted); }
+.mvp-door {
+	display: inline-flex;
+	height: 32px;
+	align-items: center;
+	gap: 8px;
+	margin-left: -6px;
+	padding: 0 6px;
+	border-radius: var(--r-1);
+	color: var(--text-muted);
+}
+.mvp-door:hover { background: var(--hover); color: var(--text); }
+.mvp-setting-state { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 500; }
+.mvp-setting-state > svg { flex: none; color: var(--success); }
+.mvp-setting-state[data-state="failed"],
+.mvp-setting-state[data-state="failed"] > svg { color: var(--danger); }
+.mvp-setting-state[data-state="validating"] { color: var(--text-muted); }
+.mvp-setting-state:not([data-state]) { color: var(--text-muted); }
+.mvp-setting-state:not([data-state]) > svg { color: var(--text-faint); }
+.mvp-on-github {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-muted);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	text-decoration: none;
+}
+.mvp-on-github:hover { color: var(--text); }
+.mvp-on-github .mvp-gh { color: inherit; }
+
+/* ════════════════════════════════════════════════════════════
+ * PORT · Members: the role select opens a menu of the roles a maintainer gives
+ * ════════════════════════════════════════════════════════════ */
+.mvp-role-wrap { position: relative; display: inline-flex; }
+/* It opens upward: the person just added is the last row, at the bottom of the conversation. */
+.mvp-role-menu { top: auto; bottom: calc(100% + 4px); min-width: 168px; }
+.mvp-menu-pad { width: 14px; flex: none; }
+/* A row that just changed washes its name, never the avatar, whose colour is the person. */
+.mvp-members > li[data-fresh] > .mvp-member-name,
+.mvp-members > li[data-fresh] > .mvp-member-login { animation: mvp-arrive 2.4s var(--ease-current); }
+/* A row that wraps (Models with a failed key) keeps its label on the first line. */
+.mvp-settings { align-items: baseline; }
+/* This Mac: who can reach the install, then its address and memory on one line. */
+.mvp-this-mac { gap: 8px; }
+.mvp-segmented { display: inline-flex; padding: 2px; border-radius: var(--r-2); background: var(--surface-2); }
+.mvp-segmented > button { padding: 2px 10px; border-radius: calc(var(--r-2) - 2px); color: var(--text-muted); font-size: var(--fs-small); font-weight: 500; line-height: 22px; }
+.mvp-segmented > button[aria-pressed="true"] { background: var(--surface); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border); color: var(--text); }
+.mvp-segmented > button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }

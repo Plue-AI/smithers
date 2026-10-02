@@ -1,0 +1,203 @@
+/*
+ * PORT · code (mvp.md §6.8, §6.10): the File card as a CodeMirror 6 editor in
+ * Paper tokens, live co-editing on it, and contextual diffs. Each person's
+ * changed characters carry their colour (--who); the rest of the line keeps
+ * full contrast. Name flags have their own gutter, so they never sit on code.
+ */
+
+/* ── Editor: gutters pinned left, code scrolls under them ─── */
+.mvp-editor {
+	--line-h: 20px;
+	/* Fits "Alice · Smithers"; longer names truncate, and the flag's title has them whole. */
+	--flag-lane: 100px;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--r-1);
+	background: var(--surface);
+	color: var(--code-text);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	line-height: var(--line-h);
+}
+.mvp-editor[data-snapshot] { border-style: dashed; border-color: var(--border-strong); }
+.mvp-editor-scroller {
+	display: flex;
+	align-items: stretch;
+	overflow-x: auto;
+}
+.mvp-editor-gutters {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+	display: flex;
+	flex: none;
+	border-right: 1px solid var(--border);
+	/* The flag lane is a margin on the editor's own paper; the classic gutter is the shaded band. */
+	background: var(--surface);
+	color: var(--text-faint);
+	user-select: none;
+}
+.mvp-editor-gutter[data-gutter="lint"],
+.mvp-editor-gutter[data-gutter="numbers"] { background: var(--code-bg); }
+.mvp-editor-gutter { padding-block: 4px; }
+.mvp-editor-gutter > div { height: var(--line-h); }
+.mvp-editor-gutter[data-gutter="flags"] { width: var(--flag-lane); }
+.mvp-editor-gutter[data-gutter="flags"] > div { display: flex; align-items: center; justify-content: flex-end; padding-left: 4px; }
+.mvp-editor-gutter[data-gutter="lint"] { width: 16px; padding-inline-start: 2px; }
+.mvp-editor-gutter[data-gutter="lint"] > div { display: flex; align-items: center; justify-content: center; }
+.mvp-editor-gutter[data-gutter="numbers"] { min-width: 2ch; padding-inline: 2px 10px; text-align: right; }
+.mvp-editor-gutter[data-gutter="numbers"] > [data-active] { color: var(--text); }
+.mvp-editor-gutter[data-gutter="numbers"] > [data-cited] { color: var(--brand); font-weight: 500; }
+.mvp-editor-content {
+	flex: 1 0 auto;
+	padding: 4px 0;
+	white-space: pre;
+}
+.mvp-editor-line {
+	position: relative;
+	height: var(--line-h);
+	padding: 0 12px 0 6px;
+}
+/* Your own line, as CodeMirror's active line: no colour, so it never reads as anyone's edit. */
+.mvp-editor-line[data-active] { background: var(--hover-subtle); }
+.mvp-editor-line[data-cited] { background: var(--brand-soft); box-shadow: inset 2px 0 0 var(--brand); }
+
+/* A name flag: a tag in the editor's colour pointing at its line. */
+.mvp-code-flag {
+	display: inline-flex;
+	min-width: 0;
+	max-width: 100%;
+	height: 16px;
+	align-items: center;
+	gap: 3px;
+	padding: 0 9px 0 5px;
+	border-radius: 3px 0 0 3px;
+	background: var(--who);
+	color: var(--avatar-ink);
+	font-family: var(--font-ui);
+	font-size: 10.5px;
+	font-weight: 600;
+	line-height: 16px;
+	white-space: nowrap;
+	clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 0 100%);
+	animation: mvp-flag-in 200ms var(--ease-current);
+}
+.mvp-code-flag-name { overflow: hidden; text-overflow: ellipsis; }
+.mvp-code-flag b { font-weight: 600; opacity: 0.8; }
+@keyframes mvp-flag-in { from { opacity: 0; transform: translateX(-4px); } }
+
+/* A changed span: the author's tint under the characters and their colour as an underline. */
+.mvp-span {
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--who) 18%, transparent);
+	box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--who) 80%, transparent);
+}
+.mvp-span[data-fresh] { animation: mvp-span-in 2.4s var(--ease-current); }
+@keyframes mvp-span-in { from { background: color-mix(in srgb, var(--who) 45%, transparent); } }
+
+/* Diagnostics: a lint warning's mark; its message is the mark's title. */
+.mvp-lint-mark {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--warning);
+}
+
+/* Code intelligence: a hover tooltip under the symbol, at its column, as CodeMirror places it; above on the last line. */
+.mvp-editor-tip {
+	position: absolute;
+	top: 100%;
+	left: calc(6px + var(--col) * 1ch);
+	z-index: 3;
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	padding: 1px 7px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: var(--surface);
+	box-shadow: var(--shadow-2);
+	animation: mvp-tip-in 160ms var(--ease-current);
+}
+.mvp-editor-tip code { color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 16px; }
+.mvp-editor-tip span { color: var(--text-muted); font-family: var(--font-ui); font-size: var(--fs-caption); }
+.mvp-editor-line[data-hover="above"] .mvp-editor-tip { top: auto; bottom: 100%; }
+@keyframes mvp-tip-in { from { opacity: 0; } }
+
+/* ── File state in the header: Saving…, Saved, Deleted, Renamed ── */
+.mvp-saving-mark {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--brand);
+	animation: mvp-blink 1s ease-in-out infinite;
+}
+.mvp-file-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--attention-text);
+	font-size: var(--fs-caption);
+	font-weight: 600;
+	white-space: nowrap;
+}
+.mvp-file-notice {
+	display: flex;
+	align-items: center;
+	gap: var(--sp-2);
+	margin-bottom: var(--sp-2);
+	padding: 6px 6px 6px 10px;
+	border: 1px solid var(--attention-border);
+	border-radius: var(--r-1);
+	background: var(--attention-wash);
+	color: var(--attention-text);
+	font-size: var(--fs-small);
+	font-weight: 500;
+}
+.mvp-file-notice code { padding: 0 4px; border-radius: 4px; background: var(--inline-code-bg); font-family: var(--font-mono); font-size: 12px; }
+.mvp-snapshot-cap {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	margin: 0 0 4px 2px;
+	color: var(--text-muted);
+	font-size: var(--fs-caption);
+	font-weight: 500;
+}
+
+/* ── Diff: unified hunks with old and new line numbers ───── */
+.smithers-card[data-kind="diff"] .mvp-card-head-end .mvp-diffstat { margin: 0; }
+.mvp-code.mvp-diff { background: var(--surface); }
+.mvp-diff-hunk + .mvp-diff-hunk { border-top: 1px solid var(--border); }
+.mvp-diff-head {
+	display: flex;
+	height: 26px;
+	align-items: center;
+	gap: 8px;
+	padding: 0 10px 0 6px;
+	background: var(--code-bg);
+	color: var(--text-muted);
+	font-family: var(--font-ui);
+	font-size: var(--fs-caption);
+}
+.mvp-diff-head .mvp-avatar-stack > .mvp-avatar { margin-left: -2px; box-shadow: 0 0 0 1.5px var(--code-bg); }
+.mvp-diff-at { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mvp-diff-row {
+	display: grid;
+	grid-template-columns: 4ch 4ch 2.5ch minmax(0, 1fr);
+	min-height: 20px;
+}
+.mvp-diff-n { padding-right: 1ch; color: var(--text-faint); text-align: right; user-select: none; }
+.mvp-diff-sign { text-align: center; user-select: none; }
+.mvp-diff-text { padding-right: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mvp-diff-row[data-diff="del"] { background: var(--danger-soft); }
+.mvp-diff-row[data-diff="add"] { background: var(--success-soft); }
+.mvp-diff-row[data-diff="del"] .mvp-diff-sign { color: var(--danger); }
+.mvp-diff-row[data-diff="add"] .mvp-diff-sign { color: var(--success); }
+.mvp-span[data-del] { background: color-mix(in srgb, var(--danger) 22%, transparent); box-shadow: none; }
+/* A save from outside while people typed (B.4 file.compare): neutral, not a failure; nothing was lost. */
+.mvp-file-notice[data-tone="outside"] { border-color: var(--border-strong); background: var(--surface-2); color: var(--text); }
+.mvp-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: var(--sp-2); }
+.mvp-compare > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); }
+.mvp-compare-cap { color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-compare code { overflow-x: auto; font-family: var(--font-mono); font-size: 12px; white-space: pre; }

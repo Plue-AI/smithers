@@ -1,0 +1,38 @@
+/*
+ * Review material, not product UI: what the MVP leaves out (mvp.md §16, and
+ * the TUI from §8), one line each with where the spec defers it, for Will to
+ * ratify. It is drawn as harness so nobody mistakes it for a card in the app.
+ */
+import type { ExtraCardProps } from "./extra"
+
+const DEFERRED: ReadonlyArray<{ readonly item: string; readonly area: string }> = [
+  { item: "The terminal app (TUI)", area: "§8" },
+  { item: "Line comments on diffs in the app", area: "§6.10" },
+  { item: "Agent replies on GitHub reviews", area: "§6.3" },
+  { item: "Stacked PR bases and retargeting", area: "§4.2" },
+  { item: "Open a teammate's own branch on a machine", area: "§6.3" },
+  { item: "Bring a laptop push in automatically", area: "§6.3" },
+  { item: "Ask to type in someone else's terminal", area: "§6.8" },
+  { item: "Command name on outside-change entries, per-entry Undo, replaced-edit flags", area: "§6.8" },
+  { item: "Exact attribution of terminal changes with several sessions active", area: "§6.8" },
+  { item: "Email and phone notifications", area: "§6.4" },
+  { item: "Triggers that start flows", area: "§6.14" },
+  { item: "The Machine view", area: "§6.14" },
+  { item: "Sending signals to runs by hand", area: "§6.14" },
+  { item: "A form for agent permissions, tools and budget", area: "§6.14" },
+  { item: "Obsidian on teammates' laptops", area: "§6.11" },
+  { item: "Replace a stack item's work with a scratch branch", area: "J7" },
+  { item: "Which runs used each secret", area: "§6.15" }
+]
+
+export const LaterCard = ({ id }: ExtraCardProps) => (
+  <section className="mock-later" data-card={id} data-mock="card-later" aria-label="Not in this release">
+    <header>
+      <h2>Not in this release</h2>
+      <span>For ratification</span>
+    </header>
+    <ol>
+      {DEFERRED.map(({ item, area }) => <li key={item}><span>{item}</span><span className="mock-later-area">{area}</span></li>)}
+    </ol>
+  </section>
+)

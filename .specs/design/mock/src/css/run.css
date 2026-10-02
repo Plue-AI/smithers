@@ -1,0 +1,107 @@
+/* PORT · a run, inside: the attempt graph, the embedded card and the maximized timeline (Will, 2026-10-02) */
+.mvp-run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.mvp-run-state[data-state="running"] { color: var(--action-primary); }
+.mvp-run-state[data-state="waiting"] { color: var(--attention-text); }
+.mvp-run-state[data-state="failed"] { color: var(--danger); }
+/* Waiting for merge holds calmly, as its node does: a dashed ring, not a person's turn. */
+.mvp-run-held { width: 9px; height: 9px; border-radius: 50%; outline: 1.5px dashed var(--text-muted); outline-offset: -1.5px; }
+.mvp-run-now { margin: var(--sp-2) 0 0; font-size: var(--fs-small); font-weight: 500; }
+.mvp-run-flag { margin-top: var(--sp-2); }
+.mvp-indicator { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--r-full); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-caption); font-weight: 500; }
+.mvp-indicator[data-tone="fail"] { background: var(--danger-soft); color: var(--danger); }
+
+/*
+ * The attempt graph: the TODO card's step strip (.mvp-steps), every node a
+ * button. Embedded it fills the card; in Inspect its columns are fixed, so an
+ * earlier attempt and the rebase loop line up with the current graph.
+ */
+.mvp-attempt { --mark: 16px; --node-pad: 4px; }
+.mvp-attempt[data-size="full"] { --mark: 20px; }
+.mvp-attempt:not([data-size="compact"]) > li { flex: 0 0 var(--node-w); }
+.mvp-attempt[data-size="full"] > li { font-size: var(--fs-small); }
+.mvp-attempt > li + li::before { top: calc(var(--node-pad) + var(--mark) / 2 - 1px); }
+.mvp-attempt .mvp-step-mark { width: var(--mark); height: var(--mark); }
+.mvp-node { display: flex; width: 100%; min-width: 0; flex-direction: column; align-items: center; gap: 4px; padding: var(--node-pad) 4px; border-radius: var(--r-1); color: inherit; }
+.mvp-node:hover { background: var(--hover-subtle); }
+.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+.mvp-node[data-selected] { background: var(--hover-subtle); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.mvp-node-name { display: flex; max-width: 100%; align-items: center; gap: 3px; }
+.mvp-node-name .mvp-step-name { min-width: 0; }
+.mvp-node-thrash { flex: none; color: var(--attention); }
+.mvp-node-took { color: var(--text-faint); font-size: var(--fs-caption); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mvp-attempt-reason { position: absolute; top: var(--node-pad); left: calc(50% + var(--mark) / 2 + 10px); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; line-height: var(--mark); white-space: nowrap; }
+
+/*
+ * Inspect: one row per attempt, earlier ones dimmed above the current one. It
+ * scrolls sideways when narrow and never shrinks: the maximized body is a
+ * fixed-height column, and the timeline takes what is left.
+ */
+.mvp-run-attempts { position: relative; display: flex; flex: none; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-1); padding-bottom: var(--sp-2); overflow-x: auto; border-bottom: 1px solid var(--border); }
+.mvp-attempt-row { display: flex; width: max-content; align-items: flex-start; gap: var(--sp-2); }
+.mvp-attempt-label { flex: none; width: 72px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; line-height: 24px; white-space: nowrap; }
+.mvp-attempt-row[data-size="full"] .mvp-attempt-label { color: var(--text); line-height: 28px; }
+.mvp-attempt-row[data-dim] .mvp-step-mark,
+.mvp-attempt-row[data-dim] .mvp-attempt > li::before { opacity: 0.5; }
+.mvp-loop { display: block; overflow: visible; }
+.mvp-loop path { fill: none; stroke: var(--rail); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.mvp-loop text { fill: var(--text-faint); stroke: var(--card); stroke-width: 6px; paint-order: stroke; font-family: var(--font-ui); font-size: 11px; font-weight: 500; }
+.mvp-loop[data-fresh] path { stroke: var(--brand); }
+.mvp-loop[data-fresh] text { fill: var(--action-primary); }
+.mvp-loop[data-fresh] .mvp-loop-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: mvp-loop-draw 1.2s var(--ease-current) forwards; }
+.mvp-loop[data-fresh] .mvp-loop-head { opacity: 0; animation: mvp-loop-head 0.25s 1.1s forwards; }
+@keyframes mvp-loop-draw { to { stroke-dashoffset: 0; } }
+@keyframes mvp-loop-head { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+	.mvp-loop[data-fresh] .mvp-loop-line,
+	.mvp-loop[data-fresh] .mvp-loop-head { animation: none; stroke-dashoffset: 0; opacity: 1; }
+}
+
+.mvp-run-max { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: var(--sp-4); min-height: 0; margin-top: var(--sp-3); }
+/* Positioned, so a cell's offsetTop is measured from the timeline itself. */
+.mvp-run-timeline { position: relative; min-height: 0; overflow-y: auto; padding: 0 4px 8px 0; }
+.mvp-run-timeline > ol,
+.mvp-run-phases { display: flex; flex-direction: column; gap: var(--sp-3); margin: 0; padding: 0; list-style: none; }
+/* Phases sit under a sticky step header, so a long step keeps its name in view. */
+.mvp-run-step-head { position: sticky; top: 0; z-index: 1; margin-bottom: var(--sp-2); padding: 2px 0 6px; border-bottom: 1px solid var(--border); background: var(--card); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-run-phase { display: flex; flex-direction: column; gap: 6px; }
+.mvp-run-phase-head { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: 8px; }
+.mvp-run-phase-n { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 50%; background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; }
+.mvp-run-phase[data-tone="live"] .mvp-run-phase-n { background: var(--brand); color: var(--avatar-ink); }
+.mvp-run-phase[data-tone="thrash"] .mvp-run-phase-n,
+.mvp-run-phase[data-tone="wait"] .mvp-run-phase-n { background: var(--attention); color: var(--avatar-ink); }
+.mvp-run-phase[data-tone="fail"] .mvp-run-phase-n { background: var(--danger); color: var(--avatar-ink); }
+.mvp-run-phase-title { display: flex; min-width: 0; flex-direction: column; }
+.mvp-run-phase-title b { font-size: var(--fs-small); font-weight: 600; }
+.mvp-run-phase-title span { color: var(--text-muted); font-size: var(--fs-caption); line-height: 1.45; }
+.mvp-run-phase > .mvp-indicator { align-self: flex-start; margin-left: 30px; }
+.mvp-run-cells { display: flex; flex-direction: column; margin: 0 0 0 11px; padding: 0 0 0 18px; border-left: 1.5px solid var(--rail); list-style: none; }
+.mvp-run-cell { display: grid; width: 100%; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 5px 8px; border-radius: var(--r-1); font-size: var(--fs-small); line-height: 1.4; text-align: left; }
+.mvp-run-cell:hover { background: var(--hover-subtle); }
+.mvp-run-cell[aria-current] { background: var(--brand-soft); box-shadow: inset 2px 0 0 var(--brand); }
+.mvp-run-cell[data-fresh] { animation: mvp-arrive 2.4s var(--ease-current); }
+.mvp-run-cell-icon { display: inline-flex; margin-top: 2px; color: var(--text-muted); }
+.mvp-run-cell[data-tone="fail"] .mvp-run-cell-text { color: var(--danger); }
+.mvp-run-detail { display: flex; min-width: 0; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
+.mvp-run-detail-head { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-run-detail-phase { font-weight: 600; }
+.mvp-run-explain { margin: 0; font-size: var(--fs-body); line-height: 1.5; }
+.mvp-run-quote { margin: 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--border-strong); font-size: var(--fs-body); line-height: 1.5; }
+.mvp-run-code { padding: 8px 12px; white-space: pre-wrap; }
+.mvp-run-output { max-height: 220px; }
+/* MOCK · the maximized overlay inside a screen */
+.mock-max-backdrop { position: absolute; inset: 0; z-index: 64; background: rgb(20 17 12 / 18%); backdrop-filter: blur(2px); }
+.mock-max { position: absolute; top: calc(var(--session-strip, 44px) + 6px); right: 16px; bottom: 16px; left: 16px; z-index: 70; display: flex; flex-direction: column; }
+.mock-max > .smithers-card { display: flex; min-height: 0; flex: 1; flex-direction: column; box-shadow: var(--shadow-3); }
+.mock-max > .smithers-card > .smithers-card-body { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.mock-max .mvp-run-max { min-height: 0; flex: 1; }
+.mvp-run-collapsed { align-self: flex-start; margin-left: 30px; padding: 0 8px; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); line-height: 20px; }
+.mvp-run-collapsed:hover { color: var(--text); }
+.mvp-run-state .mvp-dot { margin-right: 2px; }
+.smithers-card[data-kind="run"] .smithers-card-header .mvp-run-state { margin-left: 4px; }
+/* Narrow: the panes stack and the card scrolls as one column; the graph keeps its own sideways scroll. */
+@media (max-width: 640px) {
+	.mvp-run-max { grid-template-columns: minmax(0, 1fr); }
+	.mvp-run-timeline { overflow: visible; }
+	.mvp-run-step-head { position: static; }
+	.mock-max .mvp-run-max { flex: none; }
+}

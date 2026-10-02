@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "baseUrl": ".",
+    "paths": {
+      "@smthrs/ui": ["../../../packages/smithers/ui/src"],
+      "react": ["../../../apps/app/node_modules/@types/react"],
+      "react/*": ["../../../apps/app/node_modules/@types/react/*"],
+      "react-dom/*": ["../../../apps/app/node_modules/@types/react-dom/*"],
+      "*": ["../../../apps/app/node_modules/*", "../../../node_modules/*"]
+    },
+    "typeRoots": ["../../../apps/app/node_modules/@types"]
+  },
+  "include": ["src"]
+}

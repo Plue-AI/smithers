@@ -1,0 +1,99 @@
+/*
+ * PORT · wiki page (mvp.md §6.11, J8): a page of the vault, rendered, and
+ * co-edited live in the File card's language (code.css): author-coloured
+ * spans (.mvp-span), name flags in a margin lane (.mvp-code-flag) and your
+ * own caret (.mvp-caret). A learning run's decision is a neutral callout.
+ */
+.smithers-card[data-kind="wiki"] { --flag-lane: 56px; }
+
+/* The header: the revision, then who wrote it. */
+.mvp-wiki-rev { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+.mvp-wiki-authors { display: inline-flex; gap: 3px; }
+.mvp-wiki-authors > .mvp-avatar { box-shadow: none; }
+.mvp-wiki-rev-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 20px;
+	padding: 0 6px;
+	border-radius: 5px;
+	background: var(--surface-2);
+	color: var(--text-muted);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	font-weight: 500;
+}
+.mvp-wiki-rev-chip[data-fresh] { animation: mvp-wiki-fresh 2.4s var(--ease-current); }
+
+/* The page: a margin lane for name flags, then the rendered blocks. */
+.mvp-wiki-doc {
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--r-1);
+	font-size: var(--fs-small);
+	line-height: 1.55;
+}
+.mvp-wiki-doc:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-wiki-row {
+	display: grid;
+	grid-template-columns: var(--flag-lane) minmax(0, 1fr);
+	align-items: start;
+}
+/* The flag centres on the block's first line, pointing at it. */
+.mvp-wiki-flag { display: flex; min-width: 0; justify-content: flex-end; padding: 5px 4px 0 0; }
+.mvp-wiki-block {
+	margin: 0;
+	padding: 2px 10px 2px 12px;
+	color: var(--text);
+	overflow-wrap: anywhere;
+}
+/* Your own block, as the editor's active line: no colour, so it never reads as anyone's edit. */
+.mvp-wiki-block[data-active] { background: var(--hover-subtle); }
+.mvp-wiki-block code {
+	padding: 1px 5px;
+	border-radius: 4px;
+	background: var(--inline-code-bg);
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+}
+
+/* The Decision callout: one neutral box over its head and its blocks. */
+.mvp-wiki-block[data-callout] {
+	background: var(--surface-2);
+	box-shadow: inset 3px 0 0 var(--border-strong);
+}
+.mvp-wiki-block[data-callout][data-active] { background: linear-gradient(var(--hover-subtle), var(--hover-subtle)), var(--surface-2); }
+.mvp-wiki-block[data-callout="head"] { padding-block: 7px 3px; border-radius: var(--r-1) var(--r-1) 0 0; }
+.mvp-wiki-block[data-callout="last"] { padding-bottom: 7px; border-radius: 0 0 var(--r-1) var(--r-1); }
+.mvp-wiki-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 6px;
+	color: var(--text-muted);
+	font-size: var(--fs-caption);
+	font-weight: 600;
+}
+.mvp-wiki-by { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-weight: 500; }
+.mvp-wiki-by .mvp-avatar { box-shadow: none; }
+.mvp-wiki-change { color: var(--action-primary); font-weight: 500; text-decoration: none; }
+.mvp-wiki-change:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* A plan that cited the page, and the revision it read. */
+.mvp-wiki-cited {
+	display: inline-flex;
+	justify-self: start;
+	align-items: center;
+	gap: 6px;
+	margin-top: var(--sp-2);
+	padding: 2px 8px;
+	border-radius: var(--r-1);
+	color: var(--text-muted);
+	font-size: var(--fs-caption);
+	font-weight: 500;
+}
+.mvp-wiki-cited:hover { background: var(--hover-subtle); color: var(--text); }
+.mvp-wiki-cited[data-fresh] { animation: mvp-wiki-fresh 2.4s var(--ease-current); }
+.mvp-wiki-change:focus-visible,
+.mvp-wiki-cited:focus-visible { border-radius: 4px; outline: 2px solid var(--ring-border); outline-offset: 1px; }
+@keyframes mvp-wiki-fresh { from { background: var(--fresh); } }
