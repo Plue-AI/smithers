@@ -1,11 +1,45 @@
 # Permanent product interaction rules
 
-## MVP scope boundaries (Will, 2026-10-01, [#3385](https://github.com/smithersai/smithers/issues/3385))
+## MVP scope (Will, 2026-10-02)
 
-- Retain all five maintenance jobs, the build system, independent public library
-  packages, and the wiki as the agent memory/source of truth, including runtime
-  decisions stored outside source. Retain mirrors, Git/LFS/SSH needed by workers,
-  jj, Mythical, native factory issue/landing data, and their security boundaries.
+The product contract is [`.specs/product/overview.md`](.specs/product/overview.md)
+and [`.specs/product/mvp.md`](.specs/product/mvp.md). They replace
+`docs/mvp/PRODUCT.md`, which keeps only an index of the decision IDs code still
+cites (M-12). A feature the spec doesn't name is a candidate to delete or defer,
+decided one at a time.
+
+- The MVP is a self-hosted, multiplayer coding factory: one install on one Apple
+  Silicon Mac, for one team, wrapping one GitHub repository. Members reach it
+  over Tailscale HTTPS. Smithers Cloud, billing and plans come after the MVP (M-09).
+- Everything is a flow. A button, slash command, agent action, CLI command and
+  API call run the same typed flow, and the factory's process is a flow in the
+  repository.
+- TODOs replace the five maintenance jobs. Each TODO is one item on the
+  repository's stack, worked on its own branch by the customizable TODO flow,
+  and reaches `main` as one squash-merged GitHub pull request. People merge;
+  agents never merge or move `main`.
+- Build in the order of mvp.md §11 (walking skeleton first). Maintainers with
+  outside contributors get their release one week after launch (§14); items in
+  §16 ship in the first release after the MVP. Don't build either early.
+
+### Superseded 2026-10-01 rulings ([#3385](https://github.com/smithersai/smithers/issues/3385))
+
+- "Retain all five maintenance jobs" is replaced by TODOs and the customizable
+  TODO flow (mvp.md §8). Keep the issue and review machinery (event admission,
+  dispatch, reproduction, review, approvals) hidden but intact for the
+  maintainer release, and enforce contributor trust rules from launch.
+- "Smithers developing itself on Smithers Cloud" is replaced by M-31: once
+  stage 1 passes J1 and J2, Smithers' own development moves onto the stack of
+  the self-hosted install on Will's Mac mini. Cloud follows the MVP.
+- "Remove Pair multiplayer" no longer covers shared branch access and presence,
+  which return under M-17. The rest of Pair stays removed.
+
+### Still in force (Will, 2026-10-01, [#3385](https://github.com/smithersai/smithers/issues/3385))
+
+- Retain the build system, independent public library packages, and the wiki
+  as the agent memory/source of truth, including runtime decisions stored
+  outside source. Retain mirrors, Git/LFS/SSH needed by workers, jj, Mythical,
+  native factory issue/landing data, and their security boundaries.
 - Remove legacy forge-only customer controls, cloud desktop streaming,
   non-GitHub integrations, create-app, and Electrobun desktop distribution from
   the MVP. Preserve shared execution, headless browser/self-hosting, custom flow
@@ -19,16 +53,18 @@
   and custom UI. It has no separate service, account, billing or model runtime;
   reviewer quizzes are out of scope. Preserve review quality and verification.
 - Second-round scope ([#3404](https://github.com/smithersai/smithers/issues/3404))
-  removes Pair multiplayer, the public marketplace, community repository
-  nominations, third-party OAuth application hosting, separate Explainer mode,
-  personal calendar-to-notes and public traction-metrics flows. Preserve ordinary
-  teams, approvals, single-user prompt queues, first-party login/tokens,
-  repository-owned flows/plugins/MCP, bug intake and shared notes/memory.
+  removes Pair multiplayer (except what M-17 restores), the public marketplace,
+  community repository nominations, third-party OAuth application hosting,
+  separate Explainer mode, personal calendar-to-notes and public traction-metrics
+  flows. Preserve ordinary teams, approvals, single-user prompt queues,
+  first-party login/tokens, repository-owned flows/plugins/MCP, bug intake and
+  shared notes/memory.
 - Keep browser IDE code intelligence and the general webpage reader. Use the
   existing Paper palette with light/dark modes and accessibility; defer the
   theme collection. Old sessions and recorded events must remain readable.
 - Future restoration is explicitly blocked pending Will's authorization:
-  [Pair #3401](https://github.com/smithersai/smithers/issues/3401),
+  [Pair #3401](https://github.com/smithersai/smithers/issues/3401) (except the
+  shared workspace access and presence M-17 restores),
   [marketplace #3402](https://github.com/smithersai/smithers/issues/3402), and
   [themes #3403](https://github.com/smithersai/smithers/issues/3403). These open
   recovery issues are not instructions to implement or merge the features.
@@ -43,11 +79,14 @@ rules to behavior that applies throughout their directory trees.
 
 - Keep communication brief; take ownership and ask only necessary questions.
   Persist durable decisions in instructions and track actionable work in issues.
-- Prioritize the smallest reliable features that unblock Smithers developing
-  itself on Smithers Cloud. Local agent work is transitional bootstrap/repair.
-- Run the coding factory, CI/CD, and change automation on Smithers Cloud; keep
-  GitHub synchronized with essential checks and issue updates. Do not build a
-  parallel GitHub Actions factory.
+- Prioritize the smallest reliable features that let Smithers develop itself
+  on its own stack, on the self-hosted install on Will's Mac mini (Will,
+  2026-10-02; M-31). Local agent work outside the stack is transitional
+  bootstrap/repair.
+- Once stage 1 passes J1 and J2, run the coding factory and change automation
+  on that install, and `issue-sweep` stops pushing straight to `main` (M-31).
+  GitHub keeps `main`, issues, pull requests, reviews and checks (M-22). Do not
+  build a parallel GitHub Actions factory.
 - Land and push work on `main`. Temporary worktrees are for one change and are
   removed after landing; no permanent integration branches or history-rewrite lanes.
 - Reuse or create a GitHub issue for every actionable TODO, bug, blocker, or
@@ -60,10 +99,10 @@ rules to behavior that applies throughout their directory trees.
   self-hosting in this repository. Hosted deployment/IaC, private operations, and
   marketing planning/assets belong in the private deployment repository. Public
   builds and self-hosting must not depend on private files or services.
-- Ship small, tested MVPs of the 1.0.0 rewrite, npm packages, UI, TUI, Cloud, and
-  self-hosting incrementally. Require actual release evidence; defer unreliable
-  or undifferentiated features. Publish benchmark claims only with reproducible
-  methods, artifacts, and limitations.
+- Ship the MVP in small, tested increments in the mvp.md §11 order, with the
+  npm packages; the TUI and Smithers Cloud follow the MVP. Require actual
+  release evidence; defer unreliable or undifferentiated features. Publish
+  benchmark claims only with reproducible methods, artifacts, and limitations.
 
 ## Claim an issue before working it (Will, 2026-09-29)
 
@@ -102,8 +141,8 @@ Never add product code to Plue.
 A repository's history is one linear `mythical` stack of logical changes that
 only the stack service writes (`packages/backend/internal/services/mythical*.go`).
 Work is planned onto it (append, insert or amend) and reaches append-only `main`
-only as one commit per item: a GitHub PR the owner merges for send-upstream
-repositories. Never rewrite `main`; never write `mythical` by hand.
+only as one commit per item: a squash-merged GitHub PR that a maintainer
+merges (mvp.md M-05). Never rewrite `main`; never write `mythical` by hand.
 
 ## Instant chat; slow work runs in the background (Will, 2026-09-15)
 
@@ -144,7 +183,7 @@ Cards, panes, toasts, and lessons carry the fewest words needed to act. No expla
 
 ## Product words (Will, 2026-09-26)
 
-Docs and visible UI copy use product words, not internal modeling terms such as thread or task; [D-16](docs/mvp/PRODUCT.md) is the rule.
+Docs and visible UI copy use product words, not internal modeling terms such as thread or task. [D-16](docs/mvp/PRODUCT.md#in-force) is the rule, and the [MVP vocabulary](.specs/product/mvp.md#3-vocabulary) lists the words.
 
 ## Testing quality (Will, 2026-09-27)
 

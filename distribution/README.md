@@ -1,6 +1,12 @@
 # Self-hosted distribution
 
-Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs are trusted processes for one owner, or microVMs with [MicroVM isolation](#microvm-isolation).
+The MVP installs on one Apple Silicon Mac as a launchd service that runs the backend, PostgreSQL 18 and a microVM for each awake branch, served to teammates over Tailscale HTTPS ([MVP spec](../.specs/product/mvp.md) §6.1). That Mac install is being rebuilt in stage 1 (§11) and has no package yet.
+
+The Docker image below is not an MVP install path, because it can't host microVMs.
+
+## Docker image
+
+Run one unprivileged Smithers application container with an external PostgreSQL 18 service and one persistent data volume. The application container needs no privileged mode, KVM, Docker socket, system service manager, or execution broker. Local jobs run as trusted processes for one owner; the container can't host [microVMs](#microvm-isolation).
 
 Only use a version after its [release notes](https://github.com/smithersai/smithers/releases) contain a public image digest. The commands below require that publication receipt. For a source build, follow the [release guide](../packages/backend/docs/distribution-release.md).
 
@@ -86,41 +92,9 @@ workspaces it marked for a ChatGPT token. The account pool serves only
 connected ChatGPT sign-ins (`/provider-pool/chatgpt`); a Claude subscription
 runs only on the user's own logged-in Claude Code.
 
-## Native application
+## Mac install
 
-The macOS package has two modes. `SMITHERS_BACKEND_MODE=own` starts the same Go backend plus the PostgreSQL 18 bundle copied at build time. `SMITHERS_BACKEND_MODE=plue` starts neither and uses `SMITHERS_API_ORIGIN`. Own mode is the default. Both canonical Flow hosts, their digest manifest, the canonical model host and checksum, the FFI library, the pinned `jj` CLI, relocatable Git helpers and templates, PostgreSQL server, and all PostgreSQL maintenance tools are inside the application; launch performs no download.
-
-A release build supplies a PostgreSQL 18 distribution at build time:
-
-```sh
-export SMITHERS_NODE_BINARY=/path/to/node-v26/bin/node
-SMITHERS_POSTGRES_BUNDLE_DIR=/opt/homebrew/Cellar/postgresql@18/18.6 \
-  pnpm --dir apps/app run build:native
-```
-
-The native release builder requires Apple Git 2.50.1 from Xcode 26.3 (`Apple Git-155`) and builds `jj` from the same pinned source revision used by the Rust library. A different Git toolchain fails the build instead of silently changing the installed runtime.
-
-The ordinary stable package uses WKWebView and opens no debug port. The native real-window matrix has a separate, explicit CEF build:
-
-```sh
-SMITHERS_NATIVE_E2E_CEF=1 \
-SMITHERS_NATIVE_E2E_CDP_PORT=9444 \
-SMITHERS_POSTGRES_BUNDLE_DIR=/opt/homebrew/Cellar/postgresql@18/18.6 \
-  pnpm --dir apps/app run build:native
-```
-
-That artifact binds Chromium debugging to `127.0.0.1:9444`. Issue 16 consumes it through an environment-only envelope such as `{"executable":"/absolute/path/to/launcher","cdpEndpoint":"http://127.0.0.1:9444","environment":{"SMITHERS_BACKEND_MODE":"own"}}`. The build refuses a CDP port unless the explicit CEF flag is enabled.
-
-After installing the generated application, the real lifecycle acceptance is:
-
-```sh
-bun apps/app/scripts/test-native-owned.ts \
-  /Applications/Smithers.app/Contents/MacOS/launcher
-```
-
-It initializes bundled PostgreSQL, serves the real UI and API, bootstraps the owner, creates a real repository, stops PostgreSQL, restarts against the same state, and verifies that Plue mode starts no local backend or database.
-
-For a native whole-state backup, quit Smithers and copy `~/Library/Application Support/Smithers` while the app is stopped. Record the installed Smithers version with the backup and restore it only while Smithers is stopped, initially with that same version. The PostgreSQL supervisor refuses a different PostgreSQL major and the product migrator refuses a schema newer than the installed application. This stopped-state copy includes the clean PostgreSQL cluster and runtime journals and never copies live WAL or SQLite writers.
+The native macOS package (`build:native`, `Smithers.app`) was deleted with Electrobun distribution. The MVP's Mac install is being rebuilt as a launchd service, from the assembler half of the deleted `apps/app/scripts/build-native.ts` (at `5b77095672`), without Electrobun ([MVP spec](../.specs/product/mvp.md) §6.1 and §11, stage 1). Until it ships, there is no supported Mac package.
 
 ## MicroVM isolation
 
@@ -137,7 +111,7 @@ With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `m
 
 An agent workspace stopped for 24 hours gives back its microVM disk. Resuming it boots a fresh microVM and checks the repository out again; work on its bookmark is kept, anything else in the old disk is not. `microvm doctor` reports the unique bytes stopped microVMs still hold.
 
-The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper. Native release bundles include a checksummed `bin/linux-arm64/smithers-jj-export`, built on Linux arm64 in release CI with the pinned Rust toolchain. Native owned mode sets `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to that helper; self-hosted bundles must name a Linux arm64 helper with that variable or the backend refuses to start. To build a custom bundle on a Mac, cross-build with [Zig](https://ziglang.org) as the linker:
+The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper. A microVM install must name a Linux arm64 build of `smithers-jj-export` with `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, or the backend refuses to start. To build a custom bundle on a Mac, cross-build with [Zig](https://ziglang.org) as the linker:
 
 ```sh
 rustup target add aarch64-unknown-linux-gnu --toolchain 1.98.0

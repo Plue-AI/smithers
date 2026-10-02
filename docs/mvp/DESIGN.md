@@ -1,6 +1,8 @@
 # MVP visual design
 
-Sections 1–11 are **design prototypes with simulated data**, rendered from the tracked interactive documents below. They make no repository, model, or API calls. Section 12 contains actual local application captures with explicitly simulated backend responses. Neither is production execution evidence. Example evals in the prototypes illustrate result views; the real app starts with no cases and its inspection agent authors executable repository-specific cases for review. Infrastructure guarantees use separate integration tests. [PRODUCT.md](PRODUCT.md) is the requirements authority.
+> Superseded (Will, 2026-10-02). This is the design of the five-job MVP, which the [MVP spec](../../.specs/product/mvp.md) cuts (§8). The current design is the working mock in [`.specs/design/`](../../.specs/design/README.md). These prototypes stay as history; don't build from them.
+
+Sections 1–11 are **design prototypes with simulated data**, rendered from the tracked interactive documents below. They make no repository, model, or API calls. Section 12 contains actual local application captures with explicitly simulated backend responses. Neither is production execution evidence. Example evals in the prototypes illustrate result views; the real app starts with no cases and its inspection agent authors executable repository-specific cases for review. Infrastructure guarantees use separate integration tests. The [2026-09-16 requirements](https://github.com/smithersai/smithers/blob/d4d2eaccab9382205f4a47e789ce560fb016b388/docs/mvp/PRODUCT.md) were the requirements authority.
 
 Open an interactive document in a browser to explore it. Its “Prototype scenarios” controls are review tools outside the depicted product. Capability output initially embeds in chat; the large layouts below represent the same card after the user maximizes it. They do not authorize a full-screen takeover or a replacement app shell.
 

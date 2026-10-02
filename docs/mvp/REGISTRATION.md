@@ -1,5 +1,7 @@
 # Register a repository
 
+> Cut (Will, 2026-10-02). The [MVP spec](../../.specs/product/mvp.md) cuts repository registration and admin review (§8): the owner adds their own repository at install (J1). This page stays as history.
+
 Owner direction (Will, 2026-09-26). Decision D-19 in [PRODUCT.md](PRODUCT.md).
 Tracking issue: #2153.
 Target screen: `apps/site/public/images/app/register.png` (source
