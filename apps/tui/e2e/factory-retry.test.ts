@@ -88,27 +88,29 @@ it("TODO failures use safe status copy and retain diagnostics and request identi
     expect(tui.screen()).not.toContain("again retries it")
     expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("HTTP 403")
     await tui.resize(40, 12)
-    status = 503
-    await send()
-    await tui.until(
-      (screen) => screen.replace(/[┃\s]/g, "").includes("/todoagainretriesit"),
-      10_000,
-      "uncertain TODO failure"
-    )
-    expect(tui.screen().replace(/[┃\s]/g, "")).toContain("Details:/conversation")
-    expect(tui.screen()).toContain("Ask Smithers")
-    expect(tui.screen()).toMatch(/↑\S+ ↓\S+/)
-    expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("HTTP 503")
-    for (const raw of ["HTTP 403", "HTTP 503", "/api/repos/", "private backend diagnostic"]) {
-      expect(tui.screen()).not.toContain(raw)
+    for (status of [408, 409, 429, 503]) {
+      await send()
+      await tui.until(
+        (screen) =>
+          screen.replace(/[┃\s]/g, "").includes("/todoagainretriesit") &&
+          readFileSync(join(sessions, "tui.log"), "utf8").includes(`HTTP ${status}`),
+        10_000,
+        `uncertain TODO HTTP ${status}`
+      )
+      expect(tui.screen().replace(/[┃\s]/g, "")).toContain("Details:/conversation")
+      expect(tui.screen()).toContain("Ask Smithers")
+      expect(tui.screen()).toMatch(/↑\S+ ↓\S+/)
+      for (const raw of [`HTTP ${status}`, "HTTP 403", "/api/repos/", "private backend diagnostic"]) {
+        expect(tui.screen()).not.toContain(raw)
+      }
     }
     status = 200
     await send()
     await tui.until((screen) => screen.includes("TODO #40 queued"), 10_000, "TODO recovery")
-    expect(requests).toHaveLength(3)
+    expect(requests).toHaveLength(6)
     expect(requests[0]!.request).not.toBe(requests[1]!.request)
-    expect(requests[1]!.request).toBe(requests[2]!.request)
-    expect(requests.map((request) => request.title)).toEqual(["Same TODO", "Same TODO", "Same TODO"])
+    expect(requests.slice(1).map((request) => request.request)).toEqual(Array(5).fill(requests[1]!.request))
+    expect(requests.map((request) => request.title)).toEqual(Array(6).fill("Same TODO"))
   } finally {
     await tui?.stop()
     server.stop(true)

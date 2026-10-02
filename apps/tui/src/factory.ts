@@ -56,7 +56,7 @@ export type Filing =
  * Files TODOs with `POST …/mythical/todos`, each under one request id: the
  * same TODO filed again after an answer that never came (a dropped network,
  * a 5xx) resends that id, so the backend returns the TODO it already filed
- * instead of filing twice. A typed Cloud user refusal drops the id.
+ * instead of filing twice. A Cloud authentication refusal drops the id.
  * The same TODO filed while one is in flight joins it.
  */
 export const filer = (
@@ -96,19 +96,16 @@ export const filer = (
   }
 }
 
-/** Only a typed Cloud user refusal is final; legacy HTTP 4xx errors retain their old classification. */
+/** Only a Cloud authentication refusal settles the filing; uncertain failures keep its request id. */
 const failed = (error: unknown): Filing & { readonly ok: false } => {
   const failure = Failures.present("command", error)
   // The presenter logs unexpected failures; a returned Cloud refusal also
   // needs its diagnostic because it never reaches the host's catch boundary.
   if (failure.fault === "user") Log.write("factory.command", error)
-  const typed = typeof error === "object" && error !== null && "_tag" in error && error._tag === "/cli/Refused"
   return {
     ok: false,
     detail: failure.fault === "user" ? failure.sentence : `${failure.sentence} ${Failures.inTerminal}`,
-    settled: typed
-      ? "code" in error && error.code === "cloud_request_failed" && "fault" in error && error.fault === "user"
-      : /HTTP 4\d\d\b/.test(String(error))
+    settled: CloudSession.isAuthenticationRefusal(error)
   }
 }
 

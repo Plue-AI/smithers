@@ -125,7 +125,9 @@ export type Fault = (typeof FAULTS)[number]
 export class Refused extends Schema.TaggedError<Refused>()("/cli/Refused", {
   fault: Schema.Literals(FAULTS),
   code: Schema.String,
-  message: Schema.String
+  message: Schema.String,
+  /** The HTTP response's status, when this refusal came from HTTP. Older records omit it. */
+  httpStatus: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 100, maximum: 599 })))
 }) {}
 
 /**

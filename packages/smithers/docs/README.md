@@ -62,24 +62,24 @@ and reads its events back.
 One executable answers in three modes, chosen before the command tree parses
 anything:
 
-| Invocation | What it does |
-| --- | --- |
-| `smthrs --help`, `smthrs --version` | Prints a document. Resolves no project, opens no database. |
-| `smthrs --mcp` | Serves the Smithers MCP server on stdio over the same control plane the verbs use. |
-| `smthrs <verb> ...` | Runs one command handler against the control plane. |
+| Invocation                          | What it does                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `smthrs --help`, `smthrs --version` | Prints a document. Resolves no project, opens no database.                         |
+| `smthrs --mcp`                      | Serves the Smithers MCP server on stdio over the same control plane the verbs use. |
+| `smthrs <verb> ...`                 | Runs one command handler against the control plane.                                |
 
 The commands group by the job they do:
 
-| Job | Commands |
-| --- | --- |
-| Plan and launch | `flow list`, `flow plan`, `flow start`, `flow execute`, `runs resume` |
-| Decide an approval | `approvals list`, `approvals approve`, `approvals deny` |
-| Steer a live run | `runs signal`, `runs steer` |
-| End a run | `runs cancel`, `runs cancel-all` |
-| Read what happened | `runs list`, `runs show`, `runs logs`, `runs output` |
-| Set a project up | `init`, `suggest`, `doctor`, `migrate` |
-| Host and integrate | `serve`, `mcp` |
-| Maintain | `gc`, `memory`, `update`, `bug`, `completions` |
+| Job                | Commands                                                              |
+| ------------------ | --------------------------------------------------------------------- |
+| Plan and launch    | `flow list`, `flow plan`, `flow start`, `flow execute`, `runs resume` |
+| Decide an approval | `approvals list`, `approvals approve`, `approvals deny`               |
+| Steer a live run   | `runs signal`, `runs steer`                                           |
+| End a run          | `runs cancel`, `runs cancel-all`                                      |
+| Read what happened | `runs list`, `runs show`, `runs logs`, `runs output`                  |
+| Set a project up   | `init`, `suggest`, `doctor`, `migrate`                                |
+| Host and integrate | `serve`, `mcp`                                                        |
+| Maintain           | `gc`, `memory`, `update`, `bug`, `completions`                        |
 
 Smithers 0.x spellings that were removed refuse with one sentence and a
 migration link rather than a parser error, so a script written against 0.x is
@@ -95,22 +95,23 @@ its own Node program imports the command tree and the layer that satisfies it
 rather than shelling out. The root entry point exports every module as a
 namespace, and each is also importable from `@smthrs/cli/<Module>`:
 
-| Namespace | What it is |
-| --- | --- |
-| `Command` | The Effect CLI command tree: every shipped verb with a handler, every removed one with a refusal. |
-| `NodeControl` | The complete Node host for that tree: configuration, registry, durable engine, executor, output, and the served gateway. |
-| `Application` | The transport-neutral half of that composition: local control plane or RPC client, chosen from `Config`. |
-| `Output` | Deterministic rendering, and the receipt-to-exit-code mapping. |
-| `Ui` | Interactive terminal rendering, with a plain-line fallback for pipes and CI. |
-| `CliError` | The four failures the command line adds, and the status each exits on. |
-| `Verb`, `Unsupported` | The shipped verb catalog, and the removed verbs, flags, and reserved flow ids. |
-| `Project`, `Environment` | Where an invocation decides it is running, and the closed set of variables it reads. |
-| `Detached` | The `flow start -d` launch, and the admission line its child prints. |
-| `Doctor`, `Forensics`, `NodeOutput`, `Legacy` | Readiness, run diagnosis, node outputs, and the 0.x database guard. |
-| `Agents` | The agent configurations `mcp add` writes the MCP server into. |
-| `Serve` | The gateway bind rule, the mount list, and the banner rendered from it. |
-| `Init`, `Suggest`, `Providers` | Scaffolding, the guided suggestion pass, and the seats this machine can run. |
-| `Gc`, `Update`, `Bug`, `ClaudeMirror`, `ExecutorOwnership`, `Version` | Retention, version checks, bug reports, the Claude Code mirror protocol, executor ownership, and the installed version. |
+| Namespace                                                             | What it is                                                                                                                                                                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Command`                                                             | The Effect CLI command tree: every shipped verb with a handler, every removed one with a refusal.                                                                                     |
+| `NodeControl`                                                         | The complete Node host for that tree: configuration, registry, durable engine, executor, output, and the served gateway.                                                              |
+| `Application`                                                         | The transport-neutral half of that composition: local control plane or RPC client, chosen from `Config`.                                                                              |
+| `Output`                                                              | Deterministic rendering, and the receipt-to-exit-code mapping.                                                                                                                        |
+| `Ui`                                                                  | Interactive terminal rendering, with a plain-line fallback for pipes and CI.                                                                                                          |
+| `CliError`                                                            | The five failures the command line adds, including refusals with an optional HTTP status, and the status each exits on.                                                               |
+| `CloudSession`                                                        | Signed-in Cloud requests and authentication-refusal detection from HTTP 401/403 or older typed user-fault records; uncertain and text-only errors do not establish a sign-in failure. |
+| `Verb`, `Unsupported`                                                 | The shipped verb catalog, and the removed verbs, flags, and reserved flow ids.                                                                                                        |
+| `Project`, `Environment`                                              | Where an invocation decides it is running, and the closed set of variables it reads.                                                                                                  |
+| `Detached`                                                            | The `flow start -d` launch, and the admission line its child prints.                                                                                                                  |
+| `Doctor`, `Forensics`, `NodeOutput`, `Legacy`                         | Readiness, run diagnosis, node outputs, and the 0.x database guard.                                                                                                                   |
+| `Agents`                                                              | The agent configurations `mcp add` writes the MCP server into.                                                                                                                        |
+| `Serve`                                                               | The gateway bind rule, the mount list, and the banner rendered from it.                                                                                                               |
+| `Init`, `Suggest`, `Providers`                                        | Scaffolding, the guided suggestion pass, and the seats this machine can run.                                                                                                          |
+| `Gc`, `Update`, `Bug`, `ClaudeMirror`, `ExecutorOwnership`, `Version` | Retention, version checks, bug reports, the Claude Code mirror protocol, executor ownership, and the installed version.                                                               |
 
 Every export of every namespace is on the [API reference](./api.md), and
 [Embed the command tree](./guides/embed-the-command-tree.md) is the guide.
@@ -123,22 +124,22 @@ dependencies. Each package below is published on its own and documented on its
 own site; reach for one directly when you want that layer without the command
 line.
 
-| Package | What it is |
-| --- | --- |
-| [`@smthrs/control`](/api/control) | The control plane every verb talks to: plans, approvals, runs, events, and their RPC projections. |
-| [`@smthrs/flow`](/api/flow) | The flow authoring model: flows, actions, durable waits, and retry policy. |
-| [`@smthrs/engine`](/api/engine) | The runtime that executes those flows durably, and its HTTP and RPC transports. |
-| [`@smthrs/flows`](/api/flows) | One barrel over the whole durable flow engine, for a host that wants it in a single import. |
-| [`@smthrs/agent`](/api/agent) | The agent loop the executor runs, with the adapters for control-plane runs and typed workflow steps. |
-| [`@smthrs/model`](/api/model) | Model protocols, routes, and streaming events: the seats a flow names. |
-| [`@smthrs/memory`](/api/memory) | The durable cross-run facts behind `smthrs memory`. |
+| Package                           | What it is                                                                                               |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [`@smthrs/control`](/api/control) | The control plane every verb talks to: plans, approvals, runs, events, and their RPC projections.        |
+| [`@smthrs/flow`](/api/flow)       | The flow authoring model: flows, actions, durable waits, and retry policy.                               |
+| [`@smthrs/engine`](/api/engine)   | The runtime that executes those flows durably, and its HTTP and RPC transports.                          |
+| [`@smthrs/flows`](/api/flows)     | One barrel over the whole durable flow engine, for a host that wants it in a single import.              |
+| [`@smthrs/agent`](/api/agent)     | The agent loop the executor runs, with the adapters for control-plane runs and typed workflow steps.     |
+| [`@smthrs/model`](/api/model)     | Model protocols, routes, and streaming events: the seats a flow names.                                   |
+| [`@smthrs/memory`](/api/memory)   | The durable cross-run facts behind `smthrs memory`.                                                      |
 | [`@smthrs/journal`](/api/journal) | The immutable run history behind `smthrs runs logs`, including the redaction every write passes through. |
-| [`@smthrs/plan`](/api/plan) | The persisted plan a plan card renders: a keyed action graph, its store, and its diff. |
-| [`@smthrs/kernel`](/api/kernel) | The capability kernel that confines what a run may touch on the filesystem and the shell. |
-| [`@smthrs/gateway`](/api/gateway) | The server `smthrs serve` hosts, and the projections a client subscribes to. |
-| [`@smthrs/mcp`](/api/mcp) | The MCP client that projects a remote server's tools into a run's flow catalog. |
-| [`@smthrs/migrate`](/api/migrate) | The Smithers 0.x project upgrade behind `smthrs migrate`. |
-| [`@smthrs/testing`](/api/testing) | The testing and conformance library for flows. |
+| [`@smthrs/plan`](/api/plan)       | The persisted plan a plan card renders: a keyed action graph, its store, and its diff.                   |
+| [`@smthrs/kernel`](/api/kernel)   | The capability kernel that confines what a run may touch on the filesystem and the shell.                |
+| [`@smthrs/gateway`](/api/gateway) | The server `smthrs serve` hosts, and the projections a client subscribes to.                             |
+| [`@smthrs/mcp`](/api/mcp)         | The MCP client that projects a remote server's tools into a run's flow catalog.                          |
+| [`@smthrs/migrate`](/api/migrate) | The Smithers 0.x project upgrade behind `smthrs migrate`.                                                |
+| [`@smthrs/testing`](/api/testing) | The testing and conformance library for flows.                                                           |
 
 ## Where to go next
 

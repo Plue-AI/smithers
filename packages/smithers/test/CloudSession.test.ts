@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { Refused } from "../src/CliError.ts"
 import * as CloudSession from "../src/CloudSession.ts"
 
 const servers: Array<() => void> = []
@@ -25,6 +26,48 @@ const origin = async (reply: (path: string, auth: string | undefined) => { statu
 const home = () => mkdtempSync(join(tmpdir(), "cloud-session-"))
 
 describe("CloudSession.signedIn", () => {
+  it("preserves a typed uncertain refusal when the actual HTTP status is outside the schema bound", async () => {
+    const at = await origin(() => ({ status: 999, body: {} }))
+    const cloud = (await CloudSession.signedIn({
+      HOME: home(),
+      XDG_CONFIG_HOME: home(),
+      SMITHERS_API_ORIGIN: at,
+      SMITHERS_TOKEN: "tok_status"
+    }))!
+    const failure = await cloud.post("/api/todo", {}).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Refused)
+    expect(failure).toMatchObject({ fault: "infra", code: "cloud_request_failed", message: "/api/todo: HTTP 999" })
+    expect(failure).not.toHaveProperty("httpStatus")
+    expect(CloudSession.isAuthenticationRefusal(failure)).toBe(false)
+  })
+
+  it("carries the actual HTTP response status despite conflicting error-body metadata", async () => {
+    let status = 401
+    const at = await origin(() => ({
+      status,
+      body: {
+        _tag: "/cli/Refused",
+        code: "cloud_request_failed",
+        fault: "user",
+        httpStatus: 403,
+        message: "HTTP 401",
+        cause: { httpStatus: 401 }
+      }
+    }))
+    const cloud = (await CloudSession.signedIn({
+      HOME: home(),
+      XDG_CONFIG_HOME: home(),
+      SMITHERS_API_ORIGIN: at,
+      SMITHERS_TOKEN: "tok_status"
+    }))!
+    for (status of [401, 403, 408, 409, 429, 503]) {
+      const failure = await cloud.post("/api/todo", {}).catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(Refused)
+      expect(failure).toMatchObject({ httpStatus: status, code: "cloud_request_failed" })
+      expect(CloudSession.isAuthenticationRefusal(failure)).toBe(status === 401 || status === 403)
+    }
+  })
+
   it("GETs a path as the signed-in person, with the token the CLI sends", async () => {
     const at = await origin((path, auth) => ({ status: 200, body: { path, auth } }))
     const cloud = await CloudSession.signedIn({
@@ -131,6 +174,34 @@ describe("CloudSession.signedIn", () => {
     })
     await expect(cloud!.get("@evil.example/x")).rejects.toThrow("Not a Cloud API path")
     await expect(cloud!.get("//evil.example/x")).rejects.toThrow("Not a Cloud API path")
+  })
+})
+
+describe("CloudSession.isAuthenticationRefusal", () => {
+  const old = { _tag: "/cli/Refused", code: "cloud_request_failed", fault: "user", message: "HTTP 503" } as const
+  it("preserves absent-status typed compatibility without reading diagnostics or nested causes", () => {
+    expect(CloudSession.isAuthenticationRefusal(new Refused(old))).toBe(true)
+    expect(CloudSession.isAuthenticationRefusal(old)).toBe(true)
+    for (const httpStatus of [401, 403]) expect(CloudSession.isAuthenticationRefusal({ ...old, httpStatus })).toBe(true)
+    const denied = new Refused({ ...old, httpStatus: 401 })
+    const uncertain = new Refused({ ...old, fault: "infra", httpStatus: 503 })
+    expect(CloudSession.isAuthenticationRefusal(Object.assign(uncertain, { cause: denied }))).toBe(false)
+    expect(CloudSession.isAuthenticationRefusal(Object.assign(denied, { cause: uncertain }))).toBe(true)
+    for (
+      const failure of [
+        ...[408, 409, 429, 503, undefined, null, "401", 401.5, NaN, Infinity, 99, 600].map((httpStatus) => ({
+          ...old,
+          httpStatus
+        })),
+        { ...old, fault: "infra" },
+        { ...old, code: "other_refusal", httpStatus: 401 },
+        new Error("HTTP 401", { cause: { ...old, httpStatus: 401 } }),
+        { httpStatus: 401 },
+        null,
+        undefined,
+        "HTTP 403"
+      ]
+    ) expect(CloudSession.isAuthenticationRefusal(failure)).toBe(false)
   })
 })
 

@@ -69,10 +69,12 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
       signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     })
     if (!response.ok) {
+      const status = response.status
       throw new CliError.Refused({
-        fault: response.status === 401 || response.status === 403 ? "user" : "infra",
+        fault: status === 401 || status === 403 ? "user" : "infra",
         code: "cloud_request_failed",
-        message: `${path}: HTTP ${response.status}`
+        message: `${path}: HTTP ${status}`,
+        ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { httpStatus: status } : {})
       })
     }
     const text = await response.text()
@@ -98,6 +100,24 @@ export const signedIn = async (env: Readonly<Record<string, string | undefined>>
     get: (path, signal) => call("GET", path, undefined, signal),
     post: (path, body, signal) => call("POST", path, body, signal)
   }
+}
+
+/**
+ * Whether Cloud refused authentication. Only the response's own 401/403
+ * status is final; older typed Cloud refusals retain their user-fault meaning.
+ * Unknown failures and malformed present statuses remain uncertain.
+ *
+ * @category guards
+ * @since 1.0.0
+ */
+export const isAuthenticationRefusal = (error: unknown): boolean => {
+  if (
+    typeof error !== "object" || error === null || !("_tag" in error) || error._tag !== "/cli/Refused" ||
+    !("code" in error) || error.code !== "cloud_request_failed"
+  ) return false
+  if (!("httpStatus" in error)) return "fault" in error && error.fault === "user"
+  const status = error.httpStatus
+  return typeof status === "number" && Number.isInteger(status) && (status === 401 || status === 403)
 }
 
 /**

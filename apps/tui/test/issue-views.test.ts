@@ -171,7 +171,7 @@ describe("issue views controller", () => {
     let signIns = 0
     const refusing = IssueViews.controller(async () => (signIns++, {
       get: async () => {
-        throw new Error("HTTP 401: sign in")
+        throw new Refused({ code: "cloud_request_failed", fault: "user", message: "HTTP 401: sign in" })
       }
     }), "o/r")
     await refusing.refresh()
@@ -230,10 +230,12 @@ describe("issue views controller", () => {
     const cloud: IssueViews.Cloud = {
       get: async (path) => {
         if (path.endsWith("/issue-views")) {
-          if (refuse) throw new Error("HTTP 401: sign in")
+          if (refuse) throw new Refused({ code: "cloud_request_failed", fault: "user", message: "HTTP 401: sign in" })
           return views
         }
-        return path.includes("view=bugs") ? bugs.promise : Promise.reject(new Error("HTTP 403: forbidden"))
+        return path.includes("view=bugs") ? bugs.promise : Promise.reject(
+          new Refused({ code: "cloud_request_failed", fault: "user", message: "HTTP 403: forbidden" })
+        )
       }
     }
     const control = IssueViews.controller(async () => cloud, "o/r")
@@ -309,6 +311,34 @@ describe("issue views controller", () => {
         await control.select("bugs")
         expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
         expect(signIns).toBe(signedOut ? 2 : 1)
+      }
+    }
+  })
+
+  it("keeps the session after uncertain HTTP metadata or old authentication-looking text", async () => {
+    const old = { _tag: "/cli/Refused", code: "cloud_request_failed", fault: "user", message: "HTTP 401" }
+    for (const selection of [false, true]) {
+      for (
+        const failure of [
+          ...[408, 409, 429, 503, undefined, "401", 401.5].map((httpStatus) => ({ ...old, httpStatus })),
+          new Error("HTTP 401", { cause: { ...old, httpStatus: 401 } })
+        ]
+      ) {
+        let fail = true
+        let signIns = 0
+        const { cloud } = session((path) => {
+          if (fail && (!selection || !path.endsWith("/issue-views"))) throw failure
+          return path.endsWith("/issue-views") ? views : [issue(1)]
+        })
+        const control = IssueViews.controller(async () => (signIns++, cloud), "o/r")
+        await control.refresh()
+        if (selection) await control.select("bugs")
+        expect(control.state().phase).toBe(selection ? "ready" : "failed")
+        fail = false
+        await control.refresh()
+        await control.select("bugs")
+        expect(IssueViews.panel(control.state()).summary).toBe("Open bugs · 1")
+        expect(signIns).toBe(1)
       }
     }
   })

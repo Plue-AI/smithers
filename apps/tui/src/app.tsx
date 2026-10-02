@@ -570,7 +570,7 @@ export function App(props: AppProps) {
         }
       } catch (error) {
         if (controller.signal.aborted) return
-        const refused = /HTTP 40[13]\b/.test(String(error))
+        const refused = CloudSession.isAuthenticationRefusal(error)
         if (refused) cloud = undefined
         setFactory(refused ? "signed-out" : undefined)
         Log.write("factory.read", error)

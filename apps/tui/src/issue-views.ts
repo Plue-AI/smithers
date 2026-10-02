@@ -8,6 +8,7 @@
  * view rows select with Enter once the host routes `viewOf(row.id)` to
  * `select`.
  */
+import * as CloudSession from "@smthrs/cli/CloudSession"
 import * as Failures from "./failures.ts"
 import type * as Panels from "./panels.ts"
 
@@ -115,13 +116,8 @@ export interface Cloud {
 
 const detail = (error: unknown): string => Failures.line("command", error)
 
-/** Only an authentication refusal drops the session; other diagnostics may mention HTTP 401/403. */
-const refused = (error: unknown): boolean => {
-  if (record(error) && error._tag === "/cli/Refused") {
-    return error.code === "cloud_request_failed" && error.fault === "user"
-  }
-  return /HTTP 40[13]\b/.test(String(error))
-}
+/** Only Cloud's authentication authority drops the session. */
+const refused = CloudSession.isAuthenticationRefusal
 
 /** The row id of a view; `viewOf` reads it back. */
 export const rowId = (view: string): string => `issue-view:${view}`

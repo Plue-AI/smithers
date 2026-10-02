@@ -231,7 +231,7 @@ it("files a TODO under one request id, resent after an unanswered filing and dro
   ])
   // An answered filing frees its id: the next filing of the text is a new TODO.
   answers.push(
-    () => Promise.reject(new Error("/api/repos/o/r/mythical/todos: HTTP 403")),
+    () => Promise.reject(new Refused({ code: "cloud_request_failed", fault: "user", message: "HTTP 403" })),
     () => Promise.resolve(queued)
   )
   expect(await file("o/r", "Add dark mode")).toMatchObject({ ok: false, settled: true })
@@ -368,6 +368,66 @@ it("uses typed refusal authority rather than diagnostic HTTP words to retain an 
     expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
     expect(requests).toEqual(["request-1", settled ? "request-2" : "request-1"])
   }
+})
+
+it("retains the TODO request for uncertain status metadata and old HTTP-looking diagnostics", async () => {
+  const refusal = { _tag: "/cli/Refused", code: "cloud_request_failed", fault: "user", message: "HTTP 401" }
+  const failures: unknown[] = [
+    ...[408, 409, 429, 503, undefined, "401", 401.5, NaN, 99, 600].map((httpStatus) => ({ ...refusal, httpStatus })),
+    new Error("HTTP 409: try again"),
+    new Error("HTTP 401: old diagnostic", { cause: { ...refusal, httpStatus: 401 } }),
+    { ...refusal, code: "other_refusal", httpStatus: 401 }
+  ]
+  for (const failure of failures) {
+    const requests: string[] = []
+    let ids = 0
+    const file = Factory.filer(async (_path, body) => {
+      requests.push((body as { request: string }).request)
+      if (requests.length === 1) throw failure
+      return item("40", "queued")
+    }, () => `request-${++ids}`)
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: false, settled: false })
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
+    expect(requests).toEqual(["request-1", "request-1"])
+  }
+})
+
+it("retains a TODO's identity through real HTTP waits, disconnection and duplicate input", async () => {
+  const received: Array<{ request: string }> = []
+  let status = 408
+  let disconnect = false
+  const server = createServer((request, response) => {
+    let body = ""
+    request.on("data", (chunk) => (body += chunk))
+    request.on("end", () => {
+      received.push(JSON.parse(body))
+      if (disconnect) {
+        request.socket.destroy()
+        return
+      }
+      response.writeHead(status, { "content-type": "application/json" })
+      response.end(JSON.stringify(status === 201 ? item("40", "queued") : { httpStatus: 401, message: "HTTP 401" }))
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  servers.push(() => server.close())
+  const cloud = (await signIn(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)())!
+  let ids = 0
+  const file = Factory.filer(cloud.post, () => `request-${++ids}`)
+  for (status of [408, 409, 429, 503]) {
+    const pending = file("o/r", "Same TODO")
+    expect(file("o/r", "Same TODO")).toBe(pending)
+    expect(await pending).toMatchObject({ ok: false, settled: false })
+  }
+  disconnect = true
+  expect(await file("o/r", "Same TODO")).toMatchObject({ ok: false, settled: false })
+  disconnect = false
+  status = 201
+  expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
+  expect(received).toHaveLength(6)
+  expect(received.map((request) => request.request)).toEqual(Array(6).fill("request-1"))
+  expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
+  expect(received.at(-1)?.request).toBe("request-2")
 })
 
 it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with the same request", async () => {
