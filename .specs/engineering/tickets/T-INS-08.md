@@ -1,6 +1,6 @@
 # T-INS-08 Launchd service and `smthrs host start/stop/status` from a built bundle
 
-Stage S1 · Size M · Depends on T-INS-01, T-INS-02, T-INS-03 · Unblocks T-INS-04, T-INS-05, T-INS-07 · Issue: to file
+Stage S1 · Size M · Depends on T-INS-01, T-INS-02, T-INS-03 · Unblocks T-INS-05, T-INS-07 · Issue: to file
 Spec: spec.md §1.1, §1.2, §5.1.0, §16.1.2, §20.1, §20.2 · Delta: delta.md §1 (Add: `smthrs host` group, launchd plist) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, M-26
 
 ## Goal
@@ -37,6 +37,9 @@ Out:
 
 ## Acceptance
 - [C-INS-06](../checks/C-INS-06.md): `smthrs host start` runs a built bundle as a launchd service that is up before anyone logs in, restarts after a crash, is idempotent and prints the setup URLs.
+- [C-J1-01](../checks/C-J1-01.md): Fresh Mac: built bundle at S1; Homebrew tap at R; setup card, no Smithers account
+- [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
+- [C-REL-02](../checks/C-REL-02.md): `brew install` + `smthrs host start` on a fresh Mac needs no Smithers account
 
 ## Risks and notes
 - A LaunchDaemon plist lives in `/Library/LaunchDaemons` and needs administrator rights to install. Observation: `launchctl bootstrap system` fails for a non-admin user. `smthrs host start` then says an administrator must run it once.

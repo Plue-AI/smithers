@@ -1,6 +1,6 @@
 # T-GH-02 Poll scheduler: streams, ETags, token cache, budget, 30–120 s cadences
 
-Stage S1 · Size M · Depends on T-GH-01 · Unblocks T-STK-09, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-FLW-03 · Issue: to file
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-ACC-02 · Unblocks T-MNT-01, T-STK-04, T-STK-09, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-GH-09, T-FLW-03 · Issue: to file
 Spec: spec.md §3 (`github_sync`), §3.0, §4.4, §6.2.3, §12.2, §19.4 · Delta: delta.md §7 · Product: mvp.md J10.6, §6.3 "No public address", §9 "GitHub freshness", M-03
 
 ## Goal
@@ -19,15 +19,15 @@ In:
 - Webhooks (§12.2.4): a signed delivery triggers an immediate fetch of its stream. No cadence ever stretches, so a dropped delivery costs no freshness. Payloads never become state.
 - A Retry hook that forces every stream now (T-GH-08 exposes it).
 
-Out: health states and `/api/github/sync` (T-GH-08); the inbound effects themselves (T-GH-04..07, T-STK-09); outbound writes (T-GH-09); webhook delivery setup (optional, §12.2.4); per-PR polling of reviews or comments (rejected in E-08).
+Out: health states and `/api/github/sync` (T-GH-08); inbound effects (T-GH-04..07, T-STK-09); outbound writes (T-GH-09); webhook delivery setup (optional, §12.2.4); per-PR polling of reviews or comments (rejected in E-08); executing fetched repository code or its hooks/credential helpers; card Views; replacing Plue workers outside the install composition.
 
 ## Changes
 - `packages/backend/db/product/migrations/<next>_github_sync.sql` (new) → `github_sync` (§3) with per-stream cursors, ETags and health. The `github_synced_*` tables gain the object kinds the streams fetch that they lack today (review, review comment, check, label event). No second cache table. `packages/backend/db/product/queries/github_sync.sql` (new); regenerate sqlc.
 - `packages/backend/internal/services/github_sync.go` (new) → the scheduler, an injectable clock, streams, cursors, ETags, the raw and charged budget and the consumer interface.
 - `packages/backend/internal/services/github_pr_state.go` (new) → the `pr-state` GraphQL query, 50 PRs per query, and its decoder. `HeadChecks` (`mythical_github.go:611`) stops issuing per-head REST reads; T-GH-05 reads checks from this stream.
 - Issue events: the repository endpoint, with its event-id cursor in `github_sync.cursor`. Delete the per-issue fetches in `github_issue_text_writer.go:251-262` and `labelHistory` (`mythical_github.go:398`).
-- `packages/backend/internal/services/landing_github_pull.go:421-453` (`landingGitHubAPI.request`) → send `If-None-Match`; return 304 and the rate-limit headers; map failures to the typed error instead of `CodeBadGateway "GitHub did not answer"` (`:441`). Every call passes through `BudgetTracker` (`github_budget.go`), fed by response headers.
-- `packages/backend/internal/services/github_repo_metadata.go:492-545` and `github_import.go:2426-2445` → call the one rate-limit parser; delete their copies.
+- `packages/backend/internal/services/landing_github_pull.go:421-453` (`landingGitHubAPI.request`) → send `If-None-Match`; return 304 and the rate-limit headers; map failures to the typed error instead of `CodeBadGateway "GitHub did not answer"` (`:443`). Every call passes through `BudgetTracker` (`github_budget.go`), fed by response headers.
+- `packages/backend/internal/services/github_repo_metadata.go:492-543` and `github_import.go:2426-2445` → call the one rate-limit parser; delete their copies.
 - `packages/backend/internal/services/repo_connection_github_app.go:466-467` → cache scoped tokens; keep `installationTokenEarlyExpiry` (`:557`) at 5 min.
 - Delete the old cadences and their loops in the same change: `gitHubMainPullPollInterval` (`github_main_pull.go:40`, sweep `:285-312`) becomes the refs stream; the per-item `GET /pulls/{n}` every `mythicalPullPollEvery` (`mythical_items.go:52`, `follow` `:2179`) reads the synced store; the `Backfill` sweep every `mythicalBackfillEvery` (`:51`, `:300`) becomes the issues stream; the synced-store loops `StartReconciler` and `StartSyncWebhookReconciler` (`internal/compose/main.go:1650-1651`) are replaced by the streams for the install's repository.
 - `packages/backend/internal/services/github_webhook.go:343-352` → a delivery requests a stream fetch; `ApplyIssueEvent` no longer applies payloads.
@@ -35,7 +35,7 @@ Out: health states and `/api/github/sync` (T-GH-08); the inbound effects themsel
 - `packages/backend/docs/github-sync.md` (new): streams, cadences and budget; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/backend:docs`.
 
 ## Tests
-- Unit, `github_sync_test.go` (new): each stream's cadence equals §12.2; below 20 % remaining the issues, issue-events and permission due times double and the other streams' don't, and both return to normal after the reset; `Retry-After` pauses only its stream; a cursor advances only when a newer `updated_at` or event id arrives; a token due within 5 min of expiry is re-minted.
+- Unit, `github_sync_test.go` (new): assert literal cadences of 30 s for refs, 45 s for pulls, pr-state and both comment streams, 120 s for issues and issue-events, and 3,600 s for permissions; below 20 % remaining the issues, issue-events and permission due times double and the other streams' don't, and both return to normal after the reset; `Retry-After` pauses only its stream; a cursor advances only when a newer `updated_at` or event id arrives; a token due within 5 min of expiry is re-minted.
 - Unit, same file: with 10 pending heads, and again with 60 open TODO PRs, `pr-state` sends one query per 50 PRs every 45 s and no per-PR or per-head REST request.
 - Unit, same file: a label removed and reapplied between two polls yields `unlabeled` then `labeled`, each handed over once in id order; a replayed page hands nothing over twice.
 - Integration, real PostgreSQL + `githubfake` (`github_sync_integration_test.go`, new): [C-GH-08](../checks/C-GH-08.md) counts.
@@ -56,3 +56,12 @@ Out: health states and `/api/github/sync` (T-GH-08); the inbound effects themsel
 - Risk: GraphQL has its own rate limit, counted in points. Confirmed when `X-RateLimit-Remaining` for resource `graphql` drops by more than one point per query in the C-GH-07 run. Split the query below 50 PRs.
 - Risk: `git ls-remote` every 30 s may meet git-side throttling. Confirmed by HTTP 429 from `github.com` git endpoints during C-GH-07.
 - Ownership: §12.2 lists the members' permission poll as a stream, and §5.1.3's hourly re-check belongs to T-ACC-02. This ticket schedules it under the shared budget; T-ACC-02 owns the handler.
+
+## Ready checklist
+
+1. Dependencies cover sealed App credentials, TODO/branch/projection storage and member roster/permission handling. Downstream consumers register through the dispatch interface; fetched objects remain in the synced store before those handlers land. Full C-GH-07 evidence additionally needs T-COL-02 and its inbound consumer tickets.
+2. Out explicitly names inbound effects, outbound writes, webhook setup, per-PR polling, repository execution/hooks/helpers, Views and Plue worker replacement.
+3. C-GH-08 and `github_sync_integration_test.go` start the scheduler through the production install worker composition in `compose/main.go`; only the clock and external GitHub server are injected. Signed/unsigned webhook tests use the production webhook route; C-GH-07 observes production API/live reads. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
+4. smithers-8a decides changes to §12.2 cadences, paging and budgets; smithers-3f approves scheduler/store and permission-handler seams. Splitting a GraphQL batch must retain freshness and request caps, proved by C-GH-07/08.
+5. Before start, smithers-3f: does install startup replace every old loop without affecting Plue; do all GitHub callers use one budget/token cache; do cursor commit and consumer retry avoid lost or duplicate events? Apps, Views and TypeScript export changes are excluded.
+6. Fetched issue, PR and webhook content remains data, never evaluated code. Packaged refs polling uses a controlled git environment with repository hooks and credential helpers disabled; repository evaluation dispatches only to machines (§1.3). smithers-3f reviews the boundary; C-GH-08 verifies polling and C-SEC-02 verifies machine-only dispatch.

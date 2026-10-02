@@ -1,6 +1,6 @@
 # T-APP-04 Confirm card: one-click confirmations and Review & merge
 
-Stage S1 · Size S · Depends on T-ACC-05, T-STK-04, T-UI-05, T-APP-19 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-ACC-05, T-STK-04, T-UI-05, T-APP-19 · Unblocks T-MNT-03 · Issue: to file
 Spec: spec.md §5.2, §5.4, §6.1.2 (`agent`), §6.4, §7.2 (`confirmations`), §10.6.1–10.6.2, §14.3 (Confirm), §14.5.1, §15.1.3–15.1.5, §19.3 · Delta: delta.md §2 (Add `person_confirmations`, the Confirm card), §6 (Delete `change.land` as a TODO merge path) · Product: mvp.md §2 rule 6, §6.10, §6.13, M-05, M-21, Appendix A `/merge` and closing paragraph, Appendix B legend (A✓)
 
 ## Goal
@@ -41,6 +41,7 @@ Out:
 
 ## Acceptance
 - [C-ACC-02](../checks/C-ACC-02.md): delegated, run and machine credentials can't merge or approve; the confirmation this card shows can be approved only from a session.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Spec gap: §5.4 still names "change a role" as confirmable, while §15.1.5 makes members `agent: never`. This ticket follows §15.1.5 (owner: tech lead).

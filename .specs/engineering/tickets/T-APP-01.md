@@ -1,6 +1,6 @@
 # T-APP-01 Home card on the `home` topic
 
-Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-APP-08, T-APP-16, T-UI-06, T-APP-19 · Unblocks T-REL-01 · Issue: to file
+Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-APP-08, T-APP-16, T-UI-06, T-APP-19 · Unblocks T-MNT-01, T-REL-01 · Issue: to file
 Spec: spec.md §14.1, §14.2, §14.3 (Home), §14.5.2, §7.2, §4.1, §4.1.1, §4.1.2a, §4.4, §6.1.2, §8.2.1, §10.3, §10.6.1, §10.6.4, §12.3, §12.6, §15.1.5, §19.3 · Delta: delta.md §9 (Modify `StackCard.tsx`) · Product: mvp.md J4, §6.4 Home card, §4.1, §4.2, M-08, M-14
 
 ## Goal
@@ -55,6 +55,7 @@ Out:
 ## Acceptance
 - [C-J4-01](../checks/C-J4-01.md): counts, filters, merged since last look, sync time and machines against capacity match PostgreSQL for every member, and a failed background run's Retry and Dismiss act for every member (step 10).
 - [C-J8-06](../checks/C-J8-06.md): a failed wiki refresh shows on the Home card with Retry and Dismiss.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - The TUI still imports `@smthrs/rpc/StackView` and `StackIssues` (`apps/tui/src/factory.ts`). The app stops importing them; T-CUT-03 defers the TUI but keeps it building.

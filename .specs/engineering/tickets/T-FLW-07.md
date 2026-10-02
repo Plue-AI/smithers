@@ -58,6 +58,7 @@ Out:
 
 - [C-J11-01](../checks/C-J11-01.md): Inspect shows the graph with Appendix C labels and one Engine row, step I/O, transcript, retries, waits with since, and tokens, time and cost per step, with no fork filter.
 - [C-J11-04](../checks/C-J11-04.md): Thrashing: the same failing check 3× in one attempt with no edit in between shows on the TODO card and the Inspect phase; an edit clears it
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: model calls made by a coding agent CLI (Claude Code, Codex) through the proxy may not carry a step id. Confirmed if cost rows have an empty step. Attribute them to the innermost active step from `todos.current_step` (§4.1.2) at call time.

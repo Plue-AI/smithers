@@ -1,6 +1,6 @@
 # T-STK-05 Stop, resume, Retry and Retry with the current flow, drop, reopen
 
-Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-FLW-03, T-STK-04 · Unblocks T-STK-10 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-FLW-03, T-STK-04 · Unblocks — · Issue: to file
 Spec: spec.md §3 (`todo_attempts`), §4.1, §4.1.0a, §10.4.1, §10.7.1, §10.7.2, §10.7.4, §11.4.2, §12.4.1, §15.1.5, §19.1, §19.3 · Delta: delta.md §6 (Add Stop/Resume, Retry with attempt rows, Drop with PR close) · Product: mvp.md §4.1, §6.6 Stop and resume, J4.2, J7.3, Appendix B.2
 
 ## Goal

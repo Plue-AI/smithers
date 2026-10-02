@@ -1,6 +1,6 @@
 # T-STK-01 TODO tables, state machine, events, the `activity` table and topic, projection
 
-Stage S1 · Size L · Depends on — · Unblocks T-ACC-02, T-ACC-06, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-GH-03, T-FLW-04, T-FLW-11, T-MCH-14, T-MCH-04, T-COL-02, T-APP-08, T-APP-01, T-APP-02, T-REL-03 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
+Stage S1 · Size L · Depends on — · Unblocks T-ACC-02, T-ACC-06, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-07, T-STK-09, T-STK-10, T-STK-14, T-GH-02, T-GH-03, T-FLW-04, T-FLW-11, T-MCH-14, T-MCH-04, T-COL-02, T-APP-08, T-APP-01, T-APP-02, T-STK-12, T-STK-13, T-REL-03 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
 Spec: spec.md §2, §3, §3.1, §3.2, §3.3, §4.1, §4.1.0, §4.1.2a, §6.2, §6.3, §7.2, §8.1.1, §10.1, §15.1.5, §19.3 · Delta: delta.md §6 (Add tables, state machine), §4 (`activity` table [S1]) · Product: mvp.md §3 (TODO `T12`), §4.1, §6.6, J1.6, J2.3, M-07, M-16, E-07 (overview)
 
 ## Goal
@@ -14,7 +14,7 @@ In:
 - The activity actor for history writes is the system actor with its requester, rendered "Smithers, for Ben" (§8.5.0, M-32).
 - Nine product states: `queued`, `starting`, `working`, `needs_you`, `paused`, `failed`, `in_review`, `merged`, `dropped`.
 - One pure transition function over the §4.1 table, called by every engine guard that decides a transition (§10.1).
-- The §4.1.0 projection of the 15 `mythical_items.state` values, written by the engine in the same transaction as the item change. `queued` and `skipped` project to `queued`; a launched item whose run hasn't reported its first step projects to `starting`; an open `needs_you` or a set `paused_at` overrides the item state.
+- The §4.1.0 projection of the 15 `mythical_items.state` values, written by the engine in the same transaction as the item change. `queued` and `skipped` project to `queued`; a launched item whose run hasn't reported its first step projects to `starting`; an open `needs_you` or a set `paused_at` overrides the item state. Terminal item states always win.
 - Item branch names `smithers/<todo-slug>`: slug from the title, ≤ 48 characters, unique (§8.1.1), recorded once in `branches.github_branch`.
 - `POST /api/todos` with `place: append` only, `GET /api/todos`, `GET /api/todos/{n}`; the `todo:<n>` snapshot and `home` item deltas.
 - `/todo.new` and `/todo Tn` in the command catalog. `/todo.new` is `agent: confirm` (Appendix B.2 A✓): the app agent or an external agent posts a one-click confirmation that the member presses (§15.1.5). `/todo Tn` is `agent: run`.

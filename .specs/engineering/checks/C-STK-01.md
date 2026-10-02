@@ -1,6 +1,6 @@
 # C-STK-01 Every TODO transition is allowed or refused exactly as spec §4.1 says
 
-Proves: mvp.md §4.1, rule 5 (honest state), M-15, M-16 · spec.md §3.2, §4.1, §4.1.0a, §4.1.3, §5.2, §10.1, §10.7.1, §10.7.3, §10.7.4, §10.8.0, §12.3 (push row) · Layer: unit · Stage: S1 · Tickets: T-STK-01
+Proves: mvp.md §4.1, rule 5 (honest state), M-15, M-16 · spec.md §3.2, §4.1, §4.1.0a, §4.1.3, §5.2, §10.1, §10.7.1, §10.7.3, §10.7.4, §10.8.0, §12.3 (push row) · Layer: unit · Stage: S1 · Tickets: T-STK-01, T-STK-13, T-STK-14
 Automation: `packages/backend/internal/services/todo_state_test.go` (new) · Runs in: CI (`go test ./packages/backend/internal/services -run TestTodoTransition`)
 
 ## Setup

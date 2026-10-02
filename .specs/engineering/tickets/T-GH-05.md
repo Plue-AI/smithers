@@ -1,6 +1,6 @@
 # T-GH-05 Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged
 
-Stage S1 · Size M · Depends on T-GH-03, T-GH-02, T-STK-07 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-GH-03, T-GH-02, T-STK-07 · Unblocks T-STK-04 · Issue: to file
 Spec: spec.md §3.0, §4.1, §4.1.2a, §6.1.2 (in-card), §10.6.2, §10.6.4, §12.1.2 (`administration: read`), §12.3 (checks, approved, merged, closed rows), §12.4.1, §14.5.2 · Delta: delta.md §7 "PR closed → dropped…" · Product: mvp.md J10.5, §6.3 (checks, merged, closed, branch protection rows), M-22
 
 ## Goal
@@ -43,6 +43,7 @@ Out: the merge command and its session and role guards (T-STK-04); rebase execut
 - [C-J10-05](../checks/C-J10-05.md): a merge on GitHub turns the TODO Merged and closes its issue with a link.
 - [C-J10-08](../checks/C-J10-08.md): a close on GitHub turns the TODO Dropped with the actor; a reopen within 7 days restores In review.
 - [C-STK-04](../checks/C-STK-04.md): a later draft merged first marks both items merged with the note, folds `main`, and opens `order` attention settled by OK.
+- [C-STK-08](../checks/C-STK-08.md): Independent waits: question + foreign push, pause + conflict, Stop with open waits, resume after step 1, and merges on GitHub during a steer, a question or a pause each give the §4.1.0a state
 
 ## Risks and notes
 - Risk: `closed_by` can be null for a PR closed by deleting its head branch. Confirmed by deleting a TODO branch on the scratch repository and reading `GET /issues/{n}`. The reason then reads "closed on GitHub".

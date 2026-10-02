@@ -1,6 +1,6 @@
-# T-MCH-06 Admission scheduler, positions, safe-idle release
+# T-MCH-06 Admission scheduler: slots to confirmed stop, per-branch coalescing, disk re-check, positions, safe-idle release
 
-Stage S2 · Size L · Depends on T-MCH-04, T-MCH-01 · Unblocks T-STK-03, T-FLW-06, T-TRM-03, T-REL-01 · Issue: to file
+Stage S2 · Size L · Depends on T-MCH-04, T-MCH-01 · Unblocks T-MNT-02, T-MNT-04, T-INS-07, T-STK-03, T-FLW-06, T-TRM-03, T-REL-01 · Issue: to file
 Spec: spec.md §4.1.1, §4.2, §8.2.1a, §8.2.1b, §8.2.2, §8.3, §8.4.1, §8.4.2, §6.2.3, §7.2, §18 (warm wake) · Delta: delta.md §3 (admission row) · Product: mvp.md J3, J4, §6.7 Capacity and queue, M-06, M-13
 
 ## Goal

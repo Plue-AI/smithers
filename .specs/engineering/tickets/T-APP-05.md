@@ -46,6 +46,7 @@ Out:
 ## Acceptance
 - [C-J5-01](../checks/C-J5-01.md): flow edit from chat becomes a TODO, merges, and the Flow card shows the new version Active after sync while running TODOs keep theirs.
 - [C-J11-02](../checks/C-J11-02.md): Source opens on the proposing TODO's branch; Plan and a "draft version" Run on a scratch branch show the edited graph; a repository flow runs from its slash command with a form.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Spec gap: §14.3 Flow versions carry no source label (built-in or `flows/<name>/flow.ts`), per-step detail or system flag, which the mock shows (`cards/Flow.tsx`, `world.ts:239-248`). The card omits them until the tech lead adds them to the model.

@@ -1,6 +1,6 @@
 # T-FLW-03 `flow-load`, versions, activation; keep previous on failure (`Executable.ts:2036`)
 
-Stage S1 · Size L · Depends on T-FLW-01, T-GH-02, T-FLW-11 · Unblocks T-STK-05, T-FLW-04, T-FLW-05, T-APP-05 · Issue: to file
+Stage S1 · Size L · Depends on T-FLW-01, T-GH-02, T-FLW-11 · Unblocks T-MNT-02, T-STK-05, T-FLW-04, T-FLW-05, T-APP-05 · Issue: to file
 Spec: spec.md §3 (`flow_versions`, `flow_activations`), §4.3, §6.3 `/api/flows`, §7.2 `flows`, §10.4.1a, §11.1.1, §11.3 · Delta: delta.md §8 (flow-load row) · Product: mvp.md J5.3, §6.12 Flow card and Pinned versions, M-04
 
 ## Goal

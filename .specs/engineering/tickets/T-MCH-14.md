@@ -1,6 +1,6 @@
 # T-MCH-14 Keep TODO workspaces until settled; wake before delivering a signal
 
-Stage S1 · Size S · Depends on T-STK-01 · Unblocks T-FLW-11 · Issue: to file
+Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11 · Issue: to file
 Spec: spec.md §8.4, §10.4.1, §10.7.4, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
 
 ## Goal
@@ -16,17 +16,26 @@ In:
 Out:
 - Admission, positions and people-first ordering (T-MCH-06, S2).
 - Capture-before-sleep and reads that never wake (T-MCH-07, S2).
-- Cleanup policy after settle (T-MCH-09, S2). This ticket only stops early reclaim.
+- Full cleanup policy after settle (T-MCH-09, S2), terminal/service safe-idle scheduling and daemon outbox drain (T-MCH-07, S2). S1 must refuse disk deletion without a retained final capture; it does not claim the S2 cleanup policy has landed.
+
+- Out of scope: GitHub comment polling (T-GH-04), reopen state/attempt decisions (T-GH-05, T-STK-05), the one-run composition (T-FLW-11), new signal engine APIs, host execution on wake, and disk deletion based only on age.
+- Before a settled TODO disk can be reclaimed in S1, retain a final snapshot/head using the existing workspace reporter and verify the host ref. If capture cannot complete, keep the disk. Reopened-work provisioning uses that retained capture; no capture means no destructive reclaim. C-J10-08 exercises recovery once its reopen and run owners land.
 
 ## Changes
-- `packages/backend/internal/services/agent_dispatch.go:1128` (`defaultAgentIdleTimeout = 5m`) → a waiting run on a TODO workspace suspends the VM, keeping the disk, instead of tearing down the session.
+- `packages/backend/internal/services/agent_dispatch.go:760` (`createAgentWorkspaceVM`) and `:209` (workspace suspension cleanup) → keep the TODO workspace/session binding while its run waits, and suspend without deleting its disk. `:1128` sets the legacy sandbox timeout; native workspace mode returns at `:1126` and never reaches it. Do not implement the native retention fix only at that timeout.
 - `packages/backend/internal/services/workspace_disk_reclaim.go:20` (`defaultAgentWorkspaceDiskReclaimAfter = 24h`) → skip workspaces whose TODO is unmerged (join through `todos.branch_id` and the lane binding).
-- Stack engine signal delivery (`mythical_items.go` launch and signal paths, T-FLW-11) → `ensureRuntimeWorkspaceRunning` before `Signal`. Delivery is durable: a wake failure retries with backoff and surfaces as `failed{step: "wake"}` after 15 min.
+- Stack engine delivery in `packages/backend/internal/services/mythical_items.go` → persist the pending signal identity before wake; call the WorkspaceService wake seam at `workspace_runtime.go:141` (`ensureRuntimeWorkspaceRunning`) and wait for the guest coding host before delivery. Re-read TODO settlement and workspace binding under the lifecycle lock. Delivery retries the same identity after restart; a wake failure retries with backoff and surfaces as `failed{step: "wake"}` after 15 min. T-FLW-11 must consume this seam for its one-run signal loop; this ticket does not implement that loop.
+
+## Decisions and pre-review
+- Before start, smithers-3f approves TODO/workspace binding, lifecycle locking, retained-capture recovery and signal deduplication, and reviews machine-only execution on wake. smithers-38 pre-reviews any TypeScript signal-call contract; reuse the existing engine API. smithers-8a accepts the delivery seam, 15-minute wake failure policy and reference-host disk-use result. Will decides changes to retention or reopen policy.
+- T-INS-02 and T-FLW-01 supply microVM startup and guest coding dispatch. A missing runtime or guest host keeps the signal pending or records the typed wake failure; no host process runs the repository. Provider keys remain on the host. C-SEC-02 checks that boundary. T-FLW-11 depends on this ticket, so tests here drive the production engine delivery seam with a fixture run, without depending on the future composition.
 
 ## Tests
 - Integration (real microVM): a TODO in review suspends after idle. A steer delivered 25 h later (simulated clock) wakes it, the same run id resumes, and the working copy holds the files from before.
-- Integration: the reclaim sweep skips an unmerged TODO's workspace and reclaims a dropped one. After that TODO's PR is reopened, a review steer provisions a workspace whose working copy equals the branch's final capture.
+- Integration: drive the composed reclaim job with its injected clock; it skips an unmerged TODO, keeps a dropped disk without a final capture, and reclaims a dropped disk only with a retained final capture and no active terminal/service. Drive work input through the production delivery seam to verify provisioning from that capture. C-J10-08 later adds the real GitHub reopen and new-attempt path.
 - Fault: kill the host while a wake for a signal is in progress. On restart the signal is delivered exactly once.
+
+- Boundary integration in `packages/backend/internal/services/todo_long_wait_integration_test.go` (C-STK-05): run a fixture on the production guest dispatcher, advance the composed lifecycle/reclaim jobs, and deliver a durable input through the stack engine delivery seam, not by calling runtime wake or Signal directly. Assert fixed file contents, run identity and one consumed signal across a host restart. Once T-GH-04 and T-FLW-11 land, also run C-STK-05's GitHub review-comment poll and same-run loop. Use literal reviewed fixtures; no runtime spec reads or implementation-derived expectations. Joint reopen acceptance C-J10-08 remains pending until T-GH-05 and T-STK-05 land.
 
 ## Acceptance
 - [C-STK-05](../checks/C-STK-05.md)
@@ -34,3 +43,11 @@ Out:
 
 ## Risks and notes
 - Risk: many waiting TODOs keep suspended disks. Confirm disk use with 20 suspended TODO workspaces on the reference host. The 32 GiB disk per machine is sparse (APFS clone), and the layer budget (§8.2.1) bounds the rest.
+
+## Ready checklist
+1. Dependencies: T-STK-01 supplies TODO bindings; T-INS-02 and T-FLW-01 supply safe guest startup/dispatch. The delivery seam lands here; downstream flow, review and reopen owners integrate it later.
+2. Exclusions: admission, full S2 sleep/cleanup, GitHub polling, reopen transitions, flow composition, new engine APIs and age-only deletion are explicit; missing final capture keeps the disk.
+3. Tests: production guest dispatch, composed lifecycle jobs and stack delivery use fixed fixtures; fault recovery consumes one signal. GitHub/reopen joint checks remain pending until integrated.
+4. Decisions: smithers-3f approves lifecycle/recovery seams, smithers-38 library contracts, smithers-8a delivery/failure policy and disk result; Will changes product retention/reopen policy.
+5. Owner pre-review: smithers-3f: Does the native workspace path retain disk and binding during a durable wait? Are wake, reclaim and settlement serialized with a verified final capture before deletion? Does restart deduplicate delivery without host fallback? smithers-38: Can the signal caller use the existing engine API without a new public contract?
+6. Security: wake and restored-work provisioning require machine isolation and a guest coding host; no repository code or provider keys move to a host child. smithers-3f reviews this and C-SEC-02 proves it.

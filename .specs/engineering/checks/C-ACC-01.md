@@ -1,6 +1,6 @@
 # C-ACC-01 Every permission-matrix cell is enforced server-side for every credential kind
 
-Proves: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.5 · spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §15.1.4, §17.2 · Layer: integration · Stage: S1 · Tickets: T-ACC-03, T-ACC-04
+Proves: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.5 · spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §15.1.4, §17.2 · Layer: integration · Stage: S1 · Tickets: T-ACC-03, T-ACC-04, T-STK-15
 Automation: `packages/backend/internal/compose/access_matrix_integration_test.go` (new) · Runs in: CI
 
 ## Setup

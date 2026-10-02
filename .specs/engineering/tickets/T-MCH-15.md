@@ -1,6 +1,6 @@
 # T-MCH-15 Per-member credential store: tool logins carry across machines
 
-Stage S2 · Size M · Depends on T-MCH-11, T-COL-03 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-MCH-11, T-COL-03 · Unblocks T-MNT-02 · Issue: to file
 Spec: spec.md §3 (`member_credentials`), §5.6, §8.7.2, §8.7.3, §9.1.2 (`seed_credentials`), §17.4 · Delta: delta.md §3 (per-member users row) · Product: mvp.md §6.8 Terminals, J6.1, M-18
 
 ## Goal

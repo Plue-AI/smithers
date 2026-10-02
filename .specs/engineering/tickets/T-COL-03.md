@@ -1,6 +1,6 @@
 # T-COL-03 `smithers-machined`: crate, rootfs, init, root broker and unprivileged daemon, host connection, outbox, mutation lock, capture
 
-Stage S2 · Size L · Depends on T-COL-01, T-MCH-04, T-COL-10, T-TRM-06 · Unblocks T-STK-11, T-MCH-07, T-MCH-15, T-MCH-12, T-COL-04, T-TRM-07, T-TRM-01, T-TRM-03, T-TRM-05 · Issue: to file
+Stage S2 · Size L · Depends on T-COL-01, T-MCH-04, T-COL-10, T-TRM-06 · Unblocks T-STK-11, T-MCH-07, T-MCH-08, T-MCH-15, T-MCH-12, T-COL-04, T-TRM-01, T-TRM-03, T-TRM-05, T-TRM-07 · Issue: to file
 Spec: spec.md §5.3 (`machine`), §7.6 (rows 1, 5), §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
 
 ## Goal

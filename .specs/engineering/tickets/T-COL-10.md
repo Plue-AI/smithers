@@ -1,6 +1,6 @@
-# T-COL-10 Co-editing architecture: ADR 0003 and the stage-1 contracts (spec §7.6)
+# T-COL-10 Co-editing architecture: ADR 0003, the topology-neutral stage-1 contracts (spec §7.6) and the topology decision before T-COL-08
 
-Stage S1 · Size M · Depends on T-COL-01 · Unblocks T-COL-03, T-COL-04, T-COL-06, T-COL-07, T-COL-08, T-APP-15 · Issue: to file
+Stage S1 · Size M · Depends on T-COL-01 · Unblocks T-COL-02, T-COL-03, T-COL-04, T-COL-06, T-COL-07, T-COL-08, T-APP-15 · Issue: to file
 Spec: spec.md §7.4, §7.6, §9.2 · Delta: delta.md §4 · Product: mvp.md M-02, M-27, J3.5, §11 item 14
 
 ## Goal

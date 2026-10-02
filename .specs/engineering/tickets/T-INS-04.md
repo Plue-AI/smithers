@@ -1,6 +1,6 @@
-# T-INS-04 Origin-agnostic serving: configurable bind and public origins; no secure-context dependency
+# T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02, T-INS-08 · Unblocks T-INS-06, T-TRM-03 · Issue: to file
+Stage S1 · Size M · Depends on T-INS-02 · Unblocks T-INS-06, T-COL-02, T-TRM-03 · Issue: to file
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
@@ -55,6 +55,7 @@ Out:
 - [C-INS-03](../checks/C-INS-03.md): bind address and public origins are owner settings, applied without a restart and reflected in CORS, cookies and the SSH line.
 
 ## Risks and notes
+- Serving settings and effective-origin logic may land after T-INS-02 against the final host-command interface. C-J1-01 and C-INS-06 still require T-INS-08's real daemon; request-origin fixtures do not discharge that gate.
 - A third-party module in the bundle may still call a secure-context API. Observation that confirms it: an exception or a dead control on the plain-HTTP origin in C-INS-01. The conformance ban covers our sources only, so C-INS-01 is the gate.
 - `document.execCommand("copy")` is deprecated. Observation: the fallback fails in one of Chrome, Safari or Firefox in C-INS-01.
 - A non-loopback bind exposes the API and SSH on that network. Through the API the setting is owner-only; before an owner exists, only `smthrs host start` on the Mac sets it. A proxy placed in front of loopback before setup cannot claim the install, because the claim needs the setup token (§5.1.0, T-ACC-01).

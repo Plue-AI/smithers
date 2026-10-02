@@ -1,6 +1,6 @@
 # C-SPK-07 Yjs keystroke latency into a VM from a second Mac
 
-Proves: mvp.md §9 Live updates, J3.5, M-02 · spec.md §1.4, §7.4.1–7.4.2, §9.2.2, §16.3.2, §18 (keystroke budget); overview.md E-04, E-05 · Layer: spike · Stage: W0 · Tickets: T-COL-01
+Proves: mvp.md §9 Live updates, J3.5, M-02 · spec.md §1.4, §7.4.1–7.4.2, §9.2.2, §16.3.2, §18 (keystroke budget); overview.md E-04, E-05 · Layer: spike · Stage: W0 · Tickets: T-COL-01, T-COL-11
 Automation: `scripts/spikes/col-01/keystrokes.spec.ts` (new; `scripts/spikes/col-01/run.sh keystrokes`) · Runs in: reference host plus a second Mac on the same network
 
 ## Setup

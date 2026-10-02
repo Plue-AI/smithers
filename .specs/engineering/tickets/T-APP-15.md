@@ -39,6 +39,8 @@ Out:
 ## Acceptance
 - [C-COL-01](../checks/C-COL-01.md): the File card renders with CodeMirror 6, and `adapters/code-view` has no consumer.
 - [C-UI-11](../checks/C-UI-11.md): hover, definition and diagnostics work on an awake branch's File card, on the S1 build and again on the release build; the webpage reader card still works.
+- [C-J1-03](../checks/C-J1-03.md): A question is answered with file cards before Machine ready
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: CodeMirror's Lezer highlighting looks different from today's Shiki output. Confirmed by a screenshot diff on five languages. If it fails the design review, use a Shiki-backed CodeMirror highlighter; the decision belongs to the design agent.

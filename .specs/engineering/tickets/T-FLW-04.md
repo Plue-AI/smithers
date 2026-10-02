@@ -1,6 +1,6 @@
 # T-FLW-04 Coding host loads the pinned closure by digest
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-01, T-FLW-11 · Unblocks T-MNT-02, T-MNT-04 · Issue: to file
 Spec: spec.md §3 (`todos.flow_name`, `todos.flow_digest`), §4.1, §10.4.1, §11.3.0, §11.4 · Delta: delta.md §8 (pinning row), §11 (#3377 row) · Product: mvp.md J5.4, §6.12 Pinned versions
 
 ## Goal

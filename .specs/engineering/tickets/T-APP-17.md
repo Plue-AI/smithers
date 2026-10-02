@@ -47,6 +47,7 @@ Out:
 
 ## Acceptance
 - [C-UI-07](../checks/C-UI-07.md): stored context, Context line, preflight first in Inspect, only selected context and shared entries reach the answer.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: preflight adds a model round trip that breaks the 1.5 s first-token target. Confirmed by C-PERF-01. Mitigation: a faster preflight model or a smaller candidate list. Escalate to the tech lead before relaxing the target.

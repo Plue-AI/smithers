@@ -120,6 +120,10 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
  (J3.5, J8)      the live channel), learning flow + proposals + lessons, plan citations of wiki revisions
  Release         Homebrew tap, quiesced smthrs host upgrade/backup/restore, quickstart + flows reference, perf
                  budgets, journey recordings (J1–J8, J10, J11, both themes), fault suite
+ Stage M         Launch + seven days: T-MNT-01 passive Incoming and maintainer admission; then
+ maintainers     T-MNT-02 issue triage, duplicates and isolated reproduction → T-MNT-03 approved replies,
+                 in parallel with T-MNT-04 shared outside-PR review; T-MNT-05 in-place upgrade and release.
+                 C-MNT-01..06 gate shipment. Launch trust stays enforced; no outsider event launches work.
  Dogfood         Once stage 1 passes J1 and J2 (M-31): Smithers' own development moves onto the stack on
                  Will's Mac mini, and issue-sweep stops pushing to main (target 50 merged in two weeks)
 ```
@@ -144,7 +148,7 @@ Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so hom
 | Question | Owner | Blocks |
 | --- | --- | --- |
 | Default `parallel` when capacity is 2 (mvp.md §13); spec §10.3.1 defaults it to 1 until T-MCH-01's measurement | Product, after T-MCH-01 | T-STK-03 |
-| Which 32 GB Mac mini is the reference host (mvp.md §9), and a second LAN laptop for T-GH-01 and C-J1 runs. No Mac mini is on this LAN by Bonjour; this machine is a MacBook Pro M3 Max 64 GB. | Ops (smithers-2f), asking Will | T-MCH-01, the W0 spikes' recorded answers, R checks |
+| Reference host RAM. The host is "William's Mac mini" (Williams-Mac-mini.local, 10.0.0.59; confirmed by Will 2026-10-02), and this MacBook Pro M3 Max 64 GB is the second LAN laptop. Model and RAM come once Will authorizes SSH. If under 32 GB, the §8.2.1 capacity row and the dogfood capacity are re-run. | smithers-a6 (SSH key from Will) | T-MCH-01, C-PERF-*, dogfood capacity |
 
 Settled 2026-10-02 and recorded in spec.md: co-editing in the MVP (Will), Tailscale out of the product (Will), sizing from the detected host (Will), branch-shared conversations (Will), Return to Tn / Keep for now (product), the Docker image deleted (tech lead), billing and multi-repository hidden with code kept (product), #3377 not needed (tech lead).
 

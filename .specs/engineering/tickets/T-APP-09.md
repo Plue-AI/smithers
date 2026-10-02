@@ -43,6 +43,7 @@ Out:
 
 ## Acceptance
 - [C-J6-01](../checks/C-J6-01.md): actions Claude Code takes from Ben's branch terminal show "Ben via Claude Code" on the cards that record them.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - The mock says "Coding agent" (`parts.tsx:16`); §14.6a renders "Agent", and the card follows the spec.

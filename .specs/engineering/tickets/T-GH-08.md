@@ -36,6 +36,7 @@ Out: the Home card's rendering, including the client-side age (T-APP-01); the Se
 
 ## Acceptance
 - [C-J10-06](../checks/C-J10-06.md): the `main` row shows "synced Ns ago" computed from `last_success_at`, turns gold past 120 s after network loss, and Retry recovers it.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: a client clock skewed from the host's makes "synced N s ago" wrong. Observation: C-J10-06's computed age differs from the row by more than 2 s on a browser with a skewed clock. Then the snapshot also carries the server time, and the client offsets by it.

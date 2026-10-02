@@ -1,6 +1,6 @@
 # T-GH-09 Outbound writes: keys, per-target order, supersession and reconcile
 
-Stage S1 · Size M · Depends on T-GH-03 · Unblocks T-FLW-09 · Issue: to file
+Stage S1 · Size M · Depends on T-GH-02 · Unblocks T-MNT-01, T-MNT-03, T-STK-04, T-GH-03, T-FLW-11, T-FLW-09 · Issue: to file
 Spec: spec.md §3 (`outbound_writes`), §12.4.1–§12.4.1b, §12.5.2, §19.1, §19.2 · Delta: delta.md §7 · Product: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts)
 
 ## Goal

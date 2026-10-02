@@ -41,6 +41,7 @@ Out:
 
 ## Acceptance
 - [C-J1-05](../checks/C-J1-05.md): add by username, "needs access on GitHub" for a person without write access, and a teammate signs in from the install's origin and appears on the card.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Spec gap: §14.3 Members lists role, `needs_access` and `suspended`, but not the name, login and avatar every mock row shows (`cards/People.tsx`); `members.login` exists in §3. The tech lead adds them to the model.

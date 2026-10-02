@@ -1,6 +1,6 @@
-# T-COL-01 Spike: relay round trip and Yjs keystroke p95 into a VM
+# T-COL-01 Spike: relay round trip, Yjs keystroke p95, jj capture cost and guest kernel probes in a VM; re-run on an idle reference host decides ADR 0003's topology
 
-Stage W0 · Size S · Depends on — · Unblocks T-COL-10, T-COL-03 · Issue: [#3441](https://github.com/smithersai/smithers/issues/3441)
+Stage W0 · Size S · Depends on — · Unblocks T-COL-11, T-COL-10, T-COL-03 · Issue: [#3441](https://github.com/smithersai/smithers/issues/3441)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 
 ## Goal

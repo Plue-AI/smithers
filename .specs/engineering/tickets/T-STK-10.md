@@ -1,6 +1,6 @@
 # T-STK-10 Evidence per attempt
 
-Stage S1 · Size S · Depends on T-STK-05 · Unblocks T-GH-03, T-FLW-06 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
+Stage S1 · Size S · Depends on T-STK-01, T-FLW-11 · Unblocks T-GH-03, T-FLW-06 · Issue: [#3464](https://github.com/smithersai/smithers/issues/3464)
 Spec: spec.md §3 (`todo_attempts.evidence`), §10.4.1, §10.4.3, §11.4.1, §11.6.1, §12.5.1, §14.3 (TODO card), §15.2 · Delta: delta.md §6 (Retry with attempt rows), §7 (checks evidence) · Product: mvp.md J2.5, §4.1 Failed ("earlier attempts and evidence kept"), §6.10 PR card, §6.9 Model access
 
 ## Goal
@@ -30,7 +30,7 @@ Out:
 ## Tests
 - Unit, `todo_evidence_test.go` (new): merging parts in any order gives the same row; a write to attempt 1 after attempt 2 started is refused, except GitHub checks for attempt 1's head.
 - Integration with real PostgreSQL and the blob store, `todo_evidence_db_test.go` (new): a fixture run with two checks, one failing, stores two logs; the failing check's log digest resolves to its text; durations come from `startedAt`/`finishedAt`.
-- Integration, same file: Retry (T-STK-05) creates attempt 2 with its own evidence; attempt 1's JSON is byte-identical before and after.
+- Integration, same file: first-run evidence uses T-STK-01's `todo_attempts` and T-FLW-11's run receipts (C-J2-04). After T-STK-05 lands, Retry creates attempt 2 with its own evidence; attempt 1's JSON stays byte-identical. That later integration is not a landing prerequisite here.
 - Integration with the fake GitHub server: check runs on the PR head land in `github_checks` of the attempt that pushed that head, not the latest attempt.
 
 ## Acceptance

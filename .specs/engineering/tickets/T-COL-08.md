@@ -1,6 +1,6 @@
 # T-COL-08 Live code documents: state record and durable acknowledgment; disk reconcile in either order; gone states
 
-Stage S3 · Size L · Depends on T-COL-02, T-COL-04, T-COL-10 (ADR 0003's topology decision recorded first) · Unblocks T-COL-09, T-APP-14, T-REL-01 · Issue: to file
+Stage S3 · Size L · Depends on T-COL-02, T-COL-04, T-COL-10 · Unblocks T-COL-09, T-APP-14, T-REL-01 · Issue: to file
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 
 ## Goal
@@ -79,6 +79,7 @@ Out:
 - [C-J3-04](../checks/C-J3-04.md): two people co-edit one file in < 1 s, with author colours, name flags and saved within 1 s; an outside save merges in, or on overlap shows "Changed outside Smithers · Compare" with the outside version kept.
 - [C-PERF-03](../checks/C-PERF-03.md): a keystroke reaches a remote File card in < 1 s p95 on the reference host.
 - [C-DUR-04](../checks/C-DUR-04.md) K7a–K7d: no acknowledged keystroke is lost and none is duplicated across daemon, VM and host kills; K7e: new-epoch recovery retains unacknowledged edits and offers Reapply and Copy.
+- [C-COL-03](../checks/C-COL-03.md): The mutation lock: rebase and Return to Tn with every writer active lose no write and let none land mid-rewrite; queued writes revalidate; a stale write never applies
 
 ## Risks and notes
 

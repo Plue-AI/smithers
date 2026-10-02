@@ -56,6 +56,7 @@ Out:
 
 ## Acceptance
 - [C-UI-06](../checks/C-UI-06.md): shared entries, per-member state, the author's rights, UI-only flows local, a turn that completes after its author closes the tab, no private entry in any turn, and a removed author's turns cancelled.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: `AppTimelineService` was built for xstate event logs with fork branches. Confirm that its write model fits ordered prompt, answer and card entries without fork semantics, using the evaluation's two-member integration test. If it doesn't fit, build the §3 tables and leave app timelines unchanged.

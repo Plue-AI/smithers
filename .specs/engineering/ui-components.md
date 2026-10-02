@@ -1,6 +1,6 @@
 # UI components: design builds, engineering wires
 
-Version 0.3 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
+Version 0.4 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
 
 Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn their callbacks into catalog commands. This page lists the components in order of need and gives each one its props. The props are spec.md §14.3 in TypeScript. T-APP-19 transcribes them into zod schemas in `packages/rpc/src/<Card>Card.ts` with fixtures in `packages/rpc/test/fixtures/<Card>.ts`. Until it lands, design builds against this page with local fixtures.
 
@@ -15,74 +15,148 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
 
 ## Rules
 
-- A View takes props only. It imports no topic, store, controller, RPC client or command module (C-UI-08).
-- A View never decides who may act. The container passes `actions[]` already filtered for the viewer, and the View renders them in order. A missing action means no button.
-- Every user gesture is `onAction(action.tag, input?)` with an action from `actions[]`, and the control carries `data-flow={action.tag}`. Tags are opaque to the View; the lists below name the buttons by label.
-- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the View-seam rule instead: every handler goes through `onAction(<action>.tag)` with `data-flow`. Parity moves to the Container: every `*Container.tsx` builds `actions[]` through one helper that binds `onAction` to `flowAction`, so the three-door and agent-parity rules still hold (agreed with design, 2026-10-02). UI-only gestures (maximize, tab, filter, scroll) are `onView(patch)`, which the container stores in per-member view state (§14.1.2).
-- A field the View needs but this page lacks is a spec change. Raise it with the tech lead, who updates §14.3, this page and T-APP-19 together.
+- A View takes props only. It imports no state, store, topic, controller, flow, RPC client or command module, and it does no fetch (C-UI-08).
+- A View never decides who may act. The container passes `actions[]` already filtered for the viewer, and the View renders them in order. A missing action means no button. A non-button gesture (hover, go to definition, a docs link) uses the action in `gestures`; a missing one means the gesture does nothing.
+- A View handler does exactly one of three things (frontend lead, smithers-b8, adopted by the tech lead 2026-10-02). `flows/parity.test.ts` fails any other handler (C-UI-08):
+  1. It calls `onAction(action.tag, {...action.args, ...input})` with an action from `actions[]`, `gestures` or a row's own `actions`, and the control carries `data-flow={action.tag}`.
+  2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `member_conversation_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
+  3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-APP-03).
+- Tags are opaque to the View. The lists below name the buttons by label.
+- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the three-way rule above instead. Parity moves to the Container: every `*Container.tsx` builds `actions[]` and `gestures` through `cardActions`, which binds each tag to `flowAction`, so the three-door and agent-parity rules hold, because every flow launch goes through (1).
+- A field the View needs but this page lacks is a spec change. Raise it with the tech lead, who updates §14.3, this page and T-APP-19 together. A field here cites the spec section, check or mock card that needs it.
 - Copy follows §14.6b: product words, card lines of 12 words or fewer, no explanatory sentences.
+
+## Completion gates
+
+Four gates, each closable by its own ticket. No gate waits on a ticket that depends on it.
+
+| Gate | Check | Ticket | Needs | Done when |
+| --- | --- | --- | --- | --- |
+| Schemas and fixtures | [C-UI-08](checks/C-UI-08.md) | T-APP-19 | nothing | every §14.3 row has a schema whose fields match, every fixture parses, retained schemas match their snapshots, and the View-seam and Container rules reject seeded violations |
+| One View | [C-UI-12](checks/C-UI-12.md) | each T-UI ticket | T-APP-19's fixtures | the View renders every fixture of its schema with the actions it is given, in light and dark, at 1280 and 390 px |
+| One Container | [C-UI-13](checks/C-UI-13.md) part A | each wiring ticket | its View and its backend | the Container's model from a real topic parses with the schema, and its actions come from `cardActions` |
+| Stage audit | [C-UI-13](checks/C-UI-13.md) part B | the lead engineer at each stage exit | every wiring ticket of the stage | every §14.3 row of that stage or earlier has a View, a Container and a schema, and no View lacks a row |
+
+A design ticket proves only its View. The journey checks (C-J*) belong to the wiring tickets, which prove the data and the behavior end to end.
 
 ## Order of need
 
-Stage 1 is on the critical path. Within a stage, the order is the order a fresh install meets them in J1 then J2.
+Stage 1 is on the critical path. Within a stage, the order is the order a fresh install meets each component in J1 (mvp.md J1.2–J1.8), then J2, J4, J5 and J11. Design builds in this order, and T-APP-19 delivers schemas in it.
 
-| # | Design ticket | Component | Wiring ticket | Stage | Journeys |
+| # | Design ticket | Component | Wiring ticket | Stage | First need |
 | --- | --- | --- | --- | --- | --- |
-| 1 | [T-UI-01](tickets/T-UI-01.md) | `ActorChip`, `StateWord`, `Tone` primitives | T-APP-09 | S1 | all |
-| 2 | [T-UI-02](tickets/T-UI-02.md) | `SetupView`, `SettingsView` | T-APP-03 | S1 | J1 |
-| 3 | [T-UI-03](tickets/T-UI-03.md) | `DraftView` | T-APP-02 | S1 | J2, J7 |
-| 4 | [T-UI-04](tickets/T-UI-04.md) | `TodoView` (with Needs you forms, conflict view, failure, evidence, PR line, Fork and Add to stack) | T-APP-02, T-STK-08, T-MCH-08 | S1 | J2, J4, J7, J10 |
-| 5 | [T-UI-05](tickets/T-UI-05.md) | `ConfirmView` (`one_click`, `review_merge`) | T-APP-04 | S1 | J2, J4, J6 |
-| 6 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-08 | S1 | J4, J10 |
-| 7 | [T-UI-07](tickets/T-UI-07.md) | Conversation shell: `BranchTree`, `EntryRow`, `ContextLine`, Earlier archive | T-APP-16, T-APP-17 | S1 | all |
-| 8 | [T-UI-08](tickets/T-UI-08.md) | `ToastStack`, `EdgeMap`, `Timeline` (Allow notifications variant at S2) | T-APP-07, T-APP-18 | S1 | all |
-| 9 | [T-UI-09](tickets/T-UI-09.md) | `MembersView` | T-APP-06 | S1 | J1 |
-| 10 | [T-UI-10](tickets/T-UI-10.md) | `FlowView` | T-APP-05 | S1 | J5, J11 |
-| 11 | [T-UI-11](tickets/T-UI-11.md) | `CodeEditorView` (File, read-only) and `DiffView` | T-APP-15 | S1 | J1, J9, J11 |
-| 12 | [T-UI-12](tickets/T-UI-12.md) | `RunView` monitor and Inspect | T-FLW-07 | S1 | J11 |
-| 13 | [T-UI-13](tickets/T-UI-13.md) | `AgentView` and model roles | T-FLW-08 | S1 | J11 |
-| 14 | [T-UI-14](tickets/T-UI-14.md) | `CommandsView` (`/help`) | T-CAT-01 | S1 | all |
-| 15 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
-| 16 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
-| 17 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
-| 18 | [T-UI-18](tickets/T-UI-18.md) | `SecretsView` | T-APP-13 | S2 | J1 |
-| 19 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3, J8 |
-| 20 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
+| 1 | [T-UI-01](tickets/T-UI-01.md) | `ActorChip`, `StateWord`, `Tone` primitives | T-APP-09 | S1 | every card |
+| 2 | [T-UI-02](tickets/T-UI-02.md) | `SetupView`, `SettingsView` | T-APP-03, T-FLW-12 | S1 | J1.2–J1.4 |
+| 3 | [T-UI-07](tickets/T-UI-07.md) | Conversation shell: `BranchTree`, `EntryRow`, `ContextLine`, Earlier archive | T-APP-16, T-APP-17 | S1 | J1.5, the first question |
+| 4 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-08 | S1 | J1.5: `main`'s conversation opens on it |
+| 5 | [T-UI-11](tickets/T-UI-11.md) | `CodeEditorView` (File, read-only) and `DiffView` | T-APP-15 | S1 | J1.5: the answer's file cards |
+| 6 | [T-UI-03](tickets/T-UI-03.md) | `DraftView` | T-APP-02 | S1 | J1.6, J2.2 |
+| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: every state, question and approval forms, failure, evidence, PR line, merge control | T-APP-02 | S1 | J1.6–J1.7 |
+| 8 | [T-UI-08](tickets/T-UI-08.md) | `ToastStack`, `EdgeMap`, `Timeline` (Allow notifications variant at S2) | T-APP-07, T-APP-18 | S1 | J1.6: background progress |
+| 9 | [T-UI-05](tickets/T-UI-05.md) | `ConfirmView` (`one_click`, `review_merge`) | T-APP-04 | S1 | J1.7 by an agent, J6 |
+| 10 | [T-UI-09](tickets/T-UI-09.md) | `MembersView` | T-APP-06 | S1 | J1.8 |
+| 11 | [T-UI-14](tickets/T-UI-14.md) | `CommandsView` (`/help`) | T-CAT-01 | S1 | any journey |
+| 12 | [T-UI-10](tickets/T-UI-10.md) | `FlowView` | T-APP-05 | S1 | J5 |
+| 13 | [T-UI-12](tickets/T-UI-12.md) | `RunView` monitor and Inspect | T-FLW-07 | S1 | J11 |
+| 14 | [T-UI-13](tickets/T-UI-13.md) | `AgentView` and model roles | T-FLW-08 | S1 | J11 |
+| 15 | [T-UI-23](tickets/T-UI-23.md) | `TodoView` repair parts: conflict view, moved-off and outside-push forms, Fork and Add to stack | T-STK-08, T-MCH-08, T-GH-06 | S1 | J7, J10.3 (off the J1/J2 path) |
+| 16 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
+| 17 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
+| 18 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
+| 19 | [T-UI-18](tickets/T-UI-18.md) | `SecretsView` | T-APP-13 | S2 | J1.8 |
+| 20 | [T-UI-21](tickets/T-UI-21.md) | `DocsView` | T-APP-20 | S2 | any journey |
+| 21 | [T-UI-22](tickets/T-UI-22.md) | `DebugApiView` | T-APP-21 | S2 | J11 |
+| 22 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3.5, J8 |
+| 23 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
 
-Kept as built, with no new design work unless design changes them: the Issue card (wired by T-GH-02), the PR card, the Review findings card, the Wiki cards, the flow Form card and the other retained cards spec §14.3.0 names. They keep their existing schemas, and C-UI-08 pins them. A field change to one of them is a spec change that first adds its §14.3 row.
+Retained cards keep their existing schemas and renderers, outside `cards/views/` and the View-seam rule. Spec §14.3.0 lists them with the ticket that owns each one, and C-UI-08 pins their schemas. A field change to one of them is a spec change that first adds its §14.3 row.
+
+## Tone
+
+One table for design and engineering. The host derives tone (§14.5.2); design maps each tone to one Paper token: live is teal, attention is gold, failed is ember, done and quiet are neutral.
+
+| Subject | Tone |
+| --- | --- |
+| TODO starting or working; any run while it executes | live |
+| TODO needs_you; stack attention (`order`, `force_push`); a toast for an approval | attention |
+| TODO failed; a run failed or interrupted | failed |
+| TODO merged; a run done | done |
+| TODO queued, paused, in_review or dropped; an entry with no run | quiet |
+
+In review is quiet. A person is needed only for the first item in order, and its Merge action already says so (design README "One meaning per color"; mvp.md §6.4 names only Needs you gold and failures ember).
 
 ## Shared types
 
 ```ts
-type Via = "smithers" | "claude-code" | "codex" | "ssh" | "terminal" | "cli"
-type Actor =                                   // §14.6a
-  | { kind: "person"; login: string; name: string; avatar_url: string; via?: Via }
-  | { kind: "agent"; role: "coding" | "app" | "fast"; todo?: number }   // "Agent"
-  | { kind: "system"; for?: PersonRef }       // "Smithers", "Smithers, for Ben"
-  | { kind: "github"; login: string }         // "@login" with the GitHub mark
-  | { kind: "outside" }                       // "changed outside Smithers"
 type PersonRef = { login: string; name: string; avatar_url: string }
+type Actor = ( | { kind: "person"; login: string; name: string; avatar_url: string
+                   via?: "ssh" | "terminal" | "cli" }           // "Maya via SSH", "Ben's terminal", "Ben via CLI"
+               | { kind: "agent"; id: string                    // participant id, stable per session or run (§14.6a.1)
+                   agent: "coding" | "reviewer" | "claude-code" | "codex" | "external"
+                   name?: string                                // a step's agent ("planner") or an external agent's name
+                   for?: PersonRef; todo?: number }             // "Claude Code, for Ben"; the TODO when ambiguous
+               | { kind: "system"; for?: PersonRef }            // Smithers, the app agent and the install: "Smithers, for Ben"
+               | { kind: "github"; login: string }              // "@login" with the GitHub mark
+               | { kind: "outside" } )                          // "Changed outside Smithers"
+             & { color_index: number }
+// M-34: every agent doing work is a participant with its own avatar in presence, activity, line flags and terminals.
+// color_index: 0–5 a member's colour, stable per member; an agent or Smithers acting for a member takes that member's;
+// 6 an agent acting for nobody; 7 neutral (GitHub users, outside writes). Design maps indexes to Paper tokens.
 
 type TodoState = "queued" | "starting" | "working" | "needs_you" | "paused"
                | "failed" | "in_review" | "merged" | "dropped"       // §4.1
-type Tone = "live" | "attention" | "failed" | "done" | "quiet"      // §14.5.2
+type Tone = "live" | "attention" | "failed" | "done" | "quiet"      // §14.5.2, the Tone table above
 type NeedsYouKind = "question" | "approval" | "conflict" | "moved_off" | "foreign_push"
+type SyncHealth = "fresh" | "stale" | "limited" | "refused"       // §4.4
+type MachineState = { state: "awake" | "asleep" | "waking" | "closed" }
+                  | { state: "waiting"; position: number }          // "Waiting for a machine · #2"
+                  | { state: "failed"; error: { class: string; message: string } }   // with Retry (§4.2)
+
+type Merge = {                                  // §10.6.2a; one object on TODO, Home rows and Confirm
+  state: "ready" | "waiting" | "blocked" | "merging" | "done"
+  // ready: MergeReady holds. waiting: the block clears by itself (order, rechecking, pending_work,
+  // a required check still running). blocked: a person must act (state, attention, stale_head,
+  // a failed required check, github). merging: the merge fence is set. done: merged.
+  reason?: "state" | "order" | "attention" | "merging" | "rechecking" | "pending_work"
+         | "stale_head" | "checks" | "github"   // MergeReady's first failing row; absent when ready or done
+  detail?: string                               // Tn for order, the check's name for checks, GitHub's text for github
+  on_github: boolean                            // the block is GitHub's (stale_head, checks, github): the control links to the PR
+}
+
+type EvidenceItem =                             // §10.4.3, T-STK-10
+  | { kind: "diff"; files: number; added: number; removed: number }
+  | { kind: "check"; name: string; state: "running" | "passed" | "failed"; took_s?: number; log_url?: string }  // run on the machine
+  | { kind: "github_check"; name: string; state: "pending" | "passed" | "failed"; required: boolean; url: string }
+  | { kind: "review"; summary: string }         // the agent's review summary
+  | { kind: "usage"; tokens: number; time_s: number }
+  | { kind: "flow"; name: string; version: string }   // the attempt's pinned flow version
+  | { kind: "model_access"; label: string }     // "OpenAI key · gpt-5.2", "ChatGPT sign-in" (§15.2)
+type Evidence = { attempt: number
+                  revision: string              // the accepted generation's PR head, short sha
+                  items: EvidenceItem[]
+                  previous?: { revision: string; items: EvidenceItem[] }  // an earlier generation's review, shown
+                                                                          // when its patch-id equals this one's (§10.4.3)
+                  reviewing?: boolean }         // the review of `revision` is running
 
 type Action = {                 // filtered for the viewer by the container
   tag: CatalogTag               // the catalog's tag type (T-CAT-01), opaque to the View
   label: string                 // "Answer", "Merge", "Retry"
+  args?: Record<string, string> // bound by the container, e.g. { n: "12" }; the View passes them back unchanged
   primary?: boolean
   disabled?: { reason: string } // e.g. "Waiting for T8"
   input?: FormField[]           // present when the action needs a form
 }
-type FormField = { name: string; label: string; kind: "text" | "choice" | "secret"; choices?: string[]; required: boolean }
+type FormField = { name: string; label: string; kind: "text" | "choice" | "secret"; choices?: string[]
+                   required: boolean; value?: string; multiline?: boolean }   // value: prefill
 
-type CardProps<M> = {
+type BaseView = { maximized: boolean; tab?: string; filter?: string }
+type CardProps<M, V = {}, G extends string = never> = {
   model: M
-  actions: Action[]
+  actions: Action[]                             // buttons, in order
+  gestures: Partial<Record<G, Action>>          // non-button gestures by name
   onAction: (tag: CatalogTag, input?: Record<string, string>) => void
-  view: { maximized: boolean; tab?: string; filter?: string }
-  onView: (patch: Partial<CardProps<M>["view"]>) => void
+  view: BaseView & V                            // this member's view state (§14.1.2)
+  onView: (patch: Partial<BaseView & V>) => void
 }
 ```
 
@@ -91,27 +165,55 @@ type CardProps<M> = {
 ### T-UI-01 Primitives
 
 ```ts
-type ActorChipProps = { actor: Actor; size: "s" | "m" }
-type StateWordProps = { state: TodoState; step?: string }   // "Working · implement"
+type ActorChipProps = { actor: Actor; size: "s" | "m"; live?: boolean }   // live: the agent is working now (Branch.tsx)
+type StateWordProps = { state: TodoState; step?: string }   // "Working · Implement"
 ```
 
 ### T-UI-02 Setup and Settings (`install` topic)
 
 ```ts
-type StepState = "todo" | "active" | "done" | "failed"
-type SetupModel = {
-  address: { bind: string; origins: string[] }
-  steps: { id: "address" | "repo_owner" | "app_manifest" | "sign_in" | "repository"
-               | "models" | "source" | "machine";
-           state: StepState; error?: { code: string; message: string; fix?: string } }[]
-  this_mac: { chip: string; memory_gb: number; disk_free_gb: number; capacity: number }
-  github: { signed_in: boolean; app_installed: boolean; squash_allowed: boolean }
-  repository?: { owner: string; name: string }
-  models: { fast: boolean; coding: boolean; jev: boolean }    // access flags
-  source: { state: StepState; pct: number }
-  machine: { state: StepState; pct: number }
+// One step identity and order: spec §16.2 and T-INS-06 steps 0–6. T-INS-06 stores each step under `setup.<id>`
+// and reports these states, so the container passes them through with no mapping. The squash check runs inside
+// `repository` and blocks it with its fix link (§10.6.2); §16.2 step 1 is the setup session itself.
+type SetupStepId = "address" | "app" | "sign_in" | "repository" | "models" | "source" | "machine"
+type SetupStep = {
+  id: SetupStepId
+  state: "pending" | "running" | "done" | "blocked" | "failed"   // a step's control enables when the step before it is done
+  blocked?: { line: string; fix_url: string }      // "Enable squash merging on GitHub ↗"
+  error?: { class: string; message: string }       // §6.2.3; the row shows Retry
+  pct?: number                                     // source and machine while running
 }
-type SettingsModel = SetupModel & { capacity: number; parallel: number; laptop_line: string }
+type ModelRole = {
+  role: "fast" | "coding" | "jev"                  // visible: "Fast model", "Coding model", "Jev" (mvp.md §6.5)
+  provider: string                                 // "Cerebras", "OpenAI", "AI Gateway"
+  key: "none" | "validating" | "saved" | "failed"  // jev's key field reads "AI Gateway key"
+  error?: string                                   // the provider's reason, from the typed error (§6.2.3)
+}
+type SetupModel = {
+  address: { listen: "mac" | "network"; bind: string; origins: string[] }   // §16.3.1
+  steps: SetupStep[]                               // all seven, in order
+  this_mac: { memory_gb: number; disk_free_gb: number; capacity: number
+              limit?: { term: string; fix: string } }   // capacity 0: the limiting term and its fix (§8.2.1a)
+  github: { owner?: string                        // the account that owns the repository, asked in `app` (§12.1.1)
+            signed_in: boolean; app_installed: boolean; squash_allowed?: boolean }
+  repository?: { owner: string; name: string }
+  repositories?: string[]                          // choices while the repository step runs
+  models: ModelRole[]                              // fast, coding, jev
+  chatgpt: boolean                                 // coding may use the owner's ChatGPT sign-in (§15.2)
+}
+type SettingsModel = SetupModel & {
+  capacity: number; parallel: number               // the Machines and TODOs at once steppers (§8.2.1, §10.3.1)
+  laptop_lines: string[]                           // `smthrs login <origin>`, one per origin
+  notifications_need_https: boolean                // the viewer's origin is plain HTTP and not localhost (§14.6)
+  health: { process: "ok" | "degraded"; postgres_bytes: number; disk_free_gb: number
+            github: { health: SyncHealth; cause?: string; retry_at?: string
+                      rate_remaining: number; rate_limit: number } }   // §20.2, T-APP-03
+  obsidian?: { path: string; last_sync_at?: string; error?: string }   // [S2] T-FLW-12
+}
+// Setup buttons: each step's one control, Retry on a failed step. Settings buttons: Change (models), Repair (GitHub),
+// the two steppers, the Obsidian folder field, and "Notifications need HTTPS ↗" (the `docs` action with
+// args { page: "quickstart#put-https-in-front" }, C-UI-09 step 3; absent until `/docs` ships at S2).
+// Copy lines use copyText.
 ```
 
 ### T-UI-03 Draft
@@ -128,7 +230,10 @@ type DraftModel = {                  // spec §14.3 Draft
   committed?: { n: number; rev: number }   // rev 1: "Committed <title>"; rev > 1: "+1" on Tn
   private: boolean                   // true until Commit: only the author sees it
 }
-// buttons: Commit ("Commit puts it on the stack as T12"), Discard. Make TODO is the Issue card's button that opens a Draft.
+type DraftViewProps = CardProps<DraftModel, {}, "set">
+// gestures.set: a field edit, sent on blur as { field: "title" | "prompt" | "acceptance" | "place" | "fixes", value }
+// (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
+// Make TODO is the Issue card's button that opens a Draft.
 ```
 
 ### T-UI-04 TODO (`todo:<n>` topic)
@@ -136,36 +241,40 @@ type DraftModel = {                  // spec §14.3 Draft
 ```ts
 type TodoModel = {
   n: number; title: string; state: TodoState; owner: PersonRef
-  place: number; queue?: { reason: "machine" | "merge_order" | "rebase"; after?: number; position: number }  // View renders the copy (spec §4.1.1)
-  step?: string                                   // current flow step
-  prompt_revisions: { text: string; by: Actor; at: string }[]
-  acceptance: string[]
-  issue?: { number: number; url: string }
-  branch: { id: string; name: string }
+  place?: number                                  // 1 is next to merge; absent once merged or dropped
+  queue?: { reason: "machine" | "merge_order" | "rebase"; after?: number; position: number }  // View renders the copy (spec §4.1.1)
+  rebase_pending?: { onto: string }               // "Rebase pending onto T2" (§4.2)
+  step?: string                                   // the current step's label
+  prompt_revisions: { text: string; acceptance: string[]; by: Actor; at: string }[]   // revision 1 first; later ones show as "+n"
+  issue?: { number: number; url: string; fixes: boolean }   // "from #i"; "closed #i" once merged when fixes
+  branch: { id: string; name: string; machine: MachineState }
+  present: Actor[]                                // everyone on its branch, agents included (M-34)
   steps: ( { id: string; label: string; detail?: string
-              state: "done" | "current" | "todo" | "failed" | "waiting" | "paused" }
-          | { id: "merge"; kind: "wait"; state: "held" | "done" | "todo"; since?: string } )[]
+              state: "done" | "current" | "next" | "failed" | "waiting" | "paused" }
+          | { id: "merge"; kind: "wait"; state: "held" | "done" | "next"; since?: string } )[]
                                                   // the run's trailing wait for merge (spec §10.4.1)
-  run?: { attempt: number
+  run?: { id: string; attempt: number
           indicators: { tone: "wait" | "thrash"; text: string }[] }
                                                   // "Waiting for a person since 10:42";
                                                   // "Thrashing: TestRetryBackoff failed 3×" (spec §11.6.4)
-  needs_you?: { kind: NeedsYouKind; prompt: string; since: string
-                paths?: string[]                  // conflict
-                by?: Actor; sha?: string }        // foreign_push, moved_off
-  first_answer?: { by: Actor; text: string; at: string }
+  waits: { id: string; kind: NeedsYouKind; prompt: string; since: string
+           paths?: string[]                       // conflict
+           by?: Actor; sha?: string               // foreign_push, moved_off
+           actions: Action[] }[]                  // every open wait, primary first (§4.1.0a), each with its own action
+  first_answer?: { by: Actor; text: string; at: string }   // "Ben answered" after the latest question settled
+  steers: { text: string; by: Actor; at: string }[]        // authored steers, in order (§10.7.3, C-J3-05)
   failure?: { step: string; class: string; message: string; retryable: boolean }
-  evidence: { attempt: number; items: { kind: string; label: string; url?: string }[] }[]
+  evidence: Evidence[]                            // one per attempt that has any, oldest first (§10.4.3, C-J2-04)
   pr?: { number: number; url: string; head: string; draft: boolean; draft_after?: number
-         checks: "pending" | "passing" | "failing"; reviews: { by: Actor; verdict: string }[]
-         included_items: number[] }
+         included_items: number[] }               // "Includes T3, T4 until they merge" (§12.5.1)
+  merge: Merge
+  approval_cleared?: boolean                      // "Approval cleared by rebase · checks rerun"
   merged_via?: number                             // "Merged · in T15's commit"
-  merge: { state: "ready" | "waiting" | "blocked" | "merging" | "done"; reason?: string }
-  amendments: number; lessons: number
+  lessons?: number                                // absent while learning runs
 }
-// buttons by state: Answer, Steer, Stop, Resume, Retry, Retry with the current flow,
-// Drop, Amend, Merge, Review & merge, Resolve, Done (conflict), Fork, Add to stack,
-// Rebase now, Bring in, Discard
+// buttons by state (T-UI-04): Answer, Send as steer, Steer, Stop, Resume, Retry, Retry with the current flow,
+// Drop, Amend, Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
+// in local state behind Send as steer. T-UI-23 builds Resolve, Done (conflict), Bring in, Discard, Fork, Add to stack.
 ```
 
 ### T-UI-05 Confirm (`confirmations:<member>` topic)
@@ -173,38 +282,47 @@ type TodoModel = {
 ```ts
 type ConfirmModel = {
   kind: "one_click" | "review_merge"
-  action: { tag: CatalogTag; verb: string }           // the button reads the verb
+  action: { tag: CatalogTag; verb: string }       // the button reads the verb
   summary: string                                 // one line
-  subject: { kind: "todo" | "branch" | "flow" | "secret" | "member"; ref: string; revision: string }
-  place?: number
-  checks_line?: string
-  asked_by: Actor                                 // "Ben via Claude Code"
-  receipt?: { by: PersonRef; result: "done" | "cancelled" | "stale"; at: string }
+  subject: { kind: "todo" | "branch" | "flow" | "agent" | "wiki"; ref: string; revision?: string }
+                                                  // the A✓ commands (Appendix B legend); members, secrets
+                                                  // and settings are agent: never and have no confirmation
+  text?: string                                   // one_click: the exact words the command sends
+  asked_by: Actor                                 // "Claude Code, for Ben"
+  review?: { title: string; place: number; pr: { number: number; url: string }
+             evidence: Evidence                   // the subject revision's evidence, each check shown (Confirm.tsx)
+             approved_revision?: string           // "You approved 1b2c3d4; it is now at 9e8f7a6"
+             merge: Merge }                       // review_merge only
+  receipt?: { by: PersonRef; result: "done" | "cancelled" | "expired"; at: string; text?: string }   // "Steered T9"
 }
-// buttons: the verb (one_click) or Review & merge, and Cancel
+// buttons: the verb (one_click) or Merge / Review & merge, on GitHub ↗, and Cancel
 ```
 
 ### T-UI-06 Home (`home` topic)
 
 ```ts
 type HomeModel = {
+  repository: string                              // the card title
   main: { sha: string; title: string; last_success_at: string
-          health: "ok" | "stale" | "refused"; cause?: string; retry_at?: string }
-  attention: { kind: "order" | "force_push"; text: string; todo?: number }[]
-  items: (Pick<TodoModel, "n" | "title" | "state" | "owner" | "place" | "queue" | "step"
-                        | "amendments" | "lessons"> & {
+          health: SyncHealth; cause?: string; retry_at?: string }   // limited: "retries at 10:42"; refused: cause and Fix
+  attention: { kind: "order" | "force_push"; text: string; todo?: number; actions: Action[] }[]
+  items: (Pick<TodoModel, "n" | "title" | "state" | "owner" | "place" | "queue" | "step" | "rebase_pending"
+                        | "merge" | "approval_cleared" | "lessons"> & {
            needs_you?: { kind: NeedsYouKind; prompt: string }
-           merge_block?: string; pr?: { number: number; draft: boolean }
-           approval_cleared?: boolean
-           branch: string; present: PersonRef[]; elapsed_s: number
-           actions: Action[] })[]                 // each row's one action
+           pr?: { number: number; draft: boolean }
+           branch: { id: string; name: string }
+           present: Actor[]; elapsed_s?: number   // elapsed while live
+           amendments: number
+           actions: Action[] })[]                 // the row's one action, then the ⋯ menu: Move up, Move down, Drop
   counts: Record<TodoState, number>
   merged_since_last_look: number[]
-  machines: { in_use: number; capacity: number }
+  machines: { in_use: number; capacity: number
+              slots: { branch: string; actor: Actor; awake: boolean }[] }   // who holds each machine (Home.tsx)
   parallel?: number                               // owner only
-  background_runs: { id: string; title: string; state: "queued" | "running" | "waiting" | "failed"; detail: string }[]
+  background_runs: { id: string; title: string; state: "queued" | "running" | "waiting" | "failed"
+                     detail?: string; actions: Action[] }[]   // Retry and Dismiss on a failed run (B.4)
 }
-// buttons: Retry (main sync), Retry and Dismiss (background runs), Move (reorder), plus each row's one action
+// buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions
 ```
 
 ### T-UI-07 Conversation shell
@@ -213,34 +331,45 @@ type HomeModel = {
 // Open branches only; a closed branch's conversation opens from its merged TODO.
 // "earlier" is the single read-only node for legacy per-member conversations (spec §14.1.5).
 type BranchTreeNode = { id: string; name: string; kind: "main" | "item" | "scratch" | "earlier"
-                        todo?: number; present: PersonRef[]; children: BranchTreeNode[] }
+                        todo?: number; state?: TodoState; present: Actor[]; children: BranchTreeNode[] }
 type EntryRowProps = {
+  kind: "prompt" | "answer" | "card" | "event"
   author: Actor; title: string; summary?: string; tone: Tone; state?: TodoState
-  context?: { count: number; items: { kind: "file" | "page" | "issue" | "entry"; label: string; ref: string }[] }
+  context?: { count: number; items: { kind: "file" | "page" | "todo" | "run" | "issue"; label: string
+                                      ref: string; revision?: string }[] }   // §15.1.2 context[]
   action?: Action; private?: boolean; card?: React.ReactNode
+  onAction: CardProps<unknown>["onAction"]
 }
-type ContextLineProps = { count: number; items: EntryRowProps["context"] extends infer C ? NonNullable<C>["items"] : never; expanded: boolean }
+type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["context"]>["items"]; expanded: boolean
+                          onView: (patch: { expanded: boolean }) => void }
 ```
 
 ### T-UI-08 Toasts, edge map, timeline
 
 ```ts
-type Toast = { id: string; title: string; tone: Tone; action?: Action; entry_id: string
+type Toast = { id: string; title: string; detail?: string; tone: Tone; action?: Action; entry_id: string
                kind: "needs_you" | "approval" | "in_review" | "failed" | "conflict" | "merged"
                    | "progress" | "allow_notifications" }
-type ToastStackProps = { toasts: Toast[]; more: number; onAction: CardProps<unknown>["onAction"]; onHide: (id: string) => void }
-type EdgeMapProps = { above: Toast[]; below: Toast[]; narrow: boolean }   // two rows max plus a count
-type TimelineProps = { lines: { entry_id: string; title: string; summary?: string; tone: Tone }[]
-                       on_screen: [first: string, last: string]; onJump: (entry_id: string) => void }
+type ShellView = { toast_hidden?: string; jump_to?: string }   // per-member view state (§14.4.2, §14.5.4)
+type ToastStackProps = { toasts: Toast[]; more: number; onAction: CardProps<unknown>["onAction"]
+                         onView: (patch: ShellView) => void }   // Hide: onView({ toast_hidden: id })
+type EdgeMapProps = { above: Toast[]; below: Toast[]; narrow: boolean   // two rows max plus a count
+                      onAction: CardProps<unknown>["onAction"]; onView: (patch: ShellView) => void }
+type TimelineProps = { lines: { entry_id: string; kind: EntryRowProps["kind"]; title: string; summary?: string; tone: Tone }[]
+                       on_screen: [first: string, last: string]
+                       onView: (patch: ShellView) => void }  // a click: onView({ jump_to: entry_id })
 ```
 
 ### T-UI-09 Members (`members` topic)
 
 ```ts
-type MembersModel = { members: { login: string; name: string; avatar_url: string
+type MembersModel = { members: { login: string; name: string; avatar_url: string; color_index: number
                                  role: "owner" | "maintainer" | "member"
-                                 needs_access: boolean; suspended: boolean }[] }
-// buttons: Add (by username), Role, Suspend, Remove
+                                 needs_access: boolean            // never had write access on GitHub
+                                 suspended: boolean               // lost it; suspension is automatic (M-05, §5.1.3)
+                                 actions: Action[] }[]            // Role, Remove
+                      access_url: string }                        // the repository's GitHub access settings
+// buttons: Add (by username), Role, Remove. Every Members command is person-only (agent: never).
 ```
 
 ### T-UI-10 Flow (`flows` topic)
@@ -260,11 +389,37 @@ type FlowModel = {
 ### T-UI-11 File (read-only) and Diff
 
 ```ts
-type FileModel = { path: string; text: string; language: string; last_writer?: Actor
-                   diagnostics: { line: number; severity: "error" | "warning"; message: string }[] }
-type DiffModel = { path: string; base: string; hunks: { header: string; lines: { op: " " | "+" | "-"; text: string }[] }[] }
-// gestures (catalog code.hover, code.definition, code.diagnostics): the View raises
-// onAction with {path, line, col}; the container passes hover and definition results back as props
+type FileModel = FileBase & FileStates & CoEdit  // one schema, `FileCard.ts`; S2 and S3 fields are absent or empty before their stage
+type FileBase = {                                 // `branch:<id>:files` (§14.3 File)
+  path: string; branch: string; language: string; digest: string
+  content: { kind: "text"; text: string }         // UTF-8
+         | { kind: "too_large"; bytes: number; text: string }   // over 1 MiB: read-only, "too large to co-edit" (§9.2.1)
+         | { kind: "binary"; bytes: number }      // no editor
+  mode: "read_only" | "live"                      // live only at S3, for text up to 1 MiB
+  last_writer?: Actor
+  diagnostics: { line: number; col?: number; severity: "error" | "warning"; message: string }[]
+  hover?: { line: number; col: number; markdown: string }   // the result of the last hover gesture
+  reveal?: { line: number; col?: number; to_line?: number } // a same-file definition, or a cited range
+}
+type FileView = { line?: number; compare?: boolean }         // the viewer's cursor line feeds presence {path, line} (§7.6)
+type CodeEditorViewProps = CardProps<FileModel, FileView, "hover" | "definition">
+                         & { binding?: EditorBinding }       // present only when mode is live (T-UI-19)
+// Gestures: hover raises onAction(gestures.hover.tag, { path, line, col }); the container answers through
+// `hover`. Definition raises onAction(gestures.definition.tag, { path, line, col }); the container opens the
+// target's File card, or sets `reveal` when the target is in this file. line is 1-based; col counts UTF-16 units.
+// Read-only mode: a changed content.text applies to the same EditorView as one minimal transaction, with no
+// remount, so scroll and the cursor line survive (T-APP-11).
+
+type DiffModel = {
+  path: string; branch: string
+  against: { kind: "item_base"; rev: string }     // an item: the previous item's candidate (§12.5.1)
+         | { kind: "fork"; rev: string }          // a scratch branch: its fork revision (§8.5.3b)
+         | { kind: "burst"; burst: string; actor: Actor; at: string }   // one burst, before → after (§9.3.4)
+  change: "added" | "modified" | "deleted" | "renamed"; renamed_to?: string
+  binary?: { before_bytes: number; after_bytes: number }
+  hunks: { old_start: number; new_start: number; lines: { op: " " | "+" | "-"; text: string }[] }[]
+}
+// buttons: Restore this file (against.kind burst only, §9.3.5)
 ```
 
 ### T-UI-12 Run monitor and Inspect (`run:<id>` topic)
@@ -272,30 +427,47 @@ type DiffModel = { path: string; base: string; hunks: { header: string; lines: {
 ```ts
 type PhaseTone = "live" | "ok" | "fail" | "thrash" | "wait"
 type RunModel = {
-  id: string; flow: string; version: string
+  id: string; flow: string; version: string; title: string
+  todo?: number; branch?: string
   state: "running" | "waiting" | "held" | "failed" | "done" | "interrupted"
   held?: { since: string }                        // the trailing wait for merge
-  attempts: { n: number; state: string
-              graph: { id: string; label: string; state: string; deps: string[] }[] }[]
-  steps: { id: string; label: string; state: string; started_at?: string; ended_at?: string
-           input?: unknown; output?: unknown; agent?: string }[]
-  phases: { step: string
-            title: string                         // deterministic: the step plus its recorded output,
+  attempts: {                                     // a TODO's attempts oldest first; one for any other run
+    n: number; run_id: string; state: "running" | "waiting" | "held" | "failed" | "done" | "interrupted"
+    graph: { id: string; label: string; state: "done" | "current" | "waiting" | "failed" | "next" | "held"
+             deps: string[] }[]
+    steps: { key: string                          // stable per step instance: "<step id>#<k>"
+             id: string; k: number                // the flow step, and its k-th execution in this attempt
+             label: string; state: string; started_at?: string; ended_at?: string; took_s?: number
+             input?: unknown; output?: unknown; agent?: Actor
+             usage?: { tokens: number; cost_usd: number } }[]   // absent for a step with no model call (C-J11-01)
+    phases: { id: string; step: string            // stable id; step is the step instance key
+              title: string                       // deterministic: the step plus its recorded output,
                                                   // e.g. "Ran checks · 2 failed" (spec §11.6.3)
-            summary?: string                      // agent:fast one-liner, rendered as a model summary;
+              summary?: string                    // agent:fast one-liner, rendered as a model summary;
                                                   // absent while pending or failed: the View shows the title alone
-            took_s: number; tone: PhaseTone; indicator?: string }[]
-  cells: { phase: number
-           kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "reviewer" | "rebase"
-           label: string                          // deterministic, e.g. "Read retry.ts", "Ran pnpm test · 1 failed"
-           explain?: string                       // agent:fast explanation of an agent-written cell, rendered as a
+              took_s: number; tone: PhaseTone; indicator?: string
+              cells: { id: string                 // stable
+                       kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "reviewer" | "rebase"
+                       label: string              // deterministic, e.g. "Read retry.ts", "Ran pnpm test · 1 failed"
+                       explain?: string           // agent:fast explanation of an agent-written cell, rendered as a
                                                   // model summary; absent: the label stands alone
-           code?: string; output?: string; quote?: string
-           tone?: PhaseTone; took_s?: number; tokens?: number; actor?: Actor }[]
-  waits: { id: string; label: string; since: string }[]
+                       code?: string; output?: string; quote?: string
+                       tone?: PhaseTone; took_s?: number; tokens?: number; actor?: Actor }[] }[]
+  }[]
+  waits: { id: string; kind: "question" | "approval" | "pause" | "sleep" | "signal" | "external_job"
+           label: string; since: string
+           settled?: { by: Actor; at: string } }[]   // "answered by Ben", and when (C-J11-01)
   tokens: number; time_s: number; cost_usd: number
   engine: { label: string; detail: string }[]     // Appendix C labels, collapsed row
+  journal?: { seq: number; at: string; type: string; step?: string; text: string }[]
+                                                  // read-only; the container loads it when view.tab is "journal"
+  replay?: { at: number; last: number }           // journal seqs; at < last while scrubbing; the container
+                                                  // re-projects the model at `at` and sends no write (§11.6.2)
 }
+type RunView = { selected?: string; at?: number }  // the selected cell id; the scrubber position
+type RunViewProps = CardProps<RunModel, RunView> & { custom?: React.ReactNode }
+// custom: the flow's declared view (the descriptor's `presentation`, §11.6.2), rendered by the container
+// and placed by the View as the "View" tab. buttons: Inspect, Steer, Stop, Retry (interrupted)
 ```
 
 ### T-UI-13 Agent and model roles
@@ -306,6 +478,7 @@ type AgentModel = {
   instructions_path: string                       // TODO-flow prompts beside the flow source;
                                                   // ".smithers/instructions/app.md" for the app agent (spec §11.5a)
   role: "fast" | "coding" | "jev"; model: string; provider: string; available: string[]
+                                                  // visible role names: "Fast model", "Coding model", "Jev" (mvp.md §6.5)
   runs: { id: string; title: string; state: string; at: string }[]   // runs it took part in
   owner: boolean
 }
@@ -316,67 +489,145 @@ type AgentModel = {
 
 ```ts
 type CommandsModel = { groups: { label: string; advanced: boolean
-                                 commands: { tag: CatalogTag; title: string; agent: "run" | "confirm" | "never" }[] }[] }
+                                 commands: { tag: CatalogTag
+                                             synopsis: string       // "/todo.answer Tn"
+                                             description: string    // "Answer the agent's question" (Appendix A)
+                                             agent: "run" | "confirm" | "never" }[] }[] }
 ```
 
 ### T-UI-15 Branch (`branch:<id>`, `:activity`, `:files`) [S2]
 
 ```ts
 type BranchModel = {
-  id: string; name: string; item?: { n: number; place: number }; scratch: boolean
-  machine: { state: "asleep" | "waking" | "awake" | "sleeping"; wait_position?: number }
-  rebase_pending: boolean
+  id: string; name: string
+  item?: { n: number; title: string; state: TodoState; step?: string; place: number }
+  scratch?: { forked_from: { kind: "main" } | { kind: "item"; n: number; title: string }
+                         | { kind: "branch"; name: string } }   // Add to stack: "after Tn" or "at the end" (§8.5.3)
+  machine: MachineState                           // §4.2: awake, asleep, waking, waiting #n, closed; failed with Retry
+  rebase?: { state: "pending"; onto: string
+             waiting_for?: { actor: Actor; terminal: string } }   // a freeze timed out (§9.4.2): "Waiting for a write
+                                                  // in Ben's terminal"; the container sends it only to the member who pressed
+         | { state: "rebasing"; onto: string }    // "Rebasing…", under 2 s
+         | { state: "conflict"; onto: string; paths: string[] }   // scratch only (§8.5.2b): Resolve, Done
   moved_off?: { by: Actor; item: number }
-  presence: { actor: Actor; where?: { path: string; line?: number }; watching?: string }[]
-  terminals: { id: string; owner: Actor; command?: string }[]
-  activity: { id: string; actor: Actor; asked_by?: Actor                 // spec §3 activity
+  presence: { actor: Actor                        // people and agents (M-34)
+              where: { kind: "file"; path: string; line?: number } | { kind: "terminal"; id: string }
+                   | { kind: "step"; label: string } | { kind: "branch" }   // §7.3.1
+              watching?: string }[]               // a terminal id
+  terminals: { id: string; title: string; owner: Actor; agents: Actor[]; watchers: Actor[]
+               command?: string; frozen: boolean }[]   // frozen: "Rebasing…" (§9.4.2)
+  activity: { id: string; actor: Actor; asked_by?: Actor               // spec §3 activity
               kind: "step" | "steer" | "question" | "answer" | "edit" | "change"
                   | "github" | "rebase" | "read" | "context"
               text: string; items?: string[]       // read paths, context labels
-              files: number; github?: boolean; at: string }[]
-  changed_files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; renamed_to?: string }[]
+              files?: number; github?: boolean; at: string
+              actions: Action[] }[]               // a change or edit entry opens its burst's diff (§9.3.4)
+  changed_files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; renamed_to?: string
+                   authors: Actor[] }[]
   ssh_line: string
 }
-// buttons: Sleep, Wake, Return to Tn, Keep for now, Fork, Rebase now
+// buttons: Sleep, Wake, Retry (failed machine), Return to Tn, Keep for now, Fork, Add to stack, Rebase now,
+// Resolve, Done (scratch conflict), New terminal, Steer, Answer
 ```
 
 ### T-UI-16 File and Diff states [S2]
 
 ```ts
-type FileState = { reloading: boolean; gone?: { by: Actor }; renamed_to?: string
-                   outside?: { snapshot: string } }       // "Changed outside Smithers · Compare"
-// buttons: Restore this file, Compare, Restore (deleted), Follow (renamed)
+type FileStates = {
+  gone?: { kind: "deleted"; by: Actor } | { kind: "renamed"; to: string; by: Actor }   // Restore, Follow (§9.2.6)
+  outside?: { version: string; at: string }       // "Changed outside Smithers · Compare": the outside version
+                                                  // that Compare reads (§9.2.3)
+}
+// buttons: Restore (deleted), Follow (renamed), Compare. Restore this file is on the burst Diff (T-UI-11).
 ```
 
 ### T-UI-17 Terminal [S2]
 
 ```ts
-type TerminalModel = { id: string; owner: Actor; watchers: PersonRef[]; command?: string
-                       viewer_is_owner: boolean }
+type TerminalModel = { id: string; title: string; branch: string
+                       owner: Actor; agents: Actor[]              // agents working in it, e.g. Claude Code, for Ben (M-34)
+                       watchers: Actor[]; command?: string
+                       viewer_is_owner: boolean
+                       frozen: boolean }                          // "Rebasing…" while a rebase freezes it (§9.4.2)
 // the stream is a separate prop: { write: (bytes) => void; onData: (cb) => void }; input only when viewer_is_owner
 ```
 
 ### T-UI-18 Secrets [S2]
 
 ```ts
-type SecretsModel = { secrets: { name: string; scope: "repo" | "branch"; hosts?: string[] }[] }
-// buttons: Add, Replace, Remove (values are write-only; Add and Replace take optional Hosts)
+type SecretsModel = { secrets: { name: string
+                                 scope: "all_branches" | "main_only"   // "all branches", "main only" (§8.8, mvp.md §6.15)
+                                 hosts?: string[]                      // egress-bound hosts (§8.8.0)
+                                 actions: Action[] }[] }               // Replace, Delete
+// buttons: Add (name, value, scope, optional hosts). Values are write-only.
 ```
 
 ### T-UI-19 Co-editing [S3]
 
 ```ts
-type CoEditProps = { authors: { actor: Actor; color: string }[]
-                     editors: { actor: Actor; line: number }[]
-                     saved: "saving" | "saved" | "stale" }
-// the Yjs binding is engineering's; design styles author colors, gutter flags and the Saved state
+type CoEdit = {
+  authors: Actor[]                                // index i colours AuthorRange.author === i
+  editors: { actor: Actor; line: number }[]       // a gutter name flag per remote editor line: from presence
+                                                  // at S2 (§7.6), from awareness at S3 (§7.4.5)
+  saved?: "saving" | "saved"                      // from the daemon's `saved` frames only (§7.4.6)
+  unsaved?: { count: number; text: string }       // a recovered document lost these edits:
+                                                  // "N edits weren't saved", Reapply and Copy (§7.4.6)
+}
+// Seam module `packages/smithers/ui/src/adapters/code-editor/seam.ts` (T-APP-15 writes it; design reviews):
+type EditorBinding = { extensions: Extension[] }  // engineering's non-visual CodeMirror extensions: the
+                                                  // y-codemirror.next sync and the own-edits UndoManager (T-APP-14)
+type AuthorRange = { from: number; to: number; author: number }   // document offsets; author indexes CoEdit.authors
+// export const authorRanges: Facet<AuthorRange[]>  (engineering's binding provides it; design's decorations read it)
+// Design owns every visual extension: author colours, gutter flags, the Saved state, the gone banners.
+// buttons: Reapply (an action; it re-adds the edits as new attributed edits), Copy (copyText)
 ```
 
 ### T-UI-20 Proposal and lessons receipt [S3]
 
 ```ts
 type ProposalModel = { id: string; title: string; evidence: string[]; refs: { label: string; url: string }[]
-                       state: "open" | "accepted" | "dismissed" }
+                       state: "open" | "accepted" | "dismissed"
+                       todo?: { n: number; title: string } }   // the TODO it became (Learning.tsx)
 type LessonsReceipt = { todo: number; lessons: { title: string; ref: string }[] }
-// buttons: Accept, Dismiss
+// buttons: Make TODO, Dismiss (`learning.accept`, `learning.dismiss`, B.4)
+```
+
+### T-UI-21 Docs (`/docs`) [S2]
+
+```ts
+type DocsModel = {                                // T-APP-20, M-35; bundled pages, no fetch
+  toc: { slug: string; title: string }[]          // `apps/app/src/docs/toc.ts`, in order
+  page: { slug: string; title: string; summary: string; markdown: string }
+  anchor?: string                                 // a heading slug to scroll to
+  not_found?: string                              // the requested slug; the first page shows with a not-found state (C-UI-09)
+}
+type DocsViewProps = CardProps<DocsModel, {}, "open">
+// gestures.open: a toc entry or an in-page `.md` link raises onAction(gestures.open.tag, { page: "<slug>#<anchor>" })
+// (the `docs` flow). The View renders `markdown` through the wiki's read-only renderer.
+```
+
+### T-UI-22 Debug API (`/debug-api`) [S2]
+
+```ts
+type DebugApiModel = {                            // T-APP-21, M-36; person-only
+  operations: { id: string; method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE"
+                path: string; summary: string; group: string }[]   // every documented operation (docs/api/openapi.yaml)
+  selected?: string                               // an operation id
+  pending?: { method: string; path: string }      // a mutation waiting for its in-card confirmation; nothing sent yet
+  exchange?: { request: { method: string; url: string; headers: [string, string][]; body?: string }
+               response?: { status: number; headers: [string, string][]; body: string; duration_ms: number }
+               failure?: { class: string; message: string; status?: number } }   // typed, e.g. a 401 (C-UI-10)
+}
+type DebugApiView = { selected?: string }         // picking an operation: onView({ selected })
+// buttons: Send, whose `input` is the form generated from the operation's parameters and request body
+// (a JSON body is a multiline field); then, for a mutation, Confirm <METHOD> <path> and Cancel.
+```
+
+### T-UI-23 TODO repair forms
+
+```ts
+// No model of its own: TodoModel (§ T-UI-04). It renders the waits[] of kind conflict (paths; the S1 conflict
+// view with the terminal and SSH line), moved_off (by) and foreign_push (by, sha), and the card's Fork and
+// Add to stack actions (§8.5, §9.3.8, §10.5.4, §12.3).
+// buttons: Done and, from S2, Resolve (conflict); Resolve (moved_off); Bring in and Discard (foreign_push); Fork; Add to stack
 ```

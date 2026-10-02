@@ -51,6 +51,7 @@ Out:
 - [C-J2-01](../checks/C-J2-01.md): the Draft card drafted from an issue is edited, placed and committed once.
 - [C-J4-02](../checks/C-J4-02.md): answer, merge next and retry with a steer from the TODO card while chatting.
 - [C-J9-01](../checks/C-J9-01.md): an answer's Make TODO and Save to wiki work.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Spec gap: §14.3 TODO does not list `failure`, the issue link with `fixes_issue`, or the branch, though `todos` stores them (§3). The tech lead adds them to the model; the card reads them from it.

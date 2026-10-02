@@ -1,6 +1,6 @@
 # C-SEC-03 Issue admission by issue text, role and door; outsider text never reaches a run uninvited
 
-Proves: mvp.md §8 (contributor trust rules kept from launch), §14 trust rules, §6.3 (label row), J2.2, M-05 · spec.md §5.1.2, §6.1.2b, §10.2.1, §10.2.1a, §10.2.1b, §12.3 (issue labeled `todo`; comments), §12.4.1, §17.1, §17.5 · Layer: integration · Stage: S1 · Tickets: T-STK-09, T-GH-02
+Proves: mvp.md §8 (contributor trust rules kept from launch), §14 trust rules, §6.3 (label row), J2.2, M-05 · spec.md §5.1.2, §6.1.2b, §10.2.1, §10.2.1a, §10.2.1b, §12.3 (issue labeled `todo`; comments), §12.4.1, §17.1, §17.5 · Layer: integration · Stage: S1 · Tickets: T-STK-09
 Automation: `packages/backend/internal/services/todo_trust_db_test.go` (new) · Runs in: CI (real PostgreSQL, the fake GitHub REST and GraphQL server with the issue-events list, the real `jobs` store, the real catalog dispatch for the app and CLI doors)
 
 ## Setup

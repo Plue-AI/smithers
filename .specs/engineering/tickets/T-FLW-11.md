@@ -1,6 +1,6 @@
 # T-FLW-11 One `todo` run per attempt: composition flow over coding steps, the candidate handshake and the post-propose wait
 
-Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12 · Unblocks T-STK-05, T-STK-06, T-FLW-03, T-FLW-04, T-FLW-05 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
+Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-STK-07, T-GH-09 · Unblocks T-STK-05, T-STK-06, T-STK-10, T-FLW-03, T-FLW-04, T-FLW-05 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
 Spec: spec.md §10.4.1, §10.4.1a, §10.4.4, §10.4.5, §11.1, §11.4 · Delta: delta.md §6 · Product: mvp.md §6.9, §6.12, J5, M-30
 
 ## Goal
@@ -17,6 +17,7 @@ Out:
 - `/flow.edit` (T-FLW-05).
 - Activation and pinning (T-FLW-03, T-FLW-04).
 - Learning (T-FLW-06).
+- Host execution of repository flows, image detection, public flow-library API changes and a second run for a coding phase.
 
 ## Changes
 - `flows/todo/flow.ts` (new): the composition, about 60 lines. It imports steps from `flows/coding/` exports.
@@ -30,7 +31,7 @@ Out:
 - Integration (real flow host, fake GitHub): a TODO runs end to end as one run id. A rebase signal re-enters `candidate` and check and re-proposes without a new run, an `edited` signal re-enters `candidate`, a steer re-enters implement, and `merged` ends the run.
 - Integration: C-STK-06 parts A-D on the real composition. An edit during check, an edit during capture, a steer during check and a `main` move during check each refuse `stack.propose`, and the run re-enters `candidate` or `implement` on the same run id.
 - Fault: kill the host between `stack.propose` and the PR open. On restart the run resumes waiting, and the PR opens exactly once (outbound key, T-GH-09).
-- Unit: the composition's step graph equals route → plan → implement → candidate → check → review → propose, with the loop edges of spec §10.4.1.
+- Unit, `flows/test/todo-composition.test.ts` (new): assert the literal route → plan → implement → candidate → check → review → propose graph and literal event-loop edges. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
 - Regression: every behavior the four runs had (correction rounds, one commit per item, now written by `stack.candidate`, verification after a rebase, read-only review) is covered by a named test in the new shape.
 
 ## Acceptance
@@ -44,3 +45,12 @@ Out:
 - Risk: long-lived runs (days in review) hold a durable wait per TODO. Confirm with a fault test that 50 waiting runs survive a host restart and resume on signals. This is the engine's existing durable wait (`WaitFor`).
 - Resolved by spec §10.4.4: today's `coding/verify` checks the rebased candidate in its own lane. In the one run, checks run in the shared working copy, and `stack.propose` accepts them only when the capture after them has the candidate's tree on the current prefix. C-STK-06 part D proves it with a rebase whose tip differs from the branch head.
 - Resolved (product, Appendix C): `review/change` is Replaced; `/review` runs the `review` flow. Check: C-CAT-01.
+
+## Ready checklist
+
+1. Dependencies cover the isolation launcher, machine dispatcher, candidate/state storage, independent waits, wake-before-signal and outbound recovery. Resolve the T-GH-09 prerequisite cycle listed in the edit draft before start.
+2. Out explicitly names activation, pinning, editing, learning, host repository execution, image detection and public library changes.
+3. C-STK-06 enters production stack admission through `flowdispatch.Service.AdmitInTx` and the real coding host on a branch machine. Name the one-run, event-loop and restart cases in `todo_candidate_flow_db_test.go`; reserved operations use the production command dispatcher. C-STK-03 and C-J5-01 additionally need their control/activation tickets. Expected statuses, graphs, timings and outputs are literal test fixtures or independent input logs. No test reads spec files or computes expectations from production code at runtime.
+4. smithers-8a decides the `/review` callable seam and any composition contract change. smithers-38 signs off any necessary public TypeScript API diff under §21.1 before landing.
+5. Before start, smithers-3f: does admission create one durable run and wake before signals; do candidate/propose and restart use the outbound writer? smithers-38: can the composition reuse existing exports; do previous durable records replay? Views are excluded.
+6. T-INS-02 and T-FLW-01 must refuse missing microVM isolation before dispatch. TODO, overridden review and checks run only on the branch machine without sudo; the host runs packaged candidate/propose code only (§1.3, §17.3). smithers-3f reviews the boundary; C-SEC-02 and C-STK-06 prove it.

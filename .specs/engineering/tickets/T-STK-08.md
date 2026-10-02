@@ -46,6 +46,7 @@ Out:
 
 ## Acceptance
 - [C-J7-03](../checks/C-J7-03.md): conflict on rebase; agent resolves once, else Needs you with Resolve.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: today's host-side rebase writes the candidate in the stack repository, not in the lane's working copy, so the agent's attempt may start from a tree without the conflict. Observation: case B's lane shows no conflict markers. Then the attempt must check out the conflicted change first.

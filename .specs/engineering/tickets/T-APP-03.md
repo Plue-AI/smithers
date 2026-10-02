@@ -51,6 +51,7 @@ Out:
 
 ## Acceptance
 - [C-J1-02](../checks/C-J1-02.md): every setup step completes from the card, a failure links its fix, and Source ready and Machine ready are separate.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Spec gap: §14.3 `install` has no field for a refused key's reason or a failed image build's error. The card shows the typed error from the response (§6.2.3) until the tech lead adds them to the model.

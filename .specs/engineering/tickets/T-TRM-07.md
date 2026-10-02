@@ -1,6 +1,6 @@
-# T-TRM-07 Session supervisor: broker sessions, protocol and lifecycle
+# T-TRM-07 Session supervisor: broker sessions, the §9.6 protocol, lingering processes, kill and restart rules
 
-Stage S2 · Size M · Depends on T-COL-03, T-TRM-06, T-MCH-11 · Unblocks T-TRM-01, T-TRM-03, T-TRM-05, T-COL-04 · Issue: to file
+Stage S2 · Size M · Depends on T-COL-03, T-TRM-06, T-MCH-11 · Unblocks T-COL-04, T-TRM-01, T-TRM-03, T-TRM-05 · Issue: to file
 Spec: spec.md §5.6, §8.4.1, §8.10.3, §8.11, §9.1.2 (`open_session`, `tcp_connect`, `close_session`, `kill_sessions`, `register_run`), §9.4.2, §9.5.1, §9.5.3, §9.6 · Delta: delta.md §5 (session supervisor row) · Product: mvp.md §6.8 Terminals, §6.15 SSH into a branch, J3.2, J3.3, M-18, M-24, M-29
 
 ## Goal

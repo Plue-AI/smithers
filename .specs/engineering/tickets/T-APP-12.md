@@ -38,6 +38,7 @@ Out:
 
 ## Acceptance
 - [C-J3-02](../checks/C-J3-02.md): a member's terminal runs as that member; others watch read-only, and their keystrokes are dropped.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: a watcher's card takes keyboard focus through the control-focus spotlight and swallows shortcuts meant for the composer. Falsified if, with a watched terminal focused, ⌘K still opens the palette and no key event reaches the terminal client.

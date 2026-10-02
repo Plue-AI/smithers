@@ -1,4 +1,4 @@
-# T-APP-07 Edge toast map, timeline, conversation-entry summaries
+# T-APP-07 Edge toast map, timeline, conversation-entry and monitor summaries
 
 Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-16, T-UI-08, T-APP-19 · Unblocks T-APP-18 · Issue: to file
 Spec: spec.md §3 (`conversation_entries`, `member_conversation_state`), §4.1, §7.2 (`conversation:<branch>`), §10.8.3, §11.5a (`agent:fast`), §11.6.1, §14.1, §14.4, §14.5, §14.6, §19.3 · Delta: delta.md §8 (Add conversation-entry summarizer job), §9 (Add left-edge toast map + timeline; retire `ChatRunTimeline`) · Product: mvp.md §6.4 Toasts for events, Timeline, J4.3, M-08, M-14
@@ -58,6 +58,7 @@ Out:
 ## Acceptance
 - [C-UI-04](../checks/C-UI-04.md): shared tones, states and summaries; per-viewer actions; summaries refresh within the 5 s / 30 s rule while the timeline is on screen and once per state change otherwise; a summarizer failure keeps the last summary and does not slow the run; toasts hide per member.
 - [C-J11-01](../checks/C-J11-01.md) steps 8–9: phase titles stand alone while the summarizer is blocked, summaries arrive once it returns, and an uninspected run gets no summary call.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Resolved: the timeline shows at widths of 1,180 px and up, matching the mock, until design changes it.

@@ -43,6 +43,7 @@ Out: merging laptop pushes into the live working copy outside a checkpoint ([D] 
 
 ## Acceptance
 - [C-J10-03](../checks/C-J10-03.md): a push from a laptop to a TODO branch, in review or working, holds the agent's push and shows Needs you; Bring in rebases onto it; Discard keeps it in history.
+- [C-STK-08](../checks/C-STK-08.md): Independent waits: question + foreign push, pause + conflict, Stop with open waits, resume after step 1, and merges on GitHub during a steer, a question or a pause each give the §4.1.0a state
 
 ## Risks and notes
 - Risk: the repository activity API may not list App-token pushes, or may lag. Confirmed when C-J10-03's `by` falls back to the commit author for a push made by Alice's own account.

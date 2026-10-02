@@ -1,6 +1,6 @@
 # C-SPK-03 Host↔guest relay round trip
 
-Proves: mvp.md §9 Live updates (transport share) · spec.md §9.1.1, §1.4 (host-relay port), §8.2.1; overview.md E-04 · Layer: spike · Stage: W0 · Tickets: T-COL-01
+Proves: mvp.md §9 Live updates (transport share) · spec.md §9.1.1, §1.4 (host-relay port), §8.2.1; overview.md E-04 · Layer: spike · Stage: W0 · Tickets: T-COL-01, T-COL-11
 Automation: `scripts/spikes/col-01/relay-rtt/` (new; `scripts/spikes/col-01/run.sh rtt`) · Runs in: reference host
 
 ## Setup

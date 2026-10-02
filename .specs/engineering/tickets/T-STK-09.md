@@ -1,6 +1,6 @@
 # T-STK-09 Make TODO from an issue; the `todo` label freezes revision 1
 
-Stage S1 · Size M · Depends on T-STK-02, T-ACC-02, T-GH-02 · Unblocks — · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
+Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02 · Unblocks T-MNT-01 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
 Spec: spec.md §3 (`todo_revisions`), §3.0, §5.2, §6.1.2b, §10.2.1–§10.2.1b, §10.4.2, §12.3 (issue labeled `todo`), §12.4.1, §14.5.1, §15.1.5, §17.5 · Delta: delta.md §6 (Modify admission from GitHub; `FileTodo` no longer creates an issue), §7 · Product: mvp.md J2.2, §6.3 (label and Make TODO rows), §14 trust rules, M-16, M-22, Appendix B.2 (`issue.implement`)
 
 ## Goal
@@ -50,5 +50,6 @@ Out:
 - [C-SEC-03](../checks/C-SEC-03.md): issue admission by issue text, role and door; an issue with outsider text becomes a TODO only by a maintainer; later outsider text never reaches the run.
 
 ## Risks and notes
+- The label door only appends through T-STK-01. The Before option uses T-STK-02 once it lands; C-J2-01 requires that real placement integration. The append-only label check C-J2-02 does not wait for T-STK-02.
 - Resolved: T-GH-02's repository issue-events cursor replaces `labelHistory` (`mythical_github.go:398`), which read one page of events per issue.
 - Risk: GraphQL `Issue.editor` names only the last editor, so an outsider's edit followed by a member's edit reads as team text. Confirmed by a test where Carol edits Ben's issue and Ben edits it after. This matches `approvesIssueText` today: the member's later edit makes the text theirs.

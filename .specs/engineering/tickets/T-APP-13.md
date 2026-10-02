@@ -37,6 +37,7 @@ Out:
 
 ## Acceptance
 - [C-MCH-07](../checks/C-MCH-07.md): secrets set on this card are present in every session and the coding host, and no API or card path reads a value back.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Resolved: the MVP card has no separate Bind door. Add and Replace take an optional Hosts field, and a secret with hosts stays egress-bound (§8.8.0, §14.3).

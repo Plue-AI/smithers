@@ -1,6 +1,6 @@
-# T-INS-07 `smthrs host upgrade`, `backup`, `restore` (M-26)
+# T-INS-07 `smthrs host upgrade`, `backup`, `restore` with quiesce and a backup manifest (M-26)
 
-Stage R · Size L · Depends on T-INS-05, T-INS-08, T-MCH-06, T-MCH-07 · Unblocks — · Issue: [#3444](https://github.com/smithersai/smithers/issues/3444)
+Stage R · Size L · Depends on T-INS-05, T-INS-08, T-MCH-06, T-MCH-07 · Unblocks T-MNT-05 · Issue: [#3444](https://github.com/smithersai/smithers/issues/3444)
 Spec: spec.md §6.3 (quiesce), §8.2.1, §8.3, §8.4.3, §16.4, §16.5.1–§16.5.3, §17.4, §19.1, §19.2 · Delta: delta.md §1 (Add `smthrs host upgrade`; write `version.env` at first boot) · Product: mvp.md M-26, §12.6, §6.1 Restart
 
 ## Goal

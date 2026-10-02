@@ -1,6 +1,6 @@
 # C-REL-01 In-app docs are one quickstart plus the flows reference; the site keeps one install page; docs gates pass
 
-Proves: mvp.md M-35, §12.4, §6.13 API, §8 (CLI and Smithers skill row), M-12 · spec.md §16.1.2, §16.3.4, §17.6 (quickstart content) · Layer: unit · Stage: R · Tickets: T-DOC-01..03
+Proves: mvp.md M-35, §12.4, §6.13 API, §8 (CLI and Smithers skill row), M-12 · spec.md §16.1.2, §16.3.4, §17.6 (quickstart content) · Layer: unit · Stage: R · Tickets: T-DOC-01..03, T-DOC-02, T-DOC-03, T-DOC-04
 Automation: `apps/app/src/docs/pages.test.ts` (new, beside T-APP-20's loader), `apps/site/scripts/install-page.test.mjs` (new), `scripts/mvp-docs.test.mjs` (new), `pnpm docs:check` · Runs in: CI
 
 ## Setup

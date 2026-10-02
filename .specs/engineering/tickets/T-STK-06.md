@@ -1,6 +1,6 @@
 # T-STK-06 Steers at every boundary of the TODO flow
 
-Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-STK-04 · Unblocks T-STK-02, T-GH-04 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-STK-12 · Unblocks T-STK-15, T-GH-04 · Issue: to file
 Spec: spec.md §2, §3 (`activity`), §4.1 (`in_review → working`), §5.2, §6.4, §7.2 (`branch:<id>:activity`), §10.4.1, §10.4.2, §10.7.3, §11.6.1, §15.1.5 · Delta: delta.md §6 (Add steer route; accept steers between implement turns), §4 (`activity` table [S1]) · Product: mvp.md §6.6 Steer, J3.6, J4.2, J6.3, M-21, Appendix B.2
 
 ## Goal
@@ -16,7 +16,7 @@ In:
 - One `todo_events` row of kind `steer` and one `activity` row (kind `steer`) on the TODO's branch, each with the actor including `via` (§2, §6.4), through T-STK-01's `activity` writer.
 
 Out:
-- GitHub reviews and comments as steers (T-GH-04); amendments call this path (T-STK-02).
+- GitHub reviews and comments as steers (T-GH-04); amendments call this path (T-STK-15).
 - Retry with a steer from `failed` (T-STK-05).
 - Burst and change entries in the activity (S2, T-COL-04).
 
@@ -41,5 +41,6 @@ Out:
 - [C-STK-07](../checks/C-STK-07.md) steps 2-4: a steer before the fence refuses Merge; one during it is held and delivered only if the merge fails.
 
 ## Risks and notes
+- Consume T-STK-12's `LockStack`, `todos.merging` and held-signal delivery. T-STK-04's completed squash route is not a prerequisite; C-STK-07 must prove holding and release through the shared seam.
 - Risk: a `flowdispatch` signal doesn't reach the coding host's notification queue, because today's steers go through the workspace gateway (`controller/runs.ts:650`). Observation: the integration test's steer never appears in the run transcript. Then the backend calls the gateway `steer` with a durable job instead.
 - Risk: a steer whose run consumes it before the activity row commits shows in the transcript first. Observation: a transcript timestamp earlier than the activity entry's in C-J3-05. The event, the activity row and the signal's durable record commit in one transaction before delivery.

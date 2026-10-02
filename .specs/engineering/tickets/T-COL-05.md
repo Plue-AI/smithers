@@ -47,6 +47,8 @@ Out:
 
 - [C-COL-05](../checks/C-COL-05.md): metadata watches and the overflow resync raise every move.
 - [C-J3-09](../checks/C-J3-09.md): `git checkout main` over SSH shows Needs you with Return to Tn and Keep for now. Return restores the item, Keep holds Needs you until the working copy is back, and the agent writes nothing while moved off.
+- [C-COL-03](../checks/C-COL-03.md): The mutation lock: rebase and Return to Tn with every writer active lose no write and let none land mid-rewrite; queued writes revalidate; a stale write never applies
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 

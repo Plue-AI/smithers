@@ -1,6 +1,6 @@
 # T-GH-01 App manifest flow from localhost; sealed App credentials
 
-Stage W0, S1 · Size M · Depends on T-INS-02 · Unblocks T-INS-06, T-GH-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
+Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02 · Unblocks T-INS-06, T-GH-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
 Spec: spec.md §3 (`github_app`), §5.1.0, §5.1.1, §6.3 (`/api/install`), §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Delta: delta.md §1 (App credentials are not launcher settings), §7 · Product: mvp.md J1.2, §6.3 "GitHub App setup", M-03, §11 item 7
 
 ## Goal

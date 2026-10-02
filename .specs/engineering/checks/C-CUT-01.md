@@ -1,6 +1,6 @@
 # C-CUT-01 Cut surfaces are absent from every door; deferred surfaces are hidden but still build
 
-Proves: mvp.md §8, Appendix B (Cut and Defer rows), §12 release item 3, §6.4 "Commands" (debug and admin never reach members), M-09, M-17 (branch locks) · spec.md §0 ([D] list), §6.1.2, §6.1.3, §6.2.4 · Layer: unit+integration · Stage: S1, S2 · Tickets: T-CUT-01..03, T-MCH-05
+Proves: mvp.md §8, Appendix B (Cut and Defer rows), §12 release item 3, §6.4 "Commands" (debug and admin never reach members), M-09, M-17 (branch locks) · spec.md §0 ([D] list), §6.1.2, §6.1.3, §6.2.4 · Layer: unit+integration · Stage: S1, S2 · Tickets: T-CUT-01..03, T-MCH-05, T-CUT-02, T-CUT-03
 Automation: `packages/rpc/src/catalog/Cuts.test.ts` (new, unit) and `packages/backend/internal/compose/cut_routes_test.go` (new, integration) · Runs in: CI
 
 ## Setup

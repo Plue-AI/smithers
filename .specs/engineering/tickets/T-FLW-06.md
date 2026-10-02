@@ -44,6 +44,7 @@ Out:
 - [C-J5-03](../checks/C-J5-03.md): a proposal with evidence becomes a TODO, merges, and the next TODO passes lint the first time.
 - [C-J8-01](../checks/C-J8-01.md): the learning run writes a decision page linked to the change and its runs.
 - [C-J2-05](../checks/C-J2-05.md) (S3 part): the merged TODO shows the learning receipt.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: the decision page restates the PR description and adds no reason. Falsified by C-J8-01's assertion that the page names a reason taken from a steer or review comment.

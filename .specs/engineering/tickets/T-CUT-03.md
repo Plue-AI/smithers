@@ -1,6 +1,6 @@
 # T-CUT-03 Hide deferred surfaces: billing, TUI, multi-repository, triggers
 
-Stage S1 · Size S · Depends on T-CAT-01 · Unblocks — · Issue: [#3447](https://github.com/smithersai/smithers/issues/3447)
+Stage S1 · Size S · Depends on T-CAT-01 · Unblocks T-MNT-01 · Issue: [#3447](https://github.com/smithersai/smithers/issues/3447)
 Spec: spec.md §0 ([D] list), §6.1.2, §6.1.3, §6.2.4, §11.7, §14.6 · Delta: delta.md §8 (Hide triggers), §10 (billing routes; TUI Defer) · Product: mvp.md §8 (Defer rows: hosting and billing, repository switching, TUI), Appendix B.2, §6.14, §14, §16, M-09
 
 ## Goal

@@ -30,6 +30,7 @@ Out:
 
 ## Acceptance
 - [C-J8-03](../checks/C-J8-03.md)
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: two-way sync and live co-editing (stage 3 wiki on the live channel) race on the same page. Confirm with a test that edits the file during a live session. Imports must apply as one attributed Yjs transaction, not a wholesale replace.

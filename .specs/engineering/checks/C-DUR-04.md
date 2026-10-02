@@ -1,6 +1,6 @@
 # C-DUR-04 Daemon, VM or host killed during a burst, capture or document save
 
-Proves: mvp.md §9 Durability, §6.8 Save and recovery guarantees, M-27 ("every change is recoverable from snapshots") · spec.md §7.4.2, §7.4.6, §8.4.3, §9.1.1–9.1.4, §9.2.2, §9.2.5, §9.3.4, §19.1 · Layer: fault · Stage: S2 (K1–K6), S3 (K7, K8) · Tickets: T-COL-03, T-COL-08, T-COL-09, T-REL-04
+Proves: mvp.md §9 Durability, §6.8 Save and recovery guarantees, M-27 ("every change is recoverable from snapshots") · spec.md §7.4.2, §7.4.6, §8.4.3, §9.1.1–9.1.4, §9.2.2, §9.2.5, §9.3.4, §19.1 · Layer: fault · Stage: S2, S3 · Tickets: T-COL-03, T-COL-08, T-COL-09, T-REL-04
 Automation: `packages/backend/internal/machined/fault_test.go` (new) driving `crates/smithers-machined` kill hooks (`SMITHERS_MACHINED_KILL_AT=<point>`, test builds only) · Runs in: CI on a Linux runner with real inotify, cgroups and jj (daemon kills), and the reference host (VM kills)
 
 ## Setup

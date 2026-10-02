@@ -53,6 +53,7 @@ Out:
 
 ## Acceptance
 - [C-J11-03](../checks/C-J11-03.md): the owner's model switch applies to the next run and turn with no TODO; instructions change through a merged TODO; non-owners can't change models.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: removing `model-call` from `Cards.ts` breaks decoding of saved conversations that hold one (AGENTS.md: old sessions stay readable). Confirmed if a stored conversation fixture with a `model-call` card fails to load. Keep a read-only tombstone decoder.

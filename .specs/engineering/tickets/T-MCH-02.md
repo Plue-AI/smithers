@@ -1,4 +1,4 @@
-# T-MCH-02 Spike: virtiofs `/home` keeps guest uids and 0700
+# T-MCH-02 Spike: virtiofs `/home` across two VMs (answered NO: homes are per machine)
 
 Stage W0 · Size S · Depends on — · Unblocks T-MCH-11 · Issue: [#3437](https://github.com/smithersai/smithers/issues/3437)
 Spec: spec.md §5.5.4, §8.7, §21 · Delta: delta.md §3 (per-member users row) · Product: mvp.md J6.1, J6.5, §6.8 Terminals, M-18

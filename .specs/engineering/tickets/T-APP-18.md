@@ -33,6 +33,7 @@ Out:
 
 ## Acceptance
 - [C-UI-03](../checks/C-UI-03.md)
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: Safari requires the permission request inside the click handler itself. Confirm in the Playwright WebKit project. Keep the request synchronous in the toast action.

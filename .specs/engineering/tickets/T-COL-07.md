@@ -1,6 +1,6 @@
 # T-COL-07 Agent write tool checks `base_digest` (S1); agent sees outside changes (S2)
 
-Stage S1, S2 · Size S · Depends on S1: T-COL-10 · S2: T-COL-04 · Unblocks — · Issue: to file
+Stage S1, S2 · Size S · Depends on S1: T-COL-10 · S2: T-COL-04 · S2: T-COL-04 · Unblocks — · Issue: to file
 Spec: spec.md §2 (actor notation), §7.6 (row 1), §9.3.4, §9.3.9, §10.7.3 (signal delivery), §15.2 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes ("The coding agent re-reads changed files before writing"), J3.4, M-02, M-27
 
 ## Goal

@@ -1,6 +1,6 @@
 # T-ACC-05 Person confirmations
 
-Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01 · Unblocks T-APP-04 · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-04, T-CAT-01 · Unblocks T-MNT-01, T-MNT-03, T-STK-04, T-TRM-02, T-APP-04 · Issue: to file
 Spec: spec.md §5.4, §5.2 ("confirmation only"), §3 (`person_confirmations`), §6.3 (`/api/confirmations`), §7.2 (`confirmations` topic), §14.3 (Confirm card), §14.5.1, §15.1.3–§15.1.5 · Delta: delta.md §2 (Add `person_confirmations` + `/api/confirmations`; CLI `/merge` creates a confirmation) · Product: mvp.md §2 rule 6, §6.13 "CLI", J6.4, M-05, M-21, Appendix A closing note, Appendix B legend (A✓) and B.6
 
 ## Goal

@@ -50,6 +50,7 @@ Out:
 ## Acceptance
 - [C-J3-01](../checks/C-J3-01.md): two people, the coding agent and an SSH editor each appear with where they are.
 - [C-J3-03](../checks/C-J3-03.md): an outside change shows as one grouped entry attributed to the only active session, else "changed outside Smithers"; it opens its diff, and open cards update.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - The mock's Add to stack offers "New TODO after <last stack item>" (`Branch.tsx:114`); §8.5.3 defaults to after the item the branch was forked from. The card follows §8.5.3.

@@ -1,6 +1,6 @@
 # T-STK-07 Needs you: independent waits, precedence, first answer wins, `ask` bound for implementing seats
 
-Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-STK-08, T-GH-05, T-GH-06, T-GH-07, T-COL-05 · Issue: [#3451](https://github.com/smithersai/smithers/issues/3451)
+Stage S1 · Size M · Depends on T-STK-01 · Unblocks T-STK-04, T-STK-08, T-GH-05, T-GH-06, T-GH-07, T-FLW-11, T-COL-05 · Issue: [#3451](https://github.com/smithersai/smithers/issues/3451)
 Spec: spec.md §4.1 (`working ↔ needs_you`, `in_review ↔ needs_you`), §4.1.0a, §4.1.2a, §5.2, §10.7.2a, §10.8, §10.8.0, §11.6.1, §14.4, §14.5.2 · Delta: delta.md §6 (Add Needs-you kinds and first-answer-wins answers) · Product: mvp.md §4.1 Needs you, J2.4, J3.6, J4.2, J6.3, M-14, §11 stage 1 item 4, Appendix B.3 (`ask`)
 
 ## Goal

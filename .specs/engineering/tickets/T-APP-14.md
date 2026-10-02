@@ -45,6 +45,7 @@ Out:
 
 ## Acceptance
 - [C-J3-04](../checks/C-J3-04.md): two people co-edit one file in under 1 s with author colours and name flags, saved within 1 s; an outside save merges in, or on overlap shows "Changed outside Smithers · Compare" with the outside version kept.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - Risk: `y-codemirror.next`'s `yCollab` bundles remote selections. Falsified if the DOM of C-J3-04 contains a `.cm-ySelection` element; compose the sync extension alone.

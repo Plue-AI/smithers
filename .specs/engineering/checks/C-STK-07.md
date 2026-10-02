@@ -1,6 +1,6 @@
 # C-STK-07 One merge predicate and an in-flight fence: races against Merge merge nothing stale
 
-Proves: mvp.md §4.2 Merging and Rebase ("any earlier approval no longer applies"), §6.10 PR card ("approval of the exact revision they reviewed"), M-05, M-22 · spec.md §4.1, §10.4.5, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.7.3, §16.4 · Layer: integration · Stage: S1 · Tickets: T-STK-04, T-STK-12, T-STK-06
+Proves: mvp.md §4.2 Merging and Rebase ("any earlier approval no longer applies"), §6.10 PR card ("approval of the exact revision they reviewed"), M-05, M-22 · spec.md §4.1, §10.4.5, §10.6.2, §10.6.2a, §10.6.2b, §10.6.2c, §10.7.3, §16.4 · Layer: integration · Stage: S1 · Tickets: T-STK-04, T-STK-12, T-STK-06, T-STK-15
 Automation: `packages/backend/internal/services/todo_merge_race_db_test.go` (new) · Runs in: CI (real PostgreSQL, real git and jj, a real flow host, the fake GitHub server)
 
 ## Setup

@@ -1,6 +1,6 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03 · Unblocks T-ACC-05, T-TRM-02, T-APP-09, T-APP-16 · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-03 · Unblocks T-ACC-05, T-STK-04, T-COL-02, T-TRM-02, T-APP-09, T-APP-16 · Issue: to file
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Add `delegated` + `via`; Add actor `via` on audit) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 
 ## Goal
@@ -60,6 +60,7 @@ Out:
 ## Acceptance
 - [C-ACC-02](../checks/C-ACC-02.md): delegated credentials can't merge or approve.
 - [C-J6-02](../checks/C-J6-02.md): laptop `smthrs login` gets a delegated credential (the merge-confirmation half needs T-ACC-05).
+- [C-ACC-01](../checks/C-ACC-01.md): Every permission-matrix row is enforced server-side for every credential kind
 
 ## Risks and notes
 - Today an agent-driven `/merge` runs in the browser with the session cookie (`ApplicationClient.test.ts:45` `credentials: "include"`) and acts as the person. It closes when T-APP-16 moves dispatch onto the host with `MintForTurn`; until then C-ACC-02's app-agent row fails, by design.

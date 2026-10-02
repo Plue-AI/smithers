@@ -1,11 +1,11 @@
 # T-UI-22 Debug API view
 
-Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-21 · Issue: to file
+Stage S2 · Size S · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-21 · Issue: to file
 Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-36 · Props: [ui-components.md § T-UI-22](../ui-components.md)
 
 ## Goal
 
-The debug api view exists as a props-only component matching the design system, so T-APP-21 only binds data and actions.
+`DebugApiView` exists as a props-only View matching the design mock and ui-components.md, so T-APP-21 only binds data and actions.
 
 ## Ownership (Will, 2026-10-02)
 
@@ -14,7 +14,7 @@ Design (smithers-06) owns this ticket. smithers-b8 wires it in T-APP-21.
 ## Scope
 
 In:
-- `DebugApiView`: operation list, request form generated from the operation schema, the in-card confirmation for mutations, response pane (status, headers, body, duration) and the typed failure state.
+- `DebugApiView` (`DebugApiModel`, ui-components.md § T-UI-22): operation list, the request form from the Send action's generated `input`, the in-card confirmation for mutations, response pane (status, headers, body, duration) and the typed failure state.
 - Fixture stories for every state, light and dark, desktop and 390 px.
 
 Out:
@@ -22,15 +22,15 @@ Out:
 
 ## Changes
 
-- `apps/app/src/mainview/cards/views/DebugApiView.tsx` and CSS. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
+- `apps/app/src/mainview/cards/views/DebugApiView.tsx` and CSS. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 
 ## Tests
 
-- unit: each fixture renders; the View imports no topic, store, controller or command module (C-UI-08).
+- unit (C-UI-12): every fixture of the card renders with its actions and shows its `expect` strings, in light and dark at 1280 and 390 px; each press calls `onAction` or `onView` once. The View-seam rule passes on the View's file (C-UI-08).
 
 ## Acceptance
 
-- [C-UI-08](../checks/C-UI-08.md).
+- [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
 
 ## Risks and notes
 

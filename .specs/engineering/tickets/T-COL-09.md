@@ -62,6 +62,7 @@ Out:
 
 - [C-DUR-04](../checks/C-DUR-04.md) K8: a host kill loses no acknowledged wiki update and duplicates none.
 - [C-J8-02](../checks/C-J8-02.md) (S3 run): two people co-edit a page live in < 1 s p95. The POST and SSE routes return 404 and are absent from OpenAPI, and old revisions stay readable.
+- [C-J8-05](../checks/C-J8-05.md): After a decision page is co-edited, the next related TODO's plan cites the new revision and its change follows it; a control run before the edit follows the old one (3 of 3 runs)
 
 ## Risks and notes
 

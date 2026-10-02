@@ -1,4 +1,4 @@
-# T-APP-11 File and Diff cards reload on change; deleted/renamed states; Restore this file
+# T-APP-11 File and Diff cards reload on change; deleted/renamed states; Restore this file; language server on the daemon
 
 Stage S2 · Size M · Depends on T-COL-04, T-APP-15, T-UI-16, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §7.2 (`branch:<id>:files`), §7.6, §8.4.4, §9.1.2 (`read_file`, `write_file`), §9.2 (stage-2 paragraph), §9.2.6, §9.3.4, §12.5.1, §14.3 (File, Diff), §18 · Delta: delta.md §4 (Add [S2] File and Diff cards reload on change events; Add [S1] §7.6 contracts) · Product: mvp.md J3.2, J3.4, §6.8 External changes, Live updates, M-02, M-27, Appendix A `/file`, `/files`, `/diff`
@@ -49,6 +49,7 @@ Out:
 - [C-J3-08](../checks/C-J3-08.md): a file deleted or renamed while open says so, and Restore and Follow work.
 - [C-PERF-04](../checks/C-PERF-04.md): an outside disk write reaches an open File card in under 1 s p95.
 - [C-UI-11](../checks/C-UI-11.md) (release run): hover, definition and diagnostics still work on an awake branch, and a sleeping branch stays asleep.
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 - The stage-2 surface is T-APP-15's CodeMirror 6 `EditorView`; stage 3 adds `y-codemirror.next`'s sync extension to that same view (§7.6). Reloads here are plain transactions; in S3 they arrive as Yjs updates, and `replaceContent` stays only for read-only files over 1 MiB (§9.2.1).

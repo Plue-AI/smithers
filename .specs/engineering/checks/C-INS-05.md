@@ -1,6 +1,6 @@
 # C-INS-05 The bundle runs from a clean checkout's build output with no hand-assembled files
 
-Proves: mvp.md §6.1 Install on a Mac, §11 stage 1 item 1 · spec.md §1.2, §16.1.0, §16.1.1 · Layer: integration · Stage: S1 · Tickets: T-INS-01
+Proves: mvp.md §6.1 Install on a Mac, §11 stage 1 item 1 · spec.md §1.2, §16.1.0, §16.1.1 · Layer: integration · Stage: S1 · Tickets: T-INS-01, T-INS-09
 Automation: `apps/app/scripts/server-bundle.integration.test.ts` (new) · Runs in: CI on a macOS arm64 runner, and the reference host before each release
 
 ## Setup

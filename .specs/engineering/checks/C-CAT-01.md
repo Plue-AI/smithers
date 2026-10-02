@@ -1,6 +1,6 @@
 # C-CAT-01 Catalog doors, actors and roles equal Appendices A and B; every tag is in Appendix C and registers where it runs
 
-Proves: mvp.md §2 rule 1, §6.4 "Commands", §6.14 (Advanced collapsed), M-21, Appendix A, Appendix B (B.1, B.2, B.4, B.6), Appendix C (`actions.md`) · spec.md §1.3, §6.1.1–§6.1.3 (incl. §6.1.2a–c), §14.2, §15.1.4, §15.1.5 · Layer: unit · Stage: S1 · Tickets: T-CAT-01
+Proves: mvp.md §2 rule 1, §6.4 "Commands", §6.14 (Advanced collapsed), M-21, Appendix A, Appendix B (B.1, B.2, B.4, B.6), Appendix C (`actions.md`) · spec.md §1.3, §6.1.1–§6.1.3 (incl. §6.1.2a–c), §14.2, §15.1.4, §15.1.5 · Layer: unit · Stage: S1 · Tickets: T-CAT-01, T-CAT-03, T-FLW-11
 Automation: `apps/app/src/mainview/flows/catalog-allowlist.test.ts`, `packages/rpc/src/catalog/AppendixA.test.ts`, `AppendixB.test.ts` and `AppendixC.test.ts` (all new) · Runs in: CI
 
 ## Setup

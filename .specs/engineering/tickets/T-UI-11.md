@@ -1,11 +1,11 @@
 # T-UI-11 Code editor and Diff views (read-only)
 
-Stage S1 · Size L · Depends on T-UI-01 · Unblocks T-APP-15 · Issue: to file
+Stage S1 · Size L · Depends on T-UI-01, T-APP-19 · Unblocks T-APP-15 · Issue: to file
 Spec: spec.md §14.2.1, §7.6, §14.3 (File, Diff) · Delta: delta.md §9 · Product: mvp.md J1.5, J9, M-02 · Props: [ui-components.md § T-UI-11](../ui-components.md)
 
 ## Goal
 
-The code editor and Diff views (read-only) exist as props-only components, matching the design mock, so the wiring ticket only binds data and actions.
+`CodeEditorView` (read-only) and `DiffView` exist as props-only Views matching the design mock and ui-components.md, so the wiring ticket only binds data and actions.
 
 ## Ownership (Will, 2026-10-02)
 
@@ -14,7 +14,7 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-APP-15 and revi
 ## Scope
 
 In:
-- `CodeEditorView` in `@smthrs/ui` (CodeMirror 6, Paper theme, hover and diagnostics visuals) and `DiffView` with hunks.
+- `CodeEditorView` in `@smthrs/ui` (CodeMirror 6, Paper theme, hover and diagnostics visuals) in read-only mode: text, too-large and binary contents, the hover result, `reveal`, the `hover` and `definition` gestures with `{path, line, col}`, the cursor line through `onView`, and a changed text applied as one minimal transaction with no remount. `DiffView` with hunks and line numbers against an item base, a fork revision or one burst, with Restore this file on a burst diff.
 - Props exactly as `ui-components.md` § T-UI-11 until T-APP-19 lands, then the zod type from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
@@ -23,18 +23,19 @@ Out:
 
 ## Changes
 
-- `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler calls `onAction(action.tag)` with `data-flow={action.tag}`.
+- `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
 ## Tests
 
-- unit: each fixture renders without error; the View imports no topic, store, controller or command module (C-UI-08).
-- copy: `.specs/design/mock/copy.mjs` rules on the View's strings (C-UI-02).
+- unit (C-UI-12): every fixture of the card renders with its actions and shows its `expect` strings, in light and dark at 1280 and 390 px; each press calls `onAction` or `onView` once. The View-seam rule passes on the View's file (C-UI-08).
+- copy: C-UI-02 (T-CAT-01's term list) renders every card fixture, this View's included once it lands. No test reads `.specs/`.
 
 ## Acceptance
 
-- [C-COL-01](../checks/C-COL-01.md) (visual half; the wiring ticket proves the data half).
-- [C-UI-08](../checks/C-UI-08.md).
+- [C-UI-12](../checks/C-UI-12.md) for this ticket's Views, with T-APP-19's fixtures. It needs no Container: the wiring ticket's own checks prove the card end to end.
+- [C-COL-01](../checks/C-COL-01.md): Stage-1 contracts hold: every file write carries actor + `base_digest` and a stale write gets 409; reserved topics and frame kinds exist, and a browser addresses documents only by topic; the File card renders with CodeMirror 6
+- [C-UI-11](../checks/C-UI-11.md): Kept capabilities: File-card hover, definition and diagnostics on an awake branch (S1 build and release build), and the webpage reader card
 
 ## Risks and notes
 

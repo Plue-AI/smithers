@@ -37,6 +37,7 @@ Out:
 ## Acceptance
 
 - [C-UI-09](../checks/C-UI-09.md).
+- [C-UI-13](../checks/C-UI-13.md): A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned
 
 ## Risks and notes
 
