@@ -89,7 +89,7 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/merge-request-feedback` | action | flows/coding/request/flow.ts:26 | Fold steer text into the request | Machine | Keep | Took in your steer |
 | `coding/refuse-plan-approval` | action | flows/coding/request/flow.ts:31 | Refuse a plan approval that is not allowed | Machine | Keep | Refused a plan approval |
 | `coding/CoordinateRequest` | flow | flows/coding/request/flow.ts:93 | Coordinate planning, POC and finalization | Machine | Keep | Worked the TODO |
-| `coding/Request` | flow | flows/coding/request/flow.ts:158 | Plan, implement and prepare one request | Machine | Keep | Worked the TODO |
+| `coding/Request` | flow | flows/coding/request/flow.ts:158 | Plan, implement and prepare one request | Machine | Replaced by the `todo` flow (T-FLW-11): its steps survive inside the single run; this separate entry point is removed | Worked the TODO |
 | `coding/capture-review-check` | action | flows/coding/review-check.ts:75 | Capture the change for review | Machine | Keep | Captured the change |
 | `coding/review-lens` | agent action (?) | flows/coding/review-check.ts:83 | Agent reviews through one lens | Machine | Keep | Reviewed through one lens |
 | `coding/finish-review-check` | action | flows/coding/review-check.ts:95 | Combine lens findings into a receipt | Machine | Keep | Collected review findings |
@@ -107,7 +107,7 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `factory/stamp-route` | action | flows/coding/todo.ts:57 | Fail a declined TODO with its route | Machine | Keep | Declined the TODO |
 | `factory/Todo` | flow | flows/coding/todo.ts:78 | Route a TODO, then plan it | Machine | Keep | Routed the TODO |
 | `coding/admit-verify-source` | action | flows/coding/verify-schema.ts:34 | Admit the candidate source for verify | Machine | Keep | Opened the candidate |
-| `coding/Verify` | flow | flows/coding/verify/flow.ts:16 | Re-run required checks on a rebased candidate | Machine | Keep | Re-ran checks |
+| `coding/Verify` | flow | flows/coding/verify/flow.ts:16 | Re-run required checks on a rebased candidate | Machine | Replaced by the `todo` flow (T-FLW-11): its steps survive inside the single run; this separate entry point is removed | Re-ran checks |
 | `coding/fence-vibe-source` | action | flows/coding/vibe-admission.ts:19 | Pin the exact source being landed | Install | Keep | Pinned the change |
 | `coding/VerifyVibe` | flow | flows/coding/vibe-admission.ts:25 | Verify the request before landing | Install | Keep | Verified before landing |
 | `coding/AdmitVibe` | flow | flows/coding/vibe-admission.ts:58 | Admit the request's source for landing | Install | Keep | Opened the change for landing |
@@ -140,7 +140,7 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/LandVibe` | flow | flows/coding/vibe-landing.ts:271 | Append, open PR and land the change | Install | Keep | Landed the change |
 | `coding/publish-vibe-source` | action | flows/coding/vibe-publication.ts:9 | Publish the verified source | Install | Keep | Published the change |
 | `coding/PublishVibeSource` | flow | flows/coding/vibe-publication.ts:17 | Publish the source to the stack | Install | Keep | Published the change |
-| `coding/Vibe` | flow | flows/coding/vibe/flow.ts:13 | Land one approved request | Install | Keep | Landed the change |
+| `coding/Vibe` | flow | flows/coding/vibe/flow.ts:13 | Land one approved request | Machine | Replaced by the `todo` flow (T-FLW-11): its steps survive inside the single run; this separate entry point is removed | Landed the change |
 | `coding/capture-wiki-check` | action | flows/coding/wiki-check.ts:51 | Capture wiki state for checking | Machine | Keep | Captured the wiki |
 | `coding/finish-wiki-check` | action | flows/coding/wiki-check.ts:57 | Turn wiki review into a receipt | Machine | Keep | Checked the wiki |
 | `coding/ReviewCapturedWiki` | flow | flows/coding/wiki-check.ts:82 | Review a captured wiki state | Install | Keep | Checked the wiki |
@@ -148,7 +148,7 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/import-dependency-docs` | action | flows/coding/wiki-refresh.ts:55 | Import dependency docs to the wiki | Install | Keep | Imported dependency docs |
 | `coding/install-dependency-pages` | action | flows/coding/wiki-refresh.ts:66 | Install dependency wiki pages | Install | Keep | Added dependency pages |
 | `coding/read-published-wiki` | action | flows/coding/wiki-refresh.ts:95 | Read the published wiki | Install | Keep | Read the wiki |
-| `coding/Wiki` | flow | flows/coding/wiki/flow.ts:17 | Refresh wiki pages after a fold | Install | Keep | Refreshed the wiki |
+| `coding/Wiki` | flow | flows/coding/wiki/flow.ts:17 | Refresh wiki pages after a fold | Machine | Keep | Refreshed the wiki |
 | `coding/validate-plan` | action | flows/coding/workflow.ts:22 | Validate the plan's shape | Machine | Keep | Checked the plan |
 | `coding/implement-change` | action | flows/coding/workflow.ts:27 | Run the change's implement step | Machine | Keep | Implemented the change |
 | `coding/check` | action | flows/coding/workflow.ts:38 | Run a declared check on the change | Machine | Keep | Ran checks |
@@ -161,7 +161,7 @@ The ordinary `/review` flow: per-file review, independent verification, and a wa
 
 | id | kind | source | what | runs in | MVP | renders as |
 | --- | --- | --- | --- | --- | --- | --- |
-| `review/change` | flow | flows/review/change/flow.mdx:1 | Review one change by flow | Machine | Keep | Reviewed the change |
+| `review/change` | flow | flows/review/change/flow.mdx:1 | Review one change by flow | Machine | Replaced by the `todo` flow (T-FLW-11): its steps survive inside the single run; this separate entry point is removed | Reviewed the change |
 | `review` | flow | flows/review/flow.ts:11 | Review a change and render a walkthrough | Machine | Keep | Reviewed the change |
 | `smithers-review/PrepareReview` | action | flows/review/src/workflow/reviewActions.ts:60 | Resolve the revisions and file batches | Machine | Keep | Prepared the review |
 | `smithers-review/MergeFileBatch` | action | flows/review/src/workflow/reviewActions.ts:101 | Merge per-file findings | Machine | Keep | Collected findings |
@@ -181,14 +181,14 @@ Generated wiki pages with cited, reviewed content and incremental reuse.
 
 | id | kind | source | what | runs in | MVP | renders as |
 | --- | --- | --- | --- | --- | --- | --- |
-| `smithers/Wiki` | flow | flows/wiki/flow.ts:9 | Build and review wiki pages | Install | Keep | Refreshed the wiki |
+| `smithers/Wiki` | flow | flows/wiki/flow.ts:9 | Build and review wiki pages | Machine | Keep | Refreshed the wiki |
 | `wiki/load-recorded-reviews` | action | flows/wiki/reuse.ts:54 | Load earlier page reviews | Install | Keep | Found earlier reviews |
 | `wiki/select-recorded-review` | action | flows/wiki/reuse.ts:59 | Choose a reusable review | Install | Keep | Reused a review |
 | `wiki/bind-review-provenance` | action | flows/wiki/reuse.ts:64 | Bind a review to its source | Install | Keep | Linked a review to its source |
 | `wiki/publish-recorded-reviews` | action | flows/wiki/reuse.ts:69 | Publish reused reviews | Install | Keep | Saved wiki pages |
 | `smithers/IncrementalWiki` | flow | flows/wiki/reuse.ts:75 | Re-review only changed wiki sections | Install | Keep | Refreshed the wiki |
 | `wiki/collect-page` | action | flows/wiki/workflow.ts:10 | Collect a page's sources | Install | Keep | Collected sources for a page |
-| `wiki/review-page` | agent action (wiki/reviewer) | flows/wiki/workflow.ts:16 | Agent writes or reviews a page | Install | Keep | Reviewed a wiki page |
+| `wiki/review-page` | agent action (wiki/reviewer) | flows/wiki/workflow.ts:16 | Agent writes or reviews a page | Machine | Keep | Reviewed a wiki page |
 | `wiki/validate-review` | action | flows/wiki/workflow.ts:47 | Validate the page review | Install | Keep | Checked a wiki page |
 | `wiki/check-citations` | action | flows/wiki/workflow.ts:58 | Check page citations | Install | Keep | Checked citations |
 | `wiki/assess-review` | action | flows/wiki/workflow.ts:98 | Judge the review's quality | Install | Keep | Assessed a wiki page |
@@ -203,7 +203,7 @@ Mine finished runs for lessons (the learning run) and calibrate recall.
 | `memory/calibrate/run` | action | flows/memory/calibrate/flow.ts:30 | Refit thresholds and report recall | Install | Cut | - |
 | `memory/calibrate` | flow | flows/memory/calibrate/flow.ts:43 | Refit memory thresholds from journals | Install | Cut | - |
 | `memory/mine/run` | action | flows/memory/mine/flow.ts:13 | Extract facts and decisions from a journal | Install | Keep | Saved lessons |
-| `memory/mine` | flow | flows/memory/mine/flow.ts:20 | Mine a finished run for lessons | Install | Keep | Saved lessons |
+| `memory/mine` | flow | flows/memory/mine/flow.ts:20 | Mine a finished run for lessons | Machine | Keep | Saved lessons |
 
 ## C.5 create-flow
 
@@ -616,3 +616,5 @@ Keep rows with no plausible person-facing rendering (Inspect-only plumbing; hide
 - **POC (gap 7).** `coding/Poc` stays Keep as an optional step inside the TODO flow (`coding/CoordinateRequest` may prototype before planning). The standalone `issue/poc` and `repository/propose-repro` stay Defer §14.
 - **Engine bookkeeping with no person-facing rendering** (quota parking, sealed-step, boundary and output-count bookkeeping, `agent/trace/checkpoint`, `agent/send` stamps). Inspect groups these under one collapsed "Engine" row per run. They are never shown as steps.
 - **Missing tags.** The single `todo` run, the stack operations (`stack.propose`, `todo.amend`, `todo.drop`, `stack.move`, `branch.fork`, `branch.rebase`), learning after merge, timeline summaries, `ask` for the implementing agent, and agent-owned terminal sessions for `bash` are already build gaps in mvp.md §11 and engineering's tickets. This appendix gains their rows when they exist.
+
+- **Placements and entry points (product, 2026-10-02, Astra A-26).** Repository flows and coding agents run on machines (M-30), so `coding/Vibe`, `coding/Wiki`, `smithers/Wiki`, `wiki/review-page` and `memory/mine` run on Machine. The four separately launched entry points (`coding/Request`, `coding/Vibe`, `coding/Verify`, `review/change`) are replaced by the single durable `todo` run (T-FLW-11), whose steps keep their Inspect renderings.
