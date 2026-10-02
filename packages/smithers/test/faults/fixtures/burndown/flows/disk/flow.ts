@@ -1,10 +1,11 @@
 import { Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
-import { appendFileSync, readFileSync, statfsSync, writeFileSync } from "node:fs"
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { Child, Land, layer as childLayer } from "../burndown/flow.ts"
-// The harness verifies and copies the complete owning module bytes, with its real SDK import.
-import { awaitDisk } from "./vm.ts"
+// The harness verifies and copies the current production gate and its host dependency.
+import { makeDiskGate } from "./disk.ts"
+import { diskCommand, diskCommandAsync, type DiskConfig } from "./probe.ts"
 const Gate = Action.make("disk/Gate", {
   implementationVersion: "fault-3367/v1",
   payload: { root: Schema.String },
@@ -17,15 +18,29 @@ export const layer = Layer.mergeAll(
   childLayer,
   Gate.toLayer(({ root }) =>
     Effect.gen(function*() {
-      const { path, floor } = JSON.parse(readFileSync(`${root}/disk.json`, "utf8"))
+      const { floor }: DiskConfig = JSON.parse(readFileSync(`${root}/disk.json`, "utf8"))
       const free = () => {
-        const fs = statfsSync(path)
-        const bytes = fs.bavail * fs.bsize
-        appendFileSync(`${root}/statfs.jsonl`, JSON.stringify({ bytes, floor, at: Date.now() }) + "\n")
+        const reading = diskCommand(root, "probe")
+        const { bytes } = reading
+        appendFileSync(`${root}/statfs.jsonl`, JSON.stringify({ ...reading, floor, at: Date.now() }) + "\n")
         return bytes
       }
       writeFileSync(`${root}/disk-waiting`, String(free()))
-      yield* awaitDisk(free, floor, "100 millis")
+      const cleanup = (operation: string) =>
+        Effect.tryPromise(async () => {
+          appendFileSync(`${root}/disk-cleanup-attempts.jsonl`, JSON.stringify({ operation }) + "\n")
+          const reading = await diskCommandAsync(root, operation)
+          appendFileSync(`${root}/disk-cleanup.jsonl`, JSON.stringify({ operation, ...reading }) + "\n")
+        })
+      yield* makeDiskGate({
+        freeBytes: free,
+        minimum: floor,
+        interval: "100 millis",
+        cleanupTimeout: "10 seconds",
+        cleanGo: cleanup("cleanGo"),
+        prunePnpm: cleanup("prunePnpm"),
+        reapSettled: cleanup("reapSettled")
+      })()
       writeFileSync(`${root}/disk-cleared`, "ready")
     }), { implementationVersion: "fault-3367/v1" })
 )

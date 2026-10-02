@@ -1,2 +1,2 @@
 // Source-tree typechecking uses the owner; make() replaces this with verified owner bytes.
-export { awaitDisk } from "../../../../../../../../flows/issue-sweep/vm.ts"
+export { makeDiskGate } from "../../../../../../../../flows/issue-sweep/disk.ts"

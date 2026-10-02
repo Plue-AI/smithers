@@ -18,8 +18,9 @@ The package's ordinary unit target excludes this tier.
 Use the repository's pinned Node and dependencies, `jj`, `python3`, and the
 real native workspace helper (`cargo build --locked --release -p smithers-ffi
 --bin smithers-jj-export`, or an absolute `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`).
-No provider credentials are required. macOS also needs `hdiutil` for the disk
-case. If the maintainer's machine-wide `vcs_lock.py` exists it wraps all explicit
+No provider credentials are required. The disk case needs a working local
+Microsandbox hypervisor and cached `node:26-trixie` image. It refuses image pulls
+and uses one CPU and 512MiB of guest memory. If the maintainer's machine-wide `vcs_lock.py` exists it wraps all explicit
 jj initialization; otherwise the fixture's portable `vcs_lock.py` uses flock.
 No git executable is invoked.
 
@@ -54,9 +55,11 @@ assertion and 0 for the historical green receipts. `desired-assertion.log` conta
 assertion diff. `recovery.json`, `runs.json`, the real `.flows/engine.db`, CLI
 stdout/stderr/exits, `commands.jsonl`, `processes.jsonl`, changes and `landed`
 retain state and ordering. DNS adds query/HTTP/URL receipts and external process
-network outcomes. Disk adds real statfs polls, source hashes and volume evidence. The owning
-`vm.ts`, `vm-pool.ts`, `vm-options.ts` and `msb-nice.sh` bytes are verified
-against this checkout before loading the actual guard.
+network outcomes. Disk adds real guest statfs polls, source hashes, ordered cleanup and VM teardown
+evidence. The current owning `disk.ts`, its `host.ts` dependency and
+`msb-nice.sh` bytes are verified against this checkout before loading
+`makeDiskGate`. The former `vm.awaitDisk` fixture is obsolete and does not
+qualify the production admission gate introduced in #3392.
 `cleanup.json` records owned process termination and no remaining descendants.
 Roots are deleted by default and after preservation. No manual resume is issued.
 
@@ -67,7 +70,23 @@ macOS arm64, ran the original assertions without inversion: **8 passed,
 2 failed** (178.88s). The identity failure is the typed
 `Fail/capabilities/completed` refusal. The disk fixture failed during
 `hdiutil create` with `Device not configured`, before the guard executed.
-Earlier green disk evidence does not qualify this host's current disk case.
+Earlier green disk evidence does not qualify the current production gate.
+Disk-only qualification on `88f998ded4d8` (2026-10-02), pinned Node 26.5.0,
+macOS arm64 and Microsandbox 0.6.16, passed the actual current production-gate
+case in **17.236s**. The prerequisite receipt also passed; nine other fault cases
+were filtered, so this is not a current-pin full campaign pass.
+The exact owning `makeDiskGate` read a real 32MiB guest tmpfs through bounded
+SDK execution. Available bytes were 4MiB, then 4.1875MiB after three ordered,
+once-only owned cleanup deletions, still below the 8MiB test floor. No work or
+landing started during pressure. Removing pressure restored 32MiB and
+permitted automatic N=2 completion: each worker and landing ran once, preserved
+work matched exactly, all four native runs completed and manual resumes were zero.
+Unmount succeeded, owner-labeled VMs remaining were empty, and owned process
+cleanup reported no survivors. Retained `disk-receipt.json`, `statfs.jsonl`,
+cleanup attempts/results, `source-receipts.jsonl`, SDK identity, real SQLite,
+CLI output and both process/VM cleanup receipts support this narrow result.
+It does not qualify default host cleanup, full placement, other platform hosts,
+subsequent runtime revisions or the remaining campaign.
 
 The generic identity fixture intentionally lacks the caller's policy. An
 engine cannot choose a new work identity on behalf of a caller, because that
@@ -170,7 +189,8 @@ Ordinary fault tests separately assert exact current work and absence of duplica
 The CLI's outer run plus registry parent account for two additional run rows;
 the identity scenario intentionally launches two parent invocations.
 
-The following historical root map is for the executed base `7309afb21bef`:
+The following root map describes executed base `7309afb21bef`, except the disk
+row, which identifies its newer current-gate qualification:
 
 | Fault                        | Current evidence and owning source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Issue                                                                                                                    |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -180,7 +200,7 @@ The following historical root map is for the executed base `7309afb21bef`:
 | Capability identity conflict | Expected red at this fixture boundary: admission refuses a narrower ceiling at `packages/smithers/flows/engine-store/src/internal/RunDriver.ts:1583`, constructing the shared conflict at `:1619`. The public execute wrapper converts it to typed `Effect.fail` at `packages/smithers/flows/flow/src/Flow/internal.ts:149`. The fixture records that exact Fail/capabilities/completed refusal before subsequent codec diagnostics and preserves its cause. The second parent fails; original Work and landing stay unique. Current `flows/issue-sweep/flow.ts:574` declares a terminal-conflict fallback at `:576`; this generic fixture intentionally does not include that flow-specific handler, whose effectiveness is not tested here. | [#3367](https://github.com/smithersai/smithers/issues/3367)                                                              |
 | Live source edit             | Green: measured closure import at `packages/smithers/agent/registry/src/Executable.ts:580`; admitted in-memory catalog retained at `:1825`. Parent and imported child/layer sources are edited before child2.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | [#3320](https://github.com/smithersai/smithers/issues/3320), [#3367](https://github.com/smithersai/smithers/issues/3367) |
 | Slow body load               | Green: catalog timeout still defaults to 30000ms at `packages/smithers/agent/registry/src/Executable.ts:1638`, but first-use load retries the measured descriptor at `:1939`. CLI requests that recovery at `packages/smithers/src/internal/NativeControl.ts:780`. Two real module evaluations finish and each worker runs once.                                                                                                                                                                                                                                                                                                                                                                                                              | [#3359](https://github.com/smithersai/smithers/issues/3359)                                                              |
-| Disk floor                   | Green: exact current owning `flows/issue-sweep/vm.ts:276` polls actual statfs through the imported `awaitDisk`, which gates acquire at `:346`. Pressure on a dedicated 32MiB volume falls below 8MiB, then its removal allows all work and landing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [#3367](https://github.com/smithersai/smithers/issues/3367)                                                              |
+| Disk floor                   | Passed on `88f998ded4d8`: exact `flows/issue-sweep/disk.ts makeDiskGate`, real 32MiB guest tmpfs, 8MiB test floor, ordered once-only owned cleanup ports, automatic N=2 work/landing with no resume. Default host cleanup and complete placement are excluded. Historical `vm.awaitDisk` receipts do not qualify this gate.                                                                                                                                                                                                                                                                                                                                                                                                                   | [#3367](https://github.com/smithersai/smithers/issues/3367)                                                              |
 
 [#3342](https://github.com/smithersai/smithers/issues/3342) concerns resume
 reporting, including newer resume routing on this base. This suite never invokes
@@ -217,11 +237,19 @@ Its model and landing entries describe the older fixture/policy above.
   injection through final recovery observation, including post-restoration time.
   Historical landing receipts compressed the old initial delay to 1ms.
   No 75-minute outage, full 2h expiry, or fleet scale claim is made. Host suspension and body delay use real wall-clock time.
-- Disk pressure is confined to a 32MiB macOS volume. No host disk is filled.
-  The owning module imports the real installed Microsandbox SDK; it is not
-  stubbed, and no VM is acquired. This exercises the real exported gate through
-  CLI action execution, not the complete microVM placement path. Linux emits
-  a visible capability receipt and skips this one dedicated-volume case.
+- Current disk pressure is confined to a real 32MiB tmpfs in one 1CPU/512MiB
+  guest. No host disk is filled. A bounded synchronous helper uses the real
+  local Microsandbox SDK and guest statfs; readings are never fabricated.
+  The public CLI executes the exact production `makeDiskGate` with an 8MiB
+  test minimum. Three injected cleanup ports delete only owned guest files;
+  assertions cover their production ordering and once-only execution. This
+  does not qualify the default host path, 25GiB default floor, host Go/pnpm
+  cleanup programs, settlement reaper policy, or the complete VM placement path.
+  Each guest execution is bounded; the guest has a 120-second maximum lifetime.
+  Finally attempts unmount even after partial startup, destroys only owner-labeled
+  VMs, asserts zero remaining VMs, and reaps all owned CLI/agent descendants.
+  Unsupported platforms report prerequisites and skip this case; an advertised
+  platform or capability proof alone is not a production-gate pass.
 - Source editing covers later children in an already admitted live host and
   the added host-kill/restart case's pinned entry, layer and imported helper.
   Provider deployment replacement and catalog refresh are not exercised.

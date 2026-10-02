@@ -13,18 +13,18 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  statfsSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync
 } from "node:fs"
 import { createServer } from "node:http"
+import { createRequire } from "node:module"
 import type { AddressInfo } from "node:net"
 import { homedir, tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
+import { diskCommand, type DiskConfig, type Measurement } from "./fixtures/burndown/flows/disk/probe.ts"
 import { assertRecovery } from "./fixtures/burndown/recovery.ts"
 
 const fixture = fileURLToPath(new URL("./fixtures/burndown", import.meta.url))
@@ -809,85 +809,134 @@ it("#3320 #3367 live source edit retains admitted bytes for later durable childr
   assertRecovery(receipt(root, 2))
 }, 360_000)
 
-it("reports the dedicated disk-volume platform capability", () => {
+it("reports the bounded guest disk prerequisites", () => {
   console.log(
     "FAULT_3367_DISK_CAPABILITY",
     JSON.stringify({
       platform: process.platform,
-      supported: process.platform === "darwin",
-      reason: "32MiB hdiutil volume; Linux mount isolation is not claimed"
+      configuredPlatform: ["darwin", "linux"].includes(process.platform),
+      prerequisites: "local Microsandbox hypervisor and cached node:26-trixie image; no image pull",
+      boundary: "32MiB guest tmpfs, current production makeDiskGate with real statfs and owned cleanup ports",
+      qualification: "only the executed disk case establishes capability and recovery"
     })
   )
 })
-it.skipIf(process.platform !== "darwin")(
-  "#3367 owning disk guard polls real statfs and resumes N=2 automatically",
+it.skipIf(!["darwin", "linux"].includes(process.platform))(
+  "#3367 current production disk gate polls guest statfs and resumes N=2 automatically",
   async () => {
     const root = make("disk")
-    // Current owning closure: vm-pool is imported by vm; vm-options travels alongside placement.
-    for (const name of ["vm.ts", "vm-pool.ts", "vm-options.ts", "msb-nice.sh"]) {
+    // Measure the external program separately; it is not the authored source closure.
+    for (const name of ["disk-guest.mjs", "flows/disk/probe.ts"]) {
+      const original = readFileSync(join(fixture, name))
+      expect(readFileSync(join(root, name)).equals(original)).toBe(true)
+      appendFileSync(
+        join(root, "source-receipts.jsonl"),
+        JSON.stringify({
+          source: `test/faults/fixtures/burndown/${name}`,
+          bytes: original.length,
+          sha256: createHash("sha256").update(original).digest("hex")
+        }) + "\n"
+      )
+    }
+    for (const name of ["disk.ts", "host.ts", "msb-nice.sh"]) {
       copyOwner(root, name, join(root, "flows", "disk", name))
     }
-    symlinkSync(
-      fileURLToPath(new URL("../../../../flows/node_modules/microsandbox", import.meta.url)),
-      join(root, "node_modules", "microsandbox"),
-      "dir"
+    const require = createRequire(new URL("../../../../flows/package.json", import.meta.url))
+    const sdkEntry = require.resolve("microsandbox")
+    const platform = join(
+      dirname(dirname(dirname(sdkEntry))),
+      "@superradcompany",
+      `microsandbox-${process.platform}-${process.arch}`
     )
-    const image = join(root, "pressure.dmg"), volume = join(root, "volume")
-    mkdirSync(volume)
-    let attached = false
+    const sdkPackage = JSON.parse(readFileSync(join(dirname(dirname(sdkEntry)), "package.json"), "utf8"))
+    json(join(root, "disk-sdk-identity.json"), {
+      path: realpathSync(sdkEntry),
+      version: sdkPackage.version,
+      entrySha256: createHash("sha256").update(readFileSync(sdkEntry)).digest("hex")
+    })
+    const library = readdirSync(join(platform, "lib")).find((name) => name.startsWith("libkrunfw."))
+    expect(library).toBeDefined()
+    const owner = `fault-3367-disk-${process.pid}-${Date.now()}`
+    const config: DiskConfig = {
+      owner,
+      path: `/tmp/${owner}`,
+      floor: 8 * 1024 ** 2,
+      sdkEntry,
+      binary: join(platform, "bin", "msb"),
+      library: join(platform, "lib", library!),
+      wrapper: join(root, "flows", "disk", "msb-nice.sh")
+    }
+    json(join(root, "disk.json"), config)
+    let mounted = false
     try {
-      writeFileSync(
-        join(root, "volume-create.log"),
-        execFileSync("hdiutil", [
-          "create",
-          "-size",
-          "32m",
-          "-fs",
-          "HFS+",
-          "-volname",
-          "Fault3367",
-          "-type",
-          "UDIF",
-          "-nospotlight",
-          image
-        ], { timeout: 60_000 })
-      )
-      execFileSync("hdiutil", ["attach", image, "-mountpoint", volume, "-nobrowse", "-quiet"], { timeout: 60_000 })
-      attached = true
-      const free = () => {
-        const fs = statfsSync(volume)
-        return fs.bavail * fs.bsize
-      }
-      const floor = 8 * 1024 ** 2, before = free()
-      expect(before).toBeGreaterThan(floor)
-      writeFileSync(join(volume, "pressure"), Buffer.alloc(before - 4 * 1024 ** 2, 1))
-      expect(free()).toBeLessThan(floor)
-      json(join(root, "disk.json"), { path: volume, floor })
+      const pressure = diskCommand(root, "create")
+      mounted = true
+      expect(pressure.type).toBe(0x01021994)
+      expect(pressure.capacity).toBe(32 * 1024 ** 2)
+      expect(pressure.bytes).toBe(4 * 1024 ** 2)
+      json(join(root, "disk-pressure.json"), pressure)
       const run = launch(root, 1, 2, "disk")
-      await wait(() => existsSync(join(root, "disk-waiting")), "actual imported awaitDisk entered")
-      await wait(() => lines(join(root, "statfs.jsonl")).length >= 3, "multiple real statfs guard polls")
+      await wait(() => existsSync(join(root, "disk-waiting")), "current makeDiskGate entered")
+      await wait(() => lines(join(root, "statfs.jsonl")).length >= 4, "multiple real guest statfs gate polls")
       expect(records(root)).toEqual([])
       expect(existsSync(join(root, "disk-cleared"))).toBe(false)
-      expect(lines<{ bytes: number }>(join(root, "statfs.jsonl")).every((row) => row.bytes < floor)).toBe(true)
-      unlinkSync(join(volume, "pressure"))
-      expect(free()).toBeGreaterThan(floor)
+      const polls = lines<Measurement>(join(root, "statfs.jsonl"))
+      expect(
+        polls.every((row) => row.bytes < config.floor && row.type === 0x01021994 && row.capacity === 32 * 1024 ** 2)
+      ).toBe(true)
+      const cleanups = lines<Measurement & { operation: string }>(join(root, "disk-cleanup.jsonl"))
+      expect(cleanups.map((row) => row.operation)).toEqual(["cleanGo", "prunePnpm", "reapSettled"])
+      expect(lines<{ operation: string }>(join(root, "disk-cleanup-attempts.jsonl"))).toEqual(
+        ["cleanGo", "prunePnpm", "reapSettled"].map((operation) => ({ operation }))
+      )
+      expect(cleanups.every((row) => row.bytes < config.floor)).toBe(true)
+      expect(cleanups.map((row) => row.bytes)).toEqual([1, 2, 3].map((n) => pressure.bytes + n * 65536))
+      const after = diskCommand(root, "release")
+      expect(after.bytes).toBe(32 * 1024 ** 2)
       await completed(run, 0)
-      expect(lines<{ bytes: number }>(join(root, "statfs.jsonl")).at(-1)!.bytes).toBeGreaterThanOrEqual(floor)
+      expect(lines<Measurement>(join(root, "statfs.jsonl")).at(-1)!.bytes).toBeGreaterThanOrEqual(config.floor)
+      expect(lines(join(root, "disk-cleanup.jsonl"))).toEqual(cleanups)
+      expect(lines<{ operation: string }>(join(root, "disk-cleanup-attempts.jsonl"))).toEqual(
+        ["cleanGo", "prunePnpm", "reapSettled"].map((operation) => ({ operation }))
+      )
       json(join(root, "disk-receipt.json"), {
-        floor,
-        before,
-        after: free(),
-        source: "flows/issue-sweep/vm.ts",
-        sdk: "real installed microsandbox, no VM acquired"
+        floor: config.floor,
+        pressure,
+        after,
+        source: "flows/issue-sweep/disk.ts",
+        gate: "makeDiskGate",
+        filesystem: "real bounded guest tmpfs",
+        cpus: 1,
+        memoryMib: 512,
+        image: "node:26-trixie",
+        pullPolicy: "never",
+        network: "none",
+        cleanup: "three injected owned guest-file deletions, once in production order",
+        excludes: [
+          "default host free-space path",
+          "25GiB default floor",
+          "default Go/pnpm/reaper programs",
+          "complete VM placement"
+        ]
       })
       await reap(root)
       integrity(root, 2, true, true, true)
       assertRecovery(receipt(root, 2))
     } finally {
+      // Attempt unmount even after partial creation; owner labels exist before guest setup.
+      let unmount: unknown
       try {
-        await reap(root)
+        unmount = diskCommand(root, "unmount")
+      } catch (error) {
+        unmount = { error: String(error) }
+      }
+      try {
+        const cleanup = diskCommand<{ owner: string; remaining: string[] }>(root, "destroy")
+        json(join(root, "disk-vm-cleanup.json"), { mountedDuringTest: mounted, unmount, ...cleanup })
+        expect(cleanup.remaining).toEqual([])
+        if (mounted) expect(unmount).toEqual({ mounted: false })
       } finally {
-        if (attached) execFileSync("hdiutil", ["detach", volume, "-quiet", "-force"], { timeout: 30_000 })
+        await reap(root)
       }
     }
   },
