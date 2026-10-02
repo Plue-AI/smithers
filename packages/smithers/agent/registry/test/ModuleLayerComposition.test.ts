@@ -7,7 +7,7 @@ import { EngineStore } from "@smthrs/engine-store"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as TestStores from "@smthrs/engine-store/test/TestStores"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
-import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, ExternalJob, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Node } from "@smthrs/plan"
@@ -295,6 +295,87 @@ describe("module layer composition", () => {
       }).pipe(Effect.provide(platform), Effect.scoped)
     )
   })
+
+  it.each(["complete", "cancel"] as const)(
+    "keeps ExternalJob cancellation registration through private module tables: %s",
+    async (mode) => {
+      const job = ExternalJob.make(`test/composition/remote-${mode}`, {
+        payload: {},
+        handle: Schema.String,
+        success: Schema.String,
+        probe: { every: "10 millis", max: "20 millis" },
+        timeout: "1 minute"
+      })
+      const module = definition("fixture", job.call({}))
+      const starts: Array<string> = []
+      const cancels: Array<string> = []
+      let collected = 0
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const probing = yield* Deferred.make<void>()
+          const cancelled = yield* Deferred.make<void>()
+          const root = yield* project(["fixture"])
+          yield* Effect.gen(function*() {
+            const registry = yield* Registry.Registry
+            const executable = yield* Executable.fromDescriptor(yield* registry.get("fixture"), {
+              delegates: [],
+              load: () =>
+                Effect.succeed({
+                  default: module,
+                  layer: job.toLayer({
+                    start: (_input, key) =>
+                      Effect.sync(() => {
+                        starts.push(key)
+                        return key
+                      }),
+                    status: () =>
+                      mode === "complete"
+                        ? Effect.succeed({ _tag: "Exited", exitCode: 0 })
+                        : Effect.andThen(Deferred.succeed(probing, undefined), Effect.never),
+                    collect: () =>
+                      Effect.sync(() => {
+                        collected++
+                        return "remote work"
+                      }),
+                    cancel: (_handle, key) =>
+                      Effect.andThen(
+                        Effect.sync(() => {
+                          cancels.push(key)
+                        }),
+                        Deferred.succeed(cancelled, undefined)
+                      ).pipe(Effect.asVoid)
+                  })
+                })
+            })
+            const runtime = yield* FlowRuntime.FlowRuntime
+            const id = `composition-external-${mode}`
+            const execute = runtime.execute(executable.flow, {
+              payload: { input: { value: "unused" } },
+              executionId: id
+            }).pipe(Effect.provide(executable.layer))
+            if (mode === "complete") {
+              expect(yield* execute).toBe("remote work")
+              expect(collected).toBe(1)
+              expect(cancels).toEqual([])
+            } else {
+              const fiber = yield* Effect.forkChild(execute)
+              // A failed admission wins this race rather than leaving the test
+              // waiting for a job whose start was never admitted.
+              yield* Effect.raceFirst(Deferred.await(probing), Fiber.join(fiber))
+              yield* executable.flow.interrupt(id)
+              yield* Fiber.await(fiber)
+              yield* Deferred.await(cancelled)
+              yield* executable.flow.interrupt(id)
+              expect(collected).toBe(0)
+              expect(cancels).toEqual(starts)
+            }
+            expect(starts).toHaveLength(1)
+            expect(starts[0]).toMatch(/#g1$/)
+          }).pipe(Effect.provide(Registry.layerProject({ root })))
+        }).pipe(Effect.provide(Action.layerImplementations), Effect.provide(await host()), Effect.scoped)
+      )
+    }
+  )
 
   it("refuses an exported replacement implementation table and releases its acquired resources", async () => {
     let acquired = 0

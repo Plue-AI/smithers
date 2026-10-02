@@ -1,10 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest"
-import { ExternalJob, Flow, FlowRuntime, Interpreter, Sleep } from "@smthrs/flow"
+import { Action, ExternalJob, Flow, FlowRuntime, Interpreter, Sleep } from "@smthrs/flow"
 import type { Node } from "@smthrs/plan"
-import { Duration, Effect, Exit, Layer, Option, Schema } from "effect"
+import { Context, Duration, Effect, Exit, Layer, Option, Schema, Scope } from "effect"
 import { TestClock } from "effect/testing"
+import { ExecutionMiddleware } from "../src/internal/ExecutionMiddleware.ts"
 import { effectOnTestClock as effect } from "./Harness.ts"
-import { layerWired } from "./MemoryFlowRuntime.ts"
+import { layerWired, makeInstance } from "./MemoryFlowRuntime.ts"
 
 const Job = ExternalJob.make("test/external-job", {
   payload: { value: Schema.String },
@@ -201,6 +202,40 @@ describe("ExternalJob", () => {
           })
         ]))
       }
+    }).pipe(Effect.provide(layerWired(Interpreter.layer(Job))))
+  })
+
+  effect("disposing the adapter removes cancellation from retained table views", () => {
+    const h = harness([])
+    return Effect.gen(function*() {
+      const scope = yield* Scope.make()
+      yield* Layer.buildWithScope(h.implementations, scope)
+      const table = yield* Action.Implementations
+      const view = Action.Implementations.of({ add: table.add, get: table.get })
+      const middleware = Context.get(Job.annotations, ExecutionMiddleware)!
+      // The internal wrapper erases its requirements; this check supplies its
+      // actual table and per-execution state without dispatching remote work.
+      const check = middleware.wrap({ value: "x" }, Effect.succeed("bound")) as Effect.Effect<
+        unknown,
+        unknown,
+        Action.Implementations | FlowRuntime.FlowInstance
+      >
+      const execute = check.pipe(
+        Effect.provideService(Action.Implementations, view),
+        Effect.provideService(FlowRuntime.FlowInstance, makeInstance(Job, "disposed-adapter"))
+      )
+      expect(yield* execute).toBe("bound")
+      yield* Scope.close(scope, Exit.void)
+      const exit = yield* Effect.exit(execute)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            defect: expect.objectContaining({ _tag: "@smthrs/flow/InterpreterError", code: "unresolved_action" })
+          })
+        ]))
+      }
+      expect(h.calls).toEqual([])
     }).pipe(Effect.provide(layerWired(Interpreter.layer(Job))))
   })
 

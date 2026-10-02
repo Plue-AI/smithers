@@ -151,13 +151,15 @@ export const make = <
   const captures = { tag, every, maximum, timeout, restarts, version: "external-job/v1" }
   type Active = { executionId: string; current: { handle: H["Type"]; key: string } | undefined }
   const active = Context.Service<Active>(`${tag}/ExternalJobActive`)
+  // Registry tables wrap get() for module isolation but retain add(), the
+  // scoped registration owner. Anchor lifecycle bindings to that owner.
   const cancellations = new WeakMap<object, (handle: H["Type"], key: string) => Effect.Effect<void>>()
   const annotations = Context.make(ExecutionMiddleware, {
     wrap: (payload, body) =>
       Effect.gen(function*() {
         const instance = yield* FlowInstance
         const table = yield* Action.Implementations
-        const cancel = cancellations.get(table)
+        const cancel = cancellations.get(table.add)
         if (cancel === undefined) {
           return yield* Effect.die(
             new Interpreter.InterpreterError({
@@ -327,10 +329,10 @@ export const make = <
       const context = yield* Effect.context<R>()
       const cancel = (handle: H["Type"], key: string) =>
         operations.cancel(handle, key).pipe(Effect.provideContext(context))
-      cancellations.set(table, cancel)
+      cancellations.set(table.add, cancel)
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          if (cancellations.get(table) === cancel) cancellations.delete(table)
+          if (cancellations.get(table.add) === cancel) cancellations.delete(table.add)
         })
       )
     }))
