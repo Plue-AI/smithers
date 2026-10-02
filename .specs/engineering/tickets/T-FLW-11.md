@@ -1,6 +1,6 @@
 # T-FLW-11 One `todo` run per attempt: composition flow over coding steps, ending in `stack.propose`
 
-Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14 · Unblocks — · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
+Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14 · Unblocks T-STK-05, T-STK-06, T-FLW-03, T-FLW-04, T-FLW-05 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
 Spec: spec.md §10.4.1, §10.4.1a, §11.1, §11.4 · Delta: delta.md §6 · Product: mvp.md §6.9, §6.12, J5, M-30
 
 ## Goal

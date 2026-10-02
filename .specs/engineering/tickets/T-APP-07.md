@@ -1,10 +1,14 @@
 # T-APP-07 Edge toast map, timeline, conversation-entry summaries
 
-Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-16 · Unblocks — · Issue: to file
+Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-16, T-UI-08, T-APP-19 · Unblocks T-APP-18 · Issue: to file
 Spec: spec.md §3 (`conversation_entries`, `member_conversation_state`), §4.1, §7.2 (`conversation:<branch>`), §10.8.3, §11.5a (`agent:fast`), §11.6.1, §14.1, §14.4, §14.5, §14.6, §19.3 · Delta: delta.md §8 (Add conversation-entry summarizer job), §9 (Add left-edge toast map + timeline; retire `ChatRunTimeline`) · Product: mvp.md §6.4 Toasts for events, Timeline, J4.3, M-08, M-14
 
 ## Goal
 The left edge maps the branch conversation a member is viewing: live work in cards above the viewport pins top-left, live work and new entries below pin bottom-left, and on desktop a timeline between them shows one line per entry with a shared title, summary, tone and state, plus at most one action derived for the viewer; notable events also arrive as toasts, which each member can hide.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the left-edge toast map, the timeline, the band and pills, and their CSS. Engineering wires them: `conversation_entries` projection, the summarizer job, the timeline-visible lease, toast routing and hiding. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -53,7 +57,7 @@ Out:
 - [C-UI-04](../checks/C-UI-04.md): shared tones, states and summaries; per-viewer actions; summaries refresh within the 5 s / 30 s rule while the timeline is on screen and once per state change otherwise; a summarizer failure keeps the last summary and does not slow the run; toasts hide per member.
 
 ## Risks and notes
-- Open: the desktop breakpoint for the timeline; the mock uses 1,180 px (`AppFrame.tsx:72`) (owner: product).
+- Resolved: the timeline shows at widths of 1,180 px and up, matching the mock, until design changes it.
 - The mock gives In review the quiet tone (`Rail.tsx:78`); §14.5.2 gives it attention. The ticket follows the spec.
 - Risk: summaries cost money per live run. Bounded by the on-screen rule: falsified if C-UI-04 records more than 2 model calls per run-minute while watched, or any call between state changes while nobody watches.
 - The `timeline_visible` lease is this ticket's mechanism for "on screen"; §14.5.3 states the rule, not the signal. A lost lease only drops to once per state change, never to no summary.

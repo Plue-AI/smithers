@@ -1,10 +1,14 @@
 # T-APP-02 TODO card and Draft card
 
-Stage S1 · Size L · Depends on T-STK-01, T-APP-08 · Unblocks T-CUT-01 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
+Stage S1 · Size L · Depends on T-STK-01, T-APP-08, T-UI-03, T-UI-04, T-APP-19 · Unblocks — · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
 Spec: spec.md §14.2, §14.3 (TODO), §14.5.1, §4.1, §6.1.4, §6.2.1–6.2.2, §10.2, §10.4, §10.5.4, §10.6, §10.7, §10.8, §12.3, §12.5.1, §15.1.5, §19.3 · Delta: delta.md §9 (Add cards [S1] TODO, Draft), §6 · Product: mvp.md J2, J4, J9, §4.1, §4.2, §6.6 TODO card, Appendix A "TODOs and the stack"
 
 ## Goal
 A member opens `/todo Tn` and sees the TODO's prompt, place, flow progress, its one pending question, failure or evidence, and acts on it (answer, steer, stop, resume, retry, drop, amend) from the card; `/todo.new` and "make that a TODO" open a Draft card that commits a placed TODO exactly once.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `TodoCard` and `DraftCard` views: prompt and revisions, steps with the current one lit, Needs you forms, evidence, PR line, merge control; Draft place picker. Engineering wires them: the `todo:<n>` container, draft persistence and commit, answer, steer, stop, resume, retry, drop and amend commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -12,7 +16,7 @@ In:
   - header: title, state word (Queued with its queue position, Starting while the machine wakes and the coding agent launches, Working with its current step, §4.1), owner avatar;
   - meta: place ("next to merge", "3rd in stack"), "from #i" or "closed #i" for a linked issue, owner;
   - prompt and acceptance while Queued or Dropped, step strip otherwise, "+n" amendments disclosure with author and text;
-  - Needs you by kind (§10.8.1): a question or approval inline with an Answer field (`/todo.answer Tn`); after the first answer, "Ben answered …"; a late submitter's `409 {answered_by}` keeps their text with **Send as steer** (`/todo.steer Tn`) (§10.8.2). `foreign_push` shows the commit link with **Keep Smithers' version** and **Drop TODO** (§12.3). A conflict shows the S1 conflict view: conflicted files, the terminal and SSH line, and **Done** (§10.5.4); from S2 Resolve opens the Branch card;
+  - Needs you by kind (§10.8.1): a question or approval inline with an Answer field (`/todo.answer Tn`); after the first answer, "Ben answered …"; a late submitter's `409 {answered_by}` keeps their text with **Send as steer** (`/todo.steer Tn`) (§10.8.2). `foreign_push` shows the commit link with **Bring in** and **Discard** (§12.3, M-33). A conflict shows the S1 conflict view: conflicted files, the terminal and SSH line, and **Done** (§10.5.4); from S2 Resolve opens the Branch card;
   - failure: "<step> failed", message, optional steer and Retry (`/todo.retry Tn`);
   - evidence of the current attempt (§10.4.3): PR link ("#pr on GitHub ↗"), diff stat, machine checks with duration, GitHub passed/total, review summary, the earlier items the PR includes ("Includes T3, T4 until they merge", §12.5.1), "approval cleared by rebase";
   - Merge control: Merge (`/merge Tn` with the head sha shown) only for the first item and a viewer who may merge; otherwise "Merges after Tn", "Checks running", the failing check's name, or GitHub's refusal text verbatim (§10.6.2);

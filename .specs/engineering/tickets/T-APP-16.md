@@ -1,10 +1,14 @@
 # T-APP-16 Branch conversations: shared entries, per-member view state, branch tree, legacy archive
 
-Stage S1 · Size L · Depends on T-COL-02, T-ACC-04 · Unblocks T-APP-01, T-APP-05, T-APP-07, T-APP-17, T-APP-10 · Issue: [#3446](https://github.com/smithersai/smithers/issues/3446)
+Stage S1 · Size L · Depends on T-COL-02, T-ACC-04, T-UI-07, T-APP-19 · Unblocks T-APP-01, T-APP-05, T-APP-07, T-APP-17, T-APP-10 · Issue: [#3446](https://github.com/smithersai/smithers/issues/3446)
 Spec: spec.md §2 (Conversation), §3, §7.2, §14.1, §14.5.1, §15.1.1, §15.1.4–15.1.5 · Delta: delta.md §9 · Product: mvp.md §3 Conversation, §6.4 Branch conversations, M-08
 
 ## Goal
 Everyone on a branch sees one conversation with the same entries in the same order. Each member keeps their own scroll and card state, `main`'s conversation opens on the Home card, and every app-agent turn runs on the host with its author's rights, so it finishes even if the author closes the tab.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the conversation shell, the branch tree, prompt rows with their author, and the Earlier archive node. Engineering wires them: conversation storage, host-side turns, per-member view state, prompt queueing. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

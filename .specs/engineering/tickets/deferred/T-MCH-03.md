@@ -1,6 +1,6 @@
 # T-MCH-03 Spike: fanotify reports the writer pid in the libkrunfw guest
 
-Stage W0 · Size S · Depends on — · Unblocks T-COL-04 · Issue: [#3436](https://github.com/smithersai/smithers/issues/3436)
+Stage W0 · Size S · Depends on — · Unblocks — · Issue: [#3436](https://github.com/smithersai/smithers/issues/3436)
 Spec: spec.md §9.3.1, §9.3.2, §21 · Delta: delta.md §4 · Product: mvp.md J3.4, §6.8 External changes, M-27
 
 ## Goal

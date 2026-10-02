@@ -1,6 +1,6 @@
 # T-GH-08 Follow `main` by default; sync health and Retry
 
-Stage S1 · Size S · Depends on T-GH-02 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-GH-02, T-UI-06, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §4.4, §6.3 (`/api/github/sync`), §7.2 (`home`), §7.2.1, §12.2.3, §12.3 (`main` moved row), §12.6, §14.3 (Home `main`) · Delta: delta.md §7 "`mirror: pull` is the default…", "Health model…" · Product: mvp.md J10.4, J10.6, §6.3 "`main` moves", "Sync status", Appendix A `/github`, Appendix B.2 (`github.app`, `github.reconcile`)
 
 ## Goal

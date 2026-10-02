@@ -1,10 +1,14 @@
 # T-APP-06 Members card
 
-Stage S1 · Size M · Depends on T-ACC-02 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-02, T-UI-09, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §2 (Member), §5.1.2–5.1.4, §5.2, §5.4, §5.6, §7.2 (`members`), §14.2, §14.3 (Members), §15.1.4 · Delta: delta.md §2 (Add `members`, `/api/members`) · Product: mvp.md J1.8, §6.2, §6.15 Members and maintainers, M-05, M-17, Appendix A `/members`
 
 ## Goal
 From `/members`, a maintainer adds a teammate by GitHub username, sees "needs access on GitHub ↗" when that person lacks write access, changes roles and removes people, and every member sees the same roster live.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `MembersCard` view: rows, roles, needs access, suspended, add by username. Engineering wires them: the `members` topic container and the member commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -40,5 +44,5 @@ Out:
 
 ## Risks and notes
 - Spec gap: §14.3 Members lists role, `needs_access` and `suspended`, but not the name, login and avatar every mock row shows (`cards/People.tsx`); `members.login` exists in §3. The tech lead adds them to the model.
-- Open: §5.6 and mvp.md §6.15 let any maintainer take over a removed member's TODO, but no catalog row, Appendix A or `in-card`, exists for it (owner: product, with T-CAT-01).
+- Resolved: product added `todo.takeover` (Take over, in-card, maintainers) to Appendix B.4.
 - Risk: GitHub's login lookup for a username that does not exist returns 404; confirmed if Add then shows a raw HTTP error instead of the typed `github` class message.

@@ -1,10 +1,14 @@
 # T-APP-04 Confirm card: one-click confirmations and Review & merge
 
-Stage S1 · Size S · Depends on T-ACC-05, T-STK-04 · Unblocks — · Issue: to file
+Stage S1 · Size S · Depends on T-ACC-05, T-STK-04, T-UI-05, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §5.2, §5.4, §6.1.2 (`agent`), §6.4, §7.2 (`confirmations`), §10.6.1–10.6.2, §14.3 (Confirm), §14.5.1, §15.1.3–15.1.5, §19.3 · Delta: delta.md §2 (Add `person_confirmations`, the Confirm card), §6 (Delete `change.land` as a TODO merge path) · Product: mvp.md §2 rule 6, §6.10, §6.13, M-05, M-21, Appendix A `/merge` and closing paragraph, Appendix B legend (A✓)
 
 ## Goal
 One Confirm card renders both kinds of `person_confirmations` (§15.1.5). `one_click`: when any agent (the app agent, Claude Code, the CLI) asks for an `agent: confirm` command, the person it acts for presses once before it runs. `review_merge`: when any agent asks to merge, the person sees their own **Review & merge** card bound to the PR head they review. Only that person's browser session can press either, and the agent learns only the confirmation's id and state.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `ConfirmCard` view in both kinds: `one_click` (verb button, Cancel, Waiting for Ben, receipt) and `review_merge`. Engineering wires them: the `confirmations:<member>` container, approve and deny, the revision binding. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,10 +1,14 @@
 # T-CAT-01 One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B
 
-Stage S1 · Size L · Depends on — · Unblocks T-FLW-05, T-CAT-02, T-CUT-01, T-CUT-03 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
+Stage S1 · Size L · Depends on T-UI-14, T-APP-19 · Unblocks T-ACC-05, T-FLW-05, T-CAT-02, T-CUT-03 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
 Spec: spec.md §6.1.1–§6.1.4, §14.2, §15.1.4, §15.1.5, §15.3 · Delta: delta.md §9 (Add one catalog source; Hide/Delete every command not in Appendix A) · Product: mvp.md §2 rule 1, §6.4 "Commands", §6.13, §6.14 (Advanced group), §8 (CLI and skill), §11 stage 1 item 8, M-21, Appendix A, Appendix B (B.1, B.2, B.4, B.6), Appendix C (`actions.md`)
 
 ## Goal
 The palette, slash menu, `/help` and the app agent's tool list show exactly mvp.md Appendix A plus repository flows. Every command is declared once in a descriptor that the app, the CLI and the skill all read. A build that registers a command, control or flow tag absent from Appendix B or Appendix C, or marked Cut there, fails. Card copy passes one product-words lint.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the `/help` Commands card with its collapsed Advanced group. Engineering wires them: the catalog descriptors, `catalog.mvp.json` and the allowlist tests. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -62,6 +66,6 @@ Out:
 ## Risks and notes
 - **Overview risk:** the renames break the 116 Playwright specs. Migrate group by group behind the allowlist test. A suite that drops by more than the renamed specs means a lost door.
 - **Appendix B shorthand.** Rows abbreviate ids (`chat.queue`, `.edit`; `runs.graph.*`). The parser expands a leading-dot name against the previous id's namespace and treats `*` as any suffix. Appendix C has runtime-built ids in angle brackets, matched by pattern. Observation that confirms a wrong rule: a kept id fails the allowlist. The test writes its expansion to the evidence for product to read.
-- Open: Appendix C marks 87 registered tags Cut (C.22), so the tag check fails until they are deleted. The deletions land in this ticket or T-CUT-01 before the check gates CI. Owner: tech lead.
-- Open: three in-card controls the spec names have no B.4 row yet: the order attention's **OK** (§10.6.4, see T-GH-05) and the Home card's background-run Retry and Dismiss (§14.3; Retry can map to `runs.rerun`). Owner: product.
+- Resolved: the Cut-tag assertion turns on in the change that completes T-CUT-01's deletions (§6.1.2).
+- Resolved: Appendix B.4 now has `order.ok`, `background.retry` and `background.dismiss`.
 - Appendix B inventoried 304 app flows; `rg` counts 267 `name:` literals plus wiki operations from `packages/smithers/ui/src/app-operations/wiki.ts`. Generate the list from the built registry in the test, not with `rg`.

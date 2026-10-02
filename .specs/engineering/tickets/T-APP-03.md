@@ -1,10 +1,14 @@
 # T-APP-03 Setup and Settings cards
 
-Stage S1 · Size M · Depends on T-INS-06 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-INS-06, T-UI-02, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §14.3 (Setup / Settings), §16.2, §16.3, §1.4, §5.1.0, §5.1.1, §6.3 (`/api/install`), §7.2 (`install`), §8.2.1, §10.3.1, §10.6.2, §12.1, §4.4, §17.5a, §19.3, §20.2 · Delta: delta.md §1 (Add [S1] setup card backend), §9, §10 · Product: mvp.md J1.2–J1.4, J1.8, §6.1 Reaching the install, §6.3 Sync status, M-11, M-28, Appendix A `/settings`
 
 ## Goal
 From the setup link `smthrs host start` prints, on the Mac or a LAN laptop, the owner completes setup on one card (GitHub App, repository, owner sign-in, model access) and watches **Source ready** and **Machine ready** as separate steps; afterwards `/settings` shows the same install model with the address, host limits, capacity, parallel work and the laptop-agent line.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `SetupCard` and `SettingsCard` views: the eight setup steps with progress, Address, model roles, This Mac, the laptop line. Engineering wires them: the `install` topic container, setup step actions, settings writes. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

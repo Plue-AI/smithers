@@ -1,10 +1,14 @@
 # T-APP-11 File and Diff cards reload on change; deleted/renamed states; Restore this file
 
-Stage S2 · Size M · Depends on T-COL-04, T-APP-15 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-COL-04, T-APP-15, T-UI-16, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §7.2 (`branch:<id>:files`), §7.6, §8.4.4, §9.1.2 (`read_file`, `write_file`), §9.2 (stage-2 paragraph), §9.2.6, §9.3.4, §12.5.1, §14.3 (File, Diff), §18 · Delta: delta.md §4 (Add [S2] File and Diff cards reload on change events; Add [S1] §7.6 contracts) · Product: mvp.md J3.2, J3.4, §6.8 External changes, Live updates, M-02, M-27, Appendix A `/file`, `/files`, `/diff`
 
 ## Goal
 An open File or Diff card on a branch shows each outside write (SSH editor, terminal tool, coding agent) within 1 s and names its writer. It says so when the file is deleted ("Deleted by Maya via SSH · Restore") or renamed ("Renamed to `deliver.ts` · Follow"), and an outside-change diff offers **Restore this file**, all on the same CodeMirror surface stage 3 co-edits.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the File and Diff card states: reload on change, deleted and renamed banners, Restore this file, Compare. Engineering wires them: `file_written` and burst wiring, `file.restore`, `file.compare`, `file.restore-deleted`, `file.follow-rename` commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

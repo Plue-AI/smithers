@@ -1,6 +1,6 @@
 # C-COL-01 Stage-1 co-editing contracts hold
 
-Proves: mvp.md M-02, M-27 · spec.md §7.1, §7.6 · Layer: unit+integration · Stage: S1 · Tickets: T-COL-10, T-APP-15
+Proves: mvp.md M-02, M-27 · spec.md §7.1, §7.6 · Layer: unit+integration · Stage: S1 · Tickets: T-COL-10, T-APP-15, T-UI-11
 Automation: `packages/backend/internal/compose/cocontracts_test.go` (new), `apps/app/src/mainview/cards/CodeSurface.test.tsx` · Runs in: CI
 
 ## Setup

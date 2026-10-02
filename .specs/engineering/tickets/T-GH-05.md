@@ -46,5 +46,5 @@ Out: the merge command and its session and role guards (T-STK-04); rebase execut
 
 ## Risks and notes
 - Risk: `closed_by` can be null for a PR closed by deleting its head branch. Confirmed by deleting a TODO branch on the scratch repository and reading `GET /issues/{n}`. The reason then reads "closed on GitHub".
-- Open: §10.6.4 doesn't say what happens to the earlier item's open PR. Proposed: close it with the note as a comment through `outbound_writes`. Owner: tech lead.
-- Open: mvp.md Appendix B.4 has no row for the order attention's **OK** control, and spec §6.1.2 still names "Accept order", so the allowlist test (T-CAT-01) fails on it. B.4 needs a row with a stable id. Owner: product.
+- Resolved: §10.6.4 closes each earlier item's open PR with "Merged via #<n> (Tk)" through `outbound_writes`.
+- Resolved: mvp.md Appendix B.4 now has `order.ok` for the order attention's **OK** control, and spec §6.1.2 names OK.

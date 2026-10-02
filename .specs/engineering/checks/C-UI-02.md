@@ -1,6 +1,6 @@
 # C-UI-02 Product words and minimal text in cards
 
-Proves: mvp.md §2 rule 7, §3 Vocabulary, §9 Copy · spec.md §14.2, §14.3, §14.6b · Layer: unit · Stage: S1 · Tickets: T-CAT-01
+Proves: mvp.md §2 rule 7, §3 Vocabulary, §9 Copy · spec.md §14.2, §14.3, §14.6b · Layer: unit · Stage: S1 · Tickets: T-CAT-01, T-UI-14
 Automation: `apps/app/src/mainview/cards/ProductWords.test.tsx` (new), with the term list `apps/app/src/mainview/cards/productWords.ts` (new) · Runs in: CI
 
 ## Setup

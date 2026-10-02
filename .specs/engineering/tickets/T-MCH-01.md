@@ -57,6 +57,6 @@ Out:
 ## Risks and notes
 
 - One reserve doesn't fit both hosts: the smaller host needs a larger reserve. Confirmed if C-SPK-05's effective reserve differs by more than 2 GiB between hosts. The tech lead then records new constants in spec.md §8.2.1; the formula's shape stays, and a third host size checks the result.
-- Open: the layer-prepare VM's size. It counts as one machine (§8.2.2), so this ticket sizes it like one (8 GiB, down from 12), which can make layer builds fail with out-of-memory errors; C-SPK-05 step 4 measures it (owner: tech lead).
+- Resolved (tech lead): the layer-prepare VM is sized like one machine (§8.2.2). If a layer build fails out of memory, the run reports it and T-MCH-01's calibration revisits the machine memory, not this exception.
 - Asleep machines keep their disks (§8.4.3), and disk use grows with branches, not with capacity. The 32 GiB per-machine disk is a ceiling, so N retained disks can exceed free disk. Confirmed by summing allocated disk bytes after 20 merged TODOs within 24 h. Cleanup (T-MCH-09) is the only limit.
 - Every perf and spike artifact records the host profile, because the reference host is the team's Mac mini, whatever its size.

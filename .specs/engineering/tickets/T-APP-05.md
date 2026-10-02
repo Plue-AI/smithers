@@ -1,10 +1,14 @@
 # T-APP-05 Flow card with versions
 
-Stage S1 · Size M · Depends on T-FLW-03, T-APP-16 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-FLW-03, T-APP-16, T-UI-10, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §4.3, §7.2 (`flows`), §10.4.1a, §11.1, §11.3, §11.4.3, §11.5, §11.5a, §14.2, §14.3 (Flow), §15.1.5 · Delta: delta.md §8 (Add `flow-load`, versions projection), §9 (Add cards [S1] Flow versions) · Product: mvp.md J5.2–J5.4, J11.2–J11.4, §6.12 Flow card, §6.14 Write flows, M-04, M-30, Appendix A `/flow`, `/flow.edit`, `/flow.source`, `/flow.plan`
 
 ## Goal
 `/flow todo` shows the TODO flow's steps and tells its versions apart (Active, Proposed with its TODO, "Merged · active after sync", "Merged · not active" with the load error), so a lead sees which version new TODOs use and asks for a change from the card.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `FlowCard` view: source label, versions with states, steps, Source/Plan/Run/Edit, step agents. Engineering wires them: the `flows` topic container and the flow commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,6 +1,6 @@
 # T-ACC-03 One authorizer over the permission matrix
 
-Stage S1 · Size M · Depends on T-ACC-02 · Unblocks T-ACC-04, T-STK-04, T-FLW-08, T-MCH-04 · Issue: to file
+Stage S1 · Size M · Depends on T-ACC-02 · Unblocks T-ACC-04, T-STK-04, T-FLW-08, T-FLW-12, T-MCH-04 · Issue: to file
 Spec: spec.md §5.2, §5.2.1, §5.3, §5.4, §6.2.3, §6.3 (`/api/agents`), §11.5a, §15.1.4, §17.2 · Delta: delta.md §2 (Modify `repo_permissions.go` → one `Authorize`) · Product: mvp.md §6.15 "Roles", M-05, §2 rule 6, Appendix B.6
 
 ## Goal

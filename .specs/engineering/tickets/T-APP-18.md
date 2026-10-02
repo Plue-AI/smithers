@@ -1,10 +1,14 @@
 # T-APP-18 Browser notifications on secure origins
 
-Stage S2 · Size S · Depends on T-APP-07 · Unblocks C-UI-03 · Issue: to file
+Stage S2 · Size S · Depends on T-APP-07, T-UI-08, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §14.6, §14.4.1, §16.3.2 · Delta: delta.md §9 · Product: mvp.md §6.4 Browser notifications (v2.5), Appendix B.1 `notifications.allow`
 
 ## Goal
 A member with Smithers in a background tab is notified by the browser when a TODO of theirs needs them, is ready for review or fails.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the Allow notifications toast and the notification text. Engineering wires them: the Notification API controller and secure-context detection. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,6 +1,6 @@
 # C-UI-07 Answers are built from a stored preflight context
 
-Proves: mvp.md §6.5 Context preflight · spec.md §15.1.2, §11.5a (`agent:fast`) · Layer: integration · Stage: S1 · Tickets: T-APP-17
+Proves: mvp.md §6.5 Context preflight · spec.md §15.1.2, §11.5a (`agent:fast`) · Layer: integration · Stage: S1 · Tickets: T-APP-17, T-UI-07
 Automation: `apps/app/src/bun/ContextPreflight.test.ts` (new), plus one e2e assertion in `branch-conversation.spec.ts` · Runs in: CI
 
 ## Setup

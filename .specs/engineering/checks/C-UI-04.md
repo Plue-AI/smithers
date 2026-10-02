@@ -1,6 +1,6 @@
 # C-UI-04 Edge map and timeline: shared entries, per-viewer actions, live summaries, toasts
 
-Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e · Stage: S1 · Tickets: T-APP-07
+Proves: mvp.md §6.4 Toasts for events, Timeline, M-08, M-14 · spec.md §14.1, §14.4, §14.5, §10.8.3, §11.5a (`agent:fast`), §19.3 · Layer: e2e · Stage: S1 · Tickets: T-APP-07, T-UI-08
 Automation: `apps/app/e2e/real/timeline.spec.ts` (new) · Runs in: reference host
 
 ## Setup

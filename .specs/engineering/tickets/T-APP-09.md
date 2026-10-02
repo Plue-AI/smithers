@@ -1,10 +1,14 @@
 # T-APP-09 Actor rendering with `via` badges
 
-Stage S1 · Size S · Depends on T-ACC-04 · Unblocks T-APP-10 · Issue: to file
+Stage S1 · Size S · Depends on T-ACC-04, T-UI-01, T-APP-19 · Unblocks T-APP-10 · Issue: to file
 Spec: spec.md §2 (actor notation), §5.3, §6.4, §9.3.2, §12.3, §14.6a, §15.1 · Delta: delta.md §2 (Add actor `via` on audit events, activity, presence, todo_events), §9 (Modify: actor rendering with `via` badges) · Product: mvp.md J6.3, §6.13 Attribution, M-21, Appendix A closing paragraph
 
 ## Goal
 Every card that names who acted renders the §2 actor one way (§14.6a): "Ben", "Ben via Smithers", "Ben via Claude Code", "Maya via SSH", "Ben's terminal" or "Agent", with the person's avatar, an agent badge for an agent `via`, and the coding agent's own avatar.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the actor chip: avatar, agent badge, "via" label, "Smithers" and GitHub-login variants. Engineering wires them: actor data on every event and entry (§2, §14.6a). The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,6 +1,6 @@
 # T-STK-08 Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32)
 
-Stage S1 · Size M · Depends on T-STK-07 · Unblocks T-STK-11 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-07, T-UI-04, T-APP-19 · Unblocks T-STK-11 · Issue: to file
 Spec: spec.md §4.1, §8.5.0, §10.4.1, §10.5.1, §10.5.2, §10.5.3, §10.5.4, §10.8, §11.2, §14.5.2, §15.1.5 · Delta: delta.md §6 (Modify rebase: conflicts → agent once → Needs you with Resolve) · Product: mvp.md §4.2 Rebase, J7.4, J10.4, M-32, §11 stage 1 item 7a, Appendix A `/branch.rebase`
 
 ## Goal
@@ -49,4 +49,4 @@ Out:
 
 ## Risks and notes
 - Risk: today's host-side rebase writes the candidate in the stack repository, not in the lane's working copy, so the agent's attempt may start from a tree without the conflict. Observation: case B's lane shows no conflict markers. Then the attempt must check out the conflicted change first.
-- Open: a scratch branch has no TODO, so a Rebase now conflict there can't raise Needs you. Proposed: refuse with class `conflict` naming the paths and leave the branch unchanged. Owner: tech lead.
+- Resolved: §8.5.2b. The Branch card shows the conflicted paths with Resolve, and the scratch branch stays on its pre-rebase head until Done.

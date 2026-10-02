@@ -1,10 +1,14 @@
 # T-APP-14 File card live co-editing
 
-Stage S3 · Size L · Depends on T-COL-08, T-APP-15 · Unblocks T-REL-01 · Issue: to file
+Stage S3 · Size L · Depends on T-COL-08, T-APP-15, T-UI-19, T-APP-19 · Unblocks T-REL-01 · Issue: to file
 Spec: spec.md §7.1, §7.1.1, §7.4, §7.6, §9.2, §14.3 (File [S3]), §14.7, §18 · Delta: delta.md §9 (Add [S3] File live co-edit … + Yjs binding with gutter flags) · Product: mvp.md J3.2, J3.5, §6.8 Live co-editing, Not in MVP (carets), M-02, M-24
 
 ## Goal
 Two members with the same file open on a branch see each other's characters arrive in under 1 s in the author's colour, with a name flag on the line each is editing. The file saves to the machine continuously with no Save button, and an outside save that collides with typing shows "Changed outside Smithers · Compare" instead of disappearing.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: co-editing visuals: author colours, gutter name flags, the Saved state, the "Changed outside Smithers · Compare" flag. Engineering wires them: the `y-codemirror.next` binding, the live document provider, awareness, save acknowledgements. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,6 +1,6 @@
 # T-COL-05 Moved off the item: detect; Return to Tn; Keep for now
 
-Stage S2 · Size M · Depends on T-COL-04, T-STK-07, T-MCH-04 · Unblocks — · Issue: to file
+Stage S2 · Size M · Depends on T-COL-04, T-STK-07, T-MCH-04, T-UI-15, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §3 (`branches.moved_off`), §4.1 (working → needs_you), §6.1.2 (`in-card`), §9.1.2 (`return_to_item`), §9.3.4, §9.3.8, §10.8, §14.5.2 · Delta: delta.md §4 (moved-off detection) · Product: mvp.md §6.8 External changes, M-27, M-14
 
 ## Goal
@@ -37,7 +37,7 @@ Out:
   - `git checkout main`, `git switch -c x main`, `jj edit main` and `jj new main` → moved off;
   - `jj abandon <item>` → change missing;
   - `git commit` on the item, `jj new` on top, and a rebase that keeps the change id → not moved off.
-- integration, real jj and fanotify (`crates/smithers-machined/tests/moved_off.rs`, new): a second uid runs `git checkout main` and gets one `moved_off` naming that member. Return to Tn puts `@` and the file bytes back on the pre-move commit, and a file written after the move stays in its own commit. Git `HEAD` follows (colocated repository).
+- integration, real jj, inotify and cgroups (`crates/smithers-machined/tests/moved_off.rs`, new): a second uid runs `git checkout main` and gets one `moved_off` naming that member. Return to Tn puts `@` and the file bytes back on the pre-move commit, and a file written after the move stays in its own commit. Git `HEAD` follows (colocated repository).
 - integration, real PostgreSQL (`packages/backend/internal/machined/moved_off_integration_test.go`, new): two Return presses race, and one wins while the other gets `409 {answered_by}`. Keep for now leaves Needs you open until a burst puts `@` back on the item. A redelivered event opens one wait. The agent's write gets `moved_off`.
 - e2e: C-J3-09.
 

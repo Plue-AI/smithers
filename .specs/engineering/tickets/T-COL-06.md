@@ -1,6 +1,6 @@
 # T-COL-06 Presence map and heartbeats
 
-Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-10 · Unblocks T-STK-11, T-APP-10 · Issue: to file
+Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-10 · Unblocks T-STK-11, T-APP-10, T-REL-03 · Issue: to file
 Spec: spec.md §2 (Presence, actor notation), §5.6, §7.1 (`presence` frame), §7.3.1–7.3.2, §7.4.5, §7.6 (row 4), §8.4.1, §8.10.4, §14.3 (Branch) · Delta: delta.md §4 (presence row; `BranchPresence` reference) · Product: mvp.md J3.2–J3.3, §6.8 Presence, M-17
 
 ## Goal

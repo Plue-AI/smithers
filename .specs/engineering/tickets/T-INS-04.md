@@ -1,7 +1,7 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins; no secure-context dependency
 
 Stage S1 · Size M · Depends on T-INS-02 · Unblocks T-INS-06, T-TRM-03 · Issue: to file
-Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.5a · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
+Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
 The install serves on loopback by default and on any bind address and public origins the owner sets (http or https, any host), changes apply without a restart, and every app feature works in an insecure context.
@@ -20,7 +20,7 @@ In:
   - the single `crypto.subtle` use, `apps/app/src/mainview/wiki/CloudWiki.ts:127`, moves to the synchronous SHA-256 of `@smthrs/crypto` (`packages/smithers/flows/crypto/src/Sha256.ts`);
   - the clipboard falls back to a hidden textarea and `document.execCommand("copy")`;
   - no service worker or push.
-- `GET /api/install` reports each origin with its scheme, so Settings can mark an http origin "unencrypted" (§17.5a; T-APP-03 renders it).
+- `GET /api/install` reports each origin with its scheme, so Settings can mark an http origin "unencrypted" (§17.6; T-APP-03 renders it).
 
 Out:
 - Any Tailscale check, `tailscale serve` call or TLS code (§0, §16.3.4). Tailscale serve and Caddy appear only in the quickstart (T-DOC-01).

@@ -8,7 +8,9 @@ mvp.md §11 builds the MVP in three stages, and every one ships at launch. Will 
 - Tailscale is not part of the product (§1.4, §16.3).
 - Every limit derives from the detected host, never a Mac model (§8.2).
 - Each branch has one shared conversation (§14.1).
-- The app agent runs a context preflight before it answers (§15.1). Each section below is tagged with the stage that first needs it: **[S1]** skeleton (J1, J2, J4, J5, J6.1), **[S2]** multiplayer without co-editing (J3), **[S3]** live code co-editing and learning. **[D]** marks behavior deferred to the first release after the MVP (mvp.md §16). It is specified only so the MVP leaves room for it, and the MVP MUST NOT build it.
+- The app agent runs a context preflight before it answers (§15.1).
+
+Each section below is tagged with the stage that first needs it: **[S1]** skeleton (J1, J2, J4, J5, J6.1), **[S2]** multiplayer without co-editing (J3), **[S3]** live code co-editing and learning. **[D]** marks behavior deferred to the first release after the MVP (mvp.md §16). It is specified only so the MVP leaves room for it, and the MVP MUST NOT build it.
 
 | Deferred [D] | Where it would live |
 | --- | --- |
@@ -54,7 +56,7 @@ Conventions. **MUST** and **MUST NOT** are requirements that a check in [checks/
       GitHub: main · issues · pull requests · reviews · checks
 ```
 
-1.1 One install serves one team and one repository (M-02 rule 2). The install is one macOS user account's data directory, `~/Library/Application Support/Smithers` (`$STATE`). Every durable byte lives under it.
+1.1 One install serves one team and one repository (mvp.md §2 rule 2). The install is one macOS user account's data directory, `~/Library/Application Support/Smithers` (`$STATE`). Every durable byte lives under it.
 
 1.2 Processes. launchd starts the host launcher, which supervises the host service and PostgreSQL. A crash of either restarts both under the existing supervisor contract. No Docker, Kubernetes, Electron or Electrobun process exists on the MVP install.
 
@@ -92,7 +94,7 @@ A machine reaches the host only through the host-relay port and its own egress p
 | Conversation entry | (conversation, entry) | Shared. A prompt, an answer, a card or an event. Has author, title, summary, tone, state and context (§14.5, §15.1). |
 | Member view state | (member, conversation) | Private: scroll position, card view state, last seen entry, toast hiding. |
 
-Actor notation used everywhere (events, activity, presence, audit): `{person: member id, via?: "smithers"|"claude-code"|"codex"|"ssh"|<agent>, session?: id}` for people and agents acting for them, and `{agent: "coding", run: run id, todo?: #n}` for the coding agent. Rendering: "Ben", "Ben via Claude Code", "Maya via SSH", "Agent".
+Actor notation used everywhere (events, activity, presence, audit): `{person: member id, via?: "smithers"|"claude-code"|"codex"|"ssh"|<agent>, session?: id}` for people and agents acting for them, and `{agent: "coding", run: run id, todo?: Tn}` for the coding agent, `{system: "smithers"}` for the stack service and other system operations, and `{outside: true}` for writes no session can claim (§9.3.1). Rendering: "Ben", "Ben via Claude Code", "Maya via SSH", "Agent", "Smithers", "Changed outside Smithers" (§14.6a).
 
 ---
 
@@ -162,9 +164,9 @@ projection_events(topic, seq, at, payload jsonb)   -- per-topic monotonic stream
 
 3.0 The existing GitHub synced store (`github_synced_*` tables, `B/services/github_synced_repos.go`) is the cache of issues, PRs and comments. No second cache table is added. `github_sync` adds per-stream cursors, ETags and health on top of it.
 
-3.1 Every mutation that changes a card writes its row change and one `projection_events` row in the same transaction. T-STK-01 owns the `projection_events` migration and writer; T-COL-02 builds the live transport on it. Then it runs `NOTIFY live, '<topic>'`.
+3.1 Every mutation that changes a card writes its row change and one `projection_events` row in the same transaction, then runs `NOTIFY live, '<topic>'`. T-STK-01 owns the `projection_events` migration and writer; T-COL-02 builds the live transport on it.
 
-3.2 `todos.state` is stored, not computed at read time. Every change appends a `todo_events` row with the actor and cause. Reads never infer a state that has no event (honest state, M-02 rule 5).
+3.2 `todos.state` is stored, not computed at read time. Every change appends a `todo_events` row with the actor and cause. Reads never infer a state that has no event (honest state, mvp.md §2 rule 5).
 
 3.3 Retention: `projection_events` keeps 24 h or 10,000 rows per topic, whichever is larger. Older cursors get a snapshot (§7.2).
 
@@ -216,6 +218,8 @@ projection_events(topic, seq, at, payload jsonb)   -- per-topic monotonic stream
 | dropped → in_review | The PR is reopened on GitHub within 7 days | `smithers/<slug>` is recreated from the captured head in the repo store; machine cleanup doesn't matter (§12.3) |
 
 4.1.0 The stack engine's work record (`mythical_items.state`, 15 values) projects onto the TODO state. `todos.state` is written by the engine in the same transaction as the item change:
+
+The table above is authoritative; the diagram omits some edges.
 
 | Item state | TODO state |
 | --- | --- |
@@ -284,9 +288,9 @@ Machine states shown in the product: awake, asleep, waking, waiting #n (= reques
 | Install settings: model access, capacity, GitHub App, upgrade | ✓ | | | | |
 | Merge, approve a revision | ✓ | ✓ | | merge: `confirm` through Review & merge (a maintainer's session approves); approvals that gate a merge: `never` | |
 | Members, roles, secrets write | ✓ | ✓ | | never (no confirmation path: secret values never pass through an agent or a pending confirmation) | |
-| Merge flow/agent changes (same as Merge) | ✓ | ✓ | | confirmation only | |
-| Create, place, amend, steer, answer, stop, resume, retry, drop TODOs | ✓ | ✓ | ✓ | ✓ as person | answer own conflicts only |
-| Join branch, terminal, SSH, co-edit, fork, comment, run flows | ✓ | ✓ | ✓ | ✓ as person | within its own branch |
+| Merge flow/agent changes (same as Merge) | ✓ | ✓ | | `confirm` through Review & merge | |
+| Create, place, amend, steer, answer, stop, resume, retry, drop TODOs | ✓ | ✓ | ✓ | `run`, except commit and drop: `confirm` (§15.1.5) | answer own conflicts only |
+| Join branch, terminal, SSH, co-edit, fork, add to stack, run flows | ✓ | ✓ | ✓ | `run`, except add to stack: `confirm` (§15.1.5) | within its own branch |
 | Read secret values | | | | | |
 
 A `machine` credential has no row: it can only report its own branch's events (§9.1) and read what that branch needs.
@@ -308,7 +312,7 @@ A `machine` credential has no row: it can only report its own branch's events (�
 
 ### 5.4 Person confirmation
 
-A delegated credential whose catalog row is `confirm` (§15.1.5; for example merge, commit or drop a TODO) may create a `person_confirmations` row (`POST /api/confirmations`). The app shows the confirmation to that member only, bound to the exact subject revision. Only a `session` credential can approve it. A confirmation expires after 24 h or when its subject's revision changes. Agents never receive the approve endpoint's response body beyond the row id and state. Pending confirmations publish on the `confirmations` topic for their member.
+A delegated credential whose catalog row is `confirm` (§15.1.5; for example merge, commit or drop a TODO) may create a `person_confirmations` row (`POST /api/confirmations`). The app shows the confirmation to that member only, bound to the exact subject revision. Only a `session` credential can approve it. A confirmation expires after 24 h or when its subject's revision changes. Agents never receive the approve endpoint's response body beyond the row id and state. Pending confirmations publish on that member's `confirmations:<member>` topic (§7.2.2).
 
 ### 5.5 Unix identity on machines (M-18, M-29)
 
@@ -318,7 +322,7 @@ A delegated credential whose catalog row is `confirm` (§15.1.5; for example mer
 
 5.5.3 The working copy is owned `root:team` (gid 20000), with setgid directories and mode `g+rwX`. Every session has `umask 002`. Members and `agent` are in `team`.
 
-5.5.4 Each member's home is `/home/<login>`, mode 0700, persisted per member across machines (§8.7) so tool logins carry from branch to branch. `agent` has no access to member homes.
+5.5.4 Each member's home is `/home/<login>`, mode 0700, persisted per member across machines (§8.7) so tool logins carry from branch to branch. A member added while a machine is awake gets a temporary home there until its next wake (§8.7.1). `agent` has no access to member homes.
 
 ### 5.6 Revocation
 
@@ -332,7 +336,7 @@ Removing or suspending a member deletes their sessions, revokes their delegated 
 
 6.1.1 Every member-facing action is a command with a typed payload schema. The command is the single source for four doors: the app's slash menu, palette and card buttons; the app agent's tool list; the `smthrs` CLI; and the Smithers skill (M-21).
 
-6.1.2 The MVP catalog is a machine-readable file, `catalog.mvp.json`, generated from the command registry. Each row has the slash name, CLI path (`null` for UI-only rows such as ⌘K, `/help`, `/stop` and `/theme`), journey, group, visibility (`core`, `advanced`, `in-card` or `hidden`), `agent: run | confirm | never` (§15.1.5) and a person-only flag. `in-card` commands are controls inside a card: the three doors still apply, but they're absent from `/help` and Appendix A (for example Return to Tn, Keep for now, OK on order attention, Reset to GitHub main, Make TODO from a proposal, Dismiss, Retry a background run). Sign-in and sign-out are never agent-invocable. The CLI hides non-MVP groups from MVP help with an explicit hidden list where incur lacks a flag. A CI check fails when a registered command visible to members is absent from mvp.md Appendix A, or an Appendix A row has no command, CLI path or skill entry (check C-CAT-01). mvp.md Appendix B is the registry of every flow and action (app flows, coding-host tools, backend system flows and workers, CLI commands). The allowlist test derives from B.1, B.2, B.4 (in-card controls with stable ids, such as `todo.return-to-item`, `file.restore` and `merge.confirm`) and B.6, plus Appendix C (`.specs/product/actions.md`: every Flow, Action and AgentAction tag in shipped flows and std tools, 386 rows). A tag that is registered but has no Appendix C row, or whose row says Cut, fails the build. A ticket that adds a tag adds its Appendix C row in the same change. In short: anything registered but absent from B, or marked Cut there, fails the build.
+6.1.2 The MVP catalog is a machine-readable file, `catalog.mvp.json`, generated from the command registry. Each row has the slash name, CLI path (`null` for UI-only rows such as ⌘K, `/help`, `/stop` and `/theme`), journey, group, visibility (`core`, `advanced`, `in-card` or `hidden`), `agent: run | confirm | never` (§15.1.5) and a person-only flag. `in-card` commands are controls inside a card: the three doors still apply, but they're absent from `/help` and Appendix A (for example Return to Tn, Keep for now, OK on order attention, Reset to GitHub main, Make TODO from a proposal, Dismiss, Retry a background run). Sign-in and sign-out are never agent-invocable. The CLI hides non-MVP groups from MVP help with an explicit hidden list where incur lacks a flag. A CI check fails when a registered command visible to members is absent from mvp.md Appendix A, or an Appendix A row has no command, CLI path (unless UI-only) or skill entry (check C-CAT-01). mvp.md Appendix B is the registry of every flow and action (app flows, coding-host tools, backend system flows and workers, CLI commands). The allowlist test derives from B.1, B.2, B.4 (in-card controls with stable ids, such as `todo.return-to-item`, `file.restore` and `merge.confirm`) and B.6, plus Appendix C (`.specs/product/actions.md`: every Flow, Action and AgentAction tag in shipped flows and std tools, 386 rows). A tag that is registered but has no Appendix C row, or whose row says Cut, fails the build. A ticket that adds a tag adds its Appendix C row in the same change. The Cut-tag assertion turns on in the change that completes T-CUT-01's deletions, since 87 Cut tags are still registered today.
 
 6.1.3 Commands outside the MVP stay published as libraries or CLI groups but are `hidden`. They are absent from the palette, `/help`, the agent's tools and the MVP docs.
 
@@ -351,18 +355,18 @@ Removing or suspending a member deletes their sessions, revokes their delegated 
 ### 6.3 Resource surface (target)
 
 ```
-/api/install            see below (status, settings, setup steps, quiesce, scorecard)
 /api/members            GET · POST add · PATCH role · DELETE remove
 /api/todos              GET list · POST create{prompt,title,acceptance?,place,issue?,fixes?,seed_patch?}
-/api/todos/{n}          GET · PATCH amend · POST {stop|resume|retry|drop|steer|answer|move}
+/api/todos/{n}          GET · PATCH amend · POST {stop|resume|retry|retry-current-flow|drop|steer|answer|move|takeover}
 /api/todos/{n}/merge    POST (session only) {reviewed_head_sha}
 /api/stack              GET (home card snapshot)
 /api/branches           GET · POST fork{from: main|Tn|branch, name?}
-/api/branches/{b}       GET · POST {rebase|add-to-stack} · /files · /diff · /activity
+/api/branches/{b}       GET · POST {rebase|add-to-stack|sleep|wake|return-to-item|keep-moved|bring-in|discard-foreign} · /files · /diff · /activity
+/api/branches/{b}/files/{path}  GET · POST {restore|restore-deleted} · GET compare
 /api/conversations/{b}  GET entries · POST prompt · PUT view-state
 /api/terminals          POST open{branch}
 /api/flows              GET catalog with versions · POST edit{name, request} · POST run
-/api/runs               GET · /{id} · /{id}/trace · POST signal
+/api/runs               GET · /{id} · /{id}/trace   (sending signals by hand is deferred)
 /api/proposals          GET · POST {id}/accept · POST {id}/dismiss
 /api/secrets            GET names · PUT · DELETE
 /api/github/sync        GET health · POST retry
@@ -422,12 +426,12 @@ binary [kind u8][sub id u32][payload]   kind: 1 yjs-sync, 2 yjs-awareness, 3 ter
 
 ### 7.3 Presence [S2]
 
+7.3.0 For 30 s after the host starts, presence is unknown, and the scheduler releases no machine in that window (§8.3.3).
+
 7.3.1 Presence is in-memory in the host service, keyed `(branch, actor, session)`, with a 30 s TTL refreshed by heartbeats. Heartbeat sources:
-- the browser, every 10 s and on every move, with where = `{file, line}`, `{terminal}`, `{run step}` or `{branch}`;
+- the browser, every 10 s and on every move, with where = `{path, line}` (§7.6), `{terminal}`, `{run step}` or `{branch}`;
 - `smithers-machined` for SSH, terminal and editor sessions, with where = the file last written by that session (§9.3);
 - the runtime for the coding agent, with where = the current step and the file it last wrote.
-
-7.3.0 For 30 s after the host starts, presence is unknown, and the scheduler releases no machine in that window (§8.3.3).
 
 7.3.1a When a person's presence on a branch lasts at least 2 min, the host writes one coarse `presence_sessions` row (start, end) for the scorecard. Presence itself stays in memory.
 
@@ -468,7 +472,7 @@ These hold from the first stage-1 commit, so stage 3 adds a document layer witho
 
 ---
 
-## 8. Branches and machines [S2; images §8.6 S1]
+## 8. Branches and machines [S2; jj flows §8.5 and images §8.6 S1]
 
 ### 8.1 Identity
 
@@ -517,7 +521,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 ### 8.5 Fork, Add to stack, Rebase now [S1] (M-32)
 
-8.5.0 Fork, Add to stack and Rebase now are system flows that any actor invokes. In stage 1 a fork's source is `main` or an item; forking a scratch branch waits for stage 2's capture. The stack service is the only writer of branch history (M-32): every fork, place, reorder, rebase and merge appears in branch activity as "Smithers", with the requester shown ("Smithers, for Ben"). Requesters include a person and the app agent, under §15.1.5 permissions (fork and rebase: `run`; add to stack: `confirm`). The buttons and the agent delegate to the stack service. Stage 1 implements them over today's workspaces: a fork starts from the item's last verified head or from `main`. Stage 2 adds capture first (§8.5.2).
+8.5.0 Fork, Add to stack and Rebase now are system flows that any actor invokes. Stage 1 implements them over today's workspaces: a fork's source is `main`'s tip or an item's last verified head, and forking a scratch branch waits for stage 2's capture (§8.5.2). The stack service is the only writer of branch history (M-32): every fork, place, reorder, rebase and merge appears in branch activity as "Smithers", with the requester shown ("Smithers, for Ben"). Requesters include a person and the app agent, under §15.1.5 permissions (fork and rebase: `run`; add to stack: `confirm`). The buttons and the agent delegate to the stack service.
 
 8.5.1 A fork creates a scratch branch from a revision. Sources: `main` (its tip), an item (its last captured head) or any branch (its last captured head, after an on-demand capture if the branch is awake).
 
@@ -527,7 +531,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 8.5.2b A Rebase now conflict on a scratch branch has no TODO to raise Needs you on. The Branch card shows the conflicted paths with Resolve, and the branch stays on its pre-rebase head until someone presses Done (§10.5.4).
 
-8.5.3 **Add to stack** from a scratch branch creates a new TODO whose seed is the scratch change, placed like any other (default: after the item it was forked from). The scratch branch becomes that TODO's item branch: it is renamed `smithers/<slug>` and keeps its machine, working copy and the people on it. A scratch branch's Diff card compares against its fork revision. [D] **Replace Tn**, which would make the scratch head the new head of item #n's change, is deferred.
+8.5.3 **Add to stack** from a scratch branch creates a new TODO whose seed is the scratch change, placed like any other (default: after the item it was forked from). The scratch branch becomes that TODO's item branch: it is renamed `smithers/<slug>` and keeps its machine, working copy and the people on it. A scratch branch's Diff card compares against its fork revision. [D] **Replace Tn**, which would make the scratch head the new head of item Tn's change, is deferred.
 
 ### 8.6 Images [S1]
 
@@ -559,7 +563,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 8.8.1 [S2] All-branches secrets without declared hosts are written to `/run/smithers/env` (root:team 0640) at boot, and rewritten by the daemon within 5 s of a change. New sessions and runs load the new values; running processes keep theirs. Any session on a machine can print these values: "nobody reads values back" applies to the API and the Secrets card, as with GitHub Actions secrets. [D] Recording each use by run is deferred.
 
-8.8.2 Main-only secrets reach only trusted runs on `main`, in an ephemeral background machine: a person's schedule or a manual run by a maintainer. They never reach item or scratch branches, agent runs or outsider-triggered runs (D-24).
+8.8.2 Main-only secrets reach only trusted runs on `main`, in an ephemeral background machine: a manual run by a maintainer (schedules are deferred with triggers). They never reach item or scratch branches, agent runs or outsider-triggered runs (D-24).
 
 8.8.3 Provider model keys never enter a machine. The coding agent's model calls go through the host's model proxy with a `run` credential (§15.2).
 
@@ -642,7 +646,7 @@ Stage 2 has no co-editing. An open File card is read-only to everyone except thr
 
 9.2.5 A document closes 60 s after its last subscriber leaves, after a final flush. Its Yrs state, including per-character authors, persists on the machine disk outside the working copy (`/var/lib/smithers/docs/<path digest>`), so authors survive reopening. It is discarded when the file on disk no longer matches it (an outside rewrite). The file on disk stays the truth.
 
-9.2.6 **Delete and rename while open.** In stage 2 the File card shows the same states from `file_written` and burst events. Restore rewrites the content from the last snapshot before the delete, and Follow opens the new path. In stage 3: A delete marks the document `gone{kind: deleted, by}`, and editing pauses. **Restore** rewrites the last document text. A rename to a new path inside the working copy marks it `gone{kind: renamed, to, by}`, and **Follow** reopens the document at the new path.
+9.2.6 **Delete and rename while open.** In stage 2 the File card shows the same states from `file_written` and burst events. Restore rewrites the content from the last snapshot before the delete, and Follow opens the new path. In stage 3, a delete marks the document `gone{kind: deleted, by}`, and editing pauses. **Restore** rewrites the last document text. A rename to a new path inside the working copy marks it `gone{kind: renamed, to, by}`, and **Follow** reopens the document at the new path.
 
 ### 9.3 Watching and attribution (M-27) [S2]
 
@@ -653,7 +657,7 @@ Stage 2 has no co-editing. An open File card is read-only to everyone except thr
 
 9.3.2 An inotify queue overflow (`IN_Q_OVERFLOW`) triggers a full jj snapshot, recorded as one burst "changed outside Smithers".
 
-9.3.3 **Ignored paths** produce no activity. Ignored means everything `jj` ignores (`.gitignore`, `.jj/`, `.git/` internals except HEAD and refs), plus the dependency and build paths the toolchain detector names (`node_modules/`, `target/`, `.venv/`, `dist/` when gitignored). Events for ignored paths are dropped in the kernel where possible (ignore marks) and otherwise in user space.
+9.3.3 **Ignored paths** produce no activity. Ignored means everything `jj` ignores (`.gitignore`, `.jj/`, `.git/` internals except HEAD and refs), plus the dependency and build paths the toolchain detector names (`node_modules/`, `target/`, `.venv/`, `dist/` when gitignored). Ignored directories get no inotify watch, and any other event for an ignored path is dropped in user space.
 
 9.3.4 **Bursts.** Events group into a burst keyed by the attributed actor (§9.3.1). A burst opens on the first event and closes after 1.5 s without events from that key, or 10 s after it opened, or when another key writes a file the burst touched. Two events leave the daemon:
 - `file_written{path, actor, post_digest}`: sent within 200 ms of each write to a tracked path, so open cards reload in under 1 s (§18).
@@ -673,7 +677,7 @@ The host turns it into one activity entry, for example "Maya via SSH changed 12 
 
 ### 9.4 Rebase safety
 
-9.4.1 Rebases of the branch's change (§10.5) run through `smithers-machined`, which first takes a capture. It then refuses to start while a burst is open or a document flush is pending, and holds new document writes for the rebase's duration (target under 2 s). Open documents reload from disk after the rebase as one transaction attributed to "Rebased onto #k".
+9.4.1 Rebases of the branch's change (§10.5) run through `smithers-machined`, which first takes a capture. It then refuses to start while a burst is open or a document flush is pending, and holds new document writes for the rebase's duration (target under 2 s). Open documents reload from disk after the rebase as one transaction attributed to "Rebased onto Tk".
 
 ---
 
@@ -723,7 +727,7 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 10.5.2 If only the coding agent is present on the branch, the rebase runs at the run's next durable boundary. If people are present, the branch shows "Rebase pending". The rebase then runs when presence drops to the agent alone, or when someone on the branch selects **Rebase now**.
 
-10.5.3 The rebase follows §9.4. Afterwards it posts activity "Rebased onto #k", clears approvals (the head changed), and re-runs checks.
+10.5.3 The rebase follows §9.4. Afterwards it posts activity "Rebased onto Tk", clears approvals (the head changed), and re-runs checks.
 
 10.5.4 A conflict goes to the coding agent first. If the agent doesn't resolve it within its policy (one attempt by default), the TODO enters `needs_you{kind: conflict, paths}` with **Resolve**. In stage 1 Resolve opens the TODO card's conflict view (conflicted files, terminal and SSH line); from stage 2 it opens the Branch card. The wait settles when someone presses **Done** and the working copy has no conflict markers in those paths. An engine-raised conflict creates its own durable wait on the TODO.
 
@@ -741,7 +745,7 @@ route → plan (cites wiki revisions) → implement → check → review (the ov
 
 ### 10.7 Stop, resume, retry, drop, steer
 
-10.7.1 Stop: send a durable pause signal; the run parks in a `paused` wait at its next durable boundary (an in-flight model call finishes first, ≤ 60 s), the TODO shows `paused`, and the machine is released when safe-idle. The run is not cancelled. Resume re-admits and continues the same run from its last finished step. Retry starts a new attempt of the pinned flow version; an optional steer becomes the first message.
+10.7.1 Stop: send a durable pause signal; the run parks in a `paused` wait at its next durable boundary (an in-flight model call finishes first, ≤ 60 s), the TODO shows `paused`, and the machine is released when safe-idle. The run is not cancelled. Resume re-admits and continues the same run from its last finished step. Retry starts a new attempt of the pinned flow version (Retry with the current flow pins the Active one, §4.1); an optional steer becomes the first message.
 
 10.7.2 Drop: confirm, cancel the run, close the PR with comment "Dropped in Smithers by @x", mark `dropped`, archive the branch, rebase later items.
 
@@ -801,18 +805,22 @@ The install generates and stores the configuration the default flows need in `fl
 
 ### 11.5a Agent card [S1]
 
-The Agent card shows each factory agent (planner, implementer, reviewer, app agent): its model, a link to its instructions (the flow source), and the runs it took part in. The owner picks the model from the install's model access. The choice is an owner setting stored in `flow_config` (`agent:<role>`), not a TODO, and applies to runs admitted afterwards. Three model roles are set in Settings and asked for in setup (J1):
+The Agent card shows each factory agent (planner, implementer, reviewer, app agent): its model, a link to its instructions (the flow source), and the runs it took part in. The owner picks the model from the install's model access. The choice is an owner setting stored in `flow_config` (`agent:<role>`), not a TODO. It applies immediately, to every model call started after the change, including calls in runs already in progress; flow digests don't change. Three model roles are set in Settings and asked for in setup (J1):
 - `fast` (Cerebras by default) for the app agent, preflight and timeline summaries;
 - `coding` for the coding agent;
 - `jev` through the AI Gateway for decisions.
 
-Without a fast-model key, the app agent and summaries fall back to the coding model. The owner-only model configuration (`model.*` commands, `ModelCards.tsx`) is restored from `5b77095672` without the model laboratory (`ModelCallCard.tsx`, `controller/modelCall.ts` stay deleted). Instructions are Markdown in the repository: the TODO flow's prompts (beside its source) and `.smithers/instructions/app.md` for the app agent. The install loads them as data (never as code, §1.3) from Active `main`. They change through a TODO, and apply to work started afterwards. Tools and permissions change through the overridable flow's source. The model is an owner setting that applies immediately. [D] Editing permissions, tools and budgets is deferred.
+Without a fast-model key, the app agent and summaries fall back to the coding model. The owner-only model configuration (`model.*` commands, `ModelCards.tsx`) is restored from `5b77095672` without the model laboratory (`ModelCallCard.tsx`, `controller/modelCall.ts` stay deleted). Instructions are Markdown in the repository: the TODO flow's prompts (beside its source) and `.smithers/instructions/app.md` for the app agent. The install loads them as data (never as code, §1.3) from Active `main`. They change through a TODO, and apply to work started afterwards. Tools and permissions change through the overridable flow's source. [D] Editing permissions, tools and budgets is deferred.
 
 ### 11.6 Runtime events and the monitor
 
 11.6.1 The flow runtime emits ordered events per run: step started, finished or failed (with input, output and token/time/cost usage), wait opened or settled (kind, since), attempt retried, agent transcript chunks, and steer received. The host projects them into `run:<id>`, `todo:<n>` and conversation-entry summaries.
 
 11.6.2 The monitor reads the same events. Each step's label comes from its Appendix C row's Inspect rendering (for example "Planned the change", "Edited retry.ts"). Engine bookkeeping tags render under one collapsed "Engine" row per run. It also shows the run's raw event journal, and the flow's declared custom view (the descriptor's `presentation`) when one exists. It shows the graph with live step states, per-step input/output/transcript, timeline with attempts, durable waits with "since", tokens/time/cost per step, and a read-only replay scrubber. It has no fork or rewind control (AGENTS.md).
+
+11.6.3 **Phases and cells.** The monitor groups each attempt's events into phases, one per executed flow step instance, in order. A phase's title and one-line summary are written by `agent:fast` from that step's events (§11.5a), the same way as entry summaries (§14.5.3), and never block the run. Its tone is live, ok, fail, wait (an open durable wait) or thrash (§11.6.4). Each phase holds cells, one per agent action rendered by its mvp.md B.3 / Appendix C row: context, read, edit, run, think, ask, steer, reviewer or rebase. A cell carries a plain explanation, plus the code, output or quote it shows, and its time, tokens and actor. The run's trailing wait for merge (§10.4.1) shows as state `held` with since. Each attempt keeps its own graph.
+
+11.6.4 **Thrashing** (product, 2026-10-02; mvp.md §6.14). Within one attempt, a phase is thrashing when the same failing check fails 3 times with no edit in between to the files that failure names. "The same check" means the same test id, or the same error signature after normalizing paths, line numbers and other numbers. The detector is deterministic host code over run events, with no model. It sets the phase tone `thrash` and adds the TODO card indicator "Thrashing: <check> failed 3×". The indicator clears when an edit touches a named file or the check passes. It is information for a person and changes no run behavior. Check: C-J11-04.
 
 ### 11.7 Triggers
 
@@ -840,7 +848,7 @@ Maintainers create, pause and resume triggers, and **Run now** fires one. Runs t
 
 ### 12.1 The GitHub App
 
-12.1.1 The App is created during install with GitHub's App manifest flow. The manifest's `redirect_url` is the origin the setup page is served from, whether `localhost` on the Mac or the address a LAN laptop used (§5.1.0). It's a browser redirect, so any origin the browser can reach works. Setup first asks for the repository, so it knows the owner. A user-owned repository gets an App owned by that user. An organization repository gets an App owned by the organization (`github.com/organizations/<org>/settings/apps/new`), which needs an organization owner. If the signed-in person isn't one, setup says so and shows the URL to hand to one. The browser on the owner's Mac posts the manifest to `github.com/settings/apps/new` (or the organization's equivalent). The browser redirect reaches `<setup origin>/setup/github/callback`. It is a browser redirect, not a server callback, so no public address is needed (spike within T-GH-01). The host exchanges the code (`POST /app-manifests/{code}/conversions`) and stores the App id, PEM, webhook secret and client id/secret, sealed in PostgreSQL under the install key.
+12.1.1 The App is created during install with GitHub's App manifest flow. The manifest's `redirect_url` is the origin the setup page is served from, whether `localhost` on the Mac or the address a LAN laptop used (§5.1.0). It's a browser redirect, so any origin the browser can reach works. Before posting the manifest, setup step 3 asks which GitHub account owns the repository (a user or an organization name), because the App's owner is fixed at creation. A user-owned repository gets an App owned by that user. An organization repository gets an App owned by the organization (`github.com/organizations/<org>/settings/apps/new`), which needs an organization owner. If the signed-in person isn't one, setup says so and shows the URL to hand to one. The setup browser posts the manifest to `github.com/settings/apps/new` (or the organization's equivalent). The browser redirect reaches `<setup origin>/setup/github/callback`. It is a browser redirect, not a server callback, so no public address is needed (spike within T-GH-01). The host exchanges the code (`POST /app-manifests/{code}/conversions`) and stores the App id, PEM, webhook secret and client id/secret, sealed in PostgreSQL under the install key.
 
 12.1.2 Manifest permissions:
 - contents: write
@@ -907,7 +915,7 @@ The webhook is created inactive (`hook_attributes.active = false`), because poll
 
 ### 12.5 Pull requests [S1]
 
-12.5.1 A TODO's PR opens when its run reaches `in_review`. Head: `smithers/<slug>`. Base: `main`. Only the first item's PR is ready for review on GitHub; later items' PRs are opened as **drafts**. When an item merges, the next PR rebases onto the new `main`, holds only its own change and is marked ready (GraphQL `markPullRequestReadyForReview`). When an item stops being first (moved down, or an item placed before it), its PR returns to draft (`convertPullRequestToDraft`). GitHub offers draft PRs only on public repositories and on paid plans. Where drafts are unavailable, later PRs open ready, with the title prefix "[waits for Tn]" and the label `smithers:waiting`, and Smithers enforces the order. The head commit is the verified candidate for the item: `main` plus every earlier unmerged item plus this item. The body has the prompt (latest revision), acceptance, evidence (checks table, diff stat, review summary), the earlier stack items it includes ("Includes #3, #4 until they merge"), a link back and "Requested by @owner". The PR card in Smithers shows only the item's own change: the diff from the previous item's candidate to this one.
+12.5.1 A TODO's PR opens when its run reaches `in_review`. Head: `smithers/<slug>`. Base: `main`. Only the first item's PR is ready for review on GitHub; later items' PRs are opened as **drafts**. When an item merges, the next PR rebases onto the new `main`, holds only its own change and is marked ready (GraphQL `markPullRequestReadyForReview`). When an item stops being first (moved down, or an item placed before it), its PR returns to draft (`convertPullRequestToDraft`). GitHub offers draft PRs only on public repositories and on paid plans. Where drafts are unavailable, later PRs open ready, with the title prefix "[waits for Tn]" and the label `smithers:waiting`, and Smithers enforces the order. The head commit is the verified candidate for the item: `main` plus every earlier unmerged item plus this item. The body has the prompt (latest revision), acceptance, evidence (checks table, diff stat, review summary), the earlier stack items it includes ("Includes T3, T4 until they merge"), a link back and "Requested by @owner". The PR card in Smithers shows only the item's own change: the diff from the previous item's candidate to this one.
 
 12.5.2 The branch reaches GitHub when the PR is proposed and on every later verified update (`--force-with-lease` against the recorded head).
 
@@ -951,22 +959,30 @@ The webhook is created inactive (`hook_attributes.active = false`), because poll
 
 Every card renders one live topic (§7.2) or a set of topics, and every card action runs one catalog command (§6.1). Cards hold no business state. The same component renders inline and maximized.
 
+14.2.1 Ownership (Will, 2026-10-02). Design builds every visual component in `apps/app` and `@smthrs/ui`: cards, the shell, the timeline, toasts, the branch tree, forms and CSS. Engineering wires them to data and actions. Each card is split in two:
+- `<Card>View`: presentational, props only (the view model plus callbacks), with fixture stories. Design owns it.
+- `<Card>Container`: subscribes to the card's topics, maps them to the view model, and binds callbacks to catalog commands. Engineering owns it.
+
+The seam is one zod view-model schema per card in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent), written from §14.3's field lists (T-APP-19), with fixtures in `apps/app/src/mainview/cards/fixtures/<Card>.ts`. §14.3 is the source of truth for fields, and the TypeScript types are its executable form. A field a view needs but §14.3 lacks is a spec change, raised with the tech lead.
+
 ### 14.3 Card models
 
 | Card | Topic | Model fields (all present in the projection) |
 | --- | --- | --- |
 | Home | `home` | `main {sha, title, last_success_at, health, cause?, retry_at?}`; `attention[]` (stack_attention for this viewer); items[] `{n, title, state, owner, place, queue?, step?, needs_you?, merge_block?, pr?, approval_cleared?, amendments, lessons}`; counts by state; merged_since_last_look (per member); machines `{in_use, capacity}`; parallel (owner only); per item also `{branch, present_count, elapsed}`; background_runs[] `{id, title, state, detail}` with Retry and Dismiss (in-card). "Last look" advances when the Home card has been on screen for 2 s |
-| TODO | `todo:<n>` | Above, plus `merged_via` ("Merged · in T15's commit", §10.6.4), title, prompt revisions, acceptance, issue link, branch, flow steps with current, question + first answer, failure `{step, class, message, retryable}`, evidence per attempt, PR `{number, head, draft, draft_after ("Draft · merges after T8"), checks, reviews, included_items}`, merge control state |
-| Branch | `branch:<id>` + `:activity` + `:files` | Machine `{state, wait_position?}` with in-card Sleep and Wake, item and place or "scratch", rebase_pending, moved_off, presence[] `{actor, where, watching?}`, terminals[], activity[], changed files |
+| TODO | `todo:<n>` | Above, plus the run's step list with `waiting`/`paused` states and its trailing wait for merge (`held`), the run's indicators (waiting for a person since), `merged_via` ("Merged · in T15's commit", §10.6.4), title, prompt revisions, acceptance, issue link, branch, flow steps with current, question + first answer, failure `{step, class, message, retryable}`, evidence per attempt, PR `{number, head, draft, draft_after ("Draft · merges after T8"), checks, reviews, included_items}`, merge control state |
+| Branch | `branch:<id>` + `:activity` + `:files` | Machine `{state, wait_position?}` with in-card Sleep and Wake, item and place or "scratch", rebase_pending, moved_off, presence[] `{actor, where, watching?}`, terminals[], activity[] `{actor, asked_by?, kind, text, items?, files, github}` (§3), changed files |
 | File | `branch:<id>:files` [S2]; live doc [S3] | [S2] text, last writer, reload on change, gone state, `outside` (the snapshot that Compare reads, §9.2.3). [S3] per-character authors; editors[] `{actor, line}`; saved state |
 | Diff | `branch:<id>:files` | Hunks vs the previous item's candidate (§12.5.1) |
 | Terminal | terminal stream + `branch:<id>` | Owner, watchers, running command, `temporary_home` (a machine-local home until the next wake, §8.7.1) |
-| Flow | `flows` | Source label (built-in or `flows/<name>/flow.ts`), versions `{state: active|proposed|merged-syncing|merged-failed|previous, todo?, error?, steps[]}`; actions Source, Plan, Run, Edit; the agent of each step |
-| Members / Secrets | `members` / `secrets` | Login, name, avatar, role, needs_access, suspended; secret name and scope (no Bind control in the MVP card) |
+| Flow | `flows` | Source label (built-in or `flows/<name>/flow.ts`), versions `{state: active|proposed|merged-syncing|merged-failed|previous, todo?, error?, steps[] {id, label, detail?, agent?}}`, and for the TODO flow the trailing merge wait with its signals (rebase → check, steer → implement); actions Source, Plan, Run, Edit; the agent of each step |
+| Members / Secrets | `members` / `secrets` | Login, name, avatar, role, needs_access, suspended; secret name, scope and optional bound hosts (set in Add and Replace; no separate Bind door) |
 | Setup / Settings | `install` | Address `{bind, origins[]}`, per-step `{state, error?: {code, message, fix?}}`, "This Mac" (the detected host and its limits, §8.2.1), GitHub `{signed_in, app_installed, squash_allowed}`, repository, model access flags, source `{state, pct}`, machine `{state, pct}`; Settings adds capacity, parallel and the laptop-agent line `smthrs login <origin>` |
 | Proposal | `proposals` | Title, evidence, refs, state |
 | Review | `run:<id>` | Verdict, findings[] `{severity, path, line, text}` |
-| Confirm | `confirmations` | Kind (`one_click` or `review_merge`), action, a one-line summary, subject and its revision, place in the stack, checks line |
+| Run (monitor, Inspect) | `run:<id>` | State incl. `held` for the wait for merge; attempts[] each with its graph; steps with input, output and agent; phases[] `{step, title, summary, took_s, tone}` titled by `agent:fast`; cells[] `{phase, kind: context|read|edit|run|think|ask|steer|reviewer|rebase, explain, code?, output?, quote?, actor?}`; waits with since; tokens, time and cost; Appendix C engine labels |
+| Agent | `agents` | Name, instructions path, role, model and the owner's choices, runs it took part in |
+| Confirm | `confirmations:<member>` | Kind (`one_click` or `review_merge`), action, a one-line summary, subject and its revision, place in the stack, checks line |
 
 ### 14.4 Toasts
 
@@ -1030,9 +1046,9 @@ Every P0 journey completes with the keyboard alone (§9 of mvp.md). Normal, Vim 
 
 15.1.2 **Context preflight.** The conversation is not the context window. Every turn begins with a preflight step that chooses what to add to the model's context. Its inputs are the prompt, the author, the branch, the titles and summaries of the conversation's recent entries, and the branch's state. Its candidates are files, wiki pages, TODOs and runs. Its output is a list `context[] = {kind, ref, revision?, reason}` within a token budget (default 24k tokens, an owner setting). Only the selected items, the prompt and the last 3 entries' text enter the answer step. The list is stored on the answer entry, the answer shows a compact "Context" line, and Inspect shows preflight as the turn's first step. Jev picks the commands the answer may call (existing `POST /api/commands/select`). Preflight selection is a model call on the cheap fast model and is recorded like any step.
 
-15.1.3 The app agent runs in the host's model host, outside every machine. It cannot run commands, open terminals or write files on a machine. "Run the webhook tests on retry-webhooks" becomes a request to that branch's coding agent (a steer, or a run on the branch), shown as "Ben via Smithers asked". It can call UI-only flows only on its author's own screen (§14.1.4). It cannot merge or approve. When asked to, it creates a person confirmation (§5.4) and renders the Confirm card for its author.
+15.1.3 The app agent runs in the host's model host, outside every machine. It cannot run commands or write files on a machine. It may open a terminal for its author (that person's own session, §15.1.5), but it never types in one. "Run the webhook tests on retry-webhooks" becomes a request to that branch's coding agent (a steer, or a run on the branch), shown as "Ben via Smithers asked". It can call UI-only flows only on its author's own screen (§14.1.4). It cannot merge or approve. When asked to, it creates a person confirmation (§5.4) and renders the Confirm card for its author.
 
-15.1.4 App-agent turns run entirely on the host, including command dispatch. Today's browser-side tool execution moves to the host turn runner, which calls each command through the same command→API mapping the CLI uses (§6.1). Its credential is a host-minted `delegated(via=smithers)` credential for the prompt's author, never sent to a browser. UI-only flows (§14.1.4) go to the author's own browser as instructions on the live channel. A turn therefore survives its author closing the tab and can be queued server-side. A person-only command from the agent becomes a person confirmation (§5.4), and person-only commands are absent from the agent's tool list (`agent-parity.test.ts`).
+15.1.4 App-agent turns run entirely on the host, including command dispatch. Today's browser-side tool execution moves to the host turn runner, which calls each command through the same command→API mapping the CLI uses (§6.1). Its credential is a host-minted `delegated(via=smithers)` credential for the prompt's author, never sent to a browser. UI-only flows (§14.1.4) go to the author's own browser as instructions on the live channel. A turn therefore survives its author closing the tab and can be queued server-side. A `confirm` command from the agent posts a Confirm card (§15.1.5), and `never` commands are absent from the agent's tool list (`agent-parity.test.ts`).
 
 15.1.5 Agent permissions (mvp.md Appendix B legend and B.6). They apply to every delegated credential: the app agent, external agents through the CLI or skill, and terminal sessions. Each catalog row carries one of three values (§6.1.2):
 - **run:** executes immediately with the person's rights. Reads, UI-only flows on the prompter's own screen, steer, answer, stop, resume, retry, rebase, fork, run a flow, wiki writes, open a terminal, and sleep or wake a machine.
@@ -1075,7 +1091,7 @@ The formula ad-hoc signs binaries with `com.apple.security.hypervisor`. No Smith
 The setup card runs on whichever listener the owner opened with the setup link (§5.1.0). Steps, in order (mvp.md J1.2):
 1. **Setup session:** the one-time link opens a token-backed setup session.
 2. **Address:** This Mac only (loopback), or Network plus a public address (§16.3). It comes first because the GitHub App's callback URLs are registered to it.
-3. **GitHub App:** created through the manifest flow (§12.1).
+3. **GitHub App:** setup asks which account owns the repository, then creates the App through the manifest flow (§12.1).
 4. **Owner sign-in:** GitHub sign-in through the new App completes the owner claim (§5.1.0). Then the owner picks the repository and installs the App on it.
 5. **Model access:** the three roles (§11.5a): a coding-model provider key, a fast-model key (Cerebras by default, optional), the AI Gateway key for Jev, and optionally a ChatGPT sign-in for coding.
 6. **Squash-merge check** on the repository (§10.6.2).
@@ -1092,7 +1108,7 @@ Each step is durable and resumable.
 - UUIDs come from one `getRandomValues`-based helper, and `crypto.randomUUID` is banned by lint;
 - the single `crypto.subtle` use is replaced;
 - the clipboard falls back to `document.execCommand("copy")`;
-- service workers and push are not used (notifications are deferred).
+- service workers and push are not used; browser notifications ride the live channel and need a secure origin (§14.6).
 
 16.3.3 Cookies are `Secure` when the request's origin is https and not otherwise. CORS and WebSocket origin checks accept exactly the configured origins plus `localhost`. GitHub App callback URLs are the configured origins plus `http://localhost:4000` (§12.1.2). GitHub has no API to change an existing App's callback URLs. When the owner adds an origin later, Settings shows the one-line fix: the App settings URL and the exact URL to add.
 
@@ -1131,9 +1147,9 @@ An install made on launch day MUST upgrade to the maintainer release with no dat
 
 17.4 Provider keys and the GitHub App PEM stay on the host. The install key lives in `$STATE/config/secrets.json` (mode 0600). Sealed blobs (App PEM, client secret, provider keys) live in PostgreSQL, encrypted under that key.
 
-17.5a A plain-HTTP public origin sends session cookies unencrypted on the network. This is a documented limitation of the team's chosen exposure, not of the install. The quickstart recommends HTTPS in front, and Settings marks an http origin with one word: "unencrypted".
-
 17.5 Contributor trust rules are enforced from launch. An issue or PR from a non-member never starts credentialed work. Labels from non-members are reverted (mvp.md §14).
+
+17.6 A plain-HTTP public origin sends session cookies unencrypted on the network. This is a documented limitation of the team's chosen exposure, not of the install. The quickstart recommends HTTPS in front, and Settings marks an http origin with one word: "unencrypted".
 
 ---
 
@@ -1141,7 +1157,7 @@ An install made on launch day MUST upgrade to the maintainer release with no dat
 
 | Budget | Target (p95) | Measured by |
 | --- | --- | --- |
-| App agent first token (owner's default model, preflight included) | < 1.5 s | C-PERF-01 |
+| App agent first token (the `fast` model, clock from submit, preflight included and reported separately) | < 1.5 s | C-PERF-01 |
 | Answer with cards (no machine) | < 8 s | C-PERF-01 |
 | Projection delta to subscribers | < 1 s | C-PERF-02 |
 | Keystroke to remote viewer (File card) | < 1 s | C-PERF-03 |
@@ -1193,8 +1209,8 @@ Install, first-answer and first-merge times come from `todo_events` and conversa
 
 | Layer | Scope | Where |
 | --- | --- | --- |
-| Unit | Pure rules: state machine transitions, capacity formula, placement, merge guard, permission matrix, burst grouping, catalog parity | Next to the code, `go test` / `bun test` / `cargo test` |
-| Integration | Real PostgreSQL, real jj, real fanotify (in a microVM or a Linux CI runner), a fake GitHub server that speaks REST and ETags | `packages/backend/internal/...`, `crates/smithers-machined/tests` |
+| Unit | Pure rules: the TODO state projection and engine guards, capacity formula, placement, merge guard, permission matrix and `agent: run/confirm/never`, burst grouping and session attribution, catalog and Appendix B/C parity | Next to the code, `go test` / `bun test` / `cargo test` |
+| Integration | Real PostgreSQL, real jj, real inotify and cgroups (in a microVM or a Linux CI runner), a fake GitHub server that speaks REST, GraphQL drafts and ETags | `packages/backend/internal/...`, `crates/smithers-machined/tests` |
 | End to end | Real app in a browser against a real install with microVMs and a scratch GitHub repository | `apps/app/e2e/real/` |
 | Fault | Kill points across runs, merges, GitHub writes, bursts, rebases | `packages/smithers/test/faults/`, `packages/backend/...` |
 | Performance | §18 budgets on the reference host | `scripts/perf/` |

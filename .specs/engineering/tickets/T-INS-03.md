@@ -17,7 +17,7 @@ In:
 
 Out:
 - The real tap, the `smthrs host` lifecycle group and the production plist (T-INS-05).
-- Notarization and a `.pkg` (rejected in overview.md E-01).
+- A `.pkg` (rejected in overview.md E-01). Notarization only as the fallback below.
 - Signing any binary other than `msb`: only `msb` calls Hypervisor.framework.
 
 ## Changes
@@ -39,4 +39,4 @@ Known before the spike, read on the maintainer's Mac: the upstream `@superradcom
 - Hypervisor.framework may refuse a process started by a LaunchDaemon outside a GUI session. Observation that confirms it: `msb doctor` fails under the daemon at the login window and passes in a login shell. Then the fallback path ships.
 - `msb` loads `libkrunfw` by a path relative to itself. Observation: a VM boot error naming `libkrunfw` after relocation.
 - Formula downloads carry no quarantine attribute today. Observation that confirms a problem: `xattr -l` shows `com.apple.quarantine` and first launch prompts.
-- If both signing variants fail, the fallback is a decision for the tech lead (E-01 rejected the `.pkg`). Record the failure mode, not a workaround.
+- If both signing variants fail, the fallback is Developer ID signing plus notarization of `msb` and the bundle inside the same formula, not a `.pkg`. This Mac holds a valid "Developer ID Application" identity (team 4QU7J75P89; ops agent, 2026-10-02), so the fallback costs about a day. `notarytool` keychain credentials are unconfirmed; ops is checking. Record the failure mode first.

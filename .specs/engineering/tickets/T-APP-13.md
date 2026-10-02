@@ -1,10 +1,14 @@
 # T-APP-13 Secrets card
 
-Stage S2 · Size S · Depends on T-MCH-12 · Unblocks — · Issue: [#3462](https://github.com/smithersai/smithers/issues/3462)
+Stage S2 · Size S · Depends on T-MCH-12, T-UI-18, T-APP-19 · Unblocks — · Issue: [#3462](https://github.com/smithersai/smithers/issues/3462)
 Spec: spec.md §2 (Secret), §5.2, §7.2 (`secrets`), §8.8, §14.2, §14.3 (Secrets) · Delta: delta.md §3 (Modify: secrets reach machines) · Product: mvp.md J1.8, §6.15 Secrets, M-25, D-24 (via §8.8.2), Appendix A `/secrets`
 
 ## Goal
 From `/secrets`, a maintainer adds, replaces and deletes secrets and sets each one's scope (all branches or main only); every member sees the names and scopes live, and nobody can read a value back.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `SecretsCard` view: names, scope, optional Hosts field in Add and Replace. Engineering wires them: the `secrets` container and the write-only secret commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -35,5 +39,5 @@ Out:
 - [C-MCH-07](../checks/C-MCH-07.md): secrets set on this card are present in every session and the coding host, and no API or card path reads a value back.
 
 ## Risks and notes
-- Open: whether the MVP card carries a Bind door for egress binding (§8.9 swaps bound secrets in by host; Appendix B.2 lists `secrets.bind` under `/secrets`; §14.3 Secrets has name and scope only). Hidden until decided (owner: product).
+- Resolved: the MVP card has no separate Bind door. Add and Replace take an optional Hosts field, and a secret with hosts stays egress-bound (§8.8.0, §14.3).
 - The mock's "used by N runs" is [D] (§0, §8.8.1); §14.3 doesn't list it, so the card omits it.

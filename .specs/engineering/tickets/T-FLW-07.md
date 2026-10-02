@@ -1,10 +1,14 @@
 # T-FLW-07 Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter
 
-Stage S1 · Size M · Depends on T-COL-02 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-COL-02, T-UI-12, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §7.2 `run:<id>`, §11.6, §19.1 · Delta: delta.md §8 (monitor and runtime-event rows) · Product: mvp.md J11.1, §6.14 Monitor and Signals and approvals, Appendix A `/monitor`, `/run.inspect <id>`; AGENTS.md MVP scope (no fork or rewind controls)
 
 ## Goal
 From any run card, Inspect opens a monitor that shows the graph with live step states, each step titled by what it did, each step's input, output and transcript, attempts and retries, every durable wait with when it began, tokens, time and cost per step, the raw event journal and the flow's custom view, with no fork or rewind control.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the monitor views: graph, step I/O, timeline, waits with since, tokens/time/cost, the collapsed Engine row, the scrubber. Engineering wires them: run event projections, Appendix C labels, `/monitor` and `run.inspect` commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
@@ -18,6 +22,8 @@ In:
 - The `interrupted` run state (§19.1) in the list and the trace, with Retry. The engine reports it today; T-FLW-09 (S2) adds the reconcile cases that produce it for push, GitHub write and shell steps.
 - Delete the user-facing `forks` trace filter. Old journals with fork spans still decode and render.
 - All monitor data arrives on the `run:<id>` topic of the live channel.
+- Phases and cells (§11.6.3): group events per step instance into phases titled and summarized by `agent:fast` (non-blocking, last summary kept on failure); map agent actions to cell kinds by their B.3 / Appendix C row; per-attempt graphs; the `held` state for the trailing wait for merge.
+- The thrashing detector (§11.6.4): deterministic host code over run events (failing-check signature, file edits), projected to the phase tone and the `todo:<n>` indicator. C-J11-04.
 
 Out:
 - The base `run:<id>` projection and its transport (T-COL-02).
@@ -37,6 +43,7 @@ Out:
 - Docs: gateway `docs/` updated; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/smithers/gateway:docs`.
 
 ## Tests
+- Unit, `packages/backend/internal/services/run_thrash_test.go` (new, beside `run_thrash.go`): a table over event sequences. The same test id failing 3× with no edit gives thrash; an edit to a named file between failures resets the count; 3 different test ids give none; error signatures differing only in paths or line numbers count as the same; 3 failures split across two attempts give none; a passing run clears the indicator. A property test asserts the detector is a pure function of the event sequence. (C-J11-04)
 - Unit, `packages/smithers/gateway/test/RunTrace.test.ts` (extend): no `forks` in `TRACE_FILTER_IDS` or `traceFiltersFor`; a journal with a fork span still folds; waits fold with `since` and settler from fixture events.
 - Unit, same file: a fixture `todo` journal titles `coding/edit-atom` "Edited the files" and `coding/check-command` "Ran checks"; `<seal-step>`, `<boundary:name>` and `agent/trace/checkpoint` appear only inside one Engine group.
 - Unit, `apps/app/src/mainview/cards/RunTraceSteps.test.ts` (extend): cost column and total; a step with no model call shows no cost, not zero; the Engine row renders collapsed.
@@ -46,6 +53,7 @@ Out:
 
 ## Acceptance
 - [C-J11-01](../checks/C-J11-01.md): Inspect shows the graph with Appendix C labels and one Engine row, step I/O, transcript, retries, waits with since, and tokens, time and cost per step, with no fork filter.
+- [C-J11-04](../checks/C-J11-04.md): Thrashing: the same failing check 3× in one attempt with no edit in between shows on the TODO card and the Inspect phase; an edit clears it
 
 ## Risks and notes
 - Risk: model calls made by a coding agent CLI (Claude Code, Codex) through the proxy may not carry a step id. Confirmed if cost rows have an empty step. Attribute them to the innermost active step from `todos.current_step` (§4.1.2) at call time.

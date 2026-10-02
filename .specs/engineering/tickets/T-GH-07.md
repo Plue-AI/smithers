@@ -21,7 +21,7 @@ Out: rebase execution and its conflicts (T-STK-08, T-STK-11); the Home card row 
 - `packages/backend/internal/services/github_main_pull.go:589-591` → the non-ancestor case returns `force_push{old, new}` and opens the attention row through T-STK-07's `stack_attention` API; delete the retry with backoff (`gitHubMainPullBaseBackoff`/`MaxBackoff`, `:51-52`) for this case.
 - `github_main_pull.go` → add `ResetToGitHub(ctx, repositoryID, old, new)`, the only non-fast-forward write to the mirror's `main`. It re-reads GitHub's tip, refuses when it isn't `new`, and moves the bookmark with an expected-old check.
 - `packages/backend/internal/services/mythical.go:125` (`MainMoved`) → called after a confirmed reset exactly as after a fast-forward.
-- The `in-card` command → `POST /api/stack/attention/{id} {action: reset}`, the route T-GH-05's **Accept order** shares; OpenAPI row in `docs/api/openapi/` plus re-bundle.
+- The `in-card` command → `POST /api/stack/attention/{id} {action: reset}`, the route T-GH-05's **OK** (`order.ok`) shares; OpenAPI row in `docs/api/openapi/` plus re-bundle.
 - `packages/backend/docs/github-sync.md` → "`main` rewritten on GitHub" section; docs gates as in T-GH-02.
 
 ## Tests
@@ -37,4 +37,4 @@ Out: rebase execution and its conflicts (T-STK-08, T-STK-11); the Home card row 
 
 ## Risks and notes
 - Risk: a merge from Smithers can race the rewrite, merging a PR into the old `main` as someone force-pushes. Confirmed when the merge API returns a commit that isn't on the new tip. The TODO turns Merged only once `main` contains its commit (§4.1 guard), so it stays In review in that case.
-- Open: a rewrite that drops a merged TODO's commit leaves that TODO Merged while `main` lacks the commit, and the spec doesn't say what Smithers shows. This ticket changes no Merged state. Owner: product.
+- Resolved (tech lead default, product informed): a merged TODO whose commit a `main` rewrite dropped stays Merged, with the note "commit no longer on main after a force push" and a line in the force_push attention summary. Nothing reopens automatically.

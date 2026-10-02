@@ -35,7 +35,7 @@ For steps 2–4, on both hosts:
 - The report proposes a rule keyed to a Mac model or memory size instead of new constants.
 - The artifacts don't record each host's profile.
 
-Open: the swap, pressure and `/readyz` thresholds above are this check's proposal, since spec.md §8.2.1 sets none; the tech lead signs them off before the run (owner: tech lead).
+Resolved (tech lead): the proposed swap, pressure and `/readyz` thresholds are accepted for this spike.
 
 ## Evidence
 

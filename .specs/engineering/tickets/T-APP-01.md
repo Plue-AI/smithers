@@ -1,10 +1,14 @@
 # T-APP-01 Home card on the `home` topic
 
-Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-APP-08, T-APP-16 · Unblocks T-REL-01 · Issue: to file
+Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-APP-08, T-APP-16, T-UI-06, T-APP-19 · Unblocks T-REL-01 · Issue: to file
 Spec: spec.md §14.1, §14.2, §14.3 (Home), §14.5.2, §7.2, §4.1, §4.1.1, §4.1.2a, §4.4, §6.1.2, §8.2.1, §10.3, §10.6.1, §10.6.4, §12.3, §12.6, §15.1.5, §19.3 · Delta: delta.md §9 (Modify `StackCard.tsx`) · Product: mvp.md J4, §6.4 Home card, §4.1, §4.2, M-08, M-14
 
 ## Goal
 Every member who opens `main`'s conversation or runs `/stack` sees the same Home card: `main` pinned with its sync time, TODOs in merge order with at most one action each, counts that filter, merges since their own last look, machines in use against capacity, and background runs. Each change arrives from the shared `home` topic within 1 s, and every per-member value is derived in that member's client.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `HomeCard` view: `main` row, counts as filters, stack rows with their one action, attention rows, machines vs capacity, background runs with Retry/Dismiss. Engineering wires them: the `home` topic container, client-derived `merged_since_last_look` and `attention[]`, and every command a row fires. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

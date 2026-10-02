@@ -1,6 +1,6 @@
 # From main to the MVP spec
 
-Status: draft v0.3 by the engineering agent (smithers-8a), 2026-10-02, against `main` at `c04637a6f7`, for mvp.md v2.4. Rows tagged [S1]/[S2]/[S3] follow the build stages in spec.md §0. Deferred behavior (spec.md §0 [D]) has no rows here. For each subsystem: what exists, what the [spec](spec.md) requires, and the change list (Keep, Modify, Add, Delete, Restore). The evidence behind every path is in [research/](research/). Tickets in [tickets/](tickets/) implement these deltas.
+Status: draft v0.4 by the engineering agent (smithers-8a), 2026-10-02, against `main` at `c04637a6f7`, for mvp.md v2.6. Rows tagged [S1]/[S2]/[S3] follow the build stages in spec.md §0. Deferred behavior (spec.md §0 [D]) has no rows here. For each subsystem: what exists, what the [spec](spec.md) requires, and the change list (Keep, Modify, Add, Delete, Restore). The evidence behind every path is in [research/](research/). Tickets in [tickets/](tickets/) implement these deltas.
 
 Paths: `B/` = `packages/backend/internal/`, `MV/` = `apps/app/src/mainview/`, `F/` = `flows/`.
 
@@ -52,6 +52,8 @@ Today (`research/install-runtime.md`):
 | Add [S1] | Host profile (`hw.memsize`, performance cores, free disk) drives capacity, VM memory, vCPUs and layer budget (`apps/backend/isolation.go:microVMConfig`, `microsandbox/runtime.go:222-240`, `layers.go:92-100`). | §8.2.1 |
 | Modify | `apps/backend/isolation.go`: microvm is the only mode on the Mac install; `process` remains for tests only. Refuse to start without msb. | §1.3 |
 | Add [S1] | The setup card's backend: durable setup steps and an `/api/install` resource (App, repository, squash-merge check, model access, mirror, first image). Model keys are set through the API into sealed owner secrets (`modelhost/owner_secrets.go`), replacing the `SMITHERS_PLATFORM_MODEL_KEYS_FILE` path for the Mac install. | §16.2 |
+| Modify [S1] | Setup order (spec §16.2): setup-link session → Address → which account owns the repository → App via manifest → owner GitHub sign-in completes the claim → repository and App install → three model roles (`fast`, `coding`, `jev`) → squash check → Source ready → Machine ready. Enable the ChatGPT subscription pool on the Mac install behind the owner setting (`config.go:172-182` flag today). | §16.2, §11.5a |
+| Add [S1] | `toolchains.json`: a pinned toolchain manifest (version → URL → SHA-256) shipped in the bundle. | §8.6.2a |
 | Restore [S1] | Owner-only model configuration from `5b77095672`: `model.*` entries and `ModelCards.tsx`, without the model laboratory (`ModelCallCard.tsx`, `controller/modelCall.ts` stay deleted). | §11.5a |
 | Add | `smthrs host upgrade`: quiesce, capture, `pg_dump` + `cp -c` clone, brew upgrade, migrate, health, restore hint. Reuse checks from `distribution/lib.sh`. Write `version.env` at first boot. | §16.4 |
 | Delete [R] | The Docker self-host image and its scripts (`distribution/Dockerfile`, `entrypoint.sh`, Docker `backup.sh`/`restore.sh`/`upgrade.sh`, `apps/app/scripts/mode-matrix/docker-web-selfhost.ts`, the CI image build). Nothing consumes it and it was never published (#2481). Decided by the tech lead 2026-10-02 (T-INS-05). | AGENTS.md, §16.1.0 |
@@ -101,6 +103,7 @@ Today (`research/workspaces-machines.md`):
 | Modify | Fork: from a captured revision; never stop the source (`workspace_runtime.go:547-560` stop-snapshot-resume is replaced by "capture, then create from revision"). | §8.5 |
 | Modify | Cleanup: delete only when the TODO is settled, captured and quiet for 24 h; replace `kind=agent` 24 h reclaim. | §8.12 |
 | Add | Toolchain detector (port `packages/smithers/src/suggest/Checklist.ts:174-226` logic to Go) emitting a recipe that `dependencyRecipe` (`layers.go:914`) consumes when no target index exists; `.smithers/machine.json` `packages[]`. | §8.6 |
+| Add [S1] | Fork, Add to stack and Rebase now as stage-1 system flows over today's workspaces (fork from `main` or an item's last verified head; Add to stack renames the scratch branch into the item branch). Stage 2 adds capture-first forks from any branch. | §8.5 |
 | Add [S2] | Per-member unix users (`smithers-guest.py setup USER UID` and `EnsureUser` exist, unused), `team` group, no sudo in the image, virtiofs `/home` share (spike T-MCH-02). Terminals and SSH sessions move from `msb exec -t` as the guest's single user (uid 1500, `microsandbox/runtime.go:50-51`) to daemon-owned sessions as each member's uid; the guest runs no sshd. | §5.5, §8.7, §8.10.3, §8.11 |
 | Modify [S2] | Secrets reach machines: all-branches secrets → `/run/smithers/env`, rewritten on change. Confirm today's gap: unbound repo secrets don't reach workspace machines (`workspace_provisioning.go:389-480`). | §8.8 |
 | Hide | `box.facet`, `box.services`, `box.egress`, `box.images` (the Machine view is deferred, spec §0 [D]); the backend facets stay for Plue. | §0 |
@@ -162,6 +165,8 @@ Today (`research/stack-todos.md`):
 | Modify [S1] | PRs stay based on `main` as verified candidates (today's design). Change: head `smithers/<slug>` instead of `smithers/issue-N` (`mythicalBranch` `:2115`); PR body with prompt, evidence, included earlier items and "Requested by" (`proposal()` `:2126`); the PR card diffs against the previous item's candidate. | §12.5 |
 | Add | Stop/Resume (state `paused`), Retry with attempt rows, Drop with PR close. | §10.7 |
 | Modify [S1] | One `todo` run per attempt (T-FLW-11): the worker's four launches (`mythical_items.go:1681,1775,1905` request, vibe, verify, plus review via the `mythicalReviewFlow` constant at `:2277`) become one run of the pinned `todo` flow, which ends with `stack.propose`. Integration, re-verification, PR and merge stay in the stack engine. The built-in `todo` flow becomes a composition file over step flows exported from `flows/coding/`. | §10.4.1 |
+| Add [S1] | Later items' PRs open as GitHub drafts and become ready when first (GraphQL `markPullRequestReadyForReview` / `convertPullRequestToDraft`), with a "[waits for Tn]" fallback where drafts are unavailable. An out-of-order merge marks the earlier items merged and closes their PRs as "Merged via". | §12.5.1, §10.6.4 |
+| Add [S1] | Retry with the current flow; Needs you → Queued after a machine release; a planner that declines with questions becomes a question wait (today's `declined` ends the item). | §4.1, §10.8.1a |
 | Add [S1] | Keep TODO workspaces until the TODO settles: no 5-min agent idle stop while a run waits (`defaultAgentIdleTimeout`, `B/services/agent_dispatch.go:1128`), no 24 h disk reclaim for unmerged TODOs (`workspace_disk_reclaim.go:20`), and wake before delivering a signal to a sleeping run (T-MCH-14). | §8.4, §10.4.1 |
 | Add | Steer route `/api/todos/{n}` `steer` → run signal; accept steers between implement turns (`F/coding/implementation/flow.ts` has no `ReceiveFeedback`) and in vibe/verify (`steering.ts` admits only `coding/request` roots). | §10.7.3 |
 | Add | Needs-you kinds and first-answer-wins answers (409 with `answered_by`). | §10.8 |
@@ -207,6 +212,7 @@ Today (`research/flows-engine.md`):
 | Add | `/flow.edit`: built-in source copy + patch → TODO with `seed_patch`. | §11.5 |
 | Add | Install-stored default config (checks, wiki pages, seats) with field-wise precedence for repo `.smithers/*` (`F/coding/project-config.ts`). | §11.2 |
 | Add | `F/learning/flow.ts` (`Flow.make("learning", …)`): pages + proposals + lessons count; `proposals` table and card. Replace the `improve.mine` fixture references. | §11.8 |
+| Add [S1] | Agent instructions as repository Markdown loaded as data (`.smithers/instructions/app.md`, the TODO flow's prompts); three model roles as owner settings applied immediately. Monitor step labels from mvp.md Appendix C's Inspect column, with engine bookkeeping collapsed. | §11.5a, §11.6.2 |
 | Hide | Triggers (deferred): `triggers.*` entries hidden from the MVP catalog; registrar and engine untouched. | §11.7 |
 | Add | Monitor: `/monitor` door, per-step cost (`modelprice`), durable-waits list with since. Delete the `forks` trace filter (`MV/flows/entries/runs.ts:177`). | §11.6 |
 | Add | Runtime event types needed by §11.6.1 that aren't already emitted (cost, wait since); conversation-entry summarizer job. | §11.6, §14.5 |
@@ -226,9 +232,13 @@ Today (`research/app-shell.md`, `research/cli-api-cuts.md`):
 | Add | Cards: [S1] TODO, Draft, Settings/Setup, Confirm, Flow versions, Agent (model), Members, Secrets. [S2] Branch (presence, activity), File reload-on-change with gone states, Terminal ownership. [S3] File live co-edit on `@smthrs/ui` CodeSurface + Yjs binding with gutter flags; Proposal. | §14.3 |
 | Add [S1] | Branch conversations: `conversations` (1:1 branch), shared `conversation_entries`, `member_conversation_state`; the branch tree; prompts run with their author's delegated credential. Today's per-member conversations (`MV/state/AppStore.ts` OPFS collections plus backend turn routes) become read-only archives visible only to their member. | §14.1 |
 | Add [S1] | Context preflight as the first step of every app-agent turn; `context[]` stored on the answer entry; "Context" line; Inspect shows preflight first. | §15.1.2 |
+| Modify [S1] | App-agent turns move from browser-side tool execution to a host turn runner that dispatches through the CLI's command→API mapping, with a host-minted delegated credential. The browser receives only UI-only instructions. | §15.1.4 |
+| Add [S2] | Browser notifications on secure origins (`notifications.allow`); Obsidian folder sync as a Settings control reading `install_settings` (`B/config/wiki_sync.go:15`, `B/services/wiki_sync_obsidian.go`). | §14.6, §13.3 |
+| Add [S1] | The allowlist test reads mvp.md Appendices A, B (B.1, B.2, B.4, B.6) and C (`.specs/product/actions.md`). | §6.1.2 |
 | Add [S1] | Left-edge toast map + timeline from `conversation_entries`; event toasts with per-member hiding; retire `ChatRunTimeline`. | §14.4, §14.5 |
 | Modify | Seams move from per-resource SSE (`/mythical/events`, `/workspaces/{id}/stream`, wiki stream) to live-channel topics. Delete each SSE route when its last consumer moves. | §7 |
 | Modify | Actor rendering with `via` badges ("Ben via Smithers"). | §2 |
+| Modify [S1] | Every card in scope splits into a design-owned `<Card>View` (props only) and an engineering-owned `<Card>Container` (topics → props, callbacks → catalog commands); `MV/cards/CardRenderers.tsx` renders Containers. View-model schemas go in `packages/rpc/src/<Card>Card.ts` (the `SubagentCard.ts` precedent) with fixtures in `MV/cards/fixtures/` (T-APP-19). An existing card file that mixes both is split in the change that ports it. | §14.2.1 |
 
 ## 10. Cuts and docs
 

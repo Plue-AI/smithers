@@ -44,6 +44,6 @@ Out:
 - [C-DUR-04](../checks/C-DUR-04.md): daemon or VM killed during a burst, capture or rebase loses no acknowledged write.
 
 ## Risks and notes
-- fanotify needs a Linux guest, so daemon kill tests run on a Linux CI runner or in a microVM (§21 integration row). Observation: a macOS-only CI job skips them silently; the runner counts skips as failures.
+- inotify and cgroups need a Linux guest, so daemon kill tests run on a Linux CI runner or in a microVM (§21 integration row). Observation: a macOS-only CI job skips them silently; the runner counts skips as failures.
 - A shell step re-runs only when it declares itself idempotent (§19.2). A test must show a non-idempotent shell step becomes `interrupted` with Retry, not re-run.
 - Stage split: start, stop, merge and PostgreSQL points land with T-FLW-09 at stage 2; rebase points follow T-STK-11 at stage 2; the reference-host VM run completes at stage R.

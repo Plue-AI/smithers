@@ -1,10 +1,14 @@
 # T-APP-15 File card on CodeMirror 6 with code intelligence (read-only)
 
-Stage S1 · Size L · Depends on T-COL-10 · Unblocks — · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
+Stage S1 · Size L · Depends on T-COL-10, T-UI-11, T-APP-19 · Unblocks T-APP-11, T-APP-14 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
 Spec: spec.md §7.6, §14.3 (File) · Delta: delta.md §4, §9 · Product: mvp.md §6.8 Live co-editing, J1.5, J9, M-02
 
 ## Goal
 The File card renders code with CodeMirror 6, the editor that stage 3 binds Yjs to, while keeping today's code intelligence and look.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the `CodeEditorView` component in `@smthrs/ui` (CodeMirror 6 surface, Paper theme, annotation and hover visuals). Engineering wires them: the code-intelligence gestures (`code.hover`, `code.definition`, `code.diagnostics`) and file data. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

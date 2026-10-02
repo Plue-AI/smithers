@@ -1,6 +1,6 @@
 # C-UI-03 Browser notifications on secure origins
 
-Proves: mvp.md §6.4 Browser notifications (v2.5) · spec.md §14.6 · Layer: e2e · Stage: S2 · Tickets: T-APP-18
+Proves: mvp.md §6.4 Browser notifications (v2.5) · spec.md §14.6 · Layer: e2e · Stage: S2 · Tickets: T-APP-18, T-UI-08
 Automation: `apps/app/e2e/playwright/notifications.spec.ts` (new) · Runs in: CI (Chromium and WebKit) and the reference host
 
 ## Setup

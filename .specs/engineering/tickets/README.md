@@ -55,7 +55,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-STK-05](T-STK-05.md) | Stop, resume, Retry and Retry with the current flow, drop | S1 | M | T-STK-01, T-FLW-11, T-FLW-03 | C-J4-02, C-STK-03 |
 | [T-STK-06](T-STK-06.md) | Steers at every boundary of the TODO flow | S1 | M | T-STK-01, T-FLW-11 | C-J3-05 |
 | [T-STK-07](T-STK-07.md) | Needs you kinds, first answer wins, `ask` bound for implementing seats | S1 | M | T-STK-01 | C-J2-03 |
-| [T-STK-08](T-STK-08.md) | Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32) | S1 | M | T-STK-07 | C-J7-03 |
+| [T-STK-08](T-STK-08.md) | Rebase now; rebase conflicts: agent once, then Needs you with Resolve (M-32) | S1 | M | T-STK-07, T-UI-04, T-APP-19 | C-J7-03 |
 | [T-STK-09](T-STK-09.md) | Make TODO from an issue; the `todo` label freezes revision 1 | S1 | M | T-STK-02, T-ACC-02, T-GH-02 | C-J2-01, C-J2-02, C-SEC-03 |
 | [T-STK-10](T-STK-10.md) | Evidence per attempt | S1 | S | T-STK-05 | C-J2-04 |
 | [T-STK-03](T-STK-03.md) | Parallel setting clamped by capacity; admission in stack order | S2 | S | T-STK-02, T-MCH-06 | C-STK-02 |
@@ -68,7 +68,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-GH-05](T-GH-05.md) | Checks on every PR, protection text, closed/reopened, out-of-order merge marks both merged | S1 | M | T-GH-03, T-GH-02, T-STK-07 | C-J10-05, C-J10-08, C-STK-04 |
 | [T-GH-06](T-GH-06.md) | Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33) | S1 | M | T-GH-02, T-STK-07 | C-J10-03 |
 | [T-GH-07](T-GH-07.md) | Force-push to `main` becomes Needs you for the owner | S1 | S | T-GH-02, T-STK-07 | C-J10-07 |
-| [T-GH-08](T-GH-08.md) | Follow `main` by default; sync health and Retry | S1 | S | T-GH-02 | C-J10-06 |
+| [T-GH-08](T-GH-08.md) | Follow `main` by default; sync health and Retry | S1 | S | T-GH-02, T-UI-06, T-APP-19 | C-J10-06 |
 | [T-GH-09](T-GH-09.md) | Outbound write keys and reconcile lookups | S1 | M | T-GH-03 | C-GH-09, C-DUR-03 |
 | **Flows and the factory** | | | | | |
 | [T-FLW-01](T-FLW-01.md) | Overridable flows run only in machines; system flow catalog | S1 | M | — | C-SEC-02 |
@@ -77,10 +77,10 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-FLW-04](T-FLW-04.md) | Coding host loads the pinned closure by digest | S1 | M | T-FLW-03, T-STK-01, T-FLW-11 | C-J5-01 |
 | [T-FLW-05](T-FLW-05.md) | `/flow.edit` with a seed patch | S1 | M | T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11 | C-J5-01 |
 | [T-FLW-11](T-FLW-11.md) | One `todo` run per attempt: composition flow over coding steps, ending in `stack.propose` | S1 | L | T-FLW-01, T-STK-01, T-MCH-14 | C-J5-01, C-STK-03 |
-| [T-FLW-08](T-FLW-08.md) | Agent card and owner model configuration restored from `5b77095672` | S1 | M | T-INS-06, T-ACC-03 | C-J11-03 |
+| [T-FLW-08](T-FLW-08.md) | Agent card and owner model configuration restored from `5b77095672` | S1 | M | T-INS-06, T-ACC-03, T-UI-13, T-APP-19 | C-J11-03 |
 | [T-FLW-09](T-FLW-09.md) | Reconcile before retry for push, GitHub write and shell steps | S2 | M | T-GH-09 | C-DUR-01, C-DUR-02, C-DUR-03 |
-| [T-FLW-06](T-FLW-06.md) | Learning flow, proposals, Proposal card, lessons receipt | S3 | L | T-STK-10, T-FLW-05, T-MCH-06 | C-J5-03, C-J8-01, C-J2-05 |
-| [T-FLW-07](T-FLW-07.md) | Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter | S1 | M | T-COL-02 | C-J11-01 |
+| [T-FLW-06](T-FLW-06.md) | Learning flow, proposals, Proposal card, lessons receipt | S3 | L | T-STK-10, T-FLW-05, T-MCH-06, T-UI-20, T-APP-19 | C-J5-03, C-J8-01, C-J2-05 |
+| [T-FLW-07](T-FLW-07.md) | Monitor: `/monitor`, cost, waits since, interrupted state, no fork filter | S1 | M | T-COL-02, T-UI-12, T-APP-19 | C-J11-01, C-J11-04 |
 | [T-FLW-12](T-FLW-12.md) | Obsidian folder sync as a Settings control | S2 | S | T-ACC-03 | C-J8-03 |
 | [T-FLW-10](T-FLW-10.md) | Plans cite wiki page revisions | S3 | S | T-FLW-02, T-APP-17 | C-J8-04 |
 | **Machines** | | | | | |
@@ -90,7 +90,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-MCH-05](T-MCH-05.md) | Delete branch locks | S2 | M | T-MCH-04 | C-CUT-01 |
 | [T-MCH-06](T-MCH-06.md) | Admission scheduler, positions, safe-idle release | S2 | L | T-MCH-04, T-MCH-01 | C-MCH-02, C-PERF-05 |
 | [T-MCH-07](T-MCH-07.md) | Sleep with final capture; reads never wake | S2 | M | T-COL-03, T-MCH-04 | C-MCH-03 |
-| [T-MCH-08](T-MCH-08.md) | Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32) | S1 | M | T-STK-02 | C-MCH-08, C-J7-02 |
+| [T-MCH-08](T-MCH-08.md) | Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32) | S1 | M | T-STK-02, T-UI-04, T-APP-19 | C-MCH-08, C-J7-02 |
 | [T-MCH-09](T-MCH-09.md) | Cleanup only after settled, captured and quiet | S2 | S | T-MCH-07 | C-MCH-05 |
 | [T-MCH-11](T-MCH-11.md) | Member unix users, `team` group, no-sudo image, homes mount | S2 | L | T-MCH-02, T-ACC-02 | C-MCH-06 |
 | [T-MCH-12](T-MCH-12.md) | Secrets into machines; main-only kept out | S2 | M | T-MCH-11, T-COL-03 | C-MCH-07, C-SEC-01 |
@@ -99,7 +99,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-COL-02](T-COL-02.md) | Live channel `/api/live`: topics, cursors, backpressure | S1 | L | T-STK-01 | C-PERF-02, C-UI-05, C-COL-02 |
 | [T-COL-03](T-COL-03.md) | `smithers-machined`: crate, rootfs, init, host connection, capture | S2 | L | T-COL-01, T-MCH-04, T-COL-10 | C-DUR-04 |
 | [T-COL-04](T-COL-04.md) | Watcher (inotify), session-based attribution, ignore rules, bursts, activity | S2 | L | T-COL-03, T-MCH-11, T-COL-10 | C-J3-03, C-PERF-04, C-J3-06 |
-| [T-COL-05](T-COL-05.md) | Moved off the item: detect; Return to Tn; Keep for now | S2 | M | T-COL-04, T-STK-07, T-MCH-04 | C-J3-09 |
+| [T-COL-05](T-COL-05.md) | Moved off the item: detect; Return to Tn; Keep for now | S2 | M | T-COL-04, T-STK-07, T-MCH-04, T-UI-15, T-APP-19 | C-J3-09 |
 | [T-COL-06](T-COL-06.md) | Presence map and heartbeats | S2 | M | T-COL-02, T-COL-04, T-COL-10 | C-J3-01, C-J3-06 |
 | [T-COL-07](T-COL-07.md) | Agent write tool checks `base_digest` (S1); agent sees outside changes (S2) | S1, S2 | S | T-COL-04, T-COL-10 | C-J3-03 |
 | [T-COL-08](T-COL-08.md) | Live code documents in the daemon; disk reconcile; gone states | S3 | L | T-COL-02, T-COL-04, T-COL-10 | C-J3-04, C-PERF-03 |
@@ -112,25 +112,46 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-TRM-05](T-TRM-05.md) | The coding agent's `bash` runs in its own terminal session, shown in the Terminal card | S2 | M | T-TRM-01, T-COL-03 | C-J3-10 |
 | **App** | | | | | |
 | [T-APP-08](T-APP-08.md) | Seams move to the live channel; delete per-resource SSE | S1 | M | T-COL-02, T-STK-01 | C-UI-05 |
-| [T-APP-01](T-APP-01.md) | Home card on the `home` topic | S1 | M | T-COL-02, T-STK-01, T-APP-08, T-APP-16 | C-J4-01 |
-| [T-APP-02](T-APP-02.md) | TODO card and Draft card | S1 | L | T-STK-01, T-APP-08 | C-J2-01, C-J4-02, C-J9-01 |
-| [T-APP-03](T-APP-03.md) | Setup and Settings cards | S1 | M | T-INS-06 | C-J1-02 |
-| [T-APP-04](T-APP-04.md) | Confirm card: one-click confirmations and Review & merge | S1 | S | T-ACC-05, T-STK-04 | C-ACC-02 |
-| [T-APP-05](T-APP-05.md) | Flow card with versions | S1 | M | T-FLW-03, T-APP-16 | C-J5-01 |
-| [T-APP-06](T-APP-06.md) | Members card | S1 | M | T-ACC-02 | C-J1-05 |
-| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry summaries | S1 | L | T-COL-02, T-APP-08, T-APP-16 | C-UI-04 |
-| [T-APP-09](T-APP-09.md) | Actor rendering with `via` badges | S1 | S | T-ACC-04 | C-J6-01 |
-| [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07 | C-UI-03 |
-| [T-APP-15](T-APP-15.md) | File card on CodeMirror 6 with code intelligence (read-only) | S1 | L | T-COL-10 | C-COL-01 |
-| [T-APP-16](T-APP-16.md) | Branch conversations: shared entries, per-member view state, branch tree, legacy archive | S1 | L | T-COL-02, T-ACC-04 | C-UI-06 |
-| [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-16 | C-UI-07 |
-| [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11 | C-J3-01, C-J3-03 |
-| [T-APP-11](T-APP-11.md) | File and Diff cards reload on change; deleted/renamed states; Restore this file | S2 | M | T-COL-04, T-APP-15 | C-J3-08, C-PERF-04 |
-| [T-APP-12](T-APP-12.md) | Terminal card ownership UI | S2 | S | T-TRM-01 | C-J3-02 |
-| [T-APP-13](T-APP-13.md) | Secrets card | S2 | S | T-MCH-12 | C-MCH-07 |
-| [T-APP-14](T-APP-14.md) | File card live co-editing | S3 | L | T-COL-08, T-APP-15 | C-J3-04 |
+| [T-APP-01](T-APP-01.md) | Home card on the `home` topic | S1 | M | T-COL-02, T-STK-01, T-APP-08, T-APP-16, T-UI-06, T-APP-19 | C-J4-01 |
+| [T-APP-02](T-APP-02.md) | TODO card and Draft card | S1 | L | T-STK-01, T-APP-08, T-UI-03, T-UI-04, T-APP-19 | C-J2-01, C-J4-02, C-J9-01 |
+| [T-APP-03](T-APP-03.md) | Setup and Settings cards | S1 | M | T-INS-06, T-UI-02, T-APP-19 | C-J1-02 |
+| [T-APP-04](T-APP-04.md) | Confirm card: one-click confirmations and Review & merge | S1 | S | T-ACC-05, T-STK-04, T-UI-05, T-APP-19 | C-ACC-02 |
+| [T-APP-05](T-APP-05.md) | Flow card with versions | S1 | M | T-FLW-03, T-APP-16, T-UI-10, T-APP-19 | C-J5-01 |
+| [T-APP-06](T-APP-06.md) | Members card | S1 | M | T-ACC-02, T-UI-09, T-APP-19 | C-J1-05 |
+| [T-APP-07](T-APP-07.md) | Edge toast map, timeline, conversation-entry summaries | S1 | L | T-COL-02, T-APP-08, T-APP-16, T-UI-08, T-APP-19 | C-UI-04 |
+| [T-APP-09](T-APP-09.md) | Actor rendering with `via` badges | S1 | S | T-ACC-04, T-UI-01, T-APP-19 | C-J6-01 |
+| [T-APP-18](T-APP-18.md) | Browser notifications on secure origins | S2 | S | T-APP-07, T-UI-08, T-APP-19 | C-UI-03 |
+| [T-APP-19](T-APP-19.md) | Card view-model schemas and fixtures from `ui-components.md`: the seam between design's views and engineering's containers | S1 | S | — | C-UI-08 |
+| [T-UI-01](T-UI-01.md) | Primitives: actor chip, state word, tone | S1 | S | — | C-J6-01 |
+| [T-UI-02](T-UI-02.md) | Setup and Settings views | S1 | M | T-UI-01 | C-J1-02 |
+| [T-UI-03](T-UI-03.md) | Draft view | S1 | S | T-UI-01 | C-J2-01 |
+| [T-UI-04](T-UI-04.md) | TODO view with Needs you, conflict, failure, evidence, PR and fork controls | S1 | L | T-UI-01 | C-J2-01, C-J4-02, C-J7-03, C-J9-01 |
+| [T-UI-05](T-UI-05.md) | Confirm view | S1 | S | T-UI-01 | C-ACC-02 |
+| [T-UI-06](T-UI-06.md) | Home view with the main sync row | S1 | M | T-UI-01 | C-J4-01, C-J10-06 |
+| [T-UI-07](T-UI-07.md) | Conversation shell: branch tree, entry rows, Context line, Earlier archive | S1 | L | T-UI-01 | C-UI-06, C-UI-07 |
+| [T-UI-08](T-UI-08.md) | Toasts, edge map and timeline | S1 | M | T-UI-01 | C-UI-04, C-UI-03 |
+| [T-UI-09](T-UI-09.md) | Members view | S1 | S | T-UI-01 | C-J1-05 |
+| [T-UI-10](T-UI-10.md) | Flow view | S1 | M | T-UI-01 | C-J5-01 |
+| [T-UI-11](T-UI-11.md) | Code editor and Diff views (read-only) | S1 | L | T-UI-01 | C-COL-01 |
+| [T-UI-12](T-UI-12.md) | Run monitor and Inspect views | S1 | M | T-UI-01 | C-J11-01 |
+| [T-UI-13](T-UI-13.md) | Agent view and model roles | S1 | S | T-UI-01 | C-J11-03 |
+| [T-UI-14](T-UI-14.md) | Commands view (/help) | S1 | S | T-UI-01 | C-UI-02 |
+| [T-UI-15](T-UI-15.md) | Branch view with moved-off controls | S2 | L | T-UI-01 | C-J3-01, C-J3-03, C-J3-09 |
+| [T-UI-16](T-UI-16.md) | File and Diff live states | S2 | S | T-UI-01 | C-J3-08 |
+| [T-UI-17](T-UI-17.md) | Terminal view | S2 | S | T-UI-01 | C-J3-02 |
+| [T-UI-18](T-UI-18.md) | Secrets view | S2 | S | T-UI-01 | C-MCH-07 |
+| [T-UI-19](T-UI-19.md) | Co-editing visuals | S3 | M | T-UI-01 | C-J3-04 |
+| [T-UI-20](T-UI-20.md) | Proposal view and lessons receipt | S3 | S | T-UI-01 | C-J5-03, C-J8-01 |
+| [T-APP-15](T-APP-15.md) | File card on CodeMirror 6 with code intelligence (read-only) | S1 | L | T-COL-10, T-UI-11, T-APP-19 | C-COL-01 |
+| [T-APP-16](T-APP-16.md) | Branch conversations: shared entries, per-member view state, branch tree, legacy archive | S1 | L | T-COL-02, T-ACC-04, T-UI-07, T-APP-19 | C-UI-06 |
+| [T-APP-17](T-APP-17.md) | Context preflight: selection step, Context line, Inspect | S1 | M | T-APP-16, T-UI-07, T-APP-19 | C-UI-07 |
+| [T-APP-10](T-APP-10.md) | Branch card: presence, activity, machine state, terminals, SSH line | S2 | L | T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11, T-UI-15, T-APP-19 | C-J3-01, C-J3-03 |
+| [T-APP-11](T-APP-11.md) | File and Diff cards reload on change; deleted/renamed states; Restore this file | S2 | M | T-COL-04, T-APP-15, T-UI-16, T-APP-19 | C-J3-08, C-PERF-04 |
+| [T-APP-12](T-APP-12.md) | Terminal card ownership UI | S2 | S | T-TRM-01, T-UI-17, T-APP-19 | C-J3-02 |
+| [T-APP-13](T-APP-13.md) | Secrets card | S2 | S | T-MCH-12, T-UI-18, T-APP-19 | C-MCH-07 |
+| [T-APP-14](T-APP-14.md) | File card live co-editing | S3 | L | T-COL-08, T-APP-15, T-UI-19, T-APP-19 | C-J3-04 |
 | **Catalog and cuts** | | | | | |
-| [T-CAT-01](T-CAT-01.md) | One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B | S1 | L | — | C-CAT-01, C-UI-02 |
+| [T-CAT-01](T-CAT-01.md) | One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B | S1 | L | T-UI-14, T-APP-19 | C-CAT-01, C-UI-02 |
 | [T-CAT-02](T-CAT-02.md) | CLI doors for Appendix A; skill generated from the catalog | S1 | M | T-CAT-01 | C-CAT-02, C-CAT-03 |
 | [T-CUT-01](T-CUT-01.md) | Delete cut app surfaces; align AGENTS.md scope | S1 | L | — | C-CUT-01 |
 | [T-CUT-02](T-CUT-02.md) | Delete cut backend routes with their OpenAPI rows | S1 | M | T-CUT-01 | C-CUT-01 |

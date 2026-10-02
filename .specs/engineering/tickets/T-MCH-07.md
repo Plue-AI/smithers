@@ -1,6 +1,6 @@
 # T-MCH-07 Sleep with final capture; reads never wake
 
-Stage S2 · Size M · Depends on T-COL-03, T-MCH-04 · Unblocks T-STK-11, T-MCH-08, T-MCH-09, T-REL-01 · Issue: to file
+Stage S2 · Size M · Depends on T-COL-03, T-MCH-04 · Unblocks T-STK-11, T-MCH-09, T-REL-01 · Issue: to file
 Spec: spec.md §4.2, §8.4.3, §8.4.4, §9.1.2 (`capture()`), §19.1 · Delta: delta.md §3 (sleep reads and sleep/stop rows) · Product: mvp.md J4, §6.7 Sleep, §9 Honesty
 
 ## Goal

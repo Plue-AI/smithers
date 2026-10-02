@@ -1,10 +1,14 @@
 # T-APP-12 Terminal card ownership UI
 
-Stage S2 · Size S · Depends on T-TRM-01 · Unblocks — · Issue: to file
+Stage S2 · Size S · Depends on T-TRM-01, T-UI-17, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §2 (Terminal), §3 (`terminals`), §7.1, §7.5, §8.6.1, §8.11, §14.3 (Terminal), §14.6a, §15.1.5; overview.md E-05 · Delta: delta.md §5 (Modify [S2] owner-only input, read-only for others) · Product: mvp.md J3.3, J6.1, J6.5, §3.1, §6.8 Terminals, M-18, Appendix A `/terminal`
 
 ## Goal
 A member's terminal card shows whose session it is and who watches it; the owner types, every other member on the branch watches read-only, and no watcher's keystroke leaves their browser.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `TerminalCard` view: owner, watchers, running command, Watching state, temporary-home header. Engineering wires them: the terminal stream client on the live channel and the owner-only input rule. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

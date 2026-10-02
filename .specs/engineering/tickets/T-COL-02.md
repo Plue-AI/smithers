@@ -1,6 +1,6 @@
 # T-COL-02 Live channel `/api/live`: topics, cursors, backpressure
 
-Stage S1 · Size L · Depends on T-STK-01 · Unblocks T-ACC-02, T-STK-01, T-FLW-07, T-COL-06, T-COL-08, T-APP-08, T-APP-01, T-APP-07, T-APP-16 · Issue: to file
+Stage S1 · Size L · Depends on T-STK-01 · Unblocks T-FLW-07, T-COL-06, T-COL-08, T-APP-08, T-APP-01, T-APP-07, T-APP-16 · Issue: to file
 Spec: spec.md §3 (`projection_events`), §3.1, §3.3, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
 
 ## Goal

@@ -51,4 +51,4 @@ Out:
 ## Risks and notes
 - Risk: a model call in flight delays the boundary past 60 s (§10.7.1). Observation: stop-to-paused time over 60 s in the integration log; then the agent step needs a cancel token.
 - Risk: a run parked in `paused` for days holds a durable wait. T-FLW-11's restart test of 50 waiting runs covers it.
-- Open: Retry with the current flow reads `flow_activations` from T-FLW-03, which the header doesn't list as a dependency. Land after T-FLW-03, or the tech lead adds the edge. Owner: tech lead.
+- Resolved: the index now lists T-FLW-03 as a dependency.

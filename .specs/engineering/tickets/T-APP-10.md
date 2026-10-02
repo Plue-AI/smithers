@@ -1,10 +1,14 @@
 # T-APP-10 Branch card: presence, activity, machine state, terminals, SSH line
 
-Stage S2 · Size L · Depends on T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11 · Unblocks — · Issue: to file
+Stage S2 · Size L · Depends on T-COL-06, T-COL-04, T-APP-16, T-APP-09, T-MCH-08, T-STK-11, T-UI-15, T-APP-19 · Unblocks — · Issue: to file
 Spec: spec.md §3 (`activity`, `terminals`), §4.1, §7.2 (`branch:<id>`, `:activity`, `:files`), §7.3, §7.6 (presence `{path, line}`), §4.2, §8.4.4, §8.5, §8.10.5, §9.3.4, §9.3.8, §10.5.2, §10.7.3, §14.3 (Branch), §14.6a, §15.1.5 · Delta: delta.md §4 (Add [S1] activity; Add [S2] `:files`, bursts), §9 (Add [S2] Branch card) · Product: mvp.md J3.1–J3.6, J7.2–J7.3, §6.7 Branch card, §6.8 Presence, External changes, Shared agent activity, §8 (commit and branch lists merge into Home and Branch), M-17, M-27
 
 ## Goal
 `/branch Tn` shows one card for the whole branch: its machine state, the item it works and its place, everyone on it (people and agents, each with where they are), grouped activity including steers and outside changes, changed files and terminals, and it reads a sleeping branch without waking it.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `BranchCard` view: machine chip with Sleep/Wake, item and place, presence avatars, activity list, terminals, SSH line. Engineering wires them: the `branch:<id>` containers, presence feed, Sleep/Wake commands. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

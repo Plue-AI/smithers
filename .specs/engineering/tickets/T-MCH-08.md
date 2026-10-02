@@ -1,6 +1,6 @@
 # T-MCH-08 Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32)
 
-Stage S1 · Size M · Depends on T-STK-02 · Unblocks T-APP-10 · Issue: to file
+Stage S1 · Size M · Depends on T-STK-02, T-UI-04, T-APP-19 · Unblocks T-APP-10 · Issue: to file
 Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md §3 (fork row) · Product: mvp.md J7.2, J7.3, §6.7 Fork, Appendix A (`/branch.fork`, `/branch.add-to-stack`), M-22
 
 ## Goal

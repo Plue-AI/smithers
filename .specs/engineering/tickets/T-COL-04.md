@@ -55,7 +55,7 @@ Out:
 
 ## Risks and notes
 
-- Reading of "active" in §9.3.1: a session is active during a burst when it is open and its cgroup's CPU time (`cpu.stat` `usage_usec`) grew in the burst window, so a shell idle at its prompt doesn't count. Open: confirm this reading (owner: tech lead).
+- Reading of "active" in §9.3.1: a session is active during a burst when it is open and its cgroup's CPU time (`cpu.stat` `usage_usec`) grew in the burst window, so a shell idle at its prompt doesn't count. Resolved: spec §9.3.1 adopts this definition.
 - A long-running SSH editor server (VS Code's) keeps its session active, so a teammate's concurrent terminal command turns the burst outside. Confirmed by C-J3-06 with a second session busy. This is spec behavior, not a bug.
 - inotify needs one watch per directory. Confirmed broken if adding a watch on the smithers repository fails with `ENOSPC`. Raise `fs.inotify.max_user_watches` in the guest image.
 - Each burst close runs a jj snapshot. If T-COL-01's snapshot p95 exceeds 500 ms, the 1.5 s close rule still holds but capture lags; escalate before changing the rule.

@@ -1,6 +1,6 @@
 # T-MCH-14 Keep TODO workspaces until settled; wake before delivering a signal
 
-Stage S1 · Size S · Depends on T-STK-01 · Unblocks T-FLW-11, C-STK-05 · Issue: to file
+Stage S1 · Size S · Depends on T-STK-01 · Unblocks T-FLW-11 · Issue: to file
 Spec: spec.md §8.4, §10.4.1, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
 
 ## Goal

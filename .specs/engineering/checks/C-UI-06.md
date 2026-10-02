@@ -1,6 +1,6 @@
 # C-UI-06 Branch conversations are shared, with private view state
 
-Proves: mvp.md M-08, §6.4 Branch conversations, §6.4 No chat between people · spec.md §14.1, §14.5.1, §15.1.1, §15.1.4–15.1.5, §5.4 · Layer: e2e · Stage: S1 · Tickets: T-APP-16
+Proves: mvp.md M-08, §6.4 Branch conversations, §6.4 No chat between people · spec.md §14.1, §14.5.1, §15.1.1, §15.1.4–15.1.5, §5.4 · Layer: e2e · Stage: S1 · Tickets: T-APP-16, T-UI-07
 Automation: `apps/app/e2e/playwright/branch-conversation.spec.ts` (new) · Runs in: CI (real backend) and the reference host
 
 ## Setup

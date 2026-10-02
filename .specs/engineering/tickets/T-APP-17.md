@@ -1,10 +1,14 @@
 # T-APP-17 Context preflight: selection step, Context line, Inspect
 
-Stage S1 · Size M · Depends on T-APP-16 · Unblocks — · Issue: to file
+Stage S1 · Size M · Depends on T-APP-16, T-UI-07, T-APP-19 · Unblocks T-FLW-10 · Issue: to file
 Spec: spec.md §15.1.2, §11.5a (`agent:fast`) · Delta: delta.md §9 · Product: mvp.md §6.5 Context preflight, J9
 
 ## Goal
 Every app-agent answer is built from a stored, inspectable context list that a preflight step chose on the host, never from the whole conversation, and the same selector serves the TODO planner's wiki citations.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: the Context line chips and the preflight cell in Inspect. Engineering wires them: the preflight step, its budget and the stored `context[]`. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:

@@ -1,10 +1,14 @@
 # T-FLW-06 Learning flow, proposals, Proposal card, lessons receipt
 
-Stage S3 · Size L · Depends on T-STK-10, T-FLW-05, T-MCH-06 · Unblocks T-REL-03 · Issue: to file
+Stage S3 · Size L · Depends on T-STK-10, T-FLW-05, T-MCH-06, T-UI-20, T-APP-19 · Unblocks T-REL-03 · Issue: to file
 Spec: spec.md §1.3, §3 (`proposals`, `todos.lessons`), §4.1.3, §6.1.2 (in-card), §6.3 `/api/proposals`, §7.2 `proposals`, §8.3.1, §11.8, §14.3 Proposal · Delta: delta.md §8 (learning row) · Product: mvp.md J2.6, J5.5, J8.1, §4.1 (learning receipt), §6.12 Learning, M-04, M-15, Appendix B.4 (Learning)
 
 ## Goal
 After each merge, a background learning run writes source-linked decision pages to the wiki and evidence-backed proposals, the merged TODO shows "N lessons", and a proposal becomes a TODO only when a member selects Make TODO.
+
+## Ownership (Will, 2026-10-02)
+
+Design (smithers-06) builds every visual component and its styles: `ProposalCard` view and the lessons receipt on a merged TODO. Engineering wires them: the learning flow, `proposals`, accept and dismiss. The seam is the card's view-model schema (spec §14.2.1, T-APP-19). Design builds against it with fixture stories, and engineering doesn't edit components or CSS.
 
 ## Scope
 In:
