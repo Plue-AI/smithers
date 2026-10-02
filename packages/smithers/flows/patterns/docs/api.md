@@ -508,7 +508,8 @@ length of a backlog that no plan knows when it is built.
 settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail, requeues? }`
 with `status` one of `landed`, `held`, `failed`, `skipped`, or `requeued`. A round that
 launched at least one item hands off to the next round, which rediscovers the
-backlog; a round that launched nothing settles the lineage as `drained`.
+backlog; a round that launched nothing settles the lineage as `drained`,
+unless its selection erred, when the round's `Stop` fails the lineage.
 `maxRounds` bounds every round the lineage opens, parks included, and
 settles it as `max_rounds`. `deadline` is the lineage deadline `Flow.make`
 enforces. `make` throws an `invalid_decorator` `PatternError` for a
@@ -526,7 +527,10 @@ schema is a defect.
 `round` leaves alone the ids in `settled`, so a `held` or `failed` item is
 never retried within a lineage, while a `skipped` or `requeued` item is
 reconsidered every round. Only the exact `ours` selection launches an item; a malformed or failed
-selection skips it. Of the items that are ours, the first `slots` launch in
+selection skips it. An answered `skip` is a policy decision; a failed or
+malformed selection is an error. When no item is ours and none was requeued
+but a selection erred, `round` fails with `Stop` before any claim, naming how
+many selections failed and the first three causes. Of the items that are ours, the first `slots` launch in
 discovery order, at most `slots` at a time. When an item finishes working, its
 slot asks the round's `capacity` member, when there is one, and admits the next
 item that is ours only on an `Available` answer with more slots than the work

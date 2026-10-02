@@ -201,7 +201,7 @@ test("round stats count claimed issues and those whose agent produced a change",
       row("failed", "claim: issue-claim claim: exit 1"),
       row("held", "Claimed by someone"),
       row("skipped", "triage: operator: asks for a deploy (confidence 0.90)"),
-      row("skipped", "triage failed: triage: timeout: slow"),
+      row("skipped", "select failed: triage: invalid_answer: no choice"),
       row("skipped", "no change; waiting on a human"),
       row("requeued", "work: interrupted")
     ]),

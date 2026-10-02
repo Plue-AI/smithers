@@ -112,7 +112,8 @@ const issueSweep = Smithers.NodeTest({
     Smithers.file("//flows/issue-sweep/test/host.test.ts"),
     Smithers.file("//flows/issue-sweep/test/verdict.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land-queue.test.ts"),
-    Smithers.file("//flows/issue-sweep/test/triage.test.ts")
+    Smithers.file("//flows/issue-sweep/test/triage.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/judge.test.ts")
   ]),
   srcs: [sources],
   deps: [],

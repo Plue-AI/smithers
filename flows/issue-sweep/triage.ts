@@ -5,8 +5,10 @@
  * (acceptance, an operator action, evidence, a design decision) is recorded
  * as a no-change verdict (`verdict.ts`) and the issue is skipped until a human
  * acts; a human comment changes the text triage reads, so the next round asks
- * again. A failed reading is a typed {@link TriageFailed}: the issue is
- * skipped this round, never worked as a code change.
+ * again. A failed reading is a typed {@link TriageFailed} and never works an
+ * issue as a code change: a judge this host can never use stops the sweep
+ * before any claim ({@link preflight}), a judge that did not answer requeues
+ * the issue, and an answer outside the question is a selection error.
  *
  * Each answer is cached per issue under its `updated_at` and a digest of the
  * text it read, so an unchanged issue is never read twice: not in a later
@@ -14,6 +16,7 @@
  * move `updated_at` but are not part of that text, so they cost a GitHub read
  * and never a second reading.
  */
+import { Fault } from "@smthrs/flow"
 import * as Classifier from "@smthrs/model/Classifier"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Burndown } from "@smthrs/patterns"
@@ -79,9 +82,40 @@ export interface Triage {
   readonly reason: string
 }
 
+/**
+ * Why a reading failed. `unusable`: this host's judge can never answer: none
+ * is configured, it refuses our credentials or endpoint (a 4xx other than
+ * 429), or it rejects the question. `unavailable`: the judge did not answer
+ * this time: unreachable, timed out, rate limited, a server error, or an empty
+ * body. `invalid_answer`: it answered outside the question.
+ */
+export const TriageFailure = Schema.Literals(["unusable", "unavailable", "invalid_answer"])
+export type TriageFailure = typeof TriageFailure.Type
+
 export class TriageFailed extends Schema.TaggedError<TriageFailed>()("issue-sweep/TriageFailed", {
+  code: TriageFailure,
   message: Schema.String
 }) {}
+
+// An outage is infrastructure, so a round requeues the issue instead of
+// skipping it; an unusable judge is the host's configuration.
+Fault.register(
+  "issue-sweep/TriageFailed",
+  { unusable: "policy", unavailable: "infra", invalid_answer: "dependency" } satisfies Fault.Rows<TriageFailure>
+)
+
+/** What a judge failure means for triage. */
+export const failureOf = (error: {
+  readonly code: Evaluator.EvaluatorErrorCode
+  readonly status?: number | undefined
+}): TriageFailure =>
+  error.code === "unconfigured" || error.code === "invalid_question" ||
+    (error.code === "refused" && error.status !== undefined && error.status >= 400 && error.status < 500 &&
+      error.status !== 429)
+    ? "unusable"
+    : error.code === "invalid_answer"
+    ? "invalid_answer"
+    : "unavailable"
 
 /** The most comments the judge reads, newest last. */
 export const maxComments = 5
@@ -108,9 +142,16 @@ export const classify = (text: Text): Effect.Effect<Triage, TriageFailed, Evalua
       reason: `${criteria[need.value]} (confidence ${need.confidence.toFixed(2)})`
     })),
     Effect.mapError((error) =>
-      new TriageFailed({ message: `triage: ${error.code}: ${Evaluator.publicMessage(error)}` })
+      new TriageFailed({ code: failureOf(error), message: `triage: ${error.code}: ${Evaluator.publicMessage(error)}` })
     )
   )
+
+/** The fixed question a round's preflight asks the judge. */
+export const probe: Text = {
+  title: "Preflight: can this host's judge classify an issue?",
+  body: "The sweep asks this before each round to find a judge it can never use.",
+  comments: []
+}
 
 // ---------------------------------------------------------------------------
 // The cache
@@ -212,16 +253,28 @@ export const triage = <E, R>(
     return answer
   })
 
+/** A judge this host can never use stops the sweep; any other failure stays the issue's own. */
+const stopIfUnusable = <A, E, R>(
+  effect: Effect.Effect<A, E | TriageFailed, R>
+): Effect.Effect<A, E | TriageFailed | Burndown.Stop, R> =>
+  Effect.catchIf(
+    effect,
+    (error): error is TriageFailed => error instanceof TriageFailed && error.code === "unusable",
+    (failed) => Effect.fail(new Burndown.Stop({ message: failed.message }))
+  )
+
 /**
  * Whether the sweep spends an agent on `issue`: a code change is ours; any
- * other need is recorded as a no-change verdict and skipped; a failed reading
- * skips the issue this round with its reason.
+ * other need is recorded as a no-change verdict and skipped. A failed reading
+ * fails selection with its {@link TriageFailed}, so the round requeues an
+ * `unavailable` one and counts an `invalid_answer` as a selection error; an
+ * `unusable` judge stops the round with {@link Burndown.Stop}.
  */
 export const screen = <E, R>(
   repo: string,
   issue: { readonly number: number; readonly updatedAt?: string | undefined },
   seams: Seams<E, R>
-): Effect.Effect<Burndown.Selection, E, R> =>
+): Effect.Effect<Burndown.Selection, E | TriageFailed | Burndown.Stop, R> =>
   triage(repo, issue, seams).pipe(
     Effect.flatMap((triaged) =>
       triaged.need === "code-change"
@@ -231,8 +284,20 @@ export const screen = <E, R>(
           Burndown.skip(`triage: ${triaged.need}: ${triaged.reason}`)
         )
     ),
-    Effect.catchIf(
-      (error): error is TriageFailed => error instanceof TriageFailed,
-      (failed) => Effect.succeed(Burndown.skip(`triage failed: ${failed.message}`))
-    )
+    stopIfUnusable
+  )
+
+/**
+ * Asks the judge {@link probe} once, before a round selects anything. A judge
+ * this host can never use stops the round with that cause before any GitHub
+ * read or claim, so the run fails instead of skipping every issue. Any other
+ * failure passes: each issue's own reading then requeues or reports it.
+ */
+export const preflight = <R>(
+  read: (text: Text) => Effect.Effect<Triage, TriageFailed, R>
+): Effect.Effect<void, Burndown.Stop, R> =>
+  read(probe).pipe(
+    stopIfUnusable,
+    Effect.asVoid,
+    Effect.catchIf((error): error is TriageFailed => error instanceof TriageFailed, () => Effect.void)
   )

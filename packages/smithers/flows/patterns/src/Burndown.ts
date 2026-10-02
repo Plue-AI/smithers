@@ -58,7 +58,8 @@ export interface Item {
  *
  * `landed`: the work succeeded and landed. `held`: the claim reported another
  * owner. `failed`: a claim, work, or landing failure. `skipped`: selection said
- * the item is not ours this round. `requeued`: the work was interrupted without
+ * the item is not ours this round, or failed to decide (`select failed: ...`,
+ * or `selection did not answer ours`). `requeued`: the work was interrupted without
  * a recorded cancel, such as a host whose lease lapsed, so its claim was
  * released and a later round or a resumed run works the item again.
  *
@@ -99,8 +100,10 @@ export type Row = typeof Row.Type
 /**
  * Why a burndown stopped.
  *
- * `drained`: a round launched no item, so nothing ours is left. `max_rounds`:
- * the round budget ran out first.
+ * `drained`: a round launched and requeued nothing and its selection reported
+ * no error, so nothing ours is left. A round that launched nothing because
+ * selection failed does not drain: it fails with {@link Stop} naming the
+ * cause. `max_rounds`: the round budget ran out first.
  *
  * @category models
  * @since 1.0.0
@@ -230,9 +233,11 @@ export const signal = (name: string = DefaultSignal): ReturnType<typeof WaitFor.
 /**
  * A selection decision.
  *
- * Only the exact `Ours` value launches an item. Anything else, including a
- * malformed answer, skips it, so a selection member cannot launch work by
- * returning something unexpected.
+ * Only the exact `Ours` value launches an item. An answered `Skip` is a policy
+ * decision. A selection failure or a malformed answer also skips the item, so
+ * a selection member cannot launch work by returning something unexpected, but
+ * it counts as a selection error: a round that launches nothing because of
+ * selection errors stops instead of draining.
  *
  * @category models
  * @since 1.0.0
@@ -414,8 +419,9 @@ const merge = (carried: ReadonlyArray<Row>, fresh: ReadonlyArray<Row>): Readonly
  * already settled, and the capacity's slots; then a branch. A round that
  * launched at least one item hands off to the next round with `Flow.to`,
  * carrying the merged rows, so the next round rediscovers the backlog. A round
- * that launched nothing settles the lineage as `drained`. The round budget
- * settles it as `max_rounds`.
+ * that launched nothing settles the lineage as `drained`; a round that
+ * launched nothing because selection erred fails the lineage with the round's
+ * {@link Stop} instead. The round budget settles it as `max_rounds`.
  *
  * The capacity gate parks durably and never polls. `WaitUntil` arms
  * `Sleep.action` until the instant, and `Exhausted` awaits
@@ -639,7 +645,8 @@ export interface RoundOptions<I, It extends Item, W, E, R, L = unknown> {
  */
 const detailOf = (error: unknown): string => {
   try {
-    return typeof error === "object" && error !== null && typeof (error as { readonly message?: unknown }).message === "string"
+    return typeof error === "object" && error !== null &&
+        typeof (error as { readonly message?: unknown }).message === "string"
       ? (error as { readonly message: string }).message
       : String(error)
   } catch {
@@ -656,12 +663,20 @@ const ownTag = (value: unknown, tag: string): boolean => {
   }
 }
 
-const selectionOf = (value: unknown): Selection => {
+/**
+ * What one selection decided: a {@link Selection} the member answered, or an
+ * `Erred` skip when it failed or answered outside the contract. Only an
+ * answered `Skip` is a policy decision; an `Erred` skip is an error the round
+ * reports when it launches nothing.
+ */
+type Selected = Selection | { readonly _tag: "Erred"; readonly detail: string }
+
+const selectionOf = (value: unknown): Selected => {
   if (ownTag(value, "Ours")) return ours
-  const detail = ownTag(value, "Skip") && typeof (value as { readonly detail?: unknown }).detail === "string"
-    ? (value as { readonly detail: string }).detail
-    : "selection did not answer ours"
-  return skip(detail)
+  if (ownTag(value, "Skip") && typeof (value as { readonly detail?: unknown }).detail === "string") {
+    return skip((value as { readonly detail: string }).detail)
+  }
+  return { _tag: "Erred", detail: "selection did not answer ours" }
 }
 
 const refusal = (message: string): PatternError => new PatternError({ code: "invalid_input", message })
@@ -721,7 +736,11 @@ type Attempt<W> =
  *
  * Items whose id is in `settled` are left alone. `select` runs for the rest at
  * `concurrency`; a skipped item, or one whose selection failed, gets a
- * `skipped` row and is reconsidered next round. Of the items that are ours,
+ * `skipped` row and is reconsidered next round. When no item is ours and none
+ * was requeued, but a selection failed or answered outside the contract, the
+ * round fails with {@link Stop} naming how many selections failed and the
+ * first causes, before any claim: an error is not an empty backlog. A round
+ * whose skips are all answered `Skip`s returns normally. Of the items that are ours,
  * the first `slots` launch, in discovery order. When a launched item finishes
  * working, its slot admits the next item that is ours while
  * {@link RoundOptions.capacity} allows, so a slow item never holds another
@@ -839,21 +858,39 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
       fresh,
       (card) =>
         observe(card, "select", () =>
-          (select === undefined ? Effect.succeed(ours) : select(args(card))).pipe(
+          (select === undefined ? Effect.succeed<Selected>(ours) : select(args(card))).pipe(
             Effect.map(selectionOf),
             Effect.catch((error: E) =>
               ownTag(error, "flows/patterns/Burndown/Stop") || Fault.of(error).class === "infra"
                 ? Effect.fail(error)
-                : Effect.succeed(skip(`select failed: ${detailOf(error)}`))
+                : Effect.succeed<Selected>({ _tag: "Erred", detail: `select failed: ${detailOf(error)}` })
             )
           )).pipe(Effect.map((selection) => ({ card, selection }))),
       { concurrency }
     )
     const mine: Array<Card<It>> = []
+    // Selection errors: failed selections and skips no member decided.
+    const erred: Array<string> = []
+    let requeued = false
     for (const { card, selection } of selections) {
-      if (selection._tag === "Settled") rows.set(card.id, outcomeRow(card, selection.status, selection.detail))
-      else if (selection.value._tag === "Ours") mine.push(card)
-      else rows.set(card.id, outcomeRow(card, "skipped", selection.value.detail))
+      if (selection._tag === "Settled") {
+        rows.set(card.id, outcomeRow(card, selection.status, selection.detail))
+        if (selection.status === "failed") erred.push(`${card.id}: ${selection.detail}`)
+        requeued ||= selection.status === "requeued"
+      } else if (selection.value._tag === "Ours") mine.push(card)
+      else {
+        rows.set(card.id, outcomeRow(card, "skipped", selection.value.detail))
+        if (selection.value._tag === "Erred") erred.push(`${card.id}: ${selection.value.detail}`)
+      }
+    }
+    // Drained means nothing was eligible. A round that would launch and
+    // requeue nothing because selection erred stops with the cause instead.
+    if (mine.length === 0 && !requeued && erred.length > 0) {
+      return yield* new Stop({
+        message: `round ${index} launched nothing: selection failed for ${erred.length} of ${fresh.length} items; ${
+          erred.slice(0, 3).join("; ")
+        }`
+      })
     }
     // The first `budget` items launch on the capacity the lineage already
     // asked for; every later admission asks the round's own capacity member.

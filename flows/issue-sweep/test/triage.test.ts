@@ -3,6 +3,7 @@
  * spent on it. No real judge or GitHub call runs here: the judge is
  * `Evaluator.layerScripted`, and GitHub, the verdict, and the cache are seams.
  */
+import { Fault } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Burndown } from "@smthrs/patterns"
 import { Cause, Effect, Exit } from "effect"
@@ -16,6 +17,7 @@ import {
   classifier,
   classify,
   criteria,
+  failureOf,
   fileCache,
   type IssueText,
   type Need,
@@ -30,7 +32,7 @@ import { marker } from "../verdict.ts"
 
 const text = textOf({ title: "Deploy plue", body: "Run deploy.ts and post the receipt.", comments: [] })
 
-const failureOf = <A, E>(exit: Exit.Exit<A, E>): E => {
+const errorOf = <A, E>(exit: Exit.Exit<A, E>): E => {
   assert.ok(Exit.isFailure(exit), "expected a failure")
   const found = Cause.findErrorOption(exit.cause)
   assert.equal(found._tag, "Some", Cause.pretty(exit.cause))
@@ -76,8 +78,9 @@ test("a garbage or missing answer is a typed TriageFailed, never a code change",
     const exit = await Effect.runPromiseExit(
       classify(text).pipe(Effect.provide(Evaluator.layerScripted(() => answers as never)))
     )
-    const failure = failureOf(exit)
+    const failure = errorOf(exit)
     assert.ok(failure instanceof TriageFailed, JSON.stringify(answers))
+    assert.equal(failure.code, "invalid_answer", JSON.stringify(answers))
     assert.match(failure.message, /invalid_answer/, JSON.stringify(answers))
   }
 })
@@ -92,9 +95,36 @@ test("a judge that does not answer is a typed TriageFailed naming why", async ()
       )
     )
   )
-  const failure = failureOf(exit)
+  const failure = errorOf(exit)
   assert.ok(failure instanceof TriageFailed)
+  assert.equal(failure.code, "unusable")
   assert.equal(failure.message, "triage: unconfigured: AI_GATEWAY_API_KEY is not set.")
+})
+
+test("each judge failure maps to what the sweep does about it, and its fault class", () => {
+  const cases: ReadonlyArray<readonly [Evaluator.EvaluatorErrorCode, number | undefined, string]> = [
+    ["unconfigured", undefined, "unusable"],
+    ["invalid_question", 400, "unusable"],
+    ["refused", 401, "unusable"],
+    ["refused", 403, "unusable"],
+    ["refused", 404, "unusable"],
+    ["refused", 429, "unavailable"],
+    ["refused", 500, "unavailable"],
+    ["refused", 503, "unavailable"],
+    ["refused", undefined, "unavailable"],
+    ["unreachable", undefined, "unavailable"],
+    ["timeout", undefined, "unavailable"],
+    ["empty", 200, "unavailable"],
+    ["invalid_answer", 200, "invalid_answer"]
+  ]
+  for (const [code, status, expected] of cases) {
+    assert.equal(failureOf({ code, status }), expected, `${code} ${status}`)
+  }
+  const classes = { unusable: "policy", unavailable: "infra", invalid_answer: "dependency" } as const
+  for (const [code, expected] of Object.entries(classes)) {
+    const fault = Fault.of(new TriageFailed({ code: code as keyof typeof classes, message: "m" }))
+    assert.deepEqual(fault, { class: expected, tag: `issue-sweep/TriageFailed/${code}` })
+  }
 })
 
 test("the judge reads the issue as data under fixed instructions", async () => {
@@ -225,12 +255,12 @@ test("a failed reading is not cached: the next round asks again", async (t) => {
   const { calls, seams } = counted(
     path,
     () =>
-      fail ? Effect.fail(new TriageFailed({ message: "triage: timeout: slow" })) : Effect.succeed({
+      fail ? Effect.fail(new TriageFailed({ code: "unavailable", message: "triage: timeout: slow" })) : Effect.succeed({
         need: "code-change",
         reason: "r"
       })
   )
-  const failure = failureOf(await Effect.runPromiseExit(triage("o/r", { number: 7, updatedAt: "T1" }, seams())))
+  const failure = errorOf(await Effect.runPromiseExit(triage("o/r", { number: 7, updatedAt: "T1" }, seams())))
   assert.ok(failure instanceof TriageFailed)
   fail = false
   await Effect.runPromise(triage("o/r", { number: 7, updatedAt: "T1" }, seams()))
@@ -285,7 +315,7 @@ const issue = (number: number, labels: ReadonlyArray<string> = []): Issue => ({
 const roundOver = async (
   t: { after: (fn: () => void) => void },
   items: ReadonlyArray<Issue>,
-  answers: Readonly<Record<number, Need | "fail">>
+  answers: Readonly<Record<number, Need | "unavailable" | "invalid_answer">>
 ) => {
   const path = scratch(t)
   const log = {
@@ -300,9 +330,9 @@ const roundOver = async (
     newestClaim: () => Effect.succeed(undefined),
     read: (_, number) => Effect.sync(() => (log.read.push(number), { title: `#${number}`, body: "", comments: [] })),
     classify: (read: Text) => {
-      const answer = answers[Number(read.title.slice(1))] ?? "fail"
-      return answer === "fail"
-        ? Effect.fail(new TriageFailed({ message: "triage: unreachable: Jev was unavailable" }))
+      const answer = answers[Number(read.title.slice(1))] ?? "unavailable"
+      return answer === "unavailable" || answer === "invalid_answer"
+        ? Effect.fail(new TriageFailed({ code: answer, message: `triage: ${answer}: the judge failed` }))
         : Effect.succeed({ need: answer, reason: `because ${answer}` })
     },
     record: (_, number, triaged) => Effect.sync(() => void log.recorded.push([number, triaged.need, triaged.reason]))
@@ -341,12 +371,25 @@ test("only code-change issues are claimed and worked; every other need records a
   }
 })
 
-test("a triage failure skips the issue this round with the reason: no claim, no agent, no verdict", async (t) => {
-  const { log, rows } = await roundOver(t, [issue(1), issue(2)], { 1: "code-change", 2: "fail" })
+test("a judge that answers outside the question skips the issue as a selection error: no claim, agent, or verdict", async (t) => {
+  const { log, rows } = await roundOver(t, [issue(1), issue(2)], { 1: "code-change", 2: "invalid_answer" })
   assert.deepEqual(log.claimed, [1])
   assert.deepEqual(log.recorded, [])
   assert.equal(rows["2"]?.status, "skipped")
-  assert.equal(rows["2"]?.detail, "triage failed: triage: unreachable: Jev was unavailable")
+  assert.equal(rows["2"]?.detail, "select failed: triage: invalid_answer: the judge failed")
+})
+
+test("a judge that did not answer requeues the issue instead of skipping it: no claim, agent, or verdict", async (t) => {
+  const { log, rows } = await roundOver(t, [issue(1), issue(2)], { 1: "code-change", 2: "unavailable" })
+  assert.deepEqual(log.claimed, [1])
+  assert.deepEqual(log.worked, [1])
+  assert.deepEqual(log.recorded, [])
+  assert.deepEqual(rows["2"], {
+    id: "2",
+    status: "requeued",
+    detail: "select: triage: unavailable: the judge failed",
+    requeues: 1
+  })
 })
 
 test("parked and no-change issues are skipped before triage reads them", async (t) => {

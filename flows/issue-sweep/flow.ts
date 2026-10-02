@@ -11,7 +11,7 @@
  * `issue-sweep/accounts-reset`.
  */
 import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
-import type * as Evaluator from "@smthrs/model/Evaluator"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import { Burndown } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Crypto from "effect/Crypto"
@@ -21,7 +21,16 @@ import { capacity, perAccount, type Pools, readPools } from "./accounts.ts"
 import { api, issue as readIssue, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail, workspaces } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
-import { cachePath, classify, fileCache, screen, type Seams } from "./triage.ts"
+import {
+  cachePath,
+  classify,
+  fileCache,
+  preflight,
+  screen,
+  type Seams,
+  type Text,
+  type TriageFailed
+} from "./triage.ts"
 import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
 import { vmFields, vmOptions } from "./vm-options.ts"
 import { statfsFree } from "./vm.ts"
@@ -383,6 +392,7 @@ type Failure =
   | Schema.SchemaError
   | FlowRuntime.FlowCycleDetected
   | FlowRuntime.ExecutionIdentityConflict
+  | TriageFailed
   | Burndown.Stop
 /** What running the work child needs from the engine that executes the sweep. */
 type Engine = FlowRuntime.FlowRuntime | Crypto.Crypto
@@ -425,11 +435,12 @@ export interface SelectSeams<E, R> extends Seams<E, R> {
 /**
  * Whether an issue is ours. A parked issue, a `sweep:no-change` issue no human
  * acted on, and one the Mac mini holds are skipped without reading it; any
- * other is ours only when triage finds it needs a code change.
+ * other is ours only when triage finds it needs a code change. A failed
+ * reading fails selection (see `screen`).
  */
 export const selectWith =
   <E, R>(seams: SelectSeams<E, R>) =>
-  (args: Burndown.ItemArgs<unknown, Item>): Effect.Effect<Burndown.Selection, E, R> =>
+  (args: Burndown.ItemArgs<unknown, Item>): Effect.Effect<Burndown.Selection, E | TriageFailed | Burndown.Stop, R> =>
     Effect.gen(function*() {
       const repo = repoOf(args)
       const parked = parkedFor(args.item)
@@ -449,25 +460,39 @@ export const selectWith =
 // At most this many triage readings at once, whatever a round's width.
 const readings = Semaphore.makeUnsafe(8)
 
-const liveSeams: SelectSeams<GhFailed, Evaluator.Evaluator> = {
-  cache: fileCache(cachePath),
+/**
+ * Triage readings on `judged`, the sweep's own judge. It is bound here, at
+ * the call, because an action runs with the host's run context merged over
+ * the services its layer was built with: a judge provided only to the
+ * dispatch layer loses to the host's Evaluator, built from the host's
+ * environment (run-11, 2026-10-01).
+ */
+export const judging = (judged: Evaluator.Evaluator) => (text: Text) =>
+  Semaphore.withPermit(readings, classify(text).pipe(Effect.provideService(Evaluator.Evaluator, judged)))
+
+const cache = fileCache(cachePath)
+
+const liveSeams = (judged: Evaluator.Evaluator): SelectSeams<GhFailed, never> => ({
+  cache,
   requalified: (repo, issue) => github(requalified(repo, issue)),
   newestClaim,
   read: (repo, issue) => github(readIssue(repo, issue)),
-  classify: (text) => Semaphore.withPermit(readings, classify(text)),
+  classify: judging(judged),
   record: (repo, issue, triaged, need) =>
     Effect.flatMap(
       Clock.currentTimeMillis,
       (now) => github(recordVerdict(repo, issue, triaged.reason, new Date(now).toISOString(), need))
     )
-}
+})
 
 /**
  * The triage judge: Jev through the AI Gateway when `AI_GATEWAY_API_KEY` is
  * set, and otherwise GPT-6 Luna on the operator's ChatGPT login, the
- * subscription the sweep's Codex agents already run on. With neither, every
- * reading fails typed and no issue is claimed. The host judge takes seconds
- * to import, so it loads when the sweep starts, not when its flow is planned.
+ * subscription the sweep's Codex agents already run on. With neither, each
+ * round's preflight fails the sweep with that cause before any claim. Readings
+ * bind this judge at the call ({@link judging}), so the host's own Evaluator
+ * never replaces it. The host judge takes seconds to import, so it loads when
+ * the sweep starts, not when its flow is planned.
  */
 const judge = Layer.unwrap(
   Effect.promise(() => import("@smthrs/cli/NodeControl")).pipe(
@@ -527,13 +552,12 @@ const landGate = (landers: number) => {
   return gate
 }
 
-const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine | Evaluator.Evaluator, string> = {
+const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Engine, string> = {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
   // ceiling. A freed slot takes the next issue while the accounts still allow.
   concurrency: 32,
   capacity: (args) => readCapacity(args.input as typeof Input.Type),
-  select: selectWith(liveSeams),
   claim: (args) =>
     Effect.flatMap(
       claimCommand(["claim", ref(args), "--by", by]),
@@ -642,24 +666,41 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
     })
 }
 
-const dispatch = Dispatch.toLayer((payload) =>
-  Burndown.round({
-    input: payload.input,
-    round: payload.round,
-    items: payload.items as ReadonlyArray<Item>,
-    settled: payload.settled,
-    rows: payload.rows,
-    slots: payload.slots
-  }, {
-    ...dispatchOptions,
-    concurrency: Math.max(
-      1,
-      Math.min(
-        Array.isArray(payload.items) ? payload.items.length : 1,
-        ((payload.input as typeof Input.Type).maxAgents ?? 4) + ((payload.input as typeof Input.Type).cloudAgents ?? 0)
+/**
+ * One sweep round: the judge {@link preflight}, then the Burndown round,
+ * selecting through `seams`. A judge this host can never use fails the round
+ * before any claim.
+ */
+export const sweepRound = <W, E, R, L, SE, SR>(
+  input: Burndown.RoundInput<unknown, Item>,
+  options: Burndown.RoundOptions<unknown, Item, W, E | SE | TriageFailed | Burndown.Stop, R | SR, L>,
+  seams: SelectSeams<SE, SR>
+) => Effect.andThen(preflight(seams.classify), Burndown.round(input, { ...options, select: selectWith(seams) }))
+
+const dispatch = Layer.unwrap(
+  Effect.map(Effect.service(Evaluator.Evaluator), (judged) =>
+    Dispatch.toLayer((payload) =>
+      sweepRound({
+        input: payload.input,
+        round: payload.round,
+        items: payload.items as ReadonlyArray<Item>,
+        settled: payload.settled,
+        rows: payload.rows,
+        slots: payload.slots
+      }, {
+        ...dispatchOptions,
+        concurrency: Math.max(
+          1,
+          Math.min(
+            Array.isArray(payload.items) ? payload.items.length : 1,
+            ((payload.input as typeof Input.Type).maxAgents ?? 4) +
+              ((payload.input as typeof Input.Type).cloudAgents ?? 0)
+          )
+        )
+      }, liveSeams(judged)).pipe(
+        Effect.tap((result) => logRound(payload.input as typeof Input.Type, payload.round, result.rows))
       )
-    )
-  }).pipe(Effect.tap((result) => logRound(payload.input as typeof Input.Type, payload.round, result.rows)))
+    ))
 ).pipe(Layer.provide(judge))
 
 // The rounds are a flow of their own that no file declares, so this module

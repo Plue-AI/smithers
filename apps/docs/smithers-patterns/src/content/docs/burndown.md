@@ -15,7 +15,7 @@ four provider calls change.
 
 ```text
 round N:  capacity? ─┬─ Available(slots) ─▶ discover ─▶ dispatch ─┬─ launched > 0 ─▶ Flow.to(round N+1)
-                     ├─ WaitUntil(at) ───▶ Sleep ──▶ Flow.to(N+1)  └─ launched = 0 ─▶ drained
+                     ├─ WaitUntil(at) ───▶ Sleep ──▶ Flow.to(N+1)  └─ launched = 0 ─▶ drained, or Stop if select erred
                      └─ Exhausted ───────▶ WaitFor(signal) ──▶ Flow.to(N+1)
 
 dispatch: select ─▶ slot: claim ─▶ work (child: key/id) ─┬─▶ land (queue)  ─▶ release
@@ -79,8 +79,10 @@ export default Burndown.make({
 ```
 
 Start it with `{ input: { repo: "smithersai/smithers" } }`. The lineage ends
-`drained` when a round launches nothing, or `max_rounds` when the budget runs
-out. A round spent parked counts against `maxRounds`.
+`drained` when a round launches nothing because nothing is eligible, or
+`max_rounds` when the budget runs out. A round spent parked counts against
+`maxRounds`. A round that launches nothing because `select` failed does not
+drain: the lineage fails with `Burndown.Stop` naming the cause.
 
 ## Implement the round
 
@@ -132,15 +134,15 @@ Provide `dispatchLayer`, the `ListIssues` and `Accounts` implementations,
 
 What each member decides:
 
-| Member      | Runs                                                                | Its failure                                                 |
-| ----------- | ------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `select`    | For every unsettled item                                            | Skips the item this round; the next round asks again        |
-| `claim`     | For each item a slot admits                                         | `Held` settles it `held`; anything else settles it `failed` |
-| `work`      | After a successful claim                                            | Settles it `failed`; the items beside it keep running       |
-| `land`      | In the order work finished, `landConcurrency` at a time (default 1) | Settles it `failed`; the next landing still runs            |
-| `release`   | Once per successful claim, when the item settles                    | Appended to the row's detail; the status stays              |
-| `capacity`  | When a slot frees and an item is still waiting                      | Admits nothing through that slot                            |
-| `cancelled` | When an item's work or the round is interrupted                     | Counts as no cancel: the item is requeued                   |
+| Member      | Runs                                                                | Its failure                                                          |
+| ----------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `select`    | For every unsettled item                                            | Skips the item this round; see [Selection errors](#selection-errors) |
+| `claim`     | For each item a slot admits                                         | `Held` settles it `held`; anything else settles it `failed`          |
+| `work`      | After a successful claim                                            | Settles it `failed`; the items beside it keep running                |
+| `land`      | In the order work finished, `landConcurrency` at a time (default 1) | Settles it `failed`; the next landing still runs                     |
+| `release`   | Once per successful claim, when the item settles                    | Appended to the row's detail; the status stays                       |
+| `capacity`  | When a slot frees and an item is still waiting                      | Admits nothing through that slot                                     |
+| `cancelled` | When an item's work or the round is interrupted                     | Counts as no cancel: the item is requeued                            |
 
 ## Rolling admission
 
@@ -211,6 +213,34 @@ The parked round's waiting row also carries this token.
   an `invalid_input` `PatternError` before any claim.
 
 The reference for every export is in [the API reference](/reference/api/#burndown).
+
+## Selection errors
+
+`select` decides by answering. `Burndown.skip(detail)` is a policy skip: the
+item is claimed elsewhere, parked, or not work for this burndown. A `select`
+that fails, or answers anything but `ours` or a `skip`, is a selection error.
+Both give the item a `skipped` row that the next round reconsiders. A
+`select` failure that `Fault.of` classifies as `infra` requeues the item
+instead, within `maxRequeues`.
+
+The difference shows when a round launches nothing:
+
+| Round launched nothing, and its selection had | Result                                                                     |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| Only policy skips                             | The lineage settles `drained`                                              |
+| A requeued item                               | The next round runs                                                        |
+| An error and no requeued item                 | The round fails with `Stop` before any claim; the run fails with the cause |
+
+The `Stop` message names the round, how many selections failed, and the first
+three as `<id>: <detail>`, for example `round 0 launched nothing: selection
+failed for 2 of 3 items; 7: select failed: claims unreadable; 9: selection did
+not answer ours`. A round
+that launches at least one item continues as usual, and its erred items are
+selected again next round.
+
+A precondition every selection shares, such as a judge the host cannot use,
+belongs in a check before `round` that fails with `Stop` itself, so the run
+fails once with that cause.
 
 ## Item failures
 
