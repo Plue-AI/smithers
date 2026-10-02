@@ -183,9 +183,21 @@ func TestWorkspaceCreateDefersBootstrapButKeepsBootBarrier(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, client.writes)
 	require.Contains(t, client.commands[1], workspaceArtifactBakedRoot)
-	require.Contains(t, client.commands[2], "ln -s")
-	require.Contains(t, client.commands[3], "setsid")
-	require.Contains(t, strings.Join(client.commands, "\n"), "setsid")
+	require.Contains(t, client.commands[1], "sha256sum")
+	require.Contains(t, client.commands[1], "gzip -1c")
+	require.Contains(t, client.commands[1], "base64")
+	require.NotContains(t, client.commands[1], "ln -s")
+	publication, bootstrap := -1, -1
+	for index, command := range client.commands {
+		if strings.Contains(command, "ln -sT") {
+			publication = index
+		}
+		if strings.Contains(command, "setsid /bin/sh") {
+			bootstrap = index
+		}
+	}
+	require.Positive(t, publication, "artifacts publish before bootstrap starts")
+	require.Greater(t, bootstrap, publication, "bootstrap never sees an unpublished bundle")
 	require.Equal(t, workspaceClaudeService, req.Init.Services[0].Name, "caller request remains unchanged")
 }
 

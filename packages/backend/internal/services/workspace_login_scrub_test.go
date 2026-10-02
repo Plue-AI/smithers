@@ -120,6 +120,17 @@ func TestWorkspaceSandboxLoginScrubCommandNamesBothHomes(t *testing.T) {
 	require.True(t, strings.HasSuffix(command, " '/home/developer' '/root'"), command)
 }
 
+// Record every exec, including artifact commands the shared mock handles itself.
+type loginRecordingSandboxClient struct {
+	*mockWorkspaceSandboxVMClient
+	record func(string, string)
+}
+
+func (c *loginRecordingSandboxClient) Execute(ctx context.Context, id string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+	c.record(id, req.Command)
+	return c.mockWorkspaceSandboxVMClient.Execute(ctx, id, req)
+}
+
 // A Microsandbox fork runs the sign-out on the child guest before any setup,
 // and a child that cannot be signed out is discarded for a fresh guest.
 func TestSandboxForkSignsOutChildBeforeUse(t *testing.T) {
@@ -150,9 +161,6 @@ func TestSandboxForkSignsOutChildBeforeUse(t *testing.T) {
 					return sandbox.CreateResult{ID: "vm-fresh"}, nil
 				},
 				execAwaitFn: func(_ context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
-					mu.Lock()
-					execs = append(execs, vmID+" "+req.Command)
-					mu.Unlock()
 					status := int32(0)
 					if tc.scrubFail && req.Command == workspaceSandboxLoginScrubCommand() {
 						status = 1
@@ -176,12 +184,22 @@ func TestSandboxForkSignsOutChildBeforeUse(t *testing.T) {
 				getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) { return source, nil },
 				createWorkspaceFn:    func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return created, nil },
 			}
-			service := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(client))
+			service := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&loginRecordingSandboxClient{
+				mockWorkspaceSandboxVMClient: client,
+				record: func(id, command string) {
+					mu.Lock()
+					defer mu.Unlock()
+					execs = append(execs, id+" "+command)
+				},
+			}))
 			_, err := service.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: source.ID, Name: "branch"})
 			require.NoError(t, err)
 			require.NotEmpty(t, execs)
 			require.Equal(t, "vm-child "+workspaceSandboxLoginScrubCommand(), execs[0], "sign-out is the first command on the child")
 			if tc.scrubFail {
+				for _, command := range execs[1:] {
+					require.NotContains(t, command, "vm-child ", "a signed-in child never runs bootstrap")
+				}
 				require.Contains(t, deleted, "vm-child", "a child that stays signed in is discarded")
 				require.Equal(t, 1, cold, "the fork falls back to a fresh guest")
 			} else {
@@ -206,7 +224,6 @@ func TestSandboxSnapshotRestoreSignsOut(t *testing.T) {
 				return sandbox.CreateResult{ID: "vm-restored"}, nil
 			},
 			execAwaitFn: func(_ context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
-				execs = append(execs, vmID+" "+req.Command)
 				status := int32(0)
 				if scrubFail {
 					status = 1
@@ -215,10 +232,15 @@ func TestSandboxSnapshotRestoreSignsOut(t *testing.T) {
 			},
 			deleteVMFn: func(_ context.Context, vmID string) error { deleted = append(deleted, vmID); return nil },
 		}
-		service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(client))
+		service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&loginRecordingSandboxClient{
+			mockWorkspaceSandboxVMClient: client,
+			record:                       func(id, command string) { execs = append(execs, id+" "+command) },
+		}))
 		_, err := service.createWorkspaceVMFromSnapshot(context.Background(), row, snapshot)
+		require.NotEmpty(t, execs)
 		require.Equal(t, []string{"vm-restored " + workspaceSandboxLoginScrubCommand()}, execs[:1])
 		if scrubFail {
+			require.Len(t, execs, 1, "a restored guest that stays signed in never runs bootstrap")
 			require.Error(t, err)
 			require.Equal(t, []string{"vm-restored"}, deleted)
 		} else {

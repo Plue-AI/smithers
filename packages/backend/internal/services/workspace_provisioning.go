@@ -205,6 +205,13 @@ func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID 
 	if err != nil {
 		return vm, err
 	}
+	// The fork key belongs to ForkSandbox only; each follow-up mutation takes
+	// its own key instead of reusing the fork request digest.
+	forkCtx = sandbox.WithIdempotencyKey(forkCtx, "")
+	// Inherited credentials must be gone before artifact bootstrap can run.
+	if err := s.scrubSandboxWorkspaceLogins(forkCtx, vm.ID); err != nil {
+		return vm, err
+	}
 	client, ok := s.sandbox.(workspaceArtifactClient)
 	if !ok {
 		return vm, errors.New("workspace provider lacks artifact file transfer")
@@ -1918,12 +1925,6 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 		slog.Warn("fork-from-primary failed; falling back to cold clone", "source_vm", source.VmID, "error", err)
 		return workspace, false
 	}
-	// The fork starts signed out of the primary's vendor logins (#2805).
-	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
-		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
-		slog.Warn("fork sign-out failed; falling back to cold clone", "fork_vm", vm.ID, "error", err)
-		return workspace, false
-	}
 
 	// Switch the fork onto the target bookmark BEFORE registering its VM id, so
 	// a switch failure just deletes the fork and falls back to cold with the
@@ -2180,7 +2181,7 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 	}
 	applyWorkspaceResources(&req, workspace)
 	binding.apply(&req)
-	vm, err := createWorkspaceSandbox(createCtx, s.sandbox, req)
+	vm, err := s.sandbox.CreateSandbox(createCtx, workspaceSandboxBootRequest(req))
 	duration := time.Since(startedAt)
 	if s.sandboxMetrics != nil {
 		status := "success"
@@ -2204,6 +2205,12 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		s.markWorkspaceProvisionFailed(ctx, workspace, err)
 		return workspace, workspaceProvisioningError("", err)
+	}
+
+	if err := finishCreatedWorkspaceSandbox(createCtx, s.sandbox, vm.ID, req); err != nil {
+		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
+		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		return workspace, workspaceProvisioningError("restore workspace artifacts", err)
 	}
 
 	registrationStatus := "running"
@@ -2303,14 +2310,6 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		// derived-workspace open path takes when its fork attempt dies.
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		slog.Warn("pair fork failed; provisioning fresh sandbox for the fork workspace",
-			"source_vm", source.VmID, "error", err, "type", "workspace")
-		return s.provisionForkVMOnEmptySource(ctx, workspace)
-	}
-	// A fork starts signed out of the source's vendor logins (#2805). A guest
-	// that cannot be signed out is discarded for a fresh one.
-	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
-		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
-		slog.Warn("fork sign-out failed; provisioning fresh sandbox for the fork workspace",
 			"source_vm", source.VmID, "error", err, "type", "workspace")
 		return s.provisionForkVMOnEmptySource(ctx, workspace)
 	}

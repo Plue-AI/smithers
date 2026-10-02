@@ -83,8 +83,18 @@ type workspaceCreator interface {
 // boot barrier remains in Init; only the asynchronous toolchain bootstrap is
 // deferred until its artifacts have been transferred completely.
 func createWorkspaceSandbox(ctx context.Context, client workspaceCreator, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+	vm, err := client.CreateSandbox(ctx, workspaceSandboxBootRequest(req))
+	if err != nil {
+		return vm, err
+	}
+	return vm, finishCreatedWorkspaceSandbox(ctx, client, vm.ID, req)
+}
+
+// workspaceSandboxBootRequest leaves the boot barrier in place while deferring
+// the toolchain service until artifact transfer and any inherited-login scrub.
+func workspaceSandboxBootRequest(req sandbox.CreateRequest) sandbox.CreateRequest {
 	if _, workspace := req.Files[workspaceClaudeScriptPath]; !workspace {
-		return client.CreateSandbox(ctx, req)
+		return req
 	}
 	if req.Init != nil {
 		init := *req.Init
@@ -96,26 +106,23 @@ func createWorkspaceSandbox(ctx context.Context, client workspaceCreator, req sa
 		}
 		req.Init = &init
 	}
-	vm, err := client.CreateSandbox(ctx, req)
-	if err != nil {
-		return vm, err
+	return req
+}
+
+func finishCreatedWorkspaceSandbox(ctx context.Context, client workspaceCreator, id string, req sandbox.CreateRequest) error {
+	if _, workspace := req.Files[workspaceClaudeScriptPath]; !workspace {
+		return nil
 	}
-	// ctx carries the create's idempotency key (sandboxProvisionContext). The
-	// controller records a key with the digest of its first operation, so an
-	// artifact write or exec sent under the same key is refused 409
-	// idempotency_conflict and the new guest is reaped. Each follow-up
-	// mutation takes its own key instead; the provider keeps one key across
-	// that request's own retries.
+	// The create's idempotency key belongs only to creation; follow-up mutations
+	// take their own keys so their different request digests cannot conflict.
 	ctx = sandbox.WithIdempotencyKey(ctx, "")
-	if err := finishWorkspaceArtifacts(ctx, client, vm.ID, req.Files[workspaceClaudeScriptPath].Content); err != nil {
-		return vm, err
+	if err := finishWorkspaceArtifacts(ctx, client, id, req.Files[workspaceClaudeScriptPath].Content); err != nil {
+		return err
 	}
 	if artifacts, ok := client.(workspaceArtifactClient); ok {
-		if err := waitForWorkspaceArtifactBootstrap(ctx, artifacts, vm.ID); err != nil {
-			return vm, err
-		}
+		return waitForWorkspaceArtifactBootstrap(ctx, artifacts, id)
 	}
-	return vm, nil
+	return nil
 }
 
 func artifactCommand(ctx context.Context, client workspaceArtifactClient, id, command string, timeoutMS ...int64) (sandbox.ExecResult, error) {
