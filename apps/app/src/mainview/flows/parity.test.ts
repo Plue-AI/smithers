@@ -173,9 +173,7 @@ const PRESENTATION_ONLY = [
   "onFrameBack", // delegated: App.tsx binds it to frame.back
   "onFrameForward", // delegated: App.tsx binds it to frame.forward
   "onOpenInTab(", // delegated: App.tsx and tabs/CardTabBody.tsx bind it to runCommand("tab.card", ...)
-  "onInstall(", // delegated: PluginsSurface.tsx bind it to runCommand("plugins.install", ...)
-  "onRemove(", // delegated: PluginsSurface.tsx binds it to runCommand("plugins.remove", ...)
-  "onOpen(", // delegated: the plugin rail's binding sites bind it to runCommand(<the entry's own flow>)
+  "onOpen(", // delegated: WikiPageView's card and WorldSurface bindings dispatch wiki navigation commands
   "onConnectGitHub(", // delegated: App.tsx binds it to auth.sign-in
   "onRunWorkflow(", // delegated: App.tsx binds it to runCommand("flow.run", ...)
   "onStopRun(", // delegated: App.tsx binds it to runCommand("flow.run.stop", ...)

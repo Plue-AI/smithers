@@ -625,8 +625,6 @@
 .connectors-surface,
 /* Ask 5: the Flows pane sits beside the conversation like the other two. */
 .flows-surface,
-/* The Library: the plugin shelf, a pane like the rest. */
-.plugins-surface,
 /* ctrl+s: every subagent (#2190). */
 .subagents-surface {
 	display: flex;
@@ -663,24 +661,6 @@
 	padding: var(--sp-5) var(--sp-6) 80px;
 	overflow: auto;
 }
-
-/* ── The Library ──────────────────────────────────────────────────────
- * Extension-store grammar (the connectors rows' own): an icon, a name, one
- * line, one action. The recommended rows carry more, because a shelf met for
- * the first time has to say what to install and why.
- */
-
-
-@media (max-width: 720px) {
-	.plugin-card {
-		grid-template-columns: auto 1fr;
-	}
-
-	.plugin-action {
-		grid-column: 2;
-		flex-direction: row;
-		align-items: center;
-	}}
 
 .connectors-content {
 	display: flex;
