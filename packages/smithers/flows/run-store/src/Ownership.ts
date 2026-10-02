@@ -305,9 +305,10 @@ export interface HeartbeatLoopOptions {
  * its completion time. The deadline re-reads the clock after waking, so delayed
  * writes cannot hide expiry behind a stale clock reading.
  *
- * `options.onReconfirm` records a successful reconfirmation after a gap and
- * shares its heartbeat-interval deadline. A blocked or failed receipt lapses
- * the lease instead of stranding supervision.
+ * `options.onReconfirm` records a successful reconfirmation after a gap. Its
+ * deadline is the remaining renewed lease budget, measured from the timestamp
+ * sent to the store. A blocked or failed receipt lapses the lease instead of
+ * stranding supervision; receipt completion never grants another lease budget.
  * `options.onLapse` runs once, before the self-interrupt, when reconfirmation
  * fails: it receives how long the lease went unconfirmed, so the caller can
  * record why its work stopped. A lost fence does not call it.
@@ -329,28 +330,36 @@ export const heartbeatLoop = (
     // Both overdue timers may wake after a host stall. Serialize expiry and
     // recheck the budget so they cannot reconfirm or journal the same gap twice.
     const expiry = yield* Semaphore.make(1)
-    const expire = (nowMs: number) =>
+    const expire = () =>
       expiry.withPermit(Effect.gen(function*() {
+        // A competing expiry may have held the permit across a write. Take
+        // fresh evidence after acquisition, never the waiting timer's reading.
+        const nowMs = yield* Clock.currentTimeMillis
         if (nowMs - lastConfirmedPulseMs < toleranceMs) return
         const unconfirmedMs = nowMs - lastConfirmedPulseMs
         const renewed = yield* runStore.reconfirm(runId, owner, Math.floor(nowMs)).pipe(
-          Effect.flatMap((outcome) =>
-            outcome._tag === "Updated"
-              ? (options.onReconfirm?.(unconfirmedMs) ?? Effect.void).pipe(Effect.as(true))
-              : Effect.succeed(false)
-          ),
-          // The receipt shares the renewal budget: a blocked audit must not
-          // strand the independent deadline after the lease was refreshed.
+          // Only the ownership check consumes the old lease's reserved pulse.
           Effect.timeout(heartbeatInterval),
+          Effect.flatMap((outcome) =>
+            Effect.gen(function*() {
+              if (outcome._tag !== "Updated") return false
+              lastConfirmedPulseMs = Math.max(lastConfirmedPulseMs, Math.floor(nowMs))
+              failing = false
+              const confirmedAtMs = yield* Clock.currentTimeMillis
+              const remainingMs = lastConfirmedPulseMs + toleranceMs - confirmedAtMs
+              if (remainingMs <= 0) return false
+              // The receipt is still required and bounded, but ownership was
+              // already renewed. Spending only its old reserved pulse would
+              // interrupt live work despite a fresh, fenced persisted lease.
+              yield* (options.onReconfirm?.(unconfirmedMs) ?? Effect.void).pipe(Effect.timeout(remainingMs))
+              return true
+            })
+          ),
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause as Cause.Cause<never>) : Effect.succeed(false)
           )
         )
-        if (renewed) {
-          lastConfirmedPulseMs = Math.max(lastConfirmedPulseMs, nowMs)
-          failing = false
-          return
-        }
+        if (renewed) return
         yield* Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
           Effect.annotateLogs({ runId, unconfirmedMs }),
           Effect.andThen(options.onLapse?.(unconfirmedMs) ?? Effect.void),
@@ -362,7 +371,7 @@ export const heartbeatLoop = (
         const nowMs = yield* Clock.currentTimeMillis
         const remainingMs = lastConfirmedPulseMs + toleranceMs - nowMs
         if (remainingMs <= 0) {
-          yield* expire(nowMs)
+          yield* expire()
           continue
         }
         // Check alongside pulse intervals, with a shorter final wait when needed.
@@ -372,7 +381,7 @@ export const heartbeatLoop = (
     const pulses = Effect.sleep(heartbeatInterval).pipe(
       Effect.andThen(Clock.currentTimeMillis.pipe(Effect.map(Math.floor))),
       Effect.flatMap((nowMs) =>
-        nowMs - lastConfirmedPulseMs >= toleranceMs ? expire(nowMs) : runStore.heartbeat(runId, owner, nowMs).pipe(
+        nowMs - lastConfirmedPulseMs >= toleranceMs ? expire() : runStore.heartbeat(runId, owner, nowMs).pipe(
           Effect.flatMap((outcome) =>
             outcome._tag === "Updated"
               ? Effect.sync(() => {

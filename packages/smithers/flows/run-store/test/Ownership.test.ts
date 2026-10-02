@@ -593,6 +593,114 @@ describe("heartbeatLoop lease reconfirm", () => {
       yield* Fiber.interrupt(owning)
     }))
 
+  for (const renewalDelayMs of [0, intervalMs - 1]) {
+    it.effect(`keeps owned work through a delayed receipt after a ${renewalDelayMs}ms reconfirm (#3411)`, () =>
+      Effect.gen(function*() {
+        const receipts: Array<number> = []
+        const lapses: Array<number> = []
+        const owning = yield* heartbeatLoop("delayed-reconfirm-receipt", ownerA, {
+          onReconfirm: (gapMs) =>
+            Effect.sleep(intervalMs + 1).pipe(
+              Effect.andThen(Effect.sync(() => void receipts.push(gapMs)))
+            ),
+          onLapse: (gapMs) => Effect.sync(() => void lapses.push(gapMs))
+        }).pipe(
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.never,
+            reconfirm: () => Effect.sleep(renewalDelayMs).pipe(Effect.as({ _tag: "Updated" as const }))
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* TestClock.adjust(toleranceMs + renewalDelayMs + intervalMs + 1)
+        expect(receipts).toEqual([toleranceMs])
+        expect(lapses).toEqual([])
+        expect(owning.pollUnsafe()).toBeUndefined()
+        yield* Fiber.interrupt(owning)
+      }))
+  }
+
+  it.effect("bounds a stalled receipt from its persisted renewal stamp, not renewal completion (#3411)", () =>
+    Effect.gen(function*() {
+      let receiptInterruptedAtMs: number | undefined
+      let ownedInterruptedAtMs: number | undefined
+      const lapses: Array<number> = []
+      const owning = yield* Effect.raceFirst(
+        Effect.never.pipe(Effect.onInterrupt(() =>
+          Clock.currentTimeMillis.pipe(
+            Effect.tap((atMs) => Effect.sync(() => void (ownedInterruptedAtMs = atMs)))
+          )
+        )),
+        heartbeatLoop("bounded-reconfirm-receipt", ownerA, {
+          onReconfirm: () =>
+            Effect.never.pipe(Effect.onInterrupt(() =>
+              Clock.currentTimeMillis.pipe(
+                Effect.tap((atMs) => Effect.sync(() => void (receiptInterruptedAtMs = atMs)))
+              )
+            )),
+          onLapse: (gapMs) => Effect.sync(() => void lapses.push(gapMs))
+        })
+      ).pipe(
+        Effect.provide(RunStoreLive.layerNoop({
+          heartbeat: () => Effect.never,
+          reconfirm: () => Effect.sleep(intervalMs - 1).pipe(Effect.as({ _tag: "Updated" as const }))
+        })),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* TestClock.adjust(toleranceMs * 2 - 1)
+      expect(owning.pollUnsafe()).toBeUndefined()
+      expect(lapses).toEqual([])
+      yield* TestClock.adjust(1)
+      yield* Effect.yieldNow
+      const exit = owning.pollUnsafe()
+      expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+      expect(receiptInterruptedAtMs).toBe(toleranceMs * 2)
+      expect(ownedInterruptedAtMs).toBe(toleranceMs * 2)
+      expect(lapses).toEqual([toleranceMs])
+    }))
+
+  for (const overshootMs of [0, 1]) {
+    it.effect(`refuses a renewal result whose persisted stamp is ${overshootMs}ms past its budget (#3411)`, () =>
+      Effect.gen(function*() {
+        const baseClock = yield* Clock.Clock
+        const timers = yield* Deferred.make<void>()
+        const lapses: Array<number> = []
+        let nowMs = 0
+        let waits = 0
+        let receipts = 0
+        const clock: Clock.Clock = {
+          ...baseClock,
+          currentTimeMillis: Effect.sync(() => nowMs),
+          currentTimeMillisUnsafe: () => nowMs,
+          sleep: () => ++waits <= 2 ? Deferred.await(timers) : Effect.never
+        }
+        const owning = yield* heartbeatLoop("expired-renewal-result", ownerA, {
+          onReconfirm: () => Effect.sync(() => void receipts++),
+          onLapse: (gapMs) => Effect.sync(() => void lapses.push(gapMs))
+        }).pipe(
+          Effect.provideService(Clock.Clock, clock),
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: () => Effect.die("an overdue pulse must reconfirm"),
+            reconfirm: (_runId, _owner, atMs) =>
+              Effect.sync(() => {
+                // The clock jumped while the persistence result was returning.
+                // Its stamp remains atMs; completion time is not fresh evidence.
+                nowMs = atMs + toleranceMs + overshootMs
+                return { _tag: "Updated" as const }
+              })
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Effect.yieldNow
+        nowMs = toleranceMs
+        yield* Deferred.succeed(timers, undefined)
+        for (let index = 0; index < 10; index++) yield* Effect.yieldNow
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+        expect(receipts).toBe(0)
+        expect(lapses).toEqual([toleranceMs])
+      }))
+  }
+
   for (const renewed of [true, false]) {
     it.effect(`settles simultaneous overdue pulse and watchdog once when reconfirm ${renewed ? "succeeds" : "loses"}`, () =>
       Effect.gen(function*() {
@@ -751,7 +859,7 @@ describe("heartbeatLoop lease reconfirm", () => {
         )
         yield* TestClock.adjust(toleranceMs)
         if (receipt === "timeout") {
-          yield* TestClock.adjust(intervalMs - 1)
+          yield* TestClock.adjust(toleranceMs - 1)
           expect(owning.pollUnsafe()).toBeUndefined()
           yield* TestClock.adjust(1)
         }

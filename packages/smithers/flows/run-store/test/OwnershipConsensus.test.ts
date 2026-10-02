@@ -19,14 +19,15 @@ import { DatabaseError } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Consensus from "@smthrs/journal/Consensus"
 import { Journal } from "@smthrs/journal/Journal"
+import * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
-import { Clock, Duration, Effect, Layer } from "effect"
+import { Clock, Deferred, Duration, Effect, Fiber, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { heartbeatStaleAfter } from "../src/Heartbeat.ts"
 import * as Migrations from "../src/Migrations.ts"
-import type { LivenessEvidence, OwnerId } from "../src/Ownership.ts"
+import { heartbeatInterval, heartbeatLoop, type LivenessEvidence, type OwnerId } from "../src/Ownership.ts"
 import { type RunSnapshot, RunStore } from "../src/RunStore.ts"
 import * as RunStoreLive from "../src/RunStore.ts"
 
@@ -124,6 +125,67 @@ const suite = (name: string, strategy: Strategy) => {
         )
         expect(yield* store.reconfirm("reconfirm-store", ownerA, later)).toEqual({ _tag: "FenceLost" })
         expect((yield* store.get("reconfirm-store")).heartbeatAtMs).toBe(nowMs)
+      })))
+
+    it.effect("keeps a renewed SQL run alive until its delayed fenced receipt commits (#3411)", () =>
+      run(Effect.gen(function*() {
+        const store = yield* RunStore
+        const journal = yield* Journal
+        const baseClock = yield* Clock.Clock
+        const timers = yield* Deferred.make<void>()
+        const receiptStarted = yield* Deferred.make<void>()
+        const receiptCommitted = yield* Deferred.make<void>()
+        const runId = "delayed-fenced-reconfirm" as JournalEvent.RunId
+        let sleeps = 0
+        const clock: Clock.Clock = {
+          ...baseClock,
+          // Model a stopped host by holding its two initial timers. All
+          // persistence and later clock deadlines are the real services.
+          sleep: (duration) => ++sleeps <= 2 ? Deferred.await(timers) : baseClock.sleep(duration)
+        }
+        yield* store.create(runId, "{}")
+        yield* store.claimAndOwn(runId, pending, ownerA, 0)
+        const owning = yield* heartbeatLoop(runId, ownerA, {
+          onReconfirm: (unconfirmedMs) =>
+            Effect.gen(function*() {
+              yield* Deferred.succeed(receiptStarted, undefined)
+              yield* Effect.sleep(Duration.toMillis(heartbeatInterval) + 1)
+              const receipt = yield* journal.emitDurable(
+                new JournalEvent.Input({
+                  runId,
+                  sourceId: "driver" as JournalEvent.SourceId,
+                  sourceSeq: 0 as JournalEvent.SourceSeq,
+                  eventType: "flows.engine.run-decision",
+                  payload: { decision: "lease-reconfirmed", detail: { unconfirmedMs } }
+                }),
+                ownerA
+              ).pipe(Effect.orDie)
+              expect(receipt._tag).toBe("Accepted")
+              yield* Deferred.succeed(receiptCommitted, undefined)
+            })
+        }).pipe(
+          Effect.provideService(Clock.Clock, clock),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Effect.yieldNow
+        expect(sleeps).toBe(2)
+        const stoppedMs = Duration.toMillis(heartbeatStaleAfter) + 1
+        yield* TestClock.adjust(stoppedMs)
+        yield* Deferred.succeed(timers, undefined)
+        yield* Deferred.await(receiptStarted)
+        expect((yield* store.get(runId)).heartbeatAtMs).toBe(stoppedMs)
+        expect(yield* holds(runId, ownerA)).toBe(true)
+        expect((yield* journal.entries({ runId, limit: 10 })).entries).toEqual([])
+        yield* TestClock.adjust(Duration.toMillis(heartbeatInterval) + 1)
+        yield* Deferred.await(receiptCommitted)
+        const entries = (yield* journal.entries({ runId, limit: 10 })).entries
+        expect(entries).toHaveLength(1)
+        expect(entries[0]?.payload).toEqual({
+          decision: "lease-reconfirmed",
+          detail: { unconfirmedMs: stoppedMs }
+        })
+        expect(owning.pollUnsafe()).toBeUndefined()
+        yield* Fiber.interrupt(owning)
       })))
 
     it.effect("rejects invalid reconfirm inputs before touching the lease", () =>

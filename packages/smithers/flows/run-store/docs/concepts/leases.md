@@ -73,9 +73,12 @@ transaction. Reconfirm succeeds only when the owner still matches and there
 is no pending claim. A peer that reserved the stale lease therefore wins
 even before it activates.
 
-Reconfirmation and `onReconfirm(unconfirmedMs)` share one heartbeat-interval
-deadline. Only when both finish does supervision reset the confirmed-pulse
-time and keep the work running. A blocked or failed receipt lapses the lease. The engine journals
+Reconfirmation keeps its one-heartbeat-interval deadline. When it succeeds,
+supervision resets the confirmed-pulse time from the timestamp sent to the
+store. `onReconfirm(unconfirmedMs)` must finish within the remaining renewed
+`heartbeatWriteTolerance` budget; reconfirmation time is subtracted, and receipt
+completion does not extend the persisted lease. A blocked or failed receipt
+lapses the lease. The engine journals
 `run-decision` with decision `lease-reconfirmed` and detail `{ unconfirmedMs }`;
 `runs show` reports a warning. Owner identity and journal generation do not
 change. A lost lease, write error, or timeout calls `onLapse` and interrupts
