@@ -492,7 +492,7 @@ These are the GitHub-style basics without which most teams can't do useful work.
 
 ## 8. What we cut
 
-"Cut" means delete from the product surface; libraries stay published. "Defer" means hide now and keep for later. "Hide" means members never see it, but the system still uses it.
+"Cut" means delete from the product surface; libraries stay published on npm, each with its README and colocated `docs/` in the package (the per-library docs sites go with the standalone docs site, M-35). "Defer" means hide now and keep for later. "Hide" means members never see it, but the system still uses it.
 
 | Existing feature | Decision | Reason |
 | --- | --- | --- |
