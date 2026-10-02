@@ -3,6 +3,7 @@ import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
 import { nameOf } from "./registry"
 import { flowPlanParts, hasGrammar, payloadFor } from "./SlashPayload"
+import { flowArgs } from "./FlowArgs"
 
 /*
  * The composer boundary refuses what it cannot parse exactly. `files.list`
@@ -397,4 +398,37 @@ test("the workspace launch grammar preserves container and VM but rejects deskto
   }
   expect(names).toContain("box.open")
   expect(names).toContain("box.terminal")
+})
+
+describe("box.open recovery grammar", () => {
+  const recoveries: ReadonlyArray<{ snapshot?: string; recoveryOf?: string }> = [
+    {}, { snapshot: "snapshot-1" }, { recoveryOf: "old-box" }, { snapshot: "snapshot-1", recoveryOf: "old-box" }
+  ]
+  for (const kind of [undefined, "container", "vm"] as const) {
+    for (const recovery of recoveries) {
+      test(`retains ${kind ?? "default"} kind and ${JSON.stringify(recovery)} in any flag position`, () => {
+        const options = [kind === undefined ? "" : `--kind ${kind}`,
+          recovery.snapshot === undefined ? "" : `--snapshot ${recovery.snapshot}`,
+          recovery.recoveryOf === undefined ? "" : `--recoveryOf ${recovery.recoveryOf}`].filter(Boolean)
+        const payload = { bookmark: "main", repo: "o/r", ...(kind === undefined ? {} : { kind }), ...recovery }
+        for (const flags of [options.join(" "), options.toReversed().join(" ")]) {
+          for (const args of [`${flags} main o/r`, `main ${flags} o/r`, `main o/r ${flags}`]) {
+            expect(payloadFor("box.open", args)).toEqual({ payload })
+          }
+        }
+        expect(payloadFor("box.open", flowArgs("box.open", payload))).toEqual({ payload })
+      })
+    }
+  }
+  test("omitted bookmark and repository stay omitted when the line only carries recovery flags", () => {
+    expect(payloadFor("box.open", "--snapshot snapshot-1 --recoveryOf old-box")).toEqual({ payload: { snapshot: "snapshot-1", recoveryOf: "old-box" } })
+    expect(payloadFor("box.open", "--kind vm")).toEqual({ payload: { kind: "vm" } })
+  })
+  test("unknown, duplicate and valueless options never become a bookmark or a recovery id", () => {
+    for (const args of [
+      "--unknown", "--kind vm --unknown", "--snapshot one --snapshot", "--recoveryOf one --recoveryOf",
+      "--snapshot --recoveryOf old-box", "--recoveryOf --snapshot snapshot-1", "--snapshot", "--recoveryOf",
+      "main --snapshot one --snapshot two", "--kind vm --kind container", "--kind desktop"
+    ]) expect(payloadFor("box.open", args)).toHaveProperty("error")
+  })
 })

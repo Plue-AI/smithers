@@ -1031,13 +1031,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       const flagged = new RegExp(`(?:^|\\s)--${name}(?:\\s+(\\S+))?`).exec(line)
       if (flagged === null) continue
       if (name === "kind" && (flagged[1] === undefined || !KINDS.includes(flagged[1]))) return no("box.open's kind must be container or vm")
-      if (flagged[1] === undefined) return no(`box.open's --${name} needs an id`)
+      if (flagged[1] === undefined || flagged[1].startsWith("--")) return no(`box.open's --${name} needs an id`)
       flags[name] = flagged[1]
       line = line.replace(flagged[0], " ")
     }
     const { rest, repo } = identifierRepo(line, known)
     const bookmark = rest.trim()
-    if (/\s/.test(bookmark)) return no("box.open takes a bookmark and optionally an owner/repo")
+    if (/(?:^|\s)--/.test(line) || /\s/.test(bookmark)) return no("box.open takes a bookmark and optionally an owner/repo")
     return ok({
       ...(bookmark === "" ? {} : { bookmark }),
       ...(repo === undefined ? {} : { repo }),

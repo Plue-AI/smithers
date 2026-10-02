@@ -27,6 +27,7 @@ import { assembleArgs, draftFrom, formFieldsFor, missingFields, submissionPayloa
 import type { FormField } from "@smthrs/ui/flow-form"
 import { nameOf } from "./registry"
 import { payloadFor } from "./SlashPayload"
+import { flowArgs } from "./FlowArgs"
 
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
@@ -504,4 +505,78 @@ test("GitHub installation choice has the same missing-input form at slash and ag
   expect(await execute(controller, "github.app.choose")).toBe("rendered a form for installationId: ask the user to fill it in")
   expect(formOf(store, "github.app.choose")?.payload.via).toBe("agent")
   await controller.dispose()
+})
+
+describe("box.open public recovery doors", () => {
+  const harness = () => {
+    const calls: Array<{ actor: "user" | "smithers"; args: ReadonlyArray<unknown> }> = []
+    const forms: Array<unknown> = []
+    let signedOut = false
+    // Provisioning allocates a machine. This unit stops at the outbound
+    // action while exercising the real registry, schema, actor and form paths.
+    const actionsFor = (actor: "user" | "smithers") => new Proxy({}, {
+      get: (_target, property: string) => {
+        if (property === "bootstrap") return EVERYTHING
+        if (property === "snapshot") return () => ({ surface: "chat", typing: false, hasConnectors: false, admin: false, signedOut })
+        if (property === "repositoryFlows") return () => undefined
+        if (property === "knownRepositories") return () => new Set(["o/r"])
+        if (property === "openWorkspace") return (...args: ReadonlyArray<unknown>) => {
+          calls.push({ actor, args })
+          return { value: "Creation requested." }
+        }
+        if (property === "renderFlowForm") return (request: unknown) => {
+          forms.push(request)
+          return { cardId: "form-box.open", missing: [] }
+        }
+        return () => undefined
+      }
+    }) as CommandActions
+    const registry = createCommandRegistry(actionsFor("user"), actionsFor("smithers"))
+    return { registry, calls, forms, signOut() { signedOut = true } }
+  }
+
+  test("slash, button, named form and agent submissions preserve supported recovery fields and actor", async () => {
+    const { registry, calls } = harness()
+    const entry = registry.find("box.open")!
+    expect(formFieldsFor(entry.input, entry.metadata.form).map(field => field.name)).toEqual(["bookmark", "repo", "kind"])
+    for (const kind of [undefined, "container", "vm"] as const) {
+      for (const recovery of [{}, { snapshot: "snapshot-1" }, { recoveryOf: "old-box" }, { snapshot: "snapshot-1", recoveryOf: "old-box" }]) {
+        const payload = { bookmark: "main", repo: "o/r", ...(kind === undefined ? {} : { kind }), ...recovery }
+        const args = assembleArgs(formFieldsFor(entry.input, entry.metadata.form), entry.metadata.form, payload)
+        expect((await registry.run("box.open", args)).status).toBe("executed")
+        expect((await registry.run("box.open", flowArgs("box.open", payload))).status).toBe("executed")
+        const submitted = submissionOf(entry, payload)
+        expect(submitted).toEqual(payload)
+        expect((await registry.submit({ name: "box.open", payload: submitted as Record<string, unknown>, actor: "user" })).status).toBe("executed")
+        expect((await registry.runForAgent("box.open", args)).status).toBe("executed")
+        const expected = [payload.bookmark, payload.repo, kind, "snapshot" in recovery ? recovery.snapshot : undefined, "recoveryOf" in recovery ? recovery.recoveryOf : undefined]
+        expect(calls.slice(-4)).toEqual([
+          { actor: "user", args: expected }, { actor: "user", args: expected },
+          { actor: "user", args: expected }, { actor: "smithers", args: expected }
+        ])
+      }
+    }
+  })
+
+  test("unsupported options refuse and missing flag values render forms before any outbound action", async () => {
+    const { registry, calls, forms } = harness()
+    for (const args of ["--unknown", "--kind vm --unknown"]) {
+      expect((await registry.run("box.open", args)).status).toBe("failed")
+      expect((await registry.runForAgent("box.open", args)).status).toBe("failed")
+    }
+    for (const args of ["--snapshot one --snapshot", "--snapshot --recoveryOf old-box"]) {
+      expect((await registry.run("box.open", args)).status).toBe("form")
+      expect((await registry.runForAgent("box.open", args)).status).toBe("form")
+    }
+    expect(forms).toHaveLength(4)
+    expect(calls).toEqual([])
+  })
+
+  test("typed invalid kinds and signed-out agent requests cannot cross the outbound boundary", async () => {
+    const { registry, calls, signOut } = harness()
+    expect((await registry.submit({ name: "box.open", payload: { repo: "o/r", kind: "desktop" }, actor: "user" })).status).toBe("failed")
+    signOut()
+    expect((await registry.runForAgent("box.open", "main o/r --kind vm --snapshot snapshot-1 --recoveryOf old-box")).status).toBe("failed")
+    expect(calls).toEqual([])
+  })
 })
