@@ -575,6 +575,14 @@
 	flex: none;
 }
 
+/* A failure's caught detail wraps inside the toast; a long body scrolls. */
+.toast-stack .toast-detail pre {
+	max-height: 12rem;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .toast-action {
 	margin-top: var(--sp-3);
 	gap: var(--sp-2);

@@ -101,6 +101,29 @@ for (const viewport of viewports) {
   })
 }
 
+/* #3419: an open failure detail ran past the toast's right edge and was clipped mid-sentence. */
+test("an open failure detail wraps inside its toast and a long body scrolls in place", async ({ page }) => {
+  await boot(page)
+  const toast = page.locator('.toast-stack .toast[data-toast-status="failed"]')
+  await toast.locator("details.toast-detail > summary").click()
+  await expect(toast.locator("details.toast-detail")).toHaveJSProperty("open", true)
+  await expect.poll(() => toast.evaluate(node => {
+    const pre = node.querySelector<HTMLElement>("details.toast-detail pre")!
+    const text = document.createRange()
+    text.selectNodeContents(pre)
+    return { inside: text.getBoundingClientRect().right <= node.getBoundingClientRect().right, scrollsSideways: pre.scrollWidth > pre.clientWidth }
+  })).toEqual({ inside: true, scrollsSideways: false })
+  // A caught stack trace stands in for any long body: it scrolls inside the detail and the toast stays on screen.
+  await toast.evaluate(node => {
+    node.querySelector("details.toast-detail pre")!.textContent =
+      Array.from({ length: 60 }, (_, line) => `    at frame${line} (runs.ts:${line})`).join("\n")
+  })
+  await expect.poll(() => toast.evaluate(node => {
+    const pre = node.querySelector<HTMLElement>("details.toast-detail pre")!
+    return { scrolls: pre.scrollHeight > pre.clientHeight, onScreen: node.getBoundingClientRect().bottom <= innerHeight }
+  })).toEqual({ scrolls: true, onScreen: true })
+})
+
 test("the same stack follows any modal, including dialogs opened out of DOM order in one task", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await boot(page)
