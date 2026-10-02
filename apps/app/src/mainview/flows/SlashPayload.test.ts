@@ -411,7 +411,7 @@ describe("box.open recovery grammar", () => {
           recovery.snapshot === undefined ? "" : `--snapshot ${recovery.snapshot}`,
           recovery.recoveryOf === undefined ? "" : `--recoveryOf ${recovery.recoveryOf}`].filter(Boolean)
         const payload = { bookmark: "main", repo: "o/r", ...(kind === undefined ? {} : { kind }), ...recovery }
-        for (const flags of [options.join(" "), options.toReversed().join(" ")]) {
+        for (const flags of [options.join(" "), [...options].reverse().join(" ")]) {
           for (const args of [`${flags} main o/r`, `main ${flags} o/r`, `main o/r ${flags}`]) {
             expect(payloadFor("box.open", args)).toEqual({ payload })
           }
