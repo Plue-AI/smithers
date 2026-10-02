@@ -1,5 +1,5 @@
 /**
- * Two control planes reaching for one suspended run at the same instant.
+ * Two control runtimes reaching for one suspended run at the same instant.
  *
  * The fence being tested is a compare-and-swap in `flows_runs`, so the race has
  * to be real: two operating-system processes, two `SqlControlRuntime`s with
@@ -99,7 +99,7 @@ export const persistedRun = async (
  */
 export interface ClaimAttempt {
   readonly hostId: string
-  /** `won:<receipt tag>` or `lost:<error tag>`. */
+  /** `won:<claimed status>` or `lost:<error tag>`. */
   readonly outcome: string
   /** The owner identity the racer presented as its fence after the race. */
   readonly fence: unknown

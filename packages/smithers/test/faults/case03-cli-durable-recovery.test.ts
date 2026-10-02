@@ -1,9 +1,9 @@
 /** Real CLI + real engine/store; model and completion-evaluator HTTP responses are recorded. */
 import { isAlive } from "@smthrs/testing/Faults"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { expect, it } from "vitest"
@@ -261,6 +261,10 @@ const recover = async (mode: "approval" | "timer" | "checkpoint") => {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
       }
+    }
+    if (process.env.FAULT_3367_RECEIPTS) {
+      mkdirSync(process.env.FAULT_3367_RECEIPTS, { recursive: true })
+      cpSync(root, join(process.env.FAULT_3367_RECEIPTS, basename(root)), { recursive: true })
     }
     rmSync(root, { recursive: true, force: true })
   }

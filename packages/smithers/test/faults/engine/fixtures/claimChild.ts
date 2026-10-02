@@ -2,7 +2,7 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
 /**
  * A control plane with an identity of its own, for the claim-fence race.
  *
- * Two hosts reaching for one abandoned run is a cross-process event, so each
+ * Two control runtimes reaching for one abandoned run is a cross-process event, so each
  * host here is a real process with its own `SqlControlRuntime`, its own
  * connection to the shared control database, and its own `OwnerId`. The
  * identity is on the command line because that is the thing under test: the
@@ -14,11 +14,12 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
  * - `setup` plans, approves, launches, and then parks a run, leaving it
  *   suspended and unowned — the state a swept run is in — and prints
  *   `RUN=<runId>`.
- * - `resume <runId> <barrier>` waits for the barrier file to appear, then asks
- *   to resume, and prints `CLAIM=won:<receipt tag>` or `CLAIM=lost:<tag>`. The
+ * - `resume <runId> <barrier>` waits for the barrier file to appear, then claims
+ *   through the shared runtime, and prints `CLAIM=won:<claimed status>` or `CLAIM=lost:<tag>`. The
  *   barrier is what makes it a race: both processes have paid their startup
  *   cost and are sitting on the same instant before either one touches the row.
- *   Admitted or not, the racer then makes the fenced write a driver makes —
+ *   Public operator resume delegates another host's park and does not claim it.
+ *   Claimed or not, the racer then makes the fenced write a driver makes —
  *   with the claim's fence if it holds one, and otherwise with the fence its
  *   own identity would carry — and prints `WRITE=ok:<status>` or
  *   `WRITE=lost:<tag>`, after the `FENCE=<json>` it presented. A loser that never wrote would prove nothing about the
@@ -105,12 +106,8 @@ const setup = Effect.gen(function*() {
   // so that one write both parks the run and releases it, which is the state a
   // swept run is in.
   //
-  // The claim has to be taken rather than assumed. This composition's executor
-  // is the no-op one, so `ControlExecutor.launch` answers `pending` and
-  // `Control.run` takes its `releasePending` branch, which writes the run back
-  // as `accepted` with its owner columns already cleared. Nothing holds the
-  // fence by the time the launch returns, and `claimFence` on its own answers
-  // `ClaimLost`.
+  // The setup-only no-op executor releases pending admission; take a real
+  // runtime claim before writing the fenced park.
   const runtime = yield* ControlRuntime.ControlRuntime
   yield* runtime.resume(receipt.runId)
   const fence = yield* runtime.claimFence(receipt.runId)
@@ -120,8 +117,8 @@ const setup = Effect.gen(function*() {
 
 const resume = (runId: string) =>
   Effect.gen(function*() {
-    const control = yield* Control.Control
-    return yield* control.resume({ runId, idempotencyKey: `resume:${runId}:${hostId}` })
+    const runtime = yield* ControlRuntime.ControlRuntime
+    return yield* runtime.resume(runId)
   })
 
 const tagOf = (cause: Cause.Cause<unknown>): string => {
@@ -138,7 +135,7 @@ const race = (runId: string) =>
     const write = yield* Effect.exit(runtime.writeStatus(runId, fence, "running"))
     return {
       fence,
-      claim: Exit.isSuccess(claim) ? `won:${claim.value._tag}` : `lost:${tagOf(claim.cause)}`,
+      claim: Exit.isSuccess(claim) ? `won:${claim.value.status}` : `lost:${tagOf(claim.cause)}`,
       write: Exit.isSuccess(write) ? `ok:${write.value.status}` : `lost:${tagOf(write.cause)}`
     }
   })
@@ -178,30 +175,26 @@ if (role !== "resume" || runIdArg === undefined || barrier === undefined) {
   process.exit(2)
 }
 
-// Everything expensive — module loading, the database connection, the
-// migrations — happens before the barrier, so the two racers reach the row
-// together instead of one of them winning on startup time.
-const ready = Effect.runPromise(
+// Hold the same scoped connection and control runtime through readiness and
+// the barrier. Closing it at READY and rebuilding after go would race startup.
+const outcome = await Effect.runPromise(
   Effect.gen(function*() {
-    yield* Effect.service(Control.Control)
+    yield* Control.Control
+    yield* Effect.sync(() => process.stdout.write("READY\n"))
+    for (let waited = 0; !existsSync(barrier); waited += 10) {
+      if (waited > 60_000) return yield* Effect.die(new Error("claimChild: the barrier never appeared"))
+      yield* Effect.promise(() => sleep(10))
+    }
+    return yield* race(runIdArg)
   }).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
 )
-await ready
-process.stdout.write("READY\n")
-for (let waited = 0; !existsSync(barrier); waited += 10) {
-  if (waited > 60_000) {
-    process.stderr.write("claimChild: the barrier never appeared\n")
-    process.exit(3)
-  }
-  await sleep(10)
-}
-
-const outcome = await Effect.runPromise(
-  race(runIdArg).pipe(Effect.provide(stack), Effect.scoped, Effect.exit)
-)
 if (Exit.isFailure(outcome)) {
-  process.stderr.write(`${String(outcome.cause)}\n`)
+  process.stderr.write(`${String(outcome.cause)}
+`)
   process.exit(1)
 }
-process.stdout.write(`CLAIM=${outcome.value.claim}\nFENCE=${outcome.value.fence}\nWRITE=${outcome.value.write}\n`)
+process.stdout.write(`CLAIM=${outcome.value.claim}
+FENCE=${outcome.value.fence}
+WRITE=${outcome.value.write}
+`)
 process.exit(0)

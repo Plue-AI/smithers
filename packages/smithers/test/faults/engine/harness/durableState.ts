@@ -10,10 +10,12 @@
 import { DurableEngineState } from "@smthrs/engine-store"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import { Journal, type JournalEvent } from "@smthrs/journal"
+import { contentDigest } from "@smthrs/journal/JournalEvent"
 import * as NodeHost from "@smthrs/platform-node/NodeHost"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 
 const storage = (filename: string) =>
   NodeRuntime.storage(filename).pipe(
@@ -73,9 +75,22 @@ export const timerEvidence = (filename: string, address: DurableEngineState.Cloc
       const clock = yield* state.clock(address)
       const deferred = yield* state.deferred(address)
       const entries = yield* allEntries(journal, address.executionId as JournalEvent.RunId)
+      const sql = yield* SqlClient
+      const encoded = yield* sql<{ exitJson: string; metadataJson: string | null }>`
+        SELECT exit_json AS "exitJson", metadata_json AS "metadataJson"
+        FROM flows_deferred_completions
+        WHERE flow_name = ${address.flowName} AND execution_id = ${address.executionId}
+          AND deferred_name = ${address.deferredName}
+      `
+      const value = encoded[0]
+      const digest = value === undefined ? undefined : {
+        exit: contentDigest(value.exitJson),
+        metadata: value.metadataJson === null ? null : contentDigest(value.metadataJson)
+      }
       return {
         clock: Option.getOrUndefined(clock),
         deferred: Option.getOrUndefined(deferred),
+        digest,
         entries
       }
     }).pipe(Effect.provide(storage(filename)), Effect.scoped, Effect.orDie)
@@ -116,5 +131,13 @@ export const journalEventTypes = (
       const journal = yield* Journal.Journal
       const page = yield* journal.entries({ runId: runId as JournalEvent.RunId, limit })
       return page.entries.map((entry) => entry.eventType)
+    }).pipe(Effect.provide(storage(filename)), Effect.scoped, Effect.orDie)
+  )
+
+/** Reads the complete committed journal without truncating recovery evidence. */
+export const journalEntries = (filename: string, runId: string): Promise<ReadonlyArray<JournalEvent.Entry>> =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      return yield* allEntries(yield* Journal.Journal, runId as JournalEvent.RunId)
     }).pipe(Effect.provide(storage(filename)), Effect.scoped, Effect.orDie)
   )

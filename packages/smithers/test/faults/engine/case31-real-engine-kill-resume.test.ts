@@ -1,18 +1,12 @@
 /**
- * Case 31 — a killed host leaves a real orphan, and the next incarnation reaps
- * it.
+ * Case 31 — a killed host leaves a real orphan, and host recovery durably
+ * retires its exact process identity after the process group is gone.
  *
- * `SIGKILL` runs no finalizer, so the process an action started keeps running
- * with nobody left to signal it: the operating system reparents it to init, and
- * that reparenting is what this case reads rather than assumes. The engine's
- * answer is the durable process ledger — every contained spawn is recorded
- * under the host's id, and the next host with that id kills what its
- * predecessor left behind before it drives anything.
- *
- * The §5.2 advisory shape lives here too: an orphan whose parent is pid 1 is
- * the observable form of "process and child-agent containment", so the case
- * fails if either the orphan never appears (the fault was not injected) or it
- * survives the reaper (the containment claim is false).
+ * SIGKILL skips finalizers. The test observes the live group reparented to
+ * init before replacement. A containment supervisor may subsequently finish
+ * the group before the next host's reaper reaches it; recovery must then
+ * record process-gone, rather than claiming it performed a second kill.
+ * The separate owning-reaper integration suite checks actual group signals.
  */
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import {
@@ -24,18 +18,26 @@ import {
   waitFor,
   waitForReparent
 } from "@smthrs/testing/Faults"
-import { rmSync } from "node:fs"
+import { cpSync, mkdirSync, rmSync } from "node:fs"
+import { basename, join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { journalEventTypes } from "./harness/durableState.ts"
+import { journalEntries } from "./harness/durableState.ts"
 import { probeEngineChild, spawnEngineChild } from "./harness/engineChild.ts"
 import { killResumeFixture } from "./harness/killResumeCase.ts"
 import { firstStep, markers, secondStep } from "./harness/killResumeFlow.ts"
 
 const fixture = killResumeFixture("case31", 60_000)
-afterAll(() => rmSync(fixture.directory, { recursive: true, force: true }))
+afterAll(() => {
+  const receipts = process.env.FAULT_3367_RECEIPTS
+  if (receipts !== undefined) {
+    mkdirSync(receipts, { recursive: true })
+    cpSync(fixture.directory, join(receipts, basename(fixture.directory)), { recursive: true })
+  }
+  rmSync(fixture.directory, { recursive: true, force: true })
+})
 
 describe("case31 real engine kill and resume", () => {
-  it("reparents the orphan to init and lets the next host reap it", async () => {
+  it("reparents the orphan to init and durably retires it after host recovery", async () => {
     await probeEngineChild({ ...fixture })
 
     const engine = spawnEngineChild({ ...fixture, mode: "execute" })
@@ -73,9 +75,25 @@ describe("case31 real engine kill and resume", () => {
     expect(fixture.counter()).toEqual([firstStep, secondStep, secondStep])
     expect(fixture.marker(markers.secondDone)).toBeDefined()
 
-    // The host's own run records the spawn and the reap, in that order.
-    const hostEvents = await journalEventTypes(fixture.filename, ProcessLedger.hostRunId(fixture.hostId), 64)
-    expect(hostEvents).toContain("flows.host.process-spawned.v1")
-    expect(hostEvents).toContain("flows.host.process-reaped.v1")
+    // A supervisor can finish the group after its owner dies but before the
+    // replacement host sweeps it. Both paths must retire this exact orphan,
+    // after its spawn, and a skipped retirement must prove it was already gone.
+    const hostEvents = await journalEntries(fixture.filename, ProcessLedger.hostRunId(fixture.hostId))
+    const spawned = hostEvents.filter((entry) =>
+      entry.eventType === "flows.host.process-spawned.v1" &&
+      (entry.payload as { pid?: number }).pid === orphan
+    )
+    expect(spawned).toHaveLength(1)
+    expect(spawned[0]?.payload).toMatchObject({ pid: orphan, pgid: orphan, ownerPid: engine.pid })
+    const retired = hostEvents.filter((entry) =>
+      ["flows.host.process-reaped.v1", "flows.host.process-reap-skipped.v1"].includes(entry.eventType) &&
+      (entry.payload as { pid?: number }).pid === orphan
+    )
+    expect(retired).toHaveLength(1)
+    expect(retired[0]!.seq).toBeGreaterThan(spawned[0]!.seq)
+    expect(retired[0]!.payload).toEqual({
+      ...(spawned[0]!.payload as Record<string, unknown>),
+      ...(retired[0]!.eventType === "flows.host.process-reap-skipped.v1" ? { reason: "process-gone" } : {})
+    })
   }, 300_000)
 })

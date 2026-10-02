@@ -105,17 +105,29 @@ for (const edit of [false, true]) {
       }
       let original: ReturnType<typeof launch> | undefined
       let worker: number | undefined
+      const workerPids = new Set<number>()
+      const trackWorkers = () => {
+        for (const row of lines(join(root, "workers.jsonl"))) {
+          if (row.event === "start" && Number.isSafeInteger(row.pid) && row.pid > 0) {
+            workerPids.add(row.pid)
+            worker ??= row.pid
+          }
+        }
+      }
       const stages: Array<{ stage: string; at: number }> = []
       const mark = (stage: string) => stages.push({ stage, at: Date.now() })
       try {
         mark("start-host-requested")
         original = launch("start")
         await poll(() => {
+          trackWorkers() // Register the start receipt before progress or host failure.
           if (original!.child.exitCode !== null) throw Error(original!.output())
           return existsSync(join(root, "run-id")) &&
             lines(join(root, "workers.jsonl")).some((row) => row.event === "progress")
         }, "accepted run and external worker progress")
-        worker = Number(lines(join(root, "workers.jsonl"))[0]!.pid)
+        trackWorkers()
+        expect(workerPids.size).toBe(1)
+        expect(worker).toBeDefined()
         mark("external-worker-progress")
         await poll(
           () => state(root).runs.every((row) => row.status === "completed" || row.status === "suspended"),
@@ -124,7 +136,7 @@ for (const edit of [false, true]) {
         const before = state(root)
         expect(before.runs.some((row) => row.waiting_reason === "timer")).toBe(true)
         expect(before.runs.some((row) => row.waiting_reason === "released")).toBe(false)
-        expect(alive(worker)).toBe(true)
+        expect(alive(worker!)).toBe(true)
         if (edit) {
           for (const file of ["flow.ts", "helper.ts"]) {
             const path = join(root, "flows", "retained", file)
@@ -135,7 +147,7 @@ for (const edit of [false, true]) {
         await original.done
         mark("original-host-killed")
         expect(original.child.signalCode).toBe("SIGKILL")
-        expect(alive(worker), "external process must survive host death").toBe(true)
+        expect(alive(worker!), "external process must survive host death").toBe(true)
         await delay(2_000)
         expect(lines(join(root, "workers.jsonl")).filter((row) => row.event === "start")).toHaveLength(1)
         const replacement = launch("restart")
@@ -148,7 +160,7 @@ for (const edit of [false, true]) {
             )
         }, "replacement host automatically probes the existing job")
         mark("replacement-status-probe")
-        expect(alive(worker)).toBe(true)
+        expect(alive(worker!)).toBe(true)
         expect(lines(join(root, "workers.jsonl")).filter((row) => row.event === "start")).toHaveLength(1)
         writeFileSync(join(root, "release"), "complete")
         mark("worker-released-to-complete")
@@ -205,6 +217,7 @@ for (const edit of [false, true]) {
         )
         throw error
       } finally {
+        trackWorkers() // Also catch a start that raced the first failure.
         for (const host of hosts) {
           if (host.child.exitCode === null && host.child.signalCode === null) host.child.kill("SIGTERM")
         }
@@ -213,16 +226,19 @@ for (const edit of [false, true]) {
           if (host.child.exitCode === null && host.child.signalCode === null) host.child.kill("SIGKILL")
           await host.done
         }
-        if (worker && alive(worker)) {
-          process.kill(worker, "SIGKILL")
-          await poll(() => !alive(worker!), "worker cleanup")
+        trackWorkers() // A host may have launched a worker during graceful shutdown.
+        for (const pid of workerPids) {
+          if (alive(pid)) process.kill(pid, "SIGKILL")
         }
+        await poll(() => [...workerPids].every((pid) => !alive(pid)), "worker cleanup")
         const cleanup = {
           hosts: hosts.map((host) => ({ pid: host.child.pid, alive: alive(host.child.pid!) })),
-          worker: worker ? { pid: worker, alive: alive(worker) } : null
+          worker: worker ? { pid: worker, alive: alive(worker) } : null,
+          workers: [...workerPids].map((pid) => ({ pid, alive: alive(pid) }))
         }
         writeFileSync(join(root, "cleanup.json"), JSON.stringify(cleanup, null, 2))
         expect(cleanup.hosts.every((host) => !host.alive)).toBe(true)
+        expect(cleanup.workers.every((worker) => !worker.alive)).toBe(true)
         if (process.env.FAULT_3367_RECEIPTS) {
           cpSync(root, join(process.env.FAULT_3367_RECEIPTS, basename(root)), {
             recursive: true,

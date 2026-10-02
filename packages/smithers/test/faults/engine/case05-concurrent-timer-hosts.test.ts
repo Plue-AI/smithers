@@ -94,6 +94,7 @@ it("arms two live hosts before one durable deadline and executes its continuatio
     expect(completions.length).toBeGreaterThanOrEqual(1)
     expect(completions.length).toBeLessThanOrEqual(2)
     expect(new Set(completions.map((entry) => entry.sourceId)).size).toBe(completions.length)
+    expect(evidence.digest).toBeDefined()
     for (const entry of completions) {
       expect(["timer-race-a", "timer-race-b"].some((hostId) => entry.sourceId.startsWith(`${hostId}-engine:deferred:`)))
         .toBe(true)
@@ -101,10 +102,11 @@ it("arms two live hosts before one durable deadline and executes its continuatio
         flowName: clock.flowName,
         executionId,
         deferredName: clock.deferredName,
-        // Journal payloads cross JSON; a successful void Exit omits its
-        // undefined value while the decoded state restores that property.
-        exit: JSON.parse(JSON.stringify(evidence.deferred?.exit)),
-        metadata: evidence.deferred?.metadata
+        completedAtMs: evidence.deferred?.completedAtMs,
+        // Values remain in the durable row; the redacted journal carries the
+        // digests of that row's exact persisted JSON bytes.
+        exitDigest: evidence.digest?.exit,
+        metadataDigest: evidence.digest?.metadata
       })
     }
 

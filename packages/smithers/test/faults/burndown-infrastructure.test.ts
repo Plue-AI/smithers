@@ -1,4 +1,6 @@
 /** #3367: real public CLI, SQLite, durable children, DNS, sockets and external agents. */
+import { heartbeatStaleAfter, heartbeatWriteTolerance } from "@smthrs/journal/Consensus"
+import * as Duration from "effect/Duration"
 import { AssertionError } from "node:assert"
 import { type ChildProcess, execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -462,40 +464,105 @@ it("positive control finishes N=3 durable children exactly once and lands in ord
 }, 360_000)
 
 describe("host stall", () => {
-  it("#3328 #3372 host stall reconfirms ownership and completes N=2 without manual resume", async () => {
-    const root = make("host")
-    const run = launch(root, 45)
-    await wait(() => records(root).filter((row) => row.event === "progress").length === 2, "N=2 children running")
-    expect(rows(root).filter((row) => row.status === "running")).toHaveLength(4)
-    try {
-      process.kill(run.host.pid!, "SIGSTOP")
-      await wait(
-        () => processTable().some((row) => row.pid === run.host.pid && row.state.includes("T")),
-        "host actually stopped"
-      )
-      await delay(23_000) // Real wall-clock >19-second ownership lease tolerance.
-    } finally {
-      process.kill(run.host.pid!, "SIGCONT")
-    }
-    await completed(run, 0)
-    await reap(root)
-    integrity(root, 2, true, true, true)
-    assertRecovery(receipt(root, 2))
-    const db = new DatabaseSync(join(root, ".flows", "engine.db"), { readOnly: true })
-    try {
-      const frames = (db.prepare("select run_id, payload_json from flows_journal_events").all() as unknown as Array<
-        { run_id: string; payload_json: string }
-      >)
-        .map((row) => ({ runId: row.run_id, payload: JSON.parse(row.payload_json) }))
-      const reconfirmed = frames.filter((row) => row.payload.decision === "lease-reconfirmed")
-      expect(reconfirmed.map((row) => row.runId).sort()).toEqual(rows(root).map((row) => row.run_id).sort())
-      expect(reconfirmed.every((row) => row.payload.detail.unconfirmedMs >= 19000)).toBe(true)
-      expect(frames.filter((row) => row.payload.decision === "interrupt-released")).toEqual([])
-      json(join(root, "lease-receipt.json"), reconfirmed)
-    } finally {
-      db.close()
-    }
-  }, 360_000)
+  for (const stallMs of [23_000, 40_000]) {
+    it(
+      `#3328 #3372 ${stallMs / 1000}-second host stall reconfirms ownership and completes N=2 without manual resume`,
+      async () => {
+        const root = make("host")
+        const run = launch(root, 45)
+        await wait(() => records(root).filter((row) => row.event === "progress").length === 2, "N=2 children running")
+        expect(rows(root).filter((row) => row.status === "running")).toHaveLength(4)
+        const leases = () => {
+          const db = new DatabaseSync(join(root, ".flows", "engine.db"), { readOnly: true })
+          try {
+            return db.prepare("select run_id, owner_pid, heartbeat_at_ms from flows_consensus_leases order by run_id")
+              .all() as unknown as Array<{
+                run_id: string
+                owner_pid: number
+                heartbeat_at_ms: number
+              }>
+          } finally {
+            db.close()
+          }
+        }
+        const initialRunIds = rows(root).map((row) => row.run_id)
+        const initialWorkerPids = records(root).filter((row) => row.event === "start").map((row) => row.pid)
+        const stallReceipt: Record<string, unknown> = { stallMs, hostPid: run.host.pid }
+        const writeToleranceMs = Duration.toMillis(heartbeatWriteTolerance)
+        const staleAfterMs = Duration.toMillis(heartbeatStaleAfter)
+        if (stallMs === 40_000) expect(stallMs).toBeGreaterThan(staleAfterMs)
+        try {
+          stallReceipt.stopRequestedAtMs = Date.now()
+          process.kill(run.host.pid!, "SIGSTOP")
+          await wait(
+            () => processTable().some((row) => row.pid === run.host.pid && row.state.includes("T")),
+            "host actually stopped"
+          )
+          const stoppedAtMs = Date.now()
+          const stoppedProcess = processTable().find((row) => row.pid === run.host.pid)!
+          expect(stoppedProcess.state.includes("T")).toBe(true)
+          Object.assign(stallReceipt, { stoppedAtMs, stoppedProcess })
+          const before = leases()
+          expect(before).toHaveLength(4)
+          expect(before.every((row) => row.owner_pid === run.host.pid && row.heartbeat_at_ms > 0)).toBe(true)
+          await delay(stallMs) // Real wall-clock; preserve both tolerance and stale-owner boundaries.
+          const after = leases()
+          const observedAtMs = Date.now()
+          const stillStoppedProcess = processTable().find((row) => row.pid === run.host.pid)!
+          expect(stillStoppedProcess.state.includes("T")).toBe(true)
+          Object.assign(stallReceipt, { observedAtMs, stillStoppedProcess, before, after })
+          expect(after).toEqual(before) // The stopped owner cannot renew its persisted heartbeat.
+          expect(observedAtMs - stoppedAtMs).toBeGreaterThanOrEqual(stallMs)
+          const readings = after.map((row) => ({
+            ...row,
+            unconfirmedMs: observedAtMs - row.heartbeat_at_ms,
+            stealEligibleAtMs: row.heartbeat_at_ms + staleAfterMs
+          }))
+          expect(readings.every((row) => row.unconfirmedMs > writeToleranceMs)).toBe(true)
+          if (stallMs > staleAfterMs) expect(readings.every((row) => observedAtMs > row.stealEligibleAtMs)).toBe(true)
+          Object.assign(stallReceipt, { writeToleranceMs, staleAfterMs, leases: readings })
+        } finally {
+          stallReceipt.resumeRequestedAtMs = Date.now()
+          process.kill(run.host.pid!, "SIGCONT")
+          await wait(
+            () => processTable().some((row) => row.pid === run.host.pid && !row.state.includes("T")),
+            "host actually resumed"
+          )
+          Object.assign(stallReceipt, {
+            resumedAtMs: Date.now(),
+            resumedProcess: processTable().find((row) => row.pid === run.host.pid)
+          })
+          json(join(root, "stall-receipt.json"), stallReceipt)
+        }
+        await completed(run, 0)
+        expect(rows(root).map((row) => row.run_id)).toEqual(initialRunIds)
+        expect(
+          records(root).filter((row) => row.event === "start" && !row.index.startsWith("land-")).map((row) => row.pid)
+        ).toEqual(initialWorkerPids)
+        await reap(root)
+        integrity(root, 2, true, true, true)
+        assertRecovery(receipt(root, 2))
+        const db = new DatabaseSync(join(root, ".flows", "engine.db"), { readOnly: true })
+        try {
+          const frames = (db.prepare("select run_id, payload_json from flows_journal_events").all() as unknown as Array<
+            { run_id: string; payload_json: string }
+          >)
+            .map((row) => ({ runId: row.run_id, payload: JSON.parse(row.payload_json) }))
+          const reconfirmed = frames.filter((row) => row.payload.decision === "lease-reconfirmed")
+          expect(reconfirmed.map((row) => row.runId).sort()).toEqual(rows(root).map((row) => row.run_id).sort())
+          expect(reconfirmed.every((row) => row.payload.detail.unconfirmedMs >= writeToleranceMs)).toBe(true)
+          if (stallMs > staleAfterMs) {
+            expect(reconfirmed.every((row) => row.payload.detail.unconfirmedMs > staleAfterMs)).toBe(true)
+          }
+          expect(frames.filter((row) => row.payload.decision === "interrupt-released")).toEqual([])
+          json(join(root, "lease-receipt.json"), reconfirmed)
+        } finally {
+          db.close()
+        }
+      },
+      360_000
+    )
+  }
 })
 
 describe("slow body load", () => {
