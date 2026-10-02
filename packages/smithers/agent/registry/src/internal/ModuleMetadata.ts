@@ -15,6 +15,7 @@ import { conservativeEffects, narrowDelegation, projectEffects, unprojectableDel
  * @private
  */
 export interface MetadataWarning {
+  readonly line?: number
   readonly message: string
 }
 
@@ -86,8 +87,8 @@ const skipQuoted = (source: string, start: number): number => {
 }
 
 const skipLineComment = (source: string, start: number): number => {
-  const end = source.indexOf("\n", start + 2)
-  return end === -1 ? source.length - 1 : end
+  const end = /[\n\r\u2028\u2029]/.exec(source.slice(start + 2))?.index
+  return end === undefined ? source.length - 1 : start + 2 + end
 }
 
 const skipBlockComment = (source: string, start: number): number => {
@@ -605,30 +606,42 @@ const findTopLevelColon = (source: string): number | undefined => {
   return undefined
 }
 
+const trimTrivia = (source: string): string => {
+  const tokens = tokenize(source)
+  return tokens.length === 0 ? "" : source.slice(tokens[0]!.start, tokens.at(-1)!.end)
+}
+
 const propertyKey = (source: string): string | undefined => {
-  const trimmed = source.trim()
-  const quoted = /^(["'])(.*?)\1$/.exec(trimmed)
-  if (quoted?.[2] !== undefined) {
-    return quoted[2]
-  }
-  return /^[A-Za-z_$][\w$-]*$/.test(trimmed) ? trimmed : undefined
+  const tokens = tokenize(source)
+  if (tokens.length !== 1) return undefined
+  const token = tokens[0]!
+  if (token.kind === "string" && ["\"", "'"].includes(token.value[0]!)) return token.value.slice(1, -1)
+  return token.kind === "identifier" && token.escaped !== true ? token.value : undefined
 }
 
 const propertiesFrom = (
   source: string
 ): {
   readonly values: ReadonlyMap<string, string>
+  readonly offsets: ReadonlyMap<string, number>
+  readonly unprojectableOffset: number | undefined
   readonly hasUnprojectableMembers: boolean
 } => {
   const properties = new Map<string, string>()
+  const offsets = new Map<string, number>()
+  let unprojectableOffset: number | undefined
+  let offset = 0
   let hasUnprojectableMembers = false
   for (const part of splitTopLevel(source)) {
-    const trimmed = part.trim()
+    const start = offset + skipTrivia(part, 0)
+    offset += part.length + 1
+    const trimmed = trimTrivia(part)
     if (trimmed === "") {
       continue
     }
     if (trimmed.startsWith("...")) {
       hasUnprojectableMembers = true
+      unprojectableOffset ??= start
       continue
     }
     const colon = findTopLevelColon(trimmed)
@@ -636,19 +649,23 @@ const propertiesFrom = (
       const key = propertyKey(trimmed)
       if (key !== undefined) {
         properties.set(key, key)
+        offsets.set(key, start)
       } else {
         hasUnprojectableMembers = true
+        unprojectableOffset ??= start
       }
       continue
     }
     const key = propertyKey(trimmed.slice(0, colon))
     if (key !== undefined) {
-      properties.set(key, trimmed.slice(colon + 1).trim())
+      properties.set(key, trimTrivia(trimmed.slice(colon + 1)))
+      offsets.set(key, start)
     } else {
       hasUnprojectableMembers = true
+      unprojectableOffset ??= start
     }
   }
-  return { values: properties, hasUnprojectableMembers }
+  return { values: properties, offsets, unprojectableOffset, hasUnprojectableMembers }
 }
 
 const decodeEscapes = (value: string): string =>
@@ -700,7 +717,9 @@ export const stringLiteral = (source: string | undefined): string | undefined =>
   if (source === undefined) {
     return undefined
   }
-  const trimmed = source.trim()
+  const tokens = tokenize(source)
+  if (tokens.length !== 1 || tokens[0]!.kind !== "string") return undefined
+  const trimmed = tokens[0]!.value
   const quote = trimmed[0]
   if (
     (quote !== "\"" && quote !== "'" && quote !== "`") ||
@@ -716,17 +735,23 @@ const stringArray = (source: string | undefined): ReadonlyArray<string> | undefi
   if (source === undefined) {
     return undefined
   }
-  const trimmed = source.trim()
+  const trimmed = trimTrivia(source)
   if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
     return undefined
   }
-  const parts = splitTopLevel(trimmed.slice(1, -1)).filter((part) => part.trim() !== "")
+  const parts = splitTopLevel(trimmed.slice(1, -1)).filter((part) => trimTrivia(part) !== "")
   const values = parts.map(stringLiteral)
   return values.every((value): value is string => value !== undefined) ? values : undefined
 }
 
 const booleanLiteral = (source: string | undefined): boolean | undefined =>
-  source?.trim() === "true" ? true : source?.trim() === "false" ? false : undefined
+  source === undefined
+    ? undefined
+    : trimTrivia(source) === "true"
+    ? true
+    : trimTrivia(source) === "false"
+    ? false
+    : undefined
 
 const objectProperties = (
   source: string | undefined
@@ -947,6 +972,8 @@ export const parse = (source: string): Metadata => {
 
   const parsedProperties = propertiesFrom(source.slice(flowObject.start + 1, flowObject.end))
   const properties = parsedProperties.values
+  const lineAt = (offset: number): number =>
+    source.slice(0, flowObject.start + 1 + offset).split(/\r\n|[\n\r\u2028\u2029]/).length
   const inputDocument = parsedProperties.hasUnprojectableMembers
     ? undefined
     : payloadDocument(source, properties.get("payload"))
@@ -961,7 +988,8 @@ export const parse = (source: string): Metadata => {
   const delegation = hasUnprojectableFlows ? unprojectableDelegation() : undefined
   if (literalCapabilities === undefined) {
     warnings.push({
-      message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard"
+      message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard",
+      line: lineAt(parsedProperties.offsets.get("capabilities")!)
     })
   }
   // A delegating flow that declares a readable capability list narrows the
@@ -972,13 +1000,15 @@ export const parse = (source: string): Metadata => {
     !parsedProperties.hasUnprojectableMembers
   if (hasUnprojectableFlows && !narrowsDelegation) {
     warnings.push({
-      message: "Flow authority cannot be projected statically; using the conservative wildcard"
+      message: "Flow authority cannot be projected statically; using the conservative wildcard",
+      line: lineAt(parsedProperties.offsets.get("flows")!)
     })
   }
   if (parsedProperties.hasUnprojectableMembers) {
     warnings.push({
       message:
-        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections",
+      line: lineAt(parsedProperties.unprojectableOffset!)
     })
   }
   const capabilities = narrowsDelegation && delegation !== undefined

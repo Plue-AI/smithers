@@ -4,6 +4,90 @@ import * as ModuleMetadata from "../src/internal/ModuleMetadata.ts"
 import discoveredFlow from "./fixtures/project/flows/review/read-pr/flow.ts"
 
 describe("ModuleMetadata", () => {
+  it.each(["'unterminated", "\"unterminated", "`unterminated", "\"read\" + grants", "\"read\" \"write\""])(
+    "refuses an incomplete or composite string literal (%s)",
+    (source) => {
+      expect(ModuleMetadata.stringLiteral(source)).toBeUndefined()
+    }
+  )
+
+  it.each(["// comment with [ }, and capabilities: *\n", "/* comment with [ }, and capabilities: * */"])(
+    "skips authored comments throughout literal metadata (%s)",
+    (comment) => {
+      const metadata = ModuleMetadata.parse(`export default Flow.make("review", {
+        ${comment} description ${comment}: ${comment} "Read // and /* literally" ${comment},
+        ${comment} capabilities ${comment}: ${comment} [${comment} "fs:read:src/**" ${comment}, ${comment} "net:get:api.example.com" ${comment}, ${comment}] ${comment},
+        model: [${comment} "sol" ${comment}, "opus" ${comment}],
+        modelInvocable: ${comment} false ${comment},
+        flows: [${comment}],
+        effects: { ${comment} reads: [${comment} "src/**" ${comment}], writes: [${comment}], mode: ${comment} "hermetic", tier: "sealed" },
+        ${comment}
+      })`)
+      expect(metadata.description).toBe("Read // and /* literally")
+      expect(metadata.capabilities).toEqual(["fs:read:src/**", "net:get:api.example.com"])
+      expect(Option.getOrThrow(metadata.model)).toEqual(["sol", "opus"])
+      expect(metadata.modelInvocable).toBe(false)
+      expect(metadata.flows).toEqual([])
+      expect(metadata.effects).toEqual({
+        reads: ["src/**"],
+        writes: [],
+        mode: "hermetic",
+        onConflict: "serialize",
+        tier: "sealed"
+      })
+      expect(metadata.warnings).toEqual([])
+    }
+  )
+
+  it.each(["\n", "\r", "\r\n", "\u2028", "\u2029"])(
+    "terminates line comments and locates capability fallbacks with %j",
+    (newline) => {
+      const source = [
+        "export default Flow.make(\"review\", {",
+        "description: \"Read\",",
+        "// comments end at every JavaScript line terminator",
+        "capabilities: [\"fs:read\"],",
+        "})"
+      ].join(newline)
+      expect(ModuleMetadata.parse(source).capabilities).toEqual(["fs:read"])
+      expect(ModuleMetadata.parse(source.replace("[\"fs:read\"]", "grants")).warnings).toContainEqual({
+        message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard",
+        line: 4
+      })
+    }
+  )
+
+  it("keeps escaped property names conservative and locates them after comments", () => {
+    const metadata = ModuleMetadata.parse([
+      "export default Flow.make(\"review\", {",
+      "  description: \"Read\",",
+      "  /* comment */ capabiliti\\u0065s: [\"fs:read\"],",
+      "})"
+    ].join("\n"))
+    expect(metadata.capabilities).toEqual(["*"])
+    expect(metadata.warnings).toContainEqual({
+      message:
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections",
+      line: 3
+    })
+  })
+
+  it.each(["[...grants]", "[grant]", "grants", "[\"fs:read\" + suffix]", "[\"fs:read\" \"net:get\"]"])(
+    "keeps nonliteral capability expressions conservative with their declaration line (%s)",
+    (capabilities) => {
+      const metadata = ModuleMetadata.parse(`export default Flow.make("review", {
+        description: "Read",
+        // ordinary comment
+        capabilities: ${capabilities}
+      })`)
+      expect(metadata.capabilities).toEqual(["*"])
+      expect(metadata.warnings).toContainEqual({
+        message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard",
+        line: 4
+      })
+    }
+  )
+
   it.each([
     ["import { Schema } from \"effect\"", "Schema"],
     ["import { Option, Schema as S } from \"effect\"", "S"],
@@ -86,7 +170,8 @@ describe("ModuleMetadata", () => {
     expect(metadata.inputDocument).toBeUndefined()
     expect(metadata.warnings).toContainEqual({
       message:
-        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections",
+      line: 1
     })
   })
   it("refuses an incomplete namespace use at the end of the source", () => {
@@ -221,7 +306,8 @@ describe("ModuleMetadata", () => {
     expect(metadata.capabilities).toEqual(["*"])
     expect(metadata.effects.tier).toBe("irreversible")
     expect(metadata.warnings).toContainEqual({
-      message: "Flow authority cannot be projected statically; using the conservative wildcard"
+      message: "Flow authority cannot be projected statically; using the conservative wildcard",
+      line: 3
     })
   })
 
@@ -258,7 +344,8 @@ describe("ModuleMetadata", () => {
     expect(metadata.hasOutput).toBe(true)
     expect(metadata.warnings).toContainEqual({
       message:
-        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections",
+      line: 3
     })
   })
 
@@ -521,7 +608,8 @@ describe("ModuleMetadata", () => {
     expect(metadata.hasOutput).toBe(true)
     expect(metadata.warnings).toContainEqual({
       message:
-        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections",
+      line: 4
     })
   })
 
@@ -582,7 +670,8 @@ describe("ModuleMetadata", () => {
     expect(metadata.capabilities).toEqual(["*"])
     expect(metadata.effects.tier).toBe("irreversible")
     expect(metadata.warnings).toContainEqual({
-      message: "Flow authority cannot be projected statically; using the conservative wildcard"
+      message: "Flow authority cannot be projected statically; using the conservative wildcard",
+      line: 3
     })
   })
 

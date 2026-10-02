@@ -2694,9 +2694,9 @@
         "ControlExecutor.d.ts": "f1625f76a0e881ea6b61fabc4ab2e383982c3dcf47ae658c708a338765d25175",
         "ControlFacts.d.ts": "e28351111e99f2c4b4ea551497579b133814153efedcd03f1fbdd8e2085eb532",
         "ControlLive.d.ts": "7847117004545fc649fea412877f61bc49ce62293b0e8c85cfd4c7c64a9707b4",
-        "ControlRpcs.d.ts": "9456264148a85538b65ae58c37ccbb930487fa72c7bfea117d097d4ebe00598f",
+        "ControlRpcs.d.ts": "684dd102714e3ab861b22bf9c0d264feba35c4961d081fbf6870902682d01f48",
         "ControlRuntime.d.ts": "1a0ca1e9ac5b327f9b1b488ee936b73b4630149fad128e77b76bb5a86777664c",
-        "ControlSchema.d.ts": "823887e02eb33784510d3b3641e3d6e9c4a83a01ff2b97d317c370383ec61d00",
+        "ControlSchema.d.ts": "4b8fad56f8269b8a610a8fa9a4d5a3eaa3d8c346ed5319a34517cef80b7a9b7e",
         "ControlServer.d.ts": "1892fe3b343f83a4b850a5c5f624794d6f9aeb1c74ce54efe95f0fdd04e1b98d",
         "Credential.d.ts": "ef1f5932df35eed95b8d389c1ca21b32a5852797aa653d77c015b6e0ae80d4b5",
         "CredentialCipher.d.ts": "6d3a6b8967443dfac47a8dc3f9e7dd42cc088db146e57302ccc896456892fc07",
@@ -8620,7 +8620,7 @@
         "internal/Body.d.ts": "5e53f2ee33fb894c2e948a38a2cd55100455cf87c21db55767ae238c17459a88",
         "internal/Frontmatter.d.ts": "2b1fcaaea6876717b496766396bf099a22e7fc3e63a9dae434e5f51749c7d30a",
         "internal/ModuleClosure.d.ts": "119f60779a94c68ba55da22a0f76987d48e9e693518cd39d6afafc8334e31f5d",
-        "internal/ModuleMetadata.d.ts": "e7e9d7cc85fc0ce0922f4ef041439edfe00394328a12d3df4a144887fb71f268",
+        "internal/ModuleMetadata.d.ts": "0d8bca3dcf1a2f04d88f0f2c41083c189889d3f2828e4e346a7df5aa56979a95",
         "internal/Names.d.ts": "494cebeead34279e668e159507d71cf7037ad88a402cccc41191a2374c418e9f"
       }
     },

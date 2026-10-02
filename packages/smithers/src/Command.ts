@@ -534,6 +534,7 @@ const up = Command.make("up", upFlags, (config) =>
       return yield* Effect.fail(
         new CliError.UsageError({
           message: `flow start will not approve ${flowId}: its envelope grants every capability ("*"). `
+            + (card.warnings === undefined ? "" : `${card.warnings.map((warning) => warning.message).join("; ")}. `)
             + `Declare capabilities in the flow, or review it with \`smthrs flow plan ${flowId}\` and approve it with \`smthrs approvals approve\``
         })
       )

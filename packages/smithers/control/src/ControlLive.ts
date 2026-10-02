@@ -1695,7 +1695,12 @@ export const layer: Layer.Layer<
                 : cause
             )
           )
-        )
+        ).pipe(Effect.flatMap((card) =>
+          registry.warnings().pipe(Effect.map((all) => {
+            const warnings = all.filter((warning) => warning.name === input.flowId)
+            return warnings.length === 0 ? card : { warnings, ...card }
+          }))
+        ))
       ),
       run: Effect.fn("Control.run")((submitted) =>
         Effect.gen(function*() {

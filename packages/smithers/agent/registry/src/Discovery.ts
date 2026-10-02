@@ -360,7 +360,12 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
           )
           const warnings: Array<DiscoveryWarning> = []
           for (const item of metadata.warnings) {
-            warnings.push(warning("unsupported_module_metadata", location, item.message, name))
+            warnings.push(warning(
+              "unsupported_module_metadata",
+              location,
+              item.line === undefined ? item.message : `${item.message} at ${location}:${item.line}`,
+              name
+            ))
           }
           // `Flow.make` requires a name, because the name is the tag the flow,
           // its action, and every plan that records a call carry. In a

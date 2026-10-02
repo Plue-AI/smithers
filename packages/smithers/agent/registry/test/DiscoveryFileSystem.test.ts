@@ -499,7 +499,8 @@ describe("Discovery module entries", () => {
       expect.objectContaining({
         code: "unsupported_module_metadata",
         name: "tools/report",
-        message: "Capabilities must be a string-literal array for discovery; using the conservative wildcard"
+        message:
+          `Capabilities must be a string-literal array for discovery; using the conservative wildcard at ${root}/tools/report/flow.ts:4`
       })
     ])
   })

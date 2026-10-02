@@ -364,6 +364,8 @@ export const PlanCard = Schema.Struct({
   flowId: FlowId,
   digest: Schema.String,
   inputSummary: Schema.String,
+  /** Discovery diagnostics for the selected flow; outside the approval identity. */
+  warnings: Schema.optional(Schema.Array(DiscoveryWarning)),
   envelope: Envelope,
   deployClass: Schema.Boolean,
   /** Executable source/metadata identity supplied by a discovery-based host. */

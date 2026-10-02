@@ -6,13 +6,14 @@
 import { Journal } from "@smthrs/journal"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Registry } from "@smthrs/registry"
-import { SchemaRefMarkdownArgs } from "@smthrs/registry/Descriptor"
-import { Deferred, Effect, Fiber, Layer, Stream } from "effect"
+import { DiscoveryWarning, SchemaRefMarkdownArgs } from "@smthrs/registry/Descriptor"
+import { Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
 import { InvalidInput, LaunchFailed, PersistenceError, PlanDenied } from "../src/ControlError.ts"
 import * as ControlExecutor from "../src/ControlExecutor.ts"
 import { ControlRuntime, type MemoryFlow } from "../src/ControlRuntime.ts"
+import { PlanCard } from "../src/ControlSchema.ts"
 import type { Envelope, FireSummary, ListResponse, Principal, Receipt, TriggerSummary } from "../src/ControlSchema.ts"
 import * as DispatchReader from "../src/DispatchReader.ts"
 import { mutationKey } from "../src/internal/planning.ts"
@@ -185,6 +186,44 @@ describe("ControlLive listings", () => {
         inputSchema: { schema: { properties: { args: { type: "string" } }, required: ["args"] } }
       }]
     })
+  })
+
+  it("carries only the selected flow's discovery diagnostics without changing approval identity", async () => {
+    const warning = new DiscoveryWarning({
+      code: "unsupported_module_metadata",
+      path: "/project/flows/review/pull-request/flow.ts",
+      name: "review/pull-request",
+      message:
+        "Capabilities must be a string-literal array for discovery; using the conservative wildcard at /project/flows/review/pull-request/flow.ts:4"
+    })
+    const observed = await run(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const first = yield* control.plan({ flowId: "review/pull-request", input: {}, idempotencyKey: "diagnostic" })
+        const repeated = yield* control.plan({ flowId: "review/pull-request", input: {}, idempotencyKey: "diagnostic" })
+        const clean = yield* control.plan({ flowId: "release/train", input: {} })
+        const stored = yield* (yield* ControlRuntime).getPlan(first.planId)
+        return { first, repeated, clean, stored }
+      }),
+      live({
+        runtime: memoryRuntime({ flows }),
+        registry: Registry.layerNoop({
+          warnings: () =>
+            Effect.succeed([
+              warning,
+              { ...warning, name: "review/pull-request-child" },
+              { ...warning, name: undefined }
+            ])
+        })
+      })
+    )
+    expect(observed.first.warnings).toEqual([warning])
+    expect(observed.repeated).toEqual(observed.first)
+    expect(observed.clean.warnings).toBeUndefined()
+    expect(observed.stored.card.warnings).toBeUndefined()
+    expect(observed.first.approval).toEqual(observed.stored.card.approval)
+    expect(observed.first.digest).toBe(observed.stored.card.digest)
+    expect(Schema.decodeUnknownSync(PlanCard)(Schema.encodeSync(PlanCard)(observed.first)).warnings).toEqual([warning])
   })
 
   it("carries registry discovery warnings beside every flow page", async () => {

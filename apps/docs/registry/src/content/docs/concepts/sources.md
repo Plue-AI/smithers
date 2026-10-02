@@ -44,6 +44,13 @@ Nothing stops a directory from holding both an entry file and further
 subdirectories: `flows/review/flow.mdx` and `flows/review/read-pr/flow.ts` are
 two flows, `review` and `review/read-pr`.
 
+Module metadata accepts line and block comments inside the `Flow.make` object
+and its literal arrays. Comments do not change declared capabilities. Dynamic
+capability expressions, object spreads, and computed members retain conservative
+wildcard authority. Their discovery warning names the reason and declaration's
+source line, such as `flow.ts:5`; `smthrs flow plan` carries the warning and
+`smthrs flow start` includes it when refusing automatic wildcard approval.
+
 ## Two ways a flow gets its name
 
 `naming: "path"` derives the name from the directory segments below the root,

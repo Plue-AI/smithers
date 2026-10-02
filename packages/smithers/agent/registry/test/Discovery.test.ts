@@ -50,6 +50,37 @@ const withTemporaryRoot = async <A>(run: (root: string) => Promise<A>): Promise<
 }
 
 describe("Discovery", () => {
+  it("discovers commented literal authority and names a real fallback's source line without importing", async () => {
+    await withTemporaryRoot(async (root) => {
+      const directory = join(root, "review")
+      mkdirSync(directory)
+      const file = join(directory, "flow.ts")
+      const source = `throw new Error("must never import");
+export default Flow.make("review", {
+  description: "Read",
+  // capabilities comment
+  capabilities: [
+    // array comment
+    "fs:read:src/**", /* trailing comment */
+  ]
+})`
+      writeFileSync(file, source)
+      const clean = await scan({ source: "project", root, naming: "path" })
+      expect(clean.entries[0]!.capabilities).toEqual(["fs:read:src/**"])
+      expect(clean.warnings).toEqual([])
+      writeFileSync(file, source.replace("\"fs:read:src/**\"", "grants"))
+      const dynamic = await scan({ source: "project", root, naming: "path" })
+      expect(dynamic.entries[0]!.capabilities).toEqual(["*"])
+      expect(dynamic.warnings).toContainEqual(expect.objectContaining({
+        code: "unsupported_module_metadata",
+        path: file,
+        name: "review",
+        message:
+          `Capabilities must be a string-literal array for discovery; using the conservative wildcard at ${file}:5`
+      }))
+    })
+  })
+
   it("discloses unrestricted imports from action helpers without evaluating them", async () => {
     await withTemporaryRoot(async (root) => {
       const directory = join(root, "native")

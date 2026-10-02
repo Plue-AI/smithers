@@ -678,6 +678,35 @@ describe("lifecycle verbs", () => {
 })
 
 describe("up", () => {
+  it("prints a named source diagnostic in plan output and the wildcard start refusal", async () => {
+    const warning = {
+      code: "unsupported_module_metadata" as const,
+      name: "demo/skill",
+      path: "/project/flows/demo/skill/flow.ts",
+      message:
+        "Capabilities must be a string-literal array for discovery; using the conservative wildcard at /project/flows/demo/skill/flow.ts:7"
+    }
+    const wildcardFlow = {
+      ...demoFlow,
+      flowId: "demo/skill",
+      envelope: { capabilities: ["*"], flows: [], budget: {} }
+    } as const
+    const diagnosticControl = Layer.effect(ControlService.Control)(
+      Effect.map(ControlService.Control, (control) => ({
+        ...control,
+        plan: (input: Parameters<typeof control.plan>[0]) =>
+          control.plan(input).pipe(
+            Effect.map((card) => ({ ...card, warnings: [warning] }))
+          )
+      }))
+    ).pipe(Layer.provide(TestControl.layer({ now: () => 0, flows: [wildcardFlow] })))
+    const card = await run(json(["--json", "plan", "demo/skill"]), diagnosticControl)
+    expect(card).toMatchObject({ warnings: [warning] })
+    const error = await run(Effect.flip(runCommand(["up", "demo/skill"])), diagnosticControl)
+    expect(error).toBeInstanceOf(CliError.UsageError)
+    expect((error as CliError.UsageError).message).toContain(warning.message)
+  })
+
   it("plans, approves for the run, and launches in one command", async () => {
     const receipt = await run(json(["--json", "up", "demo/ship"]), testControl)
 
