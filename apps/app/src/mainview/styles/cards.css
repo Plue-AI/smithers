@@ -2293,9 +2293,6 @@
 }
 .agent-trigger-glyph { color: var(--warning); font-weight: 700; text-align: center; }
 .run-trigger-text { font-size: var(--fs-small); overflow-wrap: anywhere; }
-.connect-store-detail { display: block; color: var(--text-muted); font-size: var(--fs-small); }
-.connect-store-detail code { font-family: var(--font-mono); font-size: var(--fs-caption); }
-.connect-store-error { display: block; color: var(--danger); font-size: var(--fs-small); }
 .ghc-toolbar-kinds { display: inline-flex; gap: 0.25rem; margin-left: var(--sp-2); }
 
 /* ── Register a repository (cards/RegistrationCard.tsx; target images/app/register.png) ── */

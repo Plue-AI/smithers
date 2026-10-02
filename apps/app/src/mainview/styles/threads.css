@@ -40,7 +40,6 @@
 	color: var(--text-faint);
 	text-decoration: none;
 }
-.thread-slack-link { color: var(--brand); }
 
 /* ── Task strip ──────────────────────────────────────────────────────── */
 .thread-task { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-small); }
@@ -74,7 +73,6 @@
 /* ── One thread ──────────────────────────────────────────────────────── */
 .thread { display: flex; flex-direction: column; gap: var(--sp-3); }
 .thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border); }
-.thread-head .thread-slack-link { margin-left: auto; }
 .thread-messages { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
 .thread-day-group + .thread-day-group { margin-top: var(--sp-2); }
 .thread-day {
