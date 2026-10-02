@@ -4,7 +4,6 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
-const workflow = readFileSync(new URL("../../.smithers/workflows/ci.tsx", import.meta.url), "utf8")
 const shell = readFileSync(new URL("cloud.sh", import.meta.url), "utf8")
 const github = readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
 // The per-commit drift workflow GitHub keeps beside ci.yml (#2484).
@@ -20,47 +19,7 @@ const tools = new Map(
 const dispatch = section("run_gate() {", "run_group() {")
 const gates = Array.from(dispatch.matchAll(/^ {4}([a-z][a-z0-9-]*)\)\n([\s\S]*?)^ {6};;$/gm),
   ([, name, body]) => ({ name: name!, body: body! }))
-// Task id -> the gates that task's group runs.
-const groups = Array.from(workflow.matchAll(/<Task\b([^>]*?)>([\s\S]*?)<\/Task>/g), ([, props, body]) => ({
-  props: props!,
-  id: props!.match(/\bid="([^"]+)"/)?.[1],
-  gates: body!.trim().match(/^\{`SMITHERS_CLOUD_CI=1 bash scripts\/ci\/cloud\.sh group ([a-z][a-z0-9- ]*)`\}$/)?.[1]
-    ?.split(" ")
-}))
-
-describe("Smithers Cloud CI", () => {
-  test("runs CI on main pushes and manual dispatch in parallel", () => {
-    expect(workflow).toContain('<Workflow name="CI"')
-    expect(workflow).toContain('triggers={[on.push({ branches: ["main"] }), on.manualDispatch({})]}')
-    expect(workflow).toContain("<Parallel>")
-    expect(workflow).toContain("</Parallel>")
-  })
-
-  test("batches every gate into a handful of tasks, sized for the 5-runner pool", () => {
-    // An unparsed/self-closing Task must not disappear from the inventory.
-    expect(groups.length).toBe((workflow.match(/<Task\b/g) ?? []).length)
-    // Bootstrap is ~11 minutes per sandbox, so stay within one scheduling wave
-    // or a little over it; one task per gate is what this replaced.
-    expect(groups.length).toBeGreaterThanOrEqual(5)
-    expect(groups.length).toBeLessThanOrEqual(7)
-    for (const { props, id, gates: grouped } of groups) {
-      expect(id).toBeDefined()
-      expect(props).toContain("secrets={[]}")
-      expect(grouped).toBeDefined()
-      expect(grouped!.length).toBeGreaterThan(0)
-    }
-    expect(new Set(groups.map(({ id }) => id)).size).toBe(groups.length)
-  })
-
-  test("the groups partition cloud.sh's gates: each gate runs in exactly one task", () => {
-    const declared = gates.map(({ name }) => name)
-    expect(new Set(declared).size).toBe(declared.length)
-    const grouped = groups.flatMap(({ gates: names }) => names ?? [])
-    // Every gate is covered, none twice, and no task names a missing gate.
-    expect(new Set(grouped).size).toBe(grouped.length)
-    expect(grouped.slice().sort()).toEqual(declared.slice().sort())
-  })
-
+describe("Local CI gate runner", () => {
   test("every gate declares its toolchains and retains its exact GitHub CI command", () => {
     expect(Array.from(tools.keys()).sort()).toEqual(gates.map(({ name }) => name).sort())
     for (const { name, body } of gates) {
@@ -70,7 +29,7 @@ describe("Smithers Cloud CI", () => {
       if (name === "cloud-contract") {
         expect(body).toContain("bun test scripts/ci/cloud.test.ts")
       } else {
-        // target-index carries a second, off-Cloud-only repair command
+        // target-index carries a second, local-only repair command
         // (6c8abc37, 2026-09-15): it regenerates the index before the drift
         // check for a developer running the gate locally. GitHub CI never runs
         // that write, so it is set aside by exact text and every gate still
@@ -112,31 +71,7 @@ describe("Smithers Cloud CI", () => {
     }
   })
 
-  test("runs drift.yml's per-commit drift gates, in its order, as one task of their own", () => {
-    const task = groups.find(({ id }) => id === "drift")
-    expect(task).toBeDefined()
-    expect(task!.gates).toContain("openapi-clients")
-    // First in the Parallel, so it is scheduled in the first runner wave.
-    expect(groups[0]!.id).toBe("drift")
-    const commandOf = (name: string) => {
-      const body = gates.find((gate) => gate.name === name)?.body ?? ""
-      // target-index's off-Cloud repair write is not a drift check.
-      return Array.from(body.matchAll(/^ {6,8}(pnpm exec .+)$/gm), ([, command]) => command!)
-        .filter((command) => !command.includes("--write"))
-    }
-    const expected = runs(drift)
-    expect(expected.length).toBeGreaterThan(0)
-    expect(expected).toContain("pnpm exec smthrs lint '//:openapiClients' --known-red '.github/ci-known-red.json' --verbose")
-    for (const pattern of ["//...:fmt", "//scripts:docsDrift", "//scripts:apiBaseline", "//scripts:conflictMarkers"]) {
-      expect(expected.some((command) => command.includes(`'${pattern}'`))).toBe(true)
-    }
-    expect(task!.gates!.flatMap(commandOf)).toEqual(expected)
-    // Drift gates are cheap: js only, and no test, ci or docs verb.
-    for (const name of task!.gates!) expect(tools.get(name)).toEqual(["js"])
-    for (const command of expected) expect(command).not.toMatch(/smthrs (ci|test|docs)\b/)
-  })
-
-  test("gives jj and git a CI identity, because a Cloud sandbox configures none", () => {
+  test("provides fallback jj and git identities without writing global configuration", () => {
     // Run 11727: `//evals/swebench:offline` warned "Name and email not
     // configured" and then failed on a predicate over the trees it committed.
     for (const name of ["JJ_USER", "JJ_EMAIL", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME",
@@ -153,26 +88,6 @@ describe("Smithers Cloud CI", () => {
     const rust = section("ensure_rust() {", "# Toolchains each gate needs")
     expect(rust).toContain('export CARGO_HOME="${CARGO_HOME:-$tools_dir/cargo}"')
     expect(rust).toContain('RUSTUP_HOME="${RUSTUP_HOME:-$tools_dir/rustup}"')
-  })
-
-  test("every task marks itself as a Cloud runner, which is what enables the skips", () => {
-    for (const { props } of groups) expect(props).toBeDefined()
-    expect(workflow.match(/SMITHERS_CLOUD_CI=1 bash scripts\/ci\/cloud\.sh group /g)?.length).toBe(groups.length)
-    expect(shell).toContain('on_cloud() { [ "${SMITHERS_CLOUD_CI:-}" = 1 ]; }')
-  })
-
-  test("a gate that cannot run on this tier skips explicitly, and only on a Cloud runner", () => {
-    // Playwright installs browser system libraries as root; a Cloud task has
-    // no sudo, so run 11727 got an authentication failure before any test ran.
-    // `//:backendGo` (0ea458d7, 2026-09-21) needs Go and a Docker Postgres
-    // service, neither of which a gVisor Cloud runner has.
-    const skipped = gates.filter(({ body }) => body.includes("skip_gate"))
-    expect(skipped.map(({ name }) => name).sort()).toEqual(["backend-go", "ui-browser"])
-    for (const { body } of skipped) {
-      expect(body).toContain("if on_cloud; then")
-      // The reason is not optional: a bare skip is an unexplained hole.
-      expect(body).toMatch(/skip_gate [a-z-]+ '[^']+'/)
-    }
   })
 
   test("bash accepts the runner syntax", () => {
@@ -606,6 +521,34 @@ describe("Smithers Cloud CI", () => {
       } finally {
         rmSync(helperProbe, { force: true })
       }
+    })
+
+    test("local index repair precedes checking, while inherited CI only checks", () => {
+      for (const ci of ["", "true"]) {
+        const result = spawnSync("bash", ["scripts/ci/cloud.group-probe.tmp.sh", "target-index"], {
+          cwd: root, encoding: "utf8", env: { ...process.env, CI: ci }
+        })
+        expect(result.status).toBe(0)
+        const repair = "RAN exec smthrs target //:targetIndex --write --verbose"
+        const check = "RAN exec smthrs lint //:targetIndex"
+        expect(result.stdout).toContain(check)
+        if (ci === "true") expect(result.stdout).not.toContain(repair)
+        else {
+          expect(result.stdout).toContain(repair)
+          expect(result.stdout.indexOf(repair)).toBeLessThan(result.stdout.indexOf(check))
+        }
+      }
+    })
+
+    test("browser and backend gates execute locally even with the retired Cloud flag", () => {
+      const result = spawnSync("bash", ["scripts/ci/cloud.group-probe.tmp.sh", "group", "ui-browser", "backend-go"], {
+        cwd: root, encoding: "utf8", env: { ...process.env, SMITHERS_CLOUD_CI: "1" }
+      })
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain("RAN exec smthrs test //apps/app:browserE2e")
+      expect(result.stdout).toContain("RAN exec smthrs test //:backendGo")
+      expect(result.stdout).toContain("GROUP-OK ui-browser backend-go")
+      expect(result.stdout).not.toContain("skipped")
     })
 
     test("single-gate mode still bootstraps and runs one gate", () => {

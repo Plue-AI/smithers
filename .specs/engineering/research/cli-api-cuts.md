@@ -69,7 +69,7 @@ Verdicts follow §8 plus AGENTS.md ("libraries stay published; cut = product sur
 | examples/ | Examples workspace incl. `burndown` | Cut `burndown` example with issue-sweep; rest Keep |
 | distribution/, release-pipeline/, scripts/ | Install, Docker, release tooling | Keep; install flow is §6.1 work |
 | docs/ | api, architecture, blog, design, mvp, research, security, flow-builder | Keep; `docs/mvp/*` replaced per M-12 |
-| .smithers/ | WORKSPACE.ts, FACTORY.ts, factory.json, home.json, workflows/ci.tsx | Keep (repo-owned factory config) |
+| .smithers/ | WORKSPACE.ts, FACTORY.ts, factory.json, home.json | Keep (repo-owned factory config) |
 | root clutter: `run*.log`, `release-*review*.md`, `handoff.md`, `progress.tsx`, `consolidated-review-plan.md`, `sandbox.codex2.started`, `tmp/`, `worktrees/`, `target/` | Stray artifacts | Hide/delete (not product) |
 
 ## §8 cut map (table: §8 row | decision | CLI/flows/backend/docs surfaces with paths)

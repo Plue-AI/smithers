@@ -1,28 +1,13 @@
 #!/usr/bin/env bash
-# Smithers Cloud CI runner.
+# Local CI gate runner.
 #
-# Cloud gives this repo a pool of at most 5 small gVisor runners, and each task
-# runs in its own fresh sandbox. Every task therefore pays the JS bootstrap
-# (npm + pnpm + `pnpm install --frozen-lockfile --ignore-scripts`) from
-# scratch, which alone costs about 11 minutes before a single gate runs. With
-# one task per gate that was 39 tasks x ~12 minutes over 5 runners, so 1.5-2
-# hours per push: run 11697 (2026-09-15) still had 4 tasks running and 35
-# queued after 20 minutes.
-#
-# So .smithers/workflows/ci.tsx batches the gates (54 as of 2026-09-30) into 7 tasks, and each
-# task calls the group mode here:
-#
-#   bash scripts/ci/cloud.sh <gate>                  # one gate (unchanged)
+#   bash scripts/ci/cloud.sh <gate>                  # one gate
 #   bash scripts/ci/cloud.sh group <gate> <gate>...  # bootstrap once, run many
 #
-# Group mode installs the union of its gates' toolchains exactly once, then
-# runs each gate in order and prints `::gate <name> start`, then `::gate <name>
-# ok` or `::gate <name> fail`. A failing gate does not stop the ones after it;
-# the task exits non-zero at the end instead, so a single task still reports
-# every gate's result. Groups are chosen to share toolchains (jj, Foundry,
-# Rust) and to even out wall-clock time; ci.tsx holds the partition.
-#
-# Each Cloud task gets its own checkout. Keep tool installs and caches local.
+# Group mode installs the union of its gates' toolchains once, then runs each
+# gate in order with ::gate start/ok/fail markers. A failing gate does not stop
+# later gates; the group exits non-zero after reporting every result.
+# Tool installs and caches stay in this checkout.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 # Whether the caller was already an automated environment, recorded before this
@@ -69,24 +54,6 @@ export GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-$JJ_EMAIL}"
 if [ -n "${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}" ]; then
   export NODE_USE_ENV_PROXY=1
 fi
-
-# The status a gate exits with when it was never attempted, kept distinct from
-# both success and failure so one task's report can say which it was. 75 is
-# sysexits.h's EX_TEMPFAIL, which no gate command returns on its own.
-gate_skipped=75
-
-# Declares that a gate cannot run here and why, in the same `::gate` vocabulary
-# the ok and fail markers use, so a reader of one task's log never has to infer
-# a missing result from a gate that printed nothing.
-skip_gate() {
-  printf '::gate %s skipped (%s)\n' "$1" "$2"
-  return "$gate_skipped"
-}
-
-# Whether this is a Cloud runner rather than a developer's machine. ci.tsx sets
-# it on every task command; a single-gate local repro has root, a desktop and a
-# package manager, so nothing below skips there.
-on_cloud() { [ "${SMITHERS_CLOUD_CI:-}" = 1 ]; }
 
 # Pinned Node for the Cloud runner. The image is Debian bookworm, whose distro
 # nodejs is 18 with npm 9.2.0, so ensure_js's certified npm refused to install
@@ -615,19 +582,9 @@ run_gate() {
       pnpm exec smthrs lint '//:factoryProjection' --known-red '.github/ci-known-red.json' --verbose
       ;;
     target-index)
-      # Run 11763 (main 2722d0e5) failed `checks` on this gate alone, the third
-      # time that day: `.smithers/target-index.json` is derived from every
-      # PACKAGE.ts, so any lane that adds a target or changes a target's
-      # declared inputs re-keys it, and a lane that does not regenerate lands a
-      # stale file that only Cloud notices.
-      #
-      # Off Cloud and outside any other automation this gate therefore repairs
-      # first and verifies second, so a developer who runs it before pushing
-      # ends up with the regenerated file in the working tree instead of a red
-      # Cloud run. On Cloud, and under any inherited CI, it stays a pure drift
-      # check: repairing there would hide exactly the stale commit it exists to
-      # catch. `pnpm run target-index` is the same write, on its own.
-      if ! on_cloud && [ "$host_ci" != true ]; then
+      # Repair generated declarations before checking on a developer's machine.
+      # Inherited CI only checks, so automation cannot hide a stale commit.
+      if [ "$host_ci" != true ]; then
         pnpm exec smthrs target '//:targetIndex' --write --verbose
       fi
       pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose
@@ -663,17 +620,7 @@ run_gate() {
       pnpm exec smthrs test '//apps/app:conformance' --known-red '.github/ci-known-red.json' --verbose
       ;;
     ui-browser)
-      # Playwright installs the browsers' own system libraries through the
-      # distribution package manager as root. A Cloud task is an unprivileged
-      # user in a container with no sudo, so run 11727 got "Switching to root
-      # user to install dependencies... Authentication failure" and "Failed to
-      # install browsers" before a single test ran. No amount of allowlisting
-      # fixes that; the gate needs a host this tier does not offer.
-      if on_cloud; then
-        skip_gate ui-browser 'Playwright browser system dependencies need root, which Cloud runners do not have'
-      else
-        pnpm exec smthrs test '//apps/app:browserE2e' --known-red '.github/ci-known-red.json' --verbose
-      fi
+      pnpm exec smthrs test '//apps/app:browserE2e' --known-red '.github/ci-known-red.json' --verbose
       ;;
     tui)
       native_jj_export
@@ -697,16 +644,7 @@ run_gate() {
       pnpm exec smthrs build '//:nativeFfi' --known-red '.github/ci-known-red.json' --verbose
       ;;
     backend-go)
-      # `//:backendGo` needs the Go 1.26 toolchain and a Postgres container
-      # started through Docker (the `backendPostgres` service in PACKAGE.ts).
-      # A Cloud runner is an unprivileged gVisor sandbox with neither, and
-      # gate_tools installs only js, jj, Foundry and Rust, so on Cloud this
-      # skips; GitHub's `go-backend` job remains the required gate.
-      if on_cloud; then
-        skip_gate backend-go 'the Go toolchain and a Docker Postgres service are not available on Cloud runners'
-      else
-        pnpm exec smthrs test '//:backendGo' --known-red '.github/ci-known-red.json' --verbose
-      fi
+      pnpm exec smthrs test '//:backendGo' --known-red '.github/ci-known-red.json' --verbose
       ;;
     wasm-build-script)
       pnpm exec smthrs test '//crates/flows-jj:buildScript' --known-red '.github/ci-known-red.json' --verbose
@@ -763,8 +701,6 @@ run_group() {
     status=$gate_status
     case "$status" in
       0) printf '::gate %s ok\n' "$gate" ;;
-      # skip_gate already printed the marker and the reason for it.
-      "$gate_skipped") ;;
       *)
         printf '::gate %s fail\n' "$gate"
         failed="$failed $gate"
@@ -789,6 +725,5 @@ if ! gate_tools "${1:-}" >/dev/null; then
 fi
 bootstrap_for "$1"
 run_gate_checked "$1"
-if [ "$gate_status" -eq "$gate_skipped" ]; then exit 0; fi
 if [ "$gate_status" -ne 0 ]; then exit "$gate_status"; fi
 printf 'GATE-OK %s\n' "$1"

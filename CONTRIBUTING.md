@@ -108,11 +108,9 @@ is the check half, and it is what CI runs.
 
 Running the gate by hand does the repair for you:
 `bash scripts/ci/cloud.sh target-index` regenerates and then verifies when it
-is not on Cloud and not under an inherited `CI`, so the file is already in your
-working tree by the time the gate is green. On Cloud the same gate only checks,
-because repairing there would hide the stale commit it exists to catch — which
-is what happened to run 11763 (main `2722d0e5`), whose `checks` task failed on
-`//:targetIndex` and nothing else, for the third time that day.
+is not under an inherited `CI=true`, so the file is already in your working
+tree by the time the gate is green. Under inherited CI the same gate only
+checks, because repairing there would hide the stale commit it exists to catch.
 
 ## Root graph rationale
 

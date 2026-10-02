@@ -22,7 +22,7 @@ Smithers Cloud dispatches repository workflows from matching events and runs the
 | Caches and artifacts | Jobs get credentials scoped to their repository, run, and task. These are separate from the target action cache and the flow engine's step cache. |
 | Completion | The terminal publisher updates the commit status and the `smithers / <workflow name>` GitHub check, emits `workflow_run`, and dispatches eligible downstream workflows. |
 
-This repository's [`.smithers/workflows/ci.tsx`](https://github.com/smithersai/smithers/blob/main/.smithers/workflows/ci.tsx) declares push-to-main and manual triggers; its task groups invoke [`scripts/ci/cloud.sh`](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh).
+This repository uses [GitHub Actions CI](https://github.com/smithersai/smithers/blob/main/.github/workflows/ci.yml). Its [local gate runner](https://github.com/smithersai/smithers/blob/main/scripts/ci/cloud.sh) also runs individual gates or groups for developers.
 
 The owning code is in [`packages/backend/internal/services`](https://github.com/smithersai/smithers/tree/main/packages/backend/internal/services): `workflow_nix_ci.go` and `workflow_run_terminal.go`.
 
