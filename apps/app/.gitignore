@@ -49,3 +49,7 @@ playwright-report/
 # Showcase recordings, page and failure context (pnpm showcase; regenerated on every run)
 showcase-out*/
 test-results-showcase/
+
+# The real E2E coverage gate's sources; the root `coverage/` rule (test
+# coverage reports) would hide every new file under it.
+!e2e/real/coverage/
