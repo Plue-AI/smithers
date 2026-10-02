@@ -155,7 +155,13 @@ const indexPage = join(site, "src/content/docs/docs/reference/cli/index.mdx")
 const indexStart = "{/* generated:cli-commands start. Run `node apps/site/scripts/gen-cli-data.mjs`; do not edit. */}"
 const indexEnd = "{/* generated:cli-commands end */}"
 const cell = (text) => text.replaceAll("|", "&#124;").replace(/[\r\n]+/g, " ")
-const commandNames = [...new Set(manifest.commands.map((command) => command.name.split(" ")[0]))].sort()
+// mvp.md Appendix B.6 cuts product CLI pages; §16 defers triggers and §8 defers TUI.
+// Retain command help and schemas while omitting their public pages.
+const cutPageCommands = new Set([
+  "admin", "artifact", "cache", "egress", "label", "notification", "org", "stack", "triggers", "tui", "variable", "webhook"
+])
+const commandNames = [...new Set(manifest.commands.map((command) => command.name.split(" ")[0]))]
+  .filter((command) => !cutPageCommands.has(command)).sort()
 // `index.mdx` is the overview, so the `index` command's page takes another slug.
 const pageSlug = (command) => command === "index" ? "index-command" : command
 const table = [indexStart, "", "| Command | Purpose |", "| --- | --- |"]

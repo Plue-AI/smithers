@@ -283,23 +283,8 @@ test("coming-soon sign-in must start OAuth and return to that repository page", 
   }
 })
 
-test("docs homepage qualifies wiki upkeep and links to setup", () => {
-  const source = readFileSync(new URL("../src/content/docs/docs/index.mdx", import.meta.url), "utf8")
-  const description = source.match(/^description: "([^"]+)"$/m)?.[1]
-  const lead = source.match(/generated:project-description start[^\n]*\n\n([^\n]+)/)?.[1]
-  for (const [label, copy] of [["description", description], ["lead", lead]]) {
-    assert.ok(copy, label)
-    for (const sentence of copy.split(/[.!?]/)) {
-      if (sentence.includes("keeps the project wiki current")) {
-        assert.match(sentence, /\b(?:when (?:enabled|you turn it on)|if enabled|opt-in)\b/i, label)
-      }
-    }
-  }
-  assert.match(source, /\]\(\/docs\/how-it-works\/wiki\/\)/)
-})
-
 test("registration prose opens the app or starts sign-in instead of the marketing page", () => {
-  for (const path of ["docs/pricing.mdx", "docs/learn/open-a-repository.mdx"]) {
+  for (const path of ["docs/pricing.mdx"]) {
     const source = readFileSync(new URL(`../src/content/docs/${path}`, import.meta.url), "utf8")
     const registration = source.split("\n").find(line => /sign in (?:with GitHub on|to) \[/i.test(line))
     assert.ok(registration, path)

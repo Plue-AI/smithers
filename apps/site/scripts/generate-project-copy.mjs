@@ -8,7 +8,7 @@
  * manifest description. PACKAGE.ts makes both writing and drift checking part
  * of the target graph.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -124,10 +124,8 @@ const replaceRegion = (text, name, body, path) => {
   return text.slice(0, a) + `${start}\n\n${body}\n\n${end}` + text.slice(b + end.length)
 }
 
+// M-35 removes the standalone docs overview; refresh must not recreate it.
 const docsPath = join(site, "src/content/docs/docs/index.mdx")
-let docs = readFileSync(docsPath, "utf8")
-docs = docs.replace(/^description:.*$/m, `description: ${JSON.stringify(description)}`)
-docs = replaceRegion(docs, "project-description", description, docsPath)
 const developersPath = join(site, "src/content/docs/docs/developers.mdx")
 let developers = readFileSync(developersPath, "utf8")
 developers = replaceRegion(developers, "project-support", supportSection(""), developersPath)
@@ -165,12 +163,16 @@ manifest.description = description
 
 const outputs = new Map([
   [join(root, "README.md"), readme],
-  [docsPath, docs],
   [developersPath, developers],
   [manifestPath, JSON.stringify(manifest, null, 2) + "\n"]
 ])
 
 let drift = 0
+if (existsSync(docsPath)) {
+  drift += 1
+  if (check) console.error(`drift: ${relative(root, docsPath)} is retired`)
+  else rmSync(docsPath)
+}
 for (const [path, content] of outputs) {
   const current = existsSync(path) ? readFileSync(path, "utf8") : undefined
   if (current === content) continue

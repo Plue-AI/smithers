@@ -79,6 +79,21 @@ function load(path) {
 walk(docsRoot)
 const routes = new Set(pages.map((p) => p.route))
 const byRoute = new Map(pages.map((p) => [p.route, p]))
+// Held pages may still link retired URLs. Check their literal redirect target
+// rather than requiring a removed projection to exist.
+const redirects = new Map(readFileSync(join(siteRoot, "public/_redirects"), "utf8")
+  .split("\n").filter((line) => line.trim() && !line.trim().startsWith("#"))
+  .map((line) => line.trim().split(/\s+/)).filter(([source]) => !source.includes("*"))
+  .map(([source, destination]) => [source, destination]))
+function redirectTarget(path) {
+  const seen = new Set()
+  while (redirects.has(path)) {
+    if (seen.has(path)) throw new Error(`redirect loop: ${path}`)
+    seen.add(path)
+    path = redirects.get(path)
+  }
+  return path
+}
 const staticRoutes = new Set(["/", "/download/", "/demo/", "/pricing/", "/terms/", "/privacy/", "/refunds/", "/migration/1.0", "/llms.txt", "/llms-full.txt"])
 
 // --- repo package roster (any @smthrs/* package that exists in the tree) ---
@@ -196,7 +211,8 @@ for (const p of pages) {
       if (!existsSync(join(siteRoot, "public", target))) err(p.path, `missing asset: ${target}`)
       continue
     }
-    const [path, anchor] = target.split("#")
+    const [originalPath, anchor] = target.split("#")
+    const path = p.rel === "pricing.mdx" ? redirectTarget(originalPath) : originalPath
     const norm = path === "/" ? "/" : path.endsWith("/") ? path : path + "/"
     if (!routes.has(norm) && !staticRoutes.has(path) && !staticRoutes.has(norm)) {
       err(p.path, `link to nowhere: ${path}`)

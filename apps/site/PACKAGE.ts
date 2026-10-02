@@ -281,19 +281,40 @@ const llms = Smithers.Generate({
 })
 
 /**
- * Checks documentation text extraction and built release URL resolution,
- * including redirects and migration anchors.
+ * Checks documentation text extraction, install guidance, public CLI page
+ * selection, and built release URLs, including redirects and migration anchors.
  */
 const docsTextTest = Smithers.Shell.Test({
-  shell: "node --test --test-concurrency=1 apps/site/scripts/docs-text.test.mjs apps/site/scripts/built-site.test.mjs",
+  shell: "node --test --test-concurrency=1 apps/site/scripts/docs-text.test.mjs apps/site/scripts/built-site.test.mjs apps/site/scripts/gen-cli-data.test.mjs",
   data: [
     Smithers.file("scripts/docs-text.mjs"),
     Smithers.file("scripts/docs-text.test.mjs"),
+    Smithers.file("src/content/docs/docs/guides/control-plane.mdx"),
+    Smithers.file("src/content/docs/docs/reference/cli/serve.mdx"),
+    Smithers.file("src/content/docs/docs/reference/http-api.mdx"),
     Smithers.file("src/content/docs/docs/guides/sync-followers.mdx"),
     Smithers.file("src/content/docs/docs/concepts/sync.mdx"),
+    Smithers.file("src/content/docs/docs/concepts/kernel.mdx"),
+    Smithers.file("src/content/docs/docs/guides/flow-discovery.mdx"),
+    Smithers.file("src/content/docs/docs/guides/markdown-flows.mdx"),
+    Smithers.file("src/content/docs/docs/reference/cli/migrate.mdx"),
+    Smithers.file("src/content/docs/docs/migration/1.0.mdx"),
+    Smithers.file("src/content/docs/docs/guides/durable-waits.mdx"),
+    Smithers.file("//packages/smithers/gateway/docs/guides/serve-beyond-loopback.md"),
     Smithers.file("//packages/smithers/flows/sync/src/SyncProtocol.ts"),
+    Smithers.file("//packages/smithers/flows/kernel/src/HostServices.ts"),
+    Smithers.file("//packages/smithers/agent/registry/src/Discovery.ts"),
+    Smithers.file("//packages/smthrs-deprecation/docs/notice.md"),
+    Smithers.file("//packages/smithers/migrate/src/flow/MigrateFlow.ts"),
+    Smithers.file("//packages/smithers/migrate/src/Scan.ts"),
+    Smithers.file("//packages/smithers/flows/flow/src/DurableClock.ts"),
     Smithers.file("scripts/check-built-site.mjs"),
-    Smithers.file("scripts/built-site.test.mjs")
+    Smithers.file("scripts/built-site.test.mjs"),
+    Smithers.file("src/content/docs/docs/pricing.mdx"),
+    Smithers.file("public/robots.txt"),
+    Smithers.file("scripts/gen-cli-data.mjs"),
+    Smithers.file("scripts/gen-cli-data.test.mjs"),
+    Smithers.file("//packages/smithers/src/Cli.ts")
   ]
 })
 
@@ -351,7 +372,6 @@ const projectCopyTest = Smithers.Shell.Test({
     Smithers.file("scripts/generate-project-copy.test.mjs"),
     Smithers.file("src/data/project.json"),
     Smithers.file("src/content/docs/docs/developers.mdx"),
-    Smithers.file("src/content/docs/docs/index.mdx"),
     Smithers.file("//README.md"),
     Smithers.file("//package.json")
   ]
@@ -424,7 +444,6 @@ const supportMatrixTest = Smithers.Shell.Test({
     Smithers.file("src/content/docs/docs/reference/api/index.mdx"),
     Smithers.file("src/content/docs/docs/installation.mdx"),
     Smithers.file("src/content/docs/changelogs/1.0.0-rc.0.mdx"),
-    Smithers.file("astro.config.mjs"),
     Smithers.file("//.github/workflows/ci.yml"),
     Smithers.file("//.github/workflows/release.yml"),
     Smithers.file("//pnpm-workspace.yaml"),
@@ -478,6 +497,7 @@ const docsLint = Smithers.Shell.Test({
     Smithers.glob("//apps/site/src/content/**/*"),
     Smithers.glob("//apps/site/src/pages/**/*"),
     Smithers.file("//apps/site/src/data/versions.json"),
+    Smithers.file("//apps/site/public/_redirects"),
     Smithers.file("//apps/site/scripts/catalog-publication.mjs"),
     Smithers.file("//scripts/pack-release.mjs")
   ]

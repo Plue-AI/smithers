@@ -89,9 +89,6 @@ describe("documentation contracts", () => {
     const protocol = read("docs/concepts/claim-protocol.md")
     expect(protocol).toContain("`TriggerStore.list` returns every trigger, and nothing more")
     expect(protocol).not.toContain("`TriggerStore.listEnabled` returns the enabled triggers")
-    expect(read("../../../../apps/site/src/content/docs/docs/reference/triggers.mdx")).not.toContain(
-      "On each tick it lists enabled triggers"
-    )
   })
 
   it("limits the missing-row failure to the methods that report it (documentation/7)", () => {

@@ -53,7 +53,6 @@ func TestCheckConsumerProvenance(t *testing.T) {
 		t.Helper()
 		root := t.TempDir()
 		write(t, root, "packages/smithers/agent/model/src/internal/prices.generated.ts", "")
-		write(t, root, "apps/site/src/content/docs/docs/model-prices.mdx", "")
 		write(t, root, bridge, generated)
 		for _, path := range consumers {
 			write(t, root, path, public)
@@ -134,12 +133,6 @@ func TestCheckConsumerProvenance(t *testing.T) {
 	t.Run("stale generated table", func(t *testing.T) {
 		root := fixture(t)
 		path := "packages/smithers/agent/model/src/internal/prices.generated.ts"
-		write(t, root, path, "stale")
-		check(t, root, path, false)
-	})
-	t.Run("stale generated documentation", func(t *testing.T) {
-		root := fixture(t)
-		path := "apps/site/src/content/docs/docs/model-prices.mdx"
 		write(t, root, path, "stale")
 		check(t, root, path, false)
 	})

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"text/scanner"
 	"time"
@@ -117,51 +116,11 @@ func main() {
 	out.WriteString(header)
 	out.Write(data)
 	out.WriteString("\n")
-	docPath := filepath.Join("apps", "site", "src", "content", "docs", "docs", "model-prices.mdx")
-	var sheet bytes.Buffer
-	sheet.WriteString("---\ntitle: \"Model prices\"\ndescription: \"Managed model credit rates per million tokens.\"\n---\n\n")
-	sheet.WriteString("Source date: 2026-09-29. Generated from [the checked-in backend rate card](https://github.com/smithersai/smithers/blob/main/packages/backend/modelprice/prices.go); these are Smithers managed model credit rates, not live provider quotes. Rates below are USD per million tokens. Cache read is cached input; cache write is 5-minute prompt-cache writes; 1h cache write is 1-hour prompt-cache writes. A dash means no separate long-context tier.\n\n")
-	sheet.WriteString("| Model | Input | Cached input | Cache write | 1h cache write | Output | Long context from (prompt tokens) | Long input | Long cached input | Long cache write | Long 1h cache write | Long output |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
-	ids := make([]string, 0, len(rows))
-	for id := range rows {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		p := rows[id]
-		longFrom, longIn, longRead, longWrite, longWrite1h, longOut := "-", "-", "-", "-", "-", "-"
-		if p.LongContext != nil {
-			longFrom = fmt.Sprint(p.LongContextFrom)
-			longIn = fmt.Sprint(p.LongContext.Input)
-			longRead = fmt.Sprint(p.LongContext.CacheRead)
-			longWrite = fmt.Sprint(p.LongContext.CacheWrite)
-			longWrite1h = fmt.Sprint(p.LongContext.CacheWrite1h)
-			longOut = fmt.Sprint(p.LongContext.Output)
-		}
-		fmt.Fprintf(&sheet, "| %s | %g | %g | %g | %g | %g | %s | %s | %s | %s | %s | %s |\n", id, p.Input, p.CacheRead, p.CacheWrite, p.CacheWrite1h, p.Output, longFrom, longIn, longRead, longWrite, longWrite1h, longOut)
-	}
-	sheet.WriteString("\nAt or above the long-context prompt threshold, the long rates apply to the whole call.\n")
-	for _, id := range ids {
-		p := rows[id]
-		if p.Next == nil {
-			continue
-		}
-		fmt.Fprintf(&sheet, "\n## %s from %s\n\nScheduled USD per million tokens: input %g, cached input %g, cache write %g, 1h cache write %g, output %g.\n", id, p.NextFrom, p.Next.Input, p.Next.CacheRead, p.Next.CacheWrite, p.Next.CacheWrite1h, p.Next.Output)
-		if p.Next.LongContext != nil {
-			fmt.Fprintf(&sheet, "From %d prompt tokens: input %g, cached input %g, cache write %g, 1h cache write %g, output %g.\n", p.Next.LongContextFrom, p.Next.LongContext.Input, p.Next.LongContext.CacheRead, p.Next.LongContext.CacheWrite, p.Next.LongContext.CacheWrite1h, p.Next.LongContext.Output)
-		}
-	}
-
 	path := filepath.Join("packages", "smithers", "agent", "model", "src", "internal", "prices.generated.ts")
 	if *check {
 		current, err := os.ReadFile(path)
 		if err != nil || !bytes.Equal(current, out.Bytes()) {
 			fmt.Fprintln(os.Stderr, "stale "+path+"; run go run ./packages/backend/modelprice/cmd/generate")
-			os.Exit(1)
-		}
-		currentDoc, err := os.ReadFile(docPath)
-		if err != nil || !bytes.Equal(currentDoc, sheet.Bytes()) {
-			fmt.Fprintln(os.Stderr, "stale "+docPath+"; run go run ./packages/backend/modelprice/cmd/generate")
 			os.Exit(1)
 		}
 		pricing := "packages/smithers/agent/model/src/Pricing.ts"
@@ -178,9 +137,6 @@ func main() {
 		return
 	}
 	if err := os.WriteFile(path, out.Bytes(), 0644); err != nil {
-		panic(err)
-	}
-	if err := os.WriteFile(docPath, sheet.Bytes(), 0644); err != nil {
 		panic(err)
 	}
 }

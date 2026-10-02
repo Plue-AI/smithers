@@ -69,7 +69,7 @@ runs on Node 26.4 or later or on Bun. Under Node, the CLI starts the TUI with
 `SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead. The launcher
 tries `SMITHERS_TUI_BIN`, an installed compiled binary, Bun, then Node.
 Compiled interactive builds need a writable, executable `TMPDIR`; Alpine
-also needs `libstdc++`. See the [TUI installation guide](/docs/tui/) for
+also needs `libstdc++`. See the [TUI installation guide](/docs/installation/) for
 source-checkout prerequisites and the full reference.
 
 The CLI package ships its native editor; keep the package intact when moving

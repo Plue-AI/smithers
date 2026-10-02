@@ -7,7 +7,7 @@ description: "The smthrs command line: plan, approve, run, and inspect durable a
 control plane for long agent runs: it keeps a run, its plan, its approvals, and
 its events as durable state, so the run survives the process that started it.
 Use `smthrs` to start such a run, decide the approvals it asks for, and read
-back what it did. [smithers.sh](/docs/) is the product documentation.
+back what it did. [smithers.sh](/docs/installation/) is the product documentation.
 
 ## What it solves
 

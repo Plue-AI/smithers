@@ -142,54 +142,9 @@ export default defineConfig({
         { icon: "github", label: "GitHub", href: "https://github.com/smithersai/smithers" }
       ],
       editLink: { baseUrl: "https://github.com/smithersai/smithers/edit/main/apps/site/src/content/docs/" },
-      // Every group below autogenerates from a directory under
-      // src/content/docs/docs/, so a new page appears as soon as it lands.
-      // Order inside a group comes from `sidebar.order` in the page's
-      // frontmatter, then the title. Only the root pages are listed by hand.
-      sidebar: [
-        {
-          label: "Get started",
-          items: [
-            { label: "Overview", slug: "docs" },
-            { slug: "docs/quickstart" },
-            { slug: "docs/app" },
-            { slug: "docs/pricing" },
-            { slug: "docs/self-hosting" },
-            { label: "Open Smithers ↗", link: "https://smithers.sh/smithersai/smithers" }
-          ]
-        },
-        { label: "How Smithers works", items: [{ autogenerate: { directory: "docs/how-it-works" } }] },
-        { label: "Tutorials", items: [{ autogenerate: { directory: "docs/learn" } }] },
-        { label: "TUI reference", collapsed: true, items: [{ autogenerate: { directory: "docs/tui" } }] },
-        { label: "CLI and libraries", collapsed: true, items: [{ slug: "docs/developers" }, { slug: "docs/installation" }, { slug: "docs/cli-quickstart" }] },
-        { label: "Developer tutorials", items: [{ autogenerate: { directory: "docs/tutorials" } }], collapsed: true },
-        { label: "Developer guides", items: [{ autogenerate: { directory: "docs/guides" } }], collapsed: true },
-        { label: "Concepts", items: [{ autogenerate: { directory: "docs/concepts" } }], collapsed: true },
-        { label: "Examples", items: [{ autogenerate: { directory: "docs/examples" } }], collapsed: true },
-        {
-          label: "Reference",
-          collapsed: true,
-          items: [
-            { slug: "docs/reference/support-matrix" },
-            { slug: "docs/reference/cli", label: "CLI overview" },
-            { label: "CLI verbs", items: [{ autogenerate: { directory: "docs/reference/cli" } }], collapsed: true },
-            { slug: "docs/reference/flow-mdx" },
-            { slug: "docs/reference/project-layout" },
-            { slug: "docs/reference/environment-variables" },
-            { slug: "docs/reference/errors" },
-            { slug: "docs/reference/mcp-tools" },
-            { slug: "docs/reference/http-api" },
-            { slug: "docs/reference/llms-txt" },
-            { slug: "docs/reference/triggers" },
-            { label: "Packages", items: [{ autogenerate: { directory: "docs/reference/api" } }], collapsed: true },
-            { label: "Build rules", items: [{ autogenerate: { directory: "docs/reference/targets" } }], collapsed: true },
-            { slug: "docs/reference/glossary" }
-          ]
-        },
-        { label: "Troubleshooting", items: [{ autogenerate: { directory: "docs/troubleshooting" } }], collapsed: true },
-        { label: "Migration", items: [{ autogenerate: { directory: "docs/migration" } }], collapsed: true },
-        { label: "Changelogs", items: [{ autogenerate: { directory: "changelogs" } }], collapsed: true }
-      ]
+      // M-35: installation is the only public docs entry. Retained reference
+      // pages stay off the sidebar while product rules on their destination.
+      sidebar: [{ slug: "docs/installation" }]
     })
   ]
 })
