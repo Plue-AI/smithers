@@ -10,9 +10,10 @@
  * until an operator resets accounts and signals
  * `issue-sweep/accounts-reset`.
  */
-import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
+import { Action, Fault, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@smthrs/flow"
+import { Unreachable } from "@smthrs/kernel"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import { Burndown } from "@smthrs/patterns"
+import { Burndown, PatternError } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { appendFile, readdir } from "node:fs/promises"
@@ -66,8 +67,17 @@ const Issue = Schema.Struct({
 })
 
 export class GhFailed extends Schema.TaggedError<GhFailed>()("issue-sweep/GhFailed", {
-  message: Schema.String
+  message: Schema.String,
+  // `unreachable`: GitHub or the proxy did not answer (network, 429, 5xx), so
+  // a read is retried; `refused`: it answered no (auth, not found). Optional
+  // so failures journaled before the field decode as refused.
+  code: Schema.optional(Schema.Literals(["unreachable", "refused"]))
 }) {}
+Fault.register("issue-sweep/GhFailed", { unreachable: "infra", refused: "dependency" })
+
+/** A GitHub failure, classed by what git, gh or the proxy said: run-13's discovery died on one proxy 502. */
+export const ghFailed = (message: string): GhFailed =>
+  new GhFailed({ message, code: Unreachable.classifyExit(message) === undefined ? "refused" : "unreachable" })
 
 const RoundPayload = { input: Input, round: Schema.Number }
 
@@ -92,8 +102,16 @@ export const Dispatch = Burndown.dispatch("issue-sweep/dispatch")
 /** The operator signal a sweep parked on exhausted accounts waits for. */
 export const accountsReset = "issue-sweep/accounts-reset"
 
+/**
+ * Every failure a sweep can settle with. The run's result is journaled
+ * through this schema; an undeclared `Schema.Unknown` error could not encode a
+ * typed failure, so run-13's discovery failure surfaced as UnencodableResult.
+ */
+export const SweepFailure = Schema.Union([GhFailed, HostFailed, Burndown.Stop, PatternError.PatternError])
+
 const Rounds = Burndown.make({
   name: "issue-sweep/rounds",
+  error: SweepFailure,
   description: "One issue-sweep round per handoff, until no open issue is ours.",
   discover: ListIssues,
   capacity: Accounts,
@@ -129,7 +147,7 @@ export default Flow.make("issue-sweep", {
   modelInvocable: false,
   payload: Input,
   success: Burndown.Result,
-  error: Schema.Unknown,
+  error: SweepFailure,
   body: (input) => Rounds.child({ input })
 })
 
@@ -198,7 +216,7 @@ export const decide = (claim: string | undefined, nowMillis: number): "skip" | "
 const github = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.mapError(
     effect,
-    (cause) => new GhFailed({ message: String((cause as { message?: unknown }).message ?? cause) })
+    (cause) => cause instanceof GhFailed ? cause : ghFailed(String((cause as { message?: unknown }).message ?? cause))
   )
 
 /**

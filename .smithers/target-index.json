@@ -30959,6 +30959,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/issue-sweep/test/sweep-failure.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/issue-sweep/test/accounts.test.ts"
       },
       {
@@ -31012,6 +31016,10 @@
       {
         "kind": "file",
         "path": "flows/issue-sweep/test/triage.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/judge.test.ts"
       },
       {
         "kind": "glob",

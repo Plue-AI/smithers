@@ -19,8 +19,16 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { homedir } from "node:os"
 
 export class HostFailed extends Schema.TaggedError<HostFailed>()("issue-sweep/HostFailed", {
-  message: Schema.String
+  message: Schema.String,
+  code: Schema.optional(Schema.Literals(["unreachable", "refused"]))
 }) {}
+Fault.register("issue-sweep/HostFailed", { unreachable: "infra", refused: "dependency" })
+
+/** Classify host diagnostics while retaining the host failure codec. */
+export const hostFailed = (message: string) => new HostFailed({
+  message,
+  code: Unreachable.classifyExit(message) === undefined ? "refused" : "unreachable"
+})
 
 /** What one finished process printed, and how it exited. */
 export interface Exited {
@@ -83,7 +91,7 @@ const once = (command: string, args: ReadonlyArray<string>, options: RunOptions)
   })).pipe(
     Effect.catchTag(
       "PlatformError",
-      (cause) => Effect.fail(new HostFailed({ message: `${command}: ${cause.message}` }))
+      (cause) => Effect.fail(hostFailed(`${command}: ${cause.message}`))
     ),
     Effect.provide(NodeServices.layer)
   )
@@ -97,7 +105,7 @@ export const output = (command: string, args: ReadonlyArray<string>, options: Ru
     exited.code === 0
       ? Effect.succeed(exited.stdout)
       : Effect.fail(
-        new HostFailed({ message: `${command} ${args[0] ?? ""}: exit ${exited.code}: ${tail(exited.stderr)}` })
+        hostFailed(`${command} ${args[0] ?? ""}: exit ${exited.code}: ${tail(exited.stderr)}`)
       ))
 
 /** The checkout every issue workspace branches from. */

@@ -385,6 +385,8 @@ describe("Burndown.round", () => {
 
   it("admits the next ours item into a freed slot while the round's capacity allows", async () => {
     const { note, tape } = recorder()
+    const slowStarted = await Effect.runPromise(Deferred.make<void>())
+    const lastReleased = await Effect.runPromise(Deferred.make<void>())
     let inFlight = 0
     let widest = 0
     const result = await runRound({ items: items("slow", "b", "c", "d"), slots: 2 }, {
@@ -395,10 +397,18 @@ describe("Burndown.round", () => {
         Effect.gen(function*() {
           inFlight += 1
           widest = Math.max(widest, inFlight)
-          yield* Effect.sleep(item.id === "slow" ? 40 : 1)
+          if (item.id === "slow") {
+            yield* Deferred.succeed(slowStarted, undefined)
+            yield* Deferred.await(lastReleased)
+          } else yield* Deferred.await(slowStarted)
           inFlight -= 1
           yield* note(`worked:${item.id}`)
           return "ok"
+        }),
+      release: ({ item, status }) =>
+        Effect.gen(function*() {
+          yield* note(`release:${item.id}:${status}`)
+          if (item.id === "d") yield* Deferred.succeed(lastReleased, undefined)
         })
     })
 
@@ -793,6 +803,62 @@ const settleExit = (
   )
 
 describe("Burndown.make", () => {
+  it("keeps the default Unknown codec and settles plain discovery failures", async () => {
+    const PlainFailure = Schema.Struct({ message: Schema.String })
+    const FailedDiscovery = Action.make("burndown-test/plain-failure-discovery", {
+      payload: { input: Schema.Unknown, round: Schema.Number },
+      success: Schema.Unknown,
+      error: PlainFailure
+    })
+    const failure = { message: "discovery refused" }
+    const burndown = Burndown.make({ discover: FailedDiscovery, dispatch: Dispatch, maxRounds: 2 })
+    expect(burndown.errorSchema).toBe(Schema.Unknown)
+    expect(Schema.encodeUnknownSync(burndown.errorSchema)(failure)).toEqual(failure)
+    const exit = await settleExit(burndown, { input: null }, [
+      FailedDiscovery.toLayer(() => Effect.fail(failure)),
+      Dispatch.toLayer(() => Effect.die("failed discovery must not dispatch"))
+    ])
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const reason = exit.cause.reasons.find((reason) => reason._tag === "Fail")
+      expect(reason?._tag === "Fail" ? reason.error : undefined).toEqual(failure)
+    }
+  })
+
+  it("preserves a custom union codec and settles a typed discovery failure", async () => {
+    class DiscoveryFailed extends Schema.TaggedError<DiscoveryFailed>()("burndown-test/DiscoveryFailed", {
+      message: Schema.String
+    }) {}
+    const Failure = Schema.Union([DiscoveryFailed, Burndown.Stop])
+    const FailedDiscovery = Action.make("burndown-test/typed-failure-discovery", {
+      payload: { input: Schema.Unknown, round: Schema.Number },
+      success: Schema.Unknown,
+      error: DiscoveryFailed
+    })
+    const failure = new DiscoveryFailed({ message: "provider refused discovery" })
+    const burndown = Burndown.make({
+      discover: FailedDiscovery, dispatch: Dispatch, maxRounds: 2, error: Failure
+    })
+    const declaredError: typeof Failure = burndown.errorSchema
+    expect(declaredError).toBe(Failure)
+    for (const error of [failure, new Burndown.Stop({ message: "round stopped" })]) {
+      const encoded = Schema.encodeUnknownSync(burndown.errorSchema)(error)
+      expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded)
+      expect(Schema.decodeUnknownSync(burndown.errorSchema)(encoded)).toEqual(error)
+    }
+    const result = await Effect.runPromise(Effect.flip(burndown.execute(
+      { input: null }, { executionId: `burndown-${++executions}` }
+    )).pipe(
+      Effect.provide(host(burndown,
+        FailedDiscovery.toLayer(() => Effect.fail(failure)),
+        Dispatch.toLayer(() => Effect.die("failed discovery must not dispatch"))
+      )),
+      Effect.scoped
+    ))
+    expect(result).toBeInstanceOf(DiscoveryFailed)
+    expect(result).toEqual(failure)
+  })
+
   it("rediscovers the backlog each round until a round launches nothing", async () => {
     const backlog: Record<number, ReadonlyArray<Issue>> = {
       0: items("a", "b"),

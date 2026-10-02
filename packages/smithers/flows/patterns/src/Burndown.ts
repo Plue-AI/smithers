@@ -385,7 +385,7 @@ export const Payload = Schema.Struct({
  * @category models
  * @since 1.0.0
  */
-export type BurndownFlow = Flow.Flow<string, typeof Payload, typeof Result, typeof Schema.Unknown, any>
+export type BurndownFlow<E extends Schema.Top = typeof Schema.Unknown> = Flow.Flow<string, typeof Payload, typeof Result, E, any>
 
 /**
  * Configuration for {@link make}.
@@ -403,7 +403,7 @@ export type BurndownFlow = Flow.Flow<string, typeof Payload, typeof Result, type
  * @category models
  * @since 1.0.0
  */
-export interface MakeOptions {
+export interface MakeOptions<E extends Schema.Top = typeof Schema.Unknown> {
   readonly name?: string | undefined
   readonly description?: string | undefined
   readonly discover: Callable<any>
@@ -412,6 +412,13 @@ export interface MakeOptions {
   readonly maxRounds: number
   readonly deadline?: Duration.Input | undefined
   readonly signal?: string | undefined
+  /**
+   * The failures a lineage may settle with: the discover, capacity and
+   * dispatch members' typed errors and {@link Stop}. A run's result is
+   * journaled through this schema, so an error it does not encode cannot be
+   * recorded. Default: `Schema.Unknown`, which records only plain data.
+   */
+  readonly error?: E | undefined
 }
 
 const bound = (value: number): boolean => Number.isSafeInteger(value) && value >= 1
@@ -471,7 +478,7 @@ const merge = (carried: ReadonlyArray<Row>, fresh: ReadonlyArray<Row>): Readonly
  * @category constructors
  * @since 1.0.0
  */
-export const make = (options: MakeOptions): BurndownFlow => {
+export const make = <E extends Schema.Top = typeof Schema.Unknown>(options: MakeOptions<E>): BurndownFlow<E> => {
   const discover = options.discover
   const dispatcher = options.dispatch
   const capacity = options.capacity
@@ -569,11 +576,11 @@ export const make = (options: MakeOptions): BurndownFlow => {
   // has returned, so the binding is initialized by then. The lineage bound is
   // one above `maxRounds`: the body itself settles the round at the budget, so
   // the engine's bound is only a backstop.
-  const self: BurndownFlow = Flow.make(name, {
+  const self: BurndownFlow<E> = Flow.make(name, {
     ...(description === undefined ? {} : { description }),
     payload: Payload,
     success: Result,
-    error: Schema.Unknown,
+    error: (options.error ?? Schema.Unknown) as E,
     maxRounds: maxRounds + 1,
     ...(deadline === undefined ? {} : { deadline }),
     body: Node.capture(captures, body) as never

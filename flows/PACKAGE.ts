@@ -99,6 +99,7 @@ const recording = Smithers.NodeTest({
 const issueSweep = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/issue-sweep/test/decide.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/sweep-failure.test.ts"),
     Smithers.file("//flows/issue-sweep/test/accounts.test.ts"),
     Smithers.file("//flows/issue-sweep/test/claude.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land.test.ts"),

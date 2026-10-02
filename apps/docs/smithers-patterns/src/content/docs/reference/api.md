@@ -506,7 +506,7 @@ length of a backlog that no plan knows when it is built.
 | `ours`, `skip(detail)`                | `Selection` answers                                                                                           |
 | `LandStep`, `ReleaseStep`             | The action names a round journals each item's landing and release under                                       |
 
-`make({ discover, dispatch, capacity?, maxRounds, deadline?, signal? })`
+`make({ discover, dispatch, capacity?, maxRounds, deadline?, signal?, error? })`
 settles to `{ rows, rounds, stopped }`. Each row is `{ id, status, detail, requeues? }`
 with `status` one of `landed`, `held`, `failed`, `skipped`, or `requeued`. A round that
 launched at least one item hands off to the next round, which rediscovers the
@@ -517,6 +517,10 @@ settles it as `max_rounds`. `deadline` is the lineage deadline `Flow.make`
 enforces. `make` throws an `invalid_decorator` `PatternError` for a
 `maxRounds` that is not a positive safe integer below `Number.MAX_SAFE_INTEGER`, a `deadline` that is not a
 positive finite duration, or a blank `signal`.
+
+`error` declares the schema for failed lineage results, including provider
+step errors, `Stop` and `PatternError`. It defaults to `Schema.Unknown`;
+declare a union for tagged Error instances so the journal can encode them.
 
 A `capacity` answer of `WaitUntil` arms `Sleep.action` until the instant, and
 `Exhausted` awaits `WaitFor.action` on `signal` (default

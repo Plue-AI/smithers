@@ -84,6 +84,12 @@ Start it with `{ input: { repo: "smithersai/smithers" } }`. The lineage ends
 `maxRounds`. A round that launches nothing because `select` failed does not
 drain: the lineage fails with `Burndown.Stop` naming the cause.
 
+Declare `error` on `Burndown.make` when provider steps raise tagged errors.
+Use a union of the discovery, capacity and dispatch errors plus
+`Burndown.Stop` and `PatternError.PatternError`. The lineage records failed
+results through this schema; the default `Schema.Unknown` accepts plain data
+and cannot encode tagged Error instances.
+
 ## Implement the round
 
 ```ts
