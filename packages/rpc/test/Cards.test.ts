@@ -1083,11 +1083,9 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       lastSeq: 0
     },
     full: {
-      burndown: { filter: "working", item: 0 },
-      signalRequest: { name: "resume", state: "sent", afterSeq: 1, error: "" },
-      authoring: { requestId: "author-request-1", owner: "will", launchError: "offline" },
       burndown: { filter: "failed", item: 3071 },
       signalRequest: { name: "resume", state: "failed", afterSeq: 41, error: "offline" },
+      authoring: { requestId: "author-request-1", owner: "will", launchError: "offline" },
       statusRollup: statusRollup("run:run-1", "running", "working"),
       repo: "smithersai/smithers",
       workspaceId: gatewayWorkspaceId,
@@ -1836,7 +1834,6 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       workspaceId: gatewayWorkspaceId,
       repo: "smithersai/smithers",
       localRepoId: "repo-1",
-      workspaceId: gatewayWorkspaceId,
       path: "README.md",
       content: "# hi\n",
       truncated: true,

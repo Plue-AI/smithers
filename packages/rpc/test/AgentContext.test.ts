@@ -303,7 +303,6 @@ const metadataCases: Array<[string, (value: string) => AgentRuntimeContext]> = [
             kind: "desktop",
             status: "running",
             facet: "shell",
-            streaming: true,
             [key]: value
           }
         }]
@@ -435,8 +434,7 @@ describe("runtime context branch contracts", () => {
             repo: "owner/repo",
             kind: "desktop",
             status: "running",
-            facet: "terminal",
-            streaming: true
+            facet: "terminal"
           },
           setup
         },
@@ -449,7 +447,7 @@ describe("runtime context branch contracts", () => {
     expect(rendered).toContain("setup-1 — repository-setup \"Repository setup\": draft; maximized")
     expect(rendered).toContain("setup-2 — repository-setup \"Second setup\": draft; embedded in chat")
     expect(rendered).toContain(
-      "Workspace ws-1 in owner/repo: kind=desktop, status=running, facet=terminal, desktop stream=attached"
+      "Workspace ws-1 in owner/repo: kind=desktop, status=running, facet=terminal."
     )
     expect(rendered).toContain("Research: automatic | Find related work")
     expect(rendered).toContain(
@@ -474,8 +472,7 @@ describe("runtime context branch contracts", () => {
             repo: "owner/other",
             kind: "desktop",
             status: "waiting",
-            facet: "shell",
-            streaming: false
+            facet: "shell"
           },
           setup: { steps: [], replies: "off", landing: "none", budgetMinutes: 10 }
         }
@@ -483,7 +480,9 @@ describe("runtime context branch contracts", () => {
     })
     expect(AgentRuntimeContextSchema.safeParse(context).success).toBe(true)
     const rendered = renderAgentRuntimeContext(context)
-    expect(rendered).toContain("desktop stream=not attached")
+    // Desktop streaming is deferred past the MVP (#3387): a workspace line names no stream.
+    expect(rendered).toContain("Workspace ws-2 in owner/other: kind=desktop, status=waiting, facet=shell.")
+    expect(rendered).not.toContain("desktop stream")
     expect(rendered).toContain("Settings: replies off, landing none, time limit 10 minutes.")
     expect(rendered).not.toContain("apply to")
     expect(rendered).not.toContain("trigger nightly")
