@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
 import { AUTHORED_FLOW, AUTHORING_READ, AUTHORING_VALIDATE, GRAPH_FLOW, GRAPH_REPO } from "./workspace"
+import { finishSignup, openChat } from "./app"
 
 const command = async (page: Page, text: string) => {
   const composer = page.getByTestId("composer-input")
-  if (!await composer.isVisible()) await page.locator('[data-flow="chat.open"]').first().click()
+  await openChat(page)
   await composer.fill(text)
   await composer.press("Enter")
 }
@@ -22,6 +23,7 @@ const command = async (page: Page, text: string) => {
  */
 test("authors, edits, replans and runs the written source from chat", async ({ page }) => {
   await page.goto("/")
+  await finishSignup(page)
   // Nothing on this host names the authored flow yet: its entry file has not
   // been written, and the registry lists what is on disk.
   await command(page, `/flow.list ${GRAPH_REPO}`)

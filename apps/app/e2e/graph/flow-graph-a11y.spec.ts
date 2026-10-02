@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 import { expect, test } from "@playwright/test"
 import { GRAPH_FLOW, GRAPH_NODE_IDS, GRAPH_REPO } from "./workspace.ts"
+import { finishSignup, openChat } from "./app.ts"
 
 /*
  * The graph, as a browser really paints it, in every theme the product ships.
@@ -26,7 +27,8 @@ const canvasOf = (page: Page) => page.locator(".flow-plan-canvas")
 /** Opens the app and lists the workspace's flows, which is what draws the row. */
 const listFlows = async (page: Page): Promise<void> => {
   await page.goto("/")
-  await page.locator('[data-flow="chat.open"]').first().click()
+  await finishSignup(page)
+  await openChat(page)
   const composer = page.getByTestId("composer-input")
   await composer.fill(`/flow.list ${GRAPH_REPO}`)
   await composer.press("Enter")
@@ -48,8 +50,7 @@ const drawPlan = async (page: Page): Promise<void> => {
  */
 const runFlow = async (page: Page, line: string): Promise<void> => {
   const composer = page.getByTestId("composer-input")
-  if (!(await composer.isVisible())) await page.locator('[data-flow="chat.open"]').first().click()
-  await expect(composer).toBeVisible()
+  await openChat(page)
   await composer.fill(line)
   await composer.press("Enter")
   await expect(composer).toBeHidden()

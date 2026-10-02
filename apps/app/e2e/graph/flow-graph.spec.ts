@@ -20,6 +20,7 @@ import {
   GRAPH_STEADY
 } from "./workspace.ts"
 import { overTrackedFile } from "../../scripts/flow-graph-fixture-source.ts"
+import { finishSignup, openChat } from "./app.ts"
 
 /*
  * The plan door, end to end, over the real stack.
@@ -75,6 +76,7 @@ const zoomOf = async (page: Page): Promise<number> => {
 /** Opens the app and lists the workspace's flows, which is what draws the row. */
 const listFlows = async (page: Page): Promise<void> => {
   await page.goto("/")
+  await finishSignup(page)
   await command(page, `/flow.list ${GRAPH_REPO}`)
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
 }
@@ -89,8 +91,7 @@ const listFlows = async (page: Page): Promise<void> => {
  */
 const command = async (page: Page, text: string): Promise<void> => {
   const composer = page.getByTestId("composer-input")
-  if (!(await composer.isVisible())) await page.locator('[data-flow="chat.open"]').first().click()
-  await expect(composer).toBeVisible()
+  await openChat(page)
   await composer.fill(text)
   await composer.press("Enter")
 }
@@ -191,6 +192,7 @@ test.describe("the flow builder's plan door", () => {
    */
   test("boots with nothing failed on screen", async ({ page }) => {
     await page.goto("/")
+    await finishSignup(page)
     // The session the relay answers is signed-in, which is what starts the
     // reads; waiting for a flow row means every one of them has been made.
     await command(page, `/flow.list ${GRAPH_REPO}`)

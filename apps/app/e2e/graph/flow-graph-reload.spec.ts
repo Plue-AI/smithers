@@ -1,13 +1,15 @@
 import { expect, test } from "@playwright/test"
 import { GRAPH_FLOW, GRAPH_NODE_IDS, GRAPH_REPO, GRAPH_STEADY } from "./workspace"
+import { finishSignup, openChat } from "./app"
 
 // Delay real HTTP with Chromium's network stack. No route interception: both
 // the pending toast and the completed read cross the production persistence path.
 for (const moment of ["during", "after"] as const) {
   test(`reloads ${moment} a slow Code read`, async ({ page }) => {
     await page.goto("/")
+    await finishSignup(page)
     const composer = page.getByTestId("composer-input")
-    if (!await composer.isVisible()) await page.locator('[data-flow="chat.open"]').first().click()
+    await openChat(page)
     await composer.fill(`/flow.list ${GRAPH_REPO}`)
     await composer.press("Enter")
     await page.locator(`[data-flow="flow.plan"][data-flow-args="${GRAPH_FLOW}"]`).click()
@@ -25,7 +27,7 @@ for (const moment of ["during", "after"] as const) {
     await expect(page.locator(".flow-graph-drawer")).toHaveAttribute("data-node", GRAPH_STEADY)
     await expect(page.locator(".flow-graph-drawer")).toHaveAttribute("data-tab", "code")
     await expect(page.locator("main[data-fault]")).toHaveCount(0)
-    if (!await composer.isVisible()) await page.locator('[data-flow="chat.open"]').first().click()
+    await openChat(page)
     // The door is durable: the overlay reaches the screen a beat after the
     // click, and an Escape sent before it arrives closes a palette that is not
     // open yet — the open then lands behind it and Chat stays over the canvas.

@@ -30,6 +30,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { createLocalCommandChat } from "../e2e/graph/LocalCommandChat"
+import { createChatJournalFixture } from "../e2e/support/ChatJournalFixture"
 import { startLocalServer } from "../src/bun/server"
 import { GRAPH_FLOW_SOURCE } from "../e2e/graph/workspace"
 import { relayFetch } from "../e2e/graph/RelayFetch"
@@ -151,6 +152,8 @@ try {
     port: PORT,
     distDir: join(APP_DIR, "dist"),
     agent: createLocalCommandChat,
+    // The renderer records chat legs; with the local journal retired (#3257), the injected agent's legs ride the test journal.
+    fixtureJournal: createChatJournalFixture(),
     cloudMode: "hybrid",
     identityUpstream: gateway.address.relayUrl,
     cloudApi: gateway.address.relayUrl,
