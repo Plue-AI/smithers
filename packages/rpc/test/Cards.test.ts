@@ -30,6 +30,29 @@ const builtInCardRow = {
 
 const base = { id: "card-r1", title: "Aomi", status: "active", createdAt: 0, ordinal: 0 }
 
+describe("Browser typed refusal persistence", () => {
+  const browser = { ...base, kind: "browser", status: "error", payload: {
+    url: "https://example.com/", finalUrl: null, status: null, frameable: false, blockReason: null, error: "read refused"
+  } }
+  test("retains trusted refusal metadata through repeated JSON round trips", () => {
+    const original = { ...browser, payload: { ...browser.payload, refusal: {
+      status: 400, code: "request_invalid", fault: "user", origin: "local", message: "Invalid address", retryAfterSeconds: null
+    } } }
+    const decoded = CardSchema.parse(JSON.parse(JSON.stringify(original)))
+    expect(decoded).toEqual(original)
+    expect(CardSchema.parse(JSON.parse(JSON.stringify(decoded)))).toEqual(original)
+  })
+  test("preserves legacy string-only Browser errors without manufacturing metadata", () => {
+    expect(CardSchema.parse(JSON.parse(JSON.stringify(browser)))).toEqual(browser)
+  })
+  test("rejects malformed persisted typed refusal fields", () => {
+    for (const refusal of [
+      { status: "400", message: "invalid" }, { status: 400, message: 12 },
+      { status: 400, message: "invalid", fault: "invented" }, { status: 400, message: "invalid", origin: "invented" }
+    ]) expect(CardSchema.safeParse({ ...browser, payload: { ...browser.payload, refusal } }).success).toBe(false)
+  })
+})
+
 describe("persisted card decoding units", () => {
   test.each([
     { name: "null", value: null },
@@ -1069,7 +1092,8 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       status: 200,
       frameable: false,
       blockReason: "x-frame-options: deny",
-      error: "the fetch failed (503)"
+      error: "the fetch failed (503)",
+      refusal: { status: 503, message: "read unavailable", code: "upstream_unavailable", fault: "infra", origin: "local" }
     }
   },
   "run-trace": {

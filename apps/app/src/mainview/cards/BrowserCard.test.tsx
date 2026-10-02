@@ -3,6 +3,7 @@ import { afterAll, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
 import { BROWSER_READ_FAILURE, BrowserCardBody } from "./ConversationCards"
+import { WORKER_REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 
 GlobalRegistrator.register({ url: "http://127.0.0.1:4920/owner/repo" })
 afterAll(async () => { await GlobalRegistrator.unregister() })
@@ -47,4 +48,41 @@ test("a browser refusal keeps raw details out of its sentence and offers no inve
   expect(notice.querySelector(":scope > p")?.textContent).not.toContain("502")
   expect(notice.querySelector("details pre")?.textContent).toBe(raw)
   expect(notice.querySelectorAll("button")).toHaveLength(0)
+})
+
+test("a typed invalid-input Browser refusal shows canonical user copy without diagnostics or controls", () => {
+  for (const fault of [undefined, "user"] as const) {
+    const card: Extract<Card, { kind: "browser" }> = {
+      ...browserCard("https://example.com/"), status: "error",
+      payload: { url: "https://example.com/", finalUrl: null, status: null, frameable: false, blockReason: null,
+        error: "raw diagnostic", refusal: { status: 400, code: "request_invalid", message: "raw diagnostic", ...(fault === undefined ? {} : { fault }) } }
+    }
+    const host = document.createElement("div")
+    host.innerHTML = renderToStaticMarkup(<BrowserCardBody card={card} />)
+    const notice = host.querySelector<HTMLElement>('[data-testid="browser-card-failure"]')!
+    expect(notice.dataset.fault).toBe("user")
+    expect(notice.dataset.failure).toBe("request_invalid")
+    expect(notice.textContent).toBe(WORKER_REFUSAL_COPY.request_invalid.lead)
+    expect(host.querySelectorAll("details,button,iframe")).toHaveLength(0)
+  }
+})
+
+test("unknown or contradictory persisted Browser metadata cannot turn an infrastructure error into user fault", () => {
+  for (const refusal of [
+    { status: 400, code: "future_code", fault: "user" },
+    { status: 503, code: "request_invalid", fault: "user" },
+    { status: 400, code: "request_invalid", fault: "infra" }
+  ] as const) {
+    const card: Extract<Card, { kind: "browser" }> = {
+      ...browserCard("https://example.com/"), status: "error",
+      payload: { url: "https://example.com/", finalUrl: null, status: null, frameable: false, blockReason: null,
+        error: "request_invalid raw diagnostic", refusal: { ...refusal, message: "raw diagnostic" } }
+    }
+    const host = document.createElement("div")
+    host.innerHTML = renderToStaticMarkup(<BrowserCardBody card={card} />)
+    const notice = host.querySelector<HTMLElement>('[data-testid="browser-card-failure"]')!
+    expect(notice.dataset.fault).toBe("infra")
+    expect(notice.querySelector(":scope > p")?.textContent).toBe(BROWSER_READ_FAILURE.sentence)
+    expect(notice.querySelector("details")).not.toBeNull()
+  }
 })

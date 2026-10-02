@@ -998,7 +998,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       status: z.number().int().nullable(),
       frameable: z.boolean(),
       blockReason: z.string().nullable(),
-      error: z.string().optional()
+      error: z.string().optional(),
+      refusal: SessionRefusalSchema.optional()
     }).refine((payload) => !payload.frameable || HttpUrlSchema.safeParse(payload.finalUrl ?? payload.url).success, {
       message: "A frameable browser card embeds only an http(s) URL.",
       path: ["url"]

@@ -20,6 +20,8 @@ import { pageLinksOf, WikiPageView } from "../wiki/WikiPageView"
 import { cloudWikiPageFailure } from "../wiki/CloudWikiFailure"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { refusalFromStored } from "@smthrs/rpc/Refusal"
+import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
 
 
 
@@ -68,7 +70,7 @@ export const ConnectCardBody = ({
   </ul>
 )
 
-/** A browser card's error is a refusal whose type did not survive; the page's words are only its Details. */
+/** Untyped browser failures retain safe infrastructure copy; raw words are only Details. */
 export const BROWSER_READ_FAILURE: UserFailureCopy = { fault: "infra", sentence: "That page couldn't be read. Not your fault.", actions: [] }
 
 /*
@@ -230,13 +232,17 @@ const foreignHttpUrl = (url: string): URL | undefined => {
 }
 
 export const BrowserCardBody = ({ card }: { readonly card: Extract<Card, { kind: "browser" }> }) => {
-  const { url, finalUrl, frameable, blockReason, error } = card.payload
+  const { url, finalUrl, frameable, blockReason, error, refusal } = card.payload
   const shownUrl = finalUrl ?? url
   const target = foreignHttpUrl(shownUrl)
   if (error !== undefined) {
+    const typed = refusal?.code === "request_invalid" && refusal.status === 400 &&
+      (refusal.fault === undefined || refusal.fault === "user")
+      ? refusalUserFailure(refusalFromStored(refusal)) : undefined
     return (
       <FailureNotice className="sui-approval-error" data-testid="browser-card-failure"
-        failure={describedFailure("BrowserReadFailed", BROWSER_READ_FAILURE, error)} />
+        failure={typed === undefined ? describedFailure("BrowserReadFailed", BROWSER_READ_FAILURE, error) :
+          { ...typed, detail: "" }} />
     )
   }
   return (

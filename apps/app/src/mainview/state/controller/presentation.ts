@@ -1,5 +1,7 @@
 import { identityProviderFor, hasGitHubIdentity } from "../IdentityProvider"
 import { TOOLS_BROWSER_FETCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { refusalOf, storedRefusal } from "@smthrs/rpc/Refusal"
+import type { SessionRefusal } from "@smthrs/rpc/Cards"
 import type { Card } from "../AppState"
 import { conversationTabIdOf,MAIN_TAB_ID,WIKI_DISPLAY_NAME } from "../AppState"
 import { parseDiagnosticQuery,readDiagnostics } from "../Diagnostics"
@@ -331,8 +333,17 @@ export const createPresentationController = (
         body: JSON.stringify({ url })
       })
       if (!response.ok) {
+        const body: unknown = await response.clone().json().catch(() => undefined)
+        // Only the browser service's typed invalid-input envelope can blame
+        // the input. Status alone, prose and malformed envelopes cannot.
+        const refusal = response.status === 400 && typeof body === "object" && body !== null &&
+            "status" in body && body.status === "error" && "code" in body && body.code === "request_invalid" &&
+            "message" in body && typeof body.message === "string" &&
+            (!("fault" in body) || body.fault === "user")
+          ? storedRefusal(refusalOf({ body, status: response.status, message: body.message }))
+          : undefined
         const message = await ctx.errorMessageOf(response, "That page couldn't be read.")
-        const card = browserCard(url, { error: message })
+        const card = browserCard(url, { error: message, refusal })
         ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card })
         return message
       }
@@ -368,7 +379,7 @@ export const createPresentationController = (
     url: string,
     result:
       | { finalUrl: string; status: number; frameable: boolean; blockReason: string | null }
-      | { error: string }
+      | { error: string; refusal?: SessionRefusal | undefined }
   ): Card => {
     const id = browserCardId(url)
     const existing = ctx.store.collections.cards.get(id)
@@ -376,7 +387,8 @@ export const createPresentationController = (
     for (const message of ctx.store.collections.messages.values()) highest = Math.max(highest, message.ordinal)
     for (const card of ctx.store.collections.cards.values()) highest = Math.max(highest, card.ordinal)
     const payload: Extract<Card, { kind: "browser" }>["payload"] = "error" in result
-      ? { url, finalUrl: null, status: null, frameable: false, blockReason: null, error: result.error }
+      ? { url, finalUrl: null, status: null, frameable: false, blockReason: null, error: result.error,
+        ...(result.refusal === undefined ? {} : { refusal: result.refusal }) }
       : {
         url,
         finalUrl: result.finalUrl,
