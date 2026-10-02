@@ -82,7 +82,6 @@ try {
   }
 } catch (error) { guardRefused(error) }
 
-const uiDir = fileURLToPath(new URL("../../app", import.meta.url))
 const siteDir = fileURLToPath(new URL("../../site", import.meta.url))
 /**
  * This package's own wrangler (a devDependency, so the version is the
@@ -137,19 +136,6 @@ const gitDirty = facts.dirty.length > 0
 const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env
 const runUrl =
   GITHUB_SERVER_URL && GITHUB_REPOSITORY && GITHUB_RUN_ID ? `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}` : null
-
-/*
- * The island's sources are transformed under apps/app/tsconfig.json, which
- * extends the projected Electrobun devkit (gitignored), so a fresh checkout
- * cannot build the site until that projection exists. apps/app's own build ran
- * this step first; the site build does not, so it runs here.
- */
-console.log(`[deploy] ensuring the Electrobun devkit projection in ${uiDir}...`)
-const devkit = await run(["node", "scripts/ensure-devkit.mjs"], { cwd: uiDir })
-if (devkit.exitCode !== 0) {
-  console.error("[deploy] the devkit projection could not be prepared.")
-  process.exit(devkit.exitCode)
-}
 
 console.log(`[deploy] building the smithers.sh site in ${siteDir}, stamped ${gitSha}${gitDirty ? " (dirty tree)" : ""}...`)
 const build = await run(["pnpm", "run", "build"], { cwd: siteDir, env: { SMITHERS_BUILD_SHA: gitSha } })
