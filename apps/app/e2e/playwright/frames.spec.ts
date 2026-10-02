@@ -234,8 +234,13 @@ for (const sample of [
   await expect(card).toHaveAttribute("data-maximized", "true")
   await expect(chat).toBeFocused()
 
-  await sendSlash(page, "/appearance.dark-mode")
+  // The default chrome has no theme toggle (#3334), so the keyboard runs the flow from Chat: Enter on a
+  // whole typed name runs that flow over the card. Send would be a new message, a return to the transcript.
+  await chat.click()
+  await page.getByTestId("composer-input").fill("/appearance.dark-mode")
+  await page.getByTestId("composer-input").press("Enter")
   await expect(page.locator("html")).toHaveAttribute("data-theme", sample.dark ? "light" : "dark")
+  await expect(page.getByTestId("composer-input")).toBeHidden()
   await expect(card).toHaveAttribute("data-maximized", "true")
 
   await card.getByRole("button", { name: "Restore", exact: true }).click()

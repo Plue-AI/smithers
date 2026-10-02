@@ -85,7 +85,8 @@ export default showcase({
     // ctrl+y is the breadcrumb's Back to the conversation.
     await page.keyboard.press("Control+y")
     await expect(grid.locator(".subagent-clock")).toContainText("Stopped")
-    await expect(page.getByTestId("transcript")).toContainText(`◉ ${TASK} finished`)
+    // The parent row says what happened: the person stopped it (@smthrs/rpc/SubagentCard `finished`, #3035).
+    await expect(page.getByTestId("transcript")).toContainText(`◉ ${TASK} stopped`)
 
     await app.slash(`/agent.session.list ${REPO}`)
     await expect(page.getByTestId("transcript")).toContainText("Tighten stack lane seats")

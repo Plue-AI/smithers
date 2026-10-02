@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test"
 import { preparedCodingJournal } from "../../../src/mainview/cards/fixtures/CodingJournal"
+import { GATEWAY_REFUSED } from "../../../src/mainview/state/controller/GatewayFailureCopy"
 import { showcase } from "../showcase"
 import { boxRunCardId, FIXTURE_BOX, runningBox } from "../../playwright/cloudFixture"
 
@@ -155,10 +156,13 @@ export default showcase({
       await expect(opening).toHaveCount(1)
       refuseOpen = true
     } finally { holdOpen = false; openReceipt.resolve() }
-    const refusal = page.locator('.toast[data-toast-status="failed"]').filter({ hasText: "Run summary unavailable" })
+    // A failed toast keeps its title; the refusal waits behind its Details as the gateway's sentence, never the workspace's raw words.
+    const refusal = page.locator('.toast[data-toast-status="failed"]').filter({ hasText: "Opening run" })
     await expect(refusal).toHaveCount(1)
+    await expect(refusal.locator(".toast-detail pre")).toHaveText(GATEWAY_REFUSED)
     await page.reload()
     await expect(refusal).toHaveCount(1)
+    await expect(refusal.locator(".toast-detail pre")).toHaveText(GATEWAY_REFUSED)
     refuseOpen = false
     await refusal.getByRole("button", { name: "Retry", exact: true }).focus()
     await page.keyboard.press("Enter")

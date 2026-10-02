@@ -47,7 +47,8 @@ export default showcase({
     })
 
     await app.open("/")
-    await app.click(page.getByRole("button", { name: "Handle issues", exact: true }))
+    // A job tile reads its state after the name; nothing is registered yet.
+    await app.click(page.getByRole("button", { name: "Handle issues · Off", exact: true }))
     const setup = page.getByTestId("setup-issues")
     await expect(setup.getByRole("button", { name: "Inspect repository" })).toBeEnabled()
     await app.show(setup)

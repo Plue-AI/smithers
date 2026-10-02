@@ -16,11 +16,18 @@ test("Get started for free mounts the real island in place when it loads", async
   const actions = page.getByTestId("setup-checklist")
   expect(await actions.locator("button:not([data-flow])").count()).toBe(0)
   await actions.getByRole("button", { name: "Dismiss", exact: true }).click()
-  await expect(actions).toHaveCount(0)
+  // Dismissed, the card collapses to its job tiles (apps/app/AGENTS.md First-run): no steps, no Dismiss.
+  const collapsed = async () => {
+    await expect(actions).toHaveAttribute("data-complete", "true")
+    await expect(actions.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0)
+    await expect(actions.locator("ol")).toHaveCount(0)
+    await expect(actions.locator(".setup-checklist-tiles button").first()).toBeVisible()
+  }
+  await collapsed()
   await page.reload()
   await page.getByRole("link", { name: "Get started for free", exact: true }).click()
   await expect(page.locator(".app-shell")).toBeVisible()
-  await expect(actions).toHaveCount(0)
+  await collapsed()
   expect(errors).toEqual([])
 })
 

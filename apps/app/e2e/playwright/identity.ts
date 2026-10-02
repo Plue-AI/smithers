@@ -53,10 +53,26 @@ export async function skipSignup(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("signup")).toHaveCount(0)
 }
 
+/**
+ * The signed-in account's saved signup (`GET`/`PUT /api/user/settings/signup`,
+ * packages/backend/internal/routes/signup_profile.go): `{ profile: null }`
+ * until a PUT saves one, then that profile, so a reload resumes server-side.
+ */
+export async function signupProfileRoute(page: import("@playwright/test").Page) {
+  let profile: unknown = null
+  await page.route(url => url.pathname === "/api/user/settings/signup", async route => {
+    if (route.request().method() === "PUT") profile = route.request().postDataJSON()
+    else if (route.request().method() !== "GET") return route.fulfill({ status: 405, json: { message: "method not allowed" } })
+    return route.fulfill({ json: { profile } })
+  })
+}
+
 /** A signed-out cloud visitor; unauthenticated tracker reads are refusals. */
 export async function signedOutVisitor(page: import("@playwright/test").Page) {
   const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) })
   await page.route("**/api/**", route => route.fulfill(json({ message: "Unavailable test route" }, 404)))
+  // Once the visitor signs in, the signup saves and reads back as the backend does.
+  await signupProfileRoute(page)
   await page.route("**/api/bootstrap", route => route.fulfill(json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "agent"], authFlow: "redirect", sandbox: null })))
   await page.route("**/api/user", identityRoute(null))
   await page.route("**/api/user/repos", route => route.fulfill(json({ repos: [] })))

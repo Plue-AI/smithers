@@ -1,7 +1,7 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, identityRoute, signedOutVisitor } from "./identity"
+import { SCOPED_TEST_USER, identityRoute, signedOutVisitor, skipSignup } from "./identity"
 import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 /*
@@ -53,7 +53,9 @@ test("the chrome sign-in door returns to the repository page signed in", async (
     expect(destination.pathname).toBe("/smithersai/smithers/")
     expect(starts).toEqual(["/smithersai/smithers/"])
 
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
+    // Back signed in, the signup owns the screen until it is done (apps/app/AGENTS.md); Control+K opens Chat throughout.
+    await skipSignup(page)
+    if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("Control+k")
     await page.getByTestId("composer-input").fill("/account.show")
     await page.getByTestId("composer-send").click()
     await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))

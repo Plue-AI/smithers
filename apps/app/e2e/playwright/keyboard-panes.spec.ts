@@ -1,13 +1,18 @@
 import { expect, test } from './browserTest'
-import { identityRoute } from './identity'
+import { SCOPED_TEST_USER, identityRoute, signupProfileRoute, skipSignup } from './identity'
 
+// A signed-in local session past its signup: the signup owns the screen until it is done, and on the
+// cloud web app Chat's controls (the input-mode button) wait for the first job (apps/app/AGENTS.md).
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/bootstrap', route => route.fulfill({ json: {
-    apiVersion: 1, host: 'cloud', version: 'test', buildSha: 'test',
+    apiVersion: 1, host: 'local', version: 'test', buildSha: 'test',
     capabilities: ['identity', 'cloud', 'agent'], authFlow: 'redirect', sandbox: null,
   } }))
-  await page.route('**/api/user', identityRoute(null))
+  await page.route('**/api/user', identityRoute(SCOPED_TEST_USER.login))
+  await signupProfileRoute(page)
   await page.goto('/')
+  await skipSignup(page)
+  if (await page.getByTestId('composer-input').isVisible()) await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Mode: Normal' })).toBeVisible()
   await page.keyboard.press('m')
   await page.keyboard.press('ArrowDown')
@@ -36,7 +41,8 @@ test('edit a Vim buffer and navigate back to the workspace without closing its d
   const navigation = page.locator('.keyboard-pane-number').filter({ hasText: /^0 Navigation$/ })
   const index = await navigation.locator('kbd').textContent()
   await page.keyboard.press(index!)
-  await expect(page.getByTestId('chrome-sign-in')).toBeFocused()
+  // Signed in, the header carries no account chrome, so the Navigation pane takes focus itself.
+  await expect(page.locator('header.session-navigation[data-keyboard-pane="Navigation"]')).toBeFocused()
   await expect(input).toBeVisible()
   await expect(input).toHaveValue('alpha beta')
   await page.keyboard.press('Control+b')

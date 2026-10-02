@@ -64,15 +64,18 @@ export default showcase({
       return checkReads === 1 ? route.fulfill({ status: 404, json: { message: "Missing current declaration" } })
         : route.fulfill({ json: { type: "file", encoding: "utf-8", content: "export const check = true" } })
     })
-    await backend.json("/api/workflow/trigger-approval", { status: "ok", approvedAt: "2026-09-26T08:00:00Z", approvedBy: 1 })
-    await backend.json("/api/workflow/trigger-registrations", () => ({ status: "ok", rows: [
-      { registrationId: "reg-nightly", slug: "nightly-review", flowId: FLOW, schedule: "0 3 * * *", enabled: !paused, ...(paused ? {} : { nextFireAt: "2026-09-26T03:00:00Z" }) }
-    ] }))
-    await backend.route(url => url.pathname === "/api/workflow/trigger-pause", async route => {
+    // A schedule is the repository job `flow:<slug>` on Smithers Cloud (state/seams/TriggersSeam.ts `jobPath`).
+    const jobs = `/api/repos/${REPO}/repository-jobs`
+    await backend.json(`${jobs}/flow:review-schedule/approvals`, { approved_at: "2026-09-26T08:00:00Z", approved_by: 1 })
+    await backend.json(jobs, () => [
+      { id: "reg-nightly", job: "flow:nightly-review", flow_id: FLOW, schedule: "0 3 * * *", enabled: !paused, ...(paused ? {} : { next_fire_at: "2026-09-26T03:00:00Z" }) }
+    ])
+    await backend.route(url => url.pathname === `${jobs}/flow:nightly-review/pause`, async route => {
       pauseCalls += 1
       await pauseReceipt.promise
       paused = true
-      return route.fulfill({ json: { status: "ok", paused: 1 } })
+      // The receipt lists the registrations Pause stopped.
+      return route.fulfill({ json: [{ id: "reg-nightly", job: "flow:nightly-review", enabled: false }] })
     })
     await backend.route(url => url.pathname === "/api/workflow/rpc", async route => {
       const call = route.request().postDataJSON() as { procedure: string; payload: { idempotencyKey?: string; flowId?: string; input?: { operation?: string }; selector?: { _tag?: string; runId?: string; flowId?: string } } }
@@ -259,7 +262,8 @@ export default showcase({
     await app.beat(500)
     const lookup = Promise.withResolvers<void>()
     let reading = false
-    await page.route("**/api/workflow/trigger-registrations?*", async route => {
+    // Run reads the registration before it launches; hold that read.
+    await page.route(url => url.pathname === jobs, async route => {
       reading = true
       await lookup.promise
       await route.fallback()

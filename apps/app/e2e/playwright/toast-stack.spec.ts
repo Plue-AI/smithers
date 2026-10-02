@@ -1,5 +1,6 @@
 import { expect,test,type Page } from "./browserTest"
 import { identityRoute } from "./identity"
+import { fillComposer } from "./composer"
 
 /** Exercise a real failed toast (a refused repository read) using only this browser profile. */
 const boot = async (page: Page) => {
@@ -13,9 +14,8 @@ const boot = async (page: Page) => {
   await page.route("**/api/repos/smithersai/smithers", route => route.fulfill({ json: { default_bookmark: "main" } }))
   await page.route("**/api/repos/smithersai/smithers/contents/README.md", route => route.fulfill({ status: 500, json: { message: "Not part of the notification fixture" } }))
   await page.goto("/")
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await page.getByTestId("composer-input").fill("/files.read README.md smithersai/smithers")
+  // A signed-out cloud visitor meets the signup, which withholds the Chat door; Control+K opens Chat throughout.
+  await fillComposer(page, "/files.read README.md smithersai/smithers")
   await page.getByTestId("composer-send").click()
   await expect(page.locator('.toast-stack .toast[data-toast-status="failed"]')).toBeVisible()
   await page.keyboard.press("Escape")
@@ -60,8 +60,7 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await page.emulateMedia({ reducedMotion: "reduce" })
     await boot(page)
-    await page.getByRole("button", { name: "Chat", exact: true }).click()
-    await page.getByTestId("composer-input").fill("/files.read README.md smithersai/smithers")
+    await fillComposer(page, "/files.read README.md smithersai/smithers")
     // The nonmodal composer must leave Send reachable while work is pending.
     await expect(page.locator(".composer-wrap")).toBeVisible()
     await expect(page.locator('.toast[data-toast-status="failed"]')).toBeVisible()

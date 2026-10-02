@@ -192,7 +192,10 @@ const boot = async (page: Page): Promise<void> => {
   await expect(page.getByTestId("setup-checklist")).toBeVisible()
   await page.getByRole("button", { name: "Dismiss", exact: true }).focus()
   await page.keyboard.press("Enter")
-  await expect(page.getByTestId("setup-checklist")).toBeHidden()
+  // Dismissed, the card collapses to its job tiles (apps/app/AGENTS.md First-run): no steps, no Dismiss.
+  const checklist = page.getByTestId("setup-checklist")
+  await expect(checklist.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0)
+  await expect(checklist.locator("ol")).toHaveCount(0)
 }
 
 /** Flip the theme through /appearance.dark-mode and wait for the root to say so. */
@@ -486,10 +489,10 @@ test("the drawer's In tab: memory in and withheld, the box it runs on, and the s
   test.setTimeout(150_000)
   await serveGateway(page)
   await serveBox(page)
-  await page.route((url) => url.pathname === `/api/repos/${REPO}/agent-environment`, (route) => route.fulfill({ json: {
-    setup_script: "", env: [],
-    secrets: [{ name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: "2026-08-01T00:00:00Z" }]
-  } }))
+  // The repository's secret metadata (SecretsSeam: GET /api/repos/{owner}/{repo}/secrets): names and bindings, never values.
+  await page.route((url) => url.pathname === `/api/repos/${REPO}/secrets`, (route) => route.fulfill({ json: [
+    { name: "NPM_TOKEN", main_only: false, hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: "2026-08-01T00:00:00Z" }
+  ] }))
   await boot(page)
   // The box's card names it; the secrets card lists the names its sessions may use (never values).
   await command(page, `/box.view ${FIXTURE_BOX}`)

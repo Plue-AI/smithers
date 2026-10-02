@@ -1,7 +1,7 @@
 import { controlTabKey, expect, test, type Page } from "./browserTest"
 import type { SetupHostInput, SetupOperationResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import type { z } from "zod"
-import { SCOPED_TEST_USER, skipSignup, identityRoute } from "./identity"
+import { SCOPED_TEST_USER, skipSignup, identityRoute, signupProfileRoute } from "./identity"
 import { settleAnimations } from "./animations"
 
 // Real built app, SQLite, registry and keyboard. Setup/Control responses are
@@ -19,6 +19,10 @@ const bootstrap = async (page: Page, signedIn: boolean) => {
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: repo }] } }))
   await page.route("**/api/user/repos", route => route.fulfill({ json: [{ owner: "smithersai", name: "smithers", full_name: repo, owner_type: "Organization", default_bookmark: "main" }] }))
   await page.route(`**/api/repos/${repo}/contents`, route => route.fulfill({ json: [] }))
+  // No homepage, as the backend answers a repository without one.
+  await page.route(url => url.pathname === `/api/repos/${repo}/home`, route => route.fulfill({ status: 404, json: { message: "not found" } }))
+  // The signed-in account's saved signup, read on sign-in and written as the signup advances.
+  if (signedIn) await signupProfileRoute(page)
   await page.route(url => url.pathname === "/api/repository-setup/state", route => route.fulfill({ json: {
     owner: SCOPED_TEST_USER.login, repo, job: new URL(route.request().url()).searchParams.get("job"),
     registration: { state: "known" }, setup: { state: "none" }
@@ -26,8 +30,18 @@ const bootstrap = async (page: Page, signedIn: boolean) => {
 }
 const open = async (page: Page, signedIn = false) => {
   await page.goto(`/${repo}/`)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  if (signedIn) await skipSignup(page)
+  if (!signedIn) {
+    await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+    return
+  }
+  // A signed-in account finishes its signup first; it owns the screen until then (apps/app/AGENTS.md).
+  await skipSignup(page)
+  // On the cloud web app Chat's controls wait for the first job; the first-run card holds the job tiles meanwhile.
+  await expect(page.locator('[data-testid="setup-checklist"]:visible')).toBeVisible()
+  // skipSignup typed through Chat: close it so each test opens Chat with Control+K itself.
+  const composer = page.getByTestId("composer-input")
+  if (await composer.isVisible()) await composer.press("Escape")
+  await expect(page.getByTestId("composer-overlay")).toBeHidden()
 }
 const keyboardClick = async (page: Page, name: string) => {
   // A job button reads its state after the name ("Handle issues · Off").

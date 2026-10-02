@@ -33,6 +33,8 @@ const arrive = async (page: Page) => {
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: repo }] } }))
   await page.route("**/api/user/repos", route => route.fulfill({ json: [{ owner: "smithersai", name: "smithers", full_name: repo, owner_type: "Organization", default_bookmark: "main" }] }))
   await page.route(`**/api/repos/${repo}/contents`, route => route.fulfill({ json: [] }))
+  // No homepage, as the backend answers a repository without one: the first-run card stays alone.
+  await page.route(url => url.pathname === `/api/repos/${repo}/home`, route => route.fulfill({ status: 404, json: { message: "not found" } }))
   await page.route(url => url.pathname === "/api/repository-setup/state", route =>
     route.fulfill({ json: recovery(new URL(route.request().url()).searchParams.get("job") ?? "", host.registered) }))
   await page.goto(`/${repo}/`)
