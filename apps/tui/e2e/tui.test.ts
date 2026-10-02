@@ -2832,6 +2832,64 @@ describe("monitors", () => {
 
 describe("extensions", () => {
   const altR = "\x1br"
+  it("production terminal reloads canonical flow labels and a newly created subtree", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-watch-production-"))
+    const sessions = join(cwd, "sessions")
+    const source = join(cwd, "flows", "review", "flow.ts")
+    const canonical = (tag: string, label: string) =>
+      `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+export default Flow.make("${tag}", {
+  description: "${label}", capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+  payload: {}, success: Schema.String,
+  body: () => Node.succeed("ready")
+})
+`
+    mkdirSync(join(cwd, "flows", "review"), { recursive: true })
+    symlinkSync(join(app, "node_modules"), join(cwd, "node_modules"))
+    writeFileSync(source, canonical("review", "Review"))
+    try {
+      tui = await Tui.start({
+        cwd,
+        cols: 130,
+        rows: 35,
+        command: `bun ${join(app, "src", "main.tsx")} ${cwd}`,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: cwd,
+          XDG_CONFIG_HOME: cwd,
+          SMITHERS_TUI_SESSION_DIR: sessions,
+          SMITHERS_TUI_REPLAY: join(app, "test", "fixtures", "pong.jsonl")
+        }
+      })
+      await tui.until(drawn, 25_000, "production first draw")
+      await tui.type("/flows")
+      await tui.press(key.enter)
+      await tui.until((screen) => screen.includes("Review"), 5_000, "production flow description")
+      writeFileSync(source, canonical("review", "Recheck"))
+      expect(readFileSync(source, "utf8")).toContain("description: \"Recheck\"")
+      await tui.until((screen) => screen.includes("Recheck"), 5_000, "production reloaded description")
+      expect(tui.screen()).not.toContain("Review")
+      const added = join(cwd, "flows", "ping", "flow.ts")
+      mkdirSync(join(cwd, "flows", "ping"))
+      writeFileSync(added, canonical("ping", "Ping"))
+      expect(readFileSync(added, "utf8")).toContain("Flow.make(\"ping\"")
+      await tui.until((screen) => screen.includes("ping"), 5_000, "production new subtree row")
+      await tui.press(key.down)
+      await tui.until((screen) => screen.includes("Recheck"), 5_000, "retained review description")
+      expect(tui.screen()).toContain("Recheck")
+      await tui.press(key.escape)
+      expect(tui.screen()).toContain("Ask Smithers")
+      expect(drawn(tui.screen())).toBe(true)
+    } finally {
+      await tui?.stop()
+      tui = undefined
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   /** A repository flow whose `metadata.tui` key requests a durable run of itself. */
   const reviewFlow = [
     "---",
