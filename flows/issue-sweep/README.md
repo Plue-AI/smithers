@@ -1,99 +1,79 @@
-# Local microVM sessions
+# Durable remote fixes
 
-`placement: "vm"` accepts `agentsPerVm` (default **1**) and `maxVms` (default
-**24**). `maxAgents` remains a count of agents: the sweep admits at most
-`min(maxAgents ?? 4, 24, maxVms * agentsPerVm)`, also bounded by accounts and
-host free disk. Cloud capacity is separate. These values pass through the
-persisted work child and remote action; changing them requires a new sweep.
-A host refuses conflicting pool configurations rather than silently applying
-whichever sweep ran first.
+`placement: "vm"` and `"cloud"` run Codex or Claude through `ExternalJob`
+and `Sandbox.job`. A job's key is its execution ID plus generation (`#g1`,
+then at most `#g2`). Closing a probe scope or losing the host leaves the
+machine running. The restarted host attaches to it; only confirmed loss or an
+exited quota/network failure permits a replacement. Probes back off from 15
+seconds to 2 minutes; the whole job has a 2-hour deadline across restarts.
 
-Example payload:
+`Remoted`, adoption and landing keep their existing shapes. Collection saves
+refreshed Codex credentials, captures the patch, cools an exhausted account,
+persists the result, then destroys the machine. Cancellation stops the job and
+copies its refreshed login before destruction. Account identities are durable;
+credentials remain outside the checkout and receipts. Outstanding account
+reservations are restored before a new host admits work.
 
-```json
-{ "repo": "smithersai/smithers", "placement": "vm", "maxAgents": 24, "maxVms": 8, "agentsPerVm": 3 }
-```
+Receipt files under `~/smithers/.flows/issue-sweep-jobs` are shared by the
+pinned hosts on this machine. They use hashed names and atomic, synced writes.
+Retain this directory across host restarts; these receipts are part of the
+run's recovery state. Cross-host receipt replication is not provided.
 
-VM memory is `memoryBaseMib + agentsPerVm * memoryPerAgentMib` (defaults
-**1024 + k × 3072 MiB**); CPUs are `min(maxCpus, 1 + k * cpusPerAgent)` (defaults
-**8**, **1**). These four sizing fields are also sweep payload options.
-`LocalVm.make` additionally accepts explicit `memoryMib` and `cpus`; shared
-memory must cover the base and every session ceiling. `maxAgents` bounds this
-provider independently (default 24), and `bootConcurrency` still defaults to 8.
+## VM capacity
 
-Each lease has a unique `Sandbox.Session.id`, workdir, HOME, login directory,
-git index/refs and jj repository. Its colocated jj working copy borrows only
-immutable git objects from the refreshed snapshot checkout, so a jj history
-operation cannot move a neighbor's changes. `Sandbox.run` resolves and captures
-only that checkout; `SandboxMerge.apply` consumes its independent patch.
-A failure or cancellation releases that lease. The last release destroys the
-VM; a freed lease can be reused while others continue.
+Each durable job owns one retained, detached microVM. Use `agentsPerVm: 1`
+(the default); pooled sessions are scoped and are not used by RemoteFix.
+`maxVms` (default 24) counts retained job machines, including those left by an
+earlier host. Reattachment bypasses the capacity/disk admission gates and
+never refreshes an existing job's checkout. New boots serialize. VM reaping
+retains non-terminal executions and unknown status; a proven terminal
+execution can be removed once its holder is gone.
 
-The VM refreshes and installs once. Per-session pnpm installs use the shared
-store with `clone-or-copy`, retaining independent links and writable package
-files; reflink support determines whether imports copy data. Sharing writable
-`node_modules` or hardlinking writable dependencies would let edits escape
-between sessions. Go/build caches and the prepared toolchains remain shared;
-Codex receives access only to the declared cache directories, not the template
-checkout. This avoids repeated network fetches, but install cost and actual
-physical memory savings have not been measured.
-
-Shared sessions require writable cgroup v2 memory control. Each session's
-preparation, install and commands enter a separate cgroup with `memory.max`
-and `memory.oom.group=1`; release kills that cgroup before removing its files.
-Missing support fails acquisition. This contains ordinary agent OOM and
-cancellation; it is not a security boundary against hostile root commands.
-A VM/kernel failure still affects every session in that VM. The default
-one-agent path does not require cgroups and retains its 2-CPU/4-GiB shape.
-
-## Capacity (configured, not measured)
-
-At the unchanged **24-agent** local ceiling, fully packed VMs:
-
-| Agents/VM | VMs | CPUs/VM | GiB/VM | Total configured GiB |
-| --------- | --: | ------: | -----: | -------------------: |
-| 1         |  24 |       2 |      4 |                   96 |
-| 2         |  12 |       3 |      7 |                   84 |
-| 3         |   8 |       4 |     10 |                   80 |
-| 4         |   6 |       5 |     13 |                   78 |
-
-These are allocation ceilings, not resident-memory or throughput claims.
-Keep `agentsPerVm: 1` in production until the guarded k=3 test has an executed
-receipt on the deployed snapshot. Then try k=3 at the same agent cap in the
-separately scheduled measurement; do not raise concurrency from these numbers.
+The default shape is 2 CPUs and 4 GiB. The sizing fields `memoryBaseMib`,
+`memoryPerAgentMib`, `cpusPerAgent` and `maxCpus` remain available. A new VM
+waits below 25 GiB host free disk. Do not raise production concurrency on a
+full host; real restart tests use one VM with a test-only disk floor.
 
 ## Validation
 
-`test/vm.test.ts` uses the fake SDK to cover leases, independent captured
-patches, logins, OOM setup, cancellation, failed boots/preparation, capacity,
-and the default path. `work.test.ts`, `claude.test.ts` and `decide.test.ts` cover
-payload propagation, guest paths and placement accounting.
+```sh
+node --test flows/issue-sweep/test/{accounts,vm,receipts,work,remote-job,remote-job-restart}.test.ts
+SMITHERS_VM_JOB_RESTART=1 node --test --test-name-pattern='vm job survives' flows/issue-sweep/test/job-restart.real.test.ts
+SMITHERS_CLOUD_JOB_RESTART=1 node --test --test-name-pattern='cloud job survives' flows/issue-sweep/test/job-restart.real.test.ts
+```
 
-`test/vm.shared.real.test.ts` is the only shared real-VM acceptance test. It
-requires explicit `ISSUE_SWEEP_SHARED_VM_REAL=1`, records host load, and skips
-above its load guard before provisioning. It acquires exactly three sessions
-on one VM, edits three independent files, captures each patch and applies each
-through the real adoption path. No capacity/load benchmark is part of this
-change. Track outstanding real evidence in #3365 and the test campaign #2290.
+The fake transport tests exercise the real job protocol and a real SQLite
+engine: SIGKILL mid-poll, restart, exactly one launch, Lost to generation 2,
+rotated login, quota/network failures, and durable caller cancellation. The
+real tests kill and restart separate host processes, verify one launch/edit,
+collect twice from the durable receipt, and remove the machine. Run real VM
+tests one at a time.
 
-### Receipt — 2026-10-01
+Executed 2026-10-01: the real VM restart passed in 118 seconds and left no
+machine. Live Cloud creation returned HTTP 500 after admitting a workspace,
+including with 2 CPU / 4 GiB / 32 GiB; all test workspaces were removed.
+[#3379](https://github.com/smithersai/smithers/issues/3379) tracks the blocked
+Cloud restart qualification. This is not evidence of a successful Cloud job.
 
-- Fake VM suite: 24 passing cases.
-- Claude guest suite: 49 passing cases; placement/schema suite: 14.
-- Work/adoption suite: all 20 cases passed across the full run and the corrected
-  cancellation-fixture rerun. The first run had 19 passes and one stale fixture
-  path; the affected rerun passed.
-- Formatting and generated target-index checks passed. The target-index run
-  also passed its registered-test coverage gate; this is not a code-coverage
-  percentage. A broad flows typecheck was stopped under host pressure and has
-  no passing receipt.
-- Opt-in real k=3: **skipped before boot** at `2026-10-01T22:10:11.133Z`.
-  Load averages were `123.249 / 60.667 / 44.158`, free host memory `817315840`
-  bytes; the one-minute load guard was 16. No real VM or load benchmark ran.
+## Operator cutover
 
-The commands are `node --test flows/issue-sweep/test/{vm,claude,decide,work}.test.ts`
-and, only during an approved idle window,
-`ISSUE_SWEEP_SHARED_VM_REAL=1 node --test flows/issue-sweep/test/vm.shared.real.test.ts`.
+The supervisor owns `~/smithers-runner`. Stop or drain the old sweep before
+moving that checkout. Under `~/Smithers-Ops/dispatch/vcs_lock.py`, fetch main
+and move the runner's empty working copy to the landed commit with
+`jj -R ~/smithers-runner new <commit>`. Install there using
+`pnpm install --prefer-offline --frozen-lockfile --ignore-scripts`.
 
-After rebasing onto current `main`, the six affected Cloud/Codex cases passed
-again, including the newly upstreamed provisioning-retry case.
+Copy the previous sweep's JSON payload, set `attempt` to **one greater than
+its previous value**, and keep `agentsPerVm: 1`. Do not resume an old attempt
+onto this changed declaration. Preserve the rest of the operator's filters,
+concurrency and placement choices. From the pinned runner:
+
+```sh
+SMITHERS_WORKSPACE_JJ_EXPORT_BINARY="$HOME/smithers/target/release/smithers-jj-export" \
+  pnpm exec smthrs flow start issue-sweep --data "$(cat /absolute/path/new-attempt.json)" --detached
+```
+
+Retain the returned run ID and inspect `smthrs runs show <id>` and
+`smthrs runs logs <id> --follow`. Admission is not completion. VM placement
+requires the disk floor above; Cloud qualification remains blocked on #3379.
+Local `Fix` is scoped and does not survive host death.

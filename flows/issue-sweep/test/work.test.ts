@@ -1,23 +1,21 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { RemoteChildProcessSpawner, Sandbox } from "@smthrs/sandbox"
-import { Duration, Effect, Exit, FileSystem, Layer, ManagedRuntime, Path, Schema, Sink, Stream } from "effect"
+import { Duration, Effect, Exit, Layer, ManagedRuntime, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
-import * as Spawner from "effect/unstable/process/ChildProcessSpawner"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 import test from "node:test"
 import { goCache } from "../land.ts"
-import { guestCheckout, sh, toolchainEnv } from "../vm.ts"
+import { sh, toolchainEnv } from "../vm.ts"
 import {
   Adopt,
   adoptAt,
@@ -26,16 +24,16 @@ import {
   agentCommand,
   brief,
   checkout,
-  codexInGuest,
   commitMessage,
-  fixRemotely,
   NoChange,
   type Place,
   Readopt,
+  remoteCommand,
   replyOf,
   Report,
   requeue
 } from "../work/flow.ts"
+import { fixRemotely } from "./remote-capture.ts"
 
 test("commitMessage takes the agent's last COMMIT line and keeps its issue reference", () => {
   const reply = "Fixed it.\nCOMMIT: draft\nTests pass.\nCOMMIT: 🐛 fix(cli): pin the guest home (#3265)\n"
@@ -452,298 +450,15 @@ test("an attempt is a new Adopt identity: the second call in one execution appli
   assert.equal(unsettled(jjHost), "")
 })
 
-// The control API fakes provisioning; the CloudSandbox transport, guest
-// filesystem, process execution, diff capture and host SandboxMerge are real.
-// DELETE destroys the guest checkout, making capture ordering observable.
-const cloudFixture = (
-  t: { after: (fn: () => void) => void },
-  options: { edits?: boolean; code?: number; refresh?: boolean; block?: boolean; statusFailures?: number } = {}
-) => {
-  const made = fixture(t)
-  const { root, guest } = made
-  const home = join(root, "developer")
-  const guestLogin = resolve(guest, "../.codex-sweep")
-  const hostLogin = join(root, "host-auth.json")
-  const login = "{\"tokens\":{\"refresh_token\":\"before\"}}"
-  const refreshed = "{\"tokens\":{\"refresh_token\":\"after\"}}"
-  writeFileSync(hostLogin, login, { mode: 0o600 })
-  mkdirSync(join(home, ".local", "bin"), { recursive: true })
-  writeFileSync(
-    join(home, ".local", "bin", "codex"),
-    [
-      "#!/bin/sh",
-      "cat \"$CODEX_HOME/auth.json\" > \"$HOME/borrowed-auth.json\"",
-      "printf '%s' \"$PWD\" > \"$HOME/codex-cwd\"",
-      "printf '%s\\n' \"$@\" > \"$HOME/codex-args\"",
-      // codex exec must receive EOF rather than the SSH transport's open stdin.
-      "[ -z \"$(cat)\" ] || exit 9",
-      ...(options.refresh === false ? [] : [`printf '%s' '${refreshed}' > \"$CODEX_HOME/auth.json\"`]),
-      ...(options.edits === false ? [] : [
-        "sed -i.bak 's/two/TWO/' README.md && rm README.md.bak",
-        "printf 'new\\n' > added.txt"
-      ]),
-      ...(options.block === true ? ["touch \"$HOME/codex-refreshed\"", "exec sleep 300"] : []),
-      "printf 'Fixed.\\nCOMMIT: 🐛 fix: two (#7)\\n'",
-      "printf 'fixture failure\\n' >&2",
-      `exit ${options.code ?? 0}`,
-      ""
-    ].join("\n"),
-    { mode: 0o755 }
-  )
-
-  const ssh = join(root, "ssh")
-  // CommandSandbox sends the command as a base64 frame on stdin, followed by
-  // its binary input. Map guest paths in both that frame and SSH's argv shell
-  // parse; the payload bytes themselves remain untouched.
-  const mapping = `s|/home/developer/workspace|${guest}|g;s|/home/developer|${home}|g;` +
-    `s|/tmp/.smthrs-sbx|${home}/pids|g`
-  writeFileSync(
-    ssh,
-    [
-      "#!/bin/sh",
-      "IFS= read -r frame || exit 1",
-      `mapped=$(printf '%s' "$frame" | base64 -d | sed '${mapping}' | base64 | tr -d '\\n')`,
-      `command=$(printf '%s' "$*" | sed '${mapping}')`,
-      "{ printf \"%s\\n\" \"$mapped\"; cat; } | /bin/sh -c \"$command\"",
-      ""
-    ].join("\n"),
-    { mode: 0o755 }
-  )
-  const events: Array<string> = []
-  const deleted: Array<{ guestLogin: boolean; hostLogin: string }> = []
-  const requests: Array<{ method: string; path: string; body: unknown }> = []
-  let statusFailures = options.statusFailures ?? 0
-  const api: CloudSandbox.WorkspaceApi = {
-    request: async (method, path, body) => {
-      events.push(method)
-      requests.push({ method, path, body })
-      if (method === "GET" && statusFailures-- > 0) {
-        throw Object.assign(new Error("secret-do-not-print"), { code: "backend_unavailable" })
-      }
-      if (method === "DELETE") {
-        deleted.push({ guestLogin: existsSync(guestLogin), hostLogin: readFileSync(hostLogin, "utf8") })
-        rmSync(guest, { recursive: true, force: true })
-        return null
-      }
-      return { id: "ws-sweep", status: method === "POST" ? "pending" : "running" }
-    },
-    sshPrefix: async () => [ssh]
-  }
-  const provider = Effect.map(ChildProcessSpawner, (local) =>
-    CloudSandbox.make({
-      spawner: makeSpawner((command) => {
-        events.push("ssh")
-        return local.spawn(command)
-      }),
-      repository: "o/r",
-      namePrefix: "issue-sweep-",
-      api,
-      workdir: guest,
-      pollInterval: "1 millis"
-    }))
-  const fix = Effect.flatMap(
-    provider,
-    (cloud) => fixRemotely(cloud, session, codexInGuest("codex-1", login, "cloud", "PROMPT", hostLogin))
-  ).pipe(
-    Effect.provide(NodeServices.layer)
-  )
-  return { ...made, home, hostLogin, login, refreshed, events, deleted, requests, fix }
-}
-
-test("a Cloud fix survives transient provisioning status failures without recreating the workspace", {
-  timeout: 120_000
-}, async (t) => {
-  const { fix, events, requests, deleted, refreshed } = cloudFixture(t, { statusFailures: 2 })
-  const remote = await Effect.runPromise(fix)
-  assert.equal(remote.work._tag, "Changed")
-  assert.match(remote.work.patch, /^\+TWO$/m)
-  assert.deepEqual(requests.map((request) => request.method), ["POST", "GET", "GET", "GET", "DELETE"])
-  assert.ok(events.indexOf("ssh") > events.lastIndexOf("GET"))
-  assert.ok(events.lastIndexOf("ssh") < events.indexOf("DELETE"))
-  assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
-})
-
-test("a Cloud fix captures work before DELETE, refreshes host auth, and adopts onto real jj main", {
-  timeout: 120_000
-}, async (t) => {
-  const { root, host, guest, main, home, hostLogin, login, refreshed, events, deleted, requests, fix, jjHost, cmd } =
-    cloudFixture(t)
-  const remote = await Effect.runPromise(fix)
-  assert.equal(remote.work._tag, "Changed")
-  assert.equal(remote.work.base, main)
-  assert.equal(remote.work.session, session)
-  assert.equal(remote.result.account, "codex-1")
-  assert.match(remote.result.report, /COMMIT: 🐛 fix: two \(#7\)$/)
-  assert.match(remote.work.patch, /^\+TWO$/m)
-  assert.match(remote.work.patch, /added\.txt/)
-  assert.equal(events[0], "POST")
-  assert.equal(events.at(-1), "DELETE")
-  assert.ok(events.lastIndexOf("ssh") < events.indexOf("DELETE"))
-  assert.equal(existsSync(guest), false)
-  assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
-  assert.equal(readFileSync(hostLogin, "utf8"), refreshed)
-  assert.equal(statSync(hostLogin).mode & 0o777, 0o600)
-  assert.equal(readFileSync(join(home, "borrowed-auth.json"), "utf8"), login)
-  assert.equal(readFileSync(join(home, "codex-cwd"), "utf8"), guest)
-  const args = readFileSync(join(home, "codex-args"), "utf8").trim().split("\n")
-  assert.deepEqual(args.slice(0, 3), ["exec", "-m", "gpt-6.1-sol"])
-  assert.ok(args.includes("sandbox_workspace_write.network_access=true"))
-  assert.equal(args.at(-1), "PROMPT")
-  assert.deepEqual(requests.map((request) => request.method), ["POST", "GET", "DELETE"])
-  assert.equal(requests[0]?.path, "/api/repos/o/r/workspaces")
-  assert.match(JSON.stringify(requests[0]?.body), /issue-sweep-/)
-  assert.doesNotMatch(JSON.stringify(requests), /refresh_token|before|after|PROMPT/)
-
-  const place: Place = { repository: host, directory: join(root, "issue-7"), name: "sweep-7" }
-  const report = await Effect.runPromise(adoptWork(adoption(remote), place))
-  assert.equal(report.base, main)
-  assert.equal(jjHost("log", "--no-graph", "-r", `${report.change}-`, "-T", "commit_id").trim(), main)
-  assert.equal(jjHost("log", "--no-graph", "-r", report.change, "-T", "description").trim(), message)
-  assert.deepEqual(changesOnMain(jjHost), [report.change])
-  assert.equal(existsSync(place.directory), false)
-  await Effect.runPromise(checkout(place, report.change))
-  assert.equal(readFileSync(join(place.directory, "README.md"), "utf8"), "one\nTWO\nthree\n")
-  assert.equal(readFileSync(join(place.directory, "added.txt"), "utf8"), "new\n")
-  assert.equal(cmd(place.directory, "jj", "log", "--no-graph", "-r", "@-", "-T", "change_id").trim(), report.change)
-  assert.equal((await Effect.runPromise(adoptWork(adoption(remote), place))).change, report.change)
-})
-
-test("a failed Cloud Codex run saves its refreshed login and cleans the guest before DELETE", {
-  timeout: 120_000
-}, async (t) => {
-  const { guest, refreshed, deleted, events, fix } = cloudFixture(t, { code: 2 })
-  const error = failureOf(await Effect.runPromiseExit(fix))
-  assert.equal(error?._tag, "issue-sweep/AgentFailed")
-  assert.match(error?.message ?? "", /codex-1 on cloud: exit 2: fixture failure/)
-  assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
-  assert.equal(events.at(-1), "DELETE")
-  assert.equal(existsSync(guest), false)
-})
-
-test("an idle Cloud Codex run returns NoChange after capture and deletes the cleaned workspace", {
-  timeout: 120_000
-}, async (t) => {
-  const { guest, login, deleted, events, fix } = cloudFixture(t, { edits: false, refresh: false })
-  const error = failureOf(await Effect.runPromiseExit(fix))
-  assert.ok(error instanceof NoChange)
-  assert.equal(error.account, "codex-1")
-  assert.equal(error.session, session)
-  assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: login }])
-  assert.ok(events.lastIndexOf("ssh") < events.indexOf("DELETE"))
-  assert.equal(existsSync(guest), false)
-})
-
-test("interrupting Cloud Codex saves its refreshed host login and cleans the guest before DELETE", {
-  timeout: 120_000
-}, async (t) => {
-  const { guest, home, hostLogin, login, refreshed, deleted, events, fix } = cloudFixture(t, {
-    edits: false,
-    block: true
-  })
-  // Observe the guest's actual refresh before cancelling. No fixed delay can
-  // establish that the token rotated while the agent was still running.
-  let confirmRefresh!: () => void
-  let refuseRefresh!: (error: Error) => void
-  const ready = new Promise<void>((resolve, reject) => {
-    confirmRefresh = resolve
-    refuseRefresh = reject
-  })
-  const observer = watch(home, () => {
-    if (existsSync(join(home, "codex-refreshed"))) confirmRefresh()
-  })
-  const deadline = setTimeout(() => refuseRefresh(new Error("Codex did not reach its refresh marker")), 10_000)
-  const controller = new AbortController()
-  const running = Effect.runPromiseExit(fix, { signal: controller.signal })
-  try {
-    await Promise.race([
-      ready,
-      running.then(() => {
-        throw new Error("Codex exited before cancellation")
-      })
-    ])
-    assert.equal(readFileSync(hostLogin, "utf8"), login)
-    assert.equal(readFileSync(resolve(guest, "../.codex-sweep/auth.json"), "utf8"), refreshed)
-    assert.deepEqual(deleted, [])
-    controller.abort()
-    const exit = await running
-    assert.ok(Exit.isFailure(exit))
-    assert.ok(Exit.hasInterrupts(exit))
-    assert.ok(exit.cause.reasons.every((reason) => reason._tag === "Interrupt"), String(exit))
-    assert.deepEqual(deleted, [{ guestLogin: false, hostLogin: refreshed }])
-    assert.equal(readFileSync(hostLogin, "utf8"), refreshed)
-    assert.equal(statSync(hostLogin).mode & 0o777, 0o600)
-    assert.equal(existsSync(resolve(guest, "../.codex-sweep")), false)
-    assert.equal(existsSync(guest), false)
-    assert.equal(events.at(-1), "DELETE")
-    assert.equal(events.filter((event) => event === "DELETE").length, 1)
-  } finally {
-    controller.abort()
-    await running
-    observer.close()
-    clearTimeout(deadline)
-  }
-})
-
-test("concurrent Codex guests isolate checkout and login cleanup while sharing only toolchain directories", async () => {
-  const paths = Effect.runSync(Path.Path.pipe(Effect.provide(Path.layer)))
-  const runGuest = async (slot: string) => {
+test("remote Codex commands isolate homes and allow shared toolchain directories", () => {
+  for (const slot of ["one", "two"]) {
     const checkout = `/home/developer/slots/${slot}/workspace`
-    const home = resolve(checkout, "../.codex-sweep")
-    const removed: string[] = []
-    const commands: ChildProcess.StandardCommand[] = []
-    const fs = FileSystem.makeNoop({
-      makeDirectory: (path) => {
-        assert.equal(path, home)
-        return Effect.void
-      },
-      writeFileString: (path, content) => {
-        assert.equal(path, `${home}/auth.json`)
-        assert.equal(content, slot)
-        return Effect.void
-      },
-      readFileString: (path) => {
-        assert.equal(path, `${home}/auth.json`)
-        return Effect.succeed(slot)
-      },
-      remove: (path) =>
-        Effect.sync(() => {
-          removed.push(path)
-        })
-    })
-    const spawner = makeSpawner((command) => {
-      assert.equal(command._tag, "StandardCommand")
-      if (command._tag !== "StandardCommand") return Effect.die("unexpected pipeline")
-      commands.push(command)
-      return Effect.succeed(Spawner.makeHandle({
-        pid: Spawner.ProcessId(1),
-        exitCode: Effect.succeed(Spawner.ExitCode(0)),
-        isRunning: Effect.succeed(false),
-        kill: () => Effect.void,
-        stdin: Sink.drain,
-        stdout: Stream.make(new TextEncoder().encode("Fixed.")),
-        stderr: Stream.empty,
-        all: Stream.empty,
-        getInputFd: () => Sink.drain,
-        getOutputFd: () => Stream.empty,
-        unref: Effect.succeed(Effect.void)
-      }))
-    })
-    const layer = Layer.mergeAll(
-      Layer.succeed(FileSystem.FileSystem)(fs),
-      Layer.succeed(ChildProcessSpawner)(spawner),
-      Layer.succeed(Path.Path)({ ...paths, resolve: (...parts: string[]) => resolve(checkout, ...parts) })
-    )
-    const result = await Effect.runPromise(codexInGuest("codex-1", slot, "vm", "PROMPT").pipe(Effect.provide(layer)))
-    assert.equal(result.report, "Fixed.")
-    assert.deepEqual(removed, [home])
-    const command = commands[0]!.args[1]!
-    assert.ok(command.includes(`cd ${checkout} && CODEX_HOME=${home}`))
+    const command = remoteCommand("codex", "vm", checkout)
+    assert.ok(command.includes(`CODEX_HOME=/home/developer/slots/${slot}/.codex-sweep`))
+    assert.ok(command.includes(`cd ${checkout}`))
     for (const key of ["GOCACHE", "GOMODCACHE", "GOTMPDIR", "CARGO_HOME"] as const) {
-      assert.ok(command.includes(`--add-dir "${toolchainEnv[key]}"`))
+      assert.ok(command.includes(`--add-dir ${toolchainEnv[key]}`))
     }
-    assert.equal(command.includes(`--add-dir "${guestCheckout}"`), false)
-    return home
+    assert.equal(command.includes(`--add-dir ${checkout}`), false)
   }
-  const homes = await Promise.all([runGuest("one"), runGuest("two")])
-  assert.notEqual(homes[0], homes[1])
 })

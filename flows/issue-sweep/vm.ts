@@ -25,8 +25,9 @@
  * Build the snapshot once per Smithers main (about two minutes):
  *   node flows/issue-sweep/test/vm-image.ts
  */
+import { RunStore } from "@smthrs/run-store"
 import { MicrosandboxSandbox, RemoteChildProcessSpawner, type Sandbox } from "@smthrs/sandbox"
-import { type Duration, Effect, Semaphore, Stream } from "effect"
+import { type Duration, Effect, Option, Semaphore, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
 import { existsSync, readdirSync, statfsSync } from "node:fs"
 import { homedir, hostname } from "node:os"
@@ -408,6 +409,128 @@ export const sizing = (options: Options = {}) => {
   }
 }
 
+/** Persisted job machines, including machines retained by an earlier host. */
+const jobMachines = (sdk: MicrosandboxSandbox.Sdk) =>
+  Effect.tryPromise({
+    try: async () => {
+      const machines: Array<Awaited<ReturnType<typeof sdk.Sandbox.get>>> = []
+      let cursor: string | undefined
+      do {
+        const after = cursor
+        const page = await sdk.Sandbox.listWith((list) => {
+          const scoped = list.label("smithers.provider", "microsandbox").label("smithers.owner", owner)
+          return after === undefined ? scoped : scoped.cursor(after)
+        })
+        machines.push(...page.sandboxes.filter((machine) => machine.status !== "deleted"))
+        cursor = page.nextCursor
+      } while (cursor !== undefined)
+      return machines.map((machine) => ({
+        machine,
+        labels: JSON.parse(machine.configJson).labels as Record<string, string>
+      })).filter(({ labels }) => typeof labels?.["issue-sweep.job"] === "string")
+    },
+    catch: (cause) =>
+      new RemoteChildProcessSpawner.ProviderError({
+        code: "unavailable",
+        message: "issue-sweep vm: retained jobs could not be listed",
+        cause
+      })
+  })
+
+/**
+ * One detached, retained machine per durable job generation; never pooled.
+ * Sizing defaults match make. maxAgents bounds acquired sessions; maxVms counts
+ * persisted job machines until destroy, even after their session scopes close.
+ * Admission serializes new boots; bootConcurrency is consequently an upper bound.
+ */
+export const makeJob = (options: Options = {}): Sandbox.Provider & { readonly slots: Semaphore.Semaphore } => {
+  if ((options.agentsPerVm ?? 1) !== 1) throw new RangeError("durable jobs require agentsPerVm = 1")
+  const shape = sizing(options)
+  const sdk = options.sdk ?? Microsandbox
+  const slots = Semaphore.makeUnsafe(options.maxAgents ?? 24)
+  const admissions = Semaphore.makeUnsafe(1)
+  let reaped = false
+  const machines = (key: string, snapshot?: string): Sandbox.Provider =>
+    MicrosandboxSandbox.make({
+      sdk,
+      ...(snapshot === undefined ? {} : { snapshot }),
+      workdir: guestCheckout,
+      env: {
+        HOME: guestHome,
+        XDG_CONFIG_HOME: `${guestHome}/.config`,
+        XDG_CACHE_HOME: `${guestHome}/.cache`,
+        ...toolchainEnv,
+        PATH: guestPath
+      },
+      cpus: shape.cpus,
+      memoryMib: shape.memoryMib,
+      maxDurationSecs: options.maxDurationSecs ?? 3 * 60 * 60,
+      network: options.network ?? { allow: agentHosts },
+      owner,
+      holder: options.holder ?? defaultHolder(),
+      persistence: "sticky",
+      detached: true,
+      labels: {
+        "issue-sweep.job": key,
+        "smithers.execution": key.replace(/#g\d+$/, ""),
+        ...(snapshot === undefined ? {} : { "issue-sweep.snapshot": snapshot })
+      }
+    })
+  return {
+    slots,
+    retained: true,
+    acquire: (key) =>
+      Effect.gen(function*() {
+        yield* Effect.acquireRelease(slots.take(1), () => slots.release(1))
+        while (true) {
+          const session = yield* admissions.withPermits(1)(Effect.gen(function*() {
+            let retained = yield* jobMachines(sdk)
+            const existing = retained.find(({ labels }) => labels["issue-sweep.job"] === key)
+            if (existing !== undefined) {
+              // Acquisition reconnects on its own disk; never refresh a replay's work.
+              return yield* machines(key, existing.labels["issue-sweep.snapshot"]).acquire(key)
+            }
+            if (!reaped) {
+              // Before admitting the first new job, remove dead ephemeral holders.
+              // Durable executions are retained unless the ambient RunStore proves
+              // they are terminal. A failed sweep is retried, never marked done.
+              yield* reapOrphans(sdk)
+              reaped = true
+              retained = yield* jobMachines(sdk)
+            }
+            if (retained.length >= (options.maxVms ?? 24)) return undefined
+            if ((options.freeBytes ?? statfsFree)() < (options.minFreeBytes ?? 25 * 1024 ** 3)) return undefined
+            const snapshot = options.snapshot ?? (yield* latestImage(sdk))
+            const provider = machines(key, snapshot)
+            const opened = yield* provider.acquire(key)
+            if (options.refresh ?? true) {
+              yield* required(opened, "refreshing the checkout", refreshLine).pipe(
+                Effect.tapError(() => provider.destroy!(opened).pipe(Effect.ignore))
+              )
+            }
+            return opened
+          }))
+          if (session !== undefined) return session
+          yield* Effect.sleep("100 millis")
+        }
+      }),
+    attach: (session) => machines(session.id).attach!(session),
+    destroy: (session) => machines(session.id).destroy!(session)
+  }
+}
+
+let sharedJob: ReturnType<typeof makeJob> | undefined
+let sharedJobOptions: string | undefined
+/** A separate process-wide gate for retained jobs. */
+export const jobProvider = (options: Options = {}): ReturnType<typeof makeJob> => {
+  const key = JSON.stringify({ ...sizing(options), maxAgents: options.maxAgents ?? 24, maxVms: options.maxVms ?? 24 })
+  if (sharedJob && key !== sharedJobOptions) {
+    throw new Error("issue-sweep job provider already uses different capacity options")
+  }
+  sharedJobOptions = key
+  return sharedJob ??= makeJob(options)
+}
+
 let shared: ReturnType<typeof make> | undefined
 let sharedOptions: string | undefined
 
@@ -434,8 +557,30 @@ export const holderAlive = (holder: string): boolean => {
 }
 
 /** Removes issue-sweep microVMs whose host process is gone; run it before the first acquire. */
-export const reapOrphans = (sdk: MicrosandboxSandbox.Sdk = Microsandbox) =>
-  MicrosandboxSandbox.reap({ sdk, owner, isAlive: (holder) => Effect.sync(() => holderAlive(holder)) })
+export const reapOrphans = (
+  sdk: MicrosandboxSandbox.Sdk = Microsandbox,
+  status?: (execution: string) => Effect.Effect<string | undefined, unknown>
+) =>
+  Effect.gen(function*() {
+    const store = yield* Effect.serviceOption(RunStore.RunStore)
+    const lookup = status ?? ((execution: string) =>
+      Option.isSome(store)
+        ? Effect.map(store.value.get(execution), (run) => run.status)
+        : Effect.succeed(undefined))
+    return yield* MicrosandboxSandbox.reap({
+      sdk,
+      owner,
+      isAlive: (holder) => Effect.sync(() => holderAlive(holder)),
+      retain: (labels) => {
+        const execution = labels["smithers.execution"]
+        if (execution === undefined) return Effect.succeed(false)
+        return lookup(execution).pipe(
+          Effect.map((state) => state !== "completed" && state !== "failed" && state !== "cancelled"),
+          Effect.catch(() => Effect.succeed(true))
+        )
+      }
+    })
+  })
 
 /**
  * Builds the Smithers image as the snapshot `issue-sweep.<revision>`: boots

@@ -5,22 +5,35 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
+import { Action, ExternalJob, Fault, Flow, Interpreter } from "@smthrs/flow"
+import * as CommandLine from "@smthrs/kernel/CommandLine"
+import { classifyExit } from "@smthrs/kernel/Unreachable"
 import { Node } from "@smthrs/plan"
-import { Sandbox, SandboxMerge } from "@smthrs/sandbox"
-import { Clock, Duration, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { RemoteChildProcessSpawner, Sandbox, SandboxMerge } from "@smthrs/sandbox"
+import { Clock, Duration, Effect, Layer, Schema } from "effect"
+import type { Scope } from "effect/Scope"
+import * as KeyValueStore from "effect/unstable/persistence/KeyValueStore"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { existsSync } from "node:fs"
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { accountHome, type Agent, coolAccount, reserveAccount } from "../accounts.ts"
+import { posix } from "node:path"
+import {
+  accountHome,
+  type Agent,
+  coolAccount,
+  cooldownMinutes,
+  releaseJobAccount,
+  reserveAccount,
+  restoreJobAccount
+} from "../accounts.ts"
 import { issue } from "../github.ts"
 import { output, repository, ridingOutages, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
 import { vmFields, vmOptions } from "../vm-options.ts"
 import * as LocalVm from "../vm.ts"
-import { assertNoClaudeLogin, claudeInGuest, reserveRemoteAccount } from "./claude.ts"
+import { assertNoClaudeLogin, readClaudeLogin, reserveRemoteAccount } from "./claude.ts"
+import * as Receipts from "./receipts.ts"
 
 const Payload = Schema.Struct({
   ...vmFields,
@@ -111,17 +124,27 @@ export const PrepareWorkspace = Action.make("issue-sweep/prepare-workspace", {
 })
 
 /** Codex or Claude fixes the issue inside a local microVM or a Cloud workspace. */
-export const RemoteFix = Action.make("issue-sweep/remote-fix", {
-  payload: Schema.Struct({
-    repo: Schema.String,
-    issue: Schema.Number,
-    text: IssueText,
-    ...vmFields,
-    placement: Schema.Literals(["vm", "cloud"])
-  }),
+const RemotePayload = Schema.Struct({
+  repo: Schema.String,
+  issue: Schema.Number,
+  text: IssueText,
+  ...vmFields,
+  placement: Schema.Literals(["vm", "cloud"])
+})
+export const RemoteHandle = Schema.Struct({
+  job: Sandbox.JobHandle,
+  agent: Schema.Literals(["codex", "claude"]),
+  account: Schema.String,
+  input: RemotePayload
+})
+export const RemoteFix = ExternalJob.make("issue-sweep/remote-fix", {
+  payload: RemotePayload,
+  handle: RemoteHandle,
   success: Remoted,
-  error: Schema.Union([AgentFailed, NoChange]),
-  nondeterministic: true
+  error: Schema.Union([AgentFailed, NoChange, RemoteChildProcessSpawner.ProviderError]),
+  probe: { every: "15 seconds", max: "2 minutes" },
+  timeout: "2 hours",
+  restarts: 1
 })
 
 /**
@@ -193,7 +216,7 @@ export default Flow.make("issue-sweep/work", {
   modelInvocable: false,
   payload: Payload,
   success: Report,
-  error: Schema.Union([AgentFailed, NoChange, WorkspaceFailed, AdoptConflicted]),
+  error: Schema.Union([RemoteFix.errorSchema, AgentFailed, NoChange, WorkspaceFailed, AdoptConflicted]),
   body: (input) =>
     Node.succeed(input.placement === "vm" || input.placement === "cloud").pipe(
       Node.branch({
@@ -492,21 +515,6 @@ const fix = Fix.toLayer((input) =>
 // Remote placements: a local microVM or Smithers Cloud
 // ---------------------------------------------------------------------------
 
-/** Runs `command` on whatever spawner is ambient: inside the machine below. */
-const run = (command: string, args: ReadonlyArray<string>) =>
-  Effect.scoped(Effect.gen(function*() {
-    const spawner = yield* ChildProcessSpawner
-    const handle = yield* spawner.spawn(ChildProcess.make(command, args))
-    return yield* Effect.all(
-      [
-        Stream.mkString(Stream.decodeText(handle.stdout)),
-        Stream.mkString(Stream.decodeText(handle.stderr)),
-        handle.exitCode
-      ],
-      { concurrency: "unbounded" }
-    )
-  })).pipe(Effect.catchTag("PlatformError", (cause) => new AgentFailed({ message: `${command}: ${cause.message}` })))
-
 // The guest checkout both providers create, and where the borrowed login goes.
 
 const loginFile = (account: string) => `${homedir()}/.smithers/accounts/${account}/auth.json`
@@ -514,140 +522,317 @@ const loginFile = (account: string) => `${homedir()}/.smithers/accounts/${accoun
 /** The machines a remote fix runs in. */
 const providerFor = (placement: "vm" | "cloud", repo: string, options: LocalVm.Options) =>
   placement === "vm"
-    ? Effect.succeed<Sandbox.Provider>(LocalVm.provider(options))
+    ? Effect.succeed<Sandbox.Provider>(LocalVm.jobProvider(options))
     // ssh must read the host-key pin CloudSandbox writes under ~/.local/state.
     : Effect.map(
       Effect.provide(ChildProcessSpawner, NodeServices.layer),
-      (spawner): Sandbox.Provider => CloudSandbox.make({ spawner, repository: repo, namePrefix: "issue-sweep-" })
+      (spawner): Sandbox.Provider =>
+        CloudSandbox.make({ spawner, repository: repo, namePrefix: "issue-sweep-", persistence: "sticky" })
     )
 
-/** The session key of one issue's machine. */
-const sessionOf = (repo: string, issue: number) => `issue-sweep:${repo}#${issue}`
+export interface RemoteJobOptions {
+  readonly provider?: (input: typeof RemotePayload.Type) => Effect.Effect<Sandbox.Provider>
+  readonly reserve?: (
+    issue: number
+  ) => Effect.Effect<
+    { readonly agent: Agent; readonly account: string; readonly login?: string | undefined },
+    { readonly message: string },
+    Scope
+  >
+  readonly restore?: (key: string, agent: Agent, account: string) => void
+  readonly release?: (key: string) => void
+  readonly readLogin?: (agent: Agent, account: string) => Effect.Effect<string, AgentFailed>
+  readonly saveLogin?: (account: string, login: string) => Effect.Effect<void, AgentFailed>
+  readonly cool?: (
+    agent: Agent,
+    account: string,
+    stdout: string,
+    stderr: string,
+    code: number
+  ) => Effect.Effect<void, { readonly message: string }>
+}
 
-/**
- * Runs `body` on one machine from `provider` and answers its answer with the
- * work the machine's checkout gained, captured before the machine goes.
- * The work is measured from the commit the machine's checkout sat on once
- * acquired, which is never a commit the machine made, so the host resolves
- * it. A machine whose checkout ends where it started made no change, and
- * that is a failure.
- */
-export const fixRemotely = <R>(
-  provider: Sandbox.Provider,
-  session: string,
-  body: Effect.Effect<typeof Remote.Type, AgentFailed, R>
-) =>
-  Sandbox.run(provider, { session }, body).pipe(
-    Effect.mapError((cause) =>
-      cause instanceof AgentFailed ? cause : new AgentFailed({ message: `${session}: ${cause.message}` })
-    ),
-    Effect.flatMap((ran) =>
-      ran.work._tag === "Unchanged"
-        ? Effect.fail(
-          new NoChange({
-            message: `${ran.result.account} on ${session}: no change: ${tail(ran.result.report, 5)}`,
-            account: ran.result.account,
-            session,
-            report: ran.result.report
-          })
-        )
-        : Effect.succeed(ran)
-    )
-  )
+const Assignment = Receipts.Assignment
+const Collected = Schema.Union([
+  Schema.Struct({ _tag: Schema.Literal("Done"), value: Remoted }),
+  Schema.Struct({ _tag: Schema.Literal("Failed"), error: Schema.Union([AgentFailed, NoChange, ExternalJob.Again]) })
+])
+const providerFailed = (message: string) =>
+  new RemoteChildProcessSpawner.ProviderError({ code: "unavailable", message })
+const bytes = (text: string) => new TextEncoder().encode(text)
+const textOf = (value: Uint8Array) => new TextDecoder().decode(value)
 
-/**
- * Codex fixes the issue in the machine's checkout with a borrowed login.
- * Everything here runs inside the machine: run() spawns there, FileSystem
- * writes there.
- */
-export const codexInGuest = (
-  account: string,
-  login: string,
-  where: string,
-  prompt: string,
-  hostLoginPath = loginFile(account)
-) =>
-  Effect.scoped(Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const guestCheckout = path.resolve(".")
-    const guestCodexHome = path.resolve("../.codex-sweep")
-    yield* fs.makeDirectory(guestCodexHome, { recursive: true })
-    yield* Effect.acquireRelease(
-      fs.writeFileString(`${guestCodexHome}/auth.json`, login),
-      () =>
-        Effect.gen(function*() {
-          // Refresh tokens rotate even when Codex times out or is interrupted.
-          const refreshed = yield* fs.readFileString(`${guestCodexHome}/auth.json`)
-          if (refreshed !== login) {
-            yield* Effect.tryPromise({
-              try: () => writeFile(hostLoginPath, refreshed, { mode: 0o600 }),
-              catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
-            })
-          }
-        }).pipe(
-          Effect.ensuring(fs.remove(guestCodexHome, { recursive: true }).pipe(Effect.orDie)),
-          Effect.orDie
-        )
-    )
-    const [stdout, stderr, code] = yield* run("sh", [
-      "-c",
-      // The Cloud image has node but no codex, and /usr/local is root's: install per user.
-      // codex exec reads a piped stdin as more prompt, and the guest's stays open: close it.
-      `PATH="$HOME/.local/bin:$PATH"; command -v codex >/dev/null || ` +
-      `{ npm install -g --prefix "$HOME/.local" @openai/codex >&2 && rm -rf "$NPM_CONFIG_CACHE"; } || exit 127; ` +
-      `cd ${guestCheckout} && CODEX_HOME=${guestCodexHome} codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
-      (where === "vm" ?
-        `--add-dir "${LocalVm.toolchainEnv.GOCACHE}" --add-dir "${LocalVm.toolchainEnv.GOMODCACHE}" ` +
-        `--add-dir "${LocalVm.toolchainEnv.GOTMPDIR}" --add-dir "${LocalVm.toolchainEnv.CARGO_HOME}" ` :
-        "") +
-      `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$1" </dev/null`,
-      "sh",
-      prompt
-    ]).pipe(
-      Effect.timeoutOrElse({
-        duration: agentBudget,
-        orElse: () =>
-          Effect.fail(
-            new AgentFailed({ message: `codex on ${where}: no answer within ${Duration.format(agentBudget)}` })
-          )
-      })
-    )
-    yield* Effect.mapError(coolAccount("codex", account, stdout, stderr, Number(code)), agentFailed)
-    if (code !== 0) {
-      return yield* new AgentFailed({ message: `${account} on ${where}: exit ${code}: ${tail(stderr)}` })
-    }
-    return { agent: "codex" as const, account, report: stdout.trim() }
-  })).pipe(Effect.mapError(agentFailed))
+/** Commands read the brief and borrowed login outside the captured checkout. */
+export const remoteCommand = (agent: Agent, placement: "vm" | "cloud", checkout: string) => {
+  const home = posix.join(posix.dirname(checkout), agent === "codex" ? ".codex-sweep" : ".claude-sweep")
+  const prompt = posix.join(posix.dirname(checkout), ".sweep-brief")
+  const q = CommandLine.quote
+  const install = agent === "codex" ? "@openai/codex" : "@anthropic-ai/claude-code"
+  const prefix = `set -eu; umask 077; chmod 700 ${q(home)}; chmod 600 ${q(home)}/*; ` +
+    `export PATH="$HOME/.local/bin:$PATH"; command -v ${agent} >/dev/null || ` +
+    `{ npm install -g --prefix "$HOME/.local" ${install} >&2 && rm -rf "$NPM_CONFIG_CACHE"; }; cd ${q(checkout)}; `
+  return prefix + (agent === "claude"
+    ? `export CLAUDE_CONFIG_DIR=${q(home)} IS_SANDBOX=1; CLAUDE_CODE_OAUTH_TOKEN=$(cat ${q(`${home}/oauth-token`)}); ` +
+      `export CLAUDE_CODE_OAUTH_TOKEN; exec claude -p "$(cat ${
+        q(prompt)
+      })" --model claude-opus-5-5 --output-format json --dangerously-skip-permissions </dev/null`
+    : `export CODEX_HOME=${q(home)}; exec codex exec -m gpt-6.1-sol --sandbox workspace-write ` +
+      (placement === "vm"
+        ? [
+          LocalVm.toolchainEnv.GOCACHE,
+          LocalVm.toolchainEnv.GOMODCACHE,
+          LocalVm.toolchainEnv.GOTMPDIR,
+          LocalVm.toolchainEnv.CARGO_HOME
+        ].filter((path): path is string => path !== undefined).map((path) => `--add-dir ${q(path)} `).join("")
+        : "") +
+      `--skip-git-repo-check -c sandbox_workspace_write.network_access=true "$(cat ${q(prompt)})" </dev/null`)
+}
 
-const remoteFix = RemoteFix.toLayer((input) =>
-  Effect.scoped(Effect.gen(function*() {
-    const { agent, account, login: claudeLogin } = yield* Effect.mapError(
-      reserveRemoteAccount(input.issue),
-      agentFailed
-    )
-    const login = yield* (agent === "claude"
-      ? Effect.succeed(claudeLogin!)
+/** Durable job operations. Only account identity, never credentials, enters a handle or receipt. */
+export const makeRemoteJob = (options: RemoteJobOptions = {}) => {
+  const restore = options.restore ?? restoreJobAccount
+  const release = options.release ?? releaseJobAccount
+  const provider = options.provider ?? ((input) => providerFor(input.placement, input.repo, vmOptions(input)))
+  const readLogin = options.readLogin ?? ((agent: Agent, account: string) =>
+    agent === "claude"
+      ? readClaudeLogin(account).pipe(Effect.mapError(agentFailed))
       : Effect.tryPromise({
         try: () => readFile(loginFile(account), "utf8"),
         catch: () => new AgentFailed({ message: `${account}: no auth.json` })
       }))
-    const provider = yield* providerFor(input.placement, input.repo, vmOptions(input))
-    const prompt = brief(input.repo, input.issue, input.text)
-    const remote = yield* fixRemotely(
-      provider,
-      sessionOf(input.repo, input.issue),
-      agent === "claude"
-        ? claudeInGuest(account, login, input.placement, prompt, (stdout, stderr, code) =>
-          coolAccount(agent, account, stdout, stderr, code)).pipe(Effect.mapError(agentFailed))
-        : codexInGuest(account, login, input.placement, prompt)
-    )
-    if (agent === "claude") {
-      yield* assertNoClaudeLogin(remote.work, login).pipe(Effect.mapError(agentFailed))
-    }
-    return remote
-  }))
-)
+  const saveLogin = options.saveLogin ?? ((account: string, login: string) =>
+    Effect.tryPromise({
+      try: () => writeFile(loginFile(account), login, { mode: 0o600 }),
+      catch: () => new AgentFailed({ message: `${account}: could not save the refreshed login` })
+    }))
+  const read = <A, I, S extends Schema.Codec<A, I, never, never>>(schema: S, key: string) =>
+    Effect.gen(function*() {
+      const store = yield* KeyValueStore.KeyValueStore
+      const value = yield* store.get(key).pipe(
+        Effect.mapError(() => providerFailed("could not read remote job receipt"))
+      )
+      return value === undefined
+        ? undefined
+        : yield* Schema.decodeEffect(Schema.fromJsonString(schema))(value).pipe(
+          Effect.mapError(() => new AgentFailed({ message: "invalid remote job receipt" }))
+        )
+    })
+  const write = <A, I, S extends Schema.Codec<A, I, never, never>>(schema: S, key: string, value: S["Type"]) =>
+    Effect.gen(function*() {
+      const store = yield* KeyValueStore.KeyValueStore
+      yield* store.set(key, Schema.encodeSync(Schema.fromJsonString(schema))(value)).pipe(
+        Effect.mapError(() => providerFailed("could not persist remote job receipt"))
+      )
+    })
+  const receiptKey = (key: string) => `issue-sweep/remote/collected/${key}`
+  const job = (p: Sandbox.Provider) => Sandbox.job({ ...p, destroy: () => Effect.void }, { command: "true" })
+  const cleanup = (p: Sandbox.Provider, handle: typeof RemoteHandle.Type, key: string) =>
+    Effect.gen(function*() {
+      yield* p.destroy!(handle.job)
+      const store = yield* KeyValueStore.KeyValueStore
+      yield* store.remove(`issue-sweep/remote/account/${key}`).pipe(
+        Effect.mapError(() => providerFailed("could not release remote account assignment"))
+      )
+      yield* Effect.sync(() => release(key))
+    })
+  const attach = (handle: typeof RemoteHandle.Type, key: string) =>
+    Effect.gen(function*() {
+      if (handle.job.id !== key) return yield* new AgentFailed({ message: "remote job key differs from handle" })
+      restore(key, handle.agent, handle.account)
+      return yield* provider(handle.input)
+    })
+  return {
+    start: (input: typeof RemotePayload.Type, key: string) =>
+      Effect.scoped(Effect.gen(function*() {
+        let acquired: { provider: Sandbox.Provider; session: Sandbox.Session } | undefined
+        let reused = false
+        return yield* Effect.gen(function*() {
+          const started = yield* read(RemoteHandle, `issue-sweep/remote/started/${key}`)
+          if (started !== undefined) {
+            restore(key, started.agent, started.account)
+            return started
+          }
+          const assignmentKey = `issue-sweep/remote/account/${key}`
+          let assigned = yield* read(Assignment, assignmentKey)
+          reused = assigned !== undefined
+          let borrowed: string | undefined
+          if (assigned === undefined) {
+            const reserved = yield* (options.reserve ?? reserveRemoteAccount)(input.issue).pipe(
+              Effect.mapError(agentFailed)
+            )
+            assigned = { key, agent: reserved.agent, account: reserved.account }
+            borrowed = reserved.login
+            yield* write(Assignment, assignmentKey, assigned)
+          }
+          restore(key, assigned.agent, assigned.account)
+          const p = yield* provider(input)
+          const session = yield* p.acquire(key)
+          acquired = { provider: p, session }
+          const parent = posix.dirname(session.workdir)
+          const home = posix.join(parent, assigned.agent === "codex" ? ".codex-sweep" : ".claude-sweep")
+          // A replay reuses the guest's potentially rotated login. Losing the
+          // host copy must not turn attachment into destruction of a live job.
+          const guestLogin = `${home}/${assigned.agent === "codex" ? "auth.json" : "oauth-token"}`
+          const login = borrowed ?? (yield* session.readFile(guestLogin).pipe(
+            Effect.map(textOf),
+            Effect.catch((error): Effect.Effect<string, RemoteChildProcessSpawner.ProviderError | AgentFailed> =>
+              error.code === "not_found" ? readLogin(assigned.agent, assigned.account) : Effect.fail(error)
+            )
+          ))
+          const launched = Sandbox.job({ ...p, acquire: () => Effect.succeed(session) }, {
+            command: remoteCommand(assigned.agent, input.placement, session.workdir),
+            files: {
+              [`${home}/${assigned.agent === "codex" ? "auth.json" : "oauth-token"}`]: bytes(login),
+              [posix.join(parent, ".sweep-brief")]: bytes(brief(input.repo, input.issue, input.text))
+            }
+          })
+          const handle = yield* launched.start(input, key)
+          const startedHandle = { job: handle, agent: assigned.agent, account: assigned.account, input }
+          yield* write(RemoteHandle, `issue-sweep/remote/started/${key}`, startedHandle)
+          return startedHandle
+        }).pipe(Effect.catch((error) => {
+          if (!(error instanceof AgentFailed)) return Effect.fail(error)
+          if (reused) return Effect.fail(providerFailed("could not reattach remote job credentials"))
+          // Terminal preparation failed before launch. Infra failures keep their
+          // stable assignment and machine for the keyed retry.
+          return Effect.gen(function*() {
+            if (acquired !== undefined) yield* acquired.provider.destroy!(acquired.session)
+            const store = yield* KeyValueStore.KeyValueStore
+            yield* store.remove(`issue-sweep/remote/account/${key}`).pipe(
+              Effect.mapError(() => providerFailed("could not release remote account assignment"))
+            )
+            yield* Effect.sync(() => release(key))
+            return yield* Effect.fail(error)
+          })
+        }))
+      })),
+    status: (handle: typeof RemoteHandle.Type, key: string) =>
+      Effect.gen(function*() {
+        const p = yield* attach(handle, key)
+        return yield* job(p).status(handle.job, key)
+      }),
+    collect: (handle: typeof RemoteHandle.Type, key: string, exited: ExternalJob.Exited) =>
+      Effect.gen(function*() {
+        const p = yield* attach(handle, key)
+        let collected = yield* read(Collected, receiptKey(key))
+        if (collected === undefined) {
+          const result = yield* Effect.scoped(Effect.gen(function*() {
+            const session = yield* p.attach!(handle.job)
+            const home = posix.join(
+              posix.dirname(session.workdir),
+              handle.agent === "codex" ? ".codex-sweep" : ".claude-sweep"
+            )
+            const login = textOf(
+              yield* session.readFile(`${home}/${handle.agent === "codex" ? "auth.json" : "oauth-token"}`)
+            )
+            if (handle.agent === "codex") {
+              yield* saveLogin(handle.account, login).pipe(
+                Effect.mapError(() => providerFailed("could not save the refreshed remote login"))
+              )
+            }
+            // Validate before Sandbox.job persists its captured work. The exited
+            // worker cannot change it between this check and capture.
+            if (handle.agent === "claude") {
+              const base = textOf(yield* session.readFile(`${handle.job.directory}/base`)).trim()
+              const work = yield* Sandbox.capture(session, { base }).pipe(Effect.mapError(agentFailed))
+              yield* assertNoClaudeLogin(work, login).pipe(Effect.mapError(agentFailed))
+            }
+            const redact = (text: string) =>
+              handle.agent === "claude" && login ? text.replaceAll(login, "[redacted]") : text
+            const safe = {
+              ...p,
+              attach: () =>
+                Effect.succeed({
+                  ...session,
+                  readFile: (path: string) =>
+                    session.readFile(path).pipe(Effect.map((value) =>
+                      path === `${handle.job.directory}/out` || path === `${handle.job.directory}/err`
+                        ? bytes(redact(textOf(value)))
+                        : value
+                    ))
+                })
+            }
+            return yield* job(safe).collect(handle.job, key, exited).pipe(Effect.mapError((error) =>
+              error._tag === "@smthrs/sandbox/Sandbox/CaptureError" ? agentFailed(error) : error
+            ))
+          })).pipe(Effect.catchTag("issue-sweep/AgentFailed", (error) => {
+            return Effect.gen(function*() {
+              yield* write(Collected, receiptKey(key), { _tag: "Failed", error })
+              yield* cleanup(p, handle, key)
+              return yield* Effect.fail(error)
+            })
+          }))
+          const decoded = handle.agent === "claude" ?
+            Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({
+              result: Schema.optional(Schema.String),
+              is_error: Schema.optional(Schema.Boolean),
+              subtype: Schema.optional(Schema.String)
+            })))(result.stdout.trim().split("\n").at(-1) ?? "") :
+            undefined
+          const invalid = decoded !== undefined && (decoded._tag === "None" || decoded.value.is_error === true ||
+            (decoded.value.subtype !== undefined && decoded.value.subtype !== "success") ||
+            !decoded.value.result?.trim())
+          const code = result.exitCode === 0 && invalid ? 1 : result.exitCode
+          yield* (options.cool ?? coolAccount)(handle.agent, handle.account, result.stdout, result.stderr, code).pipe(
+            Effect.mapError(() =>
+              providerFailed("could not persist remote account cooldown")
+            )
+          )
+          const report = replyOf(handle.agent, result.stdout)
+          const message = `${handle.account} on ${key}: exit ${code}: ${tail(result.stderr || result.stdout)}`
+          const error = code !== 0
+            ? (classifyExit(result.stderr + "\n" + result.stdout) !== undefined ||
+                cooldownMinutes(result.stdout, result.stderr, code) !== undefined
+              ? new ExternalJob.Again({ message }) :
+              new AgentFailed({ message }))
+            : result.work._tag === "Unchanged"
+            ? new NoChange({
+              message: `${handle.account} on ${key}: no change: ${tail(report, 5)}`,
+              account: handle.account,
+              session: key,
+              report
+            })
+            : undefined
+          collected = error === undefined
+            ? {
+              _tag: "Done" as const,
+              value: { result: { agent: handle.agent, account: handle.account, report }, work: result.work }
+            }
+            : { _tag: "Failed" as const, error }
+          yield* write(Collected, receiptKey(key), collected)
+        }
+        yield* cleanup(p, handle, key)
+        if (collected._tag === "Failed") return yield* Effect.fail(collected.error)
+        return collected.value
+      }),
+    cancel: (handle: typeof RemoteHandle.Type, key: string) =>
+      Effect.gen(function*() {
+        const p = yield* attach(handle, key)
+        // Stop first. Copy rotated credentials before explicit destruction.
+        yield* job(p).cancel(handle.job, key)
+        if (handle.agent === "codex") {
+          yield* Effect.scoped(Effect.gen(function*() {
+            const session = yield* p.attach!(handle.job)
+            const login = textOf(
+              yield* session.readFile(posix.join(posix.dirname(session.workdir), ".codex-sweep/auth.json"))
+            )
+            yield* saveLogin(handle.account, login).pipe(
+              Effect.mapError(() => providerFailed("could not save the refreshed remote login"))
+            )
+          })).pipe(Effect.catchTag("@smthrs/sandbox/RemoteChildProcessSpawner/ProviderError", (error) =>
+            error.code === "not_found" ? Effect.void : Effect.fail(error)))
+        }
+        yield* cleanup(p, handle, key)
+      }).pipe(Fault.retryTransient, Effect.orDie)
+  }
+}
+
+const remoteFix = Layer.unwrap(Effect.gen(function*() {
+  // Restore all outstanding assignments before any new job can reserve an
+  // account, including jobs whose next durable probe has not woken yet.
+  yield* Receipts.restoreAssignments(repository, restoreJobAccount)
+  return RemoteFix.toLayer(makeRemoteJob())
+})).pipe(Layer.provide(Receipts.layer(repository)))
 
 /**
  * Lands a remote run's work as one described change on `main` in

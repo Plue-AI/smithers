@@ -8,7 +8,8 @@ import test from "node:test"
 import { coolAccount, makeAccountPicker, perAccount, readPools } from "../accounts.ts"
 import { guestCheckout, make } from "../vm.ts"
 import { claudeInGuest, guestClaudeHome, reserveRemoteAccount } from "../work/claude.ts"
-import { AgentFailed, fixRemotely } from "../work/flow.ts"
+import { AgentFailed } from "../work/flow.ts"
+import { fixRemotely } from "./remote-capture.ts"
 
 const sdk = Microsandbox as unknown as MicrosandboxSandbox.Sdk
 

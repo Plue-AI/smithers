@@ -9,7 +9,8 @@ import { freemem, loadavg, tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { make } from "../vm.ts"
-import { adoptWork, fixRemotely } from "../work/flow.ts"
+import { adoptWork } from "../work/flow.ts"
+import { fixRemotely } from "./remote-capture.ts"
 
 test("three agents on one real VM capture and apply independent edits", {
   skip: process.env.ISSUE_SWEEP_SHARED_VM_REAL !== "1"

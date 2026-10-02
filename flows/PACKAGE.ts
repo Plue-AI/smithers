@@ -104,6 +104,9 @@ const issueSweep = Smithers.NodeTest({
     Smithers.file("//flows/issue-sweep/test/land.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land-jj.test.ts"),
     Smithers.file("//flows/issue-sweep/test/work.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/remote-job.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/remote-job-restart.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/receipts.test.ts"),
     Smithers.file("//flows/issue-sweep/test/vm.test.ts"),
     Smithers.file("//flows/issue-sweep/test/github.test.ts"),
     Smithers.file("//flows/issue-sweep/test/host.test.ts"),
@@ -119,6 +122,7 @@ const issueSweep = Smithers.NodeTest({
 const issueSweepVm = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/issue-sweep/test/vm.real.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/job-restart.real.test.ts"),
     Smithers.file("//flows/issue-sweep/test/vm.shared.real.test.ts"),
     Smithers.file("//flows/issue-sweep/test/vm.claude.real.test.ts")
   ]),

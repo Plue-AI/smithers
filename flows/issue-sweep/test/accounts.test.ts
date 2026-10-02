@@ -459,3 +459,76 @@ test("a resumed child keeps its journaled Cloud placement even when a local slot
   )
   assert.equal(choices, 2)
 })
+
+test("restoring a durable account after restart counts once across repeated attachments and releases once", () => {
+  const picker = makeReservations(2)
+  const pools = { codex: pool("codex-1"), claude: none }
+  picker.restore("execution#g0", "codex", "codex-1")
+  picker.restore("execution#g0", "codex", "codex-1")
+  picker.restore("execution#g0", "codex", "codex-1")
+  const local = picker.reserve(pools, 2)!
+  assert.equal(local.account, "codex-1")
+  assert.equal(picker.reserve(pools, 4), undefined, "one retained job and one local action fill the account")
+  picker.release("missing")
+  assert.equal(picker.reserve(pools, 4), undefined)
+  picker.release("execution#g0")
+  picker.release("execution#g0")
+  const next = picker.reserve(pools, 4)!
+  assert.equal(next.account, "codex-1")
+  assert.equal(picker.reserve(pools, 6), undefined, "repeated release cannot remove the local reservation")
+  local.release()
+  next.release()
+  picker.restore("execution#g0", "codex", "codex-1")
+  const reattached = picker.reserve(pools, 8)!
+  assert.equal(picker.reserve(pools, 10), undefined, "a restored key after release occupies its slot again")
+  picker.release("execution#g0")
+  reattached.release()
+})
+
+test("durable accounts mix with live rotator and scoped reservations while releases stay account-specific", () => {
+  const picker = makeReservations(3)
+  const pools = {
+    codex: { ...pool("codex-1", "codex-2"), active: { "codex-1": 1, "codex-2": 2 } },
+    claude: { ...pool("claude-1"), active: { "claude-1": 1 } }
+  }
+  picker.restore("first#g0", "codex", "codex-1")
+  picker.restore("second#g0", "codex", "codex-2")
+  picker.restore("third#g0", "claude", "claude-1")
+  const codex = picker.reserve(pools, 2)!
+  const claude = picker.reserve(pools, 3)!
+  assert.deepEqual([codex.agent, codex.account], ["codex", "codex-1"])
+  assert.deepEqual([claude.agent, claude.account], ["claude", "claude-1"])
+  assert.equal(picker.reserve(pools, 4), undefined)
+  picker.release("second#g0")
+  const second = picker.reserve(pools, 4)!
+  assert.equal(second.account, "codex-2", "release frees only the durable job's account")
+  assert.equal(picker.reserve(pools, 6), undefined)
+  picker.release("second#g0")
+  assert.equal(picker.reserve(pools, 6), undefined)
+  picker.release("third#g0")
+  const third = picker.reserve(pools, 5)!
+  assert.equal(third.account, "claude-1")
+  picker.release("first#g0")
+  const first = picker.reserve(pools, 8)!
+  assert.equal(first.account, "codex-1")
+  assert.equal(picker.reserve(pools, 10), undefined)
+  for (const reservation of [codex, claude, first, second, third]) reservation.release()
+})
+
+test("two retained generations on one account release independently and ignore a repeated restore", () => {
+  const picker = makeReservations(2)
+  const pools = { codex: pool("codex-1"), claude: none }
+  picker.restore("execution#g0", "codex", "codex-1")
+  picker.restore("other#g0", "codex", "codex-1")
+  picker.restore("other#g0", "codex", "codex-1")
+  assert.equal(picker.reserve(pools, 2), undefined)
+  picker.release("execution#g0")
+  const next = picker.reserve(pools, 2)!
+  assert.equal(picker.reserve(pools, 4), undefined)
+  picker.release("other#g0")
+  picker.release("other#g0")
+  const final = picker.reserve(pools, 4)!
+  assert.equal(picker.reserve(pools, 6), undefined)
+  next.release()
+  final.release()
+})

@@ -14,9 +14,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { fileURLToPath } from "node:url"
-import { guestCheckout, guestHome, latestImage, make, reapOrphans, sh } from "../vm.ts"
-import { adoptWork, fixRemotely } from "../work/flow.ts"
+import { guestCheckout, guestHome, latestImage, make, sh } from "../vm.ts"
+import { adoptWork } from "../work/flow.ts"
+import { fixRemotely } from "./remote-capture.ts"
 
 const sdk = Microsandbox as unknown as MicrosandboxSandbox.Sdk
 const missing = spawnSync("msb", ["--version"]).status !== 0
@@ -32,14 +32,6 @@ const gone = async (name: string): Promise<boolean> => {
   } catch (cause) {
     return (cause as { code?: string }).code === "sandboxNotFound"
   }
-}
-
-const until = async (check: () => Promise<boolean>, ms: number) => {
-  for (const end = Date.now() + ms; Date.now() < end;) {
-    if (await check()) return true
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-  return check()
 }
 
 test(
@@ -77,26 +69,7 @@ test("interrupting a running command removes the microVM", { skip: missing }, as
   assert.equal(await gone(name), true)
 })
 
-test("a host process killed with SIGKILL takes its microVM with it, and reapOrphans finds nothing left", {
-  skip: missing
-}, async () => {
-  const child = spawn(process.execPath, [
-    fileURLToPath(new URL("vm-hold.ts", import.meta.url)),
-    `real-${process.pid}-c`
-  ])
-  const name = await new Promise<string>((resolve, reject) => {
-    child.stdout.on("data", (data: Buffer) => {
-      const found = /ready (\S+)/.exec(String(data))
-      if (found) resolve(found[1]!)
-    })
-    child.on("exit", (code) => reject(new Error(`holder exited ${code}`)))
-  })
-  assert.equal(await gone(name), false)
-  child.kill("SIGKILL")
-  assert.equal(await until(() => gone(name), 15_000), true)
-  const reaped = await Effect.runPromise(reapOrphans(sdk))
-  assert.equal(reaped.some((machine) => machine.name === name), false)
-})
+// Retained job SIGKILL/restart coverage: job-restart.real.test.ts.
 
 test("under Sandbox.layerHost the work flow's FileSystem and spawner reach the guest, as with CloudSandbox", {
   skip: missing

@@ -1,10 +1,23 @@
+import { RunStore } from "@smthrs/run-store"
 import { type MicrosandboxSandbox, Sandbox } from "@smthrs/sandbox"
 import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { hostname } from "node:os"
 import test from "node:test"
-import { agentHosts, awaitDisk, guestCheckout, holderAlive, make, niceWrapper, refreshLine, sh, sizing } from "../vm.ts"
+import {
+  agentHosts,
+  awaitDisk,
+  guestCheckout,
+  holderAlive,
+  make,
+  makeJob,
+  niceWrapper,
+  reapOrphans,
+  refreshLine,
+  sh,
+  sizing
+} from "../vm.ts"
 
 const fakeFreeBytes = () => 100 * 1024 ** 3
 
@@ -45,6 +58,7 @@ const fakeSdk = (
   const killed: Array<string> = []
   const commands: Array<Command> = []
   const files = new Map<string, Uint8Array>()
+  const configs = new Map<string, Record<string, unknown>>()
   let nextPid = 7
   // A guest kill script (`p=<pid>; ...`) ends every hanging command, as the guest's signal would.
   const hanging = new Map<number, () => void>()
@@ -54,6 +68,8 @@ const fakeSdk = (
       get: (_, key: string) =>
         key === "create"
           ? async () => {
+            if (live.has(name)) throw Object.assign(new Error("exists"), { code: "sandboxAlreadyExists" })
+            configs.set(name, config)
             boots.peak = Math.max(boots.peak, ++boots.now)
             await new Promise((resolve) => setTimeout(resolve, bootMs))
             boots.now--
@@ -73,6 +89,19 @@ const fakeSdk = (
   const machine = (name: string) => ({
     name,
     backendKind: "local" as const,
+    status: "running",
+    get configJson() {
+      return JSON.stringify(configs.get(name))
+    },
+    connect: async () => machine(name),
+    start: async () => machine(name),
+    startDetached: async () => machine(name),
+    refresh: async () => machine(name),
+    modify: async ({ labels }: { labels: Record<string, string> }) => {
+      const config = configs.get(name)!
+      config.labels = { ...(config.labels as Record<string, string>), ...labels }
+      return { applied: true }
+    },
     fs: () => ({
       mkdir: async () => undefined,
       write: async (path: string, content: Uint8Array) => {
@@ -142,9 +171,20 @@ const fakeSdk = (
     Sandbox: {
       builder,
       get: async (name: string) => {
+        if (live.has(name)) return machine(name)
         throw Object.assign(new Error(`sandbox not found: ${name}`), { code: "sandboxNotFound" })
       },
-      listWith: async () => ({ sandboxes: [] })
+      listWith: async (configure: (list: unknown) => unknown) => {
+        const labels: Record<string, string> = {}
+        const query = { label: (key: string, value: string) => (labels[key] = value, query), cursor: () => query }
+        configure(query)
+        return {
+          sandboxes: [...live].filter((name) => {
+            const recorded = configs.get(name)?.labels as Record<string, string>
+            return Object.entries(labels).every(([key, value]) => recorded?.[key] === value)
+          }).map(machine)
+        }
+      }
     },
     Snapshot: { get: async () => snapshots[0], list: async () => snapshots, remove: async () => undefined },
     defaultBackendKind: () => "local" as const,
@@ -267,7 +307,7 @@ test("bootConcurrency boots at most that many microVMs at once while maxVms admi
   const provider = make({
     sdk: fake.sdk,
     freeBytes: fakeFreeBytes,
-   
+
     maxVms: 6,
     bootConcurrency: 2,
     refresh: false,
@@ -479,7 +519,14 @@ test("workspace preparation failure releases only that agent and a subsequent ac
 
 test("maxAgents bounds sessions even when the VM has vacant capacity", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxAgents: 1, maxVms: 2, refresh: false })
+  const provider = make({
+    sdk: fake.sdk,
+    freeBytes: fakeFreeBytes,
+    agentsPerVm: 3,
+    maxAgents: 1,
+    maxVms: 2,
+    refresh: false
+  })
   const first = await held(provider, "limited-first")
   const ready = await Effect.runPromise(Deferred.make<void>())
   const queued = Effect.runFork(Effect.scoped(Effect.gen(function*() {
@@ -517,7 +564,9 @@ test("shared VM sizing scales with agents and explicit CPU overrides retain the 
 test("shared dependency install enters the agent OOM boundary before cloning or installing", async () => {
   const fake = fakeSdk(() => ok)
   await Effect.runPromise(
-    Effect.scoped(make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, refresh: false }).acquire("oom-boundary"))
+    Effect.scoped(
+      make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 2, refresh: false }).acquire("oom-boundary")
+    )
   )
   const prepare = fake.lines.find((line) => line.includes("git clone --shared"))!
   assert.ok(prepare.indexOf("memory.max") < prepare.indexOf("echo $$ >"))
@@ -558,7 +607,14 @@ test("a missing shared snapshot fails all boot waiters without leaking permits",
 
 test("fragmented shared VM leases reuse capacity while respecting the physical VM cap", async () => {
   const fake = fakeSdk(() => ok)
-  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxVms: 2, maxAgents: 6, refresh: false })
+  const provider = make({
+    sdk: fake.sdk,
+    freeBytes: fakeFreeBytes,
+    agentsPerVm: 3,
+    maxVms: 2,
+    maxAgents: 6,
+    refresh: false
+  })
   const agents = await Promise.all(Array.from({ length: 6 }, (_, i) => held(provider, `fragment-${i}`)))
   try {
     assert.equal(fake.live.size, 2)
@@ -618,7 +674,14 @@ test("maxVms includes machines whose last agent is still tearing down", async ()
     finishDestroy = resolve
   })
   const fake = fakeSdk(() => ok, undefined, 0, 0, destroyGate)
-  const provider = make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, agentsPerVm: 3, maxAgents: 6, maxVms: 2, refresh: false })
+  const provider = make({
+    sdk: fake.sdk,
+    freeBytes: fakeFreeBytes,
+    agentsPerVm: 3,
+    maxAgents: 6,
+    maxVms: 2,
+    refresh: false
+  })
   const agents = await Promise.all(Array.from({ length: 6 }, (_, i) => held(provider, `teardown-${i}`)))
   const retiring = agents.filter((agent) => agent.session.remoteId === agents[0]!.session.remoteId)
   await retiring[0]!.close()
@@ -658,4 +721,196 @@ test("sizing rejects overflowing capacity and memory arithmetic before provision
   const maxSafeMib = Math.floor(Number.MAX_SAFE_INTEGER / 1024 ** 2)
   assert.equal(sizing({ memoryMib: maxSafeMib }).memoryMib, maxSafeMib)
   assert.throws(() => make({ memoryMib: maxSafeMib + 1 }), /memoryMib/)
+})
+
+test("durable jobs retain dedicated detached machines and reattach without refreshing or disk capacity", async () => {
+  const fake = fakeSdk(() => ok)
+  const first = makeJob({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1 })
+  const key = "execution-one#g0"
+  const original = await held(first, key)
+  await original.close()
+  assert.equal(fake.destroyed.length, 0)
+  assert.equal(fake.created[0]!.detached, true)
+  assert.equal(fake.created[0]!.ephemeral, false)
+  const labels = fake.created[0]!.labels as Record<string, string>
+  assert.equal(labels["issue-sweep.job"], key)
+  assert.equal(labels["smithers.execution"], "execution-one")
+  assert.equal(fake.lines.filter((line) => line.includes(refreshLine)).length, 1)
+  const restarted = makeJob({
+    sdk: fake.sdk,
+    freeBytes: () => {
+      throw new Error("disk must not be read")
+    },
+    maxVms: 1
+  })
+  const attached = await held(restarted, key)
+  assert.equal(attached.session.remoteId, original.session.remoteId)
+  assert.equal(fake.created.length, 1)
+  assert.equal(fake.lines.filter((line) => line.includes(refreshLine)).length, 1)
+  await attached.close()
+  await Effect.runPromise(restarted.destroy!(attached.session))
+  assert.equal(fake.live.size, 0)
+})
+
+test("durable job capacity counts retained machines after restart and frees only on destruction", async () => {
+  const fake = fakeSdk(() => ok)
+  const options = { sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1, refresh: false }
+  const first = await held(makeJob(options), "old#g0")
+  await first.close()
+  const restarted = makeJob(options)
+  const ready = await Effect.runPromise(Deferred.make<void>())
+  const queued = Effect.runFork(Effect.scoped(Effect.gen(function*() {
+    yield* restarted.acquire("new#g0")
+    yield* Deferred.succeed(ready, undefined)
+  })))
+  try {
+    await Effect.runPromise(Effect.sleep("30 millis"))
+    assert.equal(await Effect.runPromise(Deferred.isDone(ready)), false)
+    assert.equal(fake.created.length, 1)
+    await Effect.runPromise(restarted.destroy!(first.session))
+    await Effect.runPromise(Fiber.join(queued).pipe(Effect.timeout("2 seconds")))
+    assert.equal(fake.created.length, 2)
+    assert.equal(fake.live.size, 1)
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(queued))
+  }
+})
+
+test("retained jobs never pool and reject multiple agents per VM", async () => {
+  assert.throws(() => makeJob({ agentsPerVm: 2 }), /agentsPerVm/)
+  const fake = fakeSdk(() => ok)
+  const provider = makeJob({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 2, refresh: false })
+  const sessions = await Promise.all([held(provider, "a#g0"), held(provider, "b#g0")])
+  assert.notEqual(sessions[0]!.session.remoteId, sessions[1]!.session.remoteId)
+  await Promise.all(sessions.map((session) => session.close()))
+  assert.equal(fake.live.size, 2)
+  for (const session of sessions) await Effect.runPromise(provider.destroy!(session.session))
+})
+
+test("orphan reaping retains nonterminal and unknown executions and removes only terminal jobs", async () => {
+  for (
+    const status of ["running", "suspended", undefined, "completed", "failed", "cancelled", "lookup-error"] as const
+  ) {
+    const fake = fakeSdk(() => ok)
+    const provider = makeJob({
+      sdk: fake.sdk,
+      freeBytes: fakeFreeBytes,
+      refresh: false,
+      holder: `${hostname()}:99999999`
+    })
+    const session = await held(provider, "reap-execution#g0")
+    await session.close()
+    const reaped = await Effect.runPromise(reapOrphans(fake.sdk, (execution) => {
+      assert.equal(execution, "reap-execution")
+      return status === "lookup-error" ? Effect.fail(new Error("unreachable")) : Effect.succeed(status)
+    }))
+    const terminal = status === "completed" || status === "failed" || status === "cancelled"
+    assert.equal(reaped.length, terminal ? 1 : 0)
+    assert.equal(fake.live.size, terminal ? 0 : 1)
+  }
+  const fake = fakeSdk(() => ok)
+  const provider = makeJob({
+    sdk: fake.sdk,
+    freeBytes: fakeFreeBytes,
+    refresh: false,
+    holder: `${hostname()}:99999999`
+  })
+  await (await held(provider, "unknown-store#g0")).close()
+  assert.deepEqual(await Effect.runPromise(reapOrphans(fake.sdk)), [])
+})
+
+test("failed initial job refresh removes the incomplete retained machine and releases agent capacity", async () => {
+  let fail = true
+  const fake = fakeSdk((line) => fail && line.includes(refreshLine) ? { code: 1, stderr: "refresh failed" } : ok)
+  const provider = makeJob({ sdk: fake.sdk, freeBytes: fakeFreeBytes, maxVms: 1, maxAgents: 1 })
+  const result = await Effect.runPromiseExit(Effect.scoped(provider.acquire("failed#g0")))
+  assert.ok(Exit.isFailure(result))
+  assert.match(Cause.pretty(result.cause), /refresh failed/)
+  assert.equal(fake.live.size, 0)
+  assert.equal(fake.destroyed.length, 1)
+  fail = false
+  const recovered = await held(provider, "failed#g0")
+  assert.equal(fake.created.length, 2)
+  await recovered.close()
+  await Effect.runPromise(provider.destroy!(recovered.session))
+})
+
+test("durable capacity ignores ordinary issue machines and enforces disk only for a new job", async () => {
+  const fake = fakeSdk(() => ok)
+  const ordinary = await held(make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false }), "ordinary")
+  let free = 0
+  const provider = makeJob({ sdk: fake.sdk, freeBytes: () => free, minFreeBytes: 1, maxVms: 1, refresh: false })
+  const ready = await Effect.runPromise(Deferred.make<void>())
+  const queued = Effect.runFork(Effect.scoped(Effect.gen(function*() {
+    yield* provider.acquire("disk#g0")
+    yield* Deferred.succeed(ready, undefined)
+  })))
+  try {
+    await Effect.runPromise(Effect.sleep("20 millis"))
+    assert.equal(await Effect.runPromise(Deferred.isDone(ready)), false)
+    assert.equal(fake.created.length, 1)
+    free = 2
+    await Effect.runPromise(Fiber.join(queued).pipe(Effect.timeout("2 seconds")))
+    assert.equal(fake.created.length, 2, "ordinary machines do not spend retained job capacity")
+    assert.equal(fake.live.size, 2)
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(queued))
+    await ordinary.close()
+  }
+})
+
+test("new durable admission reaps dead ephemeral machines once while unknown durable executions survive", async () => {
+  const fake = fakeSdk(() => ok)
+  const deadHolder = `${hostname()}:99999999`
+  const retained = await held(
+    makeJob({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false, holder: deadHolder }),
+    "retained#g0"
+  )
+  const ordinary = await held(
+    make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false, holder: deadHolder }),
+    "dead-ordinary"
+  )
+  await retained.close()
+  const restarted = makeJob({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false, maxVms: 3 })
+  const attached = await held(restarted, "retained#g0")
+  assert.ok(fake.live.has(ordinary.session.remoteId), "existing-key acquisition bypasses startup reaping")
+  await attached.close()
+  const admitted = await held(restarted, "new#g0")
+  assert.ok(fake.destroyed.includes(ordinary.session.remoteId))
+  assert.ok(fake.live.has(retained.session.remoteId), "unknown execution is retained")
+  const later = await held(
+    make({ sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false, holder: deadHolder }),
+    "later-ordinary"
+  )
+  const next = await held(restarted, "next#g0")
+  assert.ok(fake.live.has(later.session.remoteId), "startup reaping runs once per retained provider")
+  await next.close()
+  await admitted.close()
+  await ordinary.close()
+  await later.close()
+  for (const session of [retained.session, admitted.session, next.session]) {
+    await Effect.runPromise(restarted.destroy!(session))
+  }
+})
+
+test("new durable admission uses ambient RunStore to reap terminal execution before counting capacity", async () => {
+  const fake = fakeSdk(() => ok)
+  const options = { sdk: fake.sdk, freeBytes: fakeFreeBytes, refresh: false, maxVms: 1 }
+  const old = await held(makeJob({ ...options, holder: `${hostname()}:99999999` }), "terminal#g0")
+  await old.close()
+  const restarted = makeJob(options)
+  const store = {
+    get: (execution: string) => {
+      assert.equal(execution, "terminal")
+      return Effect.succeed({ status: "cancelled" })
+    }
+  } as unknown as RunStore.Service
+  const newJob = await held({
+    ...restarted,
+    acquire: (key) => restarted.acquire(key).pipe(Effect.provideService(RunStore.RunStore, store))
+  }, "replacement#g0")
+  assert.ok(fake.destroyed.includes(old.session.remoteId))
+  assert.equal(fake.live.size, 1)
+  await newJob.close()
+  await Effect.runPromise(restarted.destroy!(newJob.session))
 })

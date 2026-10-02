@@ -30979,6 +30979,18 @@
       },
       {
         "kind": "file",
+        "path": "flows/issue-sweep/test/remote-job.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/remote-job-restart.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/receipts.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/issue-sweep/test/vm.test.ts"
       },
       {
@@ -31026,6 +31038,10 @@
       {
         "kind": "file",
         "path": "flows/issue-sweep/test/vm.real.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/job-restart.real.test.ts"
       },
       {
         "kind": "file",

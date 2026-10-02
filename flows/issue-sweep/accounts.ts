@@ -159,6 +159,7 @@ export interface Reservation {
 /** Shared by every local, VM and Cloud action in this host process. */
 export const makeReservations = (limit: number) => {
   const held = new Map<string, number>()
+  const jobs = new Map<string, Reservation>()
   let cursor = 0
   const reserve = (pools: Pools, issue: number): Reservation | undefined => {
     const preferred = pickAgent(issue, pools)
@@ -187,12 +188,32 @@ export const makeReservations = (limit: number) => {
     }
     return undefined
   }
-  return { reserve }
+  const restore = (key: string, agent: Agent, account: string) => {
+    if (jobs.has(key)) return
+    held.set(account, (held.get(account) ?? 0) + 1)
+    jobs.set(key, {
+      agent,
+      account,
+      release: () => {
+        const remaining = (held.get(account) ?? 1) - 1
+        if (remaining === 0) held.delete(account)
+        else held.set(account, remaining)
+      }
+    })
+  }
+  const release = (key: string) => {
+    jobs.get(key)?.release()
+    jobs.delete(key)
+  }
+  return { reserve, restore, release }
 }
 
 /** One host's picker; injection keeps lifecycle and cancellation tests deterministic. */
-export const makeAccountPicker = (limit: number, getPools: Effect.Effect<Pools, HostFailed>) => {
-  const reservations = makeReservations(limit)
+export const makeAccountPicker = (
+  limit: number,
+  getPools: Effect.Effect<Pools, HostFailed>,
+  reservations = makeReservations(limit)
+) => {
   return (issue: number, eligible?: (pools: Pools) => Effect.Effect<Pools, HostFailed>) =>
     Effect.acquireRelease(
       Effect.gen(function*() {
@@ -222,7 +243,11 @@ export const readPools = Effect.all({
   claude: readPool("claude")
 }, { concurrency: 2 })
 
-export const reserveAccount = makeAccountPicker(perAccount, readPools)
+const reservations = makeReservations(perAccount)
+export const reserveAccount = makeAccountPicker(perAccount, readPools, reservations)
+/** Job ownership lasts across probe scopes; repeated attachment is idempotent. */
+export const restoreJobAccount = reservations.restore
+export const releaseJobAccount = reservations.release
 
 /** Preserve rotator cooling when invoking a reserved account directly. */
 export const cooldownMinutes = (stdout: string, stderr: string, code: number): number | undefined => {
