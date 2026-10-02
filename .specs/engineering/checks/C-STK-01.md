@@ -9,22 +9,24 @@ Automation: `packages/backend/internal/services/todo_state_test.go` (new) · Run
 - States: `queued`, `starting`, `working`, `needs_you`, `paused`, `failed`, `in_review`, `merged`, `dropped`, plus the client-side `draft` as a source only.
 
 ## Steps
-1. Write the projection table from spec §4.1.0 only: `queued`, `skipped` → queued; launched before the first step → starting; `running`, `delivering`, `integrating`, `verifying`, `proposing`, `waiting`, `retrying` → working; `proposed` → in_review; `landed` → merged; `blocked` → failed; `cancelled`, `rejected`, `declined` → dropped; an open `needs_you` → needs_you; a set `paused_at` → paused.
+1. Write the projection table from spec §4.1.0 only: `queued`, `skipped` → queued; launched before the first step → starting; `running`, `delivering`, `integrating`, `verifying`, `proposing`, `waiting`, `retrying` → working; `proposed` → in_review; `landed` → merged; `blocked` → failed; `cancelled`, `rejected`, `declined` → dropped; for a non-terminal item state, an open `needs_you` → needs_you and a set `paused_at` → paused; terminal states (`landed`, `cancelled`, `rejected`, `declined`) ignore both.
 2. Call `ProjectItemState` for every input: 15 states × launched × needs_you × paused_at, skipping launched for non-launchable states. Compare with step 1.
 3. Write the transition table from spec §4.1 only:
    - `draft→queued` (place); `queued→starting` (admit: a machine granted, the flow version pinned); `starting→working` (run's first step);
    - `starting→failed` (start failed, `failure.step = "start"`); `working→failed` (run failed or uncertain); `failed→queued` (retry, and retry with the current flow);
    - `working→needs_you` (wait opened: question, approval, conflict, moved_off, and foreign_push per §12.3); `in_review→needs_you` (foreign_push, conflict);
-   - `needs_you→working` (first accepted answer, including Bring in); `needs_you→in_review` (Discard, or an answer that needs no new work);
+   - `needs_you→working` (first accepted answer, including Bring in); `needs_you→queued` (answered after the machine was released at safe-idle; the run resumes when admission grants the machine again); `needs_you→in_review` (Discard, or an answer that needs no new work);
    - `working→paused` (stop); `paused→queued` (resume);
    - `working→in_review` (PR opened for the verified revision); `in_review→working` (changes requested, a member's review comment, steer);
    - self-loops that record an event and keep the state: `in_review` (checks updated, rebased); `queued`, `starting`, `working`, `needs_you`, `paused` (steer, held or delivered per §10.7.3);
-   - `in_review→merged` (PR merged and `main` contains the commit); every earlier unmerged item a later squash commit contains `→merged` (§10.6.4);
+   - `in_review→merged`, `working→merged`, `needs_you→merged`, `paused→merged` (PR merged on GitHub and `main` contains the commit; the run is cancelled, every wait settled, `needs_you` and `paused_at` cleared); every earlier unmerged item a later squash commit contains `→merged` (§10.6.4);
    - every stored unmerged state `→dropped` (drop; PR closed unmerged); `dropped→in_review` (PR reopened within 7 days).
 4. Drive every (state, trigger) pair through the engine guards: 10 sources × every trigger the guards accept. Add the guard variants: a wait kind outside its source's list, the coding agent's answer to a non-conflict wait, a merge event without the commit on `main`, a reopen at 7 days + 1 s.
 5. Send `learning_done` to a `merged` TODO.
 
 ## Pass when
+- Terminal states win: every input with item state `landed` projects merged, and every input with `cancelled`, `rejected` or `declined` projects dropped, for every combination of `needs_you` and `paused_at`.
+- After a merge or a drop from any source state, the TODO has no open wait, `needs_you` is null and `paused_at` is null.
 - Step 2: every projected state equals the step 1 table; the test prints the input count.
 - Step 4: the allowed (from, trigger) pairs equal the step 3 table exactly, and the test prints both counts.
 - Every allowed case writes exactly one `todo_events` row whose `from`, `to` and `actor` match; every refused case returns `todo_transition_refused` with the from-state and trigger and writes no row.

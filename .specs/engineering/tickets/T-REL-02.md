@@ -8,6 +8,7 @@ A recording on an erased Mac mini plays J1 to J8, J10 and J11 end to end, in bot
 
 ## Scope
 In:
+- The 24 h credential soak (C-REL-05) with Ben's live Claude Code, Codex and `gh` logins on two machines, run on the same host before the recordings.
 - A harness that prepares the run: the scratch repository from a template, three GitHub accounts (owner, Ben as Maintainer, Alice as Member), and a step log with UTC timestamps.
 - Teammate actions on GitHub through the API as those accounts: a review comment (J10.2), a laptop push to a TODO branch (J10.3), an unrelated merge (J10.4), a merge on GitHub (J10.5), a network drop for the sync row (J10.6).
 - The §21 extras:
@@ -37,6 +38,7 @@ Out:
 - [C-J1-04](../checks/C-J1-04.md): first TODO to a merged PR, unassisted, within 60 minutes, recorded.
 - The other checks of J1 to J8, J10 and J11 re-run on this install in both themes, with their evidence linked from this recording: C-J1-02, C-J1-03, C-J1-05, C-J1-06, C-J2-01 to C-J2-05, C-J3-01 to C-J3-06, C-J3-08 to C-J3-10, C-J4-01 to C-J4-03, C-J5-01 to C-J5-03, C-J6-01, C-J6-02, C-J7-01 to C-J7-03, C-J8-01 to C-J8-04, C-J10-01 to C-J10-08, C-J11-01 and C-J11-03.
 - [C-UI-01](../checks/C-UI-01.md): every P0 journey completes keyboard-only.
+- [C-REL-05](../checks/C-REL-05.md): 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt
 
 ## Risks and notes
 - Replaced-edit flags are deferred (§9.3.7), so the recording shows no "Ben's save replaced Alice's edit" line. Observation that fails the run: an outside save over a newer edit that no snapshot can restore.

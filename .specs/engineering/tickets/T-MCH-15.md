@@ -40,9 +40,10 @@ Out:
 ## Acceptance
 
 - [C-MCH-10](../checks/C-MCH-10.md): log in once, use everywhere; refreshed tokens flow back; history stays local; revocation removes credentials.
+- [C-REL-05](../checks/C-REL-05.md): 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt
 
 ## Risks and notes
 
-- A tool rewrites its credentials file on every start (Claude Code refreshes tokens). Two machines refreshing in the same second make one refresh lose, which can sign out one machine's session. Confirmed if C-MCH-10's concurrent-refresh step leaves either machine signed out. If so, keep newest-wins but re-seed the loser at once.
+- Providers rotate refresh tokens, so when two machines refresh the same token, the loser's refresh fails. The store seeds the winner's token to the loser within 5 s, and the loser's tool must pick it up without a login. Confirmed broken if C-MCH-10 step 4 shows a login prompt, or C-REL-05's 24 h soak shows one. If a tool caches the token in memory and never re-reads the file, record that tool's behavior; don't add per-tool locking without measurement.
 - `~/.claude.json` field names can change between Claude Code releases. Confirmed when a login on one machine doesn't sign in another. The tracked field list lives in one table in `credentials.rs`, covered by a fixture from the current release.
 - The host stores live tool tokens. They are sealed like provider keys (§17.4) and never leave the credential service except to the member's own home.

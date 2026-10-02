@@ -136,6 +136,7 @@ Stage tags match [spec.md §0](../spec.md). Deferred behavior has no check.
 | [C-REL-02](C-REL-02.md) | `brew install` + `smthrs host start` on a fresh Mac needs no Smithers account | journey | R | T-INS-05 |
 | [C-REL-03](C-REL-03.md) | A launch-day install upgrades to the next release with all data intact | journey | R | T-INS-07 |
 | [C-REL-04](C-REL-04.md) | The alpha scorecard (mvp.md §10) is computed from run data | integration | S1 | T-REL-03 |
+| [C-REL-05](C-REL-05.md) | 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt | e2e | R | T-MCH-15, T-REL-02 |
 | **App** | | | | |
 | [C-UI-01](C-UI-01.md) | Every P0 journey completes keyboard-only | e2e | R | T-REL-02 |
 | [C-UI-02](C-UI-02.md) | Product words and minimal text: no banned terms or explanatory paragraphs in cards | unit | S1 | T-CAT-01, T-UI-14 |

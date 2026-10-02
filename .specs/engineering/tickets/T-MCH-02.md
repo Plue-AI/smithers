@@ -5,7 +5,7 @@ Spec: spec.md §5.5.4, §8.7, §21 · Delta: delta.md §3 (per-member users row)
 
 ## Result (2026-10-02)
 
-Done. C-SPK-02 is NO: layout A gives no per-member owner, and layout B passes ownership but two awake VMs writing one home lost data (`.artifacts/checks/C-SPK-02/20261002T212556Z/REPORT.md`). Product re-ruled homes as per machine with a credential store (mvp.md §6.8; spec §8.7.1, §8.7.3; T-MCH-11, T-MCH-15).
+Done. C-SPK-02 is NO: layout A keeps guest `chown` but its `0:0 700` mount root blocks traversal (a `0711` root is untested), and layout B passes ownership but two awake VMs writing one home lost data (`.artifacts/checks/C-SPK-02/20261002T212556Z/REPORT.md`). Product re-ruled homes as per machine with a credential store (mvp.md §6.8; spec §8.7.1, §8.7.3; T-MCH-11, T-MCH-15).
 
 ## Goal
 

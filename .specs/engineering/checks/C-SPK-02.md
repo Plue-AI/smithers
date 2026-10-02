@@ -5,7 +5,7 @@ Automation: `scripts/spikes/mch-02-virtiofs-homes/run.sh` (new) · Runs in: refe
 
 ## Result (2026-10-02)
 
-NO. Layout A: owner access fails. Layout B: ownership and isolation pass, but the step 6 interleaved writes lost data (183 of 2,000 shared reads ENOENT; 2,739 missing append records; SQLite errors and lost WAL rows). The spec drops shared homes (§8.7.1).
+NO. Layout A: guest `chown` persists, but the `0:0 700` mount root blocks members from traversing to their homes (a `0711` root is untested). Layout B: ownership and isolation pass, but the step 6 interleaved writes lost data (183 of 2,000 shared reads ENOENT; 2,739 missing append records; SQLite errors and lost WAL rows). The 0/6 cross-VM lock result had no positive control and is recorded as uncontrolled. The spec drops shared homes (§8.7.1).
 
 ## Setup
 

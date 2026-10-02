@@ -215,8 +215,8 @@ projection_events(topic, seq, at, payload jsonb)   -- per-topic monotonic stream
 | needs_you → queued | Answered after the machine was released (safe-idle) | The run resumes when admission grants the machine again |
 | needs_you → working | Bring in (after an outside push) | The run rebases onto the pushed commit at its next checkpoint |
 | needs_you → in_review | Discard (after an outside push), or another answer that needs no new work | The PR head is the verified candidate |
-| in_review → merged | GitHub reports the PR merged and `main` contains the commit | none (merge on GitHub counts, M-22) |
-| any unmerged → dropped | Drop, or the PR is closed on GitHub without merge | The PR is closed and later items are rebased |
+| in_review, working, needs_you, paused → merged | GitHub reports the PR merged and `main` contains the commit | None: a merge on GitHub counts from any unmerged state (M-22). The same transaction cancels the attempt's run, settles every open wait and clears `needs_you` and `paused_at`. A steer never converts the PR to draft, so a maintainer can still merge it |
+| any unmerged → dropped | Drop, or the PR is closed on GitHub without merge | The PR is closed and later items are rebased. The same transaction cancels the run, settles every open wait and clears `needs_you` and `paused_at` |
 | dropped → in_review | The PR is reopened on GitHub within 7 days | `smithers/<slug>` is recreated from the captured head in the repo store; machine cleanup doesn't matter (§12.3) |
 
 4.1.0 The stack engine's work record (`mythical_items.state`, 15 values) projects onto the TODO state. `todos.state` is written by the engine in the same transaction as the item change:
@@ -232,8 +232,10 @@ The table above is authoritative; the diagram omits some edges.
 | `landed` | merged |
 | `blocked` | failed |
 | `cancelled`, `rejected`, `declined` | dropped (`state_reason` keeps the cause) |
-| any, with an open `needs_you` | needs_you |
-| any, with `paused_at` set | paused |
+| any non-terminal, with an open `needs_you` | needs_you |
+| any non-terminal, with `paused_at` set | paused |
+
+Terminal item states win: `landed` always projects merged, and `cancelled`, `rejected` and `declined` always project dropped, whatever `needs_you` or `paused_at` hold. Check: C-STK-01.
 
 4.1.1 `queued.queue = {reason: "waiting for a machine"|"merges after Tn"|"rebase pending", position}`. The position comes from §8.3.
 
@@ -555,7 +557,7 @@ The owner may lower capacity but never raise it above the formula. The T-MCH-01 
 
 ### 8.7 Homes and logins
 
-8.7.1 Member homes are per machine (product, 2026-10-02; mvp.md §6.8 Terminals). Each is `/home/<login>` on the machine's own disk, created by the guest helper at the member's first session on that machine, owned by their uid with mode 0700. The disk is kept across sleep (§8.4.3), so tool history, caches and databases persist per machine. No home is shared between machines. Spike T-MCH-02 (#3437, C-SPK-02, `.artifacts/checks/C-SPK-02/20261002T212556Z/`) showed why. Two awake VMs writing one virtiofs home lost data: 2,739 missing append records, 4,499 SQLite errors, 3,014 acknowledged WAL rows lost, and no cross-VM lock exclusion. One virtiofs mount for several members can't present per-member owners (layout A failed), and `msb` can't add a mount to a running VM. So homes use no virtiofs.
+8.7.1 Member homes are per machine (product, 2026-10-02; mvp.md §6.8 Terminals). Each is `/home/<login>` on the machine's own disk, created by the guest helper at the member's first session on that machine, owned by their uid with mode 0700. The disk is kept across sleep (§8.4.3), so tool history, caches and databases persist per machine. No home is shared between machines. Spike T-MCH-02 (#3437, C-SPK-02, `.artifacts/checks/C-SPK-02/20261002T212556Z/`) showed why. Two awake VMs writing one virtiofs home lost data: 2,739 missing append records, 4,499 SQLite errors and 3,014 acknowledged WAL rows lost. (The spike's "0/6 cross-VM lock exclusion" had no positive control, so it isn't cited as proven.) `msb` can't add a mount to a running VM, so per-member mounts can't serve a member added while a machine is awake. One shared mount kept guest `chown` (6/6 across reboot and a second VM) but failed because its root `/home` presents as `0:0 700`, so members can't traverse into their homes; a `0711` root is untested. Homes on the machine's own disk avoid all three issues, so homes use no virtiofs.
 
 8.7.1a Disk: homes count against the machine's root disk, which §8.2.1 sizes from the host profile. A machine recreated from a new recipe starts with empty homes, and its credentials are seeded again (§8.7.3).
 

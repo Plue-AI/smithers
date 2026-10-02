@@ -93,7 +93,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-MCH-08](T-MCH-08.md) | Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32) | S1 | M | T-STK-02, T-UI-04, T-APP-19 | C-MCH-08, C-J7-02 |
 | [T-MCH-09](T-MCH-09.md) | Cleanup only after settled, captured and quiet | S2 | S | T-MCH-07 | C-MCH-05 |
 | [T-MCH-11](T-MCH-11.md) | Member unix users, `team` group, no-sudo image, per-machine homes | S2 | L | T-MCH-02, T-ACC-02 | C-MCH-06, C-MCH-09 |
-| [T-MCH-15](T-MCH-15.md) | Per-member credential store: tool logins carry across machines | S2 | M | T-MCH-11, T-COL-03 | C-MCH-10 |
+| [T-MCH-15](T-MCH-15.md) | Per-member credential store: tool logins carry across machines | S2 | M | T-MCH-11, T-COL-03 | C-MCH-10, C-REL-05 |
 | [T-MCH-12](T-MCH-12.md) | Secrets into machines; main-only kept out | S2 | M | T-MCH-11, T-COL-03 | C-MCH-07, C-SEC-01 |
 | **Live layer and machine daemon** | | | | | |
 | [T-COL-10](T-COL-10.md) | Co-editing architecture: ADR 0003 and the stage-1 contracts (spec §7.6) | S1 | M | T-COL-01 | C-COL-01, C-UI-05 |
@@ -164,7 +164,7 @@ T-INS-01 → T-INS-02 → T-ACC-01 → T-STK-01 → T-STK-04      (about 2 calen
 | [T-DOC-01](T-DOC-01.md) | Quickstart and flows reference | R | M | T-INS-05 | C-REL-01 |
 | [T-DOC-03](T-DOC-03.md) | Replace `docs/mvp/*` with the approved specs (M-12) | R | S | T-CUT-01 | C-REL-01 |
 | [T-REL-01](T-REL-01.md) | Performance benchmarks on the reference host | R | M | T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06, T-MCH-07, T-STK-11, T-INS-06 | C-PERF-01..06 |
-| [T-REL-02](T-REL-02.md) | Journey recordings J1–J5 and J10 on a fresh Mac mini | R | M | S1–S3 | C-J*, C-UI-01 |
+| [T-REL-02](T-REL-02.md) | Journey recordings J1–J5 and J10 on a fresh Mac mini | R | M | S1–S3 | C-J*, C-UI-01, C-REL-05 |
 
 ## Dependency spine
 
