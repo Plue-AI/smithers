@@ -1181,6 +1181,87 @@ describe("every mechanism renders the same text on any host", () => {
 })
 
 describe("wrap and environment", () => {
+  it.skipIf(process.platform !== "darwin" && process.platform !== "linux")(
+    "writes XDG state inside native confinement without touching inherited host directories",
+    () => {
+      const { base, workspaceRoot, outside } = writeFixture()
+      try {
+        const tmp = NodePath.join(workspaceRoot, ".tmp")
+        NodeFs.mkdirSync(tmp)
+        const inherited = {
+          XDG_CONFIG_HOME: NodePath.join(outside, "config"),
+          XDG_DATA_HOME: NodePath.join(outside, "data"),
+          XDG_STATE_HOME: NodePath.join(outside, "state")
+        }
+        for (const directory of Object.values(inherited)) {
+          NodeFs.mkdirSync(directory)
+          NodeFs.writeFileSync(NodePath.join(directory, "host-only"), "private")
+        }
+        const facts = ProcessSandbox.host()
+        const confinement = ProcessSandbox.plan(
+          { network: "none", reads: [], writes: [] },
+          { workspaceRoot, cwd: workspaceRoot, tmp },
+          facts
+        )
+        if (confinement === undefined || ProcessSandbox.isUnenforceable(confinement)) {
+          throw new Error("native sandbox unavailable")
+        }
+        const wrapped = ProcessSandbox.wrap(
+          confinement,
+          [
+            "/bin/sh",
+            "-c",
+            "set -eu; for directory in \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_STATE_HOME\"; do mkdir -p \"$directory\"; printf private-state > \"$directory/probe\"; cat \"$directory/probe\"; done"
+          ],
+          inherited,
+          facts
+        )
+        const result = spawnSync(wrapped.argv[0]!, wrapped.argv.slice(1), {
+          cwd: workspaceRoot,
+          encoding: "utf8",
+          timeout: 10_000,
+          env: { ...process.env, ...inherited, ...wrapped.env }
+        })
+        expect(result.error).toBeUndefined()
+        expect(result.status, result.stderr).toBe(0)
+        expect(result.stdout).toBe("private-stateprivate-stateprivate-state")
+        for (const directory of Object.values(inherited)) {
+          expect(NodeFs.readdirSync(directory)).toEqual(["host-only"])
+          expect(NodeFs.readFileSync(NodePath.join(directory, "host-only"), "utf8")).toBe("private")
+        }
+      } finally {
+        NodeFs.rmSync(base, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.each(["seatbelt", "bubblewrap", "docker"] as const)("replaces inherited XDG directories under %s", (mechanism) => {
+    const plan = mechanism === "seatbelt" ? planned(darwin) : planned(linux)
+    const confinement: ProcessSandbox.Plan = mechanism === "docker"
+      ? { ...plan, mechanism: { _tag: "docker", executable: "/usr/bin/docker", image: "tools" } }
+      : plan
+    const inherited = {
+      XDG_CONFIG_HOME: "/host/home/.config",
+      XDG_DATA_HOME: "/host/home/.local/share",
+      XDG_STATE_HOME: "/host/home/.local/state"
+    }
+    const wrapped = ProcessSandbox.wrap(confinement, ["true"], inherited, linux)
+    const tmp = mechanism === "seatbelt" ? confinement.tmp : "/tmp"
+    for (
+      const [name, suffix] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"], [
+        "XDG_STATE_HOME",
+        "state"
+      ]] as const
+    ) {
+      if (mechanism === "docker") {
+        expect(wrapped.argv).toContain(`${name}=${tmp}/${suffix}`)
+        expect(wrapped.argv).not.toContain(`${name}=${inherited[name as keyof typeof inherited]}`)
+      } else {
+        expect({ ...inherited, ...wrapped.env }[name]).toBe(`${tmp}/${suffix}`)
+      }
+    }
+  })
+
   it("redirects the temporary and home directories into the confinement", () => {
     const seatbelt = ProcessSandbox.wrap(planned(darwin), ["true"], {}, linux)
     expect(seatbelt.argv.slice(0, 2)).toEqual(["/usr/bin/sandbox-exec", "-p"])

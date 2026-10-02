@@ -41,6 +41,8 @@ adapter and `ProcessReaper.processLifecycle`:
   holds no other live member and no captured escaped descendant, cleanup
   finishes at once.
 
+Confined children use private directories for `HOME` and XDG config, cache, data, and state.
+
 Default commands lead their own group. `detached: false` opts out of group
 cleanup and signals only the native target. Explicit stopping of a still-live
 grouped target additionally attempts a revalidated positive-PID sweep of

@@ -715,7 +715,10 @@ export const environment = (
     TMPDIR: tmp,
     TMP: tmp,
     TEMP: tmp,
-    XDG_CACHE_HOME: NodePath.posix.join(toPosix(tmp), "cache")
+    XDG_CACHE_HOME: NodePath.posix.join(toPosix(tmp), "cache"),
+    XDG_CONFIG_HOME: NodePath.posix.join(toPosix(tmp), "config"),
+    XDG_DATA_HOME: NodePath.posix.join(toPosix(tmp), "data"),
+    XDG_STATE_HOME: NodePath.posix.join(toPosix(tmp), "state")
   }
 }
 
