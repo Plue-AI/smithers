@@ -22,6 +22,7 @@ const ManagedCredentialName = "SMITHERS_MANAGED"
 var managedDefaults = []struct{ provider, protocol, modelID string }{
 	{modelproxy.ProviderAnthropic, "anthropic-messages", "claude-sonnet-5"},
 	{modelproxy.ProviderOpenAI, "openai-responses", "gpt-6-sol"},
+	{modelproxy.ProviderCerebras, "openai-chat", "gpt-oss-120b"},
 }
 
 // ManagedModels serves an owner's chat turns on managed credit when the

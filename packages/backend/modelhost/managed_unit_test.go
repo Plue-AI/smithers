@@ -68,6 +68,49 @@ func TestManagedDefaultsArePricedOnTheirProvider(t *testing.T) {
 	}
 }
 
+func TestManagedModelsCerebrasFallbackAndProviderRotation(t *testing.T) {
+	for _, placeholders := range []bool{false, true} {
+		t.Run(map[bool]string{false: "cerebras only", true: "placeholder preferred keys"}[placeholders], func(t *testing.T) {
+			configured := map[string]string{modelproxy.ProviderCerebras: "cerebras-private-fixture"}
+			if placeholders {
+				configured[modelproxy.ProviderAnthropic] = "placeholder-anthropic"
+				configured[modelproxy.ProviderOpenAI] = "replace-me-openai"
+			}
+			keys := modelproxy.NewStaticKeys(configured)
+			managed, err := NewManagedModels(ownerResolving(Binding{}, ErrOwnerModelUnset), keys, testProxyURL)
+			require.NoError(t, err)
+			resolve := func(provider, protocol, modelID string) {
+				t.Helper()
+				binding, err := managed.ResolveChatModel(context.Background(), 7, 0, json.RawMessage(`{}`))
+				require.NoError(t, err)
+				require.True(t, binding.Managed)
+				require.Empty(t, binding.CredentialValue)
+				require.Equal(t, ManagedCredentialName, binding.CredentialName)
+				require.Equal(t, "https://api.example.test", binding.CredentialOrigin)
+				expected, err := json.Marshal(map[string]string{"protocol": protocol, "modelId": modelID, "credential": ManagedCredentialName, "baseUrl": testProxyURL + "/" + provider})
+				require.NoError(t, err)
+				require.JSONEq(t, string(expected), string(binding.Model))
+				for _, secret := range configured {
+					require.NotContains(t, string(binding.Model), secret)
+				}
+				_, _, priced := modelproxy.Price(provider, modelID)
+				require.True(t, priced)
+			}
+			resolve(modelproxy.ProviderCerebras, "openai-chat", "gpt-oss-120b")
+			keys[modelproxy.ProviderOpenAI] = "openai-private-fixture"
+			resolve(modelproxy.ProviderOpenAI, "openai-responses", "gpt-6-sol")
+			keys[modelproxy.ProviderAnthropic] = "anthropic-private-fixture"
+			resolve(modelproxy.ProviderAnthropic, "anthropic-messages", "claude-sonnet-5")
+			delete(keys, modelproxy.ProviderAnthropic)
+			delete(keys, modelproxy.ProviderOpenAI)
+			resolve(modelproxy.ProviderCerebras, "openai-chat", "gpt-oss-120b")
+			delete(keys, modelproxy.ProviderCerebras)
+			_, err = managed.ResolveChatModel(context.Background(), 7, 0, json.RawMessage(`{}`))
+			require.ErrorIs(t, err, ports.ErrModelCredentialMissing)
+		})
+	}
+}
+
 func TestManagedModelsRefuseAnUnsafeProxy(t *testing.T) {
 	owner := ownerResolving(Binding{}, nil)
 	keys := modelproxy.StaticKeys{}
