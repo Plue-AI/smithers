@@ -76,7 +76,7 @@ describe("Attachment", () => {
     host.innerHTML = renderToStaticMarkup(<Attachment name="dark.txt" />);
     document.body.appendChild(host);
     const attachment = host.querySelector<HTMLElement>('[data-slot="attachment"]')!;
-    expect(getComputedStyle(attachment).backgroundColor).toBe("#0d2132");
+    expect(getComputedStyle(attachment).backgroundColor).toBe("#131b1a");
     host.remove();
   });
 });
@@ -250,7 +250,7 @@ describe("Attachment compound", () => {
     );
     document.body.appendChild(host);
     const attachment = host.querySelector<HTMLElement>('[data-slot="attachment"]')!;
-    expect(getComputedStyle(attachment).backgroundColor).toBe("#0d2132");
+    expect(getComputedStyle(attachment).backgroundColor).toBe("#131b1a");
     host.remove();
   });
 });

@@ -195,7 +195,7 @@ describe("Message", () => {
     );
     expect(document.querySelector(`style[${SMITHERS_UI_STYLE_ATTR}]`)?.textContent).toContain(conversationFoundationCss.trim());
     const avatar = container!.querySelector<HTMLElement>('[data-slot="message-avatar"]')!;
-    expect(getComputedStyle(avatar).backgroundColor).toBe("#15293a");
+    expect(getComputedStyle(avatar).backgroundColor).toBe("#1a2422");
   });
 });
 

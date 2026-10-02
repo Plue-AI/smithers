@@ -72,7 +72,7 @@ describe("css contract", () => {
     for (const m of rootBlock.matchAll(/(--[\w-]+):([^;]+);/g)) {
       lightValues.set(m[1]!, m[2]!.trim());
     }
-    expect(lightValues.get("--bg")).toBe("#FBFBFB");
+    expect(lightValues.get("--bg")).toBe("#f7f4ee");
 
     const sources = [
       smithersUiCss,
@@ -96,21 +96,36 @@ describe("css contract", () => {
     expect(checked).toBeGreaterThan(20);
   });
 
+  test("standalone token recipes match Paper, including tints, shadows and fonts", () => {
+    const lightValues = new Map(
+      [...workflowUiThemeCss.split("\n")[0]!.matchAll(/(--[\w-]+):([^;]+);/g)]
+        .map((match) => [match[1]!, match[2]!.trim()]),
+    );
+    const resolve = (value: string): string => value.replace(
+      /var\((--[\w-]+)(?:,\s*([^()]*))?\)/g,
+      (_, name: string, fallback: string | undefined) => fallback ?? lightValues.get(name)!,
+    );
+    for (const token of Object.values(tokens)) {
+      const [, name, fallback] = token.match(/^var\((--[\w-]+),\s*([\s\S]+)\)$/)!;
+      expect(`${name}=${resolve(fallback!)}`).toBe(`${name}=${resolve(lightValues.get(name!)!)}`);
+    }
+  });
+
   test("focus ring follows the house recipe through the --ring custom properties", () => {
     // Routed through --ring/--ring-border so a host that themes the ring
     // re-themes these components; the fallbacks stay the house recipe.
     expect(smithersUiCss).toContain(
-      "border-color:var(--ring-border, color-mix(in srgb, var(--brand, #9449bc) 50%, transparent))",
+      "border-color:var(--ring-border, color-mix(in srgb, var(--brand, #0f766e) 50%, transparent))",
     );
     expect(smithersUiCss).toContain(
-      "0 0 0 3px var(--ring, color-mix(in srgb, var(--brand, #9449bc) 22%, transparent))",
+      "0 0 0 3px var(--ring, color-mix(in srgb, var(--brand, #0f766e) 22%, transparent))",
     );
   });
 
   test("the default button variant is the house tinted primary, not a solid fill", () => {
     const defaultRule = smithersUiCss.match(/\.sui-button-default \{[^}]+\}/)?.[0] ?? "";
-    expect(defaultRule).toContain("color-mix(in srgb, var(--brand, #9449bc) 10%,");
-    expect(defaultRule).toContain("color:var(--brand, #9449bc)");
+    expect(defaultRule).toContain("color-mix(in srgb, var(--brand, #0f766e) 10%,");
+    expect(defaultRule).toContain("color:var(--brand, #0f766e)");
   });
 
   test("badge variants consume the shared semantic soft and border tokens", () => {

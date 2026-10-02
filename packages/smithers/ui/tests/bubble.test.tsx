@@ -90,6 +90,6 @@ describe("Bubble", () => {
     document.documentElement.dataset.theme = "dark";
     await render(<Bubble variant="assistant">dark</Bubble>);
     const bubble = container!.querySelector<HTMLElement>('[data-slot="bubble"]')!;
-    expect(getComputedStyle(bubble).backgroundColor).toBe("#15293a");
+    expect(getComputedStyle(bubble).backgroundColor).toBe("#1a2422");
   });
 });

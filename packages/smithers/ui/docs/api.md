@@ -599,8 +599,8 @@ spellings of a name.
 Syntax token colors follow the resolved `mode` and `palette`, which default to
 the document's theme and palette. `diffsThemeForMode` selects
 `themeRegistry[palette].syntax.shikiLight` or `shikiDark` for light or dark mode.
-Calling the helper without a palette uses `"paper"`. Override a registered
-palette on the component when a surface needs different syntax colors:
+Calling the helper without a palette uses `"paper"`, the registered Paper
+palette. Set it explicitly on the component:
 
 ```tsx
 <PierreDiffView patch={patch} palette="paper" />

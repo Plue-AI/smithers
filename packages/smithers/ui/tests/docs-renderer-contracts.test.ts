@@ -36,7 +36,7 @@ describe("documented renderer and installation contracts", () => {
     for (const contract of ["themeRegistry[palette].syntax", "shikiLight", "shikiDark", "`mode`", "`palette`", "document", "custom unregistered themes"]) {
       expect(prose).toContain(contract);
     }
-    expect(diffReference).toContain('<PierreDiffView patch={patch} palette="catppuccin" />');
+    expect(diffReference).toContain('<PierreDiffView patch={patch} palette="paper" />');
   });
 
   test("both installation requirements and copyable dependencies match the React peers", () => {

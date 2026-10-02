@@ -51,7 +51,7 @@ describe("Marker", () => {
     host.innerHTML = renderToStaticMarkup(<Marker variant="note">Dark note</Marker>);
     document.body.appendChild(host);
     const marker = host.querySelector<HTMLElement>('[data-slot="marker"]')!;
-    expect(getComputedStyle(marker).color).toBe("#94a0ae");
+    expect(getComputedStyle(marker).color).toBe("#a8a193");
     host.remove();
   });
 });
@@ -87,10 +87,10 @@ describe("Shimmer and scroll fade CSS", () => {
     document.body.appendChild(host);
     const shimmer = host.querySelector<HTMLElement>('[data-slot="shimmer"]')!;
     const theme = getComputedStyle(document.documentElement);
-    expect(theme.getPropertyValue("--text").trim()).toBe("#d6deeb");
-    expect(theme.getPropertyValue("--text-muted").trim()).toBe("#94a0ae");
+    expect(theme.getPropertyValue("--text").trim()).toBe("#ece7db");
+    expect(theme.getPropertyValue("--text-muted").trim()).toBe("#a8a193");
     expect(chatScrollerCss).toContain(
-      "linear-gradient(90deg, var(--text-muted, #676676) 35%, var(--text, #403f53) 50%, var(--text-muted, #676676) 65%)",
+      "linear-gradient(90deg, var(--text-muted, #665f54) 35%, var(--text, #211d18) 50%, var(--text-muted, #665f54) 65%)",
     );
     // Happy DOM only resolves the first custom property in a gradient. Resolve
     // its remaining references against the actual theme, keeping the applied
@@ -100,7 +100,7 @@ describe("Shimmer and scroll fade CSS", () => {
       (_reference, name: string, fallback: string) => theme.getPropertyValue(name).trim() || fallback,
     );
     expect(gradient).toBe(
-      "linear-gradient(90deg, #94a0ae 35%, #d6deeb 50%, #94a0ae 65%)",
+      "linear-gradient(90deg, #a8a193 35%, #ece7db 50%, #a8a193 65%)",
     );
     host.remove();
   });

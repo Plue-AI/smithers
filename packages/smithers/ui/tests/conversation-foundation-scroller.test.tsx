@@ -730,7 +730,7 @@ describe("MessageScroller compound", () => {
       { scrollHeight: 1000, clientHeight: 200, scrollTop: 50 },
     );
     const button = container!.querySelector<HTMLElement>('[data-slot="message-scroller-button"]')!;
-    expect(getComputedStyle(button).color).toBe("#d6deeb");
+    expect(getComputedStyle(button).color).toBe("#ece7db");
   });
 
   test("the compound anatomy shares one provider and viewport", async () => {

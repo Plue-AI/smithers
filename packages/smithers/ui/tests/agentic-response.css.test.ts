@@ -10,8 +10,8 @@ describe("agentic response CSS", () => {
   });
 
   test("styles code through the house code tokens and pins wrapping anatomy", () => {
-    expect(agenticResponseCss).toContain("background:var(--code-bg, #FBFBFB)");
-    expect(agenticResponseCss).toContain("color:var(--code-text, #403f53)");
+    expect(agenticResponseCss).toContain("background:var(--code-bg, #efeae0)");
+    expect(agenticResponseCss).toContain("color:var(--code-text, #211d18)");
     expect(agenticResponseCss).toContain(
       ".sui-codeblock[data-wrap='true'] .sui-codeblock-body code { min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; }",
     );
@@ -26,8 +26,8 @@ describe("agentic response CSS", () => {
     expect(darkBlock).toContain("--text-muted:#a8a193");
     expect(darkBlock).toContain("--code-bg:#101917");
     expect(darkBlock).toContain("--code-text:#ece7db");
-    expect(agenticResponseCss).toContain("background:var(--text-muted, #676676)");
-    expect(agenticResponseCss).toContain("background:var(--code-bg, #FBFBFB)");
-    expect(agenticResponseCss).toContain("color:var(--code-text, #403f53)");
+    expect(agenticResponseCss).toContain("background:var(--text-muted, #665f54)");
+    expect(agenticResponseCss).toContain("background:var(--code-bg, #efeae0)");
+    expect(agenticResponseCss).toContain("color:var(--code-text, #211d18)");
   });
 });

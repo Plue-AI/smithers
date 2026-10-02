@@ -64,10 +64,10 @@ describe("theme + layout mapping", () => {
   test("maps Pierre chrome and semantic diff colors onto house tokens", () => {
     const rule = smithersUiCss.match(/\.sui-pierre-diff \{[^}]+\}/)?.[0] ?? "";
     for (const token of [
-      "var(--surface, #fefefe)",
-      "var(--text, #403f53)",
-      "var(--success, #21766f)",
-      "var(--danger, #ba3f3c)",
+      "var(--surface, #fffefa)",
+      "var(--text, #211d18)",
+      "var(--success, #0b5b57)",
+      "var(--danger, #a4442a)",
       "var(--success-soft,",
       "var(--danger-soft,",
     ]) {
