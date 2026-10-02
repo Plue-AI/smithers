@@ -1,12 +1,14 @@
+import { Refused } from "@smthrs/cli/CliError"
 import * as CloudSession from "@smthrs/cli/CloudSession"
 import type { MythicalStack } from "@smthrs/rpc/Mythical"
 import { afterEach, expect, it } from "bun:test"
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Factory from "../src/factory.ts"
+import * as Log from "../src/log.ts"
 
 const now = Date.parse("2026-09-28T20:00:00Z")
 const item = (id: string, state: string, extra: Record<string, unknown> = {}) => ({
@@ -294,6 +296,145 @@ const stackRoute = "/api/repos/o/r/mythical"
 /** The stack as Cloud serves it. */
 const served = { ...stack, changes: stack.changes.map((change) => ({ ...change, state: "landed" })) }
 
+it("keeps returned TODO refusals and uncertain failures diagnostic, private and retryable over HTTP", async () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-todo-diagnostic-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const received: Array<Received> = []
+    let status = 403
+    const origin = await cloudAt(() => ({ status, body: status === 200 ? item("40", "queued") : {} }), received)
+    const cloud = (await signIn(origin)())!
+    let ids = 0
+    const file = Factory.filer(cloud.post, () => `request-${++ids}`)
+    expect(await file("o/r", "Same TODO")).toEqual({
+      ok: false,
+      detail: "That command could not run.",
+      settled: true
+    })
+    expect(readFileSync(Log.path(), "utf8")).toContain("HTTP 403")
+    status = 401
+    expect(await file("o/r", "Same TODO")).toEqual({
+      ok: false,
+      detail: "That command could not run.",
+      settled: true
+    })
+    expect(readFileSync(Log.path(), "utf8")).toContain("HTTP 401")
+    status = 503
+    expect(await file("o/r", "Same TODO")).toEqual({
+      ok: false,
+      detail: "That command could not run. Details: /conversation",
+      settled: false
+    })
+    status = 200
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
+    expect(received.map((request) => JSON.parse(request.body).request)).toEqual([
+      "request-1",
+      "request-2",
+      "request-3",
+      "request-3"
+    ])
+    const lines = readFileSync(Log.path(), "utf8").trim().split("\n")
+    expect(lines).toHaveLength(3)
+    expect(lines[2]).toContain("HTTP 503")
+    expect(statSync(Log.path()).mode & 0o777).toBe(0o600)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("uses typed refusal authority rather than diagnostic HTTP words to retain an uncertain TODO's request id", async () => {
+  for (
+    const [code, fault, settled] of [
+      ["cloud_request_failed", "infra", false],
+      ["cloud_invalid_response", "infra", false],
+      ["cloud_invalid_response", "user", false],
+      ["cloud_request_failed", "user", true]
+    ] as const
+  ) {
+    let attempts = 0
+    let ids = 0
+    const requests: string[] = []
+    const file = Factory.filer(async (_path, body) => {
+      requests.push((body as { request: string }).request)
+      if (attempts++ === 0) throw new Refused({ code, fault, message: "private diagnostic mentions HTTP 403" })
+      return item("40", "queued")
+    }, () => `request-${++ids}`)
+    const answer = await file("o/r", "Same TODO")
+    expect(answer).toMatchObject({ ok: false, settled })
+    expect(answer.ok ? "" : answer.detail).not.toContain("private diagnostic")
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true })
+    expect(requests).toEqual(["request-1", settled ? "request-2" : "request-1"])
+  }
+})
+
+it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with the same request", async () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-todo-validation-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const received: Array<Received> = []
+    let valid = false
+    const origin = await cloudAt(
+      () => ({ status: 200, body: valid ? item("40", "queued") : { id: "HTTP 403" } }),
+      received
+    )
+    const cloud = (await signIn(origin)())!
+    let ids = 0
+    const file = Factory.filer(cloud.post, () => `request-${++ids}`)
+    expect(await file("o/r", "Same TODO")).toEqual({
+      ok: false,
+      detail: "That command could not run. Details: /conversation",
+      settled: false
+    })
+    const diagnostic = readFileSync(Log.path(), "utf8")
+    expect(diagnostic).toContain("state")
+    expect(diagnostic.trim().split("\n")).toHaveLength(1)
+    valid = true
+    expect(await file("o/r", "Same TODO")).toMatchObject({ ok: true, item: { issue: { number: 40 } } })
+    expect(received.map((request) => JSON.parse(request.body).request)).toEqual(["request-1", "request-1"])
+    expect(readFileSync(Log.path(), "utf8")).toBe(diagnostic)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("keeps thrown retry causes in the redacted log and domain refusals actionable", async () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-retry-diagnostic-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    const error = new Error("private keyring /secrets/operator", {
+      cause: new Error("Authorization: Bearer sk-private-token")
+    })
+    const answer = await Factory.retryCommand("#2431", "o/r", async () => {
+      throw error
+    }).settled
+    expect(answer).toEqual({
+      text: "#2431 not retried: That command could not run. Details: /conversation",
+      tone: "warning"
+    })
+    const saved = readFileSync(Log.path(), "utf8")
+    expect(saved).toContain("private keyring /secrets/operator")
+    expect(saved).toContain("Caused by:")
+    expect(saved).not.toContain("sk-private-token")
+    const origin = await cloudAt(() => ({ status: 200, body: served }))
+    expect(await Factory.retryCommand("#2412", "o/r", signIn(origin)).settled).toEqual({
+      text: "#2412 not retried: #2412 is implementing",
+      tone: "warning"
+    })
+    expect(readFileSync(Log.path(), "utf8")).toBe(saved)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 it("retries a blocked TODO as the signed-in person and settles on the item Cloud answers", async () => {
   const received: Array<Received> = []
   const origin = await cloudAt(
@@ -330,7 +471,9 @@ it("shows a refused retry as a typed failure, and never posts for an issue that 
   expect(await Factory.retry(cloud, "o/r", 2431)).toEqual({
     ok: false,
     detail: "That command could not run. Details: /conversation",
-    settled: true
+    // Cloud classifies a 409 as infrastructure failure, so certainty cannot
+    // be inferred from its diagnostic text.
+    settled: false
   })
   // A running issue and an issue the stack does not hold are refused here, before any POST.
   expect(await Factory.retryCommand("2412", "o/r", signIn(origin)).settled).toEqual({

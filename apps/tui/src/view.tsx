@@ -980,7 +980,7 @@ export function ToastStack(
       stickyStart="bottom"
       scrollX={false}
       style={{
-        height: Math.min(props.height, props.rows.length * (props.compact ? 1 : 2)),
+        maxHeight: props.height,
         flexShrink: 0,
         scrollbarOptions: { visible: false },
         contentOptions: { alignItems: "flex-end" }

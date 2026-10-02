@@ -18,6 +18,7 @@ import {
 import * as StackIssues from "@smthrs/rpc/StackIssues"
 import { itemReason, itemStateLabel, itemTitle, landable, retryable } from "@smthrs/rpc/StackView"
 import * as Failures from "./failures.ts"
+import * as Log from "./log.ts"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -55,7 +56,7 @@ export type Filing =
  * Files TODOs with `POST …/mythical/todos`, each under one request id: the
  * same TODO filed again after an answer that never came (a dropped network,
  * a 5xx) resends that id, so the backend returns the TODO it already filed
- * instead of filing twice. A refusal (HTTP 4xx) filed nothing and drops the id.
+ * instead of filing twice. A typed Cloud user refusal drops the id.
  * The same TODO filed while one is in flight joins it.
  */
 export const filer = (
@@ -73,8 +74,16 @@ export const filer = (
     const [owner, name] = repo.split("/") as [string, string]
     const run = post(mythicalRoute("todos", owner, name), { title, request }, signal).then(
       (body): Filing => {
+        let item: MythicalItem
+        try {
+          item = MythicalItemSchema.parse(body)
+        } catch (error) {
+          // A successful HTTP answer with an unusable body may have filed
+          // the TODO. Keep the request id until a validated answer arrives.
+          return { ...failed(error), settled: false }
+        }
         requests.delete(key)
-        return { ok: true, item: MythicalItemSchema.parse(body) }
+        return { ok: true, item }
       },
       (error): Filing => {
         const refused = failed(error)
@@ -87,12 +96,21 @@ export const filer = (
   }
 }
 
-/** A request that failed: a refusal (HTTP 4xx) is final; anything else may not have reached Cloud. */
-const failed = (error: unknown): Filing & { readonly ok: false } => ({
-  ok: false,
-  detail: Failures.line("command", error),
-  settled: /HTTP 4\d\d\b/.test(String(error))
-})
+/** Only a typed Cloud user refusal is final; legacy HTTP 4xx errors retain their old classification. */
+const failed = (error: unknown): Filing & { readonly ok: false } => {
+  const failure = Failures.present("command", error)
+  // The presenter logs unexpected failures; a returned Cloud refusal also
+  // needs its diagnostic because it never reaches the host's catch boundary.
+  if (failure.fault === "user") Log.write("factory.command", error)
+  const typed = typeof error === "object" && error !== null && "_tag" in error && error._tag === "/cli/Refused"
+  return {
+    ok: false,
+    detail: failure.fault === "user" ? failure.sentence : `${failure.sentence} ${Failures.inTerminal}`,
+    settled: typed
+      ? "code" in error && error.code === "cloud_request_failed" && "fault" in error && error.fault === "user"
+      : /HTTP 4\d\d\b/.test(String(error))
+  }
+}
 
 /** `12` or `#12`: the issue a factory command names. */
 export const issueOf = (argument: string): number | undefined => {

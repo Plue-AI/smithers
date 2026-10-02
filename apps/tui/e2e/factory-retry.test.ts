@@ -36,6 +36,86 @@ const notes = (
   return records
 }
 
+it("TODO failures use safe status copy and retain diagnostics and request identity through real HTTP", async () => {
+  const root = mkdtempSync(join(tmpdir(), "tui-factory-todo-"))
+  const sessions = join(root, "sessions")
+  const replay = join(root, "pong.jsonl")
+  writeFileSync(replay, readFileSync(join(app, "test", "fixtures", "pong.jsonl"), "utf8"))
+  let status = 403
+  const requests: Array<{ request: string; title: string }> = []
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (request) => {
+      if (request.method !== "POST" || new URL(request.url).pathname !== "/api/repos/o/r/mythical/todos") {
+        return new Response("{}", { status: 404 })
+      }
+      requests.push(await request.json() as { request: string; title: string })
+      return status === 200
+        ? Response.json(item("todo-40", 40, "queued"))
+        : new Response("private backend diagnostic", { status })
+    }
+  })
+  let tui: Tui | undefined
+  try {
+    tui = await Tui.start({
+      cwd: root,
+      cols: 130,
+      rows: 35,
+      command: `bun ${join(app, "src", "main.tsx")} ${root}`,
+      env: {
+        HOME: root,
+        XDG_CONFIG_HOME: root,
+        PATH: process.env.PATH ?? "",
+        SMITHERS_TUI_SESSION_DIR: sessions,
+        SMITHERS_TUI_REPLAY: replay,
+        SMITHERS_API_ORIGIN: `http://127.0.0.1:${server.port}`,
+        SMITHERS_TOKEN: "tok_factory_todo_fixture",
+        SMITHERS_REPO: "o/r"
+      }
+    })
+    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 25_000, "production first draw")
+    const send = async () => {
+      await tui!.type("/todo Same TODO")
+      await tui!.press(key.enter)
+    }
+    await send()
+    await tui.until(
+      (screen) => screen.includes("TODO not filed: That command could not run."),
+      10_000,
+      "final TODO refusal"
+    )
+    expect(tui.screen()).not.toContain("again retries it")
+    expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("HTTP 403")
+    await tui.resize(40, 12)
+    status = 503
+    await send()
+    await tui.until(
+      (screen) => screen.replace(/[┃\s]/g, "").includes("/todoagainretriesit"),
+      10_000,
+      "uncertain TODO failure"
+    )
+    expect(tui.screen().replace(/[┃\s]/g, "")).toContain("Details:/conversation")
+    expect(tui.screen()).toContain("Ask Smithers")
+    expect(tui.screen()).toMatch(/↑\S+ ↓\S+/)
+    expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("HTTP 503")
+    for (const raw of ["HTTP 403", "HTTP 503", "/api/repos/", "private backend diagnostic"]) {
+      expect(tui.screen()).not.toContain(raw)
+    }
+    status = 200
+    await send()
+    await tui.until((screen) => screen.includes("TODO #40 queued"), 10_000, "TODO recovery")
+    expect(requests).toHaveLength(3)
+    expect(requests[0]!.request).not.toBe(requests[1]!.request)
+    expect(requests[1]!.request).toBe(requests[2]!.request)
+    expect(requests.map((request) => request.title)).toEqual(["Same TODO", "Same TODO", "Same TODO"])
+  } finally {
+    await tui?.stop()
+    server.stop(true)
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 90_000)
+
 it("the Retry row action stays responsive through real Cloud responses", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-factory-retry-"))
   const sessions = join(root, "sessions")
