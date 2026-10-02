@@ -29,3 +29,15 @@ func TestGitStatusErrorPushSizeMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestGitStatusErrorForbiddenRetainsMessage(t *testing.T) {
+	const message = "an agent run cannot write the default bookmark; land its changes instead"
+	status := gitStatusError(&http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(message + "\n")),
+	})
+	if status.StatusCode != http.StatusForbidden || status.Message != message {
+		t.Fatalf("status = %+v, want forbidden with message %q", status, message)
+	}
+}

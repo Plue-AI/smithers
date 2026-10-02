@@ -467,9 +467,19 @@ func countCommitsSince(ctx context.Context, gitDir, rev string, since time.Time)
 }
 
 // refuseAgentRunDefaultBookmark refuses a push the API attributed to an agent
-// run when it writes the default bookmark. It fails closed: a default that
-// cannot be read refuses the push.
+// run when it writes the default bookmark. Bookmark writes fail closed when
+// the default cannot be read; other refs do not depend on that choice.
 func refuseAgentRunDefaultBookmark(ctx context.Context, gitDir string, commands []repohost.ReceivePackCommand) error {
+	writesBookmark := false
+	for _, command := range commands {
+		if strings.HasPrefix(command.RefName, "refs/heads/") {
+			writesBookmark = true
+			break
+		}
+	}
+	if !writesBookmark {
+		return nil
+	}
 	defaultBookmark, err := gitDefaultBookmark(ctx, gitDir)
 	if err != nil {
 		return forbidden("an agent run's push is refused: the default bookmark cannot be read")

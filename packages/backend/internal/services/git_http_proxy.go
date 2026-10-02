@@ -443,6 +443,9 @@ func gitProxyFailure(ctx context.Context, operation, owner, repo string, err err
 			return admission
 		}
 	}
+	if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == http.StatusForbidden {
+		return errors.Forbidden(status.Message)
+	}
 	if status, ok := repohost.IsStatusError(err); ok && status.Code == repohost.PushTooSlowCode {
 		return errors.New(errors.CodePushTooSlow, status.Message)
 	}

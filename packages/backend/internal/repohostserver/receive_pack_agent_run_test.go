@@ -98,3 +98,33 @@ func TestReceivePackRefusesDefaultBookmarkRewrite(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, rewrite, f.repo.refs()["refs/heads/main"], "the sync credential copies GitHub's default branch")
 }
+
+func TestReceivePackAgentRunWorkspaceHeadIgnoresUnreadableDefault(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	require.NoError(t, os.RemoveAll(filepath.Join(f.repo.gitDir, "smithers-default-bookmark")))
+	require.NoError(t, os.WriteFile(filepath.Join(f.repo.gitDir, "HEAD"), []byte(f.base+"\n"), 0o644))
+	tip := f.commit("workspace work", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "agent.txt"), []byte("agent\n"), 0o644))
+	})
+	ref := repohost.WorkspaceHeadRef(userRefWorkspace)
+	body := f.pushBody(f.base, tip, ref)
+	copy(body[4:44], laneZeroOID)
+	rec := postReceivePack(t, f, body, repohost.PusherCredentialHeader, string(middleware.CredentialAgentRun), "X-Smithers-Workspace-Id", userRefWorkspace)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, tip, f.repo.refs()[ref])
+	assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"])
+}
+
+func TestReceivePackAgentRunUnreadableDefaultBookmarkFailsClosed(t *testing.T) {
+	f := newLaneHTTPFixture(t, nil)
+	require.NoError(t, os.RemoveAll(filepath.Join(f.repo.gitDir, "smithers-default-bookmark")))
+	require.NoError(t, os.WriteFile(filepath.Join(f.repo.gitDir, "HEAD"), []byte(f.base+"\n"), 0o644))
+	tip := f.commit("agent work", func(dir string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "agent.txt"), []byte("agent\n"), 0o644))
+	})
+	rec := postReceivePack(t, f, f.pushBody(f.base, tip, "refs/heads/main"), repohost.PusherCredentialHeader, string(middleware.CredentialAgentRun))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "default bookmark cannot be read")
+	assert.Equal(t, f.base, f.repo.refs()["refs/heads/main"])
+	assert.Empty(t, f.importedRefs())
+}

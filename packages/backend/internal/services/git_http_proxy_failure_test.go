@@ -14,6 +14,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 func TestGitProxyFailure_LogsRepoHostCauseAndReturnsSanitized500(t *testing.T) {
@@ -35,4 +36,14 @@ func TestGitProxyFailure_LogsRepoHostCauseAndReturnsSanitized500(t *testing.T) {
 	assert.Contains(t, logs.String(), "repo-host: connection reset")
 	assert.Contains(t, logs.String(), "operation=upload-pack")
 	assert.Contains(t, logs.String(), "repo=demo")
+}
+
+func TestGitProxyFailureForbiddenPreservesMessage(t *testing.T) {
+	const message = "an agent run cannot write the default bookmark; land its changes instead"
+	err := gitProxyFailure(context.Background(), "receive-pack", "alice", "demo", &repohost.StatusError{StatusCode: http.StatusForbidden, Message: message})
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+	assert.Equal(t, pkgerrors.CodeForbidden, apiErr.Code)
+	assert.Equal(t, message, apiErr.Message)
 }
