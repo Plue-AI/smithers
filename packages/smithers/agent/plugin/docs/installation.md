@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the package
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Install `effect` explicitly at `4.0.0-rc.115`. The kernel depends on it, but your
 plugins import `Effect`, `Layer`, and `Option` directly, so `effect` belongs in

@@ -13,7 +13,7 @@ fails loudly on a value with no canonical form.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- The package and its `effect` peer dependency. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+- The package and its `effect` peer dependency. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Canonicalize a value
 

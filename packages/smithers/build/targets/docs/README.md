@@ -40,7 +40,7 @@ same way on a laptop and in CI, and a label is all a command needs.
 
 ## Install
 
-Install it alongside the binary that runs what it declares. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Install it alongside the binary that runs what it declares. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ```json
 {

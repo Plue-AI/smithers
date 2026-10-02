@@ -20,7 +20,7 @@ For the full picture of the three packages, see the
 ## Add the dependency
 
 Declare the CLI and the authoring package as devDependencies of the workspace
-root. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+root. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ```json
 {

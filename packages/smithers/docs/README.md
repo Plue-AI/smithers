@@ -7,7 +7,7 @@ description: "The smthrs command line: plan, approve, run, and inspect durable a
 control plane for long agent runs: it keeps a run, its plan, its approvals, and
 its events as durable state, so the run survives the process that started it.
 Use `smthrs` to start such a run, decide the approvals it asks for, and read
-back what it did. [smithers.sh](/docs/installation/) is the product documentation.
+back what it did. [smithers.sh](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx) is the product documentation.
 
 ## What it solves
 
@@ -31,7 +31,7 @@ their own.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Node 26.4.0 or later is required. The package installs one
 executable under two names, `smthrs` and its `smithers` alias. For the runner

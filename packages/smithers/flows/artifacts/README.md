@@ -22,7 +22,7 @@ run in Node.js, in Bun, in a browser tab, and inside a sandbox.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `@effect/platform-node` supplies the Node.js implementations of the services
 the store asks for. The filesystem store needs exclusive writable handles,

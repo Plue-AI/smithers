@@ -44,7 +44,7 @@ none of which the flow's author arranges.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 Node.js 26.4.0 or later. `effect` is a peer at exactly `4.0.0-rc.115`: two copies of
 `effect` in one program are two sets of service tags.

@@ -35,7 +35,7 @@ answer must not depend on how the value was built.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 `effect` is a peer dependency at exactly `4.0.0-rc.115`.
 [Installation](./installation.md) covers the rest of the requirements.

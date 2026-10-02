@@ -21,7 +21,7 @@ constructor identity, tags, fields, and existing test imports are preserved.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `effect` is a required peer at exactly `4.0.0-rc.115`. `vitest` and
 `@effect/vitest` are optional peers, needed only by the `Vitest` adapter.

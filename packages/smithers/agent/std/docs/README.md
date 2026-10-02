@@ -42,7 +42,7 @@ the details that decide whether a model gets its next step right:
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 The handlers
 ask the host for services such as `FileSystem`, `Path`, and

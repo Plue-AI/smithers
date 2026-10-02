@@ -44,7 +44,7 @@ surfaces much later as a cache that never hits.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Node.js 26.4.0 or later. Hashing is host access, so
 derivation runs through Effect's `Crypto` service and you choose the

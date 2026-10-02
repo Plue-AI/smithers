@@ -35,7 +35,7 @@ effects, and an auditable history as values you can hold, hash, and store.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Compiling asks Effect for its `Crypto` service, which a platform package
 supplies:

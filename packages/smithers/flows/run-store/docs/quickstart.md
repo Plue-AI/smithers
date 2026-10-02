@@ -15,7 +15,7 @@ normal run, and read back the row a restart would have found.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- The package installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+- The package installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Name the owner
 

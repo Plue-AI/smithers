@@ -56,7 +56,7 @@ embedding the surface in a process of your own.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 The package needs Node.js 26.4.0 or later. For the peers and the
 services a running composition supplies, see [Installation](./installation.md).
@@ -64,7 +64,7 @@ services a running composition supplies, see [Installation](./installation.md).
 ## The smallest real example
 
 The `smthrs` executable comes from [`@smthrs/cli`](/api/cli), not from this
-package; [install it](/docs/installation/#install-the-cli), then serve a project you already have runs in:
+package; [install it](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx), then serve a project you already have runs in:
 
 ```bash
 smthrs serve

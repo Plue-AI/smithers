@@ -23,7 +23,7 @@ that decorate host services, and the journal live in
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 ## Decide one request
 

@@ -23,7 +23,7 @@ package is that object for a process running on Bun.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `@smthrs/platform-node`, `@effect/platform-node`,
 `@effect/platform-node-shared`, `@effect/platform-bun`, and `effect` are

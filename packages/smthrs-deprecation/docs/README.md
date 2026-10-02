@@ -46,7 +46,7 @@ package.
 ## Upgrade a 0.x project
 
 Install the 1.0 command line and plan the migration from the project
-directory. Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
+directory. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ```bash
 smthrs migrate
@@ -79,7 +79,7 @@ packages directly:
 npm remove smthrs
 ```
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Where the code went
 

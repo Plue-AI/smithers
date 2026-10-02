@@ -38,7 +38,7 @@ identity, so `service.name` means the same thing whichever one you pick.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Node.js 26.4.0 or later. For the import forms and the browser rule, see
 [Installation](./installation.md).

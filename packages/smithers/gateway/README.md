@@ -14,7 +14,7 @@ The mounts, the bind and credential policy, the projections and their rows, the 
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 Node 26.4.0 or later is required. `effect@4.0.0-rc.115` is a required peer.
 

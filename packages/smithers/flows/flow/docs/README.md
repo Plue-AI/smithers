@@ -36,7 +36,7 @@ restarted. Skip it when a plain `Effect` retry loop covers the whole problem.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Node.js 26.4.0 or later. [Installation](./installation.md) covers the import
 forms, and what each companion package supplies.

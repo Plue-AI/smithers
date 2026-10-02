@@ -17,7 +17,7 @@ The public parser is **Incur**, with **Zod** argument and option schemas. **Effe
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#install-the-cli).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 Run `smithers config set api_origin https://your-api-host` and `smithers auth login` once for backend commands. Existing Smithers keyring and origin-bound auth-file logins are reused.
 
@@ -36,7 +36,7 @@ pnpm exec smthrs runs list
 pnpm exec smthrs runs logs <run-id> --follow
 ```
 
-[Install the CLI](https://smithers.sh/docs/installation/#install-the-cli) in the workspace before the `pnpm exec` steps. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
+[Install the CLI](https://smithers.sh/docs/installation/) in the workspace before the `pnpm exec` steps. `init` can use a global CLI. Target commands must use the workspace-local CLI so declarations and the loader resolve the same physical Effect and Smithers packages; matching versions in a separate global installation are insufficient.
 
 `init` creates workspace and target declarations plus `flows/hello/flow.mdx`, preserving existing files. `flow plan` compiles without execution; `flow start` plans, approves, and starts the flow. Use `flow execute <payload>` to execute a separately approved plan. Top-level `run <pattern>` executes run-kind targets, while `runs` manages durable flow execution records.
 

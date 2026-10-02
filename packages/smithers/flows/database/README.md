@@ -23,7 +23,7 @@ service, unwrapped, so nothing here sits between a query and the driver.
 `@smthrs/database` is not published to npm yet. Its source is on
 [GitHub](https://github.com/smithersai/smithers).
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `effect` is a required exact peer. The optional exact peer
 `@effect/sql-sqlite-node` is required by `node/NodeDatabase` and

@@ -125,37 +125,10 @@ const replaceRegion = (text, name, body, path) => {
 }
 
 // M-35 removes the standalone docs overview; refresh must not recreate it.
-const docsPath = join(site, "src/content/docs/docs/index.mdx")
-const developersPath = join(site, "src/content/docs/docs/developers.mdx")
-let developers = readFileSync(developersPath, "utf8")
-developers = replaceRegion(developers, "project-support", supportSection(""), developersPath)
-// One image candidate, never two. The animations are megabytes each, so the
-// page offers the browser a single source: `media` picks the light recording
-// for a light reader before any request, and `loading="lazy"` holds even that
-// one until the animation nears the viewport. Hiding a second <img> with CSS
-// would still download it. Readers who override their system theme with the
-// Starlight theme select keep the system-matched recording.
-developers = replaceRegion(
-  developers,
-  "project-animation",
-  `<picture>\n` +
-    `<source srcset="${animation.light}" media="(prefers-color-scheme: light)" />\n` +
-    `<img src="${animation.dark}" class="hero-anim" alt="${animation.alt}" loading="lazy" decoding="async" />\n` +
-    `</picture>`,
-  developersPath
-)
-developers = replaceRegion(
-  developers,
-  "project-quickstart",
-  `The 1.0 release candidate is not on npm. Install it from the source checkout.\n\n` +
-    `<LinkButton href="/docs/installation/" variant="primary">Install the CLI</LinkButton>\n` +
-    `<LinkButton href="/docs/cli-quickstart/" variant="secondary">Read the CLI quickstart</LinkButton>\n\n` +
-    `\`\`\`bash\n${cliInstall}\n\`\`\`\n\n` +
-    `From your project directory, scaffold a flow, edit its instructions, and configure the credential its \`model:\` field requires before running it:\n\n` +
-    `\`\`\`bash\n${getStarted.join("\n")}\n\`\`\`\n\n` +
-    `That creates \`flows/change/flow.mdx\`, a flow that lives with your code, and runs it. The [CLI quickstart](/docs/cli-quickstart/) walks through the same steps with what to expect at each one.`,
-  developersPath
-)
+const retiredPaths = ["index", "developers"].map((name) => join(site, `src/content/docs/docs/${name}.mdx`))
+const installPath = join(site, "docs/installation.mdx")
+let install = readFileSync(installPath, "utf8")
+install = replaceRegion(install, "project-description", description, installPath)
 
 const manifestPath = join(root, "package.json")
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
@@ -163,15 +136,16 @@ manifest.description = description
 
 const outputs = new Map([
   [join(root, "README.md"), readme],
-  [developersPath, developers],
+  [installPath, install],
   [manifestPath, JSON.stringify(manifest, null, 2) + "\n"]
 ])
 
 let drift = 0
-if (existsSync(docsPath)) {
+for (const path of retiredPaths) {
+  if (!existsSync(path)) continue
   drift += 1
-  if (check) console.error(`drift: ${relative(root, docsPath)} is retired`)
-  else rmSync(docsPath)
+  if (check) console.error(`drift: ${relative(root, path)} is retired`)
+  else rmSync(path)
 }
 for (const [path, content] of outputs) {
   const current = existsSync(path) ? readFileSync(path, "utf8") : undefined

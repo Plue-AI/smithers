@@ -273,19 +273,14 @@ test("public project copy keeps the support contract out of the short descriptio
     summary: "The release candidate's required platform is Linux with Node 26.4.0."
   })
   const readme = readFileSync(join(root, "README.md"), "utf8")
-  const docs = readFileSync(join(root, "apps/site/src/content/docs/docs/index.mdx"), "utf8")
+  const docs = readFileSync(join(root, "apps/site/docs/installation.mdx"), "utf8")
   assert.ok(readme.includes(`\n\n${description}\n\n`))
   assert.doesNotMatch(readme, /\u2014/)
-  assert.equal(JSON.parse(docs.match(/^description: (.*)$/m)?.[1] ?? "null"), description)
   assert.equal(docs.match(/generated:project-description start[^\n]*\n\n([\s\S]*?)\n\n\{\/\* generated:project-description end/)?.[1], description)
   const readmeSupport = readme.match(/(?:^|\n)## Supported platforms\n\n([\s\S]*?)(?=\n## |$)/)?.[1]
-  const developers = readFileSync(join(root, "apps/site/src/content/docs/docs/developers.mdx"), "utf8")
-  const docsSupport = developers.match(/generated:project-support start[^\n]*\n\n## Supported platforms\n\n([\s\S]*?)\n\n\{\/\* generated:project-support end/)?.[1]
-  for (const [name, support] of [["README", readmeSupport], ["developer overview", docsSupport]]) {
-    assert.equal(typeof support, "string", `${name} must have a dedicated support section`)
-    assert.match(support, /required platform is Linux with Node 26\.4\.0/)
-    assert.match(support, /\[support matrix\]\((https:\/\/smithers\.sh)?\/docs\/reference\/support-matrix\/\)/)
-  }
+  assert.equal(typeof readmeSupport, "string", "README must have a dedicated support section")
+  assert.match(readmeSupport, /required platform is Linux with Node 26\.4\.0/)
+  assert.match(readmeSupport, /\[support matrix\]\(https:\/\/smithers\.sh\/docs\/reference\/support-matrix\/\)/)
 })
 
 // Read workflow semantics through the same YAML parser as release rehearsal.

@@ -7,7 +7,7 @@ sidebar:
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 `@smthrs/flow` is a runtime dependency of this package and also the package you
 author against: `Flow`, `Action`, `DurableDeferred`, `DurableClock`, and

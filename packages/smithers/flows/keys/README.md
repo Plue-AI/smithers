@@ -15,7 +15,7 @@ Use it as a cache key, a row id, or an idempotency token.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `@effect/platform-node` provides `NodeCrypto` for the example below and is
 optional if you supply your own `Crypto` implementation.

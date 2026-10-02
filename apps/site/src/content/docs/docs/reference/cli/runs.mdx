@@ -17,7 +17,7 @@ import logsHelp from "../../../../../data/help/runs/logs.txt?raw"
 | `runs list [--flow <id>] [--status <status>]` | Matching durable runs. |
 | `runs show <run>` | Current run state and an event-derived diagnosis. |
 | `runs output <run> [node]` | Recorded node outputs; `result` selects the final assistant output. |
-| `runs devtools <run> [node]` | The run's node tree with state and timings, and one node's inputs, outputs and journal frames; see [Inspect a run with DevTools](/docs/learn/devtools/). |
+| `runs devtools <run> [node]` | The run's node tree with state and timings, and one node's inputs, outputs and journal frames; see [Inspect a run with DevTools](https://github.com/smithersai/smithers/blob/main/apps/site/src/content/docs/docs/guides/inspecting-runs.mdx). |
 | `runs logs <run>` | Recorded events, optionally followed live. |
 
 A successful read does not imply that the run succeeded. Read its status field. `runs show` prints a diagnosis card: `Verdict`, `Run`, `Activity`, `Tokens`, up to three `Refusals`, then `Cause`, `Output`, and `Unblock` when they apply, and a `Next` line. Use `--format json` for structured state and `--format jsonl` for event streams.

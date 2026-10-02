@@ -13,7 +13,7 @@ sidebar:
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 The store writes to SQL, so a composition also needs the SQLite client, the
 durable writer, and Effect's `Crypto` service:

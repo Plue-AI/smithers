@@ -361,9 +361,7 @@ const repoStatsTest = Smithers.Shell.Test({
 })
 
 /**
- * The generated project copy matches its source, and the overview animation
- * offers the browser one image: two eager <img> candidates hidden by CSS still
- * download both megabyte recordings.
+ * The generated project copy matches its source and retires superseded pages.
  */
 const projectCopyTest = Smithers.Shell.Test({
   shell: "node --test apps/site/scripts/generate-project-copy.test.mjs",
@@ -371,9 +369,24 @@ const projectCopyTest = Smithers.Shell.Test({
     Smithers.file("scripts/generate-project-copy.mjs"),
     Smithers.file("scripts/generate-project-copy.test.mjs"),
     Smithers.file("src/data/project.json"),
-    Smithers.file("src/content/docs/docs/developers.mdx"),
+    Smithers.file("docs/installation.mdx"),
     Smithers.file("//README.md"),
     Smithers.file("//package.json")
+  ]
+})
+
+/** Installation commands resolve against the source CLI; planned commands stay ticket-bound. */
+const installPageTest = Smithers.Shell.Test({
+  shell: "node --test apps/site/scripts/install-page.test.mjs",
+  data: [
+    Smithers.file("scripts/install-page.test.mjs"),
+    Smithers.file("docs/installation.mdx"),
+    Smithers.file("astro.config.mjs"),
+    Smithers.file("src/data/project.json"),
+    Smithers.glob("src/content/docs/docs/**/*"),
+    Smithers.glob("//packages/smithers/src/**/*"),
+    Smithers.glob("//packages/smithers/build/build-cli/src/**/*"),
+    cliPackage.docsSources
   ]
 })
 
@@ -667,6 +680,7 @@ export const Package = Smithers.Package({
     checkExitTest,
     repoStatsTest,
     projectCopyTest,
+    installPageTest,
     recordTapeTest,
     supportMatrixTest,
     catalogPublicationTest,

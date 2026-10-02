@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-import { CardGrid, FileTree, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components"
+import { CardGrid, FileTree, LinkCard } from "@astrojs/starlight/components"
 import versions from "../../../../data/versions.json"
 
 In this tutorial you'll build a small release flow, finish a run, fork it at a journal frame so a copy can publish to a different channel, and then rewind a second run to an earlier frame and re-derive a view from what remains.
@@ -14,34 +14,11 @@ Fork copies a run's history up to one frame so the copy can diverge from its par
 
 **Fork replay limitation:** copied attempt rows retain their parent digests, so actions keyed by the run ID execute again in the child. [Keep sealed steps from re-executing](https://time-travel.smithers.sh/guides/fork-a-run/#keep-sealed-steps-from-re-executing) carries the full rule and the cache declaration that answers it.
 
-<Tabs syncKey="surface">
-<TabItem label="GUI">
-
-Not available.
-
-</TabItem>
-<TabItem label="TUI">
-
-Saved conversations can be resumed with `/resume`.
-
-</TabItem>
-<TabItem label="CLI">
-
-`smthrs runs inspect` and `replay` read recorded history. Fork and rewind are library operations.
-
-</TabItem>
-<TabItem label="API">
-
-**This page.** It uses the `@smthrs/flow` library directly.
-
-</TabItem>
-</Tabs>
-
 ## Before you begin
 
 - Node.js {versions.node} or later.
 - A fresh directory for the tutorial files.
-- The libraries, linked into that directory as described in [Installation](/docs/installation/#use-the-libraries).
+- The libraries, linked into that directory as described in [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 You need no provider key: every step here is a plain action, and no model is called.
 

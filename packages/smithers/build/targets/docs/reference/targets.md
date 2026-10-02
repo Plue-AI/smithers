@@ -8,7 +8,7 @@ order: 30
 ## Install
 
 Install it with the build CLI; a `PACKAGE.ts` or `WORKSPACE.ts` file then
-imports it directly. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+imports it directly. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ```json
 {

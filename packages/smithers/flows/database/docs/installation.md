@@ -11,7 +11,7 @@ sidebar:
 [GitHub](https://github.com/smithersai/smithers), and the storage packages
 listed below are the worked examples of everything on this page.
 
-See [Installation](/docs/installation/#use-the-libraries).
+See [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 `effect` is a required exact peer. The SQLite adapter is an optional exact
 peer, needed by `node/NodeDatabase` and `test/TestDatabase`, including the

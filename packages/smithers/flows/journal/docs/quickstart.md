@@ -20,7 +20,7 @@ redacted.
   `await`) with the journal, the database it writes through, and `effect`
   installed. See [Installation](./installation.md) for why `effect` is pinned.
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Compose the layer
 

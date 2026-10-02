@@ -21,7 +21,7 @@ runner. Runtime evaluation code imports scorers directly.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 It needs Node.js 26.4.0 or later and
 [`effect`](https://effect.website) 4.0.0-rc.115, plus

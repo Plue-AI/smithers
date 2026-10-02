@@ -20,7 +20,7 @@ commands to a branch's journal run after verifying a write-scoped
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `effect` is a peer dependency at exactly `4.0.0-rc.115`. Two copies of `effect`
 in one program are two sets of service tags, so a client built against one copy

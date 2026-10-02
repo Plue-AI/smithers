@@ -28,7 +28,7 @@ test.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `effect` is a peer dependency at exactly `4.0.0-rc.115`. Two copies of `effect` in
 one program are two sets of service tags, so a store layer built against one

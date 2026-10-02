@@ -5,38 +5,15 @@ sidebar:
   order: 6
 ---
 
-import { CardGrid, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components"
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 import versions from "../../../../data/versions.json"
 
 Give a model-backed step real file tools and run the code it writes inside a sandbox. To write and run a markdown agent flow from the CLI first, use the [CLI quickstart](/docs/cli-quickstart/).
 
-<Tabs syncKey="surface">
-<TabItem label="GUI">
-
-Flows run from the app once they're in the repository: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="TUI">
-
-`/flow <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="CLI">
-
-`smthrs flow start <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="API">
-
-**This page.** It uses the `@smthrs/flow` library directly.
-
-</TabItem>
-</Tabs>
-
 ## Before you begin
 
 - Node.js {versions.node} or later, and Jujutsu (`jj`) on your PATH.
-- The libraries, linked as described in [Installation](/docs/installation/#use-the-libraries).
+- The libraries, linked as described in [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Declare the step
 

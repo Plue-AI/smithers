@@ -17,7 +17,7 @@ a `Layer` you compose or an `Effect` you run.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 Node.js 26.4.0 or later. The package ships as both ESM and CommonJS with
 TypeScript declarations.

@@ -27,7 +27,7 @@ stranding an effect that already crossed into the outside world.
 
 ## Install
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 Node.js 26.4.0 or later. The package ships ESM and CommonJS with TypeScript
 declarations, and its root entry point bundles for the browser with no `node:`

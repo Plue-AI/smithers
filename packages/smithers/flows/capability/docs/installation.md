@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the package
 
-Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 The package requires Node.js 26.4.0 or later and ships as both ESM and
 CommonJS with TypeScript declarations. It has one runtime dependency,

@@ -15,7 +15,7 @@ Nothing here executes a node. A plan is inert: driving one is
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+- A package with the dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 [`@smthrs/database`](/api/database) supplies the SQLite client and the durable
 writer that `PlanStore` writes through. `@effect/platform-node` supplies

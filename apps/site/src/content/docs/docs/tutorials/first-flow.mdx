@@ -5,32 +5,9 @@ sidebar:
   order: 1
 ---
 
-import { CardGrid, LinkCard, Tabs, TabItem } from "@astrojs/starlight/components"
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
 
 In this tutorial you'll build the smallest complete Smithers program: one action, one flow that names it, an implementation attached as a layer, and two runs of that flow, first on the in-memory engine and then on the durable engine over a SQLite journal.
-
-<Tabs syncKey="surface">
-<TabItem label="GUI">
-
-Flows run from the app once they're in the repository: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="TUI">
-
-`/flow <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="CLI">
-
-`smthrs flow start <name>` runs a flow in `flows/`: [Run a flow](/docs/learn/run-a-flow/).
-
-</TabItem>
-<TabItem label="API">
-
-**This page.** It uses the `@smthrs/flow` library directly.
-
-</TabItem>
-</Tabs>
 
 ## Before you begin
 
@@ -38,7 +15,7 @@ Flows run from the app once they're in the repository: [Run a flow](/docs/learn/
 
 ## 1. Set up the project
 
-Create a `first-flow` directory and link the libraries into it as described in [Installation](/docs/installation/#use-the-libraries). Every program here runs with `node <file>.ts`.
+Create a `first-flow` directory and link the libraries into it as described in [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx). Every program here runs with `node <file>.ts`.
 
 ## 2. Declare the action
 

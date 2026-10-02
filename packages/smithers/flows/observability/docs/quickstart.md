@@ -16,7 +16,7 @@ change at the end.
 - Node.js 26.4.0 or later, which runs a `.ts` file directly by stripping its
   types.
 - A package whose `package.json` sets `"type": "module"`, with the
-  dependencies installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+  dependencies installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Start a collector stand-in
 

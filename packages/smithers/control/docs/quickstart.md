@@ -18,7 +18,7 @@ stream that says it again from durable evidence.
 ## Prerequisites
 
 - Node.js 26.4.0 or later.
-- A package with the dependency installed. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+- A package with the dependency installed. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Declare the flow the plane may plan
 

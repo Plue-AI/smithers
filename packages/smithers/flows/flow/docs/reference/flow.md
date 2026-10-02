@@ -5,7 +5,7 @@ area: api
 order: 10
 ---
 
-Install the package with its exact `effect` peer. Not on npm yet; see [Installation](/docs/installation/#use-the-libraries).
+Install the package with its exact `effect` peer. Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 ## Entry points
 

@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the executable
 
-Not on npm yet; see [Installation](/docs/installation/#install-the-cli).
+Not on npm yet; see [Installation](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx).
 
 `smthrs` is the package to install. Its `smthrs` executable runs this package,
 `@smthrs/cli`, which it installs as a dependency. Inside a workspace,
@@ -69,7 +69,7 @@ runs on Node 26.4 or later or on Bun. Under Node, the CLI starts the TUI with
 `SMITHERS_BUN` to a Bun executable to run the TUI on Bun instead. The launcher
 tries `SMITHERS_TUI_BIN`, an installed compiled binary, Bun, then Node.
 Compiled interactive builds need a writable, executable `TMPDIR`; Alpine
-also needs `libstdc++`. See the [TUI installation guide](/docs/installation/) for
+also needs `libstdc++`. See the [TUI installation guide](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx) for
 source-checkout prerequisites and the full reference.
 
 The CLI package ships its native editor; keep the package intact when moving
@@ -88,7 +88,7 @@ smthrs tui --approve ask        # ask before consequential calls
 
 Global and one-off installations can initialize a project and operate its flows.
 To load `WORKSPACE.ts` and `PACKAGE.ts`, install the CLI and declaration packages
-in that workspace ([Install the CLI](/docs/installation/#install-the-cli)), then
+in that workspace ([Install the CLI](https://github.com/smithersai/smithers/blob/main/apps/site/docs/installation.mdx)), then
 select its local binary:
 
 ```bash

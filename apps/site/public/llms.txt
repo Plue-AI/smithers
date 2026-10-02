@@ -6,58 +6,9 @@
 
 ## Start here
 
-- [model-prices.mdx](https://smithers.sh/docs/model-prices/)
-- [index.mdx](https://smithers.sh/docs/)
-- [quickstart.mdx](https://smithers.sh/docs/quickstart/)
 - [Pricing](https://smithers.sh/docs/pricing/): Free and Pro plans. Smithers runs the models; model usage draws on your account credit.
-- [self-hosting.mdx](https://smithers.sh/docs/self-hosting/)
-- [CLI and libraries](https://smithers.sh/docs/developers/): Use Smithers from your terminal, define flows beside your code, and build on the TypeScript libraries.
-- [Installation](https://smithers.sh/docs/installation/): Install the Smithers CLI and libraries from the source checkout and verify the install.
+- [Install Smithers](https://smithers.sh/docs/installation/): Install on your Mac and open the setup link.
 - [CLI quickstart](https://smithers.sh/docs/cli-quickstart/): Install the CLI, scaffold a flow, choose its model, and run it in your project.
-
-## How Smithers works
-
-- [Wiki](https://smithers.sh/docs/how-it-works/wiki/): One wiki per repository, with a public part and a private part: Markdown pages in folders, linked like an Obsidian vault, versioned and kept current.
-- [Agents](https://smithers.sh/docs/how-it-works/agents/): An agent is a file in your repository: its instructions, its model, what it may do, and how much it may spend. Start one from the app, the TUI, the CLI, or the API.
-- [how-it-works/conversations.mdx](https://smithers.sh/docs/how-it-works/conversations/)
-- [how-it-works/index.mdx](https://smithers.sh/docs/how-it-works/)
-- [how-it-works/issues.mdx](https://smithers.sh/docs/how-it-works/issues/)
-- [how-it-works/triggers-and-flows.mdx](https://smithers.sh/docs/how-it-works/triggers-and-flows/)
-
-## Tutorials: GUI, TUI, CLI, API
-
-- [Run a flow](https://smithers.sh/docs/learn/run-a-flow/): Pick one of the repository's flows, give it what it needs, and follow its run.
-- [Choose a model](https://smithers.sh/docs/learn/models/): Pick configured models for chat, background work, and agents.
-- [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
-- [Inspect a run with DevTools](https://smithers.sh/docs/learn/devtools/): Open a run's node tree the way React DevTools opens a component tree: every node with its state and timing, and the selected node's inputs, outputs and journal frames, live.
-- [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit the repository's wiki in its public and private parts: follow links, see backlinks and history, attach files, and generate pages from the code.
-- [Repository secrets](https://smithers.sh/docs/learn/secrets/): See which secrets a repository's boxes may use, and add or remove them.
-- [Troubleshooting](https://smithers.sh/docs/learn/troubleshooting/): Read the error, fix the cause, and report a problem.
-- [learn/account.mdx](https://smithers.sh/docs/learn/account/)
-- [learn/agent-and-trigger.mdx](https://smithers.sh/docs/learn/agent-and-trigger/)
-- [learn/background-work.mdx](https://smithers.sh/docs/learn/background-work/)
-- [learn/boxes.mdx](https://smithers.sh/docs/learn/boxes/)
-- [learn/chat.mdx](https://smithers.sh/docs/learn/chat/)
-- [learn/create-an-issue.mdx](https://smithers.sh/docs/learn/create-an-issue/)
-- [learn/issue-to-main.mdx](https://smithers.sh/docs/learn/issue-to-main/)
-- [learn/open-a-repository.mdx](https://smithers.sh/docs/learn/open-a-repository/)
-- [learn/review-a-change.mdx](https://smithers.sh/docs/learn/review-a-change/)
-- [learn/search.mdx](https://smithers.sh/docs/learn/search/)
-- [learn/watch-an-agent.mdx](https://smithers.sh/docs/learn/watch-an-agent/)
-
-## TUI reference
-
-- [tui/cli.mdx](https://smithers.sh/docs/tui/cli/)
-- [tui/commands.mdx](https://smithers.sh/docs/tui/commands/)
-- [tui/configuration.mdx](https://smithers.sh/docs/tui/configuration/)
-- [tui/extend.mdx](https://smithers.sh/docs/tui/extend/)
-- [tui/index.mdx](https://smithers.sh/docs/tui/)
-- [tui/keys.mdx](https://smithers.sh/docs/tui/keys/)
-- [tui/views.mdx](https://smithers.sh/docs/tui/views/)
-
-## The app
-
-- [app/index.mdx](https://smithers.sh/docs/app/)
 
 ## Tutorials
 
@@ -98,8 +49,6 @@
 - [Back up, gc, and retain run state](https://smithers.sh/docs/guides/retention/): Back up the .flows directory safely, delete terminal runs with smthrs gc, and sweep unreferenced artifacts.
 - [Operate the memory store](https://smithers.sh/docs/guides/memory-ops/): Inspect, seed, and prune namespaced facts with the smthrs memory command, and run memory maintenance.
 - [Test your flows](https://smithers.sh/docs/guides/testing-flows/): Run flows on the in-memory engine under vitest, assert on recorded results and journal entries, and replay recorded model responses instead of calling a provider.
-- [guides/triggers.mdx](https://smithers.sh/docs/guides/triggers/)
-- [Review a change](https://smithers.sh/docs/guides/pr-review-action/): Run the ordinary review flow over a repository change.
 
 ## Concepts
 
@@ -185,19 +134,6 @@
 - [llms.txt](https://smithers.sh/docs/reference/llms-txt/): Agent-facing entry points: the curated llms.txt index and the full-prose llms-full.txt, regenerated from the docs tree.
 - [MCP tools](https://smithers.sh/docs/reference/mcp-tools/): Discover and call the Smithers command tree through its stdio MCP server.
 - [Project layout](https://smithers.sh/docs/reference/project-layout/): The files of a Smithers project: flows/ sources, .flows/ run state, and the root resolution rules.
-- [reference/cli/admin.mdx](https://smithers.sh/docs/reference/cli/admin/)
-- [reference/cli/artifact.mdx](https://smithers.sh/docs/reference/cli/artifact/)
-- [reference/cli/cache.mdx](https://smithers.sh/docs/reference/cli/cache/)
-- [reference/cli/egress.mdx](https://smithers.sh/docs/reference/cli/egress/)
-- [reference/cli/label.mdx](https://smithers.sh/docs/reference/cli/label/)
-- [reference/cli/notification.mdx](https://smithers.sh/docs/reference/cli/notification/)
-- [reference/cli/org.mdx](https://smithers.sh/docs/reference/cli/org/)
-- [reference/cli/stack.mdx](https://smithers.sh/docs/reference/cli/stack/)
-- [reference/cli/triggers.mdx](https://smithers.sh/docs/reference/cli/triggers/)
-- [reference/cli/tui.mdx](https://smithers.sh/docs/reference/cli/tui/)
-- [reference/cli/variable.mdx](https://smithers.sh/docs/reference/cli/variable/)
-- [reference/cli/webhook.mdx](https://smithers.sh/docs/reference/cli/webhook/)
-- [reference/triggers.mdx](https://smithers.sh/docs/reference/triggers/)
 - [smthrs affected](https://smithers.sh/docs/reference/cli/affected/): Execute targets affected by changed files, conservatively including ambient inputs
 - [smthrs agent](https://smithers.sh/docs/reference/cli/agent/): Ask the Smithers helper and hold remote conversations
 - [smthrs api](https://smithers.sh/docs/reference/cli/api/): Make raw API calls to the Smithers server

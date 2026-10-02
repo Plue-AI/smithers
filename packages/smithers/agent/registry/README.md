@@ -32,7 +32,7 @@ discovery never evaluates them.
 
 ## Install
 
-Not on npm yet; see [Installation](https://smithers.sh/docs/installation/#use-the-libraries).
+Not on npm yet; see [Installation](https://smithers.sh/docs/installation/).
 
 `effect` is a peer dependency at exactly `4.0.0-rc.115`. `@effect/platform-node`
 supplies the `FileSystem` and `Path` implementations the scan walks with; this
