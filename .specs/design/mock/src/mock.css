@@ -1606,7 +1606,7 @@ body { overflow: hidden; }
 .mvp-verdict[data-verdict="clean"] { background: var(--success-soft); color: var(--success); }
 .mvp-findings {
 	display: grid;
-	grid-template-columns: max-content max-content minmax(0, 1fr);
+	grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
 	align-items: baseline;
 	gap: 8px 10px;
 	margin: var(--sp-3) 0 0;
@@ -2013,8 +2013,6 @@ body { overflow: hidden; }
 .mvp-tl-more { align-self: flex-start; margin-left: 30px; padding: 0 8px; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); line-height: 20px; }
 .mvp-tl-more:hover { color: var(--text); }
 .mvp-tl-more:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
-/* The owner's own note that their home on this machine lasts until the next wake (T-APP-12). */
-.mvp-term-temp { margin-left: 6px; padding: 1px 8px; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; white-space: nowrap; }
 
 /* MOCK · the player on a phone: brand and labels drop, the steps wrap under the controls. */
 @media (max-width: 640px) {
@@ -2029,3 +2027,4 @@ body { overflow: hidden; }
 @media (max-width: 640px) {
 	.mock-stage[data-split] > .mock-frame:not([data-active]) { display: none; }
 }
+.mvp-finding-acts { display: inline-flex; gap: 4px; }

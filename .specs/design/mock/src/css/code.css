@@ -9,7 +9,7 @@
 .mvp-editor {
 	--line-h: 20px;
 	/* Fits "Alice · Smithers"; longer names truncate, and the flag's title has them whole. */
-	--flag-lane: 100px;
+	--flag-lane: 120px;
 	overflow: hidden;
 	border: 1px solid var(--border);
 	border-radius: var(--r-1);

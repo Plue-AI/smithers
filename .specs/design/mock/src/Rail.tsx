@@ -12,7 +12,7 @@ import type { ReactNode } from "react"
 import { Button, Spinner } from "@smthrs/ui"
 import { Bell, Check, CircleAlert, MessageSquare, X } from "lucide-react"
 import { StateGlyph, actorName } from "./parts"
-import { isAgent, refOf, type Entry, type Event, type State } from "./world"
+import { isAgent, refOf, type Activity, type Entry, type Event, type State } from "./world"
 
 export type Tone = "live" | "attention" | "failed" | "done" | "quiet"
 
@@ -74,7 +74,7 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
         : todo.state === "merged" ? `Merged${todo.lessons === undefined ? "" : ` · ${plural(todo.lessons, "lesson")}`}`
         : todo.state === "failed" ? `Failed: ${todo.failure ?? ""}`
         : todo.state === "queued" ? "Waiting for a machine"
-        : last === undefined ? `At ${world.flow.find(step => step.id === todo.step)?.title ?? "work"}` : `${actorName(world, last.who)}: ${last.text}`
+        : last === undefined ? `At ${world.flow.find(step => step.id === todo.step)?.title ?? "work"}` : `${actorName(world, last.who)}: ${phraseOf(last)}`
       const tone: Tone = todo.state === "needs-you" ? "attention" : todo.state === "failed" ? "failed" : todo.state === "working" ? "live" : todo.state === "merged" ? "done" : "quiet"
       return { id: entry.id, title: `${refOf(world, todo)} ${todo.title}`, summary, tone, glyph: <StateGlyph state={todo.state} /> }
     }
@@ -83,7 +83,7 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
       if (branch === undefined) return undefined
       const people = branch.presence.filter(each => !isAgent(each.who)).length
       const last = branch.activity.at(-1)
-      return { id: entry.id, title: branch.name, summary: last === undefined ? (people === 0 ? "" : `${plural(people, "person")} here`) : `${actorName(world, last.who)}: ${last.kind === "change" ? `changed ${last.files} files` : last.text}`,
+      return { id: entry.id, title: branch.name, summary: last === undefined ? (people === 0 ? "" : `${plural(people, "person")} here`) : `${actorName(world, last.who)}: ${phraseOf(last)}`,
         tone: branch.machine === "awake" && branch.presence.some(each => each.who.startsWith("agent")) ? "live" : "quiet", glyph: <StateGlyph state={branch.machine === "awake" ? "working" : "queued"} /> }
     }
     case "terminal": {
@@ -137,6 +137,11 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
       return { id: entry.id, title: page?.title ?? "Wiki", summary: editing.length > 0 ? `${editing.join(" and ")} editing` : page === undefined ? "" : `r${page.rev}`,
         tone: editing.length > 0 ? "live" : "quiet", glyph: <StateGlyph state={editing.length > 0 ? "working" : "queued"} /> }
     }
+    case "form": {
+      const form = world.forms?.find(each => each.id === card.target)
+      return { id: entry.id, title: form?.title ?? "Form", summary: form?.receipt ?? "Waiting for you", tone: form?.receipt === undefined ? "attention" : "quiet",
+        glyph: <StateGlyph state={form?.receipt === undefined ? "needs-you" : "merged"} /> }
+    }
     case "act": {
       const act = world.acts.find(each => each.id === card.target)
       if (act === undefined) return undefined
@@ -152,13 +157,20 @@ export const markOf = (state: State, me: string, entry: Entry): Mark | undefined
         glyph: <StateGlyph state={trace.state === "waiting" ? "needs-you" : trace.state === "running" ? "working" : trace.state === "failed" ? "failed" : trace.state === "merged" ? "merged" : "in-review"} /> }
     }
     default: {
-      const titles: Partial<Record<typeof card.kind, string>> = { commands: "Commands", setup: "Set up Smithers", settings: "Settings", members: "Members", secrets: "Secrets", later: "Not in this release" }
+      const titles: Partial<Record<typeof card.kind, string>> = { commands: "Commands", setup: "Set up Smithers", settings: "Settings", members: "Members", secrets: "Secrets", later: "Deferred from MVP", agent: "Agent" }
       return { id: entry.id, title: titles[card.kind] ?? card.kind[0]!.toUpperCase() + card.kind.slice(1), summary: "", tone: "quiet", glyph: <StateGlyph state="queued" /> }
     }
   }
 }
 
 const LIVE: ReadonlySet<Tone> = new Set(["live", "attention", "failed"])
+
+/** An activity row as a short phrase: what a read, a context pick or a change amounts to. */
+const phraseOf = (item: Activity): string =>
+  item.kind === "change" ? `changed ${plural(item.files ?? 0, "file")}`
+  : item.kind === "read" ? `read ${(item.items ?? []).map(path => path.split("/").at(-1)).join(", ")}`
+  : item.kind === "context" ? `Context · ${(item.items ?? []).length}`
+  : item.text
 
 /*
  * Notifications (Will, 2026-10-02): notable events, and anything that needs

@@ -150,11 +150,6 @@ export const states: Journey = {
     view("A save from outside Smithers lands while Alice and Ben type. Their edits stay; Compare shows the outside version beside the live one.", state => { showCard(state, BEN, "file", "src/webhooks/backoff.ts", "compare") }),
     view("The diff an outside change opens has one action: Restore this file, recorded as Ben's edit.", state => { showCard(state, BEN, "diff", "src/webhooks/format.ts", "outside") }),
     view("Ben's terminal with Alice watching. Only its owner types; others watch.", state => { showCard(state, BEN, "terminal", "s-t-ben") }),
-    view("Ben was added after this machine woke, so his home on it is temporary until it next wakes. Only he sees the note.", state => {
-      state.world.terminals.push({ id: "s-t-temp", branch: "s-b-working", title: "terminal 3", owner: BEN, watchers: [], temporaryHome: true,
-        lines: [{ text: "ben@fix-checkout-race $ ls ~", tone: "dim", seq: state.seq }] })
-      showCard(state, BEN, "terminal", "s-t-temp")
-    }),
     view("Agents can't merge. When Claude Code tries, the person gets Review & merge in their timeline, bound to what they review.", state => {
       toast(state, BEN, { tone: "attention", title: "Claude Code wants to merge #88", action: "Review & merge" })
     }),

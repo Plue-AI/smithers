@@ -1,7 +1,8 @@
 /*
  * The review flow's card (/review, mvp.md Appendix A): a verdict and findings,
  * each pointing at a line. ⌘K "review retry-webhooks" and /review open the
- * same card. One primary action hands the findings to the coding agent.
+ * same card. Each finding has its own acts: Please fix sends it to the coding
+ * agent as a steer; Not useful dismisses it (mvp.md B.2).
  */
 import { Button } from "@smthrs/ui"
 import { CircleAlert, CircleDot, Info } from "lucide-react"
@@ -33,15 +34,18 @@ export const ReviewCard = ({ id, target }: ExtraCardProps) => {
             <li key={index} data-severity={finding.severity}>
               <span className="mvp-finding-kind"><Icon size={13} aria-hidden="true" />{word}</span>
               <button type="button" className="mvp-ws-where">{finding.path.split("/").at(-1)}:{finding.line}</button>
-              <span className="mvp-finding-text">{finding.text}</span>
+              <span className="mvp-finding-text" data-copy="data">{finding.text}</span>
+              {finding.acted === undefined ? (
+                <span className="mvp-finding-acts">
+                  <Button size="sm" variant="outline" data-mock={`finding-fix-${review.id}-${index}`}>Please fix</Button>
+                  <Button size="sm" variant="ghost" data-mock={`finding-not-useful-${review.id}-${index}`}>Not useful</Button>
+                </span>
+              ) : <span className="mvp-meta">{finding.acted === "fix" ? "Sent as a steer" : "Dismissed"}</span>}
             </li>
           )
         })}
       </ul>
-      <div className="mvp-actions">
-        <Button size="sm" variant="solid" data-mock={`review-send-${review.id}`}>Send to the coding agent</Button>
-        <span className="mvp-actions-end"><Button size="sm" variant="ghost">Diff</Button></span>
-      </div>
+      <div className="mvp-actions"><span className="mvp-actions-end"><Button size="sm" variant="ghost">Diff</Button></span></div>
     </Card>
   )
 }

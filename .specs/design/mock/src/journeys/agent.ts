@@ -70,10 +70,11 @@ export const agentAtWork: Journey = {
     }, { hold: 3000 }),
     {
       caption: "Ben presses Please fix on the first finding. It becomes his steer in the branch activity.",
-      // The first selector is the finding's own Please fix; the second covers a Review card that predates it.
-      target: '[data-mock="finding-fix-r-retry-0"], [data-mock="review-send-r-retry"]', hold: 2600,
+      target: '[data-mock="finding-fix-r-retry-0"]', hold: 2600,
       show: [{ viewer: BEN, target: '[data-mock="card-branch"]' }],
       act: state => {
+        const review = state.world.reviews.find(each => each.id === "r-retry")!
+        review.findings[0]!.acted = "fix"
         activity(state, "b-retry", BEN, "steer", STEER)
         setTodo(state, "t-retry", { state: "working", step: "implement" })
         present(state, "b-retry", CODING, { kind: "step", step: "implement" })

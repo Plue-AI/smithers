@@ -1,18 +1,25 @@
 /*
  * A run, inside (Will, 2026-10-02). One TODO attempt is one durable run
  * (mvp.md B.4): Plan to Propose, then a wait for merge that a rebase loops
- * back to Verify. Embedded, the card draws the attempt as a graph in the step
- * strip's language, names the phase it is in and shows any indicator
- * (thrashing, waiting). Inspect maximizes the same card: every attempt's graph
- * on top; below, the run's own timeline on the left, its phases grouped under
- * their step and titled by a cheap model from what the agent was doing, every
- * cell with a plain explanation; the selected cell's detail (code, output,
- * time, tokens) on the right. Steer and Stop stay in reach.
+ * back to Verify. One card per thing: a TODO's run has no card of its own in
+ * the conversation; its TODO card carries the run's flags, and Inspect there
+ * maximizes this card. A run that is no TODO's (a background or flow run) is
+ * embedded: the attempt as a graph in the step strip's language, the phase it
+ * is in and any indicator (thrashing, waiting), with the branch it runs on.
+ * Maximized, the card is the monitor (mvp.md §6.14): every attempt's graph on
+ * top, each step with its time and tokens; below, the run's own timeline on
+ * the left, its phases grouped under their step; on the right, the selected
+ * cell's detail (code, output, time, tokens), or the selected step's input,
+ * output and transcript. Steer and Stop stay in reach. A phase's title comes
+ * from its step and what it recorded ("Ran tests · 1 failed ×3"); the fast
+ * model writes the one-line summary under it and every explanation of what
+ * the agent did, and both carry the sparkle. A summary not yet written leaves
+ * the title alone.
  */
 import { Button } from "@smthrs/ui"
-import { BookOpen, Bot, Check, FilePen, Layers, MessageCircleQuestion, Maximize2, Repeat, Send, SquareTerminal, Undo2, X } from "lucide-react"
+import { BookOpen, Bot, Check, FilePen, Layers, MessageCircleQuestion, Maximize2, Repeat, ScanSearch, Send, Sparkles, SquareTerminal, Undo2, X } from "lucide-react"
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
-import { Avatar, Card, actorName } from "../parts"
+import { Avatar, BranchChip, Card, actorName } from "../parts"
 import { typedOr, useFrame } from "../frame"
 import type { Cell, FlowStep, Phase, Trace } from "../world"
 import type { ExtraCardProps } from "./extra"
@@ -25,7 +32,7 @@ const CELL_ICON: Record<Cell["kind"], ReactNode> = {
   think: <Bot size={13} aria-hidden="true" />,
   ask: <MessageCircleQuestion size={13} aria-hidden="true" />,
   steer: <Send size={13} aria-hidden="true" />,
-  subagent: <Bot size={13} aria-hidden="true" />,
+  reviewer: <ScanSearch size={13} aria-hidden="true" />,
   rebase: <Undo2 size={13} aria-hidden="true" />
 }
 
@@ -39,6 +46,31 @@ const STATE_WORD: Record<Trace["state"], string> = {
 
 /** Seconds as the run shows them: "40 s", "4 min". */
 const duration = (seconds: number): string => seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`
+
+/** A cell's tokens as the agent reported them ("3.4k"), counted; and a count as the run shows it. */
+const tokenCount = (text: string | undefined): number => text === undefined ? 0 : Number.parseFloat(text) * (text.endsWith("k") ? 1000 : 1)
+const tokenLabel = (count: number): string => `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`
+
+/** A step's time is its phases' sum and its tokens its cells' sum; a step that spent none shows none. */
+const costOf = (phases: ReadonlyArray<Phase>): { readonly took: string | undefined; readonly tokens: string | undefined } => {
+  const tokens = phases.flatMap(phase => phase.cells).reduce((sum, cell) => sum + tokenCount(cell.tokens), 0)
+  return {
+    took: phases.some(phase => phase.took !== undefined) ? duration(phases.reduce((sum, phase) => sum + (phase.took ?? 0), 0)) : undefined,
+    tokens: tokens === 0 ? undefined : tokenLabel(tokens)
+  }
+}
+
+/** The monitor selects a cell, or a whole step from its node: "step:<run>:<step>". */
+const stepPick = (selected: string | undefined): { readonly run: string; readonly step: string } | undefined => {
+  const match = /^step:(.+):([^:]+)$/.exec(selected ?? "")
+  return match === null ? undefined : { run: match[1] ?? "", step: match[2] ?? "" }
+}
+
+/** The fast model wrote this: a phase's summary, or the explanation of a cell the agent did. A person's own words and plain facts carry no mark. */
+const Written = () => <Sparkles size={11} className="mvp-written" role="img" aria-label="Summary" />
+
+/** A cell's explanation, marked when the model wrote it (the agent's cells, not a person's steer or merge). */
+const Explain = ({ cell }: { readonly cell: Cell }) => <>{cell.who === undefined ? <Written /> : null}{cell.explain}</>
 
 const Indicator = ({ phase }: { readonly phase: Phase }) => phase.indicator === undefined ? null : (
   <span className="mvp-indicator" data-tone={phase.tone}>{phase.tone === "thrash" ? <Repeat size={12} aria-hidden="true" /> : null}{phase.indicator}</span>
@@ -83,51 +115,58 @@ const RebaseLoop = ({ from, to, fresh }: { readonly from: number; readonly to: n
 
 /*
  * One attempt as a graph: compact in the embedded card; full in Inspect, with
- * each step's time, the wait's "since" and the rebase loop; earlier attempts
- * dimmed above it, up to the node where they stopped and why.
+ * each step's time and tokens, the wait's "since" and the rebase loop; earlier
+ * attempts dimmed above it, up to the node where they stopped and why. A node
+ * lights up as the run reaches it.
  */
-const Attempt = ({ trace, flow, size, label = false, selected, dim = false }: {
+const Attempt = ({ trace, flow, size, label = false, selectedStep, dim = false }: {
   readonly trace: Trace
   readonly flow: ReadonlyArray<FlowStep>
   readonly size: "compact" | "full" | "earlier"
   readonly label?: boolean
-  /** The selected cell in Inspect: its step's node is marked. */
-  readonly selected?: string
+  /** In Inspect, the step whose node is marked: the selected step, or the selected cell's. */
+  readonly selectedStep?: string | undefined
   readonly dim?: boolean
 }) => {
   const { state: { seq } } = useFrame()
   const inspect = size !== "compact"
   const steps = size === "earlier" ? flow.filter(step => nodeOf(trace, step.id) !== "next") : flow
   const stopped = trace.state === "failed" ? trace.phases.at(-1) : undefined
-  const selectedStep = trace.phases.find(phase => phase.cells.some(cell => cell.id === selected))?.step
   const wait: Node = trace.state === "held" ? "held" : trace.state === "merged" ? "done" : "next"
-  const node = (id: string, title: string, state: Node, took: string | undefined, thrashed: boolean) => (
-    <button type="button" className="mvp-node" data-selected={(inspect && id === selectedStep) || undefined}
-      data-mock={inspect ? `node-${trace.attempt}-${id}` : undefined}
-      aria-label={[title, NODE_WORD[state], took, thrashed ? "thrashed" : undefined].filter(Boolean).join(", ")}>
-      <span className="mvp-step-mark" aria-hidden="true">
-        {state === "done" ? <Check size={size === "full" ? 12 : 10} strokeWidth={3} /> : state === "failed" ? <X size={size === "full" ? 12 : 10} strokeWidth={3} /> : null}
-      </span>
-      {size === "earlier" ? null : <span className="mvp-node-name"><span className="mvp-step-name">{title}</span>{thrashed ? <Repeat size={11} className="mvp-node-thrash" aria-hidden="true" /> : null}</span>}
-      {took === undefined ? null : <span className="mvp-node-took">{took}</span>}
-    </button>
-  )
+  const node = (id: string, title: string, state: Node) => {
+    const phases = trace.phases.filter(phase => phase.step === id)
+    /* While the run holds for merge, the wait says since when; every other step says what it spent. */
+    const { took, tokens } = size !== "full" ? { took: undefined, tokens: undefined }
+      : id === "merge" && trace.held !== undefined ? { took: `since ${trace.held.since}`, tokens: undefined } : costOf(phases)
+    const thrashed = phases.some(phase => phase.tone === "thrash")
+    const fresh = inspect && state === "current" && phases.some(phase => phase.cells.some(cell => cell.seq === seq))
+    return (
+      <button type="button" className="mvp-node" data-selected={(inspect && id === selectedStep) || undefined} data-fresh={fresh || undefined}
+        data-mock={inspect ? `node-${trace.attempt}-${id}` : undefined}
+        aria-label={[title, NODE_WORD[state], took, tokens === undefined ? undefined : `${tokens} tokens`, thrashed ? "thrashed" : undefined].filter(Boolean).join(", ")}>
+        <span className="mvp-step-mark" aria-hidden="true">
+          {state === "done" ? <Check size={size === "full" ? 12 : 10} strokeWidth={3} /> : state === "failed" ? <X size={size === "full" ? 12 : 10} strokeWidth={3} /> : null}
+        </span>
+        {size === "earlier" ? null : <span className="mvp-node-name"><span className="mvp-step-name">{title}</span>{thrashed ? <Repeat size={11} className="mvp-node-thrash" aria-hidden="true" /> : null}</span>}
+        {took === undefined ? null : <span className="mvp-node-took">{took}</span>}
+        {tokens === undefined ? null : <span className="mvp-node-took">{tokens} tokens</span>}
+      </button>
+    )
+  }
   const graph = (
     <ol className="mvp-steps mvp-attempt" data-size={size} aria-label={`Attempt ${trace.attempt}`} style={{ "--node-w": `${NODE_W}px` } as CSSProperties}>
       {steps.map(step => {
         const state = nodeOf(trace, step.id)
-        const phases = trace.phases.filter(phase => phase.step === step.id)
-        const took = size === "full" && phases.some(phase => phase.took !== undefined) ? duration(phases.reduce((sum, phase) => sum + (phase.took ?? 0), 0)) : undefined
         return (
           <li key={step.id} data-phase={state} aria-current={state === "current" || state === "waiting" ? "step" : undefined}>
-            {node(step.id, step.title, state, took, phases.some(phase => phase.tone === "thrash"))}
+            {node(step.id, step.title, state)}
             {size === "earlier" && stopped?.step === step.id ? <span className="mvp-attempt-reason">{stopped.indicator}</span> : null}
           </li>
         )
       })}
       {size === "earlier" ? null : (
         <li data-phase={wait} data-wait aria-current={wait === "held" ? "step" : undefined}>
-          {node("merge", "Merge", wait, size === "full" && trace.held !== undefined ? `since ${trace.held.since}` : undefined, false)}
+          {node("merge", "Merge", wait)}
         </li>
       )}
     </ol>
@@ -147,6 +186,46 @@ const Attempt = ({ trace, flow, size, label = false, selected, dim = false }: {
   )
 }
 
+/* ── A step, selected from its node ──────────────────────── */
+
+/* What the step was given and what it returned, as typed fields, then the agent's transcript, with the step's time and tokens. */
+const StepDetail = ({ trace, step, title }: { readonly trace: Trace; readonly step: string; readonly title: string }) => {
+  const { state: { world } } = useFrame()
+  const phases = trace.phases.filter(phase => phase.step === step)
+  const { took, tokens } = costOf(phases)
+  const io = trace.io?.[step]
+  const fields = (label: string, rows: ReadonlyArray<readonly [string, string]>) => (
+    <div className="mvp-run-io">
+      <h4>{label}</h4>
+      <dl>{rows.map(([key, value]) => <div key={key}><dt>{key}</dt><dd data-copy="data">{value}</dd></div>)}</dl>
+    </div>
+  )
+  return (
+    <>
+      <div className="mvp-run-detail-head">
+        <span className="mvp-run-detail-phase">{title}</span>
+        {io?.model === undefined ? null : <span className="mvp-meta"><Avatar world={world} who="agent" size={16} />{io.model}</span>}
+        <span className="mvp-actions-end mvp-took">{[took, tokens === undefined ? undefined : `${tokens} tokens`].filter(Boolean).join(" · ")}</span>
+      </div>
+      {io === undefined ? null : <>{fields("Input", io.input)}{fields("Output", io.output)}</>}
+      <div className="mvp-run-io">
+        <h4>Transcript</h4>
+        <ol className="mvp-run-transcript">
+          {phases.flatMap(phase => phase.cells).map(cell => (
+            <li key={cell.id}>
+              <button type="button" className="mvp-run-cell" data-tone={cell.tone} data-mock={`transcript-${cell.id}`}>
+                <span className="mvp-run-cell-icon">{cell.who === undefined ? CELL_ICON[cell.kind] : <Avatar world={world} who={cell.who} size={16} />}</span>
+                <span className="mvp-run-cell-text"><Explain cell={cell} /></span>
+              </button>
+              <span className="mvp-took">{[cell.took, cell.tokens].filter(Boolean).join(" · ")}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </>
+  )
+}
+
 /* ── The card ────────────────────────────────────────────── */
 
 export const RunCard = ({ id, target, view }: ExtraCardProps) => {
@@ -155,10 +234,11 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
   const attempts = useRef<HTMLDivElement>(null)
   const followed = useRef<string | undefined>(undefined)
   /*
-   * The timeline follows the selected cell, as the conversation follows its
-   * newest entry, scrolling only itself, so a narrow screen keeps the graph in
-   * view. It measures layout offsets, not screen boxes: the card may still be
-   * growing in, and it follows again once the fonts settle the line wraps.
+   * The timeline follows the selection, a cell or a step, as the conversation
+   * follows its newest entry, scrolling only itself, so a narrow screen keeps
+   * the graph in view. It measures layout offsets, not screen boxes: the card
+   * may still be growing in, and it follows again once the fonts settle the
+   * line wraps.
    */
   useLayoutEffect(() => {
     const list = timeline.current
@@ -187,19 +267,23 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
   const { world, seq } = frame.state
   const trace = world.traces.find(each => each.id === target)
   if (trace === undefined) return null
-  const flow = world.todos.find(each => each.id === trace.todo)?.steps ?? world.flow
-  const stepTitle = (step: string): string => flow.find(each => each.id === step)?.title ?? step
+  /* A run keeps the flow version it started with: a TODO's steps, an edited flow's on a scratch branch, else the active flow. */
+  const flow = trace.steps ?? world.todos.find(each => each.id === trace.todo)?.steps ?? world.flow
+  const stepTitle = (step: string): string => flow.find(each => each.id === step)?.title ?? (step === "merge" ? "Merge" : step)
   const status = (
     <span className="mvp-run-state" data-state={trace.state}>
       {trace.state === "running" ? <span className="mvp-dot" data-state="working" aria-hidden="true" /> : trace.state === "held" ? <span className="mvp-run-held" aria-hidden="true" /> : null}
       {STATE_WORD[trace.state]}
     </span>
   )
+  /* A run that is no TODO's names the branch it runs on; a TODO's card says that for its run. */
+  const where = trace.todo === undefined ? world.branches.find(each => each.id === trace.branch) : undefined
+  const end = where === undefined ? undefined : <BranchChip branch={where} />
   if (view !== "max") {
     /* What needs a look now: the newest live or flagged phase, and the indicators of the step the run is in. */
     const now = trace.state === "held" || trace.state === "merged" ? undefined : trace.phases.filter(phase => phase.tone !== undefined && phase.tone !== "ok").at(-1)
     return (
-      <Card id={id} kind="run" title={trace.title} status={status}>
+      <Card id={id} kind="run" title={trace.title} status={status} end={end}>
         <div className="mvp-section"><Attempt trace={trace} flow={flow} size="compact" /></div>
         {now === undefined ? null : <p className="mvp-run-now">{now.title}</p>}
         <RunFlags trace={trace} />
@@ -211,11 +295,22 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
   }
   const all = trace.todo === undefined ? [trace] : world.traces.filter(each => each.todo === trace.todo).sort((a, b) => a.attempt - b.attempt)
   const earlier = all.filter(each => each.attempt < trace.attempt)
-  const selectedId = frame.state.viewers[frame.me]?.selected ?? trace.phases.at(-1)?.cells.at(-1)?.id
-  /* The timeline is the selected cell's attempt: a node of an earlier attempt opens that attempt's record. */
-  const shown = all.find(each => each.phases.some(phase => phase.cells.some(cell => cell.id === selectedId))) ?? trace
+  /*
+   * The selection is this person's: a cell, or a step from its node. The
+   * timeline is the selection's attempt (a node or cell of an earlier attempt
+   * opens that attempt's record). A selection made in another run falls back
+   * to this run's newest cell.
+   */
+  const chosen = frame.state.viewers[frame.me]?.selected
+  const pick = stepPick(chosen)
+  const pickedRun = pick === undefined ? undefined : all.find(each => each.id === pick.run)
+  const cellRun = all.find(each => each.phases.some(phase => phase.cells.some(cell => cell.id === chosen)))
+  const shown = pickedRun ?? cellRun ?? trace
+  const selectedStep = pickedRun === undefined ? undefined : pick?.step
+  const selectedId = pickedRun !== undefined ? undefined : cellRun !== undefined ? chosen : trace.phases.at(-1)?.cells.at(-1)?.id
   const selected = shown.phases.flatMap(phase => phase.cells).find(cell => cell.id === selectedId)
   const selectedPhase = shown.phases.find(phase => phase.cells.some(cell => cell.id === selectedId))
+  const marked = selectedStep ?? selectedPhase?.step
   /* A finished phase collapses to its title and summary; flagged, live and selected phases stay open. */
   const open = (phase: Phase) => phase.tone === "thrash" || phase.tone === "wait" || phase.tone === "live" || phase.tone === "fail" || phase.cells.some(cell => cell.id === selectedId)
   /* Phases sit under their step in run order; a step the run comes back to (a rebase) starts a new group. */
@@ -226,23 +321,23 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
     else groups.push({ step: phase.step, phases: [phase] })
   }
   return (
-    <Card id={id} kind="run" title={trace.title} status={status}>
+    <Card id={id} kind="run" title={trace.title} status={status} end={end}>
       <div className="mvp-run-attempts" ref={attempts}>
-        {earlier.map(each => <Attempt key={each.id} trace={each} flow={flow} size="earlier" label selected={selectedId} dim={each !== shown} />)}
-        <Attempt trace={trace} flow={flow} size="full" label={earlier.length > 0} selected={selectedId} />
+        {earlier.map(each => <Attempt key={each.id} trace={each} flow={flow} size="earlier" label selectedStep={each === shown ? marked : undefined} dim={each !== shown} />)}
+        <Attempt trace={trace} flow={flow} size="full" label={earlier.length > 0} selectedStep={trace === shown ? marked : undefined} />
       </div>
       <div className="mvp-run-max">
         <nav className="mvp-run-timeline" aria-label="Run timeline" ref={timeline}>
           <ol>
             {groups.map((group, index) => (
-              <li key={index} className="mvp-run-step">
+              <li key={index} className="mvp-run-step" aria-current={group.step === selectedStep ? "step" : undefined} data-mock={`group-${group.step}`}>
                 <div className="mvp-run-step-head">{stepTitle(group.step)}</div>
                 <ol className="mvp-run-phases">
                   {group.phases.map(phase => (
                     <li key={phase.id} className="mvp-run-phase" data-tone={phase.tone}>
                       <div className="mvp-run-phase-head">
                         <span className="mvp-run-phase-n">{shown.phases.indexOf(phase) + 1}</span>
-                        <span className="mvp-run-phase-title"><b>{phase.title}</b><span>{phase.summary}</span></span>
+                        <span className="mvp-run-phase-title"><b>{phase.title}</b>{phase.summary === "" ? null : <span><Written />{phase.summary}</span>}</span>
                         {phase.took === undefined ? null : <span className="mvp-took">{duration(phase.took)}</span>}
                       </div>
                       <Indicator phase={phase} />
@@ -253,7 +348,7 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
                             <button type="button" className="mvp-run-cell" aria-current={cell.id === selectedId || undefined} data-tone={cell.tone}
                               data-fresh={cell.seq === seq || undefined} data-mock={`cell-${cell.id}`}>
                               <span className="mvp-run-cell-icon">{cell.who === undefined ? CELL_ICON[cell.kind] : <Avatar world={world} who={cell.who} size={16} />}</span>
-                              <span className="mvp-run-cell-text">{cell.explain}</span>
+                              <span className="mvp-run-cell-text"><Explain cell={cell} /></span>
                               {cell.tone === "fail" ? <X size={12} className="mvp-tl-failed" aria-hidden="true" /> : null}
                             </button>
                           </li>
@@ -266,8 +361,8 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
             ))}
           </ol>
         </nav>
-        <section className="mvp-run-detail" aria-label="Selected cell">
-          {selected === undefined ? null : (
+        <section className="mvp-run-detail" aria-label={selectedStep === undefined ? "Selected cell" : "Selected step"}>
+          {selectedStep !== undefined ? <StepDetail trace={shown} step={selectedStep} title={stepTitle(selectedStep)} /> : selected === undefined ? null : (
             <>
               <div className="mvp-run-detail-head">
                 <span className="mvp-run-cell-icon">{CELL_ICON[selected.kind]}</span>
@@ -275,9 +370,8 @@ export const RunCard = ({ id, target, view }: ExtraCardProps) => {
                 {selected.who === undefined ? null : <span className="mvp-meta"><Avatar world={world} who={selected.who} size={16} />{actorName(world, selected.who)}</span>}
                 <span className="mvp-actions-end mvp-took">{[selected.took, selected.tokens].filter(Boolean).join(" · ")}</span>
               </div>
-              <p className="mvp-run-explain">{selected.explain}</p>
+              <p className="mvp-run-explain"><Explain cell={selected} /></p>
               {selected.quote === undefined ? null : <blockquote className="mvp-run-quote" data-copy="data">{selected.quote}</blockquote>}
-              {selected.kind === "subagent" ? <div><Button size="sm" variant="outline" data-mock={`inspect-sub-${selected.id}`}><Maximize2 size={13} aria-hidden="true" />Inspect this subagent</Button></div> : null}
               {selected.code === undefined ? null : <pre className="mvp-code mvp-run-code">{selected.code}</pre>}
               {selected.output === undefined ? null : (
                 <div className="mvp-term mvp-run-output">{selected.output.map((line, index) => (

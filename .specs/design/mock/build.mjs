@@ -54,6 +54,14 @@ const scopeDark = css => {
     if (!rule.selector.includes(DARK_ROOT)) return
     rule.selectors = rule.selectors.flatMap(selector => selector.includes(DARK_ROOT) ? [selector, selector.replaceAll(DARK_ROOT, '.mock-shell[data-theme="dark"]')] : [selector])
   })
+  /* Tokens derived from other tokens (color-mix over var(--brand)) resolve where they are declared, so declare
+     them again on each screen: a dark screen then blends its own dark base tokens, not the page's light ones. */
+  const derived = []
+  root.walkRules(rule => {
+    if (rule.selector !== ":root" || rule.parent?.type !== "root") return
+    rule.walkDecls(/^--/, decl => { if (decl.value.includes("var(")) derived.push(decl.clone()) })
+  })
+  if (derived.length > 0) root.append(postcss.rule({ selector: ".mock-shell", nodes: derived }))
   return root.toString()
 }
 

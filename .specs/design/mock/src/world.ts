@@ -169,12 +169,12 @@ export interface Terminal {
   readonly owner: ActorId
   /** The foreground command, shown wherever the session is listed. */
   running?: string
+  /** The foreground program's own input prompt (Claude Code's ">"), drawn in place of the shell prompt while it runs. */
+  prompt?: string
   lines: Array<TermLine>
   watchers: Array<ActorId>
   /** A system package the session needed (no sudo on machines): offered as a reviewed image change. */
   offer?: string
-  /** The owner joined after the machine woke, so their home is machine-local until the next wake (engineering T-MCH-11). */
-  temporaryHome?: boolean
 }
 
 export interface CodeLine {
@@ -375,11 +375,15 @@ export interface World {
   wiki: Array<WikiPage>
   /** One conversation per branch, plus main's. */
   conversations: Record<string, Array<Entry>>
+  /* J11 · under the hood (mvp.md §6.14) */
+  /** The agents behind the TODO flow's steps; absent until a journey shows one. */
+  agents?: Array<FactoryAgent>
 }
 
 export type CardKind = "act" | "run" | "home" | "todo" | "branch" | "terminal" | "file" | "diff" | "issue" | "draft" | "flow" | "setup" | "settings" | "proposal" | "review" | "confirm" | "commands" | "members" | "secrets" | "later"
   | "form"
   | "wiki"
+  | "agent"
 
 /*
  * A run, inside (Will, 2026-10-02): what Inspect opens. One TODO attempt is
@@ -388,12 +392,12 @@ export type CardKind = "act" | "run" | "home" | "todo" | "branch" | "terminal" |
  * each step into phases by what the agent is doing and writes each phase's
  * title; every cell the agent writes carries a plain explanation of what it
  * did. Indicators flag thrashing (the same failure repeated with no new idea),
- * waits and failures. A phase can hold subagents, each with its own summary.
+ * waits and failures. Review's phase holds its reviewers, each reporting in one line.
  */
 export interface Cell {
   readonly id: string
-  /** rebase: main or an earlier item moved, and the run went back to Verify. */
-  readonly kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "subagent" | "rebase"
+  /** rebase: main or an earlier item moved, and the run went back to Verify. reviewer: one of Review's lenses. */
+  readonly kind: "context" | "read" | "edit" | "run" | "think" | "ask" | "steer" | "reviewer" | "rebase"
   /** What the agent did, in plain words: written for a person, not a log. */
   readonly explain: string
   /** The words as the agent said them (its whole question), shown in the detail pane. */
@@ -432,6 +436,36 @@ export interface Trace {
   state: "running" | "waiting" | "held" | "merged" | "failed"
   held?: { readonly since: string }
   phases: Array<Phase>
+  /* J11 · under the hood (mvp.md §6.14) */
+  /** The steps of the flow version it runs, when it is no TODO's: a test run of an edited flow. */
+  readonly steps?: ReadonlyArray<FlowStep>
+  /** Each step's typed input and output, and the model its agent ran on, by step id. */
+  readonly io?: Readonly<Record<string, StepIO>>
+}
+
+/* ── J11 · under the hood (mvp.md §6.14) ─────────────────── */
+
+/** One step as the monitor shows it: what it was given and returned, as typed fields, and the model its agent ran on. */
+export interface StepIO {
+  readonly input: ReadonlyArray<readonly [string, string]>
+  readonly output: ReadonlyArray<readonly [string, string]>
+  readonly model?: string
+}
+
+/*
+ * An agent the factory uses (mvp.md §6.14; Will, 2026-10-02). Its
+ * instructions are a Markdown file in the repository, which also holds its
+ * tools and permissions; changing it is a TODO like any change. Its model is
+ * the owner's setting and applies at once.
+ */
+export interface FactoryAgent {
+  readonly id: string
+  /** The TODO flow steps it works. */
+  readonly steps: ReadonlyArray<string>
+  readonly instructions: string
+  model: string
+  /** The owner's last change, kept on the Agent card as its receipt. */
+  changed?: { readonly from: string; readonly by: ActorId; readonly seq: number }
 }
 
 /*
@@ -461,7 +495,7 @@ export interface Review {
   readonly branch: string
   readonly by: ActorId
   readonly verdict: "clean" | "changes"
-  readonly findings: ReadonlyArray<{ readonly severity: "blocker" | "fix" | "note"; readonly path: string; readonly line: number; readonly text: string }>
+  readonly findings: ReadonlyArray<{ readonly severity: "blocker" | "fix" | "note"; readonly path: string; readonly line: number; readonly text: string; acted?: "fix" | "not-useful" }>
 }
 
 /* A learning run's suggested improvement, backed by the team's own runs. */

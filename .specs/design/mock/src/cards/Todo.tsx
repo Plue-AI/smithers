@@ -9,6 +9,7 @@ import { BookOpen, Check, ExternalLink, History, Loader, RotateCw, X } from "luc
 import { Avatar, AvatarStack, BranchChip, Card, Ref, StatePill, StepStrip, actorName } from "../parts"
 import { typedOr, useFrame } from "../frame"
 import { canMerge, refOf, todo as todoOf, type Todo, type World } from "../world"
+import { RunFlags } from "./Run"
 
 const ordinal = (n: number): string => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`
 
@@ -154,7 +155,7 @@ const Amendments = ({ todo }: { readonly todo: Todo }) => {
   return (
     <details className="mvp-amendments">
       <summary><History size={13} aria-hidden="true" />{todo.amendments.length} amendment{todo.amendments.length === 1 ? "" : "s"}</summary>
-      <ol>{todo.amendments.map((each, index) => <li key={index}><Avatar world={world} who={each.by} size={16} />{each.text}</li>)}</ol>
+      <ol>{todo.amendments.map((each, index) => <li key={index}><Avatar world={world} who={each.by} size={16} /><span data-copy="data">{each.text}</span></li>)}</ol>
     </details>
   )
 }
@@ -168,6 +169,8 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
   const next = place === "next to merge"
   const settled = todo.state === "merged" || todo.state === "dropped"
   const live = todo.state === "working" || todo.state === "starting" || todo.state === "needs-you"
+  /* The TODO's latest attempt: its flags ride on this card, and Inspect opens its monitor (one card per thing). */
+  const run = world.traces.filter(each => each.todo === todo.id).sort((a, b) => b.attempt - a.attempt)[0]
   return (
     <Card id={id} kind="todo" title={<><Ref world={world} todo={todo} /> {todo.title}</>} status={<StatePill todo={todo} flow={flow} />}
       end={<Avatar world={world} who={todo.owner} />}>
@@ -185,6 +188,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
       ) : settled ? null : (
         <div className="mvp-section"><StepStrip flow={flow} todo={todo} seq={seq} /></div>
       )}
+      {run === undefined || settled ? null : <RunFlags trace={run} />}
       <Amendments todo={todo} />
       <Question todo={todo} />
       {todo.state === "failed" ? <Failure todo={todo} /> : null}
@@ -198,6 +202,7 @@ export const TodoCard = ({ id, target }: { readonly id: string; readonly target:
               <BookOpen size={13} aria-hidden="true" />{todo.lessons} {todo.lessons === 1 ? "lesson" : "lessons"}
             </button>
           )}
+          {run === undefined ? null : <span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock={`inspect-todo-${todo.id}`}>Inspect</Button></span>}
         </div>
       ) : null}
       {live || todo.state === "paused" ? (

@@ -21,7 +21,7 @@ const T13 = "t-retry-after"
 const TERMINAL = "term-ben"
 const DROP = "drop-t9"
 const CLOCK = { title: "Add a fake clock to the test helpers", prompt: "Add a fake clock to test/helpers, so tests can advance time instead of sleeping." }
-const JITTER = { title: "Jitter on each retry delay", prompt: "Add up to 20% random jitter to each retry delay, so retries don't arrive together." }
+const JITTER = { title: "Jitter on each retry delay", prompt: "Add up to 20% random jitter to each retry delay." }
 const AFTER = {
   title: "Retry webhooks with backoff and Retry-After",
   prompt: "Retry failed deliveries up to 5 times. Wait as long as Retry-After asks; otherwise back off with jitter."
@@ -190,7 +190,7 @@ export const j7: Journey = {
       ask(state, BEN, { id: DROP, verb: "Drop", target: "T9 retry-webhooks", receipt: "Dropped T9 · #214 closed" })
     }, { hold: 2800 }),
     {
-      caption: "He presses ⏎. T9 is Dropped and #214 closes; T13 already has T9's work, so nothing is lost.",
+      caption: "⏎ drops T9 and closes #214. Nothing is lost: T13 already has T9's work.",
       target: `[data-mock="act-${DROP}"]`, hover: true, keys: "⏎", hold: 3200,
       act: state => {
         pressed(state, DROP)
@@ -204,22 +204,21 @@ export const j7: Journey = {
       }
     },
     {
-      caption: "#88 merges on GitHub, and main moves. T13 is next to merge; its rebase still waits, since Ben is on its branch.",
+      caption: "#88 merges on GitHub, and main moves. Ben is on T13's branch, so its rebase waits for him.",
       hold: 3200,
-      show: [{ viewer: BEN, target: `[data-card="branch:${SCRATCH}"] .mvp-rebase` }],
       act: state => {
         const { world } = state
         setTodo(state, "t-stripe", { state: "merged" })
         branch(world, "b-stripe").machine = "closed"
         world.mainHead = { text: "#88 merged · just now", seq: state.seq }
         branch(world, SCRATCH).rebasePending = "main"
+        showCard(state, BEN, "branch", SCRATCH)
       }
     },
     {
-      caption: "He presses Rebase now. One line conflicts, and T13's coding agent resolves it in place; the diff shows its hunk.",
+      caption: "He presses Rebase now, and one line conflicts. T13's coding agent resolves it and shows what it did.",
       target: `[data-mock="rebase-${SCRATCH}"]`, hold: 3800,
       typing: { into: line(RESOLVED.line), after: RESOLVED.after, text: RESOLVED.text, shared: true },
-      show: [{ viewer: BEN, target: '[data-mock="card-diff"]' }],
       pre: state => {
         branch(state.world, SCRATCH).rebasePending = undefined
         rebaseOnMain(file(state.world, RETRY_FILE).lines)

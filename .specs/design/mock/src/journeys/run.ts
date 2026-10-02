@@ -4,9 +4,10 @@
  * that a rebase loops back to Verify. The retry TODO's second attempt: its
  * TODO card flags the run, and Inspect maximizes the run's card (one card per
  * thing: a TODO's run has no card of its own in the conversation). Inside,
- * attempt 1 beside it, phases a cheap model titled under each step, a
- * thrashing indicator, a wait for a person, Ben's steer, two reviewers, the
- * PR, and the wait for merge going back to Verify when main moves.
+ * attempt 1 beside it, phases under each step titled by what they recorded,
+ * each with the fast model's one-line summary, a thrashing indicator, a wait
+ * for a person, Ben's steer, two reviewers, the PR, and the wait for merge
+ * going back to Verify when main moves.
  */
 import type { Journey } from "../journey"
 import { branch, checksPassed, leave, revise, setTodo, showCard, type Cell, type Phase, type State, type Trace } from "../world"
@@ -26,14 +27,14 @@ export const FIRST = (): Trace => ({
   id: "run-retry-1", title: RETRY.title, todo: TODO, attempt: 1, branch: "b-retry", state: "failed",
   phases: [
     {
-      id: "p1-read", step: "plan", title: "Read the retry path", summary: "Found a fixed 30 s wait before each retry.", took: 35, tone: "ok",
+      id: "p1-read", step: "plan", title: "Read 3 files", summary: "Found a fixed 30 s wait before each retry.", took: 35, tone: "ok",
       cells: [
         cell("c1-preflight", "context", "Preflight chose retry.ts, lib/backoff.ts and the Webhook retries page.", { took: "1 s", tokens: "3.1k" }),
         cell("c1-plan", "think", "Planned: backoff() for each retry, give up after 5 attempts.", { took: "11 s", tokens: "1.3k" })
       ]
     },
     {
-      id: "p1-backoff", step: "implement", title: "Switch retries to backoff", summary: "Stopped when the machine restarted.", took: 20, tone: "fail", indicator: "Machine restarted",
+      id: "p1-backoff", step: "implement", title: "Edited 1 file", summary: "Stopped when the machine restarted.", took: 20, tone: "fail", indicator: "Machine restarted",
       cells: [cell("c1-edit", "edit", "Began switching deliver() to backoff(attempt); the machine restarted mid-edit.", { tone: "fail", took: "6 s", tokens: "1.2k" })]
     }
   ]
@@ -42,7 +43,7 @@ export const FIRST = (): Trace => ({
 /** Attempt 2 up to its question, waiting for a person. */
 export const PHASES = (): Array<Phase> => [
   {
-    id: "p-read", step: "plan", title: "Read the retry path", summary: "Found a fixed 30 s wait before each retry.", took: 40, tone: "ok",
+    id: "p-read", step: "plan", title: "Read 3 files", summary: "Found a fixed 30 s wait before each retry.", took: 40, tone: "ok",
     cells: [
       cell("c-preflight", "context", "Preflight chose retry.ts, lib/backoff.ts, the Webhook retries page and attempt 1.", { took: "1 s", tokens: "3.4k" }),
       cell("c-read-retry", "read", "Read retry.ts: deliver() waits a fixed 30 s before each retry.", { code: "    await sleep(30_000)", took: "4 s", tokens: "2.1k" }),
@@ -51,12 +52,12 @@ export const PHASES = (): Array<Phase> => [
     ]
   },
   {
-    id: "p-backoff", step: "implement", title: "Switch retries to backoff", summary: "Changed the wait in deliver().", took: 60, tone: "ok",
+    id: "p-backoff", step: "implement", title: "Edited 1 file", summary: "Changed the wait in deliver().", took: 60, tone: "ok",
     cells: [cell("c-edit-deliver", "edit", "Replaced the fixed 30 s wait in deliver() with backoff(attempt).", { code: "-    await sleep(30_000)\n+    await sleep(backoff(attempt))", took: "9 s", tokens: "1.9k" })]
   },
   {
     /* The agent's own test runs while it implements; Verify is the flow's checks after it. */
-    id: "p-tests", step: "implement", title: "Run the webhook tests", summary: "The retry test times out every time.", took: 240, tone: "thrash",
+    id: "p-tests", step: "implement", title: "Ran tests · 1 failed ×3", summary: "The retry test times out every time.", took: 240, tone: "thrash",
     indicator: "Thrashing: the same test failed 3 times with the same timeout",
     cells: [
       cell("c-run-1", "run", "Ran the webhook tests. The retry test timed out.", { tone: "fail", output: FAIL, took: "41 s" }),
@@ -66,9 +67,43 @@ export const PHASES = (): Array<Phase> => [
     ]
   },
   {
-    id: "p-ask", step: "implement", title: "Ask a person", summary: "Asked whether to change the delay or raise the timeout.", tone: "wait",
+    id: "p-ask", step: "implement", title: "Asked a person", summary: "Asked whether to change the delay or raise the timeout.", tone: "wait",
     indicator: "Waiting for a person since 10:42",
     cells: [cell("c-ask", "ask", "Asked: change the delay, or raise the test timeout?", { tone: "wait", quote: RETRY.question!.text })]
+  }
+]
+
+/* After the question: the checks, two reviewers and the PR, then the rebase and recheck when T8 merges. J11 shows them once T9 merged. */
+export const VERIFY = (seq?: number): Phase => ({
+  id: "p-verify", step: "verify", title: "Ran checks · passed", summary: "Typecheck and all 14 webhook tests pass.", took: 50, tone: "ok",
+  cells: [
+    cell("c-typecheck", "run", "Ran typecheck: no errors.", { tone: "ok", took: "12 s", seq }),
+    cell("c-run-ok", "run", "Ran the webhook tests: 14 passed.", { tone: "ok", output: PASS, took: "38 s", seq })
+  ]
+})
+
+export const REVIEW = (seq?: number): Phase => ({
+  id: "p-review", step: "review", title: "Reviewed · 2 reviewers", summary: "No blocking issues found.", took: 180, tone: "ok",
+  cells: [
+    cell("c-sub-correct", "reviewer", "Correctness reviewer: no blocking issues. Retries stop after the 5th.", { took: "52 s", tokens: "6.2k", seq }),
+    cell("c-sub-tests", "reviewer", "Test reviewer: the tests cover backoff and giving up.", { took: "47 s", tokens: "5.8k", seq })
+  ]
+})
+
+export const PROPOSE = (seq?: number): Phase => ({
+  id: "p-propose", step: "propose", title: "Opened PR #214", summary: "Its body carries the prompt, diff and checks.", took: 40, tone: "ok",
+  cells: [cell("c-pr", "run", "Opened PR #214 with the prompt, diff and checks.", { tone: "ok", took: "4 s", seq })]
+})
+
+/** A rebase is its own phase: main moved, so the run went back to Verify, then reran the checks. */
+export const RECHECK = (seq?: number): Array<Phase> => [
+  {
+    id: "p-rebase", step: "verify", title: "Rebased onto main", summary: "After T8 merged; now c41a9e0.", took: 2, tone: "ok",
+    cells: [cell("c-rebase", "rebase", "main moved when T8 merged. Rebased onto it as c41a9e0.", { took: "2 s", seq })]
+  },
+  {
+    id: "p-recheck", step: "verify", title: "Ran checks · passed", summary: "All pass on c41a9e0.", took: 50, tone: "ok",
+    cells: [cell("c-recheck", "run", "Reran typecheck and the webhook tests on c41a9e0. All pass.", { tone: "ok", output: PASS, took: "48 s", seq })]
   }
 ]
 
@@ -124,13 +159,13 @@ export const insideRun: Journey = {
       act: state => { state.viewers[BEN]!.selected = "c-ask" }
     },
     {
-      caption: "Ben steers from inside the run. A new Implement phase starts, titled from what the agent now does.",
+      caption: "Ben steers from inside the run. A new Implement phase opens under his name, and the agent follows it.",
       target: `[data-mock="run-steer-${RUN}"]`, typing: { into: "steer:b-retry", text: STEER }, hold: 2800,
       act: state => {
         trace(state).state = "running"
         Object.assign(phase(state, "p-ask"), { tone: "ok", indicator: undefined, took: 180 })
         trace(state).phases.push({
-          id: "p-steer", step: "implement", title: "Use backoff everywhere", summary: "Following Ben's steer: the second wait was in redeliver().", tone: "live",
+          id: "p-steer", step: "implement", title: "Steer · Ben", summary: "Following Ben's steer: the second wait was in redeliver().", tone: "live",
           cells: [
             cell("c-steer", "steer", STEER, { who: BEN, seq: state.seq }),
             cell("c-edit-redeliver", "edit", "Found the second fixed wait in redeliver(); switched it to backoff(1).", { code: "-  await sleep(30_000)\n+  await sleep(backoff(1))", took: "7 s", tokens: "1.1k", seq: state.seq }),
@@ -146,22 +181,8 @@ export const insideRun: Journey = {
       hold: 3200,
       act: state => {
         Object.assign(phase(state, "p-steer"), { tone: "ok", took: 120 })
-        trace(state).phases.push(
-          {
-            id: "p-verify", step: "verify", title: "Run the checks", summary: "Typecheck and all 14 webhook tests pass.", took: 50, tone: "ok",
-            cells: [
-              cell("c-typecheck", "run", "Ran typecheck: no errors.", { tone: "ok", took: "12 s", seq: state.seq }),
-              cell("c-run-ok", "run", "Ran the webhook tests: 14 passed.", { tone: "ok", output: PASS, took: "38 s", seq: state.seq })
-            ]
-          },
-          {
-            id: "p-review", step: "review", title: "Review the change", summary: "Two reviewers checked the change.", tone: "live",
-            cells: [
-              cell("c-sub-correct", "reviewer", "Correctness reviewer: no blocking issues. Retries stop after the 5th.", { took: "52 s", tokens: "6.2k", seq: state.seq }),
-              cell("c-sub-tests", "reviewer", "Test reviewer: the tests cover backoff and giving up.", { took: "47 s", tokens: "5.8k", seq: state.seq })
-            ]
-          }
-        )
+        /* Review is still running: no time yet. */
+        trace(state).phases.push(VERIFY(state.seq), { ...REVIEW(state.seq), tone: "live", took: undefined })
         setTodo(state, TODO, { step: "review" })
         state.viewers[BEN]!.selected = "c-sub-tests"
       }
@@ -171,10 +192,7 @@ export const insideRun: Journey = {
       target: '[data-mock="node-2-merge"]', hover: true, hold: 3400,
       act: state => {
         Object.assign(phase(state, "p-review"), { tone: "ok", took: 180 })
-        trace(state).phases.push({
-          id: "p-propose", step: "propose", title: "Open the PR", summary: "PR #214 opened with its evidence.", took: 40, tone: "ok",
-          cells: [cell("c-pr", "run", "Opened PR #214 with the prompt, diff and checks.", { tone: "ok", took: "4 s", seq: state.seq })]
-        })
+        trace(state).phases.push(PROPOSE(state.seq))
         trace(state).state = "held"
         trace(state).held = { since: "10:52" }
         setTodo(state, TODO, {
@@ -191,13 +209,7 @@ export const insideRun: Journey = {
       hold: 3800,
       act: state => {
         setTodo(state, "t-stripe", { state: "merged" })
-        trace(state).phases.push({
-          id: "p-recheck", step: "verify", title: "Recheck on the new revision", summary: "Rebased onto main after T8 merged; checks pass.", took: 60, tone: "ok",
-          cells: [
-            cell("c-rebase", "rebase", "main moved when T8 merged. Rebased onto it as c41a9e0.", { took: "2 s", seq: state.seq }),
-            cell("c-recheck", "run", "Reran typecheck and the webhook tests on c41a9e0. All pass.", { tone: "ok", output: PASS, took: "48 s", seq: state.seq })
-          ]
-        })
+        trace(state).phases.push(...RECHECK(state.seq))
         trace(state).held = { since: "11:06" }
         revise(state, TODO, "c41a9e0")
         checksPassed(state, TODO, { typecheck: "11s", test: "37s" })

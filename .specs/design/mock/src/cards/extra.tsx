@@ -15,6 +15,7 @@ import { ActCard } from "./Act"
 import { LaterCard } from "./Later"
 import { FormCard } from "./Form"
 import { WikiCard } from "./Wiki"
+import { AgentCard } from "./Agent"
 
 export interface ExtraCardProps {
   readonly id: string
@@ -36,6 +37,7 @@ export const EXTRA_CARDS: Partial<Record<CardKind, ComponentType<ExtraCardProps>
   secrets: SecretsCard,
   run: RunCard,
   act: ActCard,
+  agent: AgentCard,
   form: FormCard,
   later: LaterCard,
   wiki: WikiCard

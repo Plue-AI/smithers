@@ -4,10 +4,13 @@
  * "Merged · active after sync" is the moment between merge and load; a merged
  * flow that fails to load reads "Merged · not active" in ember and the
  * previous version stays Active. Runs keep the version they started with.
+ * One click away (§6.14, J11): Source opens the flow's file in the File card,
+ * Run runs it with typed input on a scratch branch, and the chip on a step
+ * names the model its agent runs on and opens that agent's card.
  */
 import { Button } from "@smthrs/ui"
-import { Check, GitPullRequest, Hourglass, Loader, Lock, TriangleAlert } from "lucide-react"
-import { Card } from "../parts"
+import { Check, FileCode2, GitPullRequest, Hourglass, Loader, Lock, Play, TriangleAlert } from "lucide-react"
+import { Avatar, Card } from "../parts"
 import { useFrame } from "../frame"
 import type { FlowVersion } from "../world"
 import type { ExtraCardProps } from "./extra"
@@ -68,13 +71,22 @@ export const FlowCard = ({ id, target, view }: ExtraCardProps) => {
       </div>
       <p className="mvp-flow-path"><span className="mvp-mono">{selected.label}</span></p>
       <ol className="mvp-flow-steps">
-        {selected.steps.map((step, index) => (
-          <li key={step.id} data-added={added.has(step.id) || undefined} data-changed={changed.has(step.id) || undefined} data-fresh={step.seq === seq || undefined}>
-            <span className="mvp-flow-n">{index + 1}</span>
-            <span className="mvp-flow-title">{step.title}</span>
-            {step.detail === undefined ? null : <span className="mvp-flow-detail">{step.detail}</span>}
-          </li>
-        ))}
+        {selected.steps.map((step, index) => {
+          const agent = world.agents?.find(each => each.steps.includes(step.id))
+          return (
+            <li key={step.id} data-added={added.has(step.id) || undefined} data-changed={changed.has(step.id) || undefined} data-fresh={step.seq === seq || undefined}
+              data-agent={agent === undefined ? undefined : true}>
+              <span className="mvp-flow-n">{index + 1}</span>
+              <span className="mvp-flow-title">{step.title}</span>
+              {agent === undefined ? null : (
+                <button type="button" className="mvp-flow-agent" aria-label={`${step.title} agent · ${agent.model}`} data-mock={`flow-agent-${agent.id}`}>
+                  <Avatar world={world} who="agent" size={16} />{agent.model}
+                </button>
+              )}
+              {step.detail === undefined ? null : <span className="mvp-flow-detail">{step.detail}</span>}
+            </li>
+          )
+        })}
         <li className="mvp-flow-wait" data-mock="flow-wait">
           <span className="mvp-flow-n"><Hourglass size={12} aria-hidden="true" /></span>
           <span className="mvp-flow-title">Wait for merge</span>
@@ -85,8 +97,12 @@ export const FlowCard = ({ id, target, view }: ExtraCardProps) => {
         </li>
       </ol>
       {selected.state === "merged-failed" ? <p className="mvp-failure-line"><TriangleAlert size={14} aria-hidden="true" /><b>Load failed</b><span>{selected.error}</span></p> : null}
-      {selected.state === "active" && versions.length === 1 ? (
-        <div className="mvp-actions"><span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock="flow-edit">Change</Button></span></div>
+      {selected.state === "active" ? (
+        <div className="mvp-actions">
+          <Button size="sm" variant="ghost" data-mock="flow-source"><FileCode2 size={14} aria-hidden="true" />Source</Button>
+          <Button size="sm" variant="ghost" data-mock="flow-run"><Play size={13} aria-hidden="true" />Run</Button>
+          {versions.length === 1 ? <span className="mvp-actions-end"><Button size="sm" variant="ghost" data-mock="flow-edit">Change</Button></span> : null}
+        </div>
       ) : null}
     </Card>
   )

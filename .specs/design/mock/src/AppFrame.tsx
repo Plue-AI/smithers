@@ -17,7 +17,7 @@ import { EXTRA_CARDS } from "./cards/extra"
 import { ContextChip, Maximized } from "./parts"
 import { BranchTree } from "./Tree"
 import { WORDMARK } from "../../../../apps/app/src/mainview/Wordmark"
-import type { CardRef, Event, State } from "./world"
+import type { CardKind, CardRef, Event, State } from "./world"
 
 export interface Pointer {
   readonly x: number
@@ -190,11 +190,15 @@ export const AppFrame = ({ frame, pointer, keys }: {
         {spotlight ? <div className="mock-spotlight-dim" aria-hidden="true" /> : null}
         {screen.connection === "reconnecting" ? <div className="mvp-reconnecting" role="status"><span className="mvp-spin" aria-hidden="true" />Reconnecting to maya-mini</div> : null}
         {(() => {
-          const entry = screen.maximized === undefined ? undefined : screen.transcript.find(each => each.kind === "card" && each.card.id === screen.maximized)
-          return entry?.kind !== "card" ? null : (
+          if (screen.maximized === undefined) return null
+          const entry = screen.transcript.find(each => each.kind === "card" && each.card.id === screen.maximized)
+          /* A card can open maximized without an entry of its own: Inspect on a TODO opens its run's monitor. */
+          const [kind = "", ...rest] = screen.maximized.split(":")
+          const card: CardRef = entry?.kind === "card" ? entry.card : { id: screen.maximized, kind: kind as CardKind, target: rest.join(":") }
+          return (
             <>
               <div className="card-maximize-backdrop mock-max-backdrop" aria-hidden="true" />
-              <div className="mock-max"><Maximized.Provider value={true}><CardView card={{ ...viewOf(entry.card), view: "max" }} /></Maximized.Provider></div>
+              <div className="mock-max"><Maximized.Provider value={true}><CardView card={{ ...viewOf(card), view: "max" }} /></Maximized.Provider></div>
             </>
           )
         })()}

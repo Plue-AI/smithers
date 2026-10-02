@@ -26,15 +26,18 @@ export const DraftCard = ({ id, target, view }: ExtraCardProps) => {
   if (draft === undefined) return null
   const open = world.stack.map(each => world.todos.find(todo => todo.id === each)!).filter(todo => todo.state !== "merged" && todo.state !== "dropped")
   const committed = draft.committed === undefined ? undefined : world.todos.find(each => each.id === draft.committed)
+  /* Amend folds into an existing item: no new TODO, so the card says which one it changed. */
+  const amending = draft.place.kind === "amend" ? world.todos.find(each => each.id === (draft.place as { readonly id: string }).id) : undefined
+  const title = amending === undefined ? "New TODO" : `Amend ${refOf(world, amending)}`
   if (committed !== undefined) {
     return (
-      <Card id={id} kind="draft" title="New TODO">
-        <div className="mvp-receipt-line"><GitCommitHorizontal size={14} aria-hidden="true" />Committed as <span className="mvp-ref-chip">{refOf(world, committed)}</span> <b>{committed.title}</b></div>
+      <Card id={id} kind="draft" title={title}>
+        <div className="mvp-receipt-line"><GitCommitHorizontal size={14} aria-hidden="true" />{amending === undefined ? "Committed as" : "Amended"} <span className="mvp-ref-chip">{refOf(world, committed)}</span> <b>{committed.title}</b></div>
       </Card>
     )
   }
   return (
-    <Card id={id} kind="draft" title="New TODO">
+    <Card id={id} kind="draft" title={title}>
       <label className="mvp-field">
         <span>Title</span>
         <input value={typedOr(frame, `draft-title:${draft.id}`, draft.title)} readOnly data-mock="draft-title" />

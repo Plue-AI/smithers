@@ -135,7 +135,7 @@ export const BranchCard = ({ id, target, view }: { readonly id: string; readonly
               <div className="mvp-menu" role="menu">
                 {forkedFrom === undefined
                   ? <button type="button" role="menuitem" data-mock="add-append">New TODO at the end of the stack</button>
-                  : <button type="button" role="menuitem" data-mock="add-after">New TODO after <b>{forkedFrom.title}</b></button>}
+                  : <button type="button" role="menuitem" data-mock="add-after">New TODO after <b>{refOf(world, forkedFrom)} {forkedFrom.title}</b></button>}
               </div>
             ) : null}
           </span>

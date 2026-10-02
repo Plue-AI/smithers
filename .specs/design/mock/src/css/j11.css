@@ -1,0 +1,13 @@
+/* PORT · J11: the agent behind a flow step, and the Agent card with the owner's model select (mvp.md §6.14) */
+.mvp-flow-steps > li[data-agent] { grid-template-columns: 26px minmax(0, 1fr) auto; }
+.mvp-flow-agent { display: inline-flex; grid-column: 3; grid-row: 1 / span 2; align-self: center; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 5px; border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; white-space: nowrap; }
+.mvp-flow-agent:hover { border-color: var(--border-strong); color: var(--text); }
+.mvp-flow-agent:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+.mvp-agent-title { display: inline-flex; align-items: center; gap: 8px; }
+.mvp-model-menu { left: 0; right: auto; min-width: 240px; }
+.mvp-model-menu > button[aria-selected="true"] { background: var(--brand-soft); color: var(--action-primary); }
+.mvp-model-menu .mvp-menu-note { font-variant-numeric: tabular-nums; }
+.mvp-agent .mvp-select:focus-visible,
+.mvp-model-menu > button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
+.mvp-agent-receipt { margin: var(--sp-3) 0 0; }
+.mvp-agent-receipt[data-fresh] { border-radius: var(--r-1); animation: mvp-arrive 2.4s var(--ease-current); }
