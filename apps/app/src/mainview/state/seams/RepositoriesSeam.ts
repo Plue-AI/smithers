@@ -263,10 +263,13 @@ export const createRepositoriesSeam = (ctx: SeamContext): RepositoriesSeam => {
 
   return {
     loadRepositories: async () => {
+      const currentOwner = captureCloudOwner(ctx, false)
+      if (!currentOwner()) return
       const [reposAnswer, orgsAnswer] = await Promise.all([
         readAllPages("/user/repos?limit=100", "repos"),
         readAllPages("/user/orgs?limit=100", "orgs")
       ])
+      if (!currentOwner()) return
       if ("error" in reposAnswer) return reposAnswer.error
       const repos = reposAnswer.rows.flatMap((entry) => {
         const parsed = parseRepo(entry)
@@ -284,6 +287,7 @@ export const createRepositoriesSeam = (ctx: SeamContext): RepositoriesSeam => {
       const wireHeaded = headed.filter((repo) => repo.wireHead !== undefined).length
       const wireAnswersHeads = wireHeaded * 2 > headed.length
       const heads = await mapBounded(repos, HEAD_LOOKUP_CONCURRENCY, (repo) => headOf(repo, wireAnswersHeads))
+      if (!currentOwner()) return
       ctx.dispatch({
         type: "repositories.loaded",
         actor: "system",
@@ -303,6 +307,7 @@ export const createRepositoriesSeam = (ctx: SeamContext): RepositoriesSeam => {
        * rows alone: a transient error is not a fact about the inventory.
        */
       const workspaces = await readAllPages("/user/workspaces?limit=100", "workspaces")
+      if (!currentOwner()) return
       if (!("error" in workspaces) || workspaces.status === 403) {
         const rows = "error" in workspaces ? [] : workspaces.rows
         ctx.dispatch({
