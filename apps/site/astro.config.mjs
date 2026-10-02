@@ -144,7 +144,7 @@ export default defineConfig({
       editLink: { baseUrl: "https://github.com/smithersai/smithers/edit/main/apps/site/src/content/docs/" },
       // M-35: installation is the only public docs entry. Retained reference
       // pages stay off the sidebar while product rules on their destination.
-      sidebar: [{ slug: "docs/installation" }]
+      sidebar: [{ slug: "docs/installation" }, { slug: "docs/reference/http-api" }]
     })
   ]
 })

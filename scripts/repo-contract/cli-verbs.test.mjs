@@ -51,6 +51,9 @@ describe("the CLI reference", () => {
   const manifest = JSON.parse(readFileSync(join(root, "apps/site/src/data/cli-commands.json"), "utf8"))
   const canonical = [...new Set(manifest.commands.map((command) => command.name.split(" ")[0]))]
   const help = readFileSync(join(root, "apps/site/src/data/help/smthrs.txt"), "utf8")
+  const retired = new Set(JSON.parse(readFileSync(join(root, "apps/site/docs/retired-pages.json"), "utf8"))
+      .filter(path => path.includes("/reference/cli/"))
+      .map(path => path.split("/").at(-1).replace(/\.mdx$/, "")))
 
   // d655971f6 generates one page per canonical command from --help and keeps
   // no pages for compatibility verbs; `index` lives at index-command.mdx
@@ -59,14 +62,18 @@ describe("the CLI reference", () => {
     const durableGroups = ["flow", "runs", "approvals"]
     for (const group of durableGroups) assert.ok(canonical.includes(group), `${group} must be a public command`)
     const pages = cliPages(pagesDirectory).map((page) => page === "index-command" ? "index" : page)
-    assert.deepEqual(compare(canonical, canonical, pages), [])
+    assert.deepEqual(compare(canonical.filter(command => !retired.has(command)), canonical, pages), [])
   })
 
-  it("indexes every canonical command, including those without a dedicated page", () => {
+  it("indexes every retained public command and preserves help for retired pages", () => {
     assert.equal(manifest.version, "incur.v1")
     assert.ok(canonical.length > 0)
     const indexed = indexedCommands(readFileSync(join(pagesDirectory, "index.mdx"), "utf8"))
-    assert.deepEqual(canonical.filter((command) => !indexed.has(command)), [])
+    assert.deepEqual(canonical.filter((command) => !retired.has(command) && !indexed.has(command)), [])
+    for (const command of retired) {
+      assert.ok(canonical.includes(command), `${command}: retained source manifest`)
+      assert.ok(readFileSync(join(root, `apps/site/src/data/help/${command}.txt`), "utf8").length > 0, `${command}: retained help`)
+    }
   })
 
   it("accepts a canonical page that has no legacy handler", () => {
@@ -142,13 +149,15 @@ describe("the CLI reference", () => {
   })
 
   it("distinguishes the ordinary review flow from the model-review target command", () => {
-    const page = readFileSync(join(root, "apps/site/src/content/docs/docs/guides/pr-review-action.mdx"), "utf8")
-    assert.ok(page.includes("`/review`"))
-    assert.ok(page.includes("`smthrs review <pattern>`"))
-    assert.ok(page.includes("model-review targets"))
-    assert.ok(page.includes("smthrs flow start review"))
-    assert.ok(!page.includes("`smithers-review`"))
-    assert.ok(!page.includes("review` subcommand was removed"))
+    const page = readFileSync(join(root, "apps/site/src/content/docs/docs/reference/cli/review.mdx"), "utf8")
+    const flow = readFileSync(join(root, "flows/review/README.md"), "utf8")
+    assert.ok(page.includes('title: "smthrs review"'))
+    assert.ok(flow.includes("`/review`"))
+    assert.ok(flow.includes("`smthrs review <pattern>`"))
+    assert.ok(flow.includes("model-review targets"))
+    assert.ok(flow.includes("smthrs flow start review"))
+    assert.ok(!flow.includes("`smithers-review`"))
+    assert.ok(!flow.includes("review` subcommand was removed"))
   })
 
 })
