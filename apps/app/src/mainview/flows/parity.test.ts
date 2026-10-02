@@ -208,6 +208,7 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
   "../SubagentGrid.tsx": ["setFilesOpen(", "onClick={onOpen}"], // files and earlier-batch rows are local disclosures
+  "../ToastStack.tsx": ["setExpanded("], // the "+N more" row is a local disclosure of the capped stack
 }
 
 const routesThroughRegistry = (context: string): boolean =>
@@ -367,7 +368,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
       "../ToastAction.tsx": 1,
-      "../ToastStack.tsx": 1,
+      "../ToastStack.tsx": 2, // + the capped stack's "+N more" row (#3420)
       /* The multi-parity domain cards: every handler routes through onRunCommand. */
       
       "../cards/IssueCards.tsx": 11, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips and the saved view toggles

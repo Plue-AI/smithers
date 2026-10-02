@@ -583,6 +583,25 @@
 	overflow-wrap: anywhere;
 }
 
+/* Past three notifications, one compact row holds the rest (ToastStack VISIBLE). */
+.toast-stack .toast-more {
+	flex-shrink: 0;
+	pointer-events: auto;
+	min-height: var(--ctl-h-sm);
+	border: 1px solid var(--border);
+	border-radius: var(--r-3);
+	background: var(--surface-glass-strong);
+	backdrop-filter: blur(20px);
+	box-shadow: var(--shadow-1);
+	color: var(--text-muted);
+	font: inherit;
+	font-size: var(--fs-caption);
+	cursor: pointer;
+}
+.toast-stack .toast-more:hover { color: var(--text); }
+/* Inset: the scrolling stack clips an outset ring on this full-width row. */
+.toast-stack .toast-more:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
+
 .toast-action {
 	margin-top: var(--sp-3);
 	gap: var(--sp-2);

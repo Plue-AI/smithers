@@ -1,5 +1,6 @@
 import { Alert, AlertDescription, AlertTitle, Button, Spinner } from "@smthrs/ui"
 import { Check, Square, X } from "lucide-react"
+import { useState } from "react"
 import { ModalPopover } from "./ModalPopover"
 import { workerToastActions } from "./WorkerToastActions"
 import type { Card, Toast } from "./state/AppState"
@@ -9,6 +10,9 @@ import { frameMs } from "@smthrs/rpc/SubagentCard"
 import { live } from "@smthrs/rpc/WorkerControls"
 import { useClock } from "@smthrs/ui/clock"
 import { subagentOf, toastOf } from "./state/Subagents"
+
+/** The newest toasts in view before one row holds the rest (#3420). */
+const VISIBLE = 3
 
 /*
  * The one shared toast surface (the 300ms law): a corner stack over the chat,
@@ -36,10 +40,14 @@ export function ToastStack({
     return subagent === undefined ? [] : [[toast.id, subagent] as const]
   }))
   const now = useClock([...workers.values()].some(subagent => live(subagent.status)), frameMs)
+  // Transient chrome: whether the capped stack is open. It closes once nothing overflows.
+  const [expanded, setExpanded] = useState(false)
+  if (expanded && toasts.length <= VISIBLE) setExpanded(false)
   if (toasts.length === 0) return null
+  const sorted = [...toasts].sort((a, b) => b.createdAt - a.createdAt)
   return (
     <ModalPopover className="toast-stack" label="Notifications" onMount={bindToastShortcut}>
-      {[...toasts].sort((a, b) => b.createdAt - a.createdAt).map((toast) => {
+      {(expanded ? sorted : sorted.slice(0, VISIBLE)).map((toast) => {
         const worker = workers.get(toast.id)
         const line = worker === undefined ? undefined : toastOf(worker, now)
         return <Alert
@@ -95,6 +103,11 @@ export function ToastStack({
             null}
         </Alert>
       })}
+      {sorted.length > VISIBLE ?
+        <button type="button" className="toast-more" aria-expanded={expanded} onClick={() => setExpanded(open => !open)}>
+          {expanded ? "Fewer" : `+${sorted.length - VISIBLE} more`}
+        </button> :
+        null}
     </ModalPopover>
   )
 }
