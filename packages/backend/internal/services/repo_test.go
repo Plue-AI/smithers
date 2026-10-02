@@ -838,14 +838,26 @@ func TestCreateOrgRepo_RequiresAuthentication(t *testing.T) {
 	assert.Equal(t, 401, apiStatus(t, err))
 }
 
-func TestCreateOrgRepo_InvalidDefaultBookmark(t *testing.T) {
-	orgLookups := 0
-	q := &mockRepoQuerier{
+// orgOwnerRepoQuerier resolves "acme" with the caller as its owner, so
+// validation runs: plue#542 decides visibility and ownership first.
+func orgOwnerRepoQuerier(orgLookups *int) *mockRepoQuerier {
+	return &mockRepoQuerier{
 		getOrgByLowerNameFn: func(context.Context, string) (db.Organization, error) {
-			orgLookups++
-			return db.Organization{}, nil
+			*orgLookups++
+			return db.Organization{ID: 7, Name: "acme", LowerName: "acme", Visibility: "private"}, nil
+		},
+		getOrgMemberFn: func(_ context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error) {
+			return db.OrgMember{OrganizationID: arg.OrganizationID, UserID: arg.UserID, Role: "owner"}, nil
+		},
+		createOrgRepoFn: func(context.Context, db.CreateOrgRepoParams) (db.Repository, error) {
+			panic("invalid input reached repository creation")
 		},
 	}
+}
+
+func TestCreateOrgRepo_InvalidDefaultBookmark(t *testing.T) {
+	orgLookups := 0
+	q := orgOwnerRepoQuerier(&orgLookups)
 
 	_, err := NewRepoService(q, &mockRepoHostClient{}, "smithers-repo-host-0").CreateOrgRepo(
 		context.Background(), testUser(), "acme", "repo", "", true, "topic..branch", false,
@@ -854,7 +866,7 @@ func TestCreateOrgRepo_InvalidDefaultBookmark(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 	require.Len(t, apiErr.Errors, 1)
 	assert.Equal(t, "default_bookmark", apiErr.Errors[0].Field)
-	assert.Zero(t, orgLookups, "invalid bookmark must fail before database or storage work")
+	assert.Equal(t, 1, orgLookups, "invalid bookmark fails after visibility and before storage work")
 }
 
 func TestCreateOrgRepo_OrganizationNotFound(t *testing.T) {
@@ -1390,13 +1402,15 @@ func TestCreateOrgRepo_EmptyOrgName(t *testing.T) {
 }
 
 func TestCreateOrgRepo_InvalidRepoName(t *testing.T) {
-	svc := NewRepoService(&mockRepoQuerier{}, &mockRepoHostClient{}, "smithers-repo-host-0")
+	var orgLookups int
+	svc := NewRepoService(orgOwnerRepoQuerier(&orgLookups), &mockRepoHostClient{}, "smithers-repo-host-0")
 	_, err := svc.CreateOrgRepo(context.Background(), testUser(), "acme", "bad name!", "", true, "", false)
 	assert.Equal(t, 422, apiStatus(t, err))
 }
 
 func TestCreateOrgRepo_ReservedRepoName(t *testing.T) {
-	svc := NewRepoService(&mockRepoQuerier{}, &mockRepoHostClient{}, "smithers-repo-host-0")
+	var orgLookups int
+	svc := NewRepoService(orgOwnerRepoQuerier(&orgLookups), &mockRepoHostClient{}, "smithers-repo-host-0")
 	_, err := svc.CreateOrgRepo(context.Background(), testUser(), "acme", "issues", "", true, "", false)
 	assertInvalidRepoNameError(t, err)
 }

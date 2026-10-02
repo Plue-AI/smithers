@@ -94,6 +94,7 @@ type ProviderConnectionQuerier interface {
 	GetRepositoryProviderConnectionPreference(ctx context.Context, repositoryID int64) (string, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 }
 
@@ -553,21 +554,14 @@ func (s *ProviderConnectionService) requireOrgRole(ctx context.Context, actor *d
 	if actor == nil {
 		return db.Organization{}, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.q.GetOrgByLowerName(ctx, strings.ToLower(strings.TrimSpace(orgName)))
+	org, membership, err := resolveOrgForViewer(ctx, s.q, actor, orgName)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		return db.Organization{}, pkgerrors.Internal("failed to load organization").WithCause(err)
+		return db.Organization{}, err
 	}
-	member, err := s.q.GetOrgMember(ctx, db.GetOrgMemberParams{OrganizationID: org.ID, UserID: actor.ID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.Forbidden("not a member of this organization")
-		}
-		return db.Organization{}, pkgerrors.Internal("failed to load organization membership").WithCause(err)
+	if !membership.Member {
+		return db.Organization{}, pkgerrors.Forbidden("not a member of this organization")
 	}
-	if ownerOnly && member.Role != "owner" {
+	if ownerOnly && membership.Role != "owner" {
 		return db.Organization{}, pkgerrors.Forbidden("organization owner required")
 	}
 	return org, nil

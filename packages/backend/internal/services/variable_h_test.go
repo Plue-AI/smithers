@@ -275,18 +275,19 @@ func TestVariable_H_HelperPermissionBranches(t *testing.T) {
 	require.Equal(t, 400, variableHStatus(t, err))
 	_, err = svc.resolveRepoByOwnerAndName(ctx, "owner", "")
 	require.Equal(t, 400, variableHStatus(t, err))
-	_, err = svc.resolveOrgByName(ctx, "")
+	_, err = svc.requireOrgOwner(ctx, variableHUser(1), "")
 	require.Equal(t, 400, variableHStatus(t, err))
 
-	err = svc.requireOrgOwnerAccess(ctx, variableHOrg(), nil)
+	_, err = svc.requireOrgOwner(ctx, nil, "acme")
 	require.Equal(t, 401, variableHStatus(t, err))
 	admin := variableHUser(9)
 	admin.IsAdmin = true
-	require.NoError(t, svc.requireOrgOwnerAccess(ctx, variableHOrg(), admin))
+	_, err = svc.requireOrgOwner(ctx, admin, "acme")
+	require.NoError(t, err)
 
-	err = NewVariableService(&variableHQuerier{getOrgMemberFn: func(context.Context, db.GetOrgMemberParams) (db.OrgMember, error) {
+	_, err = NewVariableService(&variableHQuerier{getOrgMemberFn: func(context.Context, db.GetOrgMemberParams) (db.OrgMember, error) {
 		return db.OrgMember{}, pgx.ErrNoRows
-	}}).requireOrgOwnerAccess(ctx, variableHOrg(), variableHUser(2))
+	}}).requireOrgOwner(ctx, variableHUser(2), "acme")
 	require.Equal(t, 403, variableHStatus(t, err))
 
 	repo := variableHRepo()

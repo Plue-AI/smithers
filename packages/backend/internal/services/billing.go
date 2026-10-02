@@ -2596,28 +2596,11 @@ func (s *BillingService) resolveOrgOwner(ctx context.Context, actor *db.User, or
 	if actor == nil {
 		return billingOwnerRef{}, pkgerrors.Unauthorized("authentication required")
 	}
-	lowerName := strings.ToLower(strings.TrimSpace(orgName))
-	if lowerName == "" {
-		return billingOwnerRef{}, pkgerrors.BadRequest("organization name is required")
-	}
-	org, err := s.queries.GetOrgByLowerName(ctx, lowerName)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, actor, orgName)
 	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return billingOwnerRef{}, pkgerrors.NotFound("organization not found")
-		}
-		return billingOwnerRef{}, pkgerrors.Internal("failed to load organization").WithCause(err)
+		return billingOwnerRef{}, err
 	}
-	member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: org.ID,
-		UserID:         actor.ID,
-	})
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return billingOwnerRef{}, pkgerrors.Forbidden("insufficient organization permissions")
-		}
-		return billingOwnerRef{}, pkgerrors.Internal("failed to load organization membership").WithCause(err)
-	}
-	if strings.ToLower(strings.TrimSpace(member.Role)) != "owner" {
+	if !membership.hasRole("owner") {
 		return billingOwnerRef{}, pkgerrors.Forbidden("insufficient organization permissions")
 	}
 	return billingOwnerRef{

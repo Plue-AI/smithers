@@ -65,6 +65,7 @@ type RepoQuerier interface {
 	GetHighestTeamPermissionForRepoUser(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
 	GetCollaboratorPermissionForRepoUser(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 
 	CountRepoStars(ctx context.Context, repositoryID int64) (int64, error)
@@ -910,6 +911,14 @@ func (s *RepoService) CreateOrgRepo(
 		return db.Repository{}, errors.Unauthorized("authentication required")
 	}
 
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, actor, orgName)
+	if err != nil {
+		return db.Repository{}, err
+	}
+	if !membership.hasRole("owner") {
+		return db.Repository{}, errors.Forbidden("insufficient organization permissions")
+	}
+
 	name = strings.TrimSpace(name)
 	defaultBookmark = normalizeDefaultBookmark(defaultBookmark)
 	if err := validateRepoName(name); err != nil {
@@ -917,33 +926,6 @@ func (s *RepoService) CreateOrgRepo(
 	}
 	if err := validateDefaultBookmark(defaultBookmark); err != nil {
 		return db.Repository{}, err
-	}
-
-	lowerOrg := strings.ToLower(strings.TrimSpace(orgName))
-	if lowerOrg == "" {
-		return db.Repository{}, errors.BadRequest("organization name is required")
-	}
-
-	org, err := s.queries.GetOrgByLowerName(ctx, lowerOrg)
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Repository{}, errors.NotFound("organization not found")
-		}
-		return db.Repository{}, errors.Internal("failed to load organization").WithCause(err)
-	}
-
-	member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: org.ID,
-		UserID:         actor.ID,
-	})
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Repository{}, errors.Forbidden("insufficient organization permissions")
-		}
-		return db.Repository{}, errors.Internal("failed to load organization membership").WithCause(err)
-	}
-	if strings.ToLower(strings.TrimSpace(member.Role)) != "owner" {
-		return db.Repository{}, errors.Forbidden("insufficient organization permissions")
 	}
 
 	createParams := db.CreateOrgRepoParams{

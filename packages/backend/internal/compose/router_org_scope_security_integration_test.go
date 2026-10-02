@@ -151,15 +151,36 @@ func TestRouterOrganizationReadsRespectTokenScopePostgres(t *testing.T) {
 				require.Equal(t, missing.Body.String(), rec.Body.String())
 				require.Equal(t, missing.Header().Get("Content-Type"), rec.Header().Get("Content-Type"))
 			}
-			// This subresource retains its current membership-denial contract.
-			rec = request("/api/orgs/private/repos")
+			// Subresources conceal the private organization the same way (plue#542).
+			for _, sub := range []string{"/repos", "/members", "/teams"} {
+				rec = request("/api/orgs/private" + sub)
+				if tc.canReadPrivate {
+					require.Equal(t, http.StatusOK, rec.Code, sub+": "+rec.Body.String())
+					continue
+				}
+				absent := request("/api/orgs/missing" + sub)
+				require.Equal(t, absent.Code, rec.Code, sub+": "+rec.Body.String())
+				require.Equal(t, absent.Body.String(), rec.Body.String(), sub)
+				for _, header := range []string{"Content-Type", "Link", "X-Total-Count"} {
+					require.Equal(t, absent.Header().Values(header), rec.Header().Values(header), sub+" "+header)
+				}
+				switch {
+				case sub == "/repos" || tc.name == "outsider-org-reader" || tc.name == "outsider-session":
+					// The service answers: the exact missing-organization 404.
+					require.Equal(t, http.StatusNotFound, rec.Code, sub+": "+rec.Body.String())
+					require.JSONEq(t, `{"code":"not_found","fault":"user","message":"organization not found"}`, rec.Body.String(), sub)
+				case tc.name == "anonymous":
+					require.Equal(t, http.StatusUnauthorized, rec.Code, sub+": "+rec.Body.String())
+				default:
+					// Credentials without read:organization stop at scope checks.
+					require.Equal(t, http.StatusForbidden, rec.Code, sub+": "+rec.Body.String())
+				}
+			}
 			if tc.canReadPrivate {
-				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				rec = request("/api/orgs/private/repos")
 				var repos []routes.RepoResponse
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &repos))
 				require.Len(t, repos, 2)
-			} else {
-				require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 			}
 			rec = request("/api/orgs/public")
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())

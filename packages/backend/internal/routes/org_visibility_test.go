@@ -16,19 +16,15 @@ import (
 )
 
 // Replace only the database seam so the handler exercises real service policy
-// and HTTP serialization. Database failures cannot be forced in the SQL fixture.
+// and HTTP serialization. The fake applies the visibility statement's rule;
+// its SQL is covered against PostgreSQL in services and compose.
 type orgVisibilityRouteQuerier struct {
 	services.OrgQuerier
-	getOrgFn    func(context.Context, string) (db.Organization, error)
-	getMemberFn func(context.Context, db.GetOrgMemberParams) (db.OrgMember, error)
+	visibleFn func(context.Context, db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 }
 
-func (q orgVisibilityRouteQuerier) GetOrgByLowerName(ctx context.Context, name string) (db.Organization, error) {
-	return q.getOrgFn(ctx, name)
-}
-
-func (q orgVisibilityRouteQuerier) GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error) {
-	return q.getMemberFn(ctx, arg)
+func (q orgVisibilityRouteQuerier) GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error) {
+	return q.visibleFn(ctx, arg)
 }
 
 func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
@@ -37,43 +33,42 @@ func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
 	for _, tc := range []struct {
 		name, visibility, role string
 		authenticated, missing bool
-		memberErr              error
+		storeErr               error
 		status                 int
 		body                   string
-		memberCalls            int
 	}{
 		{name: "anonymous private", visibility: "private", status: http.StatusNotFound, body: notFoundBody},
-		{name: "outsider private", visibility: "private", authenticated: true, memberErr: pgx.ErrNoRows, status: http.StatusNotFound, body: notFoundBody, memberCalls: 1},
-		{name: "owner private", visibility: "private", authenticated: true, role: "owner", status: http.StatusOK, memberCalls: 1},
-		{name: "member private", visibility: "private", authenticated: true, role: "member", status: http.StatusOK, memberCalls: 1},
-		{name: "membership unavailable", visibility: "private", authenticated: true, memberErr: errors.New("membership database unavailable"), status: http.StatusInternalServerError, body: "{\"code\":\"internal\",\"fault\":\"bug\",\"message\":\"internal server error\"}\n", memberCalls: 1},
+		{name: "outsider private", visibility: "private", authenticated: true, status: http.StatusNotFound, body: notFoundBody},
+		{name: "owner private", visibility: "private", authenticated: true, role: "owner", status: http.StatusOK},
+		{name: "member private", visibility: "private", authenticated: true, role: "member", status: http.StatusOK},
+		{name: "store unavailable", visibility: "private", authenticated: true, storeErr: errors.New("database unavailable"), status: http.StatusInternalServerError, body: "{\"code\":\"internal\",\"fault\":\"bug\",\"message\":\"internal server error\"}\n"},
 		{name: "anonymous missing", missing: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "signed in missing", authenticated: true, missing: true, status: http.StatusNotFound, body: notFoundBody},
 		{name: "anonymous public", visibility: "public", status: http.StatusOK},
 		{name: "outsider public", visibility: "public", authenticated: true, status: http.StatusOK},
 		{name: "anonymous limited", visibility: "limited", status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"fault\":\"user\",\"message\":\"organization membership required\"}\n"},
-		{name: "outsider limited", visibility: "limited", authenticated: true, memberErr: pgx.ErrNoRows, status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"fault\":\"user\",\"message\":\"insufficient organization permissions\"}\n", memberCalls: 1},
+		{name: "outsider limited", visibility: "limited", authenticated: true, status: http.StatusForbidden, body: "{\"code\":\"forbidden\",\"fault\":\"user\",\"message\":\"insufficient organization permissions\"}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			calls := 0
 			org := sampleOrg()
 			org.Visibility = tc.visibility
-			q := orgVisibilityRouteQuerier{
-				getOrgFn: func(_ context.Context, name string) (db.Organization, error) {
-					require.Equal(t, "acme", name)
-					if tc.missing {
-						return db.Organization{}, pgx.ErrNoRows
-					}
-					return org, nil
-				},
-				getMemberFn: func(_ context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error) {
-					calls++
-					require.Equal(t, org.ID, arg.OrganizationID)
-					require.Equal(t, int64(7), arg.UserID)
-					return db.OrgMember{OrganizationID: org.ID, UserID: arg.UserID, Role: tc.role}, tc.memberErr
-				},
+			wantViewer := int64(0)
+			if tc.authenticated {
+				wantViewer = 7
 			}
+			q := orgVisibilityRouteQuerier{visibleFn: func(_ context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error) {
+				calls++
+				require.Equal(t, db.GetVisibleOrgForViewerParams{ViewerID: wantViewer, LowerName: "acme"}, arg)
+				if tc.storeErr != nil {
+					return db.GetVisibleOrgForViewerRow{}, tc.storeErr
+				}
+				if tc.missing || (tc.visibility == "private" && tc.role == "") {
+					return db.GetVisibleOrgForViewerRow{}, pgx.ErrNoRows
+				}
+				return db.GetVisibleOrgForViewerRow{Organization: org, ViewerRole: tc.role}, nil
+			}}
 			h := OrgHandler{Service: services.NewOrgService(q)}
 			req := withRouteParams(httptest.NewRequest(http.MethodGet, "/api/orgs/acme", nil), map[string]string{"org": "acme"})
 			if tc.authenticated {
@@ -83,7 +78,7 @@ func TestOrgHandler_GetOrg_VisibilityWithRealService(t *testing.T) {
 			h.GetOrg(rec, req)
 			require.Equal(t, tc.status, rec.Code, rec.Body.String())
 			require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-			require.Equal(t, tc.memberCalls, calls)
+			require.Equal(t, 1, calls, "one statement per request")
 			if tc.body != "" {
 				require.Equal(t, tc.body, rec.Body.String())
 			} else {

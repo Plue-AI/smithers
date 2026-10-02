@@ -24,6 +24,7 @@ const (
 type VariableQuerier interface {
 	GetRepoByOwnerAndLowerName(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 	IsOrgOwnerForRepoUser(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error)
 	GetHighestTeamPermissionForRepoUser(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
@@ -232,8 +233,9 @@ func (s *VariableService) DeleteVariable(ctx context.Context, actor *db.User, ow
 }
 
 func (s *VariableService) SetOrgVariable(ctx context.Context, actor *db.User, orgName, name, value string) (VariableResponse, error) {
-	if actor == nil {
-		return VariableResponse{}, pkgerrors.Unauthorized("authentication required")
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
+	if err != nil {
+		return VariableResponse{}, err
 	}
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
@@ -251,13 +253,6 @@ func (s *VariableService) SetOrgVariable(ctx context.Context, actor *db.User, or
 	if err := refuseSubscriptionToken(s.subscriptionTokens, trimmedName, value); err != nil {
 		return VariableResponse{}, err
 	}
-	org, err := s.resolveOrgByName(ctx, orgName)
-	if err != nil {
-		return VariableResponse{}, err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
-		return VariableResponse{}, err
-	}
 	if err := s.enforceOrgVariableQuota(ctx, org.ID, trimmedName); err != nil {
 		return VariableResponse{}, err
 	}
@@ -273,11 +268,8 @@ func (s *VariableService) SetOrgVariable(ctx context.Context, actor *db.User, or
 }
 
 func (s *VariableService) ListOrgVariables(ctx context.Context, actor *db.User, orgName string) ([]VariableResponse, error) {
-	org, err := s.resolveOrgByName(ctx, orgName)
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
 		return nil, err
 	}
 	variables, err := s.queries.ListOrgVariables(ctx, org.ID)
@@ -292,19 +284,13 @@ func (s *VariableService) ListOrgVariables(ctx context.Context, actor *db.User, 
 }
 
 func (s *VariableService) DeleteOrgVariable(ctx context.Context, actor *db.User, orgName, name string) error {
-	if actor == nil {
-		return pkgerrors.Unauthorized("authentication required")
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
+	if err != nil {
+		return err
 	}
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
 		return pkgerrors.BadRequest("variable name is required")
-	}
-	org, err := s.resolveOrgByName(ctx, orgName)
-	if err != nil {
-		return err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
-		return err
 	}
 	if err := s.queries.DeleteOrgVariable(ctx, db.DeleteOrgVariableParams{
 		OrganizationID: org.ID,
@@ -380,41 +366,24 @@ func (s *VariableService) resolveRepoByOwnerAndName(ctx context.Context, owner, 
 	return repository, nil
 }
 
-func (s *VariableService) resolveOrgByName(ctx context.Context, orgName string) (db.Organization, error) {
-	lowerOrg := strings.ToLower(strings.TrimSpace(orgName))
-	if lowerOrg == "" {
-		return db.Organization{}, pkgerrors.BadRequest("organization name is required")
-	}
-	org, err := s.queries.GetOrgByLowerName(ctx, lowerOrg)
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		slog.Error("load organization failed", "org", lowerOrg, "error", err)
-		return db.Organization{}, pkgerrors.Internal("failed to load organization").WithCause(err)
-	}
-	return org, nil
-}
-
-func (s *VariableService) requireOrgOwnerAccess(ctx context.Context, org db.Organization, actor *db.User) error {
+// requireOrgOwner resolves orgName for actor and admits site administrators
+// and organization owners. Visibility is decided first, so a private
+// organization answers everyone else like a missing one.
+func (s *VariableService) requireOrgOwner(ctx context.Context, actor *db.User, orgName string) (db.Organization, error) {
 	if actor == nil {
-		return pkgerrors.Unauthorized("authentication required")
+		return db.Organization{}, pkgerrors.Unauthorized("authentication required")
 	}
 	if actor.IsAdmin {
-		return nil
+		return lookupOrgByName(ctx, s.queries, orgName)
 	}
-	member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: org.ID,
-		UserID:         actor.ID,
-	})
-	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
-		slog.Error("load organization membership failed", "org_id", org.ID, "user_id", actor.ID, "error", err)
-		return pkgerrors.Internal("failed to load organization membership").WithCause(err)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, actor, orgName)
+	if err != nil {
+		return db.Organization{}, err
 	}
-	if err != nil || strings.ToLower(strings.TrimSpace(member.Role)) != "owner" {
-		return pkgerrors.Forbidden("permission denied")
+	if !membership.hasRole("owner") {
+		return db.Organization{}, pkgerrors.Forbidden("permission denied")
 	}
-	return nil
+	return org, nil
 }
 
 func (s *VariableService) requireReadAccess(ctx context.Context, repository db.Repository, viewer *db.User) error {

@@ -16,6 +16,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 	CountOrgMembers(ctx context.Context, orgID int64) (int64, error)
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)

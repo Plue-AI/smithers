@@ -72,6 +72,19 @@ SELECT *
 FROM organizations
 WHERE lower_name = $1;
 
+-- name: GetVisibleOrgForViewer :one
+-- One statement decides organization visibility (plue#542): a private
+-- organization the viewer does not belong to returns no row, exactly like a
+-- missing name, at the same cost and with the same failure modes. viewer_id 0
+-- is an anonymous caller. viewer_role is empty for non-members.
+SELECT sqlc.embed(o), COALESCE(m.role, '')::text AS viewer_role
+FROM organizations o
+LEFT JOIN org_members m
+  ON m.organization_id = o.id
+ AND m.user_id = sqlc.arg(viewer_id)::bigint
+WHERE o.lower_name = sqlc.arg(lower_name)
+  AND (o.visibility <> 'private' OR m.user_id IS NOT NULL);
+
 -- name: UpdateOrganization :one
 UPDATE organizations
 SET name = sqlc.arg(name),

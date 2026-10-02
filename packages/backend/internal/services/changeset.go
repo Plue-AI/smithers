@@ -53,6 +53,7 @@ type ChangesetQuerier interface {
 	CreateChangesetWithMembers(context.Context, db.CreateChangesetWithMembersParams) (db.CreateChangesetWithMembersRow, error)
 
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgByID(ctx context.Context, id int64) (db.Organization, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 	GetRepoByOwnerAndLowerName(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
@@ -491,22 +492,12 @@ func (s *ChangesetService) MaterializeChangeset(ctx context.Context, userID, cha
 }
 
 func (s *ChangesetService) requireOrgMember(ctx context.Context, user *db.User, orgName string) (db.Organization, error) {
-	lower := strings.ToLower(strings.TrimSpace(orgName))
-	if lower == "" {
-		return db.Organization{}, pkgerrors.BadRequest("organization name is required")
-	}
-	org, err := s.queries.GetOrgByLowerName(ctx, lower)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, user, orgName)
 	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		return db.Organization{}, pkgerrors.Internal("failed to load organization").WithCause(err)
+		return db.Organization{}, err
 	}
-	if _, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{OrganizationID: org.ID, UserID: user.ID}); err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.Forbidden("insufficient organization permissions")
-		}
-		return db.Organization{}, pkgerrors.Internal("failed to load organization membership").WithCause(err)
+	if !membership.Member {
+		return db.Organization{}, pkgerrors.Forbidden("insufficient organization permissions")
 	}
 	return org, nil
 }

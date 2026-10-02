@@ -150,7 +150,7 @@ func TestSecret_Z_OrgSecretErrorsAndHelpers(t *testing.T) {
 		getOrgFn: func(context.Context, string) (db.Organization, error) {
 			return db.Organization{}, pgx.ErrNoRows
 		},
-	}, webhook.NoopSecretCodec{}).resolveOrgByName(ctx, "acme")
+	}, webhook.NoopSecretCodec{}).requireOrgOwner(ctx, actor, "acme")
 	require.Error(t, err)
 	assert.Equal(t, 404, apiStatus(t, err))
 
@@ -198,7 +198,6 @@ func TestSecret_Z_DirectPermissionHelpers(t *testing.T) {
 	ctx := context.Background()
 	repo := db.Repository{ID: 10, UserID: pgtype.Int8{Int64: 1, Valid: true}}
 	otherRepo := db.Repository{ID: 10, UserID: pgtype.Int8{Int64: 99, Valid: true}}
-	org := db.Organization{ID: 3}
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 
 	_, err := svc.resolveRepoByOwnerAndName(ctx, "", "repo")
@@ -208,10 +207,11 @@ func TestSecret_Z_DirectPermissionHelpers(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
-	err = svc.requireOrgOwnerAccess(ctx, org, nil)
+	_, err = svc.requireOrgOwner(ctx, nil, "acme")
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
-	require.NoError(t, svc.requireOrgOwnerAccess(ctx, org, &db.User{ID: 99, IsAdmin: true}))
+	_, err = svc.requireOrgOwner(ctx, &db.User{ID: 99, IsAdmin: true}, "acme")
+	require.NoError(t, err)
 
 	err = svc.requireAdminAccess(ctx, repo, nil)
 	require.Error(t, err)

@@ -53,6 +53,7 @@ type UpdateTeamRequest struct {
 
 type OrgQuerier interface {
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	CreateOrganization(ctx context.Context, arg db.CreateOrganizationParams) (db.Organization, error)
 	AddOrgMember(ctx context.Context, arg db.AddOrgMemberParams) (db.OrgMember, error)
 	UpdateOrganization(ctx context.Context, arg db.UpdateOrganizationParams) (db.Organization, error)
@@ -294,21 +295,6 @@ func normalizePage(page, perPage int) (pageSize int32, pageOffset int32, resolve
 	return pageSize, pageOffset, resolvedPage, resolvedPerPage
 }
 
-func (s *OrgService) resolveOrg(ctx context.Context, orgName string) (db.Organization, error) {
-	lowerName := strings.ToLower(strings.TrimSpace(orgName))
-	if lowerName == "" {
-		return db.Organization{}, pkgerrors.BadRequest("organization name is required")
-	}
-	org, err := s.queries.GetOrgByLowerName(ctx, lowerName)
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		return db.Organization{}, pkgerrors.Internal("failed to load organization").WithCause(err)
-	}
-	return org, nil
-}
-
 func (s *OrgService) resolveTeam(ctx context.Context, organizationID int64, teamName string) (db.Team, error) {
 	lowerName := strings.ToLower(strings.TrimSpace(teamName))
 	if lowerName == "" {
@@ -327,40 +313,17 @@ func (s *OrgService) resolveTeam(ctx context.Context, organizationID int64, team
 	return team, nil
 }
 
-func (s *OrgService) requireOrgRole(ctx context.Context, organizationID, userID int64, roles ...string) error {
-	member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: organizationID,
-		UserID:         userID,
-	})
+// requireOrgRole resolves orgName as user may see it, then requires one of
+// roles (any membership when roles is empty).
+func (s *OrgService) requireOrgRole(ctx context.Context, user *db.User, orgName string, roles ...string) (db.Organization, error) {
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, user, orgName)
 	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return pkgerrors.Forbidden("insufficient organization permissions")
-		}
-		return pkgerrors.Internal("failed to load organization membership").WithCause(err)
+		return db.Organization{}, err
 	}
-	if len(roles) == 0 {
-		return nil
+	if !membership.hasRole(roles...) {
+		return db.Organization{}, pkgerrors.Forbidden("insufficient organization permissions")
 	}
-	for _, role := range roles {
-		if member.Role == role {
-			return nil
-		}
-	}
-	return pkgerrors.Forbidden("insufficient organization permissions")
-}
-
-func (s *OrgService) isOrgMember(ctx context.Context, organizationID, userID int64) (bool, error) {
-	_, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: organizationID,
-		UserID:         userID,
-	})
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		return false, pkgerrors.Internal("failed to load organization membership").WithCause(err)
-	}
-	return true, nil
+	return org, nil
 }
 
 func (s *OrgService) CreateOrg(ctx context.Context, actor *db.User, req CreateOrgRequest) (db.Organization, error) {
@@ -483,31 +446,17 @@ func authorizeOrgCreateThenCommit(ctx context.Context, policy BillingPolicy, use
 }
 
 func (s *OrgService) GetOrg(ctx context.Context, viewer *db.User, orgName string) (db.Organization, error) {
-	org, err := s.resolveOrg(ctx, orgName)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, viewer, orgName)
 	if err != nil {
 		return db.Organization{}, err
 	}
-
-	if org.Visibility == "public" {
+	if org.Visibility == "public" || membership.Member {
 		return org, nil
 	}
-
 	if viewer == nil {
-		if org.Visibility == "private" {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
 		return db.Organization{}, pkgerrors.Forbidden("organization membership required")
 	}
-
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
-		var apiErr *pkgerrors.APIError
-		if org.Visibility == "private" && stdErrors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeForbidden {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		return db.Organization{}, err
-	}
-
-	return org, nil
+	return db.Organization{}, pkgerrors.Forbidden("insufficient organization permissions")
 }
 
 func (s *OrgService) UpdateOrg(ctx context.Context, actor *db.User, orgName string, req UpdateOrgRequest) (db.Organization, error) {
@@ -515,11 +464,8 @@ func (s *OrgService) UpdateOrg(ctx context.Context, actor *db.User, orgName stri
 		return db.Organization{}, pkgerrors.Unauthorized("authentication required")
 	}
 
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return db.Organization{}, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return db.Organization{}, err
 	}
 
@@ -598,25 +544,16 @@ func (s *OrgService) UpdateOrg(ctx context.Context, actor *db.User, orgName stri
 }
 
 func (s *OrgService) ListOrgRepos(ctx context.Context, viewer *db.User, orgName string, page, perPage int) ([]db.Repository, int64, error) {
-	org, err := s.resolveOrg(ctx, orgName)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, viewer, orgName)
 	if err != nil {
 		return nil, 0, err
 	}
-
-	isMember := false
-	if viewer != nil {
-		isMember, err = s.isOrgMember(ctx, org.ID, viewer.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	if org.Visibility != "public" && !isMember {
+	if org.Visibility != "public" && !membership.Member {
 		return nil, 0, pkgerrors.Forbidden("organization membership required")
 	}
 
 	pageSize, pageOffset, _, _ := normalizePage(page, perPage)
-	if isMember {
+	if membership.Member {
 		repos, err := s.queries.ListOrgRepos(ctx, db.ListOrgReposParams{
 			OrgID:      pgtype.Int8{Int64: org.ID, Valid: true},
 			PageSize:   pageSize,
@@ -651,11 +588,8 @@ func (s *OrgService) ListOrgMembers(ctx context.Context, viewer *db.User, orgNam
 	if viewer == nil {
 		return nil, 0, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, viewer, orgName, "owner", "member")
 	if err != nil {
-		return nil, 0, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
 		return nil, 0, err
 	}
 
@@ -680,11 +614,8 @@ func (s *OrgService) AddOrgMember(ctx context.Context, actor *db.User, orgName s
 		return pkgerrors.Unauthorized("authentication required")
 	}
 
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 
@@ -722,11 +653,8 @@ func (s *OrgService) ListOrgTeams(ctx context.Context, viewer *db.User, orgName 
 	if viewer == nil {
 		return nil, 0, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, viewer, orgName, "owner", "member")
 	if err != nil {
-		return nil, 0, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
 		return nil, 0, err
 	}
 
@@ -750,11 +678,8 @@ func (s *OrgService) CreateTeam(ctx context.Context, actor *db.User, orgName str
 	if actor == nil {
 		return db.Team{}, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return db.Team{}, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return db.Team{}, err
 	}
 
@@ -798,11 +723,8 @@ func (s *OrgService) GetTeam(ctx context.Context, viewer *db.User, orgName, team
 	if viewer == nil {
 		return db.Team{}, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, viewer, orgName, "owner", "member")
 	if err != nil {
-		return db.Team{}, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
 		return db.Team{}, err
 	}
 	return s.resolveTeam(ctx, org.ID, teamName)
@@ -812,11 +734,8 @@ func (s *OrgService) UpdateTeam(ctx context.Context, actor *db.User, orgName, te
 	if actor == nil {
 		return db.Team{}, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return db.Team{}, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return db.Team{}, err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -871,11 +790,8 @@ func (s *OrgService) DeleteTeam(ctx context.Context, actor *db.User, orgName, te
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -895,11 +811,8 @@ func (s *OrgService) ListTeamMembers(ctx context.Context, viewer *db.User, orgNa
 	if viewer == nil {
 		return nil, 0, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, viewer, orgName, "owner", "member")
 	if err != nil {
-		return nil, 0, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
 		return nil, 0, err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -927,11 +840,8 @@ func (s *OrgService) AddTeamMember(ctx context.Context, actor *db.User, orgName,
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -969,11 +879,8 @@ func (s *OrgService) RemoveTeamMember(ctx context.Context, actor *db.User, orgNa
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -1006,11 +913,8 @@ func (s *OrgService) ListTeamRepos(ctx context.Context, viewer *db.User, orgName
 	if viewer == nil {
 		return nil, 0, pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, viewer, orgName, "owner", "member")
 	if err != nil {
-		return nil, 0, err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, viewer.ID, "owner", "member"); err != nil {
 		return nil, 0, err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -1038,11 +942,8 @@ func (s *OrgService) AddTeamRepo(ctx context.Context, actor *db.User, orgName, t
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -1078,11 +979,8 @@ func (s *OrgService) RemoveTeamRepo(ctx context.Context, actor *db.User, orgName
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
 	}
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 	team, err := s.resolveTeam(ctx, org.ID, teamName)
@@ -1118,11 +1016,8 @@ func (s *OrgService) RemoveOrgMember(ctx context.Context, actor *db.User, orgNam
 		return pkgerrors.Unauthorized("authentication required")
 	}
 
-	org, err := s.resolveOrg(ctx, orgName)
+	org, err := s.requireOrgRole(ctx, actor, orgName, "owner")
 	if err != nil {
-		return err
-	}
-	if err := s.requireOrgRole(ctx, org.ID, actor.ID, "owner"); err != nil {
 		return err
 	}
 

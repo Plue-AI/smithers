@@ -28,6 +28,7 @@ const (
 type SecretQuerier interface {
 	GetRepoByOwnerAndLowerName(ctx context.Context, arg db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error)
 	GetOrgByLowerName(ctx context.Context, lowerName string) (db.Organization, error)
+	GetVisibleOrgForViewer(ctx context.Context, arg db.GetVisibleOrgForViewerParams) (db.GetVisibleOrgForViewerRow, error)
 	GetOrgMember(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error)
 	IsOrgOwnerForRepoUser(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error)
 	GetHighestTeamPermissionForRepoUser(ctx context.Context, arg db.GetHighestTeamPermissionForRepoUserParams) (string, error)
@@ -375,8 +376,9 @@ func (s *SecretService) DeleteSecret(ctx context.Context, actor *db.User, owner,
 // SetOrgSecret stores an organization secret. binding nil keeps a replaced
 // secret's egress binding (a new one is unbound).
 func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string, binding *SecretBinding) (SecretResponse, error) {
-	if actor == nil {
-		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
+	if err != nil {
+		return SecretResponse{}, err
 	}
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
@@ -404,14 +406,6 @@ func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgNam
 			return SecretResponse{}, err
 		}
 		stored = &normalized
-	}
-
-	org, err := s.resolveOrgByName(ctx, orgName)
-	if err != nil {
-		return SecretResponse{}, err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
-		return SecretResponse{}, err
 	}
 
 	if err := s.enforceOrgSecretQuota(ctx, org.ID, trimmedName); err != nil {
@@ -447,11 +441,8 @@ func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgNam
 }
 
 func (s *SecretService) ListOrgSecrets(ctx context.Context, actor *db.User, orgName string) ([]SecretResponse, error) {
-	org, err := s.resolveOrgByName(ctx, orgName)
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
 		return nil, err
 	}
 	rows, err := s.queries.ListOrgSecrets(ctx, org.ID)
@@ -473,19 +464,13 @@ func (s *SecretService) ListOrgSecrets(ctx context.Context, actor *db.User, orgN
 }
 
 func (s *SecretService) DeleteOrgSecret(ctx context.Context, actor *db.User, orgName, name string) error {
-	if actor == nil {
-		return pkgerrors.Unauthorized("authentication required")
+	org, err := s.requireOrgOwner(ctx, actor, orgName)
+	if err != nil {
+		return err
 	}
 	trimmedName := strings.TrimSpace(name)
 	if trimmedName == "" {
 		return pkgerrors.BadRequest("secret name is required")
-	}
-	org, err := s.resolveOrgByName(ctx, orgName)
-	if err != nil {
-		return err
-	}
-	if err := s.requireOrgOwnerAccess(ctx, org, actor); err != nil {
-		return err
 	}
 	if err := s.queries.DeleteOrgSecret(ctx, db.DeleteOrgSecretParams{
 		OrganizationID: org.ID,
@@ -574,41 +559,24 @@ func (s *SecretService) resolveRepoByOwnerAndName(ctx context.Context, owner, re
 	return repository, nil
 }
 
-func (s *SecretService) resolveOrgByName(ctx context.Context, orgName string) (db.Organization, error) {
-	lowerOrg := strings.ToLower(strings.TrimSpace(orgName))
-	if lowerOrg == "" {
-		return db.Organization{}, pkgerrors.BadRequest("organization name is required")
-	}
-	org, err := s.queries.GetOrgByLowerName(ctx, lowerOrg)
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return db.Organization{}, pkgerrors.NotFound("organization not found")
-		}
-		slog.Error("load organization failed", "org", lowerOrg, "error", err)
-		return db.Organization{}, pkgerrors.Internal("failed to load organization").WithCause(err)
-	}
-	return org, nil
-}
-
-func (s *SecretService) requireOrgOwnerAccess(ctx context.Context, org db.Organization, actor *db.User) error {
+// requireOrgOwner resolves orgName for actor and admits site administrators
+// and organization owners. Visibility is decided first, so a private
+// organization answers everyone else like a missing one.
+func (s *SecretService) requireOrgOwner(ctx context.Context, actor *db.User, orgName string) (db.Organization, error) {
 	if actor == nil {
-		return pkgerrors.Unauthorized("authentication required")
+		return db.Organization{}, pkgerrors.Unauthorized("authentication required")
 	}
 	if actor.IsAdmin {
-		return nil
+		return lookupOrgByName(ctx, s.queries, orgName)
 	}
-	member, err := s.queries.GetOrgMember(ctx, db.GetOrgMemberParams{
-		OrganizationID: org.ID,
-		UserID:         actor.ID,
-	})
-	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
-		slog.Error("load organization membership failed", "org_id", org.ID, "user_id", actor.ID, "error", err)
-		return pkgerrors.Internal("failed to load organization membership").WithCause(err)
+	org, membership, err := resolveOrgForViewer(ctx, s.queries, actor, orgName)
+	if err != nil {
+		return db.Organization{}, err
 	}
-	if err != nil || strings.ToLower(strings.TrimSpace(member.Role)) != "owner" {
-		return pkgerrors.Forbidden("permission denied")
+	if !membership.hasRole("owner") {
+		return db.Organization{}, pkgerrors.Forbidden("permission denied")
 	}
-	return nil
+	return org, nil
 }
 
 func (s *SecretService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User) error {

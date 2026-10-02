@@ -63,6 +63,10 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 	if actor == nil {
 		return ChangesetResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
+	org, err := s.requireOrgMember(ctx, actor, orgName)
+	if err != nil {
+		return ChangesetResponse{}, err
+	}
 	// A changeset lands member changes whoever wrote them; that decision is
 	// a person's.
 	if err := middleware.RequirePerson(ctx, "land a changeset"); err != nil {
@@ -70,10 +74,6 @@ func (s *ChangesetService) LandChangeset(ctx context.Context, actor *db.User, or
 	}
 	if actsAsAgent(ctx, actor) {
 		return ChangesetResponse{}, pkgerrors.Forbidden("an agent cannot land a changeset")
-	}
-	org, err := s.requireOrgMember(ctx, actor, orgName)
-	if err != nil {
-		return ChangesetResponse{}, err
 	}
 	unlock, err := s.locker.LockOrganization(ctx, org.ID)
 	if err != nil {

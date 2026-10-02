@@ -539,6 +539,49 @@ func (q *Queries) GetTeamByOrgAndLowerName(ctx context.Context, arg GetTeamByOrg
 	return i, err
 }
 
+const getVisibleOrgForViewer = `-- name: GetVisibleOrgForViewer :one
+SELECT o.id, o.name, o.lower_name, o.description, o.visibility, o.website, o.location, o.created_at, o.updated_at, o.factory_owner_id, COALESCE(m.role, '')::text AS viewer_role
+FROM organizations o
+LEFT JOIN org_members m
+  ON m.organization_id = o.id
+ AND m.user_id = $1::bigint
+WHERE o.lower_name = $2
+  AND (o.visibility <> 'private' OR m.user_id IS NOT NULL)
+`
+
+type GetVisibleOrgForViewerParams struct {
+	ViewerID  int64  `json:"viewer_id"`
+	LowerName string `json:"lower_name"`
+}
+
+type GetVisibleOrgForViewerRow struct {
+	Organization Organization `json:"organization"`
+	ViewerRole   string       `json:"viewer_role"`
+}
+
+// One statement decides organization visibility (plue#542): a private
+// organization the viewer does not belong to returns no row, exactly like a
+// missing name, at the same cost and with the same failure modes. viewer_id 0
+// is an anonymous caller. viewer_role is empty for non-members.
+func (q *Queries) GetVisibleOrgForViewer(ctx context.Context, arg GetVisibleOrgForViewerParams) (GetVisibleOrgForViewerRow, error) {
+	row := q.db.QueryRow(ctx, getVisibleOrgForViewer, arg.ViewerID, arg.LowerName)
+	var i GetVisibleOrgForViewerRow
+	err := row.Scan(
+		&i.Organization.ID,
+		&i.Organization.Name,
+		&i.Organization.LowerName,
+		&i.Organization.Description,
+		&i.Organization.Visibility,
+		&i.Organization.Website,
+		&i.Organization.Location,
+		&i.Organization.CreatedAt,
+		&i.Organization.UpdatedAt,
+		&i.Organization.FactoryOwnerID,
+		&i.ViewerRole,
+	)
+	return i, err
+}
+
 const listAllOrgs = `-- name: ListAllOrgs :many
 SELECT id, name, lower_name, description, visibility, website, location, created_at, updated_at, factory_owner_id
 FROM organizations

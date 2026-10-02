@@ -16,14 +16,16 @@ import (
 
 // Landing a changeset lands member changes whoever wrote them, so it is a
 // person's decision: a run credential (an agent run's token or the
-// platform's sync token) is refused before the service reads anything, and
-// a person's token or session lands it.
+// platform's sync token) is refused once the organization is resolved
+// (plue#542 decides visibility first) and before anything lands, and a
+// person's token or session lands it.
 func TestLandChangesetRefusesRunCredentials(t *testing.T) {
 	t.Parallel()
 	actor := &db.User{ID: 1, Username: "alice"}
 
-	// No queries: the refusal must come first.
-	unread := &ChangesetService{}
+	q, rh, unread := seedChangesetFixture(t)
+	bot := &db.User{ID: 2, Username: "ci-bot", UserType: "bot"}
+	q.members[bot.ID] = true
 	for name, info := range map[string]*middleware.AuthInfo{
 		"agent run": {User: actor, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository"},
 		"sync":      {User: actor, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository," + middleware.SyncCredentialScope()},
@@ -36,11 +38,12 @@ func TestLandChangesetRefusesRunCredentials(t *testing.T) {
 	}
 
 	// An agent account's own token is an agent's too (D-23).
-	bot := &db.User{ID: 2, Username: "ci-bot", UserType: "bot"}
 	_, err := unread.LandChangeset(middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: bot, IsTokenAuth: true, RawScopes: "write:repository"}), bot, "acme", 1)
 	var botErr *pkgerrors.APIError
 	require.True(t, errors.As(err, &botErr), "%v", err)
 	assert.Equal(t, http.StatusForbidden, botErr.Status)
+	assert.Empty(t, q.changesets, "a refused landing wrote nothing")
+	assert.Empty(t, rh.landCalls, "a refused landing moved no bookmark")
 
 	for name, info := range map[string]*middleware.AuthInfo{
 		"person token": {User: actor, IsTokenAuth: true, RawScopes: "write:repository"},

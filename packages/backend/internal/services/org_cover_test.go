@@ -167,7 +167,8 @@ func TestOrg_Cov_ResolveAndPermissionHelpers(t *testing.T) {
 
 	t.Run("resolve organization input and store errors", func(t *testing.T) {
 		svc := NewOrgService(&mockOrgQuerier{})
-		_, err := svc.resolveOrg(ctx, "  ")
+		viewer := testOrgUser(1, "viewer")
+		_, err := svc.requireOrgRole(ctx, viewer, "  ")
 		requireAPIErrorStatus(t, err, http.StatusBadRequest)
 
 		svc = NewOrgService(&mockOrgQuerier{
@@ -175,7 +176,7 @@ func TestOrg_Cov_ResolveAndPermissionHelpers(t *testing.T) {
 				return db.Organization{}, errors.New("db down")
 			},
 		})
-		_, err = svc.resolveOrg(ctx, "acme")
+		_, err = svc.requireOrgRole(ctx, viewer, "acme")
 		requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 	})
 
@@ -202,23 +203,24 @@ func TestOrg_Cov_ResolveAndPermissionHelpers(t *testing.T) {
 	})
 
 	t.Run("membership helpers distinguish not found from store failure", func(t *testing.T) {
+		private := func(context.Context, string) (db.Organization, error) { return testOrg("private"), nil }
 		svc := NewOrgService(&mockOrgQuerier{
+			getOrgByLowerNameFn: private,
 			getOrgMemberFn: func(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error) {
 				return db.OrgMember{OrganizationID: arg.OrganizationID, UserID: arg.UserID, Role: "member"}, nil
 			},
 		})
-		require.NoError(t, svc.requireOrgRole(ctx, 7, 1))
+		viewer := testOrgUser(1, "viewer")
+		_, err := svc.requireOrgRole(ctx, viewer, "acme")
+		require.NoError(t, err)
 
 		svc = NewOrgService(&mockOrgQuerier{
+			getOrgByLowerNameFn: private,
 			getOrgMemberFn: func(ctx context.Context, arg db.GetOrgMemberParams) (db.OrgMember, error) {
 				return db.OrgMember{}, errors.New("membership read failed")
 			},
 		})
-		err := svc.requireOrgRole(ctx, 7, 1, "owner")
-		requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-
-		isMember, err := svc.isOrgMember(ctx, 7, 1)
-		require.False(t, isMember)
+		_, err = svc.requireOrgRole(ctx, viewer, "acme", "owner")
 		requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 	})
 }
@@ -227,14 +229,14 @@ func TestOrg_Cov_ListErrorBranches(t *testing.T) {
 	ctx := context.Background()
 	viewer := testOrgUser(1, "owner")
 
-	t.Run("private repos require viewer membership", func(t *testing.T) {
+	t.Run("private repos are hidden from non-members", func(t *testing.T) {
 		svc := NewOrgService(&mockOrgQuerier{
 			getOrgByLowerNameFn: func(ctx context.Context, lowerName string) (db.Organization, error) {
 				return testOrg("private"), nil
 			},
 		})
 		_, _, err := svc.ListOrgRepos(ctx, nil, "acme", 1, 30)
-		requireAPIErrorStatus(t, err, http.StatusForbidden)
+		requireAPIErrorStatus(t, err, http.StatusNotFound)
 	})
 
 	t.Run("member repository list and count errors", func(t *testing.T) {
