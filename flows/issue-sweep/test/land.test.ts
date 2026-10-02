@@ -42,7 +42,11 @@ test("testTargets runs only the test targets of the touched packages", () => {
 })
 
 const app = [
-  { label: "//apps/app:unitTests", kinds: ["test"], inputs: [{ kind: "glob", pattern: "apps/app/src/**/*.ts", exclude: [] }] },
+  {
+    label: "//apps/app:unitTests",
+    kinds: ["test"],
+    inputs: [{ kind: "glob", pattern: "apps/app/src/**/*.ts", exclude: [] }]
+  },
   { label: "//apps/app:check", kinds: ["build"], inputs: [] },
   {
     label: "//apps/app:browserE2e",
@@ -132,4 +136,23 @@ test("isDocsSource picks package docs that docs:sync generates from, never the g
   assert.equal(isDocsSource("docs/blog/building-burndown-notes.md"), true)
   assert.equal(isDocsSource("apps/docs/registry/src/content/docs/reference/api.md"), false)
   assert.equal(isDocsSource("packages/smithers/src/Docs.ts"), false)
+})
+
+test("readChecks: infrastructure refusals block even with newly-red labels", () => {
+  for (
+    const diagnostic of [
+      "listen EPERM: operation not permitted 127.0.0.1",
+      "Error: listen EACCES: permission denied",
+      "spawn node ENOENT",
+      "Error: ENOSPC: no space left on device",
+      "Error: EMFILE: too many open files"
+    ]
+  ) {
+    const checked = readChecks({
+      code: 1,
+      stdout: JSON.stringify({ code: "targets_failed", message: "1 of 1 targets failed" }),
+      stderr: `${diagnostic}\nnewly red, no matching failure in list.json: //control:test`
+    })
+    assert.equal(checked._tag, "Broken", diagnostic)
+  }
 })

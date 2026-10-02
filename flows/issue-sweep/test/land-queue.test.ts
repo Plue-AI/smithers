@@ -226,13 +226,13 @@ test("the baseline cache measures a (commit, label) once, across concurrent asks
   assert.equal(measured.length, 4)
 })
 
-test("a baseline that could not run excuses its labels but is not remembered", async () => {
+test("a baseline that could not run blocks its askers and is not remembered", async () => {
   let runs = 0
   const redOn = makeBaselines({
     measure: () => Effect.sync(() => (runs += 1, { _tag: "Broken", message: "no install" } as Checked))
   })
-  assert.deepEqual(await Effect.runPromise(redOn("c1", ["//a:test"])), ["//a:test"])
-  assert.deepEqual(await Effect.runPromise(redOn("c1", ["//a:test"])), ["//a:test"])
+  assert.match((await Effect.runPromise(Effect.flip(redOn("c1", ["//a:test"])))).message, /no install/)
+  assert.match((await Effect.runPromise(Effect.flip(redOn("c1", ["//a:test"])))).message, /no install/)
   assert.equal(runs, 2)
 })
 

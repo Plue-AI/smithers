@@ -116,6 +116,15 @@ const Report = Schema.fromJsonString(Schema.Struct({ ok: Schema.Boolean }))
  * workspace that could not be planned, means the checks never ran.
  */
 export const readChecks = (exited: Exited): Checked => {
+  // These diagnostics mean the harness could not execute its checks. They
+  // must never become an assertion failure a baseline can excuse.
+  const diagnostic = `${exited.stdout}\n${exited.stderr}`
+  if (
+    /\b(?:listen|bind|connect)\s+(?:EPERM|EACCES|EADDRINUSE|ECONNREFUSED)\b|\bspawn\s+[^\n]*\bENOENT\b|\b(?:ENOSPC|EMFILE|ENFILE)\b/
+      .test(diagnostic)
+  ) {
+    return { _tag: "Broken", message: tail(diagnostic) }
+  }
   const report = Schema.decodeUnknownOption(Report)(exited.stdout)
   if (exited.code === 0 && Option.isSome(report) && report.value.ok) return { _tag: "Green" }
   const refusal = Schema.decodeUnknownOption(Refusal)(exited.stdout)
@@ -329,8 +338,8 @@ const rememberedCommits = 64
  * another caller, waits for that answer instead of running them again. A
  * green or red answer is kept in memory and, when `file` is given, in that
  * JSON file for the newest {@link rememberedCommits} commits, so a restarted
- * host keeps it. A run that could not decide (`Broken`) excuses its labels,
- * as a red `main` would, and is not kept.
+ * host keeps it. A run that could not decide (`Broken`) fails its callers
+ * and is not kept, so a later request retries it.
  */
 export const makeBaselines = (options: {
   readonly file?: string | undefined
@@ -408,12 +417,19 @@ export const makeBaselines = (options: {
                 return
               }
               const checked = exit.value
-              const red = new Set(checked._tag === "Red" ? checked.labels : checked._tag === "Broken" ? missing : [])
+              if (checked._tag === "Broken") {
+                const error = fail(`baseline on ${commit} did not run: ${checked.message}`)
+                for (const [label, answer] of mine) {
+                  answers.delete(label)
+                  Deferred.doneUnsafe(answer, Effect.fail(error))
+                }
+                return
+              }
+              const red = new Set(checked._tag === "Red" ? checked.labels : [])
               for (const [label, answer] of mine) {
                 Deferred.doneUnsafe(answer, Effect.succeed(red.has(label)))
-                if (checked._tag === "Broken") answers.delete(label)
               }
-              if (checked._tag !== "Broken") save(commit, Object.fromEntries(missing.map((l) => [l, red.has(l)])))
+              save(commit, Object.fromEntries(missing.map((l) => [l, red.has(l)])))
               for (const old of [...known.keys()].slice(0, -rememberedCommits)) known.delete(old)
             })
           ),
