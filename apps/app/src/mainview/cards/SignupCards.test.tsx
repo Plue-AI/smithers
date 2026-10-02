@@ -151,7 +151,7 @@ describe("the signup cards", () => {
     expect(calls).toEqual([["signup.account", undefined]])
   })
 
-  test("the poll is the repository question alone: the GitHub repositories, a new repo and Skip, with no progress, Back or earlier steps", () => {
+  test("the poll is the repository question alone: the GitHub repositories and Skip, with no progress, Back or earlier steps", () => {
     const { host, flows, calls } = render({ ...initialSignup(), stage: "poll", door: "github", name: "Ada Park", account: "adapark" }, [{ id: "adapark/hello-server" }])
     expect([...host.querySelector('[data-testid="signup"]')!.children].map(child => child.getAttribute("data-question"))).toEqual(["repo"])
     const card = host.querySelector('[data-testid="signup-question"]')!
@@ -159,7 +159,6 @@ describe("the signup cards", () => {
     expect(card.querySelector("h2")?.textContent).toBe("Do you have a repo you would like to connect?")
     expect(flows()).toEqual([
       ["adapark/hello-server", "signup.repo", "adapark/hello-server"],
-      ["+ Try Smithers on a new repo", "signup.repo", "new"],
       ["Skip", "signup.next", undefined]
     ])
     expect(host.textContent).not.toContain("smithers.sh/adapark")
@@ -167,14 +166,32 @@ describe("the signup cards", () => {
     expect(calls).toEqual([["signup.next", undefined]])
   })
 
+  /* Will, 2026-10-01: "Try Smithers on a new repo" did exactly what Skip does, so the question offers no third door. */
+  test("the repository question offers each GitHub repository and Skip, and no new-repo tile", () => {
+    const repos = [{ id: "adapark/hello-server" }, { id: "adapark/site" }, { id: "acme/api" }]
+    const { host, flows, calls } = render({ ...initialSignup(), stage: "poll", door: "github", account: "adapark" }, repos)
+    expect(flows()).toEqual([...repos.map(repo => [repo.id, "signup.repo", repo.id]), ["Skip", "signup.next", undefined]])
+    expect(host.querySelector('[data-testid="signup-new-repo"]')).toBeNull()
+    expect(host.querySelector(".signup-tile")).toBeNull()
+    expect(host.textContent).not.toContain("new repo")
+    expect(flows().some(row => row[2] === "new")).toBe(false)
+    host.querySelector<HTMLButtonElement>('[data-flow-args="adapark/site"]')!.click()
+    expect(calls).toEqual([["signup.repo", "adapark/site"]])
+  })
+
+  test("with no GitHub repository the question offers Skip alone", () => {
+    const { flows } = render({ ...initialSignup(), stage: "poll", door: "github", account: "adapark" })
+    expect(flows()).toEqual([["Skip", "signup.next", undefined]])
+  })
+
   test.each([4, 6])("a row saved at seven-question index %i opens the repository question", question => {
-    const { host, flows } = render({ ...initialSignup(), stage: "poll", question, answers: { size: "2–10" } })
+    const { host, flows } = render({ ...initialSignup(), stage: "poll", question, answers: { size: "2–10" } }, [{ id: "adapark/hello-server" }])
     expect(host.querySelector('[data-testid="signup-question"]')?.getAttribute("data-question")).toBe("repo")
     expect(flows().map(row => row[1])).toEqual(["signup.repo", "signup.next"])
   })
 
   test("ready greets the person, shows the account URL and the giant Start Automating door, and nothing it cannot play", () => {
-    const { host, flows } = render({ ...initialSignup(), stage: "ready", door: "github", repo: "new", answers: { repo: "new" }, account: "adapark", name: "  Ada  Park " })
+    const { host, flows } = render({ ...initialSignup(), stage: "ready", door: "github", repo: "adapark/hello-server", answers: { repo: "adapark/hello-server" }, account: "adapark", name: "  Ada  Park " })
     expect([...host.querySelector('[data-testid="signup"]')!.children].map(child => child.getAttribute("aria-label"))).toEqual(["Welcome"])
     expect(host.querySelector("h2")?.textContent).toBe("Welcome, Ada")
     expect(host.querySelector(".signup-url-line")?.textContent).toBe("smithers.sh/adapark")

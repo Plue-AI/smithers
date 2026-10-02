@@ -49,7 +49,7 @@ Message schema (v3): `role: "user" | "smithers"`, `text`, `reasoning?`, `status:
 States:
 
 - [x] First-run: exactly one genuine Smithers greeting + suggestion pills (fake seeds removed D1).
-- [x] Zero-message: `ChatTranscript empty` → EmptyState (Sparkles icon, "Nothing here yet").
+- [x] Zero-message: no empty-state message (Will, 2026-10-01, retired "Nothing here yet"); the setup checklist, or its job tiles once dismissed, holds the empty transcript.
 - [x] Streaming: text and reasoning deltas append live; Reasoning open while streaming, collapsed when done.
 - [x] Pending: typing bubble "Smithers is responding".
 - [x] Failed: in-character bubble + structured `failed` status + system note with detail.

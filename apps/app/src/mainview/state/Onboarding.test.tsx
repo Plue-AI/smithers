@@ -290,7 +290,7 @@ describe("onboarding — the first app screen", () => {
     await selectRepository(store)
     await store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(false) }).isPersisted.promise
     const host = await view(mount(controller))
-    expect(host.querySelector('[data-testid="setup-checklist"] .setup-checklist-count')?.textContent).toBe("1 of 2")
+    expect(host.querySelector('[data-testid="setup-checklist"] .setup-checklist-count')?.textContent).toBe("1 of 3")
     expect(footer(host)?.hidden).toBe(true)
     expect(chatDoor(host)).toBeNull()
 
@@ -316,6 +316,42 @@ describe("onboarding — the first app screen", () => {
     expect(footer(host)?.dataset.arriving).toBe("true")
     // Opening Chat with ⌘K above already taught it: the first-sight bubble stays dismissed.
     expect(store.session().hintsSeen).toContain("chat")
+  })
+
+  /* Will, 2026-10-01: after Start Automating the checklist asks the person to press ⌘K and talk to Smithers. */
+  test("after signup on the cloud web app Talk to Smithers leads the checklist; the first message checks it off and brings Chat in", async () => {
+    const { store, controller } = await pastSignup()
+    await selectRepository(store)
+    await store.dispatch({ type: "repository-job.observed", actor: "system", observation: observed(false) }).isPersisted.promise
+    const host = await view(mount(controller))
+    const talk = () => host.querySelector<HTMLLIElement>('[data-testid="setup-checklist"] ol > li')!
+    const count = () => host.querySelector('[data-testid="setup-checklist"] .setup-checklist-count')?.textContent
+    expect(talk().hasAttribute("data-complete")).toBe(false)
+    const door = talk().querySelector<HTMLButtonElement>('button[data-flow="chat.open"]')!
+    expect(door.querySelector('kbd[aria-hidden="true"]')?.textContent).toBe("⌘ K")
+    expect(text(door)).toBe("Talk to Smithers ⌘ K")
+    expect(count()).toBe("1 of 3")
+    expect(footer(host)?.hidden).toBe(true)
+    expect(chatDoor(host)).toBeNull()
+
+    // While the footer is withheld, the step itself opens Chat.
+    door.click()
+    await view(host)
+    expect(store.session().paletteOpen).toBe(true)
+    expect(host.querySelector<HTMLElement>('[data-testid="composer-overlay"]')?.hidden).toBe(false)
+    expect(talk().hasAttribute("data-complete")).toBe(false)
+    expect(footer(host)?.hidden).toBe(true)
+
+    // The composer's send: the same command the Send button runs.
+    await controller.commands.run("chat.send", "What can you do?")
+    await view(host)
+    expect([...store.collections.messages.values()].map(message => [message.role, message.text])).toEqual([["user", "What can you do?"]])
+    expect(talk().dataset.complete).toBe("true")
+    expect(text(talk())).toBe("✓Talk to Smithers")
+    expect(talk().querySelector("button")).toBeNull()
+    expect(count()).toBe("2 of 3")
+    expect(chatShown(host)).toBe(true)
+    expect(footer(host)?.dataset.arriving).toBe("true")
   })
 
   test("dismissing the card or sending a message brings Chat with the same arrival", async () => {

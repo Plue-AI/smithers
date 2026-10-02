@@ -16,7 +16,7 @@ export const signupFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     input: Schema.Struct({ field: Schema.String, value: Schema.String }), handler: ({ field, value }) => actions.signupSet(field, value) }),
   flow({ name: "signup.account", hidden: true, summary: "Finish creating the account", input: NoPayload, handler: () => actions.signupAccount() }),
   flow({ name: "signup.next", hidden: true, summary: "Skip the repository question", input: NoPayload, handler: () => actions.signupNext() }),
-  flow({ name: "signup.repo", hidden: true, summary: "Choose the repository to connect", args: "<owner/repo|new>",
+  flow({ name: "signup.repo", hidden: true, summary: "Choose the repository to connect", args: "<owner/repo>",
     input: Schema.Struct({ repo: Schema.String }), handler: ({ repo }) => actions.signupRepo(repo) }),
   flow({ name: "signup.finish", hidden: true, summary: "Start automating", input: NoPayload, handler: () => actions.signupFinish() })
 ]

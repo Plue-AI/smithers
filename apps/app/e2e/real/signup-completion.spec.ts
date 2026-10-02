@@ -10,7 +10,7 @@ const signupTest = authenticatedTest.extend({ profileEnvironment: "SMITHERS_E2E_
 signupTest("a fresh identity completes the account and the repository question with keyboard and reload recovery", scenario("signup.account-poll-recovery", {
   capabilities: ["identity"],
   coverage: ["action:signup.set", "action:signup.account", "action:signup.repo", "action:signup.finish", "host:production", "path:success", "path:persistence", "path:keyboard", "door:button", "dimension:reload", "dimension:keyboard", "evidence:signup-stage-answer-and-identity-readback"],
-  description: "Use a fresh actual identity to complete the account form, recover drafts and the open repository question after reload, choose the new-repository option, and retain the finished state without replacing the authenticated identity."
+  description: "Use a fresh actual identity to complete the account form, recover drafts and the open repository question after reload, choose one of the account's GitHub repositories, and retain the finished state without replacing the authenticated identity."
 }), async ({ page }, testInfo) => {
   await awaitBoot(page, "navigate", performance.now())
   const identity = await readAuthenticatedSession(page)
@@ -33,7 +33,12 @@ signupTest("a fresh identity completes the account and the repository question w
   await expect(question).toHaveAttribute("data-question", "repo")
   await reloadApp(page)
   await expect(question).toHaveAttribute("data-question", "repo")
-  await question.getByTestId("signup-new-repo").press("Enter")
+  // The question offers the account's own GitHub repositories and Skip; the profile's account owns at least one.
+  const choice = question.locator('button[data-flow="signup.repo"]').first()
+  await expect(choice).toBeVisible()
+  const repository = await choice.getAttribute("data-flow-args")
+  expect(repository).toMatch(/^[^/\s]+\/[^/\s]+$/)
+  await choice.press("Enter")
   await expect(signup).toHaveAttribute("data-stage", "ready")
   await expect(signup).toContainText(`smithers.sh/${slug}`)
   await reloadApp(page)
@@ -43,5 +48,5 @@ signupTest("a fresh identity completes the account and the repository question w
   await reloadApp(page)
   await expect(signup).toHaveCount(0)
   expect(await readAuthenticatedSession(page)).toEqual(identity)
-  await attachJson(testInfo, "signup-completion", { login: identity!.login, account: slug, fullName, repository: "new", completed: true })
+  await attachJson(testInfo, "signup-completion", { login: identity!.login, account: slug, fullName, repository, completed: true })
 })

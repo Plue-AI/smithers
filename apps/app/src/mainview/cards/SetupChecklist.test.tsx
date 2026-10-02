@@ -17,6 +17,7 @@ GlobalRegistrator.register()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 0)); await GlobalRegistrator.unregister() })
 
 const commands = [
+  { name: "chat.open", summary: "Open Chat using the selected input mode (C)" },
   { name: "auth.sign-in", summary: "Sign in with GitHub" },
   { name: "repos.import", summary: "Import a GitHub repository into Smithers Cloud" },
   { name: "issues.setup", summary: "Handle issues" },
@@ -24,8 +25,11 @@ const commands = [
 ]
 const jobTitles = ["Handle issues", "Review PRs", "Set up CI", "Build a feature", "Automate a chore"]
 const jobCommands = [...commands, ...FIRST_RUN_JOBS.map((name, index) => ({ name, summary: jobTitles[index]! }))]
-const empty = { signedIn: false, hasRepo: false, hasSetup: false }
-const done = { signedIn: true, hasRepo: true, hasSetup: true }
+const empty = { signedIn: false, hasRepo: false, hasSetup: false, talked: false }
+const done = { signedIn: true, hasRepo: true, hasSetup: true, talked: true }
+/** The talk step's button text: its label, then the aria-hidden ⌘K chip. */
+const TALK = "Talk to Smithers ⌘ K"
+const step = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLLIElement>("ol > li")].find(item => item.textContent?.includes(label))
 
 const observation = (payload: RepositorySetup): RepositoryJobObservation => ({
   id: payload.job, owner: payload.owner ?? "", repo: payload.repo, job: payload.job,
@@ -50,8 +54,8 @@ test("local owner setup names sign-in before and after authentication", async ()
     expect(calls).toEqual(["auth.sign-in"])
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(host.querySelector("li")?.textContent).toBe("✓Sign in")
-    expect(host.querySelector("li")?.getAttribute("data-complete")).toBe("true")
+    expect(step(host, "Sign in")?.textContent).toBe("✓Sign in")
+    expect(step(host, "Sign in")?.getAttribute("data-complete")).toBe("true")
     expect(host.textContent).not.toContain("Connect GitHub")
   } finally { flushSync(() => root.unmount()); await store.dispose?.() }
 })
@@ -77,29 +81,36 @@ test("only a current account's selected repository registration completes setup"
 test("each step names the first flow this host registered, and completion follows state", () => {
   const steps = resolveSteps(commands, empty)
   expect(steps.map(step => [step.id, step.flow, step.complete])).toEqual([
+    ["talk", "chat.open", false],
     ["connect-github", "auth.sign-in", false],
     ["add-repository", "repos.import", false],
     ["set-up-job", "issues.setup", false],
   ])
   expect(resolveSteps(commands, done).every(step => step.complete)).toBe(true)
-  expect(resolveSteps(commands.filter(command => command.name !== "repos.import"), empty)[1]?.flow).toBeUndefined()
-  expect(resolveSteps(commands.filter(command => command.name !== "auth.sign-in"), empty)[0]?.flow).toBeUndefined()
+  // Each step reads only its own fact.
+  for (const [fact, id] of [["talked", "talk"], ["signedIn", "connect-github"], ["hasRepo", "add-repository"], ["hasSetup", "set-up-job"]] as const)
+    expect(resolveSteps(commands, { ...empty, [fact]: true }).filter(step => step.complete).map(step => step.id)).toEqual([id])
+  const without = (name: string, id: string) => resolveSteps(commands.filter(command => command.name !== name), empty).find(step => step.id === id)
+  expect(without("chat.open", "talk")?.flow).toBeUndefined()
+  expect(without("auth.sign-in", "connect-github")?.flow).toBeUndefined()
+  expect(without("repos.import", "add-repository")?.flow).toBeUndefined()
 })
 
-test("on the cloud web app the GitHub step belongs to the signup: two steps remain", () => {
+test("on the cloud web app the GitHub step belongs to the signup: three steps remain", () => {
   expect(resolveSteps(commands, { ...empty, cloud: true }).map(step => [step.id, step.flow, step.complete])).toEqual([
+    ["talk", "chat.open", false],
     ["add-repository", "repos.import", false],
     ["set-up-job", "issues.setup", false],
   ])
-  expect(resolveSteps(commands, { ...done, cloud: true }).map(step => step.complete)).toEqual([true, true])
+  expect(resolveSteps(commands, { ...done, cloud: true }).map(step => step.complete)).toEqual([true, true, true])
   // Every other host keeps the step, local credentials included.
-  expect(resolveSteps(commands, { ...empty, cloud: false }).map(step => step.id)).toEqual(["connect-github", "add-repository", "set-up-job"])
-  expect(resolveSteps(commands, { ...empty, localAuth: true }).map(step => step.label)).toEqual(["Sign in", "Add a repository", "Set up a job"])
+  expect(resolveSteps(commands, { ...empty, cloud: false }).map(step => step.id)).toEqual(["talk", "connect-github", "add-repository", "set-up-job"])
+  expect(resolveSteps(commands, { ...empty, localAuth: true }).map(step => step.label)).toEqual(["Talk to Smithers", "Sign in", "Add a repository", "Set up a job"])
 })
 
-for (const [host, capabilities, count] of [
-  ["cloud", [], "1 of 2"], ["cloud", ["native.shell"], "2 of 3"], ["local", [], "2 of 3"],
-] as const) test(`the live card on a ${host} host${capabilities.length ? " in the desktop shell" : ""} counts ${count}`, async () => {
+for (const [host, capabilities, count, talked] of [
+  ["cloud", [], "1 of 3", "2 of 3"], ["cloud", ["native.shell"], "2 of 4", "3 of 4"], ["local", [], "2 of 4", "3 of 4"],
+] as const) test(`the live card on a ${host} host${capabilities.length ? " in the desktop shell" : ""} counts ${count}, then ${talked} once the person writes`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const host_ = document.createElement("div")
   const root = createRoot(host_)
@@ -111,9 +122,13 @@ for (const [host, capabilities, count] of [
     await new Promise(resolve => setTimeout(resolve, 20))
     const cloud = host === "cloud" && capabilities.length === 0
     expect(host_.querySelector(".setup-checklist-count")?.textContent).toBe(count)
-    expect(host_.querySelector("progress")?.getAttribute("max")).toBe(cloud ? "2" : "3")
-    expect([...host_.querySelectorAll("ol > li")].map(item => item.firstChild?.textContent)).toEqual(cloud ? ["✓", "Set up a job"] : ["✓", "✓", "Set up a job"])
+    expect(host_.querySelector("progress")?.getAttribute("max")).toBe(cloud ? "3" : "4")
+    expect([...host_.querySelectorAll("ol > li")].map(item => item.firstChild?.textContent)).toEqual(cloud ? [TALK, "✓", "Set up a job"] : [TALK, "✓", "✓", "Set up a job"])
     expect(host_.textContent?.includes("Connect GitHub")).toBe(!cloud)
+    await store.dispatch({ type: "message.submitted", actor: "user", turnId: "first-turn", text: "What can you do?" }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(host_.querySelector(".setup-checklist-count")?.textContent).toBe(talked)
+    expect(host_.querySelector("ol > li")?.textContent).toBe("✓Talk to Smithers")
   } finally {
     flushSync(() => root.unmount())
     await store.dispose?.()
@@ -121,7 +136,60 @@ for (const [host, capabilities, count] of [
 })
 
 test("the step count matches the list the pattern promises", () => {
-  expect(SETUP_STEPS.map(step => step.id)).toEqual(["connect-github", "add-repository", "set-up-job"])
+  expect(SETUP_STEPS.map(step => step.id)).toEqual(["talk", "connect-github", "add-repository", "set-up-job"])
+})
+
+/* Will, 2026-10-01: the checklist asks the person to open Chat with ⌘K and talk to Smithers. */
+test("Talk to Smithers comes first, opens Chat through chat.open, and alone carries the ⌘K chip", () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const calls: Array<[string, string | undefined]> = []
+  try {
+    for (const cloud of [false, true]) {
+      flushSync(() => root.render(<SetupChecklistCard steps={resolveSteps(commands, { ...empty, cloud }, "will/demo")} onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+      const first = host.querySelector<HTMLLIElement>("ol > li")!
+      expect(first.hasAttribute("data-complete")).toBe(false)
+      const talk = first.querySelector<HTMLButtonElement>("button")!
+      expect([talk.dataset.flow, talk.dataset.flowArgs, talk.type, talk.disabled]).toEqual(["chat.open", undefined, "button", false])
+      const chip = talk.querySelector("kbd")!
+      expect([chip.textContent, chip.getAttribute("aria-hidden")]).toEqual(["⌘ K", "true"])
+      // The chip is decoration: the button's name is the step's label.
+      expect(talk.textContent?.replace(chip.textContent!, "").trim()).toBe("Talk to Smithers")
+      expect(host.querySelectorAll("kbd")).toHaveLength(1)
+      talk.click()
+    }
+    expect(calls).toEqual([["chat.open", undefined], ["chat.open", undefined]])
+  } finally { flushSync(() => root.unmount()) }
+})
+
+test("a user message checks off Talk to Smithers; a Smithers message does not", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const talk = () => host.querySelector<HTMLLIElement>("ol > li")!
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+    flushSync(() => root.render(<ControllerContext value={{ store, dismissFirstRun: () => {}, commands: { all: () => jobCommands }, runCommand: () => {} } as unknown as AppController}><SetupChecklist /></ControllerContext>))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(talk().hasAttribute("data-complete")).toBe(false)
+    expect(talk().querySelector('button[data-flow="chat.open"]')).not.toBeNull()
+    expect(host.querySelector(".setup-checklist-count")?.textContent).toBe("1 of 4")
+    await store.dispatch({ type: "message.appended", actor: "system", text: "Repository initialization failed." }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect([...store.collections.messages.values()].map(message => message.role)).toEqual(["smithers"])
+    expect(talk().hasAttribute("data-complete")).toBe(false)
+    expect(host.querySelector(".setup-checklist-count")?.textContent).toBe("1 of 4")
+    await store.dispatch({ type: "message.submitted", actor: "user", turnId: "first-turn", text: "What can you do?" }).isPersisted.promise
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(talk().dataset.complete).toBe("true")
+    expect(talk().textContent).toBe("✓Talk to Smithers")
+    expect(talk().querySelector("button, kbd")).toBeNull()
+    expect(host.querySelector('[data-flow="chat.open"]')).toBeNull()
+    expect(host.querySelector(".setup-checklist-count")?.textContent).toBe("2 of 4")
+  } finally {
+    flushSync(() => root.unmount())
+    await store.dispose?.()
+  }
 })
 
 test("incomplete steps are flow buttons; completed steps are not interactive", () => {
@@ -131,26 +199,28 @@ test("incomplete steps are flow buttons; completed steps are not interactive", (
   try {
     const steps = resolveSteps(commands, { ...empty, signedIn: true }, "requested/repo")
     flushSync(() => root.render(<SetupChecklistCard steps={steps} onRunCommand={(name, args) => { calls.push([name, args]) }} />))
-    expect(host.querySelector("header")?.textContent).toContain("1 of 3")
+    expect(host.querySelector("header")?.textContent).toContain("1 of 4")
     expect(host.querySelector("progress")?.getAttribute("value")).toBe("1")
     const items = [...host.querySelectorAll<HTMLLIElement>("li")]
-    expect(items[0]?.dataset.complete).toBe("true")
-    expect(items[0]?.querySelector("button")).toBeNull()
+    expect(items[1]?.dataset.complete).toBe("true")
+    expect(items[1]?.querySelector("button")).toBeNull()
     const buttons = items.flatMap(item => [...item.querySelectorAll<HTMLButtonElement>("button")])
     expect(buttons.map(button => [button.dataset.flow, button.textContent])).toEqual([
+      ["chat.open", TALK],
       ["repos.import", "Add a repository"],
       ["issues.setup", "Set up a job"],
     ])
     expect(buttons.every(button => button.type === "button" && !button.disabled && button.tabIndex === 0)).toBe(true)
-    buttons[1]!.click()
-    expect(calls).toEqual([["issues.setup", "requested/repo"]])
+    buttons[2]!.click()
+    buttons[0]!.click()
+    expect(calls).toEqual([["issues.setup", "requested/repo"], ["chat.open", undefined]])
   } finally { flushSync(() => root.unmount()) }
 })
 
 const tiles = (host: HTMLElement, group = "Repository jobs") => [...host.querySelectorAll<HTMLButtonElement>(`section[aria-label="${group}"] > button`)]
 const stepButtons = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("li > button")]
 
-test("the third step is the job tiles; registration completes it, pausing and reload keep them, and dismissal collapses the card to them", async () => {
+test("the last step is the job tiles; registration completes it, pausing and reload keep them, and dismissal collapses the card to them", async () => {
   const data = new Map<string, string>()
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
   let store = await createAppStore({ kind: "localStorage", storage })
@@ -163,23 +233,24 @@ test("the third step is the job tiles; registration completes it, pausing and re
   try {
     render()
     await new Promise(resolve => setTimeout(resolve, 20))
-    // Steps 1 and 2 are buttons; step 3 is its label over the five tiles, never a single button.
-    expect(stepButtons(host).map(button => button.dataset.flow)).toEqual(["auth.sign-in", "repos.import"])
-    expect(host.querySelectorAll("li")[2]?.firstChild?.textContent).toBe("Set up a job")
+    // Steps 1 to 3 are buttons; the last step is its label over the five tiles, never a single button.
+    expect(stepButtons(host).map(button => button.dataset.flow)).toEqual(["chat.open", "auth.sign-in", "repos.import"])
+    expect(host.querySelectorAll("li")[3]?.firstChild?.textContent).toBe("Set up a job")
     expect(tiles(host).map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
     flushSync(() => host.querySelector<HTMLButtonElement>('[data-flow="auth.sign-in"]')!.click())
     expect(calls).toEqual([["auth.sign-in", undefined]])
     store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector('[data-flow="auth.sign-in"]')).toBeNull()
-    expect(host.querySelector("header")?.textContent).toContain("1 of 3")
+    expect(host.querySelector("header")?.textContent).toContain("1 of 4")
+    store.dispatch({ type: "message.submitted", actor: "user", turnId: "first-turn", text: "What can you do?" })
     store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null }] })
     store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } })
     store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })
     store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: initialSetup("will/demo", "issues", "will") } })
     await new Promise(resolve => setTimeout(resolve, 20))
     // A draft card is not a registration.
-    expect(host.querySelector("header")?.textContent).toContain("2 of 3")
+    expect(host.querySelector("header")?.textContent).toContain("3 of 4")
     expect(tiles(host).map(button => button.dataset.done)).toEqual([undefined, undefined, undefined, undefined, undefined])
     const setup = initialSetup("will/demo", "issues", "will")
     const active = (enabled: boolean) => ({ revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled })
@@ -211,7 +282,9 @@ test("the third step is the job tiles; registration completes it, pausing and re
     expect(tiles(host)[0]?.textContent).toBe("Handle issues · Paused")
     store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null })
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(host.querySelector("header")?.textContent).toContain("1 of 3")
+    // Another account has not written to Smithers or registered a job: only its sign-in is done.
+    expect(host.querySelector("header")?.textContent).toContain("1 of 4")
+    expect(stepButtons(host)[0]?.dataset.flow).toBe("chat.open")
     flushSync(() => host.querySelector<HTMLButtonElement>('[data-flow="app.first-run.dismiss"]')!.click())
     await store.settled?.()
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -242,13 +315,14 @@ test("the third step is the job tiles; registration completes it, pausing and re
  * conversation offered only "Set up a job" and none of the five jobs — the
  * other four were reachable only through slash doors.
  */
-const registeredHome = async (calls: Array<[string, string | undefined]>, options: { readonly repositories?: boolean; readonly dismissed?: boolean } = {}) => {
+const registeredHome = async (calls: Array<[string, string | undefined]>, options: { readonly repositories?: boolean; readonly dismissed?: boolean; readonly talked?: boolean } = {}) => {
   const data = new Map<string, string>()
   const store = await createAppStore({ kind: "localStorage", storage: {
     getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) },
   } })
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   if (options.repositories !== false) store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null }] })
+  if (options.talked !== false) store.dispatch({ type: "message.submitted", actor: "user", turnId: "first-turn", text: "What can you do?" })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })
   const card = (job: "issues" | "review", enabled?: boolean) => {
@@ -286,17 +360,17 @@ test("with every step complete the five jobs are the only thing shown, each read
   } finally { await home.dispose() }
 })
 
-test("the third step checks off and keeps its tiles while the checklist names its remaining steps", async () => {
+test("the job step checks off and keeps its tiles while the checklist names its remaining steps", async () => {
   const home = await registeredHome([], { repositories: false })
   try {
-    expect(home.host.querySelector("header")?.textContent).toContain("2 of 3")
-    expect(home.host.querySelector("progress")?.getAttribute("value")).toBe("2")
+    expect(home.host.querySelector("header")?.textContent).toContain("3 of 4")
+    expect(home.host.querySelector("progress")?.getAttribute("value")).toBe("3")
     expect(home.host.querySelector('[data-flow="repos.import"]')).not.toBeNull()
-    const third = home.host.querySelectorAll("li")[2]!
-    expect(third.dataset.complete).toBe("true")
-    expect(third.firstChild?.textContent).toBe("✓")
+    const job = home.host.querySelectorAll("li")[3]!
+    expect(job.dataset.complete).toBe("true")
+    expect(job.firstChild?.textContent).toBe("✓")
     expect(home.jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
-    expect(home.jobs().every(button => third.contains(button))).toBe(true)
+    expect(home.jobs().every(button => job.contains(button))).toBe(true)
   } finally { await home.dispose() }
 })
 
@@ -309,7 +383,7 @@ test("the dismissal closes the steps but keeps every job one press away", async 
   } finally { await home.dispose() }
 })
 
-/* The tiles: which flows the third step offers, and how each one behaves. */
+/* The tiles: which flows the job step offers, and how each one behaves. */
 const firstRunCommands = [...FIRST_RUN_JOBS.map((name, index) => ({ name, summary: jobTitles[index]! })),
   { name: "wiki", summary: "Wiki" }, { name: "auth.sign-in", summary: "Sign in" },
   { name: "issues.list", summary: "List issues" }, { name: "admin.health", summary: "Diagnostics" },
@@ -334,7 +408,7 @@ test("missing or unavailable jobs are not invented; registry requirements still 
   expect(flowNames(firstRunGroups(flows, { ...commandState, signedOut: false, publicRepo: true }))).toEqual(["ci.setup", "feature.setup"])
 })
 
-test("without an available job tile the third step falls back to its own flow button", () => {
+test("without an available job tile the job step falls back to its own flow button", () => {
   const host = document.createElement("div")
   const root = createRoot(host)
   try {

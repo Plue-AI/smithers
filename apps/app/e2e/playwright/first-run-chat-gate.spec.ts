@@ -4,11 +4,11 @@ import { SCOPED_TEST_USER, identityRoute, skipSignup } from "./identity"
 
 /*
  * The first app screen on the cloud web app (Will, 2026-10-01; apps/app/AGENTS.md
- * First-run): two setup steps (the signup was the GitHub sign-in), the card at
- * the top of an empty transcript, and Chat's controls held until the first job
- * is registered, the card is dismissed or the person writes. Control+K opens
- * Chat throughout. Registration answers are explicit fixtures: these tests do
- * not claim a host registered a job.
+ * First-run): three setup steps, Talk to Smithers (⌘K) first (the signup was the
+ * GitHub sign-in), the card at the top of an empty transcript, and Chat's
+ * controls held until the first job is registered, the card is dismissed or the
+ * person writes. Control+K opens Chat throughout. Registration answers are
+ * explicit fixtures: these tests do not claim a host registered a job.
  */
 const repo = "smithersai/smithers"
 const login = SCOPED_TEST_USER.login
@@ -51,10 +51,11 @@ const arrive = async (page: Page) => {
 const chatButton = (page: Page) => page.getByRole("button", { name: "Chat", exact: true })
 const chatControls = (page: Page) => page.getByRole("contentinfo", { name: "Chat controls" })
 
-test("the first app screen lists two steps at the top and holds Chat until the first job registers", async ({ page }) => {
+test("the first app screen lists three steps at the top and holds Chat until the first job registers", async ({ page }) => {
   const { register } = await arrive(page)
   const checklist = page.getByTestId("setup-checklist")
-  await expect(checklist.locator(".setup-checklist-count")).toHaveText(/ of 2$/)
+  await expect(checklist.locator(".setup-checklist-count")).toHaveText(/ of 3$/)
+  await expect(checklist.locator("ol > li")).toHaveText([/^Talk to Smithers/, /Add a repository$/, /^Set up a job/])
   await expect(checklist.getByText("Connect GitHub", { exact: true })).toHaveCount(0)
   const transcript = page.getByTestId("transcript")
   await expect(transcript).toHaveAttribute("data-first-run", "true")
@@ -89,6 +90,27 @@ test("Control+K opens Chat while its controls are held, and a job's card restore
   await page.keyboard.press("Enter")
   await expect(page.getByTestId("setup-issues")).toBeVisible()
   await expect(page.getByTestId("transcript")).not.toHaveAttribute("data-first-run", "true")
+})
+
+test("Talk to Smithers opens Chat; the first message checks it off and brings Chat's controls", async ({ page }) => {
+  await arrive(page)
+  const checklist = page.getByTestId("setup-checklist")
+  const talk = checklist.getByRole("button", { name: "Talk to Smithers", exact: true })
+  await expect(talk.locator('kbd[aria-hidden="true"]')).toHaveText("⌘ K")
+  const count = checklist.locator(".setup-checklist-count")
+  await expect(count).toHaveText(/ of 3$/)
+  const before = Number((await count.textContent())!.split(" ")[0])
+  await expect(chatButton(page)).toHaveCount(0)
+  await talk.click()
+  const input = page.getByTestId("composer-input")
+  await expect(input).toBeFocused()
+  await input.fill("What can you do?")
+  await input.press("Enter")
+  await expect(page.locator('.smithers-chat-message[data-role="user"]', { hasText: "What can you do?" })).toBeVisible()
+  await expect(checklist.locator("ol > li").first()).toHaveAttribute("data-complete", "true")
+  await expect(talk).toHaveCount(0)
+  await expect(count).toHaveText(`${before + 1} of 3`)
+  await expect(chatControls(page)).toHaveAttribute("data-arriving", "true")
 })
 
 test("dismissing the card brings Chat; reduced motion brings it without the rise", async ({ page }) => {

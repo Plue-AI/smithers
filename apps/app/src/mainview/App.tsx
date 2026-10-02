@@ -3,7 +3,6 @@ import { nativeShell } from "@smthrs/rpc/AppBootstrap"
 import {
 Button,
 ChatMessage,
-EmptyState,
 MessageScrollerButton,
 MessageScrollerContent,
 MessageScrollerItem,
@@ -583,8 +582,6 @@ function AppContent() {
             {/* Always rendered: the landing page's tagline transition snapshots this headline on its first frame. */}
             {signingUp && <MessageScrollerItem messageId="signup" style={{ contentVisibility: "visible" }}><SignupCards /></MessageScrollerItem>}
             {firstRunShown && <MessageScrollerItem messageId="setup-checklist"><SetupChecklist commands={flows} /></MessageScrollerItem>}
-            {session.firstRunDismissed && entries.length === 0 && !homeCard && <EmptyState className="transcript-empty" icon={<Sparkles size={20} />}
-              title="Nothing here yet" description="Ask Smithers anything to get started." />}
             {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "subagents" ?
                 <SubagentBatch onRunCommand={controller.runCommand} items={entry.subagents.map(each => ({ id: each.id, color: each.color, subagent: each.subagent, ...agentDoors(each.card) }))} /> :

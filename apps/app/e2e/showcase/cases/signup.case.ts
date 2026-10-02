@@ -10,8 +10,11 @@ export default showcase({
   flows: ["auth.sign-in", "signup.account", "signup.repo", "signup.finish"],
   run: async ({ page, app, backend }) => {
     let signedIn = false
+    const repo = "adapark/hello-server"
     await backend.signedOut()
     await backend.route(url => url.pathname === "/api/user", route => identityRoute(signedIn ? "adapark" : null, "Ada Park")(route))
+    // The repository question lists the signed-in account's GitHub repositories.
+    await backend.json("/api/user/repos", () => ({ repos: signedIn ? [{ owner: "adapark", name: "hello-server", full_name: repo, owner_type: "User", default_bookmark: null }] : [] }))
     await backend.json("/api/billing/balance", { state: "ok", allowedToStartWork: true, balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 } })
     // The GitHub round trip: the redirect comes straight back signed in.
     await backend.route(url => url.pathname.startsWith("/api/auth/github"), route => {
@@ -33,8 +36,10 @@ export default showcase({
 
     const question = page.getByTestId("signup-question")
     await expect(question).toHaveAttribute("data-question", "repo")
+    const choice = question.getByRole("button", { name: repo, exact: true })
+    await expect(question.getByRole("button")).toHaveText([repo, "Skip"])
     await app.beat(900)
-    await app.click(page.getByTestId("signup-new-repo"))
+    await app.click(choice)
 
     await expect(page.getByTestId("signup-finish")).toBeVisible()
     await expect(signup).toContainText("smithers.sh/adapark")

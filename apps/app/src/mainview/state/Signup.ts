@@ -21,7 +21,7 @@ export const SignupSchema = z.object({
   /** Index into SIGNUP_QUESTIONS while the stage is `poll`; openSignupQuestion clamps an older row's. */
   question: z.number().int().nonnegative(),
   answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
-  /** `owner/repo`, `new`, or absent when skipped. */
+  /** `owner/repo`, or absent when skipped. A row saved before 2026-10-01 may hold `new`, which reads as skipped. */
   repo: z.string().optional(),
   /** Typed-but-unsubmitted field values, keyed by field name. */
   draft: z.record(z.string(), z.string())

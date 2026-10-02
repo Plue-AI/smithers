@@ -131,7 +131,7 @@ describe("the signup controller", () => {
     const { store, controller } = await boot()
     controller.signupChange({ stage: "account", draft: { name: "Ada Park" } })
     expect(await controller.signupNext()).toBe("No question is open.")
-    expect(await controller.signupRepo("new")).toBe("No question is open.")
+    expect(await controller.signupRepo("roninjin10/smithers")).toBe("No question is open.")
     expect(store.session().signup).toMatchObject({ stage: "account", answers: {} })
     expect(store.session().signup?.repo).toBeUndefined()
 
@@ -142,8 +142,8 @@ describe("the signup controller", () => {
 
     // A row left at a later index by the seven-question poll still answers.
     controller.signupChange({ stage: "poll", question: 6 })
-    expect(await controller.signupRepo("  new ")).toBeUndefined()
-    expect(store.session().signup).toMatchObject({ stage: "ready", repo: "new", answers: { repo: "new" } })
+    expect(await controller.signupRepo("  roninjin10/smithers ")).toBeUndefined()
+    expect(store.session().signup).toMatchObject({ stage: "ready", repo: "roninjin10/smithers", answers: { repo: "roninjin10/smithers" } })
     await controller.signupFinish()
     expect(store.session().signup?.stage).toBe("done")
     await store.dispose?.()
@@ -180,7 +180,8 @@ describe("the signup controller", () => {
     await store.dispose?.()
   })
 
-  test("new or unavailable signup repositories do not become targets", async () => {
+  // `new` is the retired new-repo answer a row saved before 2026-10-01 may still hold; it reads as skipped.
+  test("a legacy new answer or an unavailable signup repository does not become a target", async () => {
     for (const repo of ["new", "roninjin10/absent"]) {
       const { store, controller } = await boot()
       await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [

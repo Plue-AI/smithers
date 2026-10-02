@@ -10,12 +10,13 @@ import { cloudWebHost } from "../Onboarding"
 import type { RepositoryFlow, RepositoryJobObservation } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import "./SetupChecklist.css"
+import { GuideKey } from "../onboarding/GuideButton"
 
 /*
  * The start-page checklist: what part of setup is done, and the one flow that
  * advances each remaining step. Completion is derived from live state — a step
  * checks itself off when the world says it happened, never when its button was
- * clicked. The third step is the repository's job tiles; once every step is
+ * clicked. The last step is the repository's job tiles; once every step is
  * complete only the tiles remain, and the dismissal hides the whole card.
  */
 export interface SetupProgress {
@@ -25,6 +26,8 @@ export interface SetupProgress {
   readonly cloud?: boolean
   readonly hasRepo: boolean
   readonly hasSetup: boolean
+  /** The person has written to Smithers in this conversation. */
+  readonly talked?: boolean
 }
 
 interface SetupStep {
@@ -36,6 +39,8 @@ interface SetupStep {
 }
 
 export const SETUP_STEPS: ReadonlyArray<SetupStep> = [
+  /* Will, 2026-10-01: the checklist asks the person to open Chat (⌘K) and talk to Smithers. */
+  { id: "talk", label: "Talk to Smithers", flows: ["chat.open"], done: state => state.talked === true },
   { id: "connect-github", label: "Connect GitHub", flows: ["auth.sign-in"], done: state => state.signedIn },
   { id: "add-repository", label: "Add a repository", flows: ["repos.import"], done: state => state.hasRepo },
   { id: "set-up-job", label: "Set up a job", flows: ["issues.setup"], done: state => state.hasSetup },
@@ -120,7 +125,7 @@ export type FirstRunGroup = ReturnType<typeof firstRunGroups>[number]
 
 export function SetupChecklistCard({ steps, groups = [], repo, jobStates, completedJobs, dismissed = false, onRunCommand: dispatchFlow, onDismiss = () => {} }: {
   steps: ReadonlyArray<ResolvedStep>
-  /** The third step's tiles: the five repository jobs, then the repository's featured flows. */
+  /** The last step's tiles: the five repository jobs, then the repository's featured flows. */
   groups?: ReadonlyArray<FirstRunGroup>
   repo?: string
   jobStates?: Partial<Record<RepositoryJob, string>>
@@ -155,7 +160,7 @@ export function SetupChecklistCard({ steps, groups = [], repo, jobStates, comple
         {step.complete ? <><span aria-hidden="true">✓</span>{step.label}</> :
           step.id === "set-up-job" && tiles !== null ? step.label :
           step.flow !== undefined ?
-            <button type="button" {...dynamicFlowAction(onRunCommand, step.flow, step.args)}>{step.label}</button> :
+            <button type="button" {...dynamicFlowAction(onRunCommand, step.flow, step.args)}>{step.label}{step.id === "talk" ? <>{" "}<GuideKey shortcut="⌘K" /></> : null}</button> :
             step.label}
         {step.id === "set-up-job" ? tiles : null}
       </li>)}
@@ -176,6 +181,7 @@ export function useFirstRun(commands?: readonly CatalogItem[]) {
   const { data: identities } = useLiveQuery(collections.identitySessions)
   const { data: connectors } = useLiveQuery(collections.connectors)
   const { data: repositories } = useLiveQuery(collections.repositories)
+  const { data: messages } = useLiveQuery(collections.messages)
   const { data: cards } = useLiveQuery(collections.cards)
   const { data: observations } = useLiveQuery(q => q.from({ observation: collections.repositoryJobObservations }).select(({ observation }) => observation))
   useLiveQuery(collections.workingCopies)
@@ -198,6 +204,7 @@ export function useFirstRun(commands?: readonly CatalogItem[]) {
     cloud: cloudWebHost(controller.bootstrap),
     hasRepo: repositories.some(row => row.catalog !== true),
     hasSetup: completedJobs.size > 0,
+    talked: messages.some(message => message.role === "user"),
   }, repo)
   const featuredFlows = repo === undefined ? [] : repositoryCatalogs.find(row => row.id === repo)?.flows ?? []
   const groups = firstRunGroups(catalog, {
@@ -208,7 +215,7 @@ export function useFirstRun(commands?: readonly CatalogItem[]) {
   }, featuredFlows)
   return {
     steps, groups, repo, dismissed, completedJobs,
-    /** The third step offers at least one repository job tile. */
+    /** The last step offers at least one repository job tile. */
     jobTiles: groups.some(group => group.namespace === "repository"),
     /** No repository has no job to wait for; a repository's registrations are known once the host answers. */
     jobsKnown: repo === undefined || readable && repositoryJobsKnown(observations, repo, owner, selectedWorkspaceId),

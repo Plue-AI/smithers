@@ -65,10 +65,11 @@ test("a signed-out visitor walks the signup in the transcript and a reload resum
   await expect(question.getByRole("button", { name: "Back", exact: true })).toHaveCount(0)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/4-poll.png` })
 
-  // A reload resumes the same question.
+  // A reload resumes the same question. This account has no GitHub repository, so Skip is the only answer.
   await page.reload()
   await expect(page.getByTestId("signup-question")).toHaveAttribute("data-question", "repo")
-  await page.getByTestId("signup-new-repo").click()
+  await expect(page.getByTestId("signup-question").getByRole("button")).toHaveText(["Skip"])
+  await page.getByTestId("signup-skip").click()
 
   await expect(page.getByTestId("signup-finish")).toBeVisible()
   await expect(page.getByTestId("signup")).toContainText("smithers.sh/adapark")

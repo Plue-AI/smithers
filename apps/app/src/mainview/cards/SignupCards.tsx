@@ -97,7 +97,6 @@ function PollCard({ signup, repos, onRunCommand }: { signup: Signup; repos: Read
     <div className="signup-repos">
       {repos.map(repo => <button type="button" key={repo.id} className="signup-repo" {...flowAction(onRunCommand, "signup.repo", repo.id)}>
         <span className="signup-repo-name">{repo.id}</span></button>)}
-      <button type="button" className="signup-tile" data-testid="signup-new-repo" {...flowAction(onRunCommand, "signup.repo", "new")}>+ Try Smithers on a new repo</button>
     </div>
     <div className="signup-actions"><button type="button" className="signup-ghost" data-testid="signup-skip" {...flowAction(onRunCommand, "signup.next")}>Skip</button></div>
   </section>

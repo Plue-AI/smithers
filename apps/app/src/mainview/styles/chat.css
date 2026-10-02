@@ -284,10 +284,6 @@
 	text-align: left;
 }
 
-.app-shell .transcript-empty {
-	color: var(--text-muted);
-}
-
 .message-time {
 	float: right;
 	margin: 5px 0 -2px 10px;

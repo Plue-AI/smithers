@@ -1286,6 +1286,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         const chosen = session?.signup?.stage === "done" ? session.signup.repo : undefined
         if (!session || !chosen) return
         if (inventoryLoaded && collections.identitySessions.get("identity")?.state !== "signed-in") return
+        // `new` is the retired "new repo" answer in rows saved before 2026-10-01; it reads as skipped.
         const known = chosen !== "new" && collections.repositories.has(chosen)
         // An empty or stale inventory may precede a later repository upsert.
         // Leave the choice pending until it is known, or the user chooses
