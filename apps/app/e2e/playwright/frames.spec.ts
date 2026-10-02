@@ -66,7 +66,7 @@ test("clear archives locally and its recovery link restores the conversation aft
   expect(summaryRequests).toBe(0)
 })
 
-test("frame URLs survive reload, traverse history, preserve the card node, and fork", async ({ page }) => {
+test("frame URLs survive reload, traverse history, and preserve the card node", async ({ page }) => {
   await page.goto("/")
   await openWorkspaceChat(page)
   await sendSlash(page, "/appearance.theme")
@@ -102,16 +102,8 @@ test("frame URLs survive reload, traverse history, preserve the card node, and f
   await expect(page).toHaveURL(maximizedUrl)
   await expect(card).toHaveAttribute("data-maximized", "true")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-
-  await page.getByTestId("frame-fork").click()
-  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname))
-    .toMatch(/^\/w\/workspace-main\/b\/branch-[^/]+\/f\/frame-card:branch-[^:]+:/)
-  await expect(page).not.toHaveURL(maximizedUrl)
-  await expect(card).toHaveAttribute("data-maximized", "true")
-
-  await page.goBack()
-  await expect(page).toHaveURL(maximizedUrl)
-  await expect(card).toHaveAttribute("data-maximized", "true")
+  // Frame fork left with the client time-travel controls in the MVP cut (#3385).
+  await expect(page.getByTestId("frame-fork")).toHaveCount(0)
 })
 
 test("open-in-tab returns the address bar to the root frame and Escape minimizes a pointer-maximized card", async ({ page }) => {

@@ -56,7 +56,7 @@ const issueDto = (number: number, extra: Record<string, unknown>) => ({
 const commentDto = (id: number, body: string, extra: Record<string, unknown>) =>
   ({ id, issue_id: 700, user_id: 1, commenter: "codeplanesmithers", body, type: "issue_comment", created_at: at, updated_at: at, ...extra })
 
-test("the issue list narrows to conversations, and a conversation reads its messages, personas, reactions and Slack mapping off the contract", async ({ page }) => {
+test("the issue list narrows to conversations, and a conversation reads its messages, personas and reactions off the contract", async ({ page }) => {
   const chat = issueDto(7, { idempotency_key: "thread-request", kind: "chat", visibility: "private", title: "Wiki staleness banner", comment_count: 3, updated_at: "2026-09-27T08:40:00Z" })
   const comments = [
     commentDto(31, "The owner asked for the staleness banner fix. Taking it.", { idempotency_key: "assistant:1", persona: { username: "assistant" }, created_at: "2026-09-27T08:12:00Z" }),
@@ -74,9 +74,6 @@ test("the issue list narrows to conversations, and a conversation reads its mess
   await page.route((url) => url.pathname === `/api/user/github-repos/${repo}/issues`, (route) => route.fulfill(json([])))
   await page.route((url) => url.pathname === `/api/repos/${repo}/issues/7`, (route) => route.fulfill(json(chat)))
   await page.route((url) => url.pathname === `/api/repos/${repo}/issues/7/comments`, (route) => route.fulfill(json(comments)))
-  await page.route((url) => url.pathname === `/api/repos/${repo}/issues/7/sync`, (route) => route.fulfill(json({
-    provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", thread_id: "1700000000.000100", external_user_id: "", state: "synced", error: ""
-  })))
   await page.route((url) => /\/issues\/7\/comments\/\d+\/reactions$/.test(url.pathname), (route) => {
     const id = Number(/comments\/(\d+)\/reactions$/.exec(new URL(route.request().url()).pathname)![1])
     return route.fulfill(json(reactions[id] ?? []))
@@ -101,68 +98,15 @@ test("the issue list narrows to conversations, and a conversation reads its mess
   await expect(thread).toBeVisible()
   const card = page.locator('[data-testid^="card-"]').filter({ has: page.getByTestId("conversation-7") }).last()
   await expect(thread).toHaveAttribute("data-kind", "conversation")
-  // Personas post under their names; an external commenter is the author the mirror recorded; reactions count; the Slack thread is a door.
+  // Personas post under their names; an external commenter is the author the mirror recorded; reactions count.
   await expect(thread.locator(".thread-message")).toHaveCount(4)
   await expect(thread.locator(".agent-mark-name").filter({ hasText: "engineering" }).first()).toBeVisible()
   await expect(thread.locator(".agent-mark-name").filter({ hasText: "U0HUMAN" })).toBeVisible()
   await expect(thread.getByText("eyes 1")).toBeVisible()
-  await expect(thread.locator(".thread-slack-link")).toHaveAttribute("href", "https://app.slack.com/client/T0123/C0123/thread/C0123-1700000000.000100")
+  // Non-GitHub integrations left with the MVP cut (#3385, #3389): a conversation names no Slack thread.
+  await expect(thread.locator(".thread-slack-link")).toHaveCount(0)
   await expect(thread.getByRole("alert")).toHaveCount(0)
   await capture(page, card, "app-conversation")
-})
-
-test("the Connect card reads the admitted Slack channels from the registered route and lists no retired or absent service", async ({ page }) => {
-  await boot(page)
-  await page.route((url) => url.pathname === `/api/repos/${repo}/issues/sync/channels`, (route) => route.fulfill(json([
-    { provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", thread_id: "", external_user_id: "" },
-    { provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0456", thread_id: "", external_user_id: "" },
-    { provider: "telegram", connection_id: "bot", scope_id: "1", conversation_id: "-100", thread_id: "", external_user_id: "" }
-  ])))
-  const linearReads: string[] = []
-  await page.route((url) => url.pathname.includes("linear"), (route) => { linearReads.push(route.request().url()); return route.fulfill(json([])) })
-  await slash(page, `/integrations.list ${repo}`)
-  const card = page.locator('[data-kind="connect"]').last()
-  await expect(card.locator('[data-integration="slack"]')).toHaveAttribute("data-state", "connected")
-  await expect(card.locator('[data-integration="slack"]')).toContainText("C0123, C0456")
-  await expect(card.locator("[data-integration]")).toHaveCount(1)
-  expect(linearReads).toEqual([])
-  await expect(card).not.toContainText("Coming soon")
-  await capture(page, card, "app-connect")
-})
-
-test("admit a Slack channel", async ({ page }) => {
-  await boot(page)
-  let admitted: Array<Record<string, unknown>> = []
-  const puts: unknown[] = []
-  let refuse = true
-  await page.route((url) => url.pathname === `/api/repos/${repo}/issues/sync/channels`, async (route) => {
-    if (route.request().method() === "PUT") {
-      puts.push(route.request().postDataJSON())
-      if (refuse) return route.fulfill(json({ error: { message: "sync conversation already configured for another repository" } }, 409))
-      admitted = [{ provider: "slack", ...(route.request().postDataJSON() as Record<string, unknown>) }]
-      return route.fulfill(json({}))
-    }
-    return route.fulfill(json(admitted))
-  })
-  await slash(page, `/integrations.list ${repo}`)
-  const card = page.locator('[data-kind="connect"]').last()
-  const slack = card.locator('[data-integration="slack"]')
-  await expect(slack).toHaveAttribute("data-state", "not-connected")
-  await slack.getByRole("button", { name: "Connect", exact: true }).click()
-  await page.getByLabel("Connection", { exact: true }).fill("slack-main")
-  await page.getByLabel("Workspace", { exact: true }).fill("T0123")
-  await page.getByLabel("Channel", { exact: true }).fill("C0123")
-  await page.getByRole("button", { name: "Connect", exact: true }).last().click()
-  await expect.poll(() => puts.length).toBe(1)
-  expect(puts[0]).toEqual({ provider: "slack", connection_id: "slack-main", scope_id: "T0123", conversation_id: "C0123", external_user_id: "" })
-  // A refused write renders no connection.
-  await expect(slack).toHaveAttribute("data-state", "not-connected")
-  // The retry succeeds and the card connects without a reload.
-  refuse = false
-  await slash(page, `/integrations.admit slack-main T0123 C0123 ${repo}`)
-  await expect(slack).toHaveAttribute("data-state", "connected")
-  await expect(slack).toContainText("C0123")
-  expect(puts).toHaveLength(2)
 })
 
 test("a run's Steps view leads with its recorded triggers: the schedule that fired it and each approval decision with who made it", async ({ page }) => {
