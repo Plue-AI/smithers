@@ -15,8 +15,9 @@ import type { Card } from "@smthrs/rpc/Cards"
 import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
-import { json, loadBox, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, scriptedToolAgent, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
+import { SIGNUP_PROFILE_PATH } from "./Signup"
 
 const createAppController = scopedControllers()
 
@@ -166,30 +167,32 @@ const relay = (options: {
     }
   }
 
+  // The sign-in's signup-profile read answers as the backend does for a new account; every other request is recorded.
+  const profile = signupProfileFetch(async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    const absolute = new URL(url, "https://app.test")
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    // The repository-flows seam reads .smithers/factory.json in the background whenever the target repository changes (the slash leaves); it is not this test's request.
+    if (absolute.pathname.endsWith("/contents/.smithers/factory.json")) return json(404, { status: "error", message: "no projection" })
+    // The same seam reads the repository homepage beside it.
+    if (/^\/api\/repos\/[^/]+\/[^/]+\/home$/.test(absolute.pathname)) return json(404, { status: "error", message: "no homepage" })
+    calls.push({ path: absolute.pathname + absolute.search, method: init?.method ?? "GET", body })
+    if (absolute.pathname === "/api/workflow/provision") {
+      if (options.provisionDelayMs !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, options.provisionDelayMs))
+      }
+      return json(200, options.provision?.() ?? { status: "ready", repo: REPO, gatewayId: "gw-1" })
+    }
+    if (absolute.pathname === "/api/workflow/rpc") {
+      return procedure(String(body.procedure), (body.payload ?? {}) as Record<string, unknown>)
+    }
+    return json(404, { status: "error", message: `no stub for ${absolute.pathname}` })
+  })
   const services: AppServices = {
     workflowPollMs: 1,
     toastDebounceMs: 0,
     toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-      const absolute = new URL(url, "https://app.test")
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
-      // The repository-flows seam reads .smithers/factory.json in the background whenever the target repository changes (the slash leaves); it is not this test's request.
-      if (absolute.pathname.endsWith("/contents/.smithers/factory.json")) return json(404, { status: "error", message: "no projection" })
-      // The same seam reads the repository homepage beside it.
-      if (/^\/api\/repos\/[^/]+\/[^/]+\/home$/.test(absolute.pathname)) return json(404, { status: "error", message: "no homepage" })
-      calls.push({ path: absolute.pathname + absolute.search, method: init?.method ?? "GET", body })
-      if (absolute.pathname === "/api/workflow/provision") {
-        if (options.provisionDelayMs !== undefined) {
-          await new Promise((resolve) => setTimeout(resolve, options.provisionDelayMs))
-        }
-        return json(200, options.provision?.() ?? { status: "ready", repo: REPO, gatewayId: "gw-1" })
-      }
-      if (absolute.pathname === "/api/workflow/rpc") {
-        return procedure(String(body.procedure), (body.payload ?? {}) as Record<string, unknown>)
-      }
-      return json(404, { status: "error", message: `no stub for ${absolute.pathname}` })
-    }
+    fetchImpl: profile.fetchImpl
   }
 
   const gate = (requestId: string): Record<string, unknown> => ({
@@ -215,6 +218,7 @@ const relay = (options: {
   return {
     services,
     calls,
+    profileReads: profile.reads,
     state,
     /** The run did some work: the summary's counters move. */
     advance: (turns: number, callCount: number, failed = 0) => {
@@ -318,6 +322,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
     // The gateway was provisioned BEFORE anything was launched, and the
     // launch is the stock create-flow with the description as its input.
     const order = double.calls.filter(call => !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state")).map((call) => call.path)
+    expect(double.profileReads).toEqual([SIGNUP_PROFILE_PATH])
     expect(order[0]).toBe("/api/workflow/provision")
     expect(double.state.launched).toEqual([
       { workflow: "create-flow", input: { args: "a workflow that summarizes my open issues" } }

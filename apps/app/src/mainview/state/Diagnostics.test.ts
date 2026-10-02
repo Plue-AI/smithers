@@ -5,7 +5,8 @@ import type { AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { parseDiagnosticQuery, readDiagnostics } from "./Diagnostics"
 import { SMITHERS_INSTRUCTIONS } from "./Instructions"
-import { memoryStorage, silentAgent } from "./TestFixtures"
+import { SIGNUP_PROFILE_PATH } from "./Signup"
+import { memoryStorage, settled, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 
 // Pure read/query tests below are independent of these controlled controller boundaries.
 // Map storage, silent AgentPort and explicit HTTP doubles do not qualify real backend integration.
@@ -160,13 +161,13 @@ describe("app diagnostics without a repository", () => {
     const late = Promise.withResolvers<Response>()
     const entered = Promise.withResolvers<void>()
     releaseRequests.push(() => late.resolve(new Response("", { status: 500 })))
-    const controller = createAppController(store, silentAgent, {
-      fetchImpl: async input => {
-        if (!String(input).includes("late")) return new Response("", { status: 500 })
-        entered.resolve()
-        return late.promise
-      }
+    // Each sign-in's signup-profile read answers as the backend does; only the probes below fail.
+    const profile = signupProfileFetch(async input => {
+      if (!String(input).includes("late")) return new Response("", { status: 500 })
+      entered.resolve()
+      return late.promise
     })
+    const controller = createAppController(store, silentAgent, { fetchImpl: profile.fetchImpl })
     await toast(store, "Alice's failure")
     await controller.tappedFetch("/alice/private")
     const pending = controller.tappedFetch("/alice/late")
@@ -176,6 +177,10 @@ describe("app diagnostics without a repository", () => {
     await identity("bob")
     late.resolve(new Response("", { status: 500 }))
     await pending
+    // Bob's sign-in reads his signup profile once; Alice signed in before this controller existed.
+    await waitFor(() => profile.reads.length === 1)
+    await settled()
+    expect(profile.reads).toEqual([SIGNUP_PROFILE_PATH])
     const result = await read(controller)
     expect(JSON.stringify(result)).not.toContain("alice")
     expect(JSON.stringify(result)).not.toContain("Alice")

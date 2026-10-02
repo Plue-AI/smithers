@@ -6,6 +6,8 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { SIGNUP_PROFILE_PATH } from "../Signup"
+import { signupProfileFetch, waitFor } from "../TestFixtures"
 
 /*
  * The notifications seam, driven through the command registry: /notifications.list
@@ -42,12 +44,19 @@ interface RecordedRequest {
   readonly method: string
 }
 
-/** Routes by pathname; everything unstubbed answers 404 (the dead-backend stance). */
+/** Each double's signup-profile reads, kept apart from the notifications traffic it records. */
+const signupReads = new WeakMap<AppServices, string[]>()
+
+/**
+ * Routes by pathname; everything unstubbed answers 404 (the dead-backend
+ * stance). The sign-in's signup-profile read is answered as the backend
+ * answers an account with none saved, and counted in `signupReads`.
+ */
 const backend = (
   routes: Record<string, Response | ((request: Request) => Response | Promise<Response>)>,
   recorded: RecordedRequest[] = []
-): AppServices => ({
-  fetchImpl: async (input, init) => {
+): AppServices => {
+  const profile = signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
     const path = absolute.pathname + absolute.search
@@ -60,15 +69,26 @@ const backend = (
       }
     }
     return json(404, { status: "error", message: `no stub for ${path}` })
-  }
-})
+  })
+  const services: AppServices = { fetchImpl: profile.fetchImpl }
+  signupReads.set(services, profile.reads)
+  return services
+}
 
 const freshController = async (services: AppServices) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   return {
     store,
-    controller: createAppController(store, unavailableAgent, services)
+    controller: createAppController(store, unavailableAgent, services),
+    signupReads: signupReads.get(services) ?? []
   }
+}
+
+/** The one signup-profile read a sign-in makes, settled before the act under test. */
+const signupRead = async (reads: readonly string[]): Promise<void> => {
+  await waitFor(() => reads.length === 1)
+  await settled()
+  expect(reads).toEqual([SIGNUP_PROFILE_PATH])
 }
 
 const signedIn = async (store: AppStore): Promise<void> => {
@@ -531,8 +551,9 @@ describe("malformed notification lists", () => {
 
 test("one unreadable row is an exact failure rather than a successful empty inbox", async () => {
   const recorded: RecordedRequest[] = []
-  const { store, controller } = await freshController(backend({ "/api/notifications/list": json(200, [{ id: "missing-subject" }]) }, recorded))
+  const { store, controller, signupReads } = await freshController(backend({ "/api/notifications/list": json(200, [{ id: "missing-subject" }]) }, recorded))
   await signedIn(store)
+  await signupRead(signupReads)
   expect(await controller.commands.run("notifications.list")).toEqual({ status: "failed", error: "Your notifications came back in a shape Smithers couldn't read (1 row)." })
   expect(store.collections.cards.get("notifications")?.body).toBe("Your notifications came back in a shape Smithers couldn't read (1 row).")
   expect(notificationsCard(store)).toBeUndefined()
@@ -543,7 +564,7 @@ for (const status of [200, 205]) {
   test.each(["http", "network"])(`mark-read ${status} waits for its actual refresh and reports %s failure`, async failure => {
     let reads = 0
     const recorded: RecordedRequest[] = []
-    const { store, controller } = await freshController(backend({
+    const { store, controller, signupReads } = await freshController(backend({
       "/api/notifications/list": () => {
         if (++reads === 1) return json(200, wireInbox)
         if (failure === "network") throw new TypeError("private transport detail")
@@ -552,6 +573,7 @@ for (const status of [200, 205]) {
       "/api/notifications/mark-read": () => new Response(null, { status })
     }, recorded))
     await signedIn(store)
+    await signupRead(signupReads)
     await controller.commands.run("notifications.list")
     const original = structuredClone(notificationsCard(store)?.payload)
     const message = failure === "http" ? "Your notifications couldn't be loaded right now. Something on Smithers' side failed. Not your fault, and nothing your request could have changed." : "Your notifications couldn't be loaded — the platform didn't answer."
@@ -581,8 +603,9 @@ for (const row of repositoryWireCases) test(`notification wire ${row.label}`, as
   const recorded: RecordedRequest[] = []
   const wire = { id: 7, subject: "An owning repository", status: "unread", ...row.wire }
   const before = structuredClone(wire)
-  const { store, controller } = await freshController(backend({ "/api/notifications/list": json(200, [wire]) }, recorded))
+  const { store, controller, signupReads } = await freshController(backend({ "/api/notifications/list": json(200, [wire]) }, recorded))
   await signedIn(store)
+  await signupRead(signupReads)
   expect((await controller.commands.run("notifications.list")).status).toBe("executed")
   expect(notificationsCard(store)?.payload).toEqual({
     items: [{ id: "7", title: "An owning repository", repo: row.expected, reason: null, createdAt: null, read: false }], unread: 1

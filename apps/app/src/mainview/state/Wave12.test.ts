@@ -18,7 +18,8 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { claimsRunState, renderedRunTurnText, runLaunchCommandOf, toolResultLaunchedRun } from "./RunClaims"
-import { json, loadBox, memoryStorage, scriptedToolAgent, settle, silentAgent, waitFor } from "./TestFixtures"
+import { SIGNUP_PROFILE_PATH } from "./Signup"
+import { json, loadBox, memoryStorage, scriptedToolAgent, settle, signupProfileFetch, silentAgent, waitFor } from "./TestFixtures"
 import { GATEWAY_REFUSED } from "./controller/GatewayFailureCopy"
 
 const createAppController = scopedControllers()
@@ -127,28 +128,31 @@ const relay = (options: {
     }
   }
 
+  // The sign-in's signup-profile read answers as the backend does for a new account; every other request is recorded.
+  const profile = signupProfileFetch(async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    const absolute = new URL(url, "https://app.test")
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    calls.push({ path: absolute.pathname + absolute.search, method: init?.method ?? "GET", body })
+    if (absolute.pathname === "/api/workflow/provision") {
+      return json(options.provisionStatus ?? 200, options.provision?.() ?? { status: "ready", repo: body?.repo, gatewayId: "gw-1" })
+    }
+    if (absolute.pathname === "/api/workflow/rpc") {
+      return procedure(String(body.repo), String(body.procedure), (body.payload ?? {}) as Record<string, unknown>)
+    }
+    return json(404, { status: "error", message: `no stub for ${absolute.pathname}` })
+  })
   const services: AppServices = {
     workflowPollMs: 1,
     toastDebounceMs: 0,
     toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-      const absolute = new URL(url, "https://app.test")
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
-      calls.push({ path: absolute.pathname + absolute.search, method: init?.method ?? "GET", body })
-      if (absolute.pathname === "/api/workflow/provision") {
-        return json(options.provisionStatus ?? 200, options.provision?.() ?? { status: "ready", repo: body?.repo, gatewayId: "gw-1" })
-      }
-      if (absolute.pathname === "/api/workflow/rpc") {
-        return procedure(String(body.repo), String(body.procedure), (body.payload ?? {}) as Record<string, unknown>)
-      }
-      return json(404, { status: "error", message: `no stub for ${absolute.pathname}` })
-    }
+    fetchImpl: profile.fetchImpl
   }
 
   return {
     services,
     calls,
+    profileReads: profile.reads,
     state,
     /** The run did some work: the summary's counters move. */
     advance: (turns: number, callCount: number) => {
@@ -573,6 +577,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
       arguments: JSON.stringify({ action: "execute", name: "flow.run.stop", args: "flow-run-run-1" })
     })
     expect(asked).toContain("confirm")
+    expect(double.profileReads).toEqual([SIGNUP_PROFILE_PATH])
     expect(double.calls.some((call) => JSON.stringify(call.body).includes("\"Cancel\""))).toBe(false)
     // The question is still open and nothing was provisioned on the model's say-so.
     const card = store.collections.cards.get("workflow-repo")

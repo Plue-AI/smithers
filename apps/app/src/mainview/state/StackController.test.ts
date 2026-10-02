@@ -6,7 +6,7 @@ import type { AppStore } from "./AppStore"
 import { APP_SCHEMA_VERSION } from "../chain/SchemaVersion"
 import { openSqliteRowStorage } from "../chain/SqliteRowStorage"
 import { scopedControllers } from "./ControllerTestScope"
-import { memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
+import { memoryStorage, signupProfileFetch, unavailableAgent, waitFor } from "./TestFixtures"
 
 /*
  * The Stack card through the controller (#1745, #1760): the snapshot read and
@@ -54,8 +54,11 @@ const cloud = () => {
     }
     return Response.json([])
   }
+  // The sign-in's signup-profile read answers as the backend does for a new account.
+  const profile = signupProfileFetch(fetchImpl)
   return {
-    fetchImpl,
+    fetchImpl: profile.fetchImpl,
+    profileReads: profile.reads,
     writes,
     handlers,
     reads: () => reads,
@@ -611,6 +614,7 @@ test("an unexpected TODO follow failure keeps its diagnostic out of the notice",
     clientErrors: { report: (_kind, error) => reports.push(String(error)), reported: () => reports.length }
   })
   await signIn(store)
+  await waitFor(() => fake.profileReads.length === 1)
   fake.set(snapshot(1, []))
   fake.handlers.set(`POST ${BASE}/todos`, async () => {
     failTodoWrite = true

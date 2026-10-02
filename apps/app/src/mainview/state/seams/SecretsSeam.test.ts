@@ -6,6 +6,8 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { SIGNUP_PROFILE_PATH } from "../Signup"
+import { signupProfileFetch, waitFor } from "../TestFixtures"
 
 /*
  * The secrets seam (SecretsSeam.ts) through the real command path:
@@ -365,17 +367,23 @@ const discoveryRoutes = new Set([
   "/api/repos/will/flows/contents/.smithers/factory.json", "/api/repos/will/flows/home",
   ...["issues", "review", "ci", "feature", "chores"].map(job => `/api/repository-setup/state?repo=will%2Fflows&job=${job}`)
 ])
+// A sign-in reads the saved signup profile; the backend answers an account with none saved.
 const heldController = async (services: AppServices) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const routed: AppServices = {
-    ...services,
-    fetchImpl: (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
-      if (discoveryRoutes.has(url)) return Promise.resolve(json(404, {}))
-      return track(Promise.resolve(services.fetchImpl!(input, init)))
-    }
-  }
-  return { store, controller: createAppController(store, unavailableAgent, routed) }
+  const profile = signupProfileFetch((input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    if (discoveryRoutes.has(url)) return Promise.resolve(json(404, {}))
+    return track(Promise.resolve(services.fetchImpl!(input, init)))
+  })
+  const routed: AppServices = { ...services, fetchImpl: profile.fetchImpl }
+  return { store, controller: createAppController(store, unavailableAgent, routed), signupReads: profile.reads }
+}
+/** Sign in and choose the repository, then let the sign-in's one signup-profile read settle. */
+const heldReady = async (store: AppStore, signupReads: readonly string[]): Promise<void> => {
+  await ready(store)
+  await waitFor(() => signupReads.length === 1)
+  await checkpoint()
+  expect(signupReads).toEqual([SIGNUP_PROFILE_PATH])
 }
 
 const metadataAnswer = (name = "CURRENT_SECRET") => [{ name, main_only: false, hosts: [], match_headers: [], updated_at: null, value: "PRIVATE_BYTES" }]
@@ -385,10 +393,10 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
     const reply = heldResponse()
     const entered = Promise.withResolvers<void>()
     const hits: string[] = []
-    const { store, controller } = await heldController({ fetchImpl: async input => {
+    const { store, controller, signupReads } = await heldController({ fetchImpl: async input => {
       hits.push(String(input)); entered.resolve(); return reply.promise
     } })
-    await ready(store)
+    await heldReady(store, signupReads)
     const reading = track(controller.commands.run("secrets.list"))
     await bounded(entered.promise)
     controller.changeDraft("Keep my current chat")
@@ -401,6 +409,9 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
     await bounded(Promise.allSettled([...pending]))
     await checkpoint()
     expect(hits).toEqual(["/api/repos/will/flows/secrets"])
+    // The second account restores its own signup profile; a sign-out or disposal reads nothing more.
+    if (retirement === "account") await bounded(waitFor(() => signupReads.length === 2))
+    expect(signupReads).toEqual(retirement === "account" ? [SIGNUP_PROFILE_PATH, SIGNUP_PROFILE_PATH] : [SIGNUP_PROFILE_PATH])
     expect(secretsCard(store)).toBeUndefined()
     expect(outcome).toEqual(retirement === "dispose"
       ? { status: "failed", error: "The command's outcome could not be saved. Check its result before trying again.", persistenceFailed: true }
@@ -418,8 +429,8 @@ test("duplicate user and agent reads join the held request and publish one metad
   const reply = heldResponse()
   const entered = Promise.withResolvers<void>()
   let reads = 0
-  const { store, controller } = await heldController({ fetchImpl: async () => { reads++; entered.resolve(); return reply.promise } })
-  await ready(store)
+  const { store, controller, signupReads } = await heldController({ fetchImpl: async () => { reads++; entered.resolve(); return reply.promise } })
+  await heldReady(store, signupReads)
   const first = track(controller.commands.run("secrets.list"))
   await bounded(entered.promise)
   const duplicate = track(controller.commands.runForAgent("secrets.list"))
@@ -441,8 +452,8 @@ test("duplicate user and agent reads join the held request and publish one metad
 
 test("a refused read can retry immediately without caching the failed answer", async () => {
   let reads = 0
-  const { store, controller } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
-  await ready(store)
+  const { store, controller, signupReads } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
+  await heldReady(store, signupReads)
   expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The secrets for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
   expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
   expect(reads).toBe(2)
@@ -457,8 +468,8 @@ test("optional secret bindings survive without leaking unexpected credential fie
     { name: "REFUSED", reconnect_required: true },
     { name: "BOUND", main_only: true, hosts: ["api.example.test"], match_headers: ["authorization"], updated_at: "2026-09-28T00:00:00Z", token: "PRIVATE_BYTES" }
   ]
-  const { store, controller } = await heldController({ fetchImpl: async () => json(200, wire) })
-  await ready(store)
+  const { store, controller, signupReads } = await heldController({ fetchImpl: async () => json(200, wire) })
+  await heldReady(store, signupReads)
   const outcome = await controller.commands.runForAgent("secrets.list")
   expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · every run · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · every run · hosts: none · headers: none · updated: unknown\nREFUSED · every run · hosts: none · headers: none · updated: unknown\nBOUND · main only · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
   expect(secretsCard(store)?.payload.secrets).toEqual([
@@ -473,8 +484,8 @@ test("optional secret bindings survive without leaking unexpected credential fie
 test("a same-owner held network rejection remains an exact visible failure", async () => {
   const reply = heldResponse()
   const entered = Promise.withResolvers<void>()
-  const { store, controller } = await heldController({ fetchImpl: async () => { entered.resolve(); return reply.promise } })
-  await ready(store)
+  const { store, controller, signupReads } = await heldController({ fetchImpl: async () => { entered.resolve(); return reply.promise } })
+  await heldReady(store, signupReads)
   const reading = track(controller.commands.run("secrets.list"))
   await bounded(entered.promise)
   reply.reject(new Error("provider transport failed"))

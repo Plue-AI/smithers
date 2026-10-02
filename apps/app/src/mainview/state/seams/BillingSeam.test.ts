@@ -7,6 +7,8 @@ import { createAppController } from "../AppController"
 import type { AppController, AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { SIGNUP_PROFILE_PATH } from "../Signup"
+import { signupProfileFetch, waitFor } from "../TestFixtures"
 import { createBillingSeam } from "./BillingSeam"
 import type { BillingSeam } from "./BillingSeam"
 import type { SeamContext } from "./SeamContext"
@@ -135,12 +137,16 @@ interface BillingCall {
   readonly body: string
 }
 
-/** Only declared billing routes are admitted; swallowed unexpected HTTP still fails teardown. */
+/**
+ * Only declared billing routes are admitted; swallowed unexpected HTTP still
+ * fails teardown. The one other request is the sign-in's signup-profile read,
+ * answered as the backend answers an account with none saved.
+ */
 const billingBackend = (
   routes: Partial<Record<"/api/billing/checkout" | "/api/billing/portal", () => Response>>,
   calls: BillingCall[] = []
-): AppServices => ({
-  fetchImpl: async (input, init) => {
+): { readonly services: AppServices; readonly signupReads: string[] } => {
+  const profile = signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const route = url === "/api/billing/checkout" ? routes["/api/billing/checkout"] : url === "/api/billing/portal" ? routes["/api/billing/portal"] : undefined
     if (route === undefined || (init?.method ?? "GET") !== "POST") {
@@ -149,10 +155,11 @@ const billingBackend = (
     }
     calls.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : "" })
     return track(Promise.resolve().then(() => trackResponse(route())))
-  }
-})
+  })
+  return { services: { fetchImpl: (input, init) => track(profile.fetchImpl(input, init).then(trackResponse)) }, signupReads: profile.reads }
+}
 
-const freshController = async (services: AppServices) => {
+const freshController = async ({ services, signupReads }: ReturnType<typeof billingBackend>) => {
   billingWindow()
   const store = await createOwnedStore({ kind: "localStorage", storage: memoryStorage() })
   const lifetime = new AbortController()
@@ -170,7 +177,10 @@ const freshController = async (services: AppServices) => {
     admin: true,
     scopesPlain: null
   }).isPersisted.promise)
+  // The sign-in reads the saved signup profile once; nothing billing-shaped happens before the command.
+  await waitFor(() => signupReads.length === 1)
   await drain()
+  expect(signupReads).toEqual([SIGNUP_PROFILE_PATH])
   return { store, controller }
 }
 

@@ -22,7 +22,7 @@ import { executeAgentToolCall } from "./agentTools"
 import { visibleItems } from "./Commands"
 import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
-import { loadBox } from "../state/TestFixtures"
+import { loadBox, signupProfileFetch } from "../state/TestFixtures"
 import { firstRunGroups, FIRST_RUN_JOBS } from "../cards/SetupChecklist"
 
 setDefaultTimeout(30_000)
@@ -53,15 +53,16 @@ interface Seen {
   readonly body: unknown
 }
 
+/** The sign-in's signup-profile read answers as the backend does for a new account; every other request is seen. */
 const backend = (routes: Record<string, Response>, seen: Array<Seen> = []): AppServices => ({
-  fetchImpl: async (input, init) => {
+  fetchImpl: signupProfileFetch(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
     const path = absolute.pathname + absolute.search
     seen.push({ path, method: init?.method ?? "GET", body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined })
     const answer = routes[path]
     return answer === undefined ? json(404, { status: "error", message: `no stub for ${path}` }) : answer.clone()
-  }
+  }).fetchImpl
 })
 
 const settled = async (ticks = 3): Promise<void> => {

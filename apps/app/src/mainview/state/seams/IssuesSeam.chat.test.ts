@@ -5,6 +5,7 @@ import { scopedControllers } from "../ControllerTestScope"
 import type { AppServices } from "../AppController"
 import { createAppStore as openAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { signupProfileFetch } from "../TestFixtures"
 
 /*
  * Threads and tasks through the issues seam (smithers-ui-DESIGN.md §3.1,
@@ -151,8 +152,10 @@ const absentRoutes = new Set([
   "GET /api/repos/will/flows/issues/8/comments/41/reactions",
   "GET /api/repos/will/flows/issues/8/comments/42/reactions"
 ])
-const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: string; body?: unknown }> = []): AppServices => ({
-  fetchImpl: (input, init) => observe((async () => {
+// The sign-in's signup-profile read is answered as the backend answers an
+// account with none saved; every other request is planned or reported.
+const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: string; body?: unknown }> = []): AppServices => {
+  const profile = signupProfileFetch((input, init) => observe((async () => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
     const method = (init?.method ?? "GET").toUpperCase()
@@ -165,8 +168,10 @@ const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: strin
     }
     if (!absentRoutes.has(`${method} ${absolute.pathname}`)) unexpectedHttp.push(`${method} ${absolute.pathname}`)
     return trackResponse(json(404, { status: "error", message: `no stub for ${method} ${absolute.pathname}` }))
-  })())
-})
+  })()))
+  // The fixture lifetime owns the profile read and its body reader too.
+  return { fetchImpl: (input, init) => observe(profile.fetchImpl(input, init).then(trackResponse)) }
+}
 const settled = checkpoint
 const signedIn = async (store: AppStore): Promise<void> => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
