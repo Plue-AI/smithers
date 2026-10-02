@@ -1,13 +1,10 @@
 /*
  * CN-19, CN-20 and CN-21 — the pure half of the canary uptime probe.
  *
- * Everything here is a total function over recorded observations. The only
- * untested line in this lane is the network call itself: `uptime-probe.ts`
- * supplies a real `fetch`, `runUptimeProbe` takes it as a dependency, and the
- * tests beside this file supply a fake. That split exists because the lane has
- * no credential and no live deployment, so a probe whose decision logic could
- * only be exercised against production would never have been demonstrated at
- * all.
+ * Decision helpers grade recorded observations. `runUptimeProbe` receives its
+ * transport as a dependency; unit tests supply responses and
+ * `uptime-report.test.ts` exercises the process shell against local HTTP.
+ * Neither requires a live credential or deployment.
  *
  * Three separate questions, deliberately not collapsed into one number:
  *
@@ -52,10 +49,9 @@ export const FIRST_MESSAGE_BUDGET_MS = 90_000
  *     it instead. At 30s a single sample is a broken turn seam, not a cold one.
  *   spa 2_000 — the SPA is static assets from Cloudflare's edge. This is a
  *     transfer, not a computation.
- *   scopes 1_500 and turnGate 1_500 — both refuse or answer without reaching
- *     an upstream. `/api/agent/turn` signed out is rejected by
- *     requireTurnSession before the rate limiter and before any model call
- *     (apps/server/src/index.ts), so this measures the gate, not a turn.
+ *   bootstrap 1_500 and turnGate 1_500 — the shared backend answers canonical
+ *     `/api/bootstrap` or refuses a signed-out `/api/agent/turn`. The edge
+ *     forwards these requests; neither sample starts a model turn.
  *
  * The three unmetered budgets are budgets for the MEDIAN of SAMPLES_PER_ENDPOINT
  * samples, so one slow cold start cannot open an issue. turnFirstFrame is the
@@ -63,7 +59,7 @@ export const FIRST_MESSAGE_BUDGET_MS = 90_000
  */
 export const LATENCY_BUDGETS_MS = {
   spa: 2_000,
-  scopes: 1_500,
+  bootstrap: 1_500,
   turnGate: 1_500,
   turnFirstFrame: 30_000
 } as const
@@ -316,7 +312,8 @@ export const uptimeVerdict = (samples: ReadonlyArray<Sample>): Check => {
  *
  * So the probe reads its own session back through AUTHENTICATED_USER_PATH before it
  * spends anything, and refuses to spend under a privileged one. That read is
- * free: it reaches no model and no upstream beyond the identity Worker.
+ * free: it reads the shared backend's canonical identity route without
+ * spending model credit.
  *
  * Signup is public, so there is no admitted-account roster: the declared login
  * and the `admin` claim are the whole verdict.
@@ -641,9 +638,8 @@ export const alertAction = (inputs: AlertInputs): AlertAction => {
 /*
  * The endpoint plan.
  *
- * Paths come from @smthrs/rpc/AgentApiRoutes, the same module the Worker
- * dispatches on, so renaming a route breaks this probe loudly instead of
- * leaving it probing a 404 forever.
+ * API paths come from the shared @smthrs/rpc contracts. The edge forwards
+ * them to the shared backend; the probe does not define a Worker-side route.
  */
 export interface Endpoint {
   readonly label: string
@@ -666,19 +662,19 @@ export const turnRequestBody = (runId: string): string =>
 export const endpointPlan = (runId: string): ReadonlyArray<Endpoint> => [
   { label: "spa", method: "GET", path: "/", expectedStatus: 200, budgetMs: LATENCY_BUDGETS_MS.spa, body: undefined },
   {
-    label: "scopes",
+    label: "bootstrap",
     method: "GET",
     path: APP_BOOTSTRAP_PATH,
     expectedStatus: 200,
-    budgetMs: LATENCY_BUDGETS_MS.scopes,
+    budgetMs: LATENCY_BUDGETS_MS.bootstrap,
     body: undefined
   },
   {
     // Signed out the turn seam answers 401 (asserted by
     // apps/app/scripts/canary-seam-probe.ts). This measures the GATE, not a
-    // model turn: requireTurnSession refuses before the rate limiter and
-    // before any upstream call, so these samples cost nothing and cannot
-    // consume the login's turn ceiling.
+    // model turn: the edge forwards the request to the shared backend's
+    // authentication boundary. No session cookie is sent and no model credit
+    // is spent.
     label: "turn-gate",
     method: "POST",
     path: TURN_PATH,
@@ -823,8 +819,15 @@ const readSessionIdentity = async (deps: ProbeDeps, options: ProbeOptions, cooki
   }
 }
 
+/** Forward the canonical CSRF cookie value in its request header. */
+export const csrfHeaders = (cookie: string): Record<string, string> => {
+  const value = cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${CSRF_COOKIE_NAME}=`))?.slice(CSRF_COOKIE_NAME.length + 1)
+  if (!value) return {}
+  try { return { [CSRF_HEADER_NAME]: decodeURIComponent(value) } } catch { return {} }
+}
+
 /**
- * CN-19's metered half: one signed-in turn, timed to the first NDJSON byte.
+ * CN-19's metered half: one signed-in turn, timed to the first complete NDJSON frame.
  *
  * Cost, stated plainly: one model turn per call. The prompt is nine words and
  * the instruction is two, and the stream is cancelled the moment the first
@@ -835,12 +838,6 @@ const readSessionIdentity = async (deps: ProbeDeps, options: ProbeOptions, cooki
  * $CANARY_SESSION_COOKIE is set, and the scheduled workflow supplies that
  * cookie on the hourly tick only — 24 short turns a day, not 96.
  */
-export const csrfHeaders = (cookie: string): Record<string, string> => {
-  const value = cookie.split(";").map(part => part.trim()).find(part => part.startsWith(`${CSRF_COOKIE_NAME}=`))?.slice(CSRF_COOKIE_NAME.length + 1)
-  if (!value) return {}
-  try { return { [CSRF_HEADER_NAME]: decodeURIComponent(value) } } catch { return {} }
-}
-
 export const meteredTurnSample = async (deps: ProbeDeps, options: ProbeOptions, cookie: string): Promise<Sample> => {
   const started = deps.now()
   try {

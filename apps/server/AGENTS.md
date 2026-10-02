@@ -13,7 +13,8 @@
 - The deployed entry is `src/edge.ts` (`wrangler.jsonc` `main`): workerd's
   `fetch(request, env)` over the Effect transport and asset router. Product
   authority belongs to the shared backend; the edge adds no `/api` route.
-  `src/index.ts` is legacy maintenance-export and rollback source only.
+  Retained legacy Durable Object identities live in `src/retainedDurableObjects.ts`;
+  sealed-inventory and paged export tooling uses `src/MaintenanceExport.ts`.
 - Security boundaries trace `wrangler.jsonc` main through shared backend
   authentication; legacy maintenance exports are separate review scope.
 - Preserve HTTP contracts and the deployed Worker name, domains, Durable Object
@@ -36,11 +37,11 @@
   most an agent may run. `wrangler deploy --dry-run` bundles and reads no live script, so it is
   never the identity verdict — `bun scripts/adopt-durable-objects.ts` is.
 - A Durable Object's in-memory state is made once by the object (the native
-  class's field), never a Layer built per request: the client-error throttle
-  `Ref`.
-- Routes the Smithers backend serves (`/api/workflow/{provision,rpc}`,
-  `/api/repository-setup/*`, the platform proxy) are forwarded as the
-  signed-in user through `forwardToCloud` (`src/proxies.ts`); never a second
-  forwarder, and never Worker-side state for them.
+  class's field), never a Layer built per request.
+- `src/edge.ts` forwards `/api` and `/api/*` to `SMITHERS_BACKEND_ORIGIN`.
+  The shared backend owns authentication, CSRF, capabilities and errors.
+  Preserve request bodies, cookies, response status, redirects and streaming;
+  remove caller-supplied proxy identity headers. Never add a second forwarder
+  or Worker-side product state.
 - This package is the UI gateway. Changes to sandbox execution or frontend
   framework code belong to their owning packages.

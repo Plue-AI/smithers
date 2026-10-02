@@ -32,12 +32,14 @@ let mode: "healthy" | "spa-down" | "turn-open" | "admin-session" = "healthy"
 const SCOPED_LOGIN = "smithers-canary"
 
 let server: Server<undefined>
+const requestedPaths: Array<string> = []
 
 beforeAll(() => {
   server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url)
+      requestedPaths.push(url.pathname)
       if (url.pathname === "/") {
         return mode === "spa-down"
           ? new Response("upstream failure", { status: 503 })
@@ -143,12 +145,15 @@ describe("uptime-probe.ts against a live HTTP origin", () => {
 
   test("a healthy origin exits 0 and writes a report naming every check", async () => {
     mode = "healthy"
+    requestedPaths.length = 0
     const jsonPath = join(workDir, "healthy.json")
     const { exitCode, stdout } = await runProbe(["--samples", "5", "--json", jsonPath])
 
     expect(stdout).toContain("ok: every probed endpoint answered")
     expect(stdout).toContain("ok: probe-request error rate — 0/15 probe request(s) failed")
     expect(stdout).toContain("CANARY UPTIME PROBE PASS")
+    expect(stdout).toContain("bootstrap latency")
+    expect(stdout).not.toContain("scopes")
     expect(exitCode).toBe(0)
 
     const report = JSON.parse(readFileSync(jsonPath, "utf8")) as ProbeReport
@@ -156,6 +161,10 @@ describe("uptime-probe.ts against a live HTTP origin", () => {
     expect(report.failed).toBe(false)
     expect(report.samples).toHaveLength(15)
     expect(report.meteredTurns).toBe(0)
+    expect(requestedPaths.filter((path) => path === "/api/bootstrap")).toHaveLength(5)
+    expect(requestedPaths).not.toContain("/api/scopes")
+    expect(report.samples.filter((sample) => sample.label === "bootstrap")).toHaveLength(5)
+    expect(report.checks.find((check) => check.id === "latency:bootstrap")).toMatchObject({ status: "pass" })
   })
 
   test("without $CANARY_SESSION_COOKIE it says the turn seam was not measured, and spends nothing", async () => {

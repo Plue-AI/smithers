@@ -30,16 +30,16 @@
  * are documented in apps/server/DEPLOY.md.
  *
  * WHAT THIS RUN COSTS. Without the cookie: nothing. Every request is a static
- * asset read, an unauthenticated scopes read, or a refusal that never reaches
- * an upstream. With the cookie: exactly one short model turn — a nine-word
+ * asset read, an unauthenticated bootstrap read, or a signed-out turn refusal
+ * from the shared backend. With the cookie: exactly one short model turn — a nine-word
  * prompt, a two-word instruction, and the stream cancelled at the first frame.
  * The scheduled workflow supplies the cookie on the hourly tick only, so the
  * standing cost is 24 short turns a day.
  *
  * This file is the process shell only: argument parsing, the real fetch,
  * printing and the exit code. Every decision it prints comes from
- * uptime-checks.ts, which is covered by uptime-checks.test.ts. The fetch is
- * the one line in this lane that no test can reach.
+ * uptime-checks.ts, which is covered by uptime-checks.test.ts. The process
+ * shell and real fetch are exercised against local HTTP in uptime-report.test.ts.
  */
 import { writeFileSync } from "node:fs"
 import { argReader } from "./CanaryArgs.ts"

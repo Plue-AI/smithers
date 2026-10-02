@@ -268,12 +268,12 @@ describe("errorRateVerdict (CN-20)", () => {
   })
 
   test("one failure in fifteen exceeds the threshold and names the failure", () => {
-    const samples = [...many(14), sample({ label: "scopes", status: 502 })]
+    const samples = [...many(14), sample({ label: "bootstrap", status: 502 })]
     const { check, rate } = errorRateVerdict(samples, ERROR_RATE_THRESHOLD)
     expect(rate).toBeCloseTo(1 / 15, 10)
     expect(check.status).toBe("fail")
     expect(check.detail).toContain("1/15 probe request(s) failed")
-    expect(check.detail).toContain("scopes (HTTP 502, expected 200)")
+    expect(check.detail).toContain("bootstrap (HTTP 502, expected 200)")
   })
 
   test("identical failures collapse to one reason, so the issue body stays readable", () => {
@@ -330,12 +330,12 @@ describe("uptimeVerdict (CN-21)", () => {
   test("an endpoint with no good sample is down and is named", () => {
     const check = uptimeVerdict([
       sample({ label: "spa" }),
-      sample({ label: "scopes", status: undefined, transportError: "ConnectionRefused" }),
-      sample({ label: "scopes", status: undefined, transportError: "ConnectionRefused" })
+      sample({ label: "bootstrap", status: undefined, transportError: "ConnectionRefused" }),
+      sample({ label: "bootstrap", status: undefined, transportError: "ConnectionRefused" })
     ])
     expect(check.status).toBe("fail")
     expect(check.detail).toContain("1/2 endpoint(s) answered")
-    expect(check.detail).toContain("fully down: scopes")
+    expect(check.detail).toContain("fully down: bootstrap")
   })
 })
 
@@ -375,6 +375,15 @@ describe("coerceReport", () => {
 
   test("a round-tripped report survives JSON unchanged", () => {
     expect(coerceReport(JSON.parse(JSON.stringify(good)), "report.json")).toEqual(good)
+  })
+
+  test("previous scopes-labelled reports remain readable without rewriting persisted checks", () => {
+    const previous: ProbeReport = {
+      ...good,
+      samples: [sample({ label: "scopes" })],
+      checks: [{ id: "latency:scopes", label: "scopes latency", status: "pass", detail: "scopes: median 1ms" }]
+    }
+    expect(coerceReport(JSON.parse(JSON.stringify(previous)), "previous.json")).toEqual(previous)
   })
 
   test("a missing report is a FAILING report that names the file", () => {
@@ -556,8 +565,12 @@ describe("withChecks", () => {
 })
 
 describe("endpointPlan", () => {
-  test("it probes the SPA, the scopes read and the signed-out turn gate", () => {
-    expect(endpointPlan("run-1").map((endpoint) => endpoint.label)).toEqual(["spa", "scopes", "turn-gate"])
+  test("it probes the SPA, canonical bootstrap and the signed-out turn gate", () => {
+    const plan = endpointPlan("run-1")
+    expect(plan.map((endpoint) => endpoint.label)).toEqual(["spa", "bootstrap", "turn-gate"])
+    expect(plan[1]).toMatchObject({ method: "GET", path: "/api/bootstrap", expectedStatus: 200, budgetMs: 1500 })
+    expect(LATENCY_BUDGETS_MS).toHaveProperty("bootstrap", 1500)
+    expect(LATENCY_BUDGETS_MS).not.toHaveProperty("scopes")
   })
 
   test("the turn gate expects the 401 refusal, so a 200 there is an error", () => {
@@ -678,7 +691,7 @@ describe("runUptimeProbe", () => {
     // 1600ms is inside the 2000ms SPA budget and outside the 1500ms
     // budgets for the two API reads.
     expect(byId(report.checks, "latency:spa").status).toBe("pass")
-    expect(byId(report.checks, "latency:scopes").status).toBe("fail")
+    expect(byId(report.checks, "latency:bootstrap").status).toBe("fail")
     expect(byId(report.checks, "latency:turn-gate").status).toBe("fail")
     expect(report.failed).toBe(true)
   })
@@ -690,8 +703,8 @@ describe("runUptimeProbe", () => {
     })
     const report = await runUptimeProbe(deps, options())
 
-    expect(byId(report.checks, "uptime").detail).toContain("fully down: scopes")
-    expect(byId(report.checks, "latency:scopes").status).toBe("fail")
+    expect(byId(report.checks, "uptime").detail).toContain("fully down: bootstrap")
+    expect(byId(report.checks, "latency:bootstrap").status).toBe("fail")
     expect(byId(report.checks, "error-rate").status).toBe("fail")
     expect(report.errorRate).toBeCloseTo(5 / 15, 10)
     expect(report.samples.filter((s) => s.transportError !== undefined)).toHaveLength(5)
