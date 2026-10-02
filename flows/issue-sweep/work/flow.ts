@@ -64,8 +64,16 @@ export const Report = Schema.Struct({
 })
 
 export class AgentFailed extends Schema.TaggedError<AgentFailed>()("issue-sweep/AgentFailed", {
-  message: Schema.String
+  message: Schema.String,
+  code: Schema.optional(Schema.Literals(["unreachable", "refused"]))
 }) {}
+Fault.register("issue-sweep/AgentFailed", { unreachable: "infra", refused: "dependency" })
+
+/** Only issue reads classify connectivity; ordinary agent failures keep their own meaning. */
+export const issueReadFailed = (message: string) => new AgentFailed({
+  message,
+  code: classifyExit(message) === undefined ? "refused" : "unreachable"
+})
 
 /**
  * The agent finished and edited nothing. `report` is its whole reply, which
@@ -308,12 +316,15 @@ export const replyOf = (agent: Agent, stdout: string): string => {
 const agentFailed = (cause: { readonly message: string }) =>
   cause instanceof AgentFailed ? cause : new AgentFailed({ message: cause.message })
 
-const fetchIssue = FetchIssue.toLayer((input) =>
-  issue(input.repo, input.issue).pipe(
+/** Issue-read implementation, with a replaceable reader for engine regression tests. */
+export const fetchIssueWith = (read: typeof issue) => FetchIssue.toLayer((input) =>
+  read(input.repo, input.issue).pipe(
     Effect.map(({ title, body, comments }) => ({ title, body, comments })),
-    Effect.mapError((cause) => agentFailed({ message: String((cause as { message?: unknown }).message ?? cause) }))
+    Effect.mapError((cause) => issueReadFailed(String((cause as { message?: unknown }).message ?? cause)))
   )
 )
+
+const fetchIssue = fetchIssueWith(issue)
 
 // From the workspace root, so any path jj prints is repository-relative.
 const jj = (directory: string, args: ReadonlyArray<string>) =>
