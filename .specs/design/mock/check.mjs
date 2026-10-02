@@ -31,8 +31,30 @@ for (const journey of journeys) {
     await page.waitForTimeout(120)
     const step = journey.steps[i]
     if (step?.target) {
-      const found = await page.evaluate(({ viewer, target }) => document.querySelector(`[data-frame="${viewer}"]`)?.querySelector(target) !== null && document.querySelector(`[data-frame="${viewer}"]`)?.querySelector(target) !== undefined, step)
-      if (!found) { failures += 1; console.log(`✗ ${journey.id} step ${i + 1}: no ${step.target} on ${step.viewer}'s screen`) }
+      const box = await page.evaluate(({ viewer, target }) => {
+        const element = document.querySelector(`[data-frame="${viewer}"]`)?.querySelector(target)
+        if (element === null || element === undefined) return null
+        const rect = element.getBoundingClientRect()
+        return { width: rect.width, height: rect.height }
+      }, step)
+      if (box === null) { failures += 1; console.log(`✗ ${journey.id} step ${i + 1}: no ${step.target} on ${step.viewer}'s screen`) }
+      /* A display:contents element has no box: the pointer would fly to the corner (Fable M3). */
+      else if (box.width === 0 || box.height === 0) { failures += 1; console.log(`✗ ${journey.id} step ${i + 1}: ${step.target} has no box on ${step.viewer}'s screen`) }
+    }
+    /* The step before this frame named what it shows: those subjects must be on screen in a still frame too (Fable M4). */
+    const shown = i > 0 ? journey.steps[i - 1]?.show ?? [] : []
+    if (shown.length > 0) {
+      await page.waitForTimeout(650)
+      for (const { viewer, target } of shown) {
+        const visible = await page.evaluate(({ viewer, target }) => {
+          const frame = document.querySelector(`[data-frame="${viewer}"]`)
+          const element = frame?.querySelector(target)
+          if (frame === null || frame === undefined || element === null || element === undefined) return false
+          const a = element.getBoundingClientRect(), b = frame.getBoundingClientRect()
+          return a.bottom > b.top + 40 && a.top < b.bottom - 40
+        }, { viewer, target })
+        if (!visible) { failures += 1; console.log(`✗ ${journey.id} after step ${i}: ${target} is off ${viewer}'s screen`) }
+      }
     }
     for (const error of errors) { failures += 1; console.log(`✗ ${journey.id} before step ${i + 1}: ${error}`) }
   }

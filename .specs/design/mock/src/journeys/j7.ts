@@ -7,7 +7,7 @@
  * the branch (§4.2), and the coding agent resolves the one conflict in place.
  * The stack service, "Smithers", does every fork, place, drop and rebase.
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import { activity, ask, branch, edit, file, leave, navigate, openFile, present, pressed, print, say, setTodo, showCard, stackOp, todo, type State } from "../world"
 import { request } from "./ask"
 import { BEN, RETRY_FILE, seedState } from "./seed"
@@ -52,7 +52,7 @@ export const j7: Journey = {
   intro: "Ben, a maintainer, has drafted a TODO in main. Place decides where it joins the stack.",
   viewers: [BEN],
   setup,
-  steps: [
+  steps: cite(["J7.1", "J7.1", "J7.1", "J7.1", "J7.2", "B.1", "J7.2", "J7.2", "J7.2", "J7.3", "J7.3", "J7.3", "J7.3", "J7.4", "J7.4"], [
     {
       caption: "Alice's checkout fix will need a fake clock, so Ben places his TODO before T10.",
       target: '[data-mock="place-before-t-checkout"]', hold: 2200,
@@ -238,5 +238,5 @@ export const j7: Journey = {
         showCard(state, BEN, "diff", RETRY_FILE)
       }
     }
-  ]
+  ])
 }

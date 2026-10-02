@@ -194,7 +194,7 @@ export const j2: Journey = {
       }
     },
     {
-      caption: "T12 is next, so Merge is live, and it records Maya's approval of this exact revision. Closes #231 when merged was checked, so #231 closes.",
+      caption: "Maya merges T12, the next item, approving this exact revision. #231 closes because Closes #231 when merged was checked.",
       spec: "J2.6", target: '[data-mock="merge-t-reset"]', hold: 2600,
       pre: state => { dismissToasts(state, MAYA) },
       act: state => {

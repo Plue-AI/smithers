@@ -103,7 +103,7 @@
 	background: var(--warning);
 }
 
-/* Code intelligence: a hover tooltip under the symbol, at its column, as CodeMirror places it; above on the last line. */
+/* Code intelligence: a hover tooltip above the symbol, at its column, so it never covers the lines below; under it on the first line. */
 .mvp-editor-tip {
 	position: absolute;
 	top: 100%;

@@ -6,7 +6,7 @@
  * any terminal's do, and its skill calls (wiki, answer, TODO) are Ben's acts,
  * named for the tool, in front of everyone on the branch.
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import { activity, branch, changed, edit, file, leave, navigate, openFile, present, print, read, setTodo, showCard, stackOp, terminal, todo, viewer, type ActorId, type CardKind, type State } from "../world"
 import { ALICE, BEN, RETRY_FILE, seedState } from "./seed"
 
@@ -53,7 +53,7 @@ export const j6: Journey = {
   intro: "Ben and Alice are on retry-webhooks. T9's coding agent is waiting on a question, and Alice has retry.ts open.",
   viewers: [BEN, ALICE],
   setup,
-  steps: [
+  steps: cite(["J6.1", "J6.1", "J6.3", "J6.2", "J6.2", "J6.3", "J6.2", "J6.3", "J6.3", "B.1"], [
     {
       caption: "Ben opens his own terminal on the branch. It runs as Ben, already signed in to Smithers as him.",
       viewer: BEN, target: '[data-mock="new-terminal-b-retry"]', hold: 1800,
@@ -165,5 +165,5 @@ export const j6: Journey = {
       viewer: ALICE, target: '[data-mock="crumb-tree"]', hold: 3400,
       act: state => { state.viewers[ALICE]!.tree = true }
     }
-  ]
+  ])
 }

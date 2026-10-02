@@ -28,7 +28,7 @@ const colourOf = (world: World, who: ActorId | undefined): CSSProperties | undef
 
 
 
-/** The unabbreviated name, for a title: "Alice Park", "Ben via Smithers", "Coding agent". */
+/** The unabbreviated name, for a title: "Alice Park", "Smithers for Ben", "Coding agent". */
 const fullName = (world: World, who: ActorId): string =>
   via(who) !== undefined || isAgent(who) ? actorName(world, who) : member(world, who)?.name ?? who
 
@@ -191,7 +191,7 @@ export const FileCard = ({ id, target, view }: { readonly id: string; readonly t
               const tip = intel === undefined || symbol === null ? undefined : { ...intel.hover, col: symbol.index }
               return (
                 <div key={n} className="mvp-editor-line" data-cited={cited(n)} data-active={n === mine || undefined}
-                  data-hover={tip === undefined ? undefined : n === shown.at(-1)?.line.n ? "above" : "below"}>
+                  data-hover={tip === undefined ? undefined : n === shown[0]?.line.n ? "below" : "above"}>
                   {author === undefined ? text : (
                     <Marked text={text} from={span.from} to={span.to} mark={changed => (
                       <span className="mvp-span" data-fresh={typed === undefined && line.seq === seq ? true : undefined}

@@ -182,12 +182,16 @@ export const states: Journey = {
       Object.assign(state.world.setup, { codingKey: "failed", keyError: "Anthropic rejected this key: invalid x-api-key", source: "mirroring", sourcePct: 62, machine: "waiting" })
       delete state.world.setup.gatewayKey
       showCardAs(state, BEN, "setup", "acme/api", MAYA)
+      const screen = state.viewers[BEN]!
+      screen.reveal = { id: screen.transcript.at(-1)!.id, seq: state.seq }
     }), spec: "§6.5" },
     { ...view("An address change in Settings that doesn't apply: the reason, Retry, and the old address still in effect.", state => {
       Object.assign(state.world.setup, { codingKey: "saved", gatewayKey: "saved", source: "ready", sourcePct: 100, machine: "ready" })
       delete state.world.setup.keyError
       state.world.setup.addressChange = { from: state.world.setup.addresses[0]!, to: "https://smithers.acme.dev", reason: "smithers.acme.dev doesn't reach this Mac" }
       showCardAs(state, BEN, "settings", "acme/api", MAYA)
+      const screen = state.viewers[BEN]!
+      screen.reveal = { id: screen.transcript.at(-1)!.id, seq: state.seq }
     }), spec: "§6.1" },
     view("On plain HTTP a browser can't notify, so Settings links to the HTTPS docs. An upgrade waits for smthrs host upgrade on the Mac.", state => {
       state.world.setup.addresses = ["http://maya-mini.local:4000"]

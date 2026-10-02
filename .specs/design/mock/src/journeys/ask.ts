@@ -1,13 +1,13 @@
 /*
  * Ask Smithers: what the app agent itself does (mvp.md §6.5, Appendix A, and
  * Appendix B's A and A✓). Ben asks in plain words. The agent answers, drives
- * his own screen and acts with his authority, as "Ben via Smithers". Reads,
+ * his own screen and acts with his authority, as "Smithers for Ben". Reads,
  * wiki writes and his own screen run at once. Committing a TODO and proposing
  * a flow edit wait for his press, and "merge #88" opens his own Review &
  * merge. A slash missing its input opens a form (THE FORM LAW). Work on a
  * machine is the coding agent's, in the agent reel.
  */
-import type { Journey, Step } from "../journey"
+import { cite, type Journey, type Step } from "../journey"
 import { branch, openFile, present, reply, say, setTodo, showCard, type FlowForm, type State } from "../world"
 import { ALICE, BEN, RETRY_FILE, seedState, TODO_FLOW } from "./seed"
 
@@ -60,10 +60,10 @@ export const askSmithers: Journey = {
   id: "ask",
   title: "Ask Smithers",
   spec: "Appendix A",
-  intro: "Ben asks the app agent in plain words. It answers and acts for him as \"Ben via Smithers\"; some acts wait for his yes.",
+  intro: "Ben asks the app agent in plain words. It answers and acts for him as \"Smithers for Ben\"; some acts wait for his yes.",
   viewers: [BEN],
   setup,
-  steps: [
+  steps: cite(["A", "B.1", "B.1", "B.2", "B.2", "§6.5", "B.2", "B.2", "J2.2", "B.2", "M-05", "J5.1", "B.1"], [
     request("/help", "/help lists every command. Each one also works as a plain request and as a button on its card.", state => {
       showCard(state, BEN, "commands", "all")
     }, { hold: 3400 }),
@@ -94,7 +94,7 @@ export const askSmithers: Journey = {
       reply(state, BEN, "It checks the status before the payment intent settles.", ["checkout.test.ts", "wiki: Payments testing", "T10 run"])
       showCard(state, BEN, "file", CHECKOUT_TEST, "lines:6-8")
     }, { hold: 3000 }),
-    request("save that to the wiki", "Wiki writes run at once, since every page keeps its history. The page is r1, by Ben via Smithers.", state => {
+    request("save that to the wiki", "Wiki writes run at once, since every page keeps its history. The page is r1, by Smithers for Ben.", state => {
       state.world.wiki.push({
         id: "checkout-test-race", title: "Checkout test race", rev: 1, authors: [SMITHERS], seq: state.seq,
         lines: [
@@ -144,5 +144,5 @@ export const askSmithers: Journey = {
       state.viewers[BEN]!.theme = "dark"
       reply(state, BEN, "Changed Ben's theme to dark.")
     }, { hold: 2800 })
-  ]
+  ])
 }

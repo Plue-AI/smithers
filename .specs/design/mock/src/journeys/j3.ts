@@ -5,7 +5,7 @@
  * same file at the same time; Ben steers; the coding agent's edit arrives
  * live, the way a teammate's does.
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import { activity, branch, changed, edit, file, leave, navigate, openFile, present, print, reply, say, setTodo, showCard, todo, type State } from "../world"
 import { ALICE, BEN, MAYA, RETRY_FILE, seedState } from "./seed"
 
@@ -42,7 +42,7 @@ export const j3: Journey = {
     showCard(state, ALICE, "file", RETRY_FILE)
     return state
   },
-  steps: [
+  steps: cite(["J3.1", "J3.2", "J3.3", "J3.3", "J3.3", "J3.4", "J3.5", "J3.5", "J3.5", "M-34", "J3.6", "B.3", "§4.2", "§4.1", "B.1"], [
     {
       caption: "Ben sees T9 waiting on a person and opens its branch. A branch is one conversation, shared by everyone on it, and Alice is already here.",
       viewer: BEN, target: '[data-mock="row-t-retry"] [data-mock="branch-chip"]', hold: 2600,
@@ -53,7 +53,7 @@ export const j3: Journey = {
     },
     {
       caption: "The Branch card shows everyone on the branch: Alice editing retry.ts at line 10, Maya in it from Cursor over SSH (her saves appear in open cards as attributed changes), the coding agent at Verify, and now Ben.",
-      viewer: BEN, target: '[data-mock="here-alice"]', hover: true, hold: 3000,
+      viewer: BEN, target: '[data-mock="where-alice"]', hover: true, hold: 3000,
       act: () => {}
     },
     {
@@ -208,5 +208,5 @@ export const j3: Journey = {
         branch(state.world, "b-retry").presence = branch(state.world, "b-retry").presence.filter(each => each.who !== BEN)
       }
     }
-  ]
+  ])
 }

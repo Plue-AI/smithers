@@ -99,6 +99,9 @@ export interface Todo {
   failure?: string
   /** Set when the row changed in the step that is playing. */
   seq?: number
+  /* J5 · teach the factory (mvp.md §6.12) */
+  /** The name of the flow version its attempt runs ("v1"), shown beside its steps; set with `steps`. */
+  flowVersion?: string
 }
 
 export type MachineState = "awake" | "asleep" | "waking" | "waiting" | "closed"
@@ -285,6 +288,13 @@ export interface BackgroundRun {
   state: "running" | "done" | "failed"
   detail?: string
   readonly seq?: number
+  /* J5 · learning is a real run (mvp.md §4.1, B.5) */
+  /** The merged TODO a learning run learns from. */
+  readonly todo?: string
+  /** Its place in the machine queue while it waits to start: Queued, not yet working. */
+  queue?: number
+  /** The wiki pages a finished learning run wrote, by id. */
+  lessons?: ReadonlyArray<string>
 }
 
 export interface FlowVersion {
@@ -296,6 +306,9 @@ export interface FlowVersion {
   readonly error?: string
   /** System flows (stack operations, merge, members, settings) are read-only. */
   readonly system?: boolean
+  /* J5 · teach the factory (mvp.md §6.12) */
+  /** Who proposed it: "maya~smithers" for the app agent acting for Maya, the stack service for a learning run's suggestion. */
+  readonly by?: ActorId
 }
 
 export interface Setup {

@@ -155,6 +155,19 @@ export const Player = () => {
   }, [playing, journey, speed])
 
   useEffect(() => {
+    if (playing || index === 0) return
+    const step = journey.steps[index - 1]
+    if (step?.show === undefined) return
+    /* After the frame's own first-layout scroll settles (AppFrame), bring each listed subject into view. */
+    const timer = setTimeout(() => {
+      for (const { viewer: on, target } of step.show ?? []) {
+        document.querySelector(`[data-frame="${on}"]`)?.querySelector(target)?.scrollIntoView({ block: "nearest", behavior: "auto" })
+      }
+    }, 480)
+    return () => clearTimeout(timer)
+  }, [playing, index, journey])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key === " ") { event.preventDefault(); setPlaying(value => !value) }

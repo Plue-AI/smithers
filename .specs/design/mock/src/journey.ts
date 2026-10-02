@@ -45,6 +45,10 @@ export interface Step {
   readonly act: (state: State) => void
 }
 
+/** Each step's spec line, in order; a step that already cites one keeps it. */
+export const cite = (specs: ReadonlyArray<string>, steps: ReadonlyArray<Step>): ReadonlyArray<Step> =>
+  steps.map((step, index) => step.spec !== undefined || specs[index] === undefined ? step : { ...step, spec: specs[index]! })
+
 export interface Journey {
   readonly id: string
   readonly title: string

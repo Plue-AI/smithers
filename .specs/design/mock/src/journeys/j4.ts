@@ -6,7 +6,7 @@
  * next free machine; its branch activity says so, and the timeline shows it.
  * Timeline entries report her own background work while she keeps chatting.
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import { activity, branch, reply, run, say, setTodo, showCard, stackOp, toast, todo, type State } from "../world"
 import { MAYA, seedState } from "./seed"
 import { buildMorning, CHECKOUT_EVIDENCE, LIMITS_EVIDENCE, passedAgain, RATES_EVIDENCE, rerunning, STRIPE_LESSONS } from "./j4-data"
@@ -61,7 +61,7 @@ export const j4: Journey = {
   intro: "Morning. Maya, the owner, opens Smithers. The home card is the team's stack, and all 3 machines are busy.",
   viewers: [MAYA],
   setup,
-  steps: [
+  steps: cite(["J4.1", "J4.2", "§4.1", "§6.10", "§6.10", "§4.2", "§4.2", "M-06", "§4.1", "§4.1", "J4.3", "M-06", "§6.4", "J4.1"], [
     {
       caption: "Needs you 2, Working 3, Queued 1, In review 4, and 5 merged since she last looked.",
       target: '[data-mock="card-home"] .mvp-filters', hover: true, hold: 2800,
@@ -193,5 +193,5 @@ export const j4: Journey = {
       show: [{ viewer: MAYA, target: '[data-mock="card-home"] .mvp-filters' }],
       act: () => {}
     }
-  ]
+  ])
 }

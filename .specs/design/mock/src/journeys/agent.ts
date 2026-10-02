@@ -6,7 +6,7 @@
  * question is Needs you. Ben's plain-words requests show the app agent's rules
  * (Appendix B): a flow and a stop run at once; a drop waits for his press (A✓).
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import {
   activity, ask, branch, context, dismissToasts, edit, file, navigate, openFile, present, pressed, print, read, reply, setTodo,
   showCard, stackOp, toast, todo, type State
@@ -42,7 +42,7 @@ export const agentAtWork: Journey = {
   intro: "Ben joins a branch and works with its coding agent. Everything the agent does looks the way a teammate's would.",
   viewers: [BEN],
   setup,
-  steps: [
+  steps: cite(["B.1", "B.1", "B.2", "B.2", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "B.3", "§4.1", "B.2", "B.2", "B.2"], [
     {
       caption: "Ben is in main, the team's conversation. The last crumb opens the branch tree.",
       target: '[data-mock="crumb-tree"]', hold: 2200,
@@ -179,7 +179,7 @@ export const agentAtWork: Journey = {
       ask(state, BEN, { id: "drop-t11", verb: "Drop", target: "T11 log-retries", receipt: "Dropped T11" })
     }, { hold: 3000 }),
     {
-      caption: "Ben presses ⏎. T11 is Dropped, and its branch records that Ben via Smithers asked.",
+      caption: "Ben presses ⏎. T11 is Dropped, and its branch records that Smithers for Ben asked.",
       target: '[data-mock="act-drop-t11"]', hover: true, keys: "⏎", hold: 3200,
       act: state => {
         pressed(state, "drop-t11")
@@ -190,5 +190,5 @@ export const agentAtWork: Journey = {
         stackOp(state, "b-log", "Dropped T11", SMITHERS)
       }
     }
-  ]
+  ])
 }

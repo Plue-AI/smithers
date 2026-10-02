@@ -5,7 +5,7 @@
  * branches, runs and the wiki. Every PR is based on main and lists the
  * earlier stack items it includes. Each new revision reruns the checks.
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import { activity, branch, checksPassed, dismissToasts, edit, revise, run, setTodo, showCard, stackOp, toast, todo, type State } from "../world"
 import { ALICE, BEN, MAYA, RETRY_FILE, seedState } from "./seed"
 
@@ -54,7 +54,7 @@ export const j10: Journey = {
   viewers: [MAYA, "github"],
   githubPr: PR,
   setup,
-  steps: [
+  steps: cite(["J10.1", "J10.2", "J10.2", "J10.2", "J10.3", "J10.3", "J10.4", "§4.2", "§4.2", "J10.5", "§6.3", "§6.3", "J10.5", "J10.6", "J10.6"], [
     {
       caption: "The TODO's PR lives on GitHub: opened by the Smithers app for Ben, based on main. It's a draft until T8 (#88), which it includes, merges first.",
       viewer: MAYA, target: '[data-mock="open-t-retry"]', hold: 3400,
@@ -197,5 +197,5 @@ export const j10: Journey = {
         run(state, { id: "learn-214", title: "Learning from #214", state: "done", detail: "1 lesson" })
       }
     }
-  ]
+  ])
 }

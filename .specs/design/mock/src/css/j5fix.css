@@ -1,0 +1,16 @@
+/* PORT · J5: a learning run's receipt (mvp.md B.4, B.5): its state, the lessons it wrote, then its one suggestion with the evidence behind a disclosure. */
+.mvp-state[data-state="done"] > svg { color: var(--success); }
+.mvp-learning-lessons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-learning-lessons > svg { flex: none; }
+.mvp-learning-lessons + .mvp-learning-suggestion { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+.mvp-learning-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.mvp-learning-title > svg { flex: none; color: var(--text-muted); }
+.mvp-learning-title > b { min-width: 0; font-weight: 500; }
+.mvp-learning-evidence { margin-top: var(--sp-2); font-size: var(--fs-small); }
+.mvp-learning-evidence > summary { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--r-1); color: var(--text-muted); cursor: pointer; }
+.mvp-learning-evidence > summary:hover { color: var(--text); }
+.mvp-learning-evidence > summary:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.mvp-learning-evidence > p { margin: 6px 0 0; color: var(--text); }
+.mvp-learning-made { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--r-1); color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-learning-made:hover { color: var(--text); }
+.mvp-learning-made:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }

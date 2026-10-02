@@ -1,36 +1,46 @@
 /*
  * J5. Teach the factory (mvp.md §5, P0, everything is a flow). Maya's screen.
- * She tells the app agent a rule; it proposes an edit to the TODO flow, which
- * becomes a TODO like any other. Once merged and loaded it is Active: TODOs
- * started afterwards get the new step, while a running one keeps its version.
- * Later a learning run suggests another change, backed by evidence.
- *
- * The TODO card draws its step strip from world.flow, so world.flow follows
- * the strips on screen: it stays on the old version until a TODO started on
- * the new one appears, and by then the old version's card is out of view.
+ * She tells the app agent a rule. It commits nothing: it proposes the TODO
+ * flow's next version and drafts a TODO, and her Commit is the confirmation
+ * (A✓). The TODO's coding agent makes the edit on its branch; merged and
+ * loaded, the version is Active. Every attempt keeps the flow version it
+ * started on (todo.steps): T11 starts on v2 with Changelog, while Alice's T10
+ * and its retry stay on v1. The merge queues a learning run, a background
+ * run whose receipt holds a lesson and a suggestion; Maya makes the
+ * suggestion a TODO, it merges, and the next TODO passes lint the first time.
  */
 import type { Journey } from "../journey"
-import { activity, branch, dismissToasts, edit, reply, run, say, setTodo, showCard, toast, type FlowVersion, type State, type Todo } from "../world"
-import { CHECKOUT, LOGGING, MAYA, seedState } from "./seed"
 import {
-  VERIFY_EDIT, VERIFY_LINE, FLOW_EVIDENCE, FLOW_FILE, flowSource, LINT_EVIDENCE, NEXT_EVIDENCE, ORDER_EDIT, ORDER_LINE,
-  stepsOf, V1_STEPS, V2_STEPS, V3_STEPS, version
+  activity, branch, context, dismissToasts, edit, file, leave, navigate, openFile, present, read, reply, run, say, setTodo, showCard,
+  stackOp, STACK, toast, todo, type FlowStep, type FlowVersion, type State
+} from "../world"
+import { MAYA, seedState } from "./seed"
+import {
+  FLOW_DRAFT, FLOW_EVIDENCE, FLOW_FILE, FLOW_TODO, flowSource, LESSON_PAGE, lessonPage, LINT_EVIDENCE, LINT_SUGGESTION, LINT_TODO, NEXT_EVIDENCE,
+  NEXT_TODO, ORDER_AFTER, ORDER_EDIT, ORDER_LINE, ORDER_TYPED, stepsOf, V1_STEPS, V2_STEPS, V3_STEPS, VERIFY_EDIT, VERIFY_LINE, version
 } from "./j5-data"
 
 const RULE = "Every TODO must run pnpm test and update the changelog."
-const OLD_QUESTION = "Which running TODOs stay on the old version?"
-const NEW_TODO = "Add a TODO: log every webhook retry attempt with its delay."
-/* The app agent proposes as Maya: "Maya via Smithers". */
-const MAYA_VIA_SMITHERS = `${MAYA}~smithers`
+const WHICH = "Which TODOs use the new flow?"
+/* The app agent proposes for Maya: "Smithers for Maya" (M-34). */
+const SMITHERS_FOR_MAYA = `${MAYA}~smithers`
+const CODING = "agent:b-flow"
+const DRAFT = "d-flow"
+/* The learning run after #89. Its one suggestion shares its id, and its receipt card is the run's. */
+const LEARNING = "learn-89"
+const LEARNING_TITLE = "Learning from #89"
 
-const startOn = (state: State, value: Todo, name: string, step: string): void => {
-  const { world } = state
-  world.todos.push({ ...value, state: "working", step, seq: state.seq })
-  world.stack.push(value.id)
-  world.branches.push({
-    id: value.branch, name, item: value.id, from: "main", machine: "awake", activity: [], terminals: [],
-    presence: [{ who: `agent:${value.branch}`, where: { kind: "step", step } }]
-  })
+/** The coding agent on a TODO's branch, at a flow step. */
+const agentAt = (state: State, branchId: string, step: string): void => {
+  const target = branch(state.world, branchId)
+  target.machine = "awake"
+  target.presence = [{ who: `agent:${branchId}`, where: { kind: "step", step } }]
+}
+
+/** An attempt starts: it pins the active version's steps (mvp.md §6.12), so a later flow change never reaches it. */
+const start = (state: State, id: string, step: string, name: string, steps: ReadonlyArray<FlowStep>): void => {
+  setTodo(state, id, { state: "working", step, queue: undefined, steps: stepsOf(steps), flowVersion: name, elapsed: "0m" })
+  agentAt(state, todo(state.world, id).branch, step)
 }
 
 const release = (state: State, id: string, machine: "asleep" | "closed"): void => {
@@ -46,12 +56,16 @@ const setVersion = (state: State, id: string, patch: Partial<FlowVersion>): void
 const setup = (): State => {
   const state = seedState([MAYA])
   const { world } = state
-  world.todos = []
-  world.stack = []
-  world.branches = []
+  /* T8 and T9 merged earlier. Alice's T10 started on v1 and is working; Maya's T11 is queued and has not started. */
+  world.todos = world.todos.filter(each => each.id === "t-checkout" || each.id === "t-log")
+  world.stack = ["t-checkout", "t-log"]
+  world.branches = world.branches.filter(each => each.id === "b-checkout" || each.id === "b-log")
+  Object.assign(todo(world, "t-checkout"), { steps: stepsOf(V1_STEPS), flowVersion: "v1", elapsed: "6m" })
+  Object.assign(todo(world, "t-log"), { queue: undefined })
+  Object.assign(branch(world, "b-log"), { machine: "asleep", waitPosition: undefined })
   world.files = []
   world.mergedSinceLook = 0
-  world.flowVersions = [version("v1", "flows/todo/flow.ts · main", "active", stepsOf(V1_STEPS))]
+  world.flowVersions = [version("v1", "v1 · flows/todo/flow.ts · main", "active", stepsOf(V1_STEPS))]
   world.flow = stepsOf(V1_STEPS)
   return state
 }
@@ -60,179 +74,233 @@ export const j5: Journey = {
   id: "j5",
   title: "Teach the factory",
   spec: "J5",
-  intro: "Maya, the owner, wants a new rule for every TODO. She tells the app agent.",
+  intro: "Maya, the owner, wants a new rule for every TODO. Alice's T10 is already working on the current TODO flow, v1.",
   viewers: [MAYA],
   setup,
   steps: [
     {
-      caption: "She types the rule. The app agent opens the TODO flow with the change proposed: pnpm test in Verify, and a new Changelog step.",
-      keys: "⌘ K", typing: { into: "composer", text: RULE }, hold: 3200,
+      spec: "J5.2",
+      caption: "She types the rule. The app agent commits nothing: it proposes v2 of the TODO flow and drafts a TODO, placed before T10.",
+      keys: "⌘ K", typing: { into: "composer", text: RULE }, hold: 3800,
       pre: state => { state.viewers[MAYA]!.composerOpen = true },
       act: state => {
         const { world } = state
         say(state, MAYA, RULE)
-        startOn(state, { id: "t-flow", title: "Run pnpm test and update the changelog", owner: MAYA, branch: "b-flow", state: "working", prompt: RULE, elapsed: "0m" },
-          "todo-flow-changelog", "plan")
-        world.files.push({ path: FLOW_FILE, branch: "b-flow", lines: flowSource() })
-        edit(state, FLOW_FILE, ORDER_LINE, ORDER_EDIT, MAYA_VIA_SMITHERS)
-        edit(state, FLOW_FILE, VERIFY_LINE, VERIFY_EDIT, MAYA_VIA_SMITHERS)
-        world.flowVersions.push(version("v2", "flows/todo/flow.ts · todo-flow-changelog", "proposed", stepsOf(V2_STEPS, ["verify", "changelog"], state.seq), "t-flow"))
-        reply(state, MAYA, "Proposed as a TODO.")
+        world.flowVersions.push(version("v2", "v2 · flows/todo/flow.ts · proposed", "proposed", stepsOf(V2_STEPS, ["verify", "changelog"], state.seq), undefined, SMITHERS_FOR_MAYA))
+        world.drafts.push({ id: DRAFT, ...FLOW_DRAFT, fixes: false, place: { kind: "before", id: "t-checkout" } })
+        /* The draft, then the version it proposes, labeled Proposed: a preview, not an edit. */
+        showCard(state, MAYA, "draft", DRAFT)
         showCard(state, MAYA, "flow", "todo", "v2")
       }
     },
     {
-      caption: "Here is the edit as a diff of flows/todo/flow.ts. It is already a TODO like any other, working on its own branch.",
-      hold: 3000,
+      spec: "J5.3",
+      caption: "She presses Commit, the one-click confirmation. Only now is it a TODO: T12, first in the stack.",
+      target: '[data-mock="draft-commit"]', hold: 2800,
       act: state => {
-        showCard(state, MAYA, "diff", FLOW_FILE)
-        setTodo(state, "t-flow", { step: "implement", elapsed: "1m" })
-        branch(state.world, "b-flow").presence = [{ who: "agent:b-flow", where: { kind: "step", step: "implement" } }]
-        showCard(state, MAYA, "todo", "t-flow")
-        // Meanwhile Alice starts a TODO. The change isn't merged, so it runs on the active version.
-        startOn(state, { ...structuredClone(CHECKOUT), elapsed: "0m" }, "fix-checkout-race", "plan")
+        const { world } = state
+        world.todos.push({ ...FLOW_TODO, steps: stepsOf(V1_STEPS), flowVersion: "v1", seq: state.seq })
+        world.stack = [FLOW_TODO.id, ...world.stack]
+        world.branches.push({ id: "b-flow", name: "todo-flow-changelog", item: FLOW_TODO.id, from: "main", machine: "waking", presence: [], activity: [], terminals: [] })
+        world.drafts.find(each => each.id === DRAFT)!.committed = FLOW_TODO.id
+        setVersion(state, "v2", { todo: FLOW_TODO.id, label: "v2 · flows/todo/flow.ts · T12" })
+        stackOp(state, "b-flow", "Placed T12 before T10", SMITHERS_FOR_MAYA)
+        showCard(state, MAYA, "todo", FLOW_TODO.id)
       }
     },
     {
-      caption: "It runs on the current flow and opens PR #89. Its checks pass, and the edited flow loads.",
-      hold: 2800,
+      spec: "§3.1",
+      caption: "She opens T12's branch. Its coding agent read the flow file and is editing it.",
+      target: '[data-mock="branch-t-flow"]', hold: 2800,
       act: state => {
-        setTodo(state, "t-flow", { state: "in-review", step: undefined, elapsed: undefined, pr: 89, evidence: FLOW_EVIDENCE })
+        navigate(state, MAYA, "b-flow")
+        state.world.files.push({ path: FLOW_FILE, branch: "b-flow", lines: flowSource() })
+        setTodo(state, FLOW_TODO.id, { state: "working", step: "implement", elapsed: "1m" })
+        agentAt(state, "b-flow", "implement")
+        present(state, "b-flow", MAYA, { kind: "branch" })
+        present(state, "b-flow", CODING, { kind: "file", path: FLOW_FILE, line: ORDER_LINE })
+        openFile(state, FLOW_FILE, CODING, ORDER_LINE)
+        context(state, "b-flow", CODING, ["T12 prompt", "@smthrs/flow docs"])
+        read(state, "b-flow", CODING, [FLOW_FILE])
+        activity(state, "b-flow", CODING, "step", "Planned: Changelog before Propose, and the full pnpm test", "ok")
+      }
+    },
+    {
+      spec: "B.3",
+      caption: "The coding agent makes the edit the way a teammate does: its flag on line 7, its characters arriving live.",
+      target: '[data-mock="where-agent:b-flow"]', hold: 3000,
+      typing: { into: `line:${FLOW_FILE}:${ORDER_LINE}`, after: ORDER_AFTER, text: ORDER_TYPED, shared: true },
+      pre: state => {
+        showCard(state, MAYA, "file", FLOW_FILE)
+        present(state, "b-flow", MAYA, { kind: "file", path: FLOW_FILE })
+      },
+      act: state => {
+        edit(state, FLOW_FILE, ORDER_LINE, ORDER_EDIT, CODING)
+        edit(state, FLOW_FILE, VERIFY_LINE, VERIFY_EDIT, CODING)
+        activity(state, "b-flow", CODING, "edit", "Edited flow.ts lines 7–8", "ok")
+      }
+    },
+    {
+      spec: "J5.3",
+      caption: "Back in main, T12 has opened PR #89. Its checks pass, and the edited flow loads.",
+      target: '[data-mock="crumb-main"]', hold: 3000,
+      act: state => {
+        navigate(state, MAYA, "main")
+        leave(state, "b-flow", MAYA)
+        file(state.world, FLOW_FILE).editors = []
+        setTodo(state, FLOW_TODO.id, { state: "in-review", step: undefined, elapsed: undefined, pr: 89, evidence: FLOW_EVIDENCE })
         release(state, "b-flow", "asleep")
-        setVersion(state, "v2", { label: "flows/todo/flow.ts · PR #89" })
-        setTodo(state, "t-checkout", { step: "implement", elapsed: "4m" })
+        setTodo(state, "t-checkout", { step: "verify", elapsed: "11m" })
+        agentAt(state, "b-checkout", "verify")
       }
     },
     {
-      caption: "She merges it. Until the install loads it, the Flow card shows Merged · active after sync.",
-      target: '[data-mock="evidence-t-flow"] [data-mock="merge-t-flow"]', hold: 2800,
-      show: [{ viewer: MAYA, target: '[data-mock="card-flow"]' }],
+      spec: "§6.12",
+      caption: "She merges. Until the install loads it, the Flow card reads Merged · active after sync, and a learning run queues.",
+      target: '[data-mock="evidence-t-flow"] [data-mock="merge-t-flow"]', hold: 3200,
       act: state => {
-        setTodo(state, "t-flow", { state: "merged" })
+        setTodo(state, FLOW_TODO.id, { state: "merged" })
         release(state, "b-flow", "closed")
-        setVersion(state, "v2", { state: "merged-syncing", label: "flows/todo/flow.ts · main" })
+        setVersion(state, "v2", { state: "merged-syncing", label: "v2 · flows/todo/flow.ts · main" })
+        run(state, { id: LEARNING, title: LEARNING_TITLE, state: "running", queue: 1, todo: FLOW_TODO.id })
+        toast(state, MAYA, { tone: "running", title: LEARNING_TITLE, detail: "Queued" })
+        showCard(state, MAYA, "flow", "todo")
       }
     },
     {
-      caption: "She asks which TODOs stay on the old version. Alice's started before the merge, so it keeps its steps, without Changelog.",
-      keys: "⌘ K", typing: { into: "composer", text: OLD_QUESTION }, hold: 3200,
-      pre: state => { state.viewers[MAYA]!.composerOpen = true },
-      act: state => {
-        say(state, MAYA, OLD_QUESTION)
-        setTodo(state, "t-checkout", { step: "verify", elapsed: "9m" })
-        branch(state.world, "b-checkout").presence = [{ who: "agent:b-checkout", where: { kind: "step", step: "verify" } }]
-        reply(state, MAYA, "Alice's checkout fix, started before the merge.")
-        showCard(state, MAYA, "todo", "t-checkout")
-      }
-    },
-    {
-      caption: "The install syncs the merge and loads the new flow. The timeline reports it is active.",
-      hold: 2600,
-      show: [{ viewer: MAYA, target: '[data-mock="card-flow"]' }],
+      spec: "J5.3",
+      caption: "The install syncs and loads it: v2 is Active for every TODO that starts from now on. The learning run starts working.",
+      hold: 3200,
       act: state => {
         setVersion(state, "v1", { state: "previous" })
-        setVersion(state, "v2", { state: "active" })
-        toast(state, MAYA, { tone: "ok", title: "TODO flow updated", detail: "#89 is active for new TODOs", action: "Open" })
+        setVersion(state, "v2", { state: "active", steps: stepsOf(V2_STEPS, ["changelog"], state.seq) })
+        state.world.flow = stepsOf(V2_STEPS)
+        start(state, "t-log", "plan", "v2", V2_STEPS)
+        run(state, { id: LEARNING, title: LEARNING_TITLE, state: "running", queue: undefined })
+        toast(state, MAYA, { tone: "running", title: LEARNING_TITLE, detail: "Working" })
+        toast(state, MAYA, { tone: "ok", title: "TODO flow v2 is active", detail: "New TODOs use it" })
+        showCard(state, MAYA, "flow", "todo")
       }
     },
     {
-      caption: "She opens it. The merged version is Active, with its Changelog step.",
-      target: '[data-mock="toast-open"]', hold: 2600,
-      pre: state => { dismissToasts(state, MAYA) },
-      act: state => {
-        setVersion(state, "v2", { steps: stepsOf(V2_STEPS, ["changelog"], state.seq) })
-        showCard(state, MAYA, "flow", "todo", "v2")
-      }
-    },
-    {
-      caption: "She adds a TODO. It starts on the new version, so its steps include Changelog.",
-      keys: "⌘ K", typing: { into: "composer", text: NEW_TODO }, hold: 3000,
+      spec: "J5.4",
+      caption: "T11 started after, so it runs v2, with Changelog. Alice's T10 started before, so it keeps v1.",
+      keys: "⌘ K", typing: { into: "composer", text: WHICH }, hold: 3800,
       pre: state => { state.viewers[MAYA]!.composerOpen = true },
       act: state => {
-        say(state, MAYA, NEW_TODO)
-        state.world.flow = stepsOf(V2_STEPS, ["changelog"], state.seq)
-        startOn(state, { ...structuredClone(LOGGING), queue: undefined, prompt: "Log every webhook retry attempt with its delay.", elapsed: "0m" }, "log-retries", "plan")
-        reply(state, MAYA, "Added to the stack.")
+        say(state, MAYA, WHICH)
+        setTodo(state, "t-log", { step: "implement", elapsed: "3m" })
+        agentAt(state, "b-log", "implement")
+        reply(state, MAYA, "T11 started on v2. T10 started on v1 and keeps it.")
+        showCard(state, MAYA, "todo", "t-checkout")
         showCard(state, MAYA, "todo", "t-log")
       }
     },
     {
-      caption: "Minutes later it reaches the new step, Changelog. Alice's TODO merged on the version it started with.",
-      hold: 2800,
+      spec: "B.4",
+      caption: "T10 fails at Review: the model provider timed out. Its card offers Retry, and Retry with the current flow.",
+      hold: 3200,
       act: state => {
-        setTodo(state, "t-log", { step: "changelog", elapsed: "14m" })
-        branch(state.world, "b-log").presence = [{ who: "agent:b-log", where: { kind: "step", step: "changelog" } }]
+        setTodo(state, "t-checkout", { state: "failed", step: "review", failure: "Model provider timed out", elapsed: undefined })
+        release(state, "b-checkout", "asleep")
+        setTodo(state, "t-log", { step: "verify", elapsed: "7m" })
+        agentAt(state, "b-log", "verify")
+        showCard(state, MAYA, "todo", "t-checkout")
+      }
+    },
+    {
+      spec: "§4.1",
+      caption: "She presses Retry. T10 queues again, as attempt 2.",
+      target: '[data-mock="retry-t-checkout"]', hold: 2400,
+      pre: state => { dismissToasts(state, MAYA) },
+      act: state => {
+        setTodo(state, "t-checkout", { state: "queued", step: undefined, failure: undefined, attempts: 2 })
+        showCard(state, MAYA, "todo", "t-checkout")
+      }
+    },
+    {
+      spec: "§6.12",
+      caption: "Attempt 2 runs v1 again, still without Changelog, while T11 reaches Changelog on v2. A retry keeps its flow.",
+      hold: 3400,
+      act: state => {
+        const { world } = state
+        setTodo(state, "t-checkout", { state: "working", step: "plan", elapsed: "0m" })
+        agentAt(state, "b-checkout", "plan")
+        setTodo(state, "t-log", { step: "changelog", elapsed: "12m" })
+        agentAt(state, "b-log", "changelog")
         activity(state, "b-log", "agent:b-log", "step", "Adding an entry to CHANGELOG.md", "run")
-        setTodo(state, "t-checkout", { state: "merged", step: undefined, elapsed: undefined, pr: 90, lessons: 2 })
-        release(state, "b-checkout", "closed")
+        /* Meanwhile the learning run finishes: one lesson in the wiki, and one suggestion. */
+        world.wiki.push(lessonPage(state.seq))
+        world.proposals.push({ id: LEARNING, ...LINT_SUGGESTION })
+        run(state, { id: LEARNING, title: LEARNING_TITLE, state: "done", detail: "1 lesson · 1 suggestion", lessons: [LESSON_PAGE] })
+        setTodo(state, FLOW_TODO.id, { lessons: 1 })
+        toast(state, MAYA, { tone: "ok", title: LEARNING_TITLE, detail: "1 lesson · 1 suggestion", action: "Open" })
+        showCard(state, MAYA, "todo", "t-checkout")
       }
     },
     {
-      caption: "Later it merges too, and the learning run after #91 suggests a change to the flow.",
-      hold: 2800,
-      act: state => {
-        setTodo(state, "t-log", { state: "merged", step: undefined, elapsed: undefined, pr: 91, lessons: 2 })
-        release(state, "b-log", "closed")
-        run(state, { id: "learn-91", title: "Learning from #91", state: "done", detail: "1 suggestion" })
-        state.world.proposals.push({ id: "p-lint", title: "Add lint to the Verify step", evidence: "3 of the last 5 TODOs failed lint at Review.", refs: [88, 90, 91] })
-        toast(state, MAYA, { tone: "attention", title: "Learning suggests a flow change", detail: "Add lint to the Verify step", action: "Open" })
-      }
-    },
-    {
-      caption: "The suggestion carries its evidence: 3 of the last 5 TODOs failed lint at Review.",
-      target: '[data-mock="toast-open"]', hold: 2800,
+      spec: "B.5",
+      caption: "Meanwhile the learning run finished. Its receipt links the lesson it wrote, and suggests lint in Verify with its evidence.",
+      target: '[data-mock="toast-open"]', hold: 3800,
       pre: state => { dismissToasts(state, MAYA) },
-      act: state => { showCard(state, MAYA, "proposal", "p-lint") }
+      act: state => { showCard(state, MAYA, "proposal", LEARNING) }
     },
     {
-      caption: "She makes it a TODO. Like her own change, a person has to merge it.",
-      target: '[data-mock="proposal-todo-p-lint"]', hold: 2600,
+      spec: "B.4",
+      caption: "She makes it a TODO. The receipt now reads Committed as T13, and a person still merges it.",
+      target: `[data-mock="proposal-todo-${LEARNING}"]`, hold: 3000,
       act: state => {
-        startOn(state, { id: "t-lint", title: "Add lint to the Verify step", owner: MAYA, branch: "b-lint", state: "working", prompt: "Run pnpm lint in the TODO flow's Verify step.", elapsed: "0m" },
-          "todo-flow-lint", "plan")
-        state.world.proposals.find(each => each.id === "p-lint")!.todo = "t-lint"
-        state.world.flowVersions.push(version("v3", "flows/todo/flow.ts · todo-flow-lint", "proposed", stepsOf(V3_STEPS), "t-lint"))
-        showCard(state, MAYA, "todo", "t-lint")
+        const { world } = state
+        world.todos.push({ ...LINT_TODO, seq: state.seq })
+        world.stack.push(LINT_TODO.id)
+        world.branches.push({ id: "b-lint", name: "todo-flow-lint", item: LINT_TODO.id, from: "main", machine: "asleep", presence: [], activity: [], terminals: [] })
+        world.proposals.find(each => each.id === LEARNING)!.todo = LINT_TODO.id
+        world.flowVersions.push(version("v3", "v3 · flows/todo/flow.ts · T13", "proposed", stepsOf(V3_STEPS), LINT_TODO.id, STACK))
+        showCard(state, MAYA, "todo", LINT_TODO.id)
       }
     },
     {
-      caption: "It opens PR #92 with its evidence.",
-      hold: 2400,
-      act: state => {
-        setTodo(state, "t-lint", { state: "in-review", step: undefined, elapsed: undefined, pr: 92, evidence: LINT_EVIDENCE })
-        release(state, "b-lint", "asleep")
-        setVersion(state, "v3", { label: "flows/todo/flow.ts · PR #92" })
-      }
-    },
-    {
-      caption: "She merges it.",
-      target: '[data-mock="evidence-t-lint"] [data-mock="merge-t-lint"]', hold: 2200,
-      act: state => {
-        setTodo(state, "t-lint", { state: "merged" })
-        release(state, "b-lint", "closed")
-        setVersion(state, "v3", { state: "merged-syncing", label: "flows/todo/flow.ts · main" })
-      }
-    },
-    {
-      caption: "Once it loads, Verify runs lint for every new TODO. Later, Maya's next TODO opens PR #93.",
+      spec: "J5.5",
+      caption: "Later, T10 and T11 merge. T13, started on v2, opens PR #92 and is next to merge.",
       hold: 3000,
-      show: [{ viewer: MAYA, target: '[data-mock="card-flow"]' }],
       act: state => {
-        setVersion(state, "v2", { state: "previous" })
-        setVersion(state, "v3", { state: "active", steps: stepsOf(V3_STEPS, ["verify"], state.seq) })
-        state.world.flow = stepsOf(V3_STEPS)
-        startOn(state, { id: "t-next", title: "Add an audit log for refunds", owner: MAYA, branch: "b-next", state: "working",
-          prompt: "Record every refund in an audit log: who, when, amount and reason." }, "refund-audit-log", "propose")
-        setTodo(state, "t-next", { state: "in-review", step: undefined, pr: 93, evidence: NEXT_EVIDENCE })
-        release(state, "b-next", "asleep")
-        toast(state, MAYA, { tone: "ok", title: "PR #93 is ready for review", detail: "Add an audit log for refunds", action: "Open" })
+        for (const [id, pr] of [["t-checkout", 90], ["t-log", 91]] as const) {
+          setTodo(state, id, { state: "merged", step: undefined, elapsed: undefined, pr, lessons: 1 })
+          release(state, todo(state.world, id).branch, "closed")
+          run(state, { id: `learn-${pr}`, title: `Learning from #${pr}`, state: "done", detail: "1 lesson", todo: id })
+        }
+        setTodo(state, LINT_TODO.id, { state: "in-review", pr: 92, evidence: LINT_EVIDENCE, steps: stepsOf(V2_STEPS), flowVersion: "v2" })
+        showCard(state, MAYA, "todo", LINT_TODO.id)
       }
     },
     {
-      caption: "Lint passed at Verify on the first run, so Review had nothing to send back.",
-      target: '[data-mock="toast-open"]', hold: 3200,
-      pre: state => { dismissToasts(state, MAYA) },
-      act: state => { showCard(state, MAYA, "todo", "t-next") }
+      spec: "J5.5",
+      caption: "She merges T13. Once the install loads it, v3 is Active, and Verify runs lint.",
+      target: '[data-mock="evidence-t-lint"] [data-mock="merge-t-lint"]', hold: 3200,
+      act: state => {
+        setTodo(state, LINT_TODO.id, { state: "merged" })
+        release(state, "b-lint", "closed")
+        setVersion(state, "v2", { state: "previous" })
+        setVersion(state, "v3", { state: "active", label: "v3 · flows/todo/flow.ts · main", steps: stepsOf(V3_STEPS, ["verify"], state.seq) })
+        state.world.flow = stepsOf(V3_STEPS)
+        run(state, { id: "learn-92", title: "Learning from #92", state: "running", todo: LINT_TODO.id })
+        toast(state, MAYA, { tone: "running", title: "Learning from #92", detail: "Working" })
+        showCard(state, MAYA, "flow", "todo", "v3")
+      }
+    },
+    {
+      spec: "J5.5",
+      caption: "Later she opens her next TODO, T14. It ran v3: lint passed at Verify the first time, so Review sent nothing back.",
+      keys: "⌘ K", typing: { into: "composer", text: "/todo T14" }, hold: 3800,
+      pre: state => { state.viewers[MAYA]!.composerOpen = true },
+      act: state => {
+        const { world } = state
+        say(state, MAYA, "/todo T14")
+        world.todos.push({ ...NEXT_TODO, steps: stepsOf(V3_STEPS), flowVersion: "v3", evidence: NEXT_EVIDENCE, seq: state.seq })
+        world.stack.push(NEXT_TODO.id)
+        world.branches.push({ id: "b-next", name: "refund-audit-log", item: NEXT_TODO.id, from: "main", machine: "asleep", presence: [], activity: [], terminals: [] })
+        showCard(state, MAYA, "todo", NEXT_TODO.id)
+      }
     }
   ]
 }

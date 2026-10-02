@@ -16,7 +16,7 @@ export const TerminalCard = ({ id, target }: { readonly id: string; readonly tar
   const { world, seq } = frame.state
   const session = terminalOf(world, target)
   const branch = branchOf(world, session.branch)
-  /* A session the person's own agent runs ("Ben via Smithers") is still theirs to type into. */
+  /* A session an agent runs for the person ("Smithers for Ben") is still theirs to type into. */
   const mine = frame.me === session.owner || via(session.owner)?.person === frame.me
   const prompt = session.prompt ?? `${session.owner.startsWith("agent") ? "agent" : member(world, session.owner)?.name.split(" ")[0]?.toLowerCase() ?? "you"}@${branch.name} $`
   const typed = typedOr(frame, `terminal:${session.id}`, "")

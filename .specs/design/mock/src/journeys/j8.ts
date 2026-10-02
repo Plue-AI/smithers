@@ -6,7 +6,7 @@
  * TODO was queued before the edit; it plans once a machine frees, so its plan
  * cites and follows r2, the page as it is when the plan runs (§6.9, §6.11).
  */
-import type { Journey } from "../journey"
+import { cite, type Journey } from "../journey"
 import {
   activity, branch, context, navigate, present, read, run, setTodo, settle, showCard, STACK, toast, todo, wikiEdit, wikiOpen, wikiPage, wikiSave,
   type Evidence, type State, type WikiPage
@@ -87,7 +87,7 @@ export const j8: Journey = {
   intro: "Maya and Alice in main's conversation. T9's PR #214 is next to merge, and Alice's Slack TODO waits for a machine.",
   viewers: [MAYA, ALICE],
   setup,
-  steps: [
+  steps: cite(["J8.1", "J8.1", "J8.1", "J8.1", "J8.2", "J8.2", "J8.2", "§4.1", "J8.3", "J8.3", "J8.3", "§6.11"], [
     {
       caption: "T9 is green and next to merge. Maya merges #214, and a learning run starts in the background.",
       viewer: MAYA, target: '[data-mock="evidence-t-retry"] [data-mock="merge-t-retry"]', hold: 2600,
@@ -199,5 +199,5 @@ export const j8: Journey = {
       viewer: MAYA, target: '[data-mock="wiki-cited-t-slack"]', hover: true, hold: 3000,
       act: () => {}
     }
-  ]
+  ])
 }

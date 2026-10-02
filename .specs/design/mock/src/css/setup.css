@@ -231,6 +231,41 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 /* A row that just changed washes its name, never the avatar, whose colour is the person. */
 .mvp-members > li[data-fresh] > .mvp-member-name,
 .mvp-members > li[data-fresh] > .mvp-member-login { animation: mvp-arrive 2.4s var(--ease-current); }
+/*
+ * Narrow: each person gets a row of their own, the login under the name, so
+ * the role and Remove stay on screen. A row's children, in order: avatar,
+ * name, login, access, role, Remove (an empty span where one doesn't apply).
+ */
+[data-kind="members"] .smithers-card-body { container-type: inline-size; }
+@container (max-width: 460px) {
+	.mvp-members { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+	/* Fixed role and Remove columns keep every row's controls in line. */
+	.mvp-members > li {
+		display: grid;
+		grid-template-areas: "avatar name role remove" "avatar login role remove" ". access access access";
+		grid-template-columns: 24px minmax(0, 1fr) 120px 68px;
+		align-items: center;
+		gap: 0 10px;
+	}
+	.mvp-members > li > :nth-child(1) { grid-area: avatar; align-self: start; margin-top: 2px; }
+	.mvp-members > li > :nth-child(2) { overflow: hidden; grid-area: name; text-overflow: ellipsis; white-space: nowrap; }
+	.mvp-members > li > :nth-child(3) { overflow: hidden; grid-area: login; text-overflow: ellipsis; white-space: nowrap; }
+	.mvp-members > li > :nth-child(4) { grid-area: access; }
+	.mvp-members > li > :nth-child(5) { grid-area: role; justify-self: start; }
+	.mvp-members > li > :nth-child(6) { grid-area: remove; justify-self: end; }
+	.mvp-members > li > :empty { display: none; }
+}
+/* Narrow Secrets: a secret's Replace and Delete wrap under it, and the add form takes two lines. */
+[data-kind="secrets"] .smithers-card-body { container-type: inline-size; }
+.mvp-scope { white-space: nowrap; }
+@container (max-width: 460px) {
+	.mvp-secrets > li { flex-wrap: wrap; row-gap: 2px; }
+	.mvp-secrets code { min-width: 0; }
+	.mvp-secrets .mvp-actions-end { margin-left: auto; }
+	.mvp-secret-add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+	.mvp-secret-add > .mvp-scope { justify-self: start; }
+	.mvp-secret-add > :last-child { justify-self: end; }
+}
 /* A row that wraps (Models with a failed key) keeps its label on the first line. */
 .mvp-settings { align-items: baseline; }
 /* This Mac: who can reach the install, then its address and memory on one line. */

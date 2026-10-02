@@ -351,10 +351,6 @@ button.mvp-branch-chip:hover {
 .mvp-filter:disabled .mvp-glyph {
 	opacity: 0.45;
 }
-.mvp-filter[data-state="needs-you"]:not(:disabled) {
-	border-color: var(--attention-border);
-	background: var(--attention-wash);
-}
 .mvp-filter:not(:disabled):hover {
 	border-color: var(--border-strong);
 }
