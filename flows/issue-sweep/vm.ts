@@ -45,10 +45,11 @@ import { pooled } from "./vm-pool.ts"
  * `MSB_PATH` is left alone.
  */
 export const niceWrapper = fileURLToPath(new URL("./msb-nice.sh", import.meta.url))
-if (process.env.MSB_PATH === undefined) {
+const configureMachine = (sdk: MicrosandboxSandbox.Sdk): void => {
+  if (sdk !== Microsandbox || process.env.MSB_PATH !== undefined) return
   // The SDK's platform package sits beside it, as Node resolution finds it.
-  const sdk = fileURLToPath(new URL("..", import.meta.resolve("microsandbox")))
-  const platform = join(dirname(sdk), "@superradcompany", `microsandbox-${process.platform}-${process.arch}`)
+  const sdkRoot = fileURLToPath(new URL("..", import.meta.resolve("microsandbox")))
+  const platform = join(dirname(sdkRoot), "@superradcompany", `microsandbox-${process.platform}-${process.arch}`)
   const bundled = join(platform, "bin", "msb")
   if (!existsSync(bundled)) throw new Error(`issue-sweep vm: no bundled msb at ${bundled}`)
   // msb looks for libkrunfw beside the binary MSB_PATH names, which is now the wrapper.
@@ -58,6 +59,17 @@ if (process.env.MSB_PATH === undefined) {
   process.env.MSB_LIBKRUNFW_PATH ??= join(platform, "lib", krunfw)
   process.env.MSB_PATH = niceWrapper
 }
+
+const prepareMachine = (sdk: MicrosandboxSandbox.Sdk) =>
+  Effect.try({
+    try: () => configureMachine(sdk),
+    catch: (cause) =>
+      new RemoteChildProcessSpawner.ProviderError({
+        code: "unavailable",
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause
+      })
+  })
 
 /** The guest checkout the work flow edits, the same path CloudSandbox uses. */
 export const guestCheckout = "/home/developer/workspace"
@@ -285,7 +297,10 @@ export const latestImage = (
   sdk: MicrosandboxSandbox.Sdk
 ): Effect.Effect<string, RemoteChildProcessSpawner.ProviderError> =>
   Effect.tryPromise({
-    try: () => sdk.Snapshot.list(),
+    try: () => {
+      configureMachine(sdk)
+      return sdk.Snapshot.list()
+    },
     catch: (cause) =>
       new RemoteChildProcessSpawner.ProviderError({
         code: "unavailable",
@@ -341,6 +356,7 @@ export const make = (options: Options = {}): Sandbox.Provider & { readonly slots
     })
   const acquire: Sandbox.Provider["acquire"] = (sessionKey) =>
     Effect.gen(function*() {
+      yield* prepareMachine(sdk)
       // Held until machine teardown finishes, including a last-reference pool close.
       yield* Effect.acquireRelease(vmSlots.take(1), () => vmSlots.release(1))
       yield* makeDiskGate({
@@ -492,6 +508,7 @@ export const makeJob = (options: Options = {}): Sandbox.Provider & { readonly sl
         yield* Effect.acquireRelease(slots.take(1), () => slots.release(1))
         while (true) {
           const session = yield* admissions.withPermits(1)(Effect.gen(function*() {
+            yield* prepareMachine(sdk)
             let retained = yield* jobMachines(sdk)
             const existing = retained.find(({ labels }) => labels["issue-sweep.job"] === key)
             if (existing !== undefined) {
@@ -579,6 +596,7 @@ export const reapOrphans = (
   status?: (execution: string) => Effect.Effect<string | undefined, unknown>
 ) =>
   Effect.gen(function*() {
+    yield* prepareMachine(sdk)
     const store = yield* Effect.serviceOption(RunStore.RunStore)
     const lookup = status ?? ((execution: string) =>
       Option.isSome(store)
@@ -610,6 +628,7 @@ export const buildImage = (
   sdk: MicrosandboxSandbox.Sdk = Microsandbox
 ) =>
   Effect.gen(function*() {
+    yield* prepareMachine(sdk)
     const builder = MicrosandboxSandbox.make({
       sdk,
       image: baseImage,

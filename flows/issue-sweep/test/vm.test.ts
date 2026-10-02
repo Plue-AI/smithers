@@ -324,15 +324,13 @@ test("bootConcurrency boots at most that many microVMs at once while maxVms admi
 })
 
 // #3328: busy guests starved the flow host's run-lease heartbeat and parked the sweep.
-test("microVMs run through the nice wrapper at nice 10, below the flow host", () => {
-  assert.equal(process.env.MSB_PATH, niceWrapper)
-  const real = process.env.ISSUE_SWEEP_MSB ?? ""
-  assert.match(real, /microsandbox-.*\/bin\/msb$/)
+test("microVMs run through the nice wrapper ten priority levels below the flow host", () => {
+  const hostNice = Number(execFileSync("ps", ["-o", "nice=", "-p", String(process.pid)], { encoding: "utf8" }).trim())
   const nice = execFileSync(niceWrapper, ["-c", "ps -o nice= -p $$"], {
     encoding: "utf8",
     env: { ...process.env, ISSUE_SWEEP_MSB: "/bin/sh" }
   }).trim()
-  assert.equal(Number(nice), 10)
+  assert.equal(Number(nice), Math.min(process.platform === "darwin" ? 20 : 19, hostNice + 10))
 })
 
 // run-4: 23 guests took the host from 46 to 20 GiB free in half an hour.
@@ -927,4 +925,64 @@ test("new durable admission uses ambient RunStore to reap terminal execution bef
   assert.equal(fake.live.size, 1)
   await newJob.close()
   await Effect.runPromise(restarted.destroy!(newJob.session))
+})
+
+// Flow discovery and packing must work without a local machine binary.
+test("loading and constructing providers leave machine configuration untouched", () => {
+  const code = `
+    import assert from "node:assert/strict"
+    import fs from "node:fs"
+    import { syncBuiltinESMExports } from "node:module"
+    const sdk = await import(${JSON.stringify(import.meta.resolve("microsandbox"))})
+    const exists = fs.existsSync
+    const readDirectory = fs.readdirSync
+    let machineChecks = 0
+    fs.existsSync = (path) => {
+      if (String(path).endsWith("/bin/msb")) { machineChecks++; return false }
+      return exists(path)
+    }
+    syncBuiltinESMExports()
+    const vm = await import(${JSON.stringify(new URL("../vm.ts", import.meta.url).href)})
+    vm.make()
+    vm.makeJob()
+    vm.provider()
+    vm.jobProvider()
+    assert.equal(process.env.MSB_PATH, undefined)
+    assert.equal(process.env.ISSUE_SWEEP_MSB, undefined)
+    assert.equal(process.env.MSB_LIBKRUNFW_PATH, undefined)
+    assert.equal(machineChecks, 0)
+    const { Effect } = await import(${JSON.stringify(import.meta.resolve("effect"))})
+    const step = vm.latestImage(sdk)
+    assert.equal(machineChecks, 0)
+    await assert.rejects(Effect.runPromise(step), /snapshots could not be listed/)
+    assert.equal(machineChecks, 1)
+    const { RemoteChildProcessSpawner } = await import(${JSON.stringify(import.meta.resolve("@smthrs/sandbox"))})
+    const refusal = await Effect.runPromise(Effect.scoped(vm.make({ snapshot: "test" }).acquire("test")).pipe(Effect.flip))
+    assert.ok(refusal instanceof RemoteChildProcessSpawner.ProviderError)
+    assert.equal(refusal.code, "unavailable")
+    assert.match(refusal.message, /no bundled msb/)
+    assert.equal(machineChecks, 2)
+    assert.equal(process.env.MSB_PATH, undefined)
+    fs.existsSync = (path) => String(path).endsWith("/bin/msb") || exists(path)
+    fs.readdirSync = (path, ...options) => String(path).includes("microsandbox-")
+      ? ["libkrunfw.test"] : readDirectory(path, ...options)
+    syncBuiltinESMExports()
+    sdk.Snapshot.list = async () => []
+    await assert.rejects(Effect.runPromise(vm.latestImage(sdk)), /no issue-sweep snapshot/)
+    assert.equal(process.env.MSB_PATH, vm.niceWrapper)
+    assert.match(process.env.ISSUE_SWEEP_MSB, /microsandbox-.*\\/bin\\/msb$/)
+    assert.match(process.env.MSB_LIBKRUNFW_PATH, /libkrunfw.test$/)
+    process.env.MSB_PATH = "/operator/msb"
+    await assert.rejects(Effect.runPromise(vm.latestImage(sdk)), /no issue-sweep snapshot/)
+    assert.equal(process.env.MSB_PATH, "/operator/msb")
+  `
+  const env = { ...process.env }
+  delete env.MSB_PATH
+  delete env.ISSUE_SWEEP_MSB
+  delete env.MSB_LIBKRUNFW_PATH
+  execFileSync(
+    process.execPath,
+    [...process.execArgv.filter((arg) => arg !== "--test"), "--input-type=module", "--eval", code],
+    { env }
+  )
 })
