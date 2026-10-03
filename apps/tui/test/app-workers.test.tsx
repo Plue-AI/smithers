@@ -4,7 +4,7 @@ import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
@@ -70,7 +70,8 @@ const command = async (text: string) => {
   await key("RETURN")
 }
 const request = { id: "review", title: "Review one file", prompt: "Review src/one.ts only." }
-const delegate = async (input: Host.TurnInput, value = request) => {
+type Delegation = Parameters<NonNullable<NonNullable<Host.TurnInput["runtime"]>["delegate"]>>[0]
+const delegate = async (input: Host.TurnInput, value: Delegation = request) => {
   let receipt: unknown
   await act(async () => {
     receipt = input.runtime!.delegate!(value)
@@ -670,7 +671,7 @@ test("an agent's queue stays in its tab, and Chat's in Chat", async () => {
   expect(turns.at(-1)!.input).toMatchObject({ prompt: "Chat follow-up", seat: "replay:chat" })
 })
 
-test("a queued worker retains its message and never reroutes it to Chat", async () => {
+test("Enter on an agent waiting for a seat queues for after it finishes, never to Chat", async () => {
   for (let index = 0; index < seats; index++) {
     await delegate(turns[0]!.input, {
       id: `active-${index}`,
@@ -681,17 +682,63 @@ test("a queued worker retains its message and never reroutes it to Chat", async 
   await delegate(turns[0]!.input, { id: "queued", title: "Queued review", prompt: "Review the queued file." })
   await palette("tab:Queued review")
   expect(tabs().findLast((record) => record.tab.id === "queued")!.tab.status).toBe("queued")
+  expect(frame()).toContain("enter Queue  esc Chat")
   await type("Keep this with the queued review")
   await key("RETURN")
-  expect(composer().plainText).toBe("Keep this with the queued review")
-  expect(frame()).toContain("Queued review is not running")
+  expect(composer().plainText).toBe("")
+  expect(frame()).toContain("Follow-up: Keep this with the queued review")
   expect(turns).toHaveLength(seats + 1)
-  expect(Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts).toEqual(
-    []
-  )
+  expect(steered(0, "chat-cell")).toEqual([])
   expect(records().filter((record) => record.type === "user").map((record) => record.text))
     .not.toContain("Keep this with the queued review")
+  await finish(1, { _tag: "done", answer: "Done" })
+  await until(() => turns.some((turn) => turn.input.prompt === "Review the queued file."))
+  const started = turns.findIndex((turn) => turn.input.prompt === "Review the queued file.")
+  expect(steered(started, "worker-cell")).toEqual([])
+  await finish(started, { _tag: "done", answer: "Queued reviewed" })
+  await until(() => turns.some((turn) => turn.input.prompt === "Keep this with the queued review"))
+  expect(turns.find((turn) => turn.input.prompt === "Keep this with the queued review")!.input.source).toBe("queued")
 })
+
+test.each(["codex", "claude"] as const)(
+  "Enter in a running wrapped %s agent queues the message and hands it to the vendor once its run completes",
+  async (vendor) => {
+    const saved = {
+      PATH: process.env.PATH,
+      FAKE_VENDOR_LOG: process.env.FAKE_VENDOR_LOG,
+      FAKE_VENDOR_PAUSE: process.env.FAKE_VENDOR_PAUSE
+    }
+    const log = join(root, "vendor.log")
+    process.env.PATH = `${join(import.meta.dir, "fixtures", "vendor")}:${saved.PATH}`
+    process.env.FAKE_VENDOR_LOG = log
+    process.env.FAKE_VENDOR_PAUSE = "0.6"
+    const launches = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : []
+    try {
+      await delegate(turns[0]!.input, { id: "wrapped", title: "Wrapped review", prompt: "Fix it.", harness: vendor })
+      await until(() => launches().length === 1)
+      await key("ARROW_RIGHT", { ctrl: true })
+      await key("ARROW_RIGHT", { ctrl: true })
+      expect(frame()).toContain("Continue Fix it.")
+      expect(frame()).toContain("enter Queue  esc Chat")
+      await type("Then add a test")
+      await key("RETURN")
+      expect(composer().plainText).toBe("")
+      expect(frame()).toContain("Follow-up: Then add a test")
+      expect(launches()).toHaveLength(1)
+      expect(launches()[0]).toContain("<<< Fix it.")
+      await until(() => launches().length === 2, 10_000)
+      expect(launches()[1]).toContain("<<< Then add a test")
+      expect(frame()).not.toContain("Follow-up:")
+      expect(steered(0, "chat-cell")).toEqual([])
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  },
+  20_000
+)
 
 test("Escape after Chat timeline inspection restores its scroll and sends to Chat, even when inspection opened a worker", async () => {
   await stream(0, "Earlier chat line\n".repeat(50))

@@ -226,7 +226,7 @@ In the Summary overview **g** draws the selected row's run forest as a graph, le
 
 The footer meter reads `↑input ↓output Rcached window%/size cache hit%`; the hit rate is cached over input tokens and shows only when the provider reports cached tokens.
 
-Agent tabs open with the composer focused. Typing and pasting return to the composer after Tab selects transcript rows. Enter steers a running agent; Alt+Enter queues a message for after it finishes (Alt+Up edits the queue). A stopped agent keeps its queue. Alt+A opens an agent's answer form; Alt+X requests Stop and Enter confirms it once for that run. Esc returns to Chat.
+Agent tabs open with the composer focused. Typing and pasting return to the composer after Tab selects transcript rows. Enter steers a running agent; Alt+Enter queues a message for after it finishes (Alt+Up edits the queue). A Claude Code or Codex agent, or one still waiting to start, queues on Enter. A stopped agent keeps its queue. Alt+A opens an agent's answer form; Alt+X requests Stop and Enter confirms it once for that run. Esc returns to Chat.
 
 The bottom timeline shows recorded phases, edits, stalls, and verification
 receipts. It follows running workers while chat stays usable. Inspection reads

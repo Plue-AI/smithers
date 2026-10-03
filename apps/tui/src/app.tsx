@@ -1780,7 +1780,8 @@ export function App(props: AppProps) {
       if (!workspace.drive(driving.id, text)) setStatus(`${driving.title} is not running`, "warning")
       return
     }
-    if (route._tag === "steer" && followUp) {
+    // A wrapped agent reads no steering, and an unstarted one nothing yet: both get it once they finish.
+    if (route._tag === "steer" && (followUp || target!.harness !== undefined || target!.status !== "running")) {
       return enqueue(text, queueScope(target))
     }
     if (route._tag === "steer") {
@@ -2600,12 +2601,12 @@ export function App(props: AppProps) {
     : workerTab !== undefined && !panelFocus && picker === undefined && form === undefined &&
         activeInspection === undefined && reviewTab === undefined
     ? [
-      // Enter continues a finished agent at once; Alt+Enter waits for a working one to finish.
+      // Enter steers a running agent, continues a finished one, and otherwise queues for when it finishes.
       ...steered !== undefined
         ? [...cardHint("steer"), ...cardHint("queue")]
         : continued !== undefined
         ? cardHint("send")
-        : [...cardHint("send"), ...cardHint("queue")],
+        : cardHint("send").map((binding) => ({ ...binding, label: "Queue" })),
       ...cardHint("close-panel"),
       ...cardHint("keys")
     ]
