@@ -7,6 +7,11 @@ import { z } from "incur"
  * @since 0.1.0
  */
 export const definitions = {
+  "host status": {
+    description: "Show host profile and machine limits",
+    args: z.object({}),
+    options: z.object({})
+  },
   "admin alerts channels add": {
     description: "Add an alert channel",
     args: z.object({}),

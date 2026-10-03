@@ -34,15 +34,17 @@ func TestDetectedDependencyPreparationRequestsAgentIdentity(t *testing.T) {
 		t.Run(command[0], func(t *testing.T) {
 			root := t.TempDir()
 			log := filepath.Join(root, "requests")
+			removals := filepath.Join(root, "removals")
 			binary := filepath.Join(root, "msb")
 			script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  remove\ *) echo "$*" >> %s ;;
   *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
   *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
 esac
-`, shellQuote(log), shellQuote(log))
+`, shellQuote(removals), shellQuote(log), shellQuote(log))
 			require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
-			runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
+			runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
 			env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
 			var layer recipe = dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: command}}}
 			if command[0] == "toolchain" {
@@ -50,6 +52,10 @@ esac
 			}
 			_, err := env.buildLayer(t.Context(), layerRecord{Kind: layerDependency, Key: strings.Repeat("a", 64), Name: "layer-fixture"}, layer, "", nil)
 			require.NoError(t, err)
+			removed, err := os.ReadFile(removals)
+			require.NoError(t, err)
+			require.Len(t, strings.Split(strings.TrimSpace(string(removed)), "\n"), 1, "one confirmed cleanup releases the prepare machine")
+			require.Zero(t, runtime.InUse())
 			requests, err := os.ReadFile(log)
 			require.NoError(t, err)
 			found := false
@@ -74,10 +80,11 @@ func TestLayerEnsureReturnsSnapshotBeforeWorkspaceReferencesIt(t *testing.T) {
 	layer := dependencyLayer{DetectorVersion: DetectorVersion}
 	key, _, err := recipeKey("", layer)
 	require.NoError(t, err)
-	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
 	env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute, KeepPerFamily: 1}}
 	name := env.layerName(layerDependency, key)
 	state := filepath.Join(root, "snapshot-created")
+	removals := filepath.Join(root, "removals")
 	binary := filepath.Join(root, "msb")
 	listing, err := json.Marshal([]map[string]string{{"name": name, "artifact_path": artifact}})
 	require.NoError(t, err)
@@ -85,18 +92,23 @@ func TestLayerEnsureReturnsSnapshotBeforeWorkspaceReferencesIt(t *testing.T) {
 	require.NoError(t, err)
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  remove\ *) echo "$*" >> %s ;;
   "snapshot list --format json") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
   "snapshot create "*) touch %s ;;
   "snapshot remove "*) rm %s ;;
   *smthrs-vfy-*run\ exec\ *) cat >/dev/null; printf '%%s' %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
   *run\ exec\ *|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
 esac
-`, shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
+`, shellQuote(removals), shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
 	runtime.cli = &cli{binary: binary, home: root}
 	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
 	require.NoError(t, err)
 	require.Equal(t, name, record.Name)
+	removed, err := os.ReadFile(removals)
+	require.NoError(t, err)
+	require.Len(t, strings.Split(strings.TrimSpace(string(removed)), "\n"), 2, "prepare and verification each have one confirmed cleanup")
+	require.Zero(t, runtime.InUse())
 	_, err = os.Stat(state)
 	require.NoError(t, err, "ensure returned a snapshot it already evicted")
 	_, err = os.Stat(env.recordPath(name))
@@ -126,7 +138,7 @@ func TestWorkspaceLayerHandoffRetainsSnapshotUntilRegistered(t *testing.T) {
 			require.NoError(t, err)
 			tcKey, _, err := recipeKey("", tc)
 			require.NoError(t, err)
-			runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
+			runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
 			env := &environments{runtime: runtime, verified: map[string]bool{}, config: EnvironmentConfig{KeepPerFamily: 1}}
 			runtime.environments = env
 			runtime.BindSourceFiles(&revisionLayerReader{files: files, reads: map[string][]string{}})
@@ -205,7 +217,7 @@ case "$*" in
 esac
 `, shellQuote(log))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
-	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}, workspaces: map[string]*workspace{}}
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}, workspaces: map[string]*workspace{}}
 	env := environments{runtime: runtime, config: EnvironmentConfig{MinFreeBytes: 1 << 62, KeepPerFamily: 1}}
 	parentKey := strings.Repeat("a", 64)
 	parent := layerRecord{Schema: layerSchema, Kind: layerToolchain, Key: parentKey, Name: env.layerName(layerToolchain, parentKey)}
@@ -244,7 +256,7 @@ case "$*" in
 esac
 `, shellQuote(started), shellQuote(gate))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
-	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}, workspaces: map[string]*workspace{}}
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}, workspaces: map[string]*workspace{}}
 	env := environments{runtime: runtime, config: EnvironmentConfig{MinFreeBytes: 1 << 62, KeepPerFamily: 1}}
 	key := strings.Repeat("a", 64)
 	record := layerRecord{Schema: layerSchema, Kind: layerDependency, Key: key, Name: env.layerName(layerDependency, key)}
@@ -839,8 +851,8 @@ case "$*" in
  "snapshot list --format json") echo '[]' ;;
 esac
 `, shellQuote(log), shellQuote(log))), 0755))
-	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
-	runtime.environments = &environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
+	runtime.environments = &environments{runtime: runtime, config: EnvironmentConfig{PrepareCPUs: 2, PrepareMemoryMiB: 2048, PrepareTimeout: time.Minute}}
 	require.NoError(t, os.MkdirAll(runtime.microsandboxHome(), 0o700))
 	runtime.BindSourceFiles(reader)
 	_, resolveErr := runtime.ResolveWorkspaceLayer(t.Context(), workspaceapi.WorkspaceSpec{Source: &workspaceapi.WorkspaceSource{Repository: "fixture", Revision: "branch"}})
@@ -870,8 +882,8 @@ case "$*" in
 esac
 `, shellQuote(log), shellQuote(log), shellQuote(log), shellQuote(log), shellQuote(log))), 0755))
 	manifest := []byte(`{"name":"hostile","version":"1.0.0","scripts":{"install":"touch ROOT-INSTALL","postinstall":"touch ROOT-POSTINSTALL"}}`)
-	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
-	env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
+	env := environments{runtime: runtime, config: EnvironmentConfig{PrepareCPUs: 2, PrepareMemoryMiB: 2048, PrepareTimeout: time.Minute}}
 	layer := dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: []string{"npm", "install", "--package-lock=false"}}}}
 	_, err := env.buildLayer(t.Context(), layerRecord{Kind: layerDependency, Key: strings.Repeat("a", 64), Name: "fixture"}, layer, "warm", map[string][]byte{"package.json": manifest})
 	require.NoError(t, err)
@@ -929,3 +941,68 @@ func TestToolchainWriteTimeDestinationRefusalIsTyped(t *testing.T) {
 	require.Equal(t, "invalid_download_destination", refusal.Code)
 	require.Equal(t, "user", refusal.Class)
 }
+
+func TestLayerCompletedBuildSurvivesCapacityRefusal(t *testing.T) {
+	root := t.TempDir()
+	artifact := filepath.Join(root, ".microsandbox", "snapshot")
+	require.NoError(t, os.MkdirAll(artifact, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(artifact, "disk"), []byte(strings.Repeat("x", 8192)), 0o644))
+	layer := dependencyLayer{DetectorVersion: DetectorVersion}
+	key, _, err := recipeKey("", layer)
+	require.NoError(t, err)
+	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
+	env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute, KeepPerFamily: 1}}
+	name := env.layerName(layerDependency, key)
+	state := filepath.Join(root, "snapshot-created")
+	removals := filepath.Join(root, "removals")
+	binary := filepath.Join(root, "msb")
+	listing, err := json.Marshal([]map[string]string{{"name": name, "artifact_path": artifact}})
+	require.NoError(t, err)
+	marker, err := json.Marshal(map[string]string{"kind": layerDependency, "key": key})
+	require.NoError(t, err)
+	script := fmt.Sprintf(`#!/bin/sh
+request=""
+case "$*" in *run\ exec*) request=$(cat); printf '\000SMITHERS-EXIT 0\000' >&2 ;; esac
+case "$* $request" in
+  remove\ *) echo "$*" >> %s ;;
+  "snapshot list --format json ") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
+  "snapshot create "*) touch %s ;;
+  "snapshot remove "*) rm %s ;;
+  *"cat "*) printf '%%s' %s ;;
+  *run\ root-recipe*|*run\ exec*) :; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+
+esac
+`, shellQuote(removals), shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
+	runtime.cli = &cli{binary: binary, home: root}
+	// spec §8.2.2: a different machine can take capacity between build and verify.
+	runtime.SetCapacityReader(func(context.Context) (int, error) {
+		if _, err := os.Stat(state); err == nil {
+			return 0, nil
+		}
+		return 1, nil
+	})
+	_, err = env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
+	require.ErrorContains(t, err, "capacity reached")
+	require.FileExists(t, state)
+	require.FileExists(t, env.recordPath(name))
+	runtime.SetCapacityReader(nil)
+	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
+	require.NoError(t, err)
+	require.Equal(t, name, record.Name)
+	removed, err := os.ReadFile(removals)
+	require.NoError(t, err)
+	require.Len(t, strings.Split(strings.TrimSpace(string(removed)), "\n"), 2, "prepare and verification each have one confirmed cleanup")
+	require.Zero(t, runtime.InUse())
+	_, err = os.Stat(state)
+	require.NoError(t, err, "ensure returned a snapshot it already evicted")
+	_, err = os.Stat(env.recordPath(name))
+	require.NoError(t, err)
+	// Once handed back and no workspace references it, the cache may evict it.
+	report, err := env.collect(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []string{name}, report.Removed)
+}
+
+// Pause at the internal resolve/create handoff while a concurrent collector
+// applies pressure. No workspace references the returned snapshot yet.

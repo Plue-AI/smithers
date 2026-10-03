@@ -57,6 +57,19 @@ credential; the relay substitutes values only toward the bound hosts and
 masks them out of responses. Stop and delete revoke the binding. A machine
 built before the relay route refuses bindings until its disk is reclaimed.
 
+## Machine limits
+
+The reserve and machine-memory constants are an uncalibrated default (see #3659).
+
+Startup detects memory, performance and physical cores, free disk on the
+state volume, macOS version and Hypervisor availability. Machine and prepare
+sizes, capacity and layer budget use the resource formula in
+[host capacity](../docs/host-capacity.md). Prepare and verification machines
+count against capacity. Sizes must be explicit; there are no fixed VM defaults.
+
+The owner can lower capacity. Every read clamps the setting to this host's
+formula; `smthrs host status` and Settings consume the same host model.
+
 ## Environment layers
 
 A workspace with a `Source` boots from content-addressed snapshots

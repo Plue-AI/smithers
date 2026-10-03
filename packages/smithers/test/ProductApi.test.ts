@@ -91,7 +91,7 @@ describe("the generated product API client", () => {
     // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
     // third-party OAuth application operations. Exact equality above remains
     // independent of this count and every retained operation is exercised below.
-    expect(expected).toHaveLength(496)
+    expect(expected).toHaveLength(498)
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }

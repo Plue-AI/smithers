@@ -165,6 +165,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	}
 
 	appConfig := app.Config{
+		HostProfile:      runtimes.profile,
 		Args:             args,
 		Repository:       local.Client(),
 		Workspace:        workspaceRuntime,

@@ -59,6 +59,8 @@ const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d
 // Config selects the msb binary, the data root holding adapter metadata, the
 // VM shape, and the backend ports a guest may reach through its bridge.
 type Config struct {
+	// HostProfile distinguishes a computed zero capacity from missing sizing.
+	HostProfile *HostProfile
 	// CodingHelper is the packaged Linux arm64 source-publication helper.
 	// The binding installer plants its verified bytes at the fixed guest path.
 	CodingHelper string
@@ -150,15 +152,27 @@ type Runtime struct {
 	environments *environments
 	codingHelper codingHelperCache
 
-	mu         sync.Mutex
-	closed     bool
-	workspaces map[string]*workspace
+	mu             sync.Mutex
+	closed         bool
+	workspaces     map[string]*workspace
+	auxVMs         map[string]struct{}
+	auxCleanup     map[string]struct{}
+	capacityReader func(context.Context) (int, error)
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
 // installation's orphaned machines, and cleans command processes a previous
 // backend process left in running guests.
 func New(ctx context.Context, config Config) (*Runtime, error) {
+	if err := validateSizing(config); err != nil {
+		return nil, err
+	}
+	if config.Environments != nil {
+		if err := config.Environments.validate(config); err != nil {
+			return nil, err
+		}
+	}
+
 	client, err := newCLI(config.Binary)
 	if err != nil {
 		return nil, err
@@ -224,20 +238,8 @@ func applyDefaults(config *Config) {
 	if config.Image == "" {
 		config.Image = DefaultImage
 	}
-	if config.CPUs <= 0 {
-		config.CPUs = 4
-	}
-	if config.MemoryMiB <= 0 {
-		config.MemoryMiB = 8192
-	}
-	if config.DiskMiB <= 0 {
-		config.DiskMiB = 32768
-	}
 	if config.MaxConcurrent <= 0 {
 		config.MaxConcurrent = 32
-	}
-	if config.MaxRunningVMs <= 0 {
-		config.MaxRunningVMs = 3
 	}
 	if config.OutputLimit <= 0 {
 		config.OutputLimit = 4 << 20
@@ -478,6 +480,10 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 	if err != nil {
 		return workspaceapi.Workspace{}, err
 	}
+	maximum, err := r.prepareAdmission(ctx)
+	if err != nil {
+		return workspaceapi.Workspace{}, err
+	}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -487,7 +493,7 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		r.mu.Unlock()
 		return describe(existing), nil
 	}
-	if err := r.admitRunningLocked(); err != nil {
+	if err := r.admitRunningLocked(maximum); err != nil {
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
@@ -533,15 +539,10 @@ func (r *Runtime) forget(ws *workspace) {
 
 // admitRunningLocked refuses to boot beyond the running-VM cap rather than
 // overcommitting the host.
-func (r *Runtime) admitRunningLocked() error {
-	running := 0
-	for _, ws := range r.workspaces {
-		if ws.State == string(workspaceapi.WorkspaceRunning) || ws.State == string(workspaceapi.WorkspaceStarting) {
-			running++
-		}
-	}
-	if running >= r.config.MaxRunningVMs {
-		return fmt.Errorf("microVM capacity reached: %d of %d workspace VMs are running; stop one first", running, r.config.MaxRunningVMs)
+func (r *Runtime) admitRunningLocked(maximum int) error {
+	running := r.inUseLocked()
+	if running >= maximum {
+		return fmt.Errorf("microVM capacity reached: %d of %d machines are in use; stop one first", running, maximum)
 	}
 	return nil
 }
@@ -681,7 +682,30 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, fmt.Errorf("workspace is %s", state)
 	}
-	if err := r.admitRunningLocked(); err != nil {
+	r.mu.Unlock()
+	maximum, err := r.prepareAdmission(ctx)
+	if err != nil {
+		return workspaceapi.Workspace{}, err
+	}
+	r.mu.Lock()
+	// Stop/delete/start may have changed the record while admission did I/O.
+	current, err := r.workspaceLocked(id)
+	if err != nil {
+		r.mu.Unlock()
+		return workspaceapi.Workspace{}, err
+	}
+	ws = current
+	if ws.State == string(workspaceapi.WorkspaceRunning) {
+		described := describe(ws)
+		r.mu.Unlock()
+		return described, nil
+	}
+	if ws.State != string(workspaceapi.WorkspaceStopped) {
+		state := ws.State
+		r.mu.Unlock()
+		return workspaceapi.Workspace{}, fmt.Errorf("workspace is %s", state)
+	}
+	if err := r.admitRunningLocked(maximum); err != nil {
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
@@ -886,6 +910,10 @@ func (r *Runtime) Close() error {
 	r.closed = true
 	var commands []*guestCommand
 	var running []*workspace
+	var auxiliary []string
+	for name := range r.auxCleanup {
+		auxiliary = append(auxiliary, name)
+	}
 	for _, ws := range r.workspaces {
 		commands = append(commands, r.detachProcessesLocked(ws)...)
 		if ws.State == string(workspaceapi.WorkspaceRunning) {
@@ -899,6 +927,9 @@ func (r *Runtime) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var errs []error
+	for _, name := range auxiliary {
+		errs = append(errs, r.finishAuxVM(name))
+	}
 	for _, ws := range running {
 		if err := r.stopMachine(ctx, ws.Machine); err != nil {
 			errs = append(errs, err)

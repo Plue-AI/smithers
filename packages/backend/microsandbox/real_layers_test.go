@@ -59,8 +59,8 @@ func layerRuntime(t *testing.T) *Runtime {
 	if binary == "" || root == "" {
 		t.Skip("SMITHERS_MICROSANDBOX_BIN and SMITHERS_MICROVM_LAYER_ROOT are required for layer builds")
 	}
-	runtime, err := New(context.Background(), Config{Binary: binary, Root: root, CPUs: 4, MemoryMiB: 8192, DiskMiB: 32768,
-		Environments: &EnvironmentConfig{MinFreeBytes: 30 << 30}})
+	runtime, err := New(context.Background(), Config{Binary: binary, Root: root, CPUs: 4, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3,
+		Environments: &EnvironmentConfig{PrepareCPUs: 4, PrepareMemoryMiB: 8192, PrepareDiskMiB: 32768, LayerBudgetBytes: 48 << 30, MinFreeBytes: 30 << 30}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.Close() })
 	return runtime
@@ -181,8 +181,8 @@ func TestRealMicroVMLayerGarbageCollection(t *testing.T) {
 	if binary == "" || root == "" || os.Getenv("SMITHERS_MICROVM_GC_TEST") != "1" {
 		t.Skip("SMITHERS_MICROVM_GC_TEST=1 with a layer root runs layer eviction")
 	}
-	runtime, err := New(context.Background(), Config{Binary: binary, Root: root,
-		Environments: &EnvironmentConfig{KeepPerFamily: 1, LayerBudgetBytes: 12 << 30, MinFreeBytes: 10 << 30}})
+	runtime, err := New(context.Background(), Config{Binary: binary, Root: root, CPUs: 4, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3,
+		Environments: &EnvironmentConfig{PrepareCPUs: 4, PrepareMemoryMiB: 8192, PrepareDiskMiB: 32768, KeepPerFamily: 1, LayerBudgetBytes: 12 << 30, MinFreeBytes: 10 << 30}})
 	require.NoError(t, err)
 	defer runtime.Close()
 	before, err := runtime.environments.records()

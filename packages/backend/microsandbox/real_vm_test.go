@@ -206,7 +206,7 @@ func TestRealMicroVMServicePreviewAndRestart(t *testing.T) {
 	// A new backend process over the same state reattaches the same VM and
 	// its files; the previous process's services are not inferred alive.
 	require.NoError(t, runtime.Close())
-	restarted, err := New(context.Background(), Config{Binary: runtime.config.Binary, Root: root, CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192})
+	restarted, err := New(context.Background(), Config{Binary: runtime.config.Binary, Root: root, CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
 	require.NoError(t, err)
 	t.Cleanup(func() { sweepOwner(t, restarted) })
 	observed, err := restarted.InspectWorkspace(ctx, "microvm-service")
@@ -299,7 +299,7 @@ func TestRealMicroVMLostMachineRefusesWithoutHostFallback(t *testing.T) {
 
 	// A restart marks the workspace as needing recovery instead of inventing one.
 	require.NoError(t, runtime.Close())
-	restarted, err := New(context.Background(), Config{Binary: runtime.config.Binary, Root: runtime.root})
+	restarted, err := New(context.Background(), runtime.config)
 	require.NoError(t, err)
 	observed, err := restarted.InspectWorkspace(ctx, "microvm-lost")
 	require.NoError(t, err)

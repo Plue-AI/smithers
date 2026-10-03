@@ -67,10 +67,10 @@ type EnvironmentConfig struct {
 	// PrepareTimeout is the runaway guard for one layer build (default 60 min).
 	PrepareTimeout time.Duration
 	// LayerBudgetBytes bounds the allocated bytes of this owner's layer
-	// snapshots (default 48 GiB).
+	// snapshots, computed from the host profile.
 	LayerBudgetBytes int64
 	// MinFreeBytes is the host free-disk floor below which nothing new is
-	// built or booted (default 40 GiB).
+	// built or booted (MinFreeDiskBytes).
 	MinFreeBytes int64
 	// KeepPerFamily is how many newest layers of one (kind, repository) are
 	// kept even when unreferenced (default 2).
@@ -81,23 +81,8 @@ func (c *EnvironmentConfig) defaults() {
 	if c.Image == "" {
 		c.Image = DefaultImage
 	}
-	if c.PrepareCPUs <= 0 {
-		c.PrepareCPUs = 6
-	}
-	if c.PrepareMemoryMiB <= 0 {
-		c.PrepareMemoryMiB = 12288
-	}
-	if c.PrepareDiskMiB <= 0 {
-		c.PrepareDiskMiB = 49152
-	}
 	if c.PrepareTimeout <= 0 {
 		c.PrepareTimeout = 60 * time.Minute
-	}
-	if c.LayerBudgetBytes <= 0 {
-		c.LayerBudgetBytes = 48 << 30
-	}
-	if c.MinFreeBytes <= 0 {
-		c.MinFreeBytes = 40 << 30
 	}
 	if c.KeepPerFamily <= 0 {
 		c.KeepPerFamily = 2
@@ -406,12 +391,16 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 		parentName = e.layerName(layerToolchain, parentKey)
 	}
 	defer e.pin(name, parentName)()
-	if record, ok := e.usable(ctx, name); ok {
+	if record, ok, err := e.usable(ctx, name); err != nil {
+		return layerRecord{}, err
+	} else if ok {
 		return record, nil
 	}
 	e.build.Lock()
 	defer e.build.Unlock()
-	if record, ok := e.usable(ctx, name); ok {
+	if record, ok, err := e.usable(ctx, name); err != nil {
+		return layerRecord{}, err
+	} else if ok {
 		return record, nil
 	}
 	if err := e.admit(ctx); err != nil {
@@ -445,7 +434,10 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 		return layerRecord{}, err
 	}
 	if err := e.verify(ctx, record); err != nil {
-		_ = e.removeLayer(context.Background(), name)
+		var temporary *layerAdmissionError
+		if !errors.As(err, &temporary) {
+			_ = e.removeLayer(context.Background(), name)
+		}
 		return layerRecord{}, err
 	}
 	if _, err := e.collect(ctx); err != nil {
@@ -456,25 +448,39 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 
 // usable returns a layer whose record and snapshot both exist and which has
 // been verified in this process.
-func (e *environments) usable(ctx context.Context, name string) (layerRecord, bool) {
+// layerAdmissionError marks temporary admission, transport or cleanup failures;
+// none proves that a snapshot is corrupt.
+type layerAdmissionError struct{ error }
+
+func (e *layerAdmissionError) Unwrap() error { return e.error }
+
+func (e *environments) usable(ctx context.Context, name string) (layerRecord, bool, error) {
 	record, err := e.readRecord(name)
 	if err != nil {
-		return layerRecord{}, false
+		return layerRecord{}, false, nil
 	}
-	if _, found, err := e.snapshot(ctx, name); err != nil || !found {
+	if _, found, err := e.snapshot(ctx, name); err != nil {
+		return layerRecord{}, false, err
+	} else if !found {
 		_ = os.Remove(e.recordPath(name))
-		return layerRecord{}, false
+		return layerRecord{}, false, nil
 	}
 	e.mu.Lock()
 	verified := e.verified[name]
 	e.mu.Unlock()
-	if !verified && e.verify(ctx, record) != nil {
-		_ = e.removeLayer(context.Background(), name)
-		return layerRecord{}, false
+	if !verified {
+		if err := e.verify(ctx, record); err != nil {
+			var temporary *layerAdmissionError
+			if errors.As(err, &temporary) {
+				return layerRecord{}, false, err
+			}
+			_ = e.removeLayer(context.Background(), name)
+			return layerRecord{}, false, nil
+		}
 	}
 	record.LastUsed = time.Now().UTC()
 	_ = writeJSON(e.recordPath(name), record)
-	return record, true
+	return record, true, nil
 }
 
 func (e *environments) snapshot(ctx context.Context, name string) (snapshotRecord, bool, error) {
@@ -507,10 +513,14 @@ func (e *environments) newestSibling(kind, repository, parentKey string) string 
 // buildLayer boots a prepare VM from the parent (image or snapshot) with the
 // layer's network allowlist, runs dependency code as agent, records the inventory,
 // flushes, stops, and captures the disk as the layer snapshot.
-func (e *environments) buildLayer(ctx context.Context, record layerRecord, value recipe, parent string, inputs map[string][]byte) (map[string]string, error) {
+func (e *environments) buildLayer(ctx context.Context, record layerRecord, value recipe, parent string, inputs map[string][]byte) (inventory map[string]string, runErr error) {
 	buildCtx, cancel := context.WithTimeout(ctx, e.config.PrepareTimeout)
 	defer cancel()
 	machine := "smthrs-prep-" + strings.TrimPrefix(e.runtime.owner, "smithers-backend-")[:8] + "-" + newExecID()[1:13]
+	if err := e.runtime.reserveAuxVM(ctx, machine); err != nil {
+		return nil, err
+	}
+	defer func() { runErr = errors.Join(runErr, e.runtime.finishAuxVM(machine)) }()
 	args := []string{"-n", machine, "-c", strconv.Itoa(e.config.PrepareCPUs), "-m", strconv.Itoa(e.config.PrepareMemoryMiB) + "M", "-q",
 		"--no-net", "--net-rule", "allow@dns",
 		"--label", providerLabel + "=" + providerName, "--label", ownerLabel + "=" + e.runtime.owner,
@@ -526,7 +536,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 	if _, err := e.runtime.cli.run(buildCtx, nil, args...); err != nil {
 		return nil, fmt.Errorf("%w: boot prepare VM: %v", ErrUnavailable, err)
 	}
-	defer func() { _ = e.runtime.removeMachine(context.Background(), machine) }()
+
 	if err := e.runtime.installGuest(buildCtx, machine); err != nil {
 		return nil, err
 	}
@@ -571,7 +581,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 	if err != nil {
 		return nil, fmt.Errorf("build %s layer %s: %w", record.Kind, record.Key[:12], err)
 	}
-	inventory := parseInventory(output)
+	inventory = parseInventory(output)
 	marker, _ := json.Marshal(map[string]string{"kind": record.Kind, "key": record.Key, "name": record.Name})
 	markerScript := "set -e; mkdir -p " + layerMarkerDir + "; printf '%s' " + shellQuote(string(marker)) + " > " + shellQuote(layerMarkerDir+"/"+record.Kind+".json")
 	if _, err := e.runRecipe(buildCtx, machine, markerScript, guestUser, guestHome); err != nil {
@@ -664,30 +674,43 @@ const rootSyncScript = `sync`
 
 // verify boots a fresh offline VM from the layer and checks its marker: the
 // quarry's rule that a captured base must still hold what was prepared.
-func (e *environments) verify(ctx context.Context, record layerRecord) error {
+func (e *environments) verify(ctx context.Context, record layerRecord) (runErr error) {
 	names := []string{record.Name}
 	if record.ParentKey != "" {
 		names = append(names, e.layerName(layerToolchain, record.ParentKey))
 	}
 	defer e.pin(names...)()
 	if err := e.admit(ctx); err != nil {
-		return err
+		return &layerAdmissionError{err}
 	}
 	machine := "smthrs-vfy-" + strings.TrimPrefix(e.runtime.owner, "smithers-backend-")[:8] + "-" + newExecID()[1:13]
-	args := []string{"run", "--from-snapshot", record.Name, "-d", "-n", machine, "-c", "1", "-m", "1024M", "-q", "--no-net",
+	if err := e.runtime.reserveAuxVM(ctx, machine); err != nil {
+		return &layerAdmissionError{err}
+	}
+	defer func() {
+		if err := e.runtime.finishAuxVM(machine); err != nil {
+			runErr = errors.Join(runErr, &layerAdmissionError{err})
+		}
+	}()
+	args := []string{"run", "--from-snapshot", record.Name, "-d", "-n", machine, "-c", strconv.Itoa(e.runtime.config.CPUs), "-m", strconv.Itoa(e.runtime.config.MemoryMiB) + "M", "-q", "--no-net",
 		"--label", providerLabel + "=" + providerName, "--label", ownerLabel + "=" + e.runtime.owner, "--label", layerLabel + "=verify"}
 	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	if _, err := e.runtime.cli.run(verifyCtx, nil, args...); err != nil {
-		return fmt.Errorf("%w: boot layer %s for verification: %v", ErrUnavailable, record.Name, err)
+		return &layerAdmissionError{fmt.Errorf("%w: boot layer %s for verification: %v", ErrUnavailable, record.Name, err)}
 	}
-	defer func() { _ = e.runtime.removeMachine(context.Background(), machine) }()
 	if err := e.runtime.installGuest(verifyCtx, machine); err != nil {
 		return err
 	}
 	output, err := e.runRecipe(verifyCtx, machine, "cat "+shellQuote(layerMarkerDir+"/"+record.Kind+".json"), guestUser, guestHome)
 	if err != nil {
-		return fmt.Errorf("layer %s holds no marker: %w", record.Name, err)
+		// A CLI exit alone cannot distinguish guest cat failure from transport
+		// failure. Only a successful guest probe proves marker absence.
+		probe, probeErr := e.runRecipe(verifyCtx, machine, "if [ -e "+shellQuote(layerMarkerDir+"/"+record.Kind+".json")+" ]; then printf present; else printf missing; fi", guestUser, guestHome)
+		if probeErr == nil && string(probe) == "missing" {
+			return fmt.Errorf("layer %s does not hold its preparation marker", record.Name)
+		}
+		return &layerAdmissionError{fmt.Errorf("read layer %s marker: %w", record.Name, err)}
 	}
 	var marker map[string]string
 	if json.Unmarshal([]byte(output), &marker) != nil || marker["key"] != record.Key {

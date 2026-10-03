@@ -28,6 +28,7 @@ const (
 )
 
 type executionRuntimes struct {
+	profile *microsandbox.HostProfile
 	// workspace executes every workspace, command, service and Flow host.
 	workspace workspaceapi.WorkspaceRuntime
 	// control is the trusted runtime for the fixed chat model host, which
@@ -139,13 +140,17 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string) (ex
 	if err != nil {
 		return executionRuntimes{}, errors.Join(fmt.Errorf("start control runtime: %w", err), isolated.Close(), relay.Close())
 	}
-	return executionRuntimes{workspace: isolated, control: control, relay: relay}, nil
+	return executionRuntimes{workspace: isolated, control: control, relay: relay, profile: config.HostProfile}, nil
 }
 
 // guestHostBundle is where a guest receives the packaged Flow host files.
 const guestHostBundle = "/opt/smithers/hosts"
 
 func microVMConfig(dataRoot, hostBundle string) (microsandbox.Config, error) {
+	return microVMConfigWithProfile(dataRoot, hostBundle, microsandbox.Detect)
+}
+
+func microVMConfigWithProfile(dataRoot, hostBundle string, detect func(string) (microsandbox.HostProfile, error)) (microsandbox.Config, error) {
 	port, err := backendPort()
 	if err != nil {
 		return microsandbox.Config{}, err
@@ -165,36 +170,21 @@ func microVMConfig(dataRoot, hostBundle string) (microsandbox.Config, error) {
 	if err := requireGuestHelper(hostBundle); err != nil {
 		return config, fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
 	}
-	integers := []struct {
-		name   string
-		target *int
-	}{
-		{"SMITHERS_MICROVM_CPUS", &config.CPUs},
-		{"SMITHERS_MICROVM_MEMORY_MIB", &config.MemoryMiB},
-		{"SMITHERS_MICROVM_DISK_MIB", &config.DiskMiB},
-		{"SMITHERS_MICROVM_MAX_RUNNING", &config.MaxRunningVMs},
-	}
-	for _, setting := range integers {
-		if raw := strings.TrimSpace(os.Getenv(setting.name)); raw != "" {
-			value, err := strconv.Atoi(raw)
-			if err != nil || value <= 0 {
-				return config, fmt.Errorf("%s must be a positive integer", setting.name)
-			}
-			*setting.target = value
+	profile, err := detect(dataRoot)
+	if err != nil {
+		var typed *microsandbox.HostProfileError
+		if !errors.As(err, &typed) {
+			err = &microsandbox.HostProfileError{Field: "detection", Cause: err}
 		}
+		return config, fmt.Errorf("microVM refuses to start: %w", err)
 	}
-	for name, target := range map[string]*int64{
-		"SMITHERS_MICROVM_LAYER_BUDGET_GIB": &config.Environments.LayerBudgetBytes,
-		"SMITHERS_MICROVM_MIN_FREE_GIB":     &config.Environments.MinFreeBytes,
-	} {
-		if raw := strings.TrimSpace(os.Getenv(name)); raw != "" {
-			value, err := strconv.ParseInt(raw, 10, 64)
-			if err != nil || value <= 0 {
-				return config, fmt.Errorf("%s must be a positive integer", name)
-			}
-			*target = value << 30
-		}
+	if !profile.Hypervisor {
+		return config, fmt.Errorf("%w: Hypervisor.framework unavailable", microsandbox.ErrUnavailable)
 	}
+	sizing := microsandbox.ComputeSizing(profile)
+	config.HostProfile = &profile
+	config.CPUs, config.MemoryMiB, config.DiskMiB, config.MaxRunningVMs = sizing.CPUs, sizing.MemoryMiB, int(microsandbox.MachineDiskBytes>>20), sizing.Capacity
+	config.Environments = &microsandbox.EnvironmentConfig{PrepareCPUs: config.CPUs, PrepareMemoryMiB: config.MemoryMiB, PrepareDiskMiB: config.DiskMiB, LayerBudgetBytes: sizing.LayerBudgetBytes, MinFreeBytes: microsandbox.MinFreeDiskBytes}
 	return config, nil
 }
 
@@ -258,11 +248,7 @@ func runMicroVM(ctx context.Context, args []string) error {
 	}
 	config := microsandbox.Config{Binary: strings.TrimSpace(os.Getenv("SMITHERS_MICROSANDBOX_BIN")), Root: filepath.Join(dataRoot, "microvm"),
 		Environments: &microsandbox.EnvironmentConfig{}}
-	if raw := strings.TrimSpace(os.Getenv("SMITHERS_MICROVM_MIN_FREE_GIB")); raw != "" {
-		if value, err := strconv.ParseInt(raw, 10, 64); err == nil && value > 0 {
-			config.Environments.MinFreeBytes = value << 30
-		}
-	}
+	config.Environments.MinFreeBytes = microsandbox.MinFreeDiskBytes
 	failed := false
 	for _, line := range microsandbox.Doctor(ctx, config) {
 		status := "ok  "

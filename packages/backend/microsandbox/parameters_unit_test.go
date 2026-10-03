@@ -169,11 +169,11 @@ func TestMicrosandboxUnitDefaultsPreserveExplicitLimits(t *testing.T) {
 		config := Config{CPUs: initial, MemoryMiB: initial, DiskMiB: initial, MaxConcurrent: initial, MaxRunningVMs: initial,
 			OutputLimit: initial, FileReadLimit: int64(initial), CommandTimeout: time.Duration(initial)}
 		applyDefaults(&config)
-		require.Equal(t, 4, config.CPUs)
-		require.Equal(t, 8192, config.MemoryMiB)
-		require.Equal(t, 32768, config.DiskMiB)
+		require.Equal(t, initial, config.CPUs)
+		require.Equal(t, initial, config.MemoryMiB)
+		require.Equal(t, initial, config.DiskMiB)
 		require.Equal(t, 32, config.MaxConcurrent)
-		require.Equal(t, 3, config.MaxRunningVMs)
+		require.Equal(t, initial, config.MaxRunningVMs)
 		require.Equal(t, 4_194_304, config.OutputLimit)
 		require.Equal(t, int64(16_777_216), config.FileReadLimit)
 		require.Equal(t, time.Hour, config.CommandTimeout)

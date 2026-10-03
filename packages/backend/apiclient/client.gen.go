@@ -1083,6 +1083,48 @@ type PostAPIBillingCheckoutBody struct {
 	Interval string `json:"interval"`
 }
 
+// GetAPIHostResponse is generated from docs/api/openapi.yaml.
+type GetAPIHostResponse struct {
+	Profile  GetAPIHostResponseProfile  `json:"profile"`
+	Limits   GetAPIHostResponseLimits   `json:"limits"`
+	Machines GetAPIHostResponseMachines `json:"machines"`
+}
+
+// GetAPIHostResponseProfile is generated from docs/api/openapi.yaml.
+type GetAPIHostResponseProfile struct {
+	MemoryBytes   int64  `json:"memory_bytes"`
+	PerfCores     int64  `json:"perf_cores"`
+	PhysicalCores int64  `json:"physical_cores"`
+	DiskFreeBytes int64  `json:"disk_free_bytes"`
+	MacosVersion  string `json:"macos_version"`
+	Hypervisor    bool   `json:"hypervisor"`
+}
+
+// GetAPIHostResponseLimits is generated from docs/api/openapi.yaml.
+type GetAPIHostResponseLimits struct {
+	MemoryMib        int64   `json:"memory_mib"`
+	Cpus             int64   `json:"cpus"`
+	Capacity         int64   `json:"capacity"`
+	LayerBudgetBytes int64   `json:"layer_budget_bytes"`
+	MemoryCapacity   int64   `json:"memory_capacity"`
+	CoreCapacity     int64   `json:"core_capacity"`
+	DiskCapacity     int64   `json:"disk_capacity"`
+	LimitingTerm     string  `json:"limiting_term"`
+	Missing          *int64  `json:"missing,omitempty"`
+	Fix              *string `json:"fix,omitempty"`
+}
+
+// GetAPIHostResponseMachines is generated from docs/api/openapi.yaml.
+type GetAPIHostResponseMachines struct {
+	InUse    int64 `json:"in_use"`
+	Capacity int64 `json:"capacity"`
+}
+
+// PatchAPIHostBody is generated from docs/api/openapi.yaml.
+type PatchAPIHostBody struct {
+	Capacity int64 `json:"capacity"`
+}
+
 // GetAPIStatusResponse is generated from docs/api/openapi.yaml.
 type GetAPIStatusResponse struct {
 	Status     string                         `json:"status"`
@@ -2010,6 +2052,20 @@ func (c *Client) PostAPIGithubImportIDRetry(ctx context.Context, id string) (Mul
 func (c *Client) PostAPIGithubSyncedReposOwnerRepoMirrorStatus(ctx context.Context, owner string, repo string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/github/synced-repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mirror-status", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIHost calls GET /api/host.
+func (c *Client) GetAPIHost(ctx context.Context) (GetAPIHostResponse, error) {
+	var out GetAPIHostResponse
+	err := c.do(ctx, "GET", "/api/host", nil, nil, &out)
+	return out, err
+}
+
+// PatchAPIHost calls PATCH /api/host.
+func (c *Client) PatchAPIHost(ctx context.Context, body PatchAPIHostBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PATCH", "/api/host", nil, body, &out)
 	return out, err
 }
 

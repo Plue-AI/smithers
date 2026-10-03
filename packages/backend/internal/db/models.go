@@ -920,6 +920,14 @@ type ImportJob struct {
 	PublishReady             bool               `json:"publish_ready"`
 }
 
+type InstallSetting struct {
+	Key       string          `json:"key"`
+	Value     json.RawMessage `json:"value"`
+	Sealed    bool            `json:"sealed"`
+	UpdatedBy pgtype.Int8     `json:"updated_by"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 type Issue struct {
 	ID                       int64              `json:"id"`
 	RepositoryID             int64              `json:"repository_id"`

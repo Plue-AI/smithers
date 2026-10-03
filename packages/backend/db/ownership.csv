@@ -282,3 +282,4 @@ repository_egress_policies,product,product migration 0092
 repository_git_usage,product,product migration 0097
 factory_issue_claims,product,durable shared implementation ownership
 repository_registration_reports,product,product migration 0096
+install_settings,product,product migration 0104; shared install settings from spec section 3

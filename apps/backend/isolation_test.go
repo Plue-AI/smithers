@@ -201,3 +201,75 @@ func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
 		t.Fatal("refused coding host allocated an execution workspace")
 	}
 }
+
+func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
+	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/qualified/msb")
+	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
+	for _, name := range []string{"SMITHERS_MICROVM_CPUS", "SMITHERS_MICROVM_MEMORY_MIB", "SMITHERS_MICROVM_DISK_MIB", "SMITHERS_MICROVM_MAX_RUNNING", "SMITHERS_MICROVM_LAYER_BUDGET_GIB", "SMITHERS_MICROVM_MIN_FREE_GIB"} {
+		t.Setenv(name, "999")
+	}
+	bundle := guestBundle(t)
+	for _, row := range []struct {
+		name                             string
+		memory, disk                     int64
+		cores, cpus, memoryMiB, capacity int
+		budget                           int64
+	}{
+		{"24 GiB", 24, 200, 8, 4, 8192, 2, 48},
+		{"32 GiB", 32, 400, 10, 4, 8192, 3, 48},
+		{"smaller host", 16, 60, 4, 2, 6144, 0, 15},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			root := t.TempDir()
+			profile := microsandbox.HostProfile{MemoryBytes: row.memory << 30, DiskFreeBytes: row.disk << 30,
+				PerfCores: row.cores, PhysicalCores: row.cores + 4, MacOSVersion: "26.0", Hypervisor: true}
+			calls := 0
+			config, err := microVMConfigWithProfile(root, bundle, func(state string) (microsandbox.HostProfile, error) {
+				calls++
+				if state != root {
+					t.Fatalf("detector measured %q, want state volume %q", state, root)
+				}
+				return profile, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 {
+				t.Fatalf("detector calls = %d", calls)
+			}
+			if config.HostProfile == nil || *config.HostProfile != profile {
+				t.Fatalf("profile = %#v", config.HostProfile)
+			}
+			if config.CPUs != row.cpus || config.MemoryMiB != row.memoryMiB || config.MaxRunningVMs != row.capacity || config.DiskMiB != 32768 {
+				t.Fatalf("machine limits = cpus %d, memory %d, capacity %d, disk %d", config.CPUs, config.MemoryMiB, config.MaxRunningVMs, config.DiskMiB)
+			}
+			prepare := config.Environments
+			if prepare == nil || prepare.PrepareCPUs != config.CPUs || prepare.PrepareMemoryMiB != config.MemoryMiB || prepare.PrepareDiskMiB != config.DiskMiB {
+				t.Fatalf("prepare limits = %#v; must match one machine", prepare)
+			}
+			if prepare.LayerBudgetBytes != row.budget<<30 || prepare.MinFreeBytes != 40<<30 {
+				t.Fatalf("disk limits = budget %d, floor %d", prepare.LayerBudgetBytes, prepare.MinFreeBytes)
+			}
+		})
+	}
+}
+
+func TestMicroVMConfigDetectionFailureRefusesStartup(t *testing.T) {
+	t.Setenv("SMITHERS_MICROSANDBOX_BIN", "/qualified/msb")
+	t.Setenv("SMITHERS_SERVER_ADDR", "127.0.0.1:4000")
+	bundle := guestBundle(t)
+	cause := errors.New("hw.memsize failed")
+	config, err := microVMConfigWithProfile(t.TempDir(), bundle, func(string) (microsandbox.HostProfile, error) {
+		return microsandbox.HostProfile{}, cause
+	})
+	if err == nil {
+		t.Fatal("host detection failure accepted")
+	}
+	var profileError *microsandbox.HostProfileError
+	if !errors.As(err, &profileError) || !strings.Contains(err.Error(), "refuses to start") || !strings.Contains(err.Error(), cause.Error()) {
+		t.Fatalf("startup error must retain typed host detection refusal: %v", err)
+	}
+	if config.CPUs != 0 || config.MemoryMiB != 0 || config.MaxRunningVMs != 0 || config.HostProfile != nil {
+		t.Fatalf("detection failure selected fallback limits: %#v", config)
+	}
+}

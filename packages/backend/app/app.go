@@ -6,6 +6,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"io"
 	"net"
 	"net/http"
@@ -29,6 +30,8 @@ import (
 // routes, services, jobs, and database are assembled by the common
 // implementation. A deployment can pass its configuration file using Args.
 type Config struct {
+	// HostProfile is measured once on the install state volume before startup.
+	HostProfile *microsandbox.HostProfile
 	// CanaryRuns supplies deployment run evidence for the public status page.
 	// Nil reports unknown; self-hosting does not require a canary service.
 	CanaryRuns    ports.CanaryRunSource
@@ -201,6 +204,7 @@ func Run(ctx context.Context, cfg Config) error {
 // a new field cannot reach one entry point and miss the other.
 func (cfg Config) options() compose.Options {
 	return compose.Options{
+		HostProfile:     cfg.HostProfile,
 		CanaryRuns:      cfg.CanaryRuns,
 		RuntimeStores:   cfg.RuntimeStores,
 		BeforeShutdown:  cfg.BeforeShutdown,

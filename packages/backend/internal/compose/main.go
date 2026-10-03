@@ -45,6 +45,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/internal/webhooks"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/operations"
@@ -103,6 +104,7 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
+	HostProfile     *microsandbox.HostProfile
 	CanaryRuns      ports.CanaryRunSource
 	RuntimeStores   ports.RuntimeStores
 	ReadyBindings   func(operations.Bindings)
@@ -310,6 +312,23 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	database.StartPoolStatsCollector(poolStatsCtx, pool, smithersMetrics, 15*time.Second)
 
 	queries := db.New(pool)
+	var hostStatus *routes.HostStatusHandler
+	if options.HostProfile != nil {
+		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile}
+		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
+			capacity.InUse = counter.InUse
+		}
+		if err := capacity.ValidateStart(ctx); err != nil {
+			return err
+		}
+		if runtime, ok := options.Workspace.(interface {
+			SetCapacityReader(func(context.Context) (int, error))
+		}); ok {
+			runtime.SetCapacityReader(capacity.Capacity)
+		}
+		hostStatus = &routes.HostStatusHandler{Service: capacity}
+	}
+
 	runtimeStores := resolveProductRuntimeStores(options.RuntimeStores, queries)
 	if err := services.ValidateLocalIdentityStartup(ctx, queries, cfg.Auth); err != nil {
 		return fmt.Errorf("validate local identity startup: %w", err)
@@ -1418,7 +1437,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{HostStatus: hostStatus, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},

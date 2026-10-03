@@ -29,6 +29,7 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
+  "host status": (c) => c.request("GET", "/api/host"),
   ...resources,
   ...admin,
   ...auth,
@@ -50,6 +51,7 @@ export const handlers: Record<string, Handler> = {
  * @since 1.0.0
  */
 export const groups: Record<string, string> = {
+  "host": "Inspect this installation’s host",
   "admin": "Administer the Smithers installation",
   "admin alerts": "Manage alert channels and policies",
   "admin alerts channels": "Manage where alerts are delivered",

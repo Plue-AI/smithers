@@ -89,7 +89,7 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 			add("layers", true, "%d snapshots, %.1f GiB allocated (clone-inclusive): %s", len(names), float64(bytes)/(1<<30), strings.Join(names, " "))
 		}
 	}
-	floor := int64(40 << 30)
+	floor := MinFreeDiskBytes
 	if config.Environments != nil && config.Environments.MinFreeBytes > 0 {
 		floor = config.Environments.MinFreeBytes
 	}

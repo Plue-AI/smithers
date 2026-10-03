@@ -1147,3 +1147,30 @@ describe("repo report over local HTTP server", () => {
     }
   })
 })
+
+// T-MCH-01, spec §20.2: the CLI reads the same host model as Settings.
+describe("host status", () => {
+  it("reads the authenticated profile, limits and clamped capacity", async () => {
+    const seen: string[] = []
+    const f = await homeFixture((req, res) => {
+      seen.push(`${req.method} ${req.url}`)
+      expect(req.headers.authorization).toBe("token home-session-secret")
+      res.writeHead(200, { "content-type": "application/json" })
+      res.end(
+        JSON.stringify({
+          profile: { memory_bytes: 32 * 2 ** 30 },
+          limits: { capacity: 3 },
+          machines: { in_use: 1, capacity: 2 }
+        })
+      )
+    })
+    try {
+      const result = await f.run(["host", "status", "--json"])
+      expect(result.code).toBe(0)
+      expect(seen).toEqual(["GET /api/host"])
+      expect(result.output).toContain("\"capacity\": 2")
+    } finally {
+      await f.close()
+    }
+  })
+})
