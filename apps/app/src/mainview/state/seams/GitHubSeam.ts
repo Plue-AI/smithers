@@ -121,8 +121,7 @@ const mirrorRunId = (value: unknown): number | null => {
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Registered App 4163546, shared with apps/server/src/githubApp.ts and plue; verified against GitHub App metadata. */
-export const GITHUB_APP_INSTALL_URL = "https://github.com/apps/smitherspreviewrelease/installations/new"
+
 /**
  * Verifies a setup-URL return with the user's session (GitHub's setup-URL
  * docs: never trust `installation_id`). Answers `{ repos: [{ fullName,
@@ -397,7 +396,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     if (!current()) return
     await ctx.dispatch({ type: "repo.selected", actor: "system", id: repo }).isPersisted.promise
   }
-  const verifyInstall = async (installationId?: string, stillCurrent = captureCloudOwner(ctx, false)): Promise<{ readonly error: string; readonly empty?: boolean } | void> => {
+  const verifyInstall = async (installationId?: string, stillCurrent = captureCloudOwner(ctx, false)): Promise<{ readonly error: string; readonly empty?: boolean; readonly installUrl?: string | null } | void> => {
     if (!stillCurrent()) return
     const notice = async (error: string): Promise<{ readonly error: string }> => {
       await installNotice(error, "failed", stillCurrent)
@@ -452,7 +451,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
     // Several repositories in ONE installation: newest active, the rest in the chip menu.
     const chosen = [...repos].sort((a, b) => b.pushedAt.localeCompare(a.pushedAt))[0]
     if (chosen === undefined) {
-      return { ...await notice("No installed repository is visible yet. Select a repository on GitHub, then return here to check again."), empty: true }
+      return { ...await notice("No installed repository is visible yet. Select a repository on GitHub, then return here to check again."), empty: true, installUrl: str(body.install_url) }
     }
     if (stillCurrent()) await adoptInstalled(chosen.fullName, repos, stillCurrent)
   }
@@ -500,6 +499,12 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       const result = await verifyInstall(undefined, current)
       if (!current()) return SIGN_OUT_REFUSAL
       if (!result?.empty) return result?.error
+      const installUrl = result.installUrl === null || result.installUrl === undefined ? null : trustedInstallUrl(result.installUrl)
+      if (installUrl === null) {
+        const error = "The GitHub App is not configured."
+        await installNotice(error, "failed", current)
+        return error
+      }
       // Flush before either browser door; the native host may navigate away too.
       await ctx.store.settled?.()
       if (!current()) return SIGN_OUT_REFUSAL
@@ -508,7 +513,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
         if (current()) void verifyInstall(undefined, current)
       }, { once: true })
       if (deps.openExternal !== undefined) {
-        const didOpen = await deps.openExternal(GITHUB_APP_INSTALL_URL)
+        const didOpen = await deps.openExternal(installUrl)
         if (!current()) return SIGN_OUT_REFUSAL
         if (!didOpen) return "The GitHub install page could not open. Try again."
         return
@@ -516,7 +521,7 @@ export const createGitHubSeam = (ctx: SeamContext, deps: GitHubSeamDeps = {}): G
       if (typeof window === "undefined") return
       if (popup === null) return "Your browser blocked the GitHub install page. Allow pop-ups for this site, then try again."
       if (popup.closed) return "The GitHub install page was closed before it loaded. Try again."
-      popup.location.href = GITHUB_APP_INSTALL_URL
+      popup.location.href = installUrl
       opened = true
     } finally {
       // An adopted installation, refusal, or retired owner leaves no blank tab.

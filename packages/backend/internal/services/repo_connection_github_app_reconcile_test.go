@@ -59,14 +59,14 @@ func TestRepoConnectionService_ReconcileGitHubAppInstallations_UpsertsRepositori
 	server := newReconcileFakeGitHub(t)
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
 	var mu sync.Mutex
 	var execs []recordedExec
 	installationPersisted := false
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -112,11 +112,11 @@ func TestRepoConnectionService_ReconcileGitHubAppInstallations_UpsertsRepositori
 // RED: when credentials are unconfigured the reconcile must no-op cleanly —
 // return nil (no error spam) and never touch the database.
 func TestRepoConnectionService_ReconcileGitHubAppInstallations_NoopWhenUnconfigured(t *testing.T) {
-	t.Setenv(envGitHubAppID, "")
-	t.Setenv(envGitHubAppPrivateKey, "")
+	setTestCallerCredentials(t, "ID", "")
+	setTestCallerCredentials(t, "PEM", "")
 
 	execCalled := false
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			execCalled = true
 			return pgconn.NewCommandTag(""), nil
@@ -158,13 +158,13 @@ func TestRepoConnectionService_ReconcileGitHubAppInstallations_SkipsFailingInsta
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
 	var mu sync.Mutex
 	var execs []recordedExec
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			mu.Lock()
 			defer mu.Unlock()

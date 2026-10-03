@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ type operatorKeyFixture struct {
 	owner                 db.User
 	repositoryID, orgID   int64
 	connectionID, command string
+	githubApp             GitHubAppCredentials
 }
 
 // seedOperatorKeyStores writes one value under oldCodec into every store the
@@ -79,7 +81,9 @@ func seedOperatorKeyStores(t *testing.T, oldCodec *webhook.AESGCMSecretCodec) op
 	receipt, err := store.Admit(ctx, jobs.Admission{Scope: repositoryJobFlowScope(repo.ID, owner.ID), Operation: workspaceCommandOperation,
 		RequestID: workspaceID + ":op-1", Payload: payload, EffectPolicy: jobs.EffectUnsafe})
 	require.NoError(t, err)
-	return operatorKeyFixture{pool: pool, owner: owner, repositoryID: repo.ID, orgID: org.ID, connectionID: connection.ID, command: receipt.OperationID}
+	githubApp := githubAppTestCredentials(t)
+	require.NoError(t, NewGitHubAppCredentialStore(pool, oldCodec).Save(ctx, githubApp))
+	return operatorKeyFixture{pool: pool, owner: owner, repositoryID: repo.ID, orgID: org.ID, connectionID: connection.ID, command: receipt.OperationID, githubApp: githubApp}
 }
 
 // readOperatorKeyStores opens every seeded value with codec.
@@ -98,6 +102,9 @@ func readOperatorKeyStores(t *testing.T, f operatorKeyFixture, codec webhook.Sec
 		"webhook":     `SELECT secret FROM webhooks WHERE secret <> ''`,
 		"flow host":   `SELECT credential_ciphertext FROM flow_runtime_host_bindings`,
 		"command":     `SELECT payload->>'EncryptedInput' FROM product_job_requests`,
+		"app pem":     `SELECT pem_sealed FROM github_app`,
+		"app webhook": `SELECT webhook_secret_sealed FROM github_app`,
+		"app client":  `SELECT client_secret_sealed FROM github_app`,
 	} {
 		var sealed string
 		require.NoError(t, f.pool.QueryRow(ctx, query).Scan(&sealed), name)
@@ -117,6 +124,14 @@ var operatorKeyPlaintexts = map[string]string{
 	"webhook": "webhook-signing-secret", "flow host": "flow-host-control-credential", "command": `{"operation_id":"op-1"}`,
 }
 
+func operatorKeyExpectedPlaintexts(f operatorKeyFixture) map[string]string {
+	expected := maps.Clone(operatorKeyPlaintexts)
+	expected["app pem"] = f.githubApp.PEM
+	expected["app webhook"] = f.githubApp.WebhookSecret
+	expected["app client"] = f.githubApp.ClientSecret
+	return expected
+}
+
 func TestResealOperatorKeySecretsMovesEveryStoreToTheCurrentKeyPostgres(t *testing.T) {
 	ctx := context.Background()
 	oldCodec, err := webhook.NewSecretCodec("operator-key-old")
@@ -128,7 +143,7 @@ func TestResealOperatorKeySecretsMovesEveryStoreToTheCurrentKeyPostgres(t *testi
 	newOnly, err := webhook.NewSecretCodec("operator-key-new")
 	require.NoError(t, err)
 	unreadable := readOperatorKeyStores(t, f, newOnly)
-	for name := range operatorKeyPlaintexts {
+	for name := range operatorKeyExpectedPlaintexts(f) {
 		require.Equal(t, "<unreadable>", unreadable[name], "%s opens under the new key before the reseal", name)
 	}
 
@@ -154,7 +169,10 @@ func TestResealOperatorKeySecretsMovesEveryStoreToTheCurrentKeyPostgres(t *testi
 	}
 
 	// Every value now opens under the new key alone and holds its plaintext.
-	require.Equal(t, operatorKeyPlaintexts, readOperatorKeyStores(t, f, newOnly))
+	require.Equal(t, operatorKeyExpectedPlaintexts(f), readOperatorKeyStores(t, f, newOnly))
+	app, err := NewGitHubAppCredentialStore(f.pool, newOnly).Load(ctx)
+	require.NoError(t, err)
+	require.Equal(t, f.githubApp, app, "the App store opens every resealed credential with only the new key")
 	var fingerprintAfter []byte
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT payload_fingerprint FROM product_job_requests WHERE id=$1`, f.command).Scan(&fingerprintAfter))
 	require.NotEqual(t, fingerprintBefore, fingerprintAfter, "the fingerprint follows the resealed payload")
@@ -346,7 +364,7 @@ func TestResealOperatorKeySecretsRepeatsUntilNothingIsUnderAPreviousKeyPostgres(
 	require.Equal(t, OperatorKeyResealCount{Store: "provider_connections.refresh_token_encrypted", Resealed: 2, Current: 1}, counts[1])
 	newOnly, err := webhook.NewSecretCodec("operator-key-new")
 	require.NoError(t, err)
-	require.Equal(t, operatorKeyPlaintexts, readOperatorKeyStores(t, f, newOnly))
+	require.Equal(t, operatorKeyExpectedPlaintexts(f), readOperatorKeyStores(t, f, newOnly))
 
 	// A writer that keeps copying the old value back is reported, and the
 	// previous key must not retire.

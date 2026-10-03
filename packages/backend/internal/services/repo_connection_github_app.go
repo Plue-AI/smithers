@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -94,22 +93,35 @@ LIMIT 1;
 `
 
 const (
-	defaultGitHubAppInstallURL = "https://github.com/apps/smitherspreviewrelease/installations/new"
-	defaultGitHubAPIBaseURL    = "https://api.github.com"
-
-	envGitHubAppInstallURL = "SMITHERS_GITHUB_APP_INSTALL_URL"
-	envGitHubAppAPIBaseURL = "SMITHERS_GITHUB_APP_API_BASE_URL"
-	envGitHubAppID         = "SMITHERS_GITHUB_APP_ID"
-	envGitHubAppPrivateKey = "SMITHERS_GITHUB_APP_PRIVATE_KEY"
+	defaultGitHubAPIBaseURL = "https://api.github.com"
+	envGitHubAppAPIBaseURL  = "SMITHERS_GITHUB_APP_API_BASE_URL"
 )
+
+// GitHubAppCredentialReader reads the install's sealed GitHub App credentials.
+// Callers share one store; unavailable or corrupt credentials fail closed.
+type GitHubAppCredentialReader interface {
+	Load(context.Context) (GitHubAppCredentials, error)
+	InstallURL(context.Context) (string, error)
+	AppJWT(context.Context) (string, error)
+}
+
+func loadGitHubAppCredentials(ctx context.Context, store GitHubAppCredentialReader) (GitHubAppCredentials, error) {
+	if store == nil {
+		return GitHubAppCredentials{}, ErrGitHubAppNotConfigured
+	}
+	return store.Load(ctx)
+}
+
+func githubAppJWT(ctx context.Context, store GitHubAppCredentialReader) (string, error) {
+	if store == nil {
+		return "", ErrGitHubAppNotConfigured
+	}
+	return store.AppJWT(ctx)
+}
 
 type GitHubAppStatus struct {
 	GitHubAppInstalled bool `json:"github_app_installed"`
-	// GitHubAppConfigured reports whether the server actually has GitHub App
-	// credentials (app id + private key). When false, installing can never help —
-	// the client must render an honest "not configured" state instead of a dead
-	// install prompt, and InstallURL is blanked (unless an explicit override is
-	// set) so we never surface the known-dead default install link.
+	// GitHubAppConfigured reports whether this install has stored App credentials.
 	GitHubAppConfigured      bool   `json:"github_app_configured"`
 	InstallationID           int64  `json:"installation_id,omitempty"`
 	InstallURL               string `json:"install_url"`
@@ -156,10 +168,21 @@ func (s *RepoConnectionService) GetGitHubAppStatus(
 		return GitHubAppStatus{}, err
 	}
 
-	configured := githubAppCredentialsConfigured()
+	_, credentialErr := loadGitHubAppCredentials(ctx, s.githubAppCredentials)
+	configured := credentialErr == nil
+	if credentialErr != nil && !stdErrors.Is(credentialErr, ErrGitHubAppNotConfigured) {
+		return GitHubAppStatus{}, pkgerrors.Internal("failed to load github app credentials").WithCause(credentialErr)
+	}
+	installURL := ""
+	if configured {
+		installURL, err = s.githubAppCredentials.InstallURL(ctx)
+		if err != nil {
+			return GitHubAppStatus{}, pkgerrors.Internal("failed to load github app install url").WithCause(err)
+		}
+	}
 	status := GitHubAppStatus{
 		GitHubAppConfigured: configured,
-		InstallURL:          githubAppInstallURL(configured),
+		InstallURL:          installURL,
 		Owner:               strings.TrimSpace(owner),
 		Repo:                strings.TrimSpace(repo),
 	}
@@ -279,7 +302,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForRepositoryOwner(
 		return GitHubInstallationToken{}, err
 	}
 
-	return mintGitHubInstallationToken(ctx, installationID, &gitHubInstallationTokenScope{
+	return s.mintGitHubInstallationToken(ctx, installationID, &gitHubInstallationTokenScope{
 		Repositories: []string{normalizedRepo},
 		Permissions:  permissions,
 	})
@@ -447,6 +470,10 @@ func (s *RepoConnectionService) createGitHubInstallationTokenForInstallationID(
 		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
 	}
 
+	if _, err := loadGitHubAppCredentials(ctx, s.githubAppCredentials); err != nil {
+		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
+	}
+
 	// Serve a still-fresh cached installation token: these are valid ~1h and the
 	// github proxy / repo-list / check-runs all mint one PER REQUEST otherwise (a
 	// live ~200ms GitHub round-trip each). The cache is keyed by installationID —
@@ -459,13 +486,13 @@ func (s *RepoConnectionService) createGitHubInstallationTokenForInstallationID(
 			ExpiresAt:      cached.expiresAt,
 		}, nil
 	}
-	return mintGitHubInstallationToken(ctx, installationID, nil)
+	return s.mintGitHubInstallationToken(ctx, installationID, nil)
 }
 
 // mintGitHubInstallationToken asks GitHub for an installation token. A nil
 // scope mints (and caches) the full-installation token; a scoped token is
 // per-operation and never cached.
-func mintGitHubInstallationToken(
+func (s *RepoConnectionService) mintGitHubInstallationToken(
 	ctx context.Context,
 	installationID int64,
 	scope *gitHubInstallationTokenScope,
@@ -479,12 +506,7 @@ func mintGitHubInstallationToken(
 		requestBody = encoded
 	}
 
-	appID, privateKey, err := readGitHubAppCredentialsFromEnv()
-	if err != nil {
-		return GitHubInstallationToken{}, pkgerrors.Internal(err.Error())
-	}
-
-	jwt, err := createGitHubAppJWTFunc(appID, privateKey, time.Now().UTC())
+	jwt, err := githubAppJWT(ctx, s.githubAppCredentials)
 	if err != nil {
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}
@@ -722,11 +744,6 @@ func (s *RepoConnectionService) GetGitHubInstallationIDForRepositoryOwner(
 	return installationID, nil
 }
 
-// githubAppInstallURL resolves the install URL to surface to clients. An explicit
-// SMITHERS_GITHUB_APP_INSTALL_URL override always wins. Otherwise the default is
-// only emitted when the app is actually configured: when creds are absent the
-// default (`apps/smithers-cloud/...`) is a known-dead 404, so we blank it rather
-// than dead-end users into an install prompt that can never help.
 // reconcileInstallation is one entry from GET /app/installations.
 type reconcileInstallation struct {
 	ID                  int64  `json:"id"`
@@ -765,18 +782,11 @@ type reconcileRepository struct {
 // so it is safe to call unconditionally from the periodic reconciler and the
 // admin route.
 func (s *RepoConnectionService) ReconcileGitHubAppInstallations(ctx context.Context) error {
-	if !githubAppCredentialsConfigured() {
+	jwt, err := githubAppJWT(ctx, s.githubAppCredentials)
+	if stdErrors.Is(err, ErrGitHubAppNotConfigured) {
 		slog.Info("github_app.reconcile.skipped", "reason", "github app credentials not configured")
 		return nil
 	}
-
-	appID, privateKey, err := readGitHubAppCredentialsFromEnv()
-	if err != nil {
-		slog.Info("github_app.reconcile.skipped", "reason", "github app credentials not configured")
-		return nil
-	}
-
-	jwt, err := createGitHubAppJWTFunc(appID, privateKey, time.Now().UTC())
 	if err != nil {
 		return pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}
@@ -1001,52 +1011,11 @@ func parseGitHubNextLink(header string) string {
 	return ""
 }
 
-func githubAppInstallURL(configured bool) string {
-	if value := strings.TrimSpace(os.Getenv(envGitHubAppInstallURL)); value != "" {
-		return value
-	}
-	if !configured {
-		return ""
-	}
-	return defaultGitHubAppInstallURL
-}
-
-// githubAppCredentialsConfigured reports whether a usable app id + private key
-// are present in the environment, mirroring readGitHubAppCredentialsFromEnv.
-func githubAppCredentialsConfigured() bool {
-	_, _, err := readGitHubAppCredentialsFromEnv()
-	return err == nil
-}
-
 func githubAPIBaseURL() string {
 	if value := strings.TrimSpace(os.Getenv(envGitHubAppAPIBaseURL)); value != "" {
 		return strings.TrimRight(value, "/")
 	}
 	return defaultGitHubAPIBaseURL
-}
-
-func readGitHubAppCredentialsFromEnv() (int64, *rsa.PrivateKey, error) {
-	appIDRaw := strings.TrimSpace(os.Getenv(envGitHubAppID))
-	if appIDRaw == "" {
-		return 0, nil, fmt.Errorf("github app id is not configured")
-	}
-	appID, err := strconv.ParseInt(appIDRaw, 10, 64)
-	if err != nil || appID <= 0 {
-		return 0, nil, fmt.Errorf("github app id is invalid")
-	}
-
-	privateKeyRaw := strings.TrimSpace(os.Getenv(envGitHubAppPrivateKey))
-	if privateKeyRaw == "" {
-		return 0, nil, fmt.Errorf("github app private key is not configured")
-	}
-	privateKeyRaw = strings.ReplaceAll(privateKeyRaw, `\n`, "\n")
-
-	privateKey, err := parseGitHubAppPrivateKey(privateKeyRaw)
-	if err != nil {
-		return 0, nil, fmt.Errorf("github app private key is invalid")
-	}
-
-	return appID, privateKey, nil
 }
 
 func parseGitHubAppPrivateKey(value string) (*rsa.PrivateKey, error) {

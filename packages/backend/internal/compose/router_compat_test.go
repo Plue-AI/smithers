@@ -83,6 +83,7 @@ func buildRouterCompat(
 	var importHandler *routes.GitHubImportHandler
 	var providerConnectionHandler *routes.ProviderConnectionHandler
 	var branchLockHandler *routes.BranchLockHandler
+	var gitHubWebhookHandler *routes.GitHubWebhookHandler
 	var extras []any
 	for _, handler := range optional {
 		switch h := handler.(type) {
@@ -94,6 +95,8 @@ func buildRouterCompat(
 			providerConnectionHandler = h
 		case *routes.BranchLockHandler:
 			branchLockHandler = h
+		case *routes.GitHubWebhookHandler:
+			gitHubWebhookHandler = h
 		}
 	}
 	return buildRouter(
@@ -153,7 +156,7 @@ func buildRouterCompat(
 		telemetryHandler,
 		featureFlagHandler,
 		oauth2Handler,
-		nil, // gitHubWebhookHandler
+		gitHubWebhookHandler,
 		smithersMetrics,
 		extras...,
 	)

@@ -18,7 +18,14 @@ import (
 )
 
 type githubUserReposRouterService struct {
-	calls atomic.Int32
+	calls           atomic.Int32
+	installURL      string
+	installURLCalls atomic.Int32
+}
+
+func (s *githubUserReposRouterService) GitHubAppInstallURL(context.Context) (string, error) {
+	s.installURLCalls.Add(1)
+	return s.installURL, nil
 }
 
 func (s *githubUserReposRouterService) ListAuthenticatedUserGitHubRepos(context.Context, int64, url.Values) (services.GitHubRepoListResult, error) {
@@ -176,7 +183,7 @@ func TestServerRouter_GitHubRepoObjectRouteAllowsSessionAndCallsService(t *testi
 }
 
 func TestServerRouter_GitHubAppInstallationsServesSessionUser(t *testing.T) {
-	service := &githubUserReposRouterService{}
+	service := &githubUserReposRouterService{installURL: "https://github.com/apps/team-install/installations/new"}
 	router := githubUserReposSecurityRouter(service)
 	for _, path := range []string{"/api/user/github-app/installations", "/api/user/github-app/installations/42"} {
 		t.Run(path, func(t *testing.T) {
@@ -188,11 +195,12 @@ func TestServerRouter_GitHubAppInstallationsServesSessionUser(t *testing.T) {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.JSONEq(t, `{"repos":[]}`, rec.Body.String())
+			assert.JSONEq(t, `{"repos":[],"install_url":"https://github.com/apps/team-install/installations/new"}`, rec.Body.String())
 			assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
 		})
 	}
 	unauthenticated := httptest.NewRecorder()
 	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/user/github-app/installations", nil))
 	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
+	assert.Equal(t, int32(2), service.installURLCalls.Load(), "signed-out reads must never load credential metadata")
 }

@@ -89,9 +89,13 @@ describe("the generated product API client", () => {
       .sort()
     expect(exported).toEqual(expected)
     // Reviewed MVP inventory: 534 operations minus 28 Pair, 6 marketplace and 4
-    // third-party OAuth application operations. Exact equality above remains
+    // third-party OAuth application operations, plus the two install App setup
+    // operations added by T-GH-01. Exact equality above remains
     // independent of this count and every retained operation is exercised below.
-    expect(expected).toHaveLength(498)
+    expect(expected).toHaveLength(500)
+    expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
+      `${method.toUpperCase()} ${path}`
+    ).sort()).toEqual(["GET /api/install", "POST /api/install/setup/app"])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }

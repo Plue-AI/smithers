@@ -23396,6 +23396,64 @@
     }
   },
   {
+    "label": "//packages/backend:docs",
+    "package": "packages/backend",
+    "name": "docs",
+    "rule": "Docs.Check",
+    "kinds": [
+      "lint",
+      "docs"
+    ],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "packages/backend/docs/github-app.stamp.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/docs/github-app.md"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_app_manifest.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_app_credentials.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/install_setup_session.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/routes/github_app_setup.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/middleware/effective_origin.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/queries/github_app.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migrations/0105_github_app.sql"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/install.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/backend/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/errors:check",
     "package": "packages/errors",
     "name": "check",

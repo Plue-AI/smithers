@@ -100,12 +100,13 @@ type GitHubClient interface {
 
 type GitHubAuthClient interface {
 	GitHubClient
-	AuthorizationURL(state string) string
+	AuthorizationURL(ctx context.Context, state string) (string, error)
 }
 
 // Auth0Client extends GitHubClient with the ability to build an authorization URL.
 type Auth0Client interface {
-	GitHubAuthClient
+	GitHubClient
+	AuthorizationURL(state string) string
 }
 
 type AuthQuerier interface {
@@ -436,7 +437,11 @@ func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier 
 	}
 
 	state := s.generateState()
-	_, err := s.queries.CreateOAuthState(ctx, db.CreateOAuthStateParams{
+	authURL, err := githubAuthClient.AuthorizationURL(ctx, state)
+	if err != nil {
+		return "", pkgerrors.Internal("github oauth credentials are unavailable").WithCause(err)
+	}
+	_, err = s.queries.CreateOAuthState(ctx, db.CreateOAuthStateParams{
 		State:           state,
 		ContextHash:     hashOAuthStateVerifier(stateVerifier),
 		RequestedScopes: requestedScopes,
@@ -446,7 +451,7 @@ func (s *AuthService) startGitHubOAuthDirect(ctx context.Context, stateVerifier 
 		return "", pkgerrors.Internal("failed to create oauth state").WithCause(err)
 	}
 
-	return githubAuthClient.AuthorizationURL(state), nil
+	return authURL, nil
 }
 
 // StartAuth0OAuth initiates the Auth0 OAuth flow. It creates a state verifier,

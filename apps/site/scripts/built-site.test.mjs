@@ -272,7 +272,7 @@ test("built pages reject the retired GitHub App installation URL", (t) => {
   assert.deepEqual(checkBuiltSite(fixture(t, { "index.html": page("smithers") })).failures, [
     "index.html: retired GitHub App URL: https://github.com/apps/smithers/installations/new"
   ])
-  assert.deepEqual(checkBuiltSite(fixture(t, { "index.html": page("smitherspreviewrelease") })).failures, [])
+  assert.deepEqual(checkBuiltSite(fixture(t, { "index.html": page("team-install") })).failures, [])
 })
 
 test("coming-soon sign-in must start OAuth and return to that repository page", (t) => {

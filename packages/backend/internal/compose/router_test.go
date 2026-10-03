@@ -1698,8 +1698,13 @@ func TestServerRouter_RepoSyncRoute_RequiresRepoContextLookup(t *testing.T) {
 func TestServerRouter_AuthRateLimitApplied(t *testing.T) {
 	t.Parallel()
 
+	// Credentials are resolved lazily now; a configured callback origin still
+	// precedes auth middleware. Exercise the limiter on that origin rather than
+	// the missing-origin refusal (covered by browser_auth_origin_test.go).
+	cfg := testCORSConfig()
+	cfg.Auth.GitHubRedirectURL = "http://example.com/api/auth/github/callback"
 	router := buildRouterCompat(
-		testCORSConfig(),
+		cfg,
 		nil,
 		nil,
 		&routes.RepoHandler{},

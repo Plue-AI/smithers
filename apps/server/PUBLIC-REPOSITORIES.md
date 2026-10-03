@@ -30,11 +30,8 @@ field, so a site built before it shipped keeps working.
 The endpoint fetches public GitHub repository metadata on the server, one
 concurrent request per repository in both arrays, using the same upstream
 resource as the app's account-scoped GitHub metadata route. It never borrows a
-visitor's credentials: the reads carry the Smithers GitHub App's installation
-token, minted from the `SMITHERS_GITHUB_APP_ID` and
-`SMITHERS_GITHUB_APP_PRIVATE_KEY` secrets (`src/githubApp.ts`, `DEPLOY.md`), or
-the `GITHUB_TOKEN` override when that secret is set. With neither, the reads are
-anonymous and a tripped rate limit shows as "Stats unavailable".
+visitor's credentials. Product GitHub App authentication belongs to the shared
+backend and reads the install's sealed PostgreSQL credential store.
 It projects only stars, forks, open issues plus pull requests, language, and
 license. GitHub's `open_issues_count` includes pull requests, so the card labels
 that statistic **Issues + PRs**.

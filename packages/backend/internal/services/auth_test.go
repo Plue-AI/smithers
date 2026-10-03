@@ -237,6 +237,7 @@ type mockGitHubClient struct {
 	fetchEmailsFn     func(ctx context.Context, accessToken string) ([]GitHubEmail, error)
 	authorizationURL  string
 	authorizationSeen *string
+	authorizationErr  error
 }
 
 func (m mockGitHubClient) ExchangeCode(ctx context.Context, code string) (GitHubTokenResult, error) {
@@ -261,14 +262,20 @@ func (m mockGitHubClient) FetchEmails(ctx context.Context, accessToken string) (
 	return m.fetchEmailsFn(ctx, accessToken)
 }
 
-func (m mockGitHubClient) AuthorizationURL(state string) string {
+func (m mockGitHubClient) AuthorizationURL(ctx context.Context, state string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if m.authorizationErr != nil {
+		return "", m.authorizationErr
+	}
 	if m.authorizationSeen != nil {
 		*m.authorizationSeen = state
 	}
 	if m.authorizationURL != "" {
-		return m.authorizationURL + "?state=" + state
+		return m.authorizationURL + "?state=" + state, nil
 	}
-	return "https://github.test/login/oauth/authorize?state=" + state
+	return "https://github.test/login/oauth/authorize?state=" + state, nil
 }
 
 func defaultAuthConfig() config.AuthConfig {
@@ -279,8 +286,6 @@ func defaultAuthConfig() config.AuthConfig {
 		SessionSecret:        "test-session-secret-for-unit-tests",
 		CookieSecure:         true,
 		KeyAuthDomain:        "smithers.sh",
-		GitHubClientID:       "client-id",
-		GitHubClientSecret:   "client-secret",
 		GitHubRedirectURL:    "http://localhost:4000/api/auth/github/callback",
 	}
 }
@@ -2641,3 +2646,12 @@ func TestUserLockRegistry_EvictsEntriesOnRelease(t *testing.T) {
 	assert.Empty(t, registry.locks, "map must not retain locks after all holders release")
 	registry.mu.Unlock()
 }
+
+// Auth0 retains its own state-only URL API; this fixture isolates that contract.
+type mockAuth0Client struct{ mockGitHubClient }
+
+func (m mockAuth0Client) AuthorizationURL(state string) string {
+	value, _ := m.mockGitHubClient.AuthorizationURL(context.Background(), state)
+	return value
+}
+func auth0Fixture(client mockGitHubClient) mockAuth0Client { return mockAuth0Client{client} }

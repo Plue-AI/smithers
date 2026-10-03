@@ -33,7 +33,7 @@ func TestAuth_Cov_Auth0FlowAndSessionRevocation(t *testing.T) {
 		},
 	}
 	svc = NewAuthService(queries, cfg, mockKeyAuthVerifier{}, mockGitHubClient{})
-	svc.SetAuth0Client(mockGitHubClient{authorizationURL: "https://auth0.test/authorize", authorizationSeen: &authState})
+	svc.SetAuth0Client(auth0Fixture(mockGitHubClient{authorizationURL: "https://auth0.test/authorize", authorizationSeen: &authState}))
 	svc.generateState = func() string { return "auth0-state" }
 	url, err := svc.StartAuth0OAuth(ctx, " verifier ")
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestAuth_Cov_Auth0FlowAndSessionRevocation(t *testing.T) {
 		},
 	}
 	svc = NewAuthService(queries, cfg, mockKeyAuthVerifier{}, nil)
-	svc.SetAuth0Client(mockGitHubClient{
+	svc.SetAuth0Client(auth0Fixture(mockGitHubClient{
 		exchangeCodeFn: func(context.Context, string) (GitHubTokenResult, error) {
 			return GitHubTokenResult{AccessToken: "auth0-access", RefreshToken: "auth0-refresh"}, nil
 		},
@@ -77,7 +77,7 @@ func TestAuth_Cov_Auth0FlowAndSessionRevocation(t *testing.T) {
 		fetchEmailsFn: func(context.Context, string) ([]GitHubEmail, error) {
 			return []GitHubEmail{{Email: "authcat@example.com", Primary: true, Verified: true}}, nil
 		},
-	})
+	}))
 	result, err := svc.CompleteAuth0OAuth(ctx, "code-ok", "state-ok", "verifier-ok")
 	require.NoError(t, err)
 	assert.Equal(t, int64(44), result.User.ID)

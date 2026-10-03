@@ -52,11 +52,11 @@ func TestGitHubWebhook_H_HandleInputAndQueueErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	err = NewGitHubWebhookService(&mockGitHubWebhookDB{}, "").HandleGitHubWebhook(ctx, uuid.NewString(), "push", "sig", payload)
+	err = newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "").HandleGitHubWebhook(ctx, uuid.NewString(), "push", "sig", payload)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
 	err = svc.HandleGitHubWebhook(ctx, uuid.NewString(), " ", signGitHubWebhookForTest(payload, "secret"), payload)
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
@@ -74,7 +74,7 @@ func TestGitHubWebhook_H_HandleInputAndQueueErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.CommandTag{}, errors.New("enqueue failed")
 		},
@@ -104,7 +104,7 @@ func TestGitHubWebhook_H_InstallationPersistenceBranches(t *testing.T) {
 		"repositories":[{"id":1,"name":"repo","owner":{"login":"Acme"}}]
 	}`)
 	handleCreated := func(db GitHubWebhookDB) error {
-		return NewGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, uuid.NewString(), "installation", signGitHubWebhookForTest(createdPayload, "secret"), createdPayload)
+		return newTestGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, uuid.NewString(), "installation", signGitHubWebhookForTest(createdPayload, "secret"), createdPayload)
 	}
 	insertOK := func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 		return pgconn.NewCommandTag("INSERT 1"), nil
@@ -125,10 +125,10 @@ func TestGitHubWebhook_H_InstallationPersistenceBranches(t *testing.T) {
 		mockGitHubWebhookDB: mockGitHubWebhookDB{execFn: insertOK},
 	}))
 
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
 	require.NoError(t, svc.replaceInstallationRepositories(ctx, svc.db, 123, envelope))
 
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 			if strings.Contains(sql, "DELETE FROM github_app_installation_repositories") {
 				return pgconn.CommandTag{}, errors.New("reset failed")
@@ -140,7 +140,7 @@ func TestGitHubWebhook_H_InstallationPersistenceBranches(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 			if strings.Contains(sql, "github_app_installation_repositories") && strings.Contains(sql, "INSERT") {
 				return pgconn.CommandTag{}, errors.New("repo failed")
@@ -162,7 +162,7 @@ func TestGitHubWebhook_H_InstallationPersistenceBranches(t *testing.T) {
 		"repositories_added":[{"id":5,"name":"new","owner":{"login":"Acme"}}]
 	}`)
 	handleAdded := func(db GitHubWebhookDB) error {
-		return NewGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, uuid.NewString(), "installation_repositories", signGitHubWebhookForTest(addedPayload, "secret"), addedPayload)
+		return newTestGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, uuid.NewString(), "installation_repositories", signGitHubWebhookForTest(addedPayload, "secret"), addedPayload)
 	}
 
 	err = handleAdded(&githubWebhookHBeginDB{beginErr: errors.New("begin failed")})
@@ -183,14 +183,14 @@ func TestGitHubWebhook_H_InstallationPersistenceBranches(t *testing.T) {
 
 func TestGitHubWebhook_H_RepositoryEventAndHelperBranches(t *testing.T) {
 	ctx := context.Background()
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
 
 	err := svc.handleInstallationRepositoriesEvent(ctx, svc.db, "added", gitHubWebhookEnvelope{})
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
 	deleteCalls := 0
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			deleteCalls++
 			return pgconn.CommandTag{}, errors.New("delete failed")
@@ -208,7 +208,7 @@ func TestGitHubWebhook_H_RepositoryEventAndHelperBranches(t *testing.T) {
 	require.NoError(t, err)
 
 	upserts := 0
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			upserts++
 			return pgconn.NewCommandTag("INSERT 1"), nil

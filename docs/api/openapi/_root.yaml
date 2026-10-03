@@ -13,6 +13,11 @@ servers:
 paths:
 components:
   securitySchemes:
+    setupSession:
+      type: apiKey
+      in: cookie
+      name: smithers_setup_session
+      description: Live durable setup session exchanged from the terminal setup URL before claim.
     tokenAuth:
       type: apiKey
       in: header

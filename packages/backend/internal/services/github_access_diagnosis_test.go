@@ -43,10 +43,10 @@ func newDiagnosisService(t *testing.T, fx diagnosisFixture) *GitHubUserReposServ
 	t.Cleanup(server.Close)
 
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 
-	return NewGitHubUserReposService(
+	return newTestGitHubUserReposService(t,
 		newFakeGitHubUserReposDB(),
 		fakeOAuthTokenDecrypter{token: "gho_test_token"},
 		WithGitHubUserReposHTTPClient(server.Client()),
@@ -67,7 +67,7 @@ func TestDiagnoseGitHubAccessAppNotInstalled(t *testing.T) {
 	diagnosis, err := service.DiagnoseGitHubAccess(context.Background(), 1, "acme", "widgets", "issues")
 	require.NoError(t, err)
 	assert.Equal(t, GitHubAccessVerdictAppNotInstalled, diagnosis.Verdict)
-	assert.Equal(t, defaultGitHubAppInstallURL, diagnosis.InstallURL)
+	assert.Equal(t, testCallerInstallURL, diagnosis.InstallURL)
 	assert.Empty(t, diagnosis.MissingPermission)
 }
 
@@ -85,7 +85,7 @@ func TestDiagnoseGitHubAccessPermissionMissingIssues(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, GitHubAccessVerdictPermissionMissing, diagnosis.Verdict)
 	assert.Equal(t, "issues:read", diagnosis.MissingPermission)
-	assert.Equal(t, defaultGitHubAppPermissionsURL, diagnosis.GrantURL)
+	assert.Equal(t, testCallerPermissionsURL, diagnosis.GrantURL)
 	assert.Equal(t, "https://github.com/organizations/acme/settings/installations/77", diagnosis.ApproveURL)
 	assert.Equal(t, int64(77), diagnosis.InstallationID)
 }
@@ -154,12 +154,12 @@ func TestDiagnoseGitHubAccessTokenBrokenWhenNoAccount(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 
 	queries := newFakeGitHubUserReposDB()
 	queries.accounts = nil // no linked oauth account at all
-	service := NewGitHubUserReposService(
+	service := newTestGitHubUserReposService(t,
 		queries,
 		fakeOAuthTokenDecrypter{token: "gho_test_token"},
 		WithGitHubUserReposHTTPClient(server.Client()),
@@ -171,10 +171,10 @@ func TestDiagnoseGitHubAccessTokenBrokenWhenNoAccount(t *testing.T) {
 }
 
 func TestDiagnoseGitHubAccessNotConfigured(t *testing.T) {
-	t.Setenv(envGitHubAppID, "")
-	t.Setenv(envGitHubAppPrivateKey, "")
+	setTestCallerCredentials(t, "ID", "")
+	setTestCallerCredentials(t, "PEM", "")
 
-	service := NewGitHubUserReposService(
+	service := newTestGitHubUserReposService(t,
 		newFakeGitHubUserReposDB(),
 		fakeOAuthTokenDecrypter{token: "gho_test_token"},
 	)

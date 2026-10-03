@@ -27,7 +27,7 @@ func githubCoverJSONServer(t *testing.T, status int, body map[string]any) *httpt
 }
 
 func githubCoverClient(srvURL string) *GitHubClient {
-	client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+	client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 	client.oauthBaseURL = srvURL
 	return client
 }
@@ -38,7 +38,7 @@ func TestGitHubClient_RefreshToken_Cover(t *testing.T) {
 	t.Run("invalid base URL returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = "://invalid\x7f"
 
 		_, err := client.RefreshToken(context.Background(), "ghr_old")
@@ -49,7 +49,7 @@ func TestGitHubClient_RefreshToken_Cover(t *testing.T) {
 	t.Run("canceled context returns request failed error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = "http://localhost:1"
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -57,7 +57,7 @@ func TestGitHubClient_RefreshToken_Cover(t *testing.T) {
 
 		_, err := client.RefreshToken(ctx, "ghr_old")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "github oauth refresh request failed")
+		assert.ErrorIs(t, err, context.Canceled)
 	})
 
 	t.Run("decode error on malformed body", func(t *testing.T) {

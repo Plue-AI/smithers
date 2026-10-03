@@ -56,9 +56,8 @@ func browserOriginRouter(cfg *config.Config, authService routes.AuthService) htt
 
 func TestRouterCanonicalBrowserAuthOrigin(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
-	cfg.Auth.GitHubClientID = "configured-client"
 	cfg.Auth.GitHubRedirectURL = "https://app.example/api/auth/github/callback"
-	server := httptest.NewServer(browserOriginRouter(cfg, nil))
+	server := httptest.NewServer(browserOriginRouter(cfg, &mockRouterAuthService{}))
 	defer server.Close()
 	client := server.Client()
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -76,7 +75,6 @@ func TestRouterCanonicalBrowserAuthOrigin(t *testing.T) {
 
 func TestRouterBrowserAuthOriginAcrossTLSProxy(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
-	cfg.Auth.GitHubClientID = "configured-client"
 	cfg.Auth.GitHubRedirectURL = "https://app.example/api/auth/github/callback"
 	cfg.Auth.CookieSecure = true
 	server := httptest.NewServer(browserOriginRouter(cfg, &mockRouterAuthService{}))

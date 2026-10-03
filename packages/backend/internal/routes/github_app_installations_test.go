@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,17 +51,17 @@ func TestGitHubAppInstallations_ReturnsVerifiedReposInCamelCase(t *testing.T) {
 	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("42", true))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
-	assert.JSONEq(t, `{"repos":[{"fullName":"ada/hello","pushedAt":"2026-09-12T00:00:00Z","installationId":42}]}`, rec.Body.String())
+	assert.JSONEq(t, `{"install_url":"","repos":[{"fullName":"ada/hello","pushedAt":"2026-09-12T00:00:00Z","installationId":42}]}`, rec.Body.String())
 
 	rec = httptest.NewRecorder()
 	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("999", true))
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"repos":[]}`, rec.Body.String())
+	assert.JSONEq(t, `{"install_url":"","repos":[]}`, rec.Body.String())
 
 	rec = httptest.NewRecorder()
 	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("", true))
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"repos":[{"fullName":"ada/hello","pushedAt":"2026-09-12T00:00:00Z","installationId":42}]}`, rec.Body.String())
+	assert.JSONEq(t, `{"install_url":"","repos":[{"fullName":"ada/hello","pushedAt":"2026-09-12T00:00:00Z","installationId":42}]}`, rec.Body.String())
 }
 
 func TestGitHubAppInstallations_BlockerIsAConflict(t *testing.T) {
@@ -129,4 +130,28 @@ func TestGitHubAppInstallations_UpstreamFailureKeepsStatusAndRestatesProse(t *te
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Smithers Cloud could not verify the GitHub App installation. Try again.")
 	assert.NotContains(t, rec.Body.String(), "raw github prose")
+}
+
+type installURLRouteFixture struct {
+	mockGitHubUserReposRouteService
+	url string
+	err error
+}
+
+func (f installURLRouteFixture) GitHubAppInstallURL(context.Context) (string, error) {
+	return f.url, f.err
+}
+func TestGitHubAppInstallationsUsesStoredURLAndRefusesCredentialFailure(t *testing.T) {
+	service := installURLRouteFixture{mockGitHubUserReposRouteService: installedRepoService(services.GitHubAccessVerdictOK), url: "https://github.com/apps/team-install/installations/new"}
+	handler := &GitHubUserReposHandler{Service: service}
+	rec := httptest.NewRecorder()
+	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("", true))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"install_url":"https://github.com/apps/team-install/installations/new"`)
+	service.err = errors.New("cannot unseal")
+	handler.Service = service
+	rec = httptest.NewRecorder()
+	handler.ListGitHubAppInstallations(rec, githubAppInstallationsRequest("", true))
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "team-install")
 }

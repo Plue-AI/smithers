@@ -14,7 +14,7 @@ func newSyncedWebhookService(t *testing.T) (*GitHubWebhookService, *GitHubSynced
 	t.Helper()
 	store := newFakeSyncedRepoStore()
 	synced := NewGitHubSyncedRepoService(store)
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		},
@@ -104,7 +104,7 @@ func TestGitHubWebhook_IssueAndCommentEventsRefreshTheStore(t *testing.T) {
 
 func TestGitHubWebhook_StoreFailureDoesNotRejectTheDelivery(t *testing.T) {
 	// A nil registry is the pre-mirror wiring: deliveries must still be accepted.
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		},

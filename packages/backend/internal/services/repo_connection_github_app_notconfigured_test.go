@@ -42,11 +42,10 @@ func notConfiguredStatusDB() *mockRepoConnectionDB {
 // default install URL (https://github.com/apps/smithers-cloud/... 404s). Today
 // it always emits that dead default, so this fails for the right reason.
 func TestRepoConnectionService_GetGitHubAppStatus_NotConfigured_OmitsDeadInstallURL(t *testing.T) {
-	t.Setenv(envGitHubAppID, "")
-	t.Setenv(envGitHubAppPrivateKey, "")
-	t.Setenv(envGitHubAppInstallURL, "")
+	setTestCallerCredentials(t, "ID", "")
+	setTestCallerCredentials(t, "PEM", "")
 
-	svc := NewRepoConnectionService(notConfiguredStatusDB())
+	svc := newTestRepoConnectionService(t, notConfiguredStatusDB())
 
 	status, err := svc.GetGitHubAppStatus(context.Background(), 7, "acme", "repo")
 	require.NoError(t, err)
@@ -61,10 +60,10 @@ func TestRepoConnectionService_GetGitHubAppStatus_NotConfigured_OmitsDeadInstall
 // client can render honestly instead of showing a useless install prompt. Today
 // there is no such field, so the marshaled JSON lacks the key.
 func TestRepoConnectionService_GetGitHubAppStatus_NotConfigured_ExposesConfiguredFalse(t *testing.T) {
-	t.Setenv(envGitHubAppID, "")
-	t.Setenv(envGitHubAppPrivateKey, "")
+	setTestCallerCredentials(t, "ID", "")
+	setTestCallerCredentials(t, "PEM", "")
 
-	svc := NewRepoConnectionService(notConfiguredStatusDB())
+	svc := newTestRepoConnectionService(t, notConfiguredStatusDB())
 
 	status, err := svc.GetGitHubAppStatus(context.Background(), 7, "acme", "repo")
 	require.NoError(t, err)
@@ -83,10 +82,10 @@ func TestRepoConnectionService_GetGitHubAppStatus_NotConfigured_ExposesConfigure
 
 // RED: when credentials ARE configured, github_app_configured must be true.
 func TestRepoConnectionService_GetGitHubAppStatus_Configured_ExposesConfiguredTrue(t *testing.T) {
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 
-	svc := NewRepoConnectionService(notConfiguredStatusDB())
+	svc := newTestRepoConnectionService(t, notConfiguredStatusDB())
 
 	status, err := svc.GetGitHubAppStatus(context.Background(), 7, "acme", "repo")
 	require.NoError(t, err)

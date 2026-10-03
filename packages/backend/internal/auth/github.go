@@ -14,9 +14,12 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
+type GitHubOAuthCredentialSource interface {
+	OAuthClient(context.Context) (string, string, error)
+}
+
 type GitHubClient struct {
-	clientID     string
-	clientSecret string
+	credentials  GitHubOAuthCredentialSource
 	httpClient   *http.Client
 	oauthBaseURL string
 	apiBaseURL   string
@@ -31,7 +34,7 @@ const (
 	githubAPIVersion          = "2022-11-28"
 )
 
-func NewGitHubClient(clientID, clientSecret, redirectURL, oauthBaseURL, apiBaseURL string) *GitHubClient {
+func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauthBaseURL, apiBaseURL string) *GitHubClient {
 	oauthBaseURL = strings.TrimSpace(oauthBaseURL)
 	if oauthBaseURL == "" {
 		oauthBaseURL = defaultGitHubOAuthBaseURL
@@ -42,8 +45,7 @@ func NewGitHubClient(clientID, clientSecret, redirectURL, oauthBaseURL, apiBaseU
 	}
 
 	return &GitHubClient{
-		clientID:     strings.TrimSpace(clientID),
-		clientSecret: strings.TrimSpace(clientSecret),
+		credentials:  credentials,
 		httpClient:   observability.NewHTTPClient(10 * time.Second),
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
@@ -51,19 +53,45 @@ func NewGitHubClient(clientID, clientSecret, redirectURL, oauthBaseURL, apiBaseU
 	}
 }
 
-func (c *GitHubClient) AuthorizationURL(state string) string {
+func (c *GitHubClient) oauthClient(ctx context.Context) (string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if c == nil || c.credentials == nil {
+		return "", "", services.ErrGitHubAppNotConfigured
+	}
+	id, secret, err := c.credentials.OAuthClient(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("load github app oauth credentials: %w", err)
+	}
+	id, secret = strings.TrimSpace(id), strings.TrimSpace(secret)
+	if id == "" || secret == "" {
+		return "", "", services.ErrGitHubAppNotConfigured
+	}
+	return id, secret, nil
+}
+
+func (c *GitHubClient) AuthorizationURL(ctx context.Context, state string) (string, error) {
+	clientID, _, err := c.oauthClient(ctx)
+	if err != nil {
+		return "", err
+	}
 	values := url.Values{}
-	values.Set("client_id", c.clientID)
+	values.Set("client_id", clientID)
 	values.Set("redirect_uri", c.redirectURL)
 	values.Set("scope", githubOAuthScope)
 	values.Set("state", strings.TrimSpace(state))
-	return strings.TrimRight(c.oauthBaseURL, "/") + "/login/oauth/authorize?" + values.Encode()
+	return strings.TrimRight(c.oauthBaseURL, "/") + "/login/oauth/authorize?" + values.Encode(), nil
 }
 
 func (c *GitHubClient) ExchangeCode(ctx context.Context, code string) (services.GitHubTokenResult, error) {
+	clientID, clientSecret, err := c.oauthClient(ctx)
+	if err != nil {
+		return services.GitHubTokenResult{}, err
+	}
 	form := url.Values{}
-	form.Set("client_id", c.clientID)
-	form.Set("client_secret", c.clientSecret)
+	form.Set("client_id", clientID)
+	form.Set("client_secret", clientSecret)
 	form.Set("code", strings.TrimSpace(code))
 	form.Set("grant_type", "authorization_code")
 
@@ -128,9 +156,13 @@ func (c *GitHubClient) ExchangeCode(ctx context.Context, code string) (services.
 // when the refresh token is itself invalid/expired — the empty-access-token
 // guard surfaces that as a refresh failure.
 func (c *GitHubClient) RefreshToken(ctx context.Context, refreshToken string) (services.GitHubTokenResult, error) {
+	clientID, clientSecret, err := c.oauthClient(ctx)
+	if err != nil {
+		return services.GitHubTokenResult{}, err
+	}
 	form := url.Values{}
-	form.Set("client_id", c.clientID)
-	form.Set("client_secret", c.clientSecret)
+	form.Set("client_id", clientID)
+	form.Set("client_secret", clientSecret)
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", strings.TrimSpace(refreshToken))
 

@@ -20,8 +20,8 @@ func TestRepoConnectionGitHubApp_Z_JWTCreationError(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, string(keyPEM))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", string(keyPEM))
 
 	oldCreate := createGitHubAppJWTFunc
 	createGitHubAppJWTFunc = func(int64, *rsa.PrivateKey, time.Time) (string, error) {
@@ -29,7 +29,7 @@ func TestRepoConnectionGitHubApp_Z_JWTCreationError(t *testing.T) {
 	}
 	t.Cleanup(func() { createGitHubAppJWTFunc = oldCreate })
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(context.Context, string, ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = 901

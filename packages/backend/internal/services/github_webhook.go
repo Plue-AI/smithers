@@ -112,9 +112,13 @@ type gitHubWebhookTxBeginner interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+type GitHubWebhookCredentialSource interface {
+	WebhookSecret(context.Context) (string, error)
+}
+
 type GitHubWebhookService struct {
-	db            GitHubWebhookDB
-	webhookSecret string
+	db          GitHubWebhookDB
+	credentials GitHubWebhookCredentialSource
 	// syncedRepos keeps the continuously-synced metadata store current from the
 	// deliveries this service already receives. Optional: nil keeps the
 	// pre-mirror behavior (enqueue + installation bookkeeping only).
@@ -168,10 +172,10 @@ type gitHubWebhookRepoOwner struct {
 	Login string `json:"login"`
 }
 
-func NewGitHubWebhookService(db GitHubWebhookDB, webhookSecret string, opts ...GitHubWebhookOption) *GitHubWebhookService {
+func NewGitHubWebhookService(db GitHubWebhookDB, credentials GitHubWebhookCredentialSource, opts ...GitHubWebhookOption) *GitHubWebhookService {
 	s := &GitHubWebhookService{
-		db:            db,
-		webhookSecret: strings.TrimSpace(webhookSecret),
+		db:          db,
+		credentials: credentials,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -189,10 +193,17 @@ func (s *GitHubWebhookService) HandleGitHubWebhook(ctx context.Context, delivery
 	if s == nil || s.db == nil {
 		return pkgerrors.Internal("github webhook service is not configured")
 	}
-	if s.webhookSecret == "" {
+	if s.credentials == nil {
 		return pkgerrors.Internal("github webhook secret is not configured")
 	}
-	if !verifyGitHubWebhookSignature(payload, signature, s.webhookSecret) {
+	secret, err := s.credentials.WebhookSecret(ctx)
+	if err != nil {
+		return pkgerrors.Internal("failed to load github webhook secret").WithCause(err)
+	}
+	if strings.TrimSpace(secret) == "" {
+		return pkgerrors.Internal("github webhook secret is not configured")
+	}
+	if !verifyGitHubWebhookSignature(payload, signature, secret) {
 		return pkgerrors.Unauthorized("invalid github webhook signature")
 	}
 

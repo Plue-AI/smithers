@@ -17,7 +17,7 @@ import (
 func TestNewGitHubClient_UsesConfiguredBaseURLsWhenProvided(t *testing.T) {
 	t.Parallel()
 
-	client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "http://mock-github:8081", "http://mock-github:8082")
+	client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "http://mock-github:8081", "http://mock-github:8082")
 	assert.Equal(t, "http://mock-github:8081", client.oauthBaseURL)
 	assert.Equal(t, "http://mock-github:8082", client.apiBaseURL)
 }
@@ -25,7 +25,7 @@ func TestNewGitHubClient_UsesConfiguredBaseURLsWhenProvided(t *testing.T) {
 func TestNewGitHubClient_UsesDefaultBaseURLsWhenConfigMissing(t *testing.T) {
 	t.Parallel()
 
-	client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "   ", "")
+	client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "   ", "")
 	assert.Equal(t, "https://github.com", client.oauthBaseURL)
 	assert.Equal(t, "https://api.github.com", client.apiBaseURL)
 }
@@ -33,8 +33,9 @@ func TestNewGitHubClient_UsesDefaultBaseURLsWhenConfigMissing(t *testing.T) {
 func TestGitHubClient_AuthorizationURL(t *testing.T) {
 	t.Parallel()
 
-	client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "https://github.example", "")
-	authURL := client.AuthorizationURL("state-123")
+	client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "https://github.example", "")
+	authURL, err := client.AuthorizationURL(context.Background(), "state-123")
+	require.NoError(t, err)
 	parsed, err := url.Parse(authURL)
 	require.NoError(t, err)
 	assert.Equal(t, "https", parsed.Scheme)
@@ -70,7 +71,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		result, err := client.ExchangeCode(context.Background(), "code-123")
@@ -86,7 +87,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -102,7 +103,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -120,7 +121,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -140,7 +141,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -160,7 +161,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -178,7 +179,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -189,7 +190,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 	t.Run("canceled context returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = "http://localhost:1" // unreachable
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -202,7 +203,7 @@ func TestGitHubClient_ExchangeCode(t *testing.T) {
 	t.Run("invalid base URL returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = "://invalid\x7f" // invalid URL
 
 		_, err := client.ExchangeCode(context.Background(), "code-123")
@@ -234,7 +235,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		profile, err := client.FetchUser(context.Background(), "access-token")
@@ -252,7 +253,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchUser(context.Background(), "access-token")
@@ -269,7 +270,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchUser(context.Background(), "access-token")
@@ -287,7 +288,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchUser(context.Background(), "access-token")
@@ -297,7 +298,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 	t.Run("canceled context returns error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = "http://localhost:1"
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -310,7 +311,7 @@ func TestGitHubClient_FetchUser(t *testing.T) {
 	t.Run("invalid base URL returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = "://invalid\x7f"
 
 		_, err := client.FetchUser(context.Background(), "access-token")
@@ -341,7 +342,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		emails, err := client.FetchEmails(context.Background(), "access-token")
@@ -360,7 +361,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchEmails(context.Background(), "access-token")
@@ -376,7 +377,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchEmails(context.Background(), "access-token")
@@ -392,7 +393,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchEmails(context.Background(), "access-token")
@@ -402,7 +403,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 	t.Run("canceled context returns error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = "http://localhost:1"
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -415,7 +416,7 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 	t.Run("invalid base URL returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.apiBaseURL = "://invalid\x7f"
 
 		_, err := client.FetchEmails(context.Background(), "access-token")
@@ -451,7 +452,7 @@ func TestGitHubClient_RefreshToken(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		result, err := client.RefreshToken(context.Background(), "ghr_old")
@@ -474,7 +475,7 @@ func TestGitHubClient_RefreshToken(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.RefreshToken(context.Background(), "ghr_bad")
@@ -491,7 +492,7 @@ func TestGitHubClient_RefreshToken(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewGitHubClient("client-id", "client-secret", "http://localhost:4000/api/auth/github/callback", "", "")
+		client := NewGitHubClient(&testOAuthCredentials{id: "client-id", secret: "client-secret"}, "http://localhost:4000/api/auth/github/callback", "", "")
 		client.oauthBaseURL = srv.URL
 
 		_, err := client.RefreshToken(context.Background(), "ghr_old")

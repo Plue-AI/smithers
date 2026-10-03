@@ -121,8 +121,6 @@ export const WORKER_IDENTITY = {
     ANONYMOUS_TURN_SALT: { required: false, absent: "ANONYMOUS_TURN_SALT is retained only for migration and rollback" },
     CEREBRAS_API_KEY: { required: false, absent: "CEREBRAS_API_KEY is retained only for migration and rollback" },
     AI_GATEWAY_API_KEY: { required: false, absent: "AI_GATEWAY_API_KEY is retained only for migration and rollback" },
-    SMITHERS_GITHUB_APP_ID: { required: false, absent: "SMITHERS_GITHUB_APP_ID is retained only for migration and rollback" },
-    SMITHERS_GITHUB_APP_PRIVATE_KEY: { required: false, absent: "SMITHERS_GITHUB_APP_PRIVATE_KEY is retained only for migration and rollback" },
     GITHUB_TOKEN: { required: false, absent: "GITHUB_TOKEN is retained only for migration and rollback" },
   } as Readonly<Record<string, SecretIdentity>>,
   /**

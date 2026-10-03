@@ -24,7 +24,7 @@ func TestStack_Cov_AccessPermissionsAndWriteErrors(t *testing.T) {
 	actor := &db.User{ID: 7, Username: "alice"}
 	privateRepo := db.Repository{ID: 42, UserID: pgtype.Int8{Int64: actor.ID, Valid: true}, IsPublic: false}
 
-	svc := NewStackService(&mockStackQuerier{})
+	svc := newTestStackService(t, &mockStackQuerier{})
 	_, err := svc.resolveRepo(ctx, "", "demo")
 	require.Error(t, err)
 	stackCovAssertAPIStatus(t, err, http.StatusBadRequest)
@@ -32,7 +32,7 @@ func TestStack_Cov_AccessPermissionsAndWriteErrors(t *testing.T) {
 	require.Error(t, err)
 	stackCovAssertAPIStatus(t, err, http.StatusBadRequest)
 
-	svc = NewStackService(&mockStackQuerier{
+	svc = newTestStackService(t, &mockStackQuerier{
 		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 			return db.Repository{}, pgx.ErrNoRows
 		},
@@ -41,7 +41,7 @@ func TestStack_Cov_AccessPermissionsAndWriteErrors(t *testing.T) {
 	require.Error(t, err)
 	stackCovAssertAPIStatus(t, err, http.StatusNotFound)
 
-	svc = NewStackService(&mockStackQuerier{
+	svc = newTestStackService(t, &mockStackQuerier{
 		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 			return db.Repository{}, errors.New("db down")
 		},
@@ -55,7 +55,7 @@ func TestStack_Cov_AccessPermissionsAndWriteErrors(t *testing.T) {
 			return "", nil
 		},
 	}
-	svc = NewStackService(q)
+	svc = newTestStackService(t, q)
 	require.NoError(t, svc.requireReadAccess(ctx, db.Repository{IsPublic: true}, actor))
 	err = svc.requireReadAccess(ctx, privateRepo, nil)
 	require.Error(t, err)
@@ -77,7 +77,7 @@ func TestStack_Cov_AccessPermissionsAndWriteErrors(t *testing.T) {
 			return " write ", nil
 		},
 	}
-	svc = NewStackService(q)
+	svc = newTestStackService(t, q)
 	permission, owner, err := repoPermissionForUser(ctx, svc.queries, orgRepo, actor.ID)
 	require.NoError(t, err)
 	assert.False(t, owner)
@@ -171,11 +171,11 @@ func TestStack_Cov_NormalizationDefaultsAndGitHubHelpers(t *testing.T) {
 	err = callStackGitHubJSON(context.Background(), "token", "/denied", &out)
 	require.ErrorContains(t, err, "denied")
 
-	_, err = createStackGitHubInstallationToken(context.Background(), 0)
+	_, err = newTestStackGitHubInstallationToken(t, context.Background(), 0)
 	require.ErrorContains(t, err, "invalid installation id")
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, generateStackTestRSAPrivateKeyPEM(t))
-	_, err = createStackGitHubInstallationToken(context.Background(), 123)
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
+	_, err = newTestStackGitHubInstallationToken(t, context.Background(), 123)
 	require.ErrorContains(t, err, "denied")
 }
 
@@ -199,7 +199,7 @@ func TestStack_Cov_ServiceFailureBranches(t *testing.T) {
 	resolver := stackInstallationResolverStub(func(context.Context, int64, string, string) (int64, error) {
 		return 0, errors.New("install lookup failed")
 	})
-	svc := NewStackService(q, WithStackGitHubInstallationResolver(resolver))
+	svc := newTestStackService(t, q, WithStackGitHubInstallationResolver(resolver))
 	_, err := svc.GetActiveStack(ctx, actor, "alice", "demo", "main")
 	require.Error(t, err)
 	stackCovAssertAPIStatus(t, err, http.StatusInternalServerError)

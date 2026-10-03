@@ -23,7 +23,7 @@ func TestGitHubWebhookHandler_PostGitHubWebhook_EndToEnd(t *testing.T) {
 	pool := setupGitHubWebhookRouteTestPool(t)
 	secret := "github-route-test-secret"
 	handler := &GitHubWebhookHandler{
-		Service: services.NewGitHubWebhookService(pool, secret),
+		Service: services.NewGitHubWebhookService(pool, routeWebhookCredentialFixture(secret)),
 	}
 
 	pushBody := []byte(`{

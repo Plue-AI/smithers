@@ -653,8 +653,11 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repos]
+                required: [repos, install_url]
                 properties:
+                  install_url:
+                    type: string
+                    description: Stored App installation URL, empty until configured.
                   repos:
                     type: array
                     items:
@@ -707,8 +710,11 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repos]
+                required: [repos, install_url]
                 properties:
+                  install_url:
+                    type: string
+                    description: Stored App installation URL, empty until configured.
                   repos:
                     type: array
                     items:

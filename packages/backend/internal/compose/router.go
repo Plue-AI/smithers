@@ -38,6 +38,7 @@ func apiBodyLimit(r *http.Request) int64 {
 
 type routerExtras struct {
 	HostStatus          *routes.HostStatusHandler
+	GitHubAppSetup      *routes.GitHubAppSetupHandler
 	CanaryRuns          ports.CanaryRunSource
 	Admission           services.BillingPolicy
 	BillingCapabilities services.BillingCapabilities
@@ -270,7 +271,7 @@ func buildRouter(
 	// Recovery must complete inside the metrics recorder so a panic's 500 is
 	// counted alongside ordinary responses.
 	r.Use(middleware.JSONRecoverer)
-	if strings.TrimSpace(cfg.Auth.GitHubClientID) != "" {
+	if authHandler != nil && authHandler.Service != nil {
 		r.Use(middleware.CanonicalBrowserAuthOrigin(cfg.Auth.GitHubRedirectURL))
 	}
 
@@ -281,6 +282,11 @@ func buildRouter(
 	r.Get("/health", routes.Health)
 	r.Get("/healthz", healthzHandler.Healthz)
 	r.Get("/readyz", readyzHandler.Readyz)
+	if extras.GitHubAppSetup != nil {
+		r.With(middleware.AuthRateLimit(queries)).Get("/setup", extras.GitHubAppSetup.OpenSetup)
+		r.With(authLoader(queries, cfg.Auth)).Get("/setup/github/callback", extras.GitHubAppSetup.Callback)
+		r.With(authLoader(queries, cfg.Auth)).Get("/setup/github/installed", extras.GitHubAppSetup.Installed)
+	}
 	r.Get("/api/status", (&routes.StatusHandler{CanaryRuns: extras.CanaryRuns}).Status)
 	// Prometheus metrics endpoint (for Kubernetes monitoring / Cloud Monitoring scraping).
 	// The ingress exposes "/" publicly, so network policy alone is not sufficient: the
@@ -398,7 +404,7 @@ func buildRouter(
 	}
 
 	integrationsHandler := routes.NewIntegrationsHandler(routes.IntegrationCatalog(routes.IntegrationCapabilities{
-		GitHubMirror: gitHubSyncedReposHandler != nil && strings.TrimSpace(cfg.Webhook.GitHubAppSecret) != "",
+		GitHubMirror: gitHubSyncedReposHandler != nil,
 	})...)
 
 	// SSE workflow run log stream — registered at the top-level router (outside /api's JSONTimeout
@@ -871,6 +877,10 @@ func buildRouter(
 		r.Use(apiCSRFMiddleware)
 		r.Use(middleware.ExcludePaths(middleware.GlobalAPIRateLimit(queries), "/api/search/", "/api/_test/", "/api/telemetry/", "/api/auth/github/token-exchange"))
 		mountHostStatus(r, extras.HostStatus)
+		if extras.GitHubAppSetup != nil {
+			r.Get("/install", extras.GitHubAppSetup.Status)
+			r.Post("/install/setup/app", extras.GitHubAppSetup.Begin)
+		}
 		if extras.Recommender != nil {
 			r.Post("/recommend", extras.Recommender.Recommend)
 			r.Post("/recommend/outcome", extras.Recommender.Outcome)

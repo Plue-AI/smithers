@@ -31,6 +31,10 @@ share the same site build, documents, chunks and isolation headers.
 
 ### Cutover log
 
+- 2026-10-02 — **per-install GitHub App credentials**: removed the unused App
+  id and PEM from the edge secret inventory. Product callers read the backend's
+  sealed PostgreSQL store. No live binding or Durable Object identity changed.
+
 - 2026-09-30 — **`IDENTITY_ADMIN_TOKEN` undeclared** (#2145): signup is public
   and the admin allowlist/requests routes are gone, so nothing reads the secret
   and `WORKER_IDENTITY.secrets` no longer lists it. `keep_bindings` keeps the
@@ -78,8 +82,6 @@ Retained names:
 - `ANONYMOUS_TURN_SALT`
 - `CEREBRAS_API_KEY`
 - `AI_GATEWAY_API_KEY`
-- `SMITHERS_GITHUB_APP_ID`
-- `SMITHERS_GITHUB_APP_PRIVATE_KEY`
 - `GITHUB_TOKEN`
 
 Retained knobs: `MODEL_VAULT_KEY`, `SMITHERS_BUILD_SHA`, `UPSTREAM_TIMEOUT_MS`,

@@ -104,6 +104,7 @@ func startIsolationProduct(t *testing.T) (*pgxpool.Pool, *httptest.Server, *isol
 		"SMITHERS_BILLING_MODE":                  "metered",
 		"SMITHERS_DATABASE_URL":                  databaseURL,
 		"SMITHERS_PUBLIC_URL":                    "http://127.0.0.1:4000",
+		"SMITHERS_AUTH_GITHUB_REDIRECT_URL":       "http://localhost:4000/api/auth/github/callback",
 		"SMITHERS_SERVER_ADDR":                   "127.0.0.1:0",
 		"SMITHERS_SERVER_SHUTDOWN_TIMEOUT":       "10s",
 		"SMITHERS_REPO_HOST_URL":                 repoHostServer.URL,
@@ -251,16 +252,22 @@ func isolationRequest(t *testing.T, server *httptest.Server, token, method, path
 	}
 	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(method), server.URL+path, reader)
 	require.NoError(t, err)
+	// Address the configured browser origin through the ephemeral real HTTP
+	// listener. Otherwise OAuth canonicalization leaves this fixture for port
+	// 4000, and the transport error echoes our query rather than API data.
+	req.Host = "localhost:4000"
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := server.Client().Do(req)
-	if err != nil {
-		return isolationResponse{status: -1, body: err.Error()}
-	}
+	// Inspect the actual route response; an OAuth handoff must not send our
+	// account token to another listener or to GitHub.
+	client := *server.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	require.NoError(t, err, "isolation probe must reach the real API")
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return isolationResponse{status: resp.StatusCode, body: string(data)}

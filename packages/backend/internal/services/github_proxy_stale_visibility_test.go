@@ -54,12 +54,12 @@ func TestImportedSourceToken_StalePublicFlagDoesNotOpenAPrivateRepo(t *testing.T
 		_, _ = w.Write([]byte(`{"token":"ghs_full_installation","expires_at":"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"}`))
 	}))
 	t.Cleanup(server.Close)
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
 	var corrected []string
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				switch {

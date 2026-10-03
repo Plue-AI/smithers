@@ -318,12 +318,12 @@ func TestRun_SSEBrokerStartError(t *testing.T) {
 func TestRun_AuthProviderConfigError(t *testing.T) {
 	preserveSlog(t)
 	env := baseRunEnv(t)
-	env["SMITHERS_AUTH_GITHUB_CLIENT_ID"] = "only-id" // secret missing -> invalid
+	env["SMITHERS_AUTH_GITHUB_REDIRECT_URL"] = "https://app.example/wrong-callback"
 	applyEnv(t, env)
 	stubSSEBroker(t)
 	stderr := &syncBuffer{}
 	err := run(context.Background(), nil, io.Discard, stderr)
-	require.ErrorContains(t, err, "auth.github_client_id and auth.github_client_secret must be configured together")
+	require.ErrorContains(t, err, "auth.github_redirect_url must name the browser origin's /api/auth/github/callback endpoint")
 	assert.Contains(t, stderr.String(), "invalid startup config")
 }
 

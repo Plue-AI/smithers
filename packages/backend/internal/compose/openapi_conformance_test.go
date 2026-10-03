@@ -140,7 +140,8 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *r
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
-			EgressPolicy: &routes.RepositoryEgressPolicyHandler{},
+			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{},
 		},
 	)
 	// The routes run() mounts beside buildRouter.

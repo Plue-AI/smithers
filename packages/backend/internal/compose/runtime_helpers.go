@@ -415,17 +415,12 @@ func buildRateLimitRejectObserver(metrics *routes.SmithersMetrics) middleware.Ra
 	}
 }
 
-func buildAuthProviders(cfg config.AuthConfig) (services.KeyAuthVerifier, services.GitHubClient, error) {
-	if err := validateGitHubOAuthConfig(cfg); err != nil {
-		return nil, nil, err
-	}
-
+func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCredentialSource) (services.KeyAuthVerifier, services.GitHubAuthClient, error) {
 	keyAuthVerifier := auth.NewKeyAuthVerifier()
-	var githubClient services.GitHubClient
-	if strings.TrimSpace(cfg.GitHubClientID) != "" && strings.TrimSpace(cfg.GitHubClientSecret) != "" {
+	var githubClient services.GitHubAuthClient
+	if credentials != nil {
 		githubClient = auth.NewGitHubClient(
-			cfg.GitHubClientID,
-			cfg.GitHubClientSecret,
+			credentials,
 			cfg.GitHubRedirectURL,
 			cfg.GitHubOAuthBaseURL,
 			cfg.GitHubAPIBaseURL,
@@ -488,15 +483,6 @@ func serverShutdownTimeout(cfg config.ServerConfig) (time.Duration, error) {
 		return 0, fmt.Errorf("server.shutdown_timeout must be > 0")
 	}
 	return timeout, nil
-}
-
-func validateGitHubOAuthConfig(cfg config.AuthConfig) error {
-	hasClientID := strings.TrimSpace(cfg.GitHubClientID) != ""
-	hasClientSecret := strings.TrimSpace(cfg.GitHubClientSecret) != ""
-	if hasClientID != hasClientSecret {
-		return fmt.Errorf("github oauth requires both SMITHERS_AUTH_GITHUB_CLIENT_ID and SMITHERS_AUTH_GITHUB_CLIENT_SECRET to be set together")
-	}
-	return nil
 }
 
 // initializeBlobStore creates the durable single-owner filesystem adapter.

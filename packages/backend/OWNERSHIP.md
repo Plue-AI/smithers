@@ -82,6 +82,7 @@ needed by adapters without copying product queries or schemas.
 - `packages/backend/internal/db`
 - `packages/backend/internal/diffview`
 - `packages/backend/internal/email`
+- `packages/backend/internal/githubfake`
 - `packages/backend/internal/githubrepo`
 - `packages/backend/internal/identity`
 - `packages/backend/internal/lfsauth`

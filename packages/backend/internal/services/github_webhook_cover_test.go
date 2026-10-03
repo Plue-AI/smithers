@@ -70,15 +70,15 @@ func TestGitHubWebhook_Cov_ConfigAndPayloadErrors(t *testing.T) {
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 500)
 
-	err = NewGitHubWebhookService(nil, "secret").HandleGitHubWebhook(ctx, "delivery", "push", signature, payload)
+	err = newTestGitHubWebhookService(nil, "secret").HandleGitHubWebhook(ctx, "delivery", "push", signature, payload)
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 500)
 
-	err = NewGitHubWebhookService(&mockGitHubWebhookDB{}, " ").HandleGitHubWebhook(ctx, "delivery", "push", signature, payload)
+	err = newTestGitHubWebhookService(&mockGitHubWebhookDB{}, " ").HandleGitHubWebhook(ctx, "delivery", "push", signature, payload)
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 500)
 
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
 	err = svc.HandleGitHubWebhook(ctx, "delivery", " ", signature, payload)
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 400)
@@ -92,7 +92,7 @@ func TestGitHubWebhook_Cov_ConfigAndPayloadErrors(t *testing.T) {
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 400)
 
-	enqueueErrSvc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	enqueueErrSvc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.CommandTag{}, assert.AnError
 		},
@@ -117,7 +117,7 @@ func TestGitHubWebhook_Cov_HelperAndPersistenceBranches(t *testing.T) {
 	assert.Nil(t, nullableInt64(0))
 	assert.Equal(t, int64(7), nullableInt64(7))
 
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{}, "secret")
 	err := svc.upsertInstallation(ctx, &mockGitHubWebhookDB{}, 1, gitHubWebhookEnvelope{})
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 400)
@@ -152,7 +152,7 @@ func TestGitHubWebhook_Cov_HelperAndPersistenceBranches(t *testing.T) {
 	require.Error(t, err)
 	assertGitHubWebhookAPIErrorStatus(t, err, 500)
 
-	deleteSvc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	deleteSvc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.CommandTag{}, assert.AnError
 		},
@@ -183,7 +183,7 @@ func TestGitHubWebhook_Cov_TransactionFailures(t *testing.T) {
 		return pgconn.NewCommandTag("INSERT 1"), nil
 	}
 	handleCreated := func(db GitHubWebhookDB) error {
-		return NewGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, "11111111-1111-1111-1111-111111111111", "installation", createdSig, createdPayload)
+		return newTestGitHubWebhookService(db, "secret").HandleGitHubWebhook(ctx, "11111111-1111-1111-1111-111111111111", "installation", createdSig, createdPayload)
 	}
 
 	beginDB := &githubWebhookCovTxDB{beginErr: assert.AnError, execFn: insertOK}
@@ -235,7 +235,7 @@ func TestGitHubWebhook_Cov_TransactionFailures(t *testing.T) {
 		"installation":{"id":55,"repository_selection":"selected","account":{"login":"Acme","type":"Organization"}},
 		"repositories_added":[{"id":77,"name":"added","owner":{"login":"Acme"}}]
 	}`)
-	err = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	err = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 			if strings.Contains(sql, "INSERT INTO github_app_installations ") {
 				return pgconn.CommandTag{}, assert.AnError

@@ -24,9 +24,10 @@ import (
 )
 
 func TestRepoConnectionService_GetGitHubAppStatus_InstalledViaUserRepoMapping(t *testing.T) {
-	t.Setenv(envGitHubAppInstallURL, "https://github.example/install")
+	setTestCallerCredentials(t, "ID", "42")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			assert.Contains(t, sql, "FROM repo_connections rc")
 			require.Len(t, args, 3)
@@ -44,14 +45,14 @@ func TestRepoConnectionService_GetGitHubAppStatus_InstalledViaUserRepoMapping(t 
 	require.NoError(t, err)
 	assert.True(t, status.GitHubAppInstalled)
 	assert.Equal(t, int64(555), status.InstallationID)
-	assert.Equal(t, "https://github.example/install", status.InstallURL)
+	assert.Equal(t, testCallerInstallURL, status.InstallURL)
 	assert.Equal(t, "Acme", status.Owner)
 	assert.Equal(t, "Repo", status.Repo)
 }
 
 func TestRepoConnectionService_GetGitHubAppStatus_FallsBackToRepoMapping(t *testing.T) {
 	queryCount := 0
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			queryCount++
 			if queryCount == 1 {
@@ -77,12 +78,11 @@ func TestRepoConnectionService_GetGitHubAppStatus_FallsBackToRepoMapping(t *test
 func TestRepoConnectionService_GetGitHubAppStatus_NotInstalled(t *testing.T) {
 	// App IS configured but this repo isn't installed: the install prompt is
 	// legitimate here, so the default install URL must be surfaced.
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
-	t.Setenv(envGitHubAppInstallURL, "")
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 
 	queryCount := 0
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			queryCount++
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error { return pgx.ErrNoRows }}
@@ -117,11 +117,11 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_Success(t *testing.
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, string(privateKeyPEM))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", string(privateKeyPEM))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = 9001
@@ -163,11 +163,11 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_CachesWithinWindow(
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, string(privateKeyPEM))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", string(privateKeyPEM))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = installationID
@@ -188,7 +188,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_CachesWithinWindow(
 }
 
 func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresInstallation(t *testing.T) {
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error { return pgx.ErrNoRows }}
 		},
@@ -204,7 +204,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresInstallatio
 
 func TestRepoConnectionService_CreateGitHubInstallationToken_DoesNotUseUnscopedRepoFallback(t *testing.T) {
 	queryCount := 0
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			queryCount++
 			require.Contains(t, sql, "FROM repo_connections rc")
@@ -244,12 +244,12 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForImportedSource_Us
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, testGitHubAppPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
 	var queries []string
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			queries = append(queries, sql)
 			switch len(queries) {
@@ -290,10 +290,10 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForImportedSource_Us
 }
 
 func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresCredentials(t *testing.T) {
-	t.Setenv(envGitHubAppID, "")
-	t.Setenv(envGitHubAppPrivateKey, "")
+	setTestCallerCredentials(t, "ID", "")
+	setTestCallerCredentials(t, "PEM", "")
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = 123
@@ -307,7 +307,8 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresCredentials
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
-	assert.Equal(t, "github app id is not configured", apiErr.Message)
+	assert.Equal(t, "failed to load github app credentials", apiErr.Message)
+	assert.ErrorIs(t, apiErr.Cause(), ErrGitHubAppNotConfigured)
 }
 
 func TestCreateGitHubAppJWT_WithGeneratedRSAKey(t *testing.T) {
@@ -394,11 +395,11 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForRepositoryOwner_S
 		_, _ = w.Write([]byte(`{"token":"ghs_scoped","expires_at":"` + expiresAt.Format(time.RFC3339) + `"}`))
 	}))
 	defer server.Close()
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, string(privateKeyPEM))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", string(privateKeyPEM))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = installationID

@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
 )
+
+type socketPeerKey struct{}
 
 // RealIP rewrites r.RemoteAddr from X-Forwarded-For using a trusted-hop
 // count. trustedHops is the number of trailing XFF entries appended by our
@@ -19,6 +22,7 @@ import (
 func RealIP(trustedHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), socketPeerKey{}, r.RemoteAddr))
 			if trustedHops > 0 {
 				if ip := clientIPFromForwardedFor(
 					// Join every header line: a proxy that does not merge

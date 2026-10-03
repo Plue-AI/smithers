@@ -568,6 +568,52 @@ export type SavedConversationProblem = {
   code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
 }
 
+export type GitHubAppSetupRequest = {
+  resume?: boolean
+  owner_login: string
+  owner_kind: "user" | "org"
+  repository: string
+}
+
+export type GitHubAppSetupStatus = {
+  github_app: {
+    configured: boolean
+    installed: boolean
+    slug?: string
+    installation_id?: number
+    install_url?: string
+    callback_urls?: Array<string>
+    callback_fixes?: Array<GitHubAppCallbackFix>
+  }
+}
+
+export type GitHubAppCallbackFix = {
+  settings_url: string
+  add_url: string
+}
+
+export type GitHubAppManifestStart = {
+  install_url?: string
+  action_url: string
+  state: string
+  manifest: GitHubAppManifest
+}
+
+export type GitHubAppManifest = {
+  name: string
+  url: string
+  redirect_url: string
+  setup_url: string
+  callback_urls: Array<string>
+  public: false
+  hook_attributes: {
+    url: string
+    active: false
+  }
+  default_permissions: Record<string, "read" | "write">
+  default_events: Array<string>
+}
+
 export type PostApiAdminGrantBody = AdminCreditGrantRequest
 
 export type PostApiAdminGrantResponse = AdminCreditGrantReceipt
@@ -1338,6 +1384,24 @@ export type PostWebhooksGithubResponse = AnyJSON
 /** POST /webhooks/github */
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
+
+export type GetApiInstallResponse = GitHubAppSetupStatus
+
+/** GET /api/install: Read GitHub App setup status */
+export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
+  transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
+
+export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
+
+export type PostApiInstallSetupAppResponse = GitHubAppManifestStart
+
+export interface PostApiInstallSetupAppInput {
+  readonly body: PostApiInstallSetupAppBody
+}
+
+/** POST /api/install/setup/app: Begin or resume GitHub App setup */
+export const postApiInstallSetupApp = (transport: Transport, input: PostApiInstallSetupAppInput): Promise<PostApiInstallSetupAppResponse> =>
+  transport.request("POST", `/api/install/setup/app`, input.body) as Promise<PostApiInstallSetupAppResponse>
 
 export type GetApiIntegrationsMcpResponse = AnyJSON
 
@@ -5010,6 +5074,7 @@ export const getApiUserGithubAccessOwnerRepo = (transport: Transport, input: Get
   transport.request("GET", `/api/user/github-access/${segment(input.path.owner)}/${segment(input.path.repo)}`) as Promise<GetApiUserGithubAccessOwnerRepoResponse>
 
 export type GetApiUserGithubAppInstallationsResponse = {
+  install_url: string
   repos: Array<{
     fullName: string
     pushedAt: string
@@ -5022,6 +5087,7 @@ export const getApiUserGithubAppInstallations = (transport: Transport): Promise<
   transport.request("GET", `/api/user/github-app/installations`) as Promise<GetApiUserGithubAppInstallationsResponse>
 
 export type GetApiUserGithubAppInstallationsInstallationIdResponse = {
+  install_url: string
   repos: Array<{
     fullName: string
     pushedAt: string

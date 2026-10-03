@@ -267,13 +267,21 @@ describe("repository connection", () => {
       expect(request.mock.calls.some(([method]) => method === "POST")).toBe(false)
     }
   )
+  it.each([false, true])("refuses an unconfigured GitHub App before polling or connecting (installed=%s)", async installed => {
+    const { c, home, request } = await fixture()
+    await mkdir(join(home, ".jj"))
+    process.chdir(home)
+    request.mockResolvedValueOnce({ license: { spdx_id: "MIT" } }).mockResolvedValueOnce({ github_app_installed: installed, github_app_configured: false, install_url: "" })
+    await expect(repositories["repo connect"]!(c, { repo: "owner/repo" }, {})).rejects.toThrow("The GitHub App is not configured")
+    expect(request).toHaveBeenCalledTimes(2)
+  })
   it("waits for app installation and rolls back if local persistence fails", async () => {
     const { c, home, request } = await fixture()
     await mkdir(join(home, ".jj"))
     await writeFile(join(home, ".smithers"), "blocked")
     process.chdir(home)
     request.mockResolvedValueOnce({ license: { spdx_id: "MIT" } }).mockResolvedValueOnce({
-      github_app_installed: false
+      github_app_installed: false, install_url: "https://github.com/apps/team-install/installations/new"
     }).mockResolvedValue({ github_app_installed: true })
     await expect(repositories["repo connect"]!(c, { repo: "owner/repo" }, {})).rejects.toThrow()
     expect(request).toHaveBeenLastCalledWith("DELETE", "/api/repo-connection", { owner: "owner", repo: "repo" })

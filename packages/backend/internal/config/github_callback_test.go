@@ -19,7 +19,7 @@ func TestGitHubCallbackConfiguration(t *testing.T) {
 		{"https://app.example/api/auth/github/callback#fragment", false},
 	} {
 		t.Run(tc.url, func(t *testing.T) {
-			cfg := Config{Auth: AuthConfig{GitHubClientID: "configured", GitHubClientSecret: "configured", GitHubRedirectURL: tc.url}}
+			cfg := Config{Auth: AuthConfig{GitHubRedirectURL: tc.url}}
 			var failures []string
 			validateOptionalProviders(&cfg, &failures)
 			if tc.valid {

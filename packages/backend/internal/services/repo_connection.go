@@ -77,6 +77,7 @@ type GitHubRepoAccessVerifier interface {
 
 type RepoConnectionService struct {
 	db                   RepoConnectionDB
+	githubAppCredentials GitHubAppCredentialReader
 	gitHubBudgetTracker  *BudgetTracker
 	githubAccessVerifier GitHubRepoAccessVerifier
 
@@ -86,8 +87,12 @@ type RepoConnectionService struct {
 	importedSourcePublic map[string]time.Time
 }
 
-func NewRepoConnectionService(db RepoConnectionDB) *RepoConnectionService {
-	return &RepoConnectionService{db: db}
+func NewRepoConnectionService(db RepoConnectionDB, credentials ...GitHubAppCredentialReader) *RepoConnectionService {
+	s := &RepoConnectionService{db: db}
+	if len(credentials) > 0 {
+		s.githubAppCredentials = credentials[0]
+	}
+	return s
 }
 
 func (s *RepoConnectionService) SetGitHubBudgetTracker(tracker *BudgetTracker) {

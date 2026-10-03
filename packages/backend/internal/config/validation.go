@@ -105,15 +105,12 @@ func validateBilling(cfg *Config, dependencies StartupDependencies, errs *[]stri
 }
 
 func validateOptionalProviders(cfg *Config, errs *[]string) {
-	if strings.TrimSpace(cfg.Auth.GitHubClientID) != "" || strings.TrimSpace(cfg.Auth.GitHubClientSecret) != "" {
-		if strings.TrimSpace(cfg.Auth.GitHubClientID) == "" || strings.TrimSpace(cfg.Auth.GitHubClientSecret) == "" {
-			*errs = append(*errs, "auth.github_client_id and auth.github_client_secret must be configured together")
-		}
-		callback, err := url.Parse(strings.TrimSpace(cfg.Auth.GitHubRedirectURL))
-		if err != nil || callback.Host == "" || callback.User != nil || callback.RawQuery != "" || callback.Fragment != "" ||
-			(callback.Scheme != "http" && callback.Scheme != "https") || callback.Path != "/api/auth/github/callback" {
-			*errs = append(*errs, "auth.github_redirect_url must name the browser origin's /api/auth/github/callback endpoint")
-		}
+	// GitHub OAuth becomes available when the install creates its App. Validate
+	// the callback at startup without consulting provider secrets or App state.
+	callback, err := url.Parse(strings.TrimSpace(cfg.Auth.GitHubRedirectURL))
+	if err != nil || callback.Host == "" || callback.User != nil || callback.RawQuery != "" || callback.Fragment != "" ||
+		(callback.Scheme != "http" && callback.Scheme != "https") || callback.Path != "/api/auth/github/callback" {
+		*errs = append(*errs, "auth.github_redirect_url must name the browser origin's /api/auth/github/callback endpoint")
 	}
 }
 

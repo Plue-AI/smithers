@@ -89,8 +89,6 @@ var allEnvKeys = []string{
 	"SMITHERS_LFS_SIGNING_SECRET",
 	"SMITHERS_AUTH_COOKIE_SECURE",
 	"SMITHERS_AUTH_ENABLE_KEY_AUTH",
-	"SMITHERS_AUTH_GITHUB_CLIENT_ID",
-	"SMITHERS_AUTH_GITHUB_CLIENT_SECRET",
 	"SMITHERS_AUTH_GITHUB_REDIRECT_URL",
 	"SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL",
 	"SMITHERS_AUTH_GITHUB_API_BASE_URL",
@@ -121,7 +119,6 @@ var allEnvKeys = []string{
 	// Webhook
 	"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY",
 	"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS",
-	"SMITHERS_WEBHOOK_GITHUB_APP_SECRET",
 	"SMITHERS_WEBHOOK_GITHUB_SYNC_URL",
 	"SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET",
 	"SMITHERS_PROVIDER_CONNECTIONS_CLAUDE_TOKEN_URL",
@@ -551,8 +548,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				CookieSecure:         false,
 				EnableKeyAuth:        true,
 				KeyAuthDomain:        "smithers.sh",
-				GitHubClientID:       "",
-				GitHubClientSecret:   "",
 				GitHubRedirectURL:    "http://localhost:4000/api/auth/github/callback",
 				GitHubOAuthBaseURL:   "https://github.com",
 				GitHubAPIBaseURL:     "https://api.github.com",
@@ -574,8 +569,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				"SMITHERS_AUTH_SESSION_SECRET":         "session-secret-123",
 				"SMITHERS_LFS_SIGNING_SECRET":          " lfs-signing-secret-123\n",
 				"SMITHERS_AUTH_COOKIE_SECURE":          "false",
-				"SMITHERS_AUTH_GITHUB_CLIENT_ID":       "client-123",
-				"SMITHERS_AUTH_GITHUB_CLIENT_SECRET":   "secret-456",
 				"SMITHERS_AUTH_GITHUB_REDIRECT_URL":    "https://smithers.sh/auth/callback",
 				"SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL":  "https://github.internal.example",
 				"SMITHERS_AUTH_GITHUB_API_BASE_URL":    "https://api.github.internal.example",
@@ -592,8 +585,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				CookieSecure:         false,
 				EnableKeyAuth:        true,
 				KeyAuthDomain:        "smithers.local",
-				GitHubClientID:       "client-123",
-				GitHubClientSecret:   "secret-456",
 				GitHubRedirectURL:    "https://smithers.sh/auth/callback",
 				GitHubOAuthBaseURL:   "https://github.internal.example",
 				GitHubAPIBaseURL:     "https://api.github.internal.example",
@@ -725,8 +716,6 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			CookieSecure:         false,
 			EnableKeyAuth:        true,
 			KeyAuthDomain:        "smithers.sh",
-			GitHubClientID:       "",
-			GitHubClientSecret:   "",
 			GitHubRedirectURL:    "http://localhost:4000/api/auth/github/callback",
 			GitHubOAuthBaseURL:   "https://github.com",
 			GitHubAPIBaseURL:     "https://api.github.com",
@@ -754,7 +743,6 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 		},
 		Webhook: WebhookConfig{
 			SecretEncryptionKey: "",
-			GitHubAppSecret:     "",
 		},
 		ProviderConnections: ProviderConnectionsConfig{
 			CodexTokenURL: "https://auth.openai.com/oauth/token",
@@ -1231,18 +1219,6 @@ func TestLoad_EveryEnvVarOverrides_TableDriven(t *testing.T) {
 			envKey: "SMITHERS_AUTH_COOKIE_SECURE", envValue: "false",
 			check: func(t *testing.T, cfg *Config) {
 				assert.False(t, cfg.Auth.CookieSecure)
-			},
-		},
-		{
-			envKey: "SMITHERS_AUTH_GITHUB_CLIENT_ID", envValue: "gh-client-abc",
-			check: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "gh-client-abc", cfg.Auth.GitHubClientID)
-			},
-		},
-		{
-			envKey: "SMITHERS_AUTH_GITHUB_CLIENT_SECRET", envValue: "gh-secret-xyz",
-			check: func(t *testing.T, cfg *Config) {
-				assert.Equal(t, "gh-secret-xyz", cfg.Auth.GitHubClientSecret)
 			},
 		},
 		{

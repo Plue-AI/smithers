@@ -30,9 +30,10 @@ func validStartupConfig() *Config {
 		},
 		Sandbox: SandboxConfig{AgentIdleTimeoutSecs: 300, WorkspaceMemoryMB: 4096, WorkspaceVCPUCount: 2},
 		Auth: AuthConfig{
-			Mode:             AuthModeSelfHosted,
-			SessionSecret:    "super-secret",
-			LFSSigningSecret: "lfs-signing-secret",
+			GitHubRedirectURL: "https://smithers.test/api/auth/github/callback",
+			Mode:              AuthModeSelfHosted,
+			SessionSecret:     "super-secret",
+			LFSSigningSecret:  "lfs-signing-secret",
 		},
 		Billing: BillingConfig{Mode: "unlimited"},
 		Email:   EmailConfig{},

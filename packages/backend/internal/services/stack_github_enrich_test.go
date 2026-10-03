@@ -23,7 +23,7 @@ func TestStackGitHubEnrich_ResolverErrorDegradesToDefaults(t *testing.T) {
 		return 0, errors.New("install lookup failed")
 	})
 	response := StackResponse{Changes: []StackChangeResponse{{ChangeID: "c1", PRNumber: &pr}}}
-	err := NewStackService(&mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).
+	err := newTestStackService(t, &mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).
 		enrichStackResponseWithGitHub(context.Background(), 1, "Owner", "Repo", &response)
 	require.NoError(t, err)
 	assert.Equal(t, "open", response.Changes[0].PRState)
@@ -45,11 +45,11 @@ func TestStackGitHubInstallationToken_MintsOncePerInstallation(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, generateStackTestRSAPrivateKeyPEM(t))
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
 
 	for range 3 {
-		token, err := createStackGitHubInstallationToken(context.Background(), installationID)
+		token, err := newTestStackGitHubInstallationToken(t, context.Background(), installationID)
 		require.NoError(t, err)
 		assert.Equal(t, "install-token", token)
 	}
@@ -64,6 +64,8 @@ func TestStackGitHubEnrich_ParallelWithDeadline(t *testing.T) {
 	t.Cleanup(func() { stackGitHubEnrichTimeout = prev })
 
 	const installationID = int64(987654322)
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
 	storeCachedInstallationToken(installationID, "cached-token", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(installationID) })
 
@@ -100,7 +102,7 @@ func TestStackGitHubEnrich_ParallelWithDeadline(t *testing.T) {
 	}
 	response := StackResponse{Changes: changes}
 	start := time.Now()
-	err := NewStackService(&mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).
+	err := newTestStackService(t, &mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).
 		enrichStackResponseWithGitHub(context.Background(), 1, "o", "r", &response)
 	require.NoError(t, err)
 	assert.Less(t, time.Since(start), 2*time.Second)

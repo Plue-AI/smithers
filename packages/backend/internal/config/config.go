@@ -359,8 +359,6 @@ type AuthConfig struct {
 	CookieSecure       bool   `mapstructure:"cookie_secure"`
 	EnableKeyAuth      bool   `mapstructure:"enable_key_auth"`
 	KeyAuthDomain      string `mapstructure:"key_auth_domain"`
-	GitHubClientID     string `mapstructure:"github_client_id"`
-	GitHubClientSecret string `mapstructure:"github_client_secret"`
 	GitHubRedirectURL  string `mapstructure:"github_redirect_url"`
 	GitHubOAuthBaseURL string `mapstructure:"github_oauth_base_url"`
 	GitHubAPIBaseURL   string `mapstructure:"github_api_base_url"`
@@ -381,7 +379,6 @@ type WebhookConfig struct {
 	// PreviousSecretEncryptionKeys lists, comma separated and newest first,
 	// operator keys that still open stored secrets during a key rotation.
 	PreviousSecretEncryptionKeys string `mapstructure:"previous_secret_encryption_keys"`
-	GitHubAppSecret              string `mapstructure:"github_app_secret"`
 	// Optional event receiver for repositories mirrored to GitHub. Both fields
 	// must be set together; the receiver is a public self-hosting integration.
 	GitHubSyncURL    string `mapstructure:"github_sync_url"`
@@ -526,8 +523,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("auth.cookie_secure", true)
 	v.SetDefault("auth.enable_key_auth", true)
 	v.SetDefault("auth.key_auth_domain", "smithers.sh")
-	v.SetDefault("auth.github_client_id", "")
-	v.SetDefault("auth.github_client_secret", "")
 	v.SetDefault("auth.github_redirect_url", "http://localhost:4000/api/auth/github/callback")
 	v.SetDefault("auth.github_oauth_base_url", "https://github.com")
 	v.SetDefault("auth.github_api_base_url", "https://api.github.com")
@@ -556,7 +551,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("webhook.previous_secret_encryption_keys", "")
 	v.SetDefault("provider_connections.codex_token_url", "https://auth.openai.com/oauth/token")
 	v.SetDefault("provider_connections.codex_client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
-	v.SetDefault("webhook.github_app_secret", "")
 	v.SetDefault("webhook.github_sync_url", "")
 	v.SetDefault("webhook.github_sync_secret", "")
 	v.SetDefault("agents.never_started_timeout", "1h")
@@ -682,8 +676,6 @@ func Load(configFile string) (*Config, error) {
 		{"auth.cookie_secure", "SMITHERS_AUTH_COOKIE_SECURE"},
 		{"auth.enable_key_auth", "SMITHERS_AUTH_ENABLE_KEY_AUTH"},
 		{"auth.key_auth_domain", "SMITHERS_AUTH_KEY_AUTH_DOMAIN"},
-		{"auth.github_client_id", "SMITHERS_AUTH_GITHUB_CLIENT_ID"},
-		{"auth.github_client_secret", "SMITHERS_AUTH_GITHUB_CLIENT_SECRET"},
 		{"auth.github_redirect_url", "SMITHERS_AUTH_GITHUB_REDIRECT_URL"},
 		{"auth.github_oauth_base_url", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL"},
 		{"auth.github_api_base_url", "SMITHERS_AUTH_GITHUB_API_BASE_URL"},
@@ -713,7 +705,6 @@ func Load(configFile string) (*Config, error) {
 		{"billing.enterprise_annual_price_id", "SMITHERS_BILLING_ENTERPRISE_ANNUAL_PRICE_ID"},
 		{"webhook.secret_encryption_key", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY"},
 		{"webhook.previous_secret_encryption_keys", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS"},
-		{"webhook.github_app_secret", "SMITHERS_WEBHOOK_GITHUB_APP_SECRET"},
 		{"webhook.github_sync_url", "SMITHERS_WEBHOOK_GITHUB_SYNC_URL"},
 		{"webhook.github_sync_secret", "SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET"},
 		{"agents.never_started_timeout", "SMITHERS_AGENT_NEVER_STARTED_TIMEOUT"},

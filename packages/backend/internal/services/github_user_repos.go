@@ -72,11 +72,12 @@ type githubUserTokenProactiveRefresher interface {
 }
 
 type GitHubUserReposService struct {
-	queries    GitHubUserReposDB
-	decrypter  OAuthAccessTokenDecrypter
-	refresher  GitHubUserTokenRefresher
-	httpClient *http.Client
-	now        func() time.Time
+	githubAppCredentials GitHubAppCredentialReader
+	queries              GitHubUserReposDB
+	decrypter            OAuthAccessTokenDecrypter
+	refresher            GitHubUserTokenRefresher
+	httpClient           *http.Client
+	now                  func() time.Time
 	// syncedRepos is the continuously-synced GitHub metadata store. When wired,
 	// the issues/pulls proxy serves from it stale-while-revalidate and only
 	// falls back to the live GitHub passthrough. Nil keeps the pure-passthrough
@@ -93,6 +94,10 @@ type GitHubUserReposService struct {
 }
 
 type GitHubUserReposOption func(*GitHubUserReposService)
+
+func WithGitHubUserReposCredentialStore(store GitHubAppCredentialReader) GitHubUserReposOption {
+	return func(s *GitHubUserReposService) { s.githubAppCredentials = store }
+}
 
 func WithGitHubUserReposHTTPClient(client *http.Client) GitHubUserReposOption {
 	return func(s *GitHubUserReposService) {
@@ -721,4 +726,15 @@ func (s *GitHubUserReposService) requestGitHubUserRepos(ctx context.Context, acc
 	}
 
 	return repos, resp.Header.Get("Link"), nil
+}
+
+func (s *GitHubUserReposService) GitHubAppInstallURL(ctx context.Context) (string, error) {
+	if s.githubAppCredentials == nil {
+		return "", nil
+	}
+	value, err := s.githubAppCredentials.InstallURL(ctx)
+	if stdErrors.Is(err, ErrGitHubAppNotConfigured) {
+		return "", nil
+	}
+	return value, err
 }

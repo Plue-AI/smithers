@@ -50,6 +50,9 @@ var operatorKeyColumns = []operatorKeyColumn{
 	{table: "repository_agent_environment_secrets", column: "value_encrypted", keys: [][2]string{{"repository_id", "bigint"}, {"name", "text"}}, bytea: true},
 	{table: "webhooks", column: "secret", keys: [][2]string{{"id", "bigint"}}},
 	{table: "flow_runtime_host_bindings", column: "credential_ciphertext", keys: [][2]string{{"id", "uuid"}}},
+	{table: "github_app", column: "pem_sealed", keys: [][2]string{{"id", "bigint"}}},
+	{table: "github_app", column: "webhook_secret_sealed", keys: [][2]string{{"id", "bigint"}}},
+	{table: "github_app", column: "client_secret_sealed", keys: [][2]string{{"id", "bigint"}}},
 }
 
 const operatorKeyResealPage = 256

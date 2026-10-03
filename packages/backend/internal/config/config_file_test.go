@@ -148,8 +148,6 @@ auth:
   session_secret: "file-session-secret"
   cookie_secure: false
   key_auth_domain: "smithers.local"
-  github_client_id: "gh-id"
-  github_client_secret: "gh-secret"
   github_redirect_url: "http://localhost:4100/callback"
   github_oauth_base_url: "https://ghe.example.com/login"
   github_api_base_url: "https://ghe.example.com/api/v3"
@@ -187,8 +185,6 @@ auth:
 	assert.Equal(t, "file-session-secret", cfg.Auth.SessionSecret)
 	assert.Equal(t, false, cfg.Auth.CookieSecure)
 	assert.Equal(t, "smithers.local", cfg.Auth.KeyAuthDomain)
-	assert.Equal(t, "gh-id", cfg.Auth.GitHubClientID)
-	assert.Equal(t, "gh-secret", cfg.Auth.GitHubClientSecret)
 	assert.Equal(t, "http://localhost:4100/callback", cfg.Auth.GitHubRedirectURL)
 	assert.Equal(t, "https://ghe.example.com/login", cfg.Auth.GitHubOAuthBaseURL)
 	assert.Equal(t, "https://ghe.example.com/api/v3", cfg.Auth.GitHubAPIBaseURL)

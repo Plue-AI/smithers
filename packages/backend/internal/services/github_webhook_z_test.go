@@ -14,7 +14,7 @@ import (
 
 func TestGitHubWebhook_Z_InstallationAndReplaceErrors(t *testing.T) {
 	payload := []byte(`{"action":"created"}`)
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		},
@@ -23,7 +23,7 @@ func TestGitHubWebhook_Z_InstallationAndReplaceErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
-	svc = NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc = newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
 			return pgconn.CommandTag{}, errors.New("upsert failed")
 		},

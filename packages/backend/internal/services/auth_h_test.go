@@ -56,7 +56,7 @@ func TestAuth_H_KeyAuthAndOAuthStartBranches(t *testing.T) {
 
 	auth0 := mockGitHubClient{authorizationURL: "https://auth0.test/authorize"}
 	svc = NewAuthService(&mockAuthQuerier{}, defaultAuthConfig(), nil, nil)
-	svc.SetAuth0Client(auth0)
+	svc.SetAuth0Client(auth0Fixture(auth0))
 	_, err = svc.StartAuth0OAuth(ctx, " ")
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
@@ -66,7 +66,7 @@ func TestAuth_H_KeyAuthAndOAuthStartBranches(t *testing.T) {
 			return db.OauthState{}, errors.New("state failed")
 		},
 	}, defaultAuthConfig(), nil, nil)
-	svc.SetAuth0Client(auth0)
+	svc.SetAuth0Client(auth0Fixture(auth0))
 	_, err = svc.StartAuth0OAuth(ctx, "verifier")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))

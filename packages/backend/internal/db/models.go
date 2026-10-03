@@ -728,6 +728,20 @@ type FlowRuntimeHostBinding struct {
 	ServiceIdentity       string    `json:"service_identity"`
 }
 
+type GithubApp struct {
+	ID                  int64       `json:"id"`
+	Singleton           bool        `json:"singleton"`
+	Slug                string      `json:"slug"`
+	OwnerLogin          string      `json:"owner_login"`
+	OwnerKind           string      `json:"owner_kind"`
+	ClientID            string      `json:"client_id"`
+	PemSealed           string      `json:"pem_sealed"`
+	WebhookSecretSealed string      `json:"webhook_secret_sealed"`
+	ClientSecretSealed  string      `json:"client_secret_sealed"`
+	InstallationID      pgtype.Int8 `json:"installation_id"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
 type GithubAppInstallation struct {
 	InstallationID      int64     `json:"installation_id"`
 	AccountLogin        string    `json:"account_login"`
@@ -747,6 +761,18 @@ type GithubAppInstallationRepository struct {
 	IsPrivate          bool      `json:"is_private"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+type GithubAppManifestState struct {
+	Digest             string             `json:"digest"`
+	SetupSessionDigest string             `json:"setup_session_digest"`
+	OwnerLogin         string             `json:"owner_login"`
+	OwnerKind          string             `json:"owner_kind"`
+	RepositoryName     string             `json:"repository_name"`
+	Origin             string             `json:"origin"`
+	CallbackUrls       json.RawMessage    `json:"callback_urls"`
+	ExpiresAt          time.Time          `json:"expires_at"`
+	UsedAt             pgtype.Timestamptz `json:"used_at"`
 }
 
 type GithubMainPull struct {

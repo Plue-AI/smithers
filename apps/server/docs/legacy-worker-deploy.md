@@ -269,8 +269,6 @@ refusing every user:
 | `ANONYMOUS_TURN_SALT` | the anonymous turn buckets |
 | `CEREBRAS_API_KEY` | the cloud roles (the Librarian, the Flows agent) |
 | `AI_GATEWAY_API_KEY` | Jev: `POST /api/recommend`, `POST /api/jev`, and the turn route's front door |
-| `SMITHERS_GITHUB_APP_ID` | the GitHub App JWT (`src/githubApp.ts`) |
-| `SMITHERS_GITHUB_APP_PRIVATE_KEY` | the GitHub App JWT (PEM, PKCS#1 or PKCS#8) |
 | `GITHUB_TOKEN` | optional override of the App for catalog stats |
 
 Optional knobs are set the same way (`wrangler secret put`) and kept the same
@@ -484,45 +482,8 @@ unauthenticated address 60 requests an hour, so a busy hour or a shared egress
 address can trip the limit and every landing-page card then shows "Stats
 unavailable" until the limit resets.
 
-Those reads authenticate as the GitHub App **`smitherspreviewrelease`** (app id
-`4163546`, owned by the `smithersai` organization, installed on that org with
-every repository selected), not as anyone's personal access token. The App
-credential belongs to the organization, its installation token expires in an
-hour, and it can be rotated without touching a person's account. `src/githubApp.ts`
-signs a 9-minute RS256 JWT with WebCrypto, calls `GET /app/installations` to
-find the `smithersai` installation, exchanges the JWT for an installation
-token at `POST /app/installations/{id}/access_tokens`, and holds that token for
-55 minutes in the isolate and in the Cache API under a private URL, so a cold
-isolate does not exchange again. One `401` on a stats read buys exactly one new
-token.
-
-- `SMITHERS_GITHUB_APP_ID` (secret, set on the live script on 2026-09-08 and
-  kept by every deploy since): the numeric app id.
-- `SMITHERS_GITHUB_APP_PRIVATE_KEY` (secret, set on the live script on
-  2026-09-08, same rule): the App's PEM private key, stored exactly as GitHub
-  issues it — PKCS#1, `-----BEGIN RSA PRIVATE KEY-----`. The Worker wraps
-  that DER in a PKCS#8 `PrivateKeyInfo` before `crypto.subtle.importKey`, so
-  no `openssl` conversion is needed; a PKCS#8 key (`-----BEGIN PRIVATE
-  KEY-----`) is imported directly.
-- `GITHUB_TOKEN` (secret, optional): an **override**. Set, it is sent as the
-  bearer and no App exchange happens at all — a fine-grained or classic token
-  with no scopes, since every catalog repository is public. Unset, the App
-  credential is used. With neither, the reads go unauthenticated.
-
-Every App failure is honest and lands on the anonymous read the catalog has
-always had, never a thrown stats route. One warning line names the cause, and
-the failure is remembered for five minutes so a broken secret cannot turn every
-refresh into two more GitHub calls:
-
-| What went wrong | The line in the Worker's logs |
-| --- | --- |
-| The App is installed on no organization | `the GitHub App is not installed on any organization` |
-| The private key does not import | `the GitHub App private key could not be imported` |
-| GitHub refused the lookup or the exchange | `the GitHub App installation lookup answered <status>` / `... token exchange answered <status>` |
-
-The private key, the JWT, and the installation token never enter a log line, a
-response body, or a cache key; they leave the Worker only inside the GitHub
-request's authorization header.
+The retired Worker's GitHub App credential reader has been removed. Active
+product callers read the self-hosted backend's sealed PostgreSQL store.
 
 A 403 or 429 from GitHub nulls that repository's stats and keeps the normal
 five-minute cache, so the Worker never retries into a tripped limit. Only a

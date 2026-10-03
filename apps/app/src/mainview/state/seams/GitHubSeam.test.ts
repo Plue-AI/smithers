@@ -1354,11 +1354,24 @@ describe("GitHub public admission and recovery", () => {
     expect(store.collections.toasts.size).toBe(0)
   })
 
+  test.each([undefined, "", "https://attacker.example/install"])("chooser refuses unavailable or untrusted stored install URL %s", async installUrl => {
+    const opened: string[] = []
+    const path = "api/user/github-app/installations"
+    const { store, seam } = await harness({ [path]: json(200, { repos: [], install_url: installUrl }) }, {
+      openExternal: async url => { opened.push(url); return true }
+    })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [] }).isPersisted.promise
+    expect(await seam.openInstall()).toBe("The GitHub App is not configured.")
+    expect(opened).toEqual([])
+    expect(store.collections.toasts.get("toast-github.install")?.status).toBe("failed")
+  })
+
   test("native install refusal leaves the chooser retryable and rechecks inventory", async () => {
     const opened: string[] = []
     let opens = false
     const path = "api/user/github-app/installations"
-    const { store, seam, requests } = await harness({ [path]: json(200, { repos: [] }) }, {
+    const { store, seam, requests } = await harness({ [path]: json(200, { repos: [], install_url: "https://github.com/apps/team-install/installations/new" }) }, {
       openExternal: async url => { opened.push(url); return opens }
     })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
@@ -1369,8 +1382,8 @@ describe("GitHub public admission and recovery", () => {
     opens = true
     expect(await seam.openInstall()).toBeUndefined()
     expect(opened).toEqual([
-      "https://github.com/apps/smitherspreviewrelease/installations/new",
-      "https://github.com/apps/smitherspreviewrelease/installations/new"
+      "https://github.com/apps/team-install/installations/new",
+      "https://github.com/apps/team-install/installations/new"
     ])
     expect(requests).toEqual([`GET ${path}`, `GET ${path}`])
     expect(store.collections.repositories.size).toBe(0)

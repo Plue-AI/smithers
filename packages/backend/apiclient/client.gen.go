@@ -1046,6 +1046,63 @@ type SavedConversationProblem struct {
 	Code   string `json:"code"`
 }
 
+// GitHubAppSetupRequest is generated from docs/api/openapi.yaml.
+type GitHubAppSetupRequest struct {
+	Resume     *bool  `json:"resume,omitempty"`
+	OwnerLogin string `json:"owner_login"`
+	OwnerKind  string `json:"owner_kind"`
+	Repository string `json:"repository"`
+}
+
+// GitHubAppSetupStatus is generated from docs/api/openapi.yaml.
+type GitHubAppSetupStatus struct {
+	GithubApp GitHubAppSetupStatusGithubApp `json:"github_app"`
+}
+
+// GitHubAppSetupStatusGithubApp is generated from docs/api/openapi.yaml.
+type GitHubAppSetupStatusGithubApp struct {
+	Configured     bool                   `json:"configured"`
+	Installed      bool                   `json:"installed"`
+	Slug           *string                `json:"slug,omitempty"`
+	InstallationID *int64                 `json:"installation_id,omitempty"`
+	InstallURL     *string                `json:"install_url,omitempty"`
+	CallbackURLs   []string               `json:"callback_urls,omitempty"`
+	CallbackFixes  []GitHubAppCallbackFix `json:"callback_fixes,omitempty"`
+}
+
+// GitHubAppCallbackFix is generated from docs/api/openapi.yaml.
+type GitHubAppCallbackFix struct {
+	SettingsURL string `json:"settings_url"`
+	AddURL      string `json:"add_url"`
+}
+
+// GitHubAppManifestStart is generated from docs/api/openapi.yaml.
+type GitHubAppManifestStart struct {
+	InstallURL *string           `json:"install_url,omitempty"`
+	ActionURL  string            `json:"action_url"`
+	State      string            `json:"state"`
+	Manifest   GitHubAppManifest `json:"manifest"`
+}
+
+// GitHubAppManifest is generated from docs/api/openapi.yaml.
+type GitHubAppManifest struct {
+	Name               string                          `json:"name"`
+	URL                string                          `json:"url"`
+	RedirectURL        string                          `json:"redirect_url"`
+	SetupURL           string                          `json:"setup_url"`
+	CallbackURLs       []string                        `json:"callback_urls"`
+	Public             bool                            `json:"public"`
+	HookAttributes     GitHubAppManifestHookAttributes `json:"hook_attributes"`
+	DefaultPermissions map[string]string               `json:"default_permissions"`
+	DefaultEvents      []string                        `json:"default_events"`
+}
+
+// GitHubAppManifestHookAttributes is generated from docs/api/openapi.yaml.
+type GitHubAppManifestHookAttributes struct {
+	URL    string `json:"url"`
+	Active bool   `json:"active"`
+}
+
 // PostAPIAdminUsersUsernameEraseBody is generated from docs/api/openapi.yaml.
 type PostAPIAdminUsersUsernameEraseBody struct {
 	RequestDate string `json:"request_date"`
@@ -1325,7 +1382,8 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubAppInstallationsResponse struct {
-	Repos []GetAPIUserGithubAppInstallationsResponseReposItem `json:"repos"`
+	InstallURL string                                              `json:"install_url"`
+	Repos      []GetAPIUserGithubAppInstallationsResponseReposItem `json:"repos"`
 }
 
 // GetAPIUserGithubAppInstallationsResponseReposItem is generated from docs/api/openapi.yaml.
@@ -1337,7 +1395,8 @@ type GetAPIUserGithubAppInstallationsResponseReposItem struct {
 
 // GetAPIUserGithubAppInstallationsInstallationIDResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubAppInstallationsInstallationIDResponse struct {
-	Repos []GetAPIUserGithubAppInstallationsInstallationIDResponseReposItem `json:"repos"`
+	InstallURL string                                                            `json:"install_url"`
+	Repos      []GetAPIUserGithubAppInstallationsInstallationIDResponseReposItem `json:"repos"`
 }
 
 // GetAPIUserGithubAppInstallationsInstallationIDResponseReposItem is generated from docs/api/openapi.yaml.
@@ -2087,6 +2146,20 @@ func (c *Client) GetAPIHealth(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/webhooks/github", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIInstall calls GET /api/install.
+func (c *Client) GetAPIInstall(ctx context.Context) (GitHubAppSetupStatus, error) {
+	var out GitHubAppSetupStatus
+	err := c.do(ctx, "GET", "/api/install", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIInstallSetupApp calls POST /api/install/setup/app.
+func (c *Client) PostAPIInstallSetupApp(ctx context.Context, body GitHubAppSetupRequest) (GitHubAppManifestStart, error) {
+	var out GitHubAppManifestStart
+	err := c.do(ctx, "POST", "/api/install/setup/app", nil, body, &out)
 	return out, err
 }
 

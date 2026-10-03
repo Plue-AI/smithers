@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -104,14 +105,16 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
-	HostProfile     *microsandbox.HostProfile
-	CanaryRuns      ports.CanaryRunSource
-	RuntimeStores   ports.RuntimeStores
-	ReadyBindings   func(operations.Bindings)
-	BeforeShutdown  func() error
-	ComputeProvider sandbox.Provider
-	Admission       admission.Policy
-	Commerce        commerce.Service
+	HostProfile *microsandbox.HostProfile
+	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
+	EnvGitHubAppCredentials bool
+	CanaryRuns              ports.CanaryRunSource
+	RuntimeStores           ports.RuntimeStores
+	ReadyBindings           func(operations.Bindings)
+	BeforeShutdown          func() error
+	ComputeProvider         sandbox.Provider
+	Admission               admission.Policy
+	Commerce                commerce.Service
 	// Duties selects which halves of the product this process runs. The zero
 	// value serves HTTP and runs the background workers in one process.
 	Duties                 Duties
@@ -269,7 +272,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	// Log startup configuration summary so operators can quickly identify
 	// misconfigurations from pod logs without digging through error chains.
-	logStartupConfig(cfg)
 
 	smithersMetrics := routes.NewSmithersMetrics()
 
@@ -408,11 +410,22 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// storage quota (smithersai/plue#593).
 	repoHostClient.SetPushMeter(services.NewGitStorageMeter(billingPolicy, queries))
 	orgService := services.NewOrgServiceWithPool(queries, pool, services.WithOrgWebhookDispatcher(webhookDispatcher), services.WithOrgBillingPolicy(billingPolicy))
-	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth)
+	webhookSecretCodec, err := newSecretCodec(cfg.Webhook)
+	if err != nil {
+		slog.Error("failed to initialize webhook secret codec", "error", err)
+		return err
+	}
+	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec)
+	gitHubAppCredentials, err := selectGitHubAppCredentials(config.IsSingleOwner(cfg.Auth), options.EnvGitHubAppCredentials, gitHubAppStore)
+	if err != nil {
+		return err
+	}
+	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)
 		return err
 	}
+	logStartupConfig(cfg, githubClient != nil)
 	authService := services.NewAuthService(queries, cfg.Auth, keyAuthVerifier, githubClient,
 		services.WithAuthMetrics(smithersMetrics),
 		// GitHub App refresh tokens are single-use. Serialize refreshes for one
@@ -504,7 +517,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))
 	gitHubBudgetTracker := services.NewBudgetTracker()
-	repoConnectionService := services.NewRepoConnectionService(pool)
+	repoConnectionService := services.NewRepoConnectionService(pool, gitHubAppCredentials)
 	repoConnectionService.SetGitHubBudgetTracker(gitHubBudgetTracker)
 	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService)
 	// The continuously-synced GitHub mirror: registry + issue/PR/comment store.
@@ -518,6 +531,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	)
 	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
 		services.WithGitHubUserReposTokenRefresher(authService),
+		services.WithGitHubUserReposCredentialStore(gitHubAppCredentials),
 		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
 	)
 	repoConnectionService.SetGitHubRepoAccessVerifier(gitHubUserReposService)
@@ -532,11 +546,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubSyncedRepoService.SetFetcherFactory(
 		gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
-	webhookSecretCodec, err := newSecretCodec(cfg.Webhook)
-	if err != nil {
-		slog.Error("failed to initialize webhook secret codec", "error", err)
-		return err
-	}
 	agentEnvironmentService := services.NewAgentEnvironmentService(
 		queries,
 		webhookSecretCodec,
@@ -574,6 +583,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	landingService := services.NewLandingServiceWithPool(queries, repoHostClient, pool, landingOptions...)
 	stackOptions := []services.StackServiceOption{
 		services.WithStackGitHubInstallationResolver(repoConnectionService),
+		services.WithStackGitHubAppCredentialStore(gitHubAppCredentials),
 	}
 	if cfg.FeatureFlags.Workflows {
 		stackOptions = append(stackOptions, services.WithStackWorkflowRunDispatcher(workflowRunService))
@@ -1039,7 +1049,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Service: webhookService,
 	}
 	gitHubWebhookHandler := &routes.GitHubWebhookHandler{
-		Service: services.NewGitHubWebhookService(pool, cfg.Webhook.GitHubAppSecret,
+		Service: services.NewGitHubWebhookService(pool, gitHubAppCredentials,
 			services.WithGitHubWebhookSyncedRepos(gitHubSyncedRepoService)),
 	}
 	gitHubSyncedReposHandler := &routes.GitHubSyncedReposHandler{
@@ -1375,6 +1385,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if modelStreamHost != nil {
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
+	var gitHubAppSetup *routes.GitHubAppSetupHandler
+	if config.IsSingleOwner(cfg.Auth) {
+		gitHubAppSetup = &routes.GitHubAppSetupHandler{
+			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), apiAllowedOrigins(cfg)),
+			Store:   gitHubAppStore, Owners: queries,
+			AllowedOrigins: apiAllowedOrigins(cfg),
+			Sessions:       &services.InstallSetupSessions{Pool: pool, TokenDigest: sha256.Sum256([]byte(cfg.Auth.BootstrapToken))},
+		}
+	}
 	router := buildRouter(
 		cfg,
 		queries,
@@ -1437,7 +1456,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{HostStatus: hostStatus, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{HostStatus: hostStatus, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},
@@ -1476,8 +1495,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var r http.Handler = withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{
 		role: options.topology, identity: authHandler != nil,
 		agent:        options.ChatHost != nil && chatService != nil && options.topology.servesHTTP(),
-		redirectAuth: strings.TrimSpace(cfg.Auth.GitHubClientID) != "" || strings.TrimSpace(cfg.Auth.Auth0ClientID) != "",
-		github:       gitHubImportHandler != nil && strings.TrimSpace(cfg.Auth.GitHubClientID) != "",
+		redirectAuth: githubClient != nil || strings.TrimSpace(cfg.Auth.Auth0ClientID) != "",
+		github:       gitHubImportHandler != nil && githubClient != nil,
 		// A configured model turn is available only when the durable journal
 		// routes are mounted; it does not imply a separate agent executor.
 		modelTurn:        modelStreamHandler != nil && options.topology.servesHTTP(),
@@ -1936,4 +1955,15 @@ func validateProductionBlobStore(environment string, cfg config.BlobConfig) erro
 		return fmt.Errorf("SMITHERS_BLOB_DATA_DIR or an injected blob adapter is required in production")
 	}
 	return nil
+}
+
+// Composition chooses one source once; install callers never fall through to env.
+func selectGitHubAppCredentials(singleOwner, useEnv bool, store *services.GitHubAppCredentialStore) (services.GitHubAppCredentialSource, error) {
+	if useEnv {
+		if singleOwner {
+			return nil, errors.New("self-hosted install requires sealed GitHub App credentials")
+		}
+		return &services.EnvGitHubAppCredentials{}, nil
+	}
+	return store, nil
 }

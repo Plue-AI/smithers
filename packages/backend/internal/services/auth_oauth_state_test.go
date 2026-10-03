@@ -91,9 +91,7 @@ func TestAuthService_StartGitHubOAuth_UnconfiguredGitHubRejected(t *testing.T) {
 			return db.OauthState{}, nil
 		},
 	}, config.AuthConfig{
-		GitHubClientID:     "",
-		GitHubClientSecret: "",
-		GitHubRedirectURL:  "http://localhost:4000/api/auth/github/callback",
+		GitHubRedirectURL: "http://localhost:4000/api/auth/github/callback",
 	}, mockKeyAuthVerifier{}, nil)
 
 	_, err := svc.StartGitHubOAuth(context.Background(), "browser-verifier")
@@ -221,4 +219,38 @@ func TestAuthService_CompleteGitHubOAuth_ConsumeStateDBError(t *testing.T) {
 	apiErr, ok := err.(*errors.APIError)
 	require.True(t, ok)
 	assert.Equal(t, 500, apiErr.Status)
+}
+
+func TestAuthService_StartGitHubOAuth_CredentialFailureDoesNotPersistState(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"missing", ErrGitHubAppNotConfigured},
+		{"corrupt", fmt.Errorf("sealed oauth credentials unavailable")},
+		{"canceled", context.Canceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			persisted := false
+			service := NewAuthService(&mockAuthQuerier{createOAuthStateFn: func(context.Context, db.CreateOAuthStateParams) (db.OauthState, error) {
+				persisted = true
+				return db.OauthState{}, nil
+			}}, defaultAuthConfig(), nil, mockGitHubClient{authorizationErr: tc.err})
+			value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier")
+			require.Error(t, err)
+			require.Empty(t, value)
+			require.False(t, persisted)
+		})
+	}
+}
+
+func TestAuthService_StartGitHubOAuth_LoadsCredentialsBeforePersistingState(t *testing.T) {
+	stateSeen := ""
+	service := NewAuthService(&mockAuthQuerier{createOAuthStateFn: func(_ context.Context, arg db.CreateOAuthStateParams) (db.OauthState, error) {
+		require.Equal(t, arg.State, stateSeen, "credential resolution must precede persisting OAuth state")
+		return db.OauthState{}, nil
+	}}, defaultAuthConfig(), nil, mockGitHubClient{authorizationSeen: &stateSeen})
+	value, err := service.StartGitHubOAuth(context.Background(), "bound-verifier")
+	require.NoError(t, err)
+	require.Contains(t, value, stateSeen)
 }

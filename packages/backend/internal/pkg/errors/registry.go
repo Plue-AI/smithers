@@ -78,6 +78,9 @@ type Entry struct {
 const (
 	CodeBadRequest            Code = "bad_request"
 	CodeUnauthorized          Code = "unauthorized"
+	CodeSetupClosed           Code = "setup_closed"
+	CodeUnknownOrigin         Code = "unknown_origin"
+	CodeUnauthenticated       Code = "unauthenticated"
 	CodeInvalidToken          Code = "invalid_token"
 	CodeForbidden             Code = "forbidden"
 	CodeNotFound              Code = "not_found"
@@ -302,8 +305,11 @@ var registry = map[Code]Entry{
 	// accept.
 	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},
 	// The request carried no credential, or one the server could not verify.
-	CodeUnauthorized: {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
-	CodeInvalidToken: {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
+	CodeUnknownOrigin:   {Status: http.StatusMisdirectedRequest, Fault: FaultUser, Doc: "The request host matches no configured install origin."},
+	CodeSetupClosed:     {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The owner claim invalidated the setup credential."},
+	CodeUnauthenticated: {Status: http.StatusUnauthorized, Fault: FaultUser, Doc: "The setup credential is missing, expired or invalid."},
+	CodeUnauthorized:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The request carried no credential, or one the server could not verify."},
+	CodeInvalidToken:    {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The presented token has an unrecognized format or is no longer valid."},
 	// The credential is valid but is not allowed to perform this operation.
 	CodeForbidden: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The credential is valid but is not allowed to perform this operation."},
 	// The addressed resource does not exist, or the caller may not see that

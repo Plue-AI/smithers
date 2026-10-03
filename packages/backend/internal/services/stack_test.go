@@ -219,7 +219,7 @@ func TestStackService_UpsertActiveStack_PersistsAndReturnsChanges(t *testing.T) 
 			}, nil
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 
 	result, err := svc.UpsertActiveStack(context.Background(), actor, "alice", "demo", UpsertActiveStackInput{
 		Changes: []StackChangeInput{
@@ -316,7 +316,7 @@ func TestStackService_UpsertActiveStack_DispatchesStackSubmitEvent(t *testing.T)
 		},
 	}
 	dispatcher := &mockStackWorkflowDispatcher{}
-	svc := NewStackService(queries, WithStackWorkflowRunDispatcher(dispatcher))
+	svc := newTestStackService(t, queries, WithStackWorkflowRunDispatcher(dispatcher))
 
 	_, err := svc.UpsertActiveStack(context.Background(), actor, "alice", "demo", UpsertActiveStackInput{
 		Changes: []StackChangeInput{
@@ -397,7 +397,7 @@ func TestStackService_UpsertActiveStack_DispatchFailureDoesNotFailSubmit(t *test
 			return nil, errors.New("boom")
 		},
 	}
-	svc := NewStackService(queries, WithStackWorkflowRunDispatcher(dispatcher))
+	svc := newTestStackService(t, queries, WithStackWorkflowRunDispatcher(dispatcher))
 
 	_, err := svc.UpsertActiveStack(context.Background(), actor, "alice", "demo", UpsertActiveStackInput{
 		Changes: []StackChangeInput{
@@ -432,7 +432,7 @@ func TestStackService_GetActiveStack_NotFound(t *testing.T) {
 			return db.Stack{}, pgx.ErrNoRows
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 
 	_, err := svc.GetActiveStack(context.Background(), &db.User{ID: 1}, "alice", "demo", "main")
 	require.Error(t, err)
@@ -444,7 +444,7 @@ func TestStackService_GetActiveStack_NotFound(t *testing.T) {
 func TestStackService_UpsertActiveStack_RequiresAuth(t *testing.T) {
 	t.Parallel()
 
-	svc := NewStackService(&mockStackQuerier{})
+	svc := newTestStackService(t, &mockStackQuerier{})
 	_, err := svc.UpsertActiveStack(context.Background(), nil, "alice", "demo", UpsertActiveStackInput{})
 	require.Error(t, err)
 
@@ -475,7 +475,7 @@ func TestStackService_DeleteActiveStack_DeletesActiveMapping(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 
 	err := svc.DeleteActiveStack(context.Background(), &db.User{ID: 1, Username: "alice"}, "alice", "demo", "main")
 	require.NoError(t, err)
@@ -502,7 +502,7 @@ func TestStackService_DeleteActiveStack_IsIdempotentWhenMissing(t *testing.T) {
 			return db.Stack{}, pgx.ErrNoRows
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 
 	err := svc.DeleteActiveStack(context.Background(), &db.User{ID: 1, Username: "alice"}, "alice", "demo", "main")
 	require.NoError(t, err)
@@ -523,7 +523,7 @@ func TestStackService_UpsertActiveStack_RejectsDuplicateChangeID(t *testing.T) {
 			return repo, nil
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 	actor := &db.User{ID: 1, Username: "alice"}
 
 	_, err := svc.UpsertActiveStack(context.Background(), actor, "alice", "demo", UpsertActiveStackInput{
@@ -572,8 +572,8 @@ func TestStackService_GetActiveStack_EnrichesGitHubState(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, privateKey)
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", privateKey)
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
 	q := &mockStackQuerier{
@@ -629,7 +629,7 @@ func TestStackService_GetActiveStack_EnrichesGitHubState(t *testing.T) {
 		assert.Equal(t, "demo", repo)
 		return 777, nil
 	})
-	svc := NewStackService(q, WithStackGitHubInstallationResolver(resolver))
+	svc := newTestStackService(t, q, WithStackGitHubInstallationResolver(resolver))
 	result, err := svc.GetActiveStack(context.Background(), &db.User{ID: 1, Username: "alice"}, "alice", "demo", "main")
 	require.NoError(t, err)
 
@@ -688,7 +688,7 @@ func TestStackService_GetActiveStack_FallsBackWithoutGitHubInstallation(t *testi
 	resolver := stackInstallationResolverStub(func(context.Context, int64, string, string) (int64, error) {
 		return 0, nil
 	})
-	svc := NewStackService(q, WithStackGitHubInstallationResolver(resolver))
+	svc := newTestStackService(t, q, WithStackGitHubInstallationResolver(resolver))
 	result, err := svc.GetActiveStack(context.Background(), &db.User{ID: 1, Username: "alice"}, "alice", "demo", "main")
 	require.NoError(t, err)
 	require.Len(t, result.Changes, 1)

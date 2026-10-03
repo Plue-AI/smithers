@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -51,16 +50,6 @@ const (
 	GitHubAccessVerdictNotConfigured     = "not-configured"
 )
 
-const (
-	// defaultGitHubAppPermissionsURL is where the app's OWNER edits the app's
-	// permission configuration (step one of fixing permission-missing).
-	// Override with SMITHERS_GITHUB_APP_PERMISSIONS_URL; clients must never
-	// hardcode app slugs.
-	defaultGitHubAppPermissionsURL = "https://github.com/organizations/smithersai/settings/apps/smitherspreviewrelease/permissions"
-
-	envGitHubAppPermissionsURL = "SMITHERS_GITHUB_APP_PERMISSIONS_URL"
-)
-
 func badGateway(msg string) *pkgerrors.APIError {
 	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, msg)
 }
@@ -98,11 +87,12 @@ type GitHubAccessDiagnosis struct {
 	Permissions    map[string]string `json:"permissions,omitempty"`
 }
 
-func githubAppPermissionsURL() string {
-	if value := strings.TrimSpace(os.Getenv(envGitHubAppPermissionsURL)); value != "" {
-		return value
+func githubAppPermissionsURL(credentials GitHubAppCredentials) string {
+	slug := url.PathEscape(credentials.Slug)
+	if credentials.OwnerKind == "org" {
+		return "https://github.com/organizations/" + url.PathEscape(credentials.OwnerLogin) + "/settings/apps/" + slug + "/permissions"
 	}
-	return defaultGitHubAppPermissionsURL
+	return "https://github.com/settings/apps/" + slug + "/permissions"
 }
 
 // surfaceRequiredPermission maps a surface to the GitHub App permission key
@@ -168,11 +158,19 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 
 	diagnosis := GitHubAccessDiagnosis{Surface: normalizedSurface}
 
-	if !githubAppCredentialsConfigured() {
+	credentials, credentialErr := loadGitHubAppCredentials(ctx, s.githubAppCredentials)
+	if stdErrors.Is(credentialErr, ErrGitHubAppNotConfigured) {
 		diagnosis.Verdict = GitHubAccessVerdictNotConfigured
 		diagnosis.Detail = "The server has no GitHub App credentials, so app-side access cannot be diagnosed or fixed by installing."
-		diagnosis.InstallURL = githubAppInstallURL(false)
 		return diagnosis, nil
+	}
+
+	if credentialErr != nil {
+		return GitHubAccessDiagnosis{}, pkgerrors.Internal("failed to load github app credentials").WithCause(credentialErr)
+	}
+	installURL, err := s.githubAppCredentials.InstallURL(ctx)
+	if err != nil {
+		return GitHubAccessDiagnosis{}, pkgerrors.Internal("failed to load github app install url").WithCause(err)
 	}
 
 	installation, found, err := s.lookupRepoInstallation(ctx, normalizedOwner, normalizedRepo)
@@ -185,7 +183,7 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 			"The GitHub App is not installed on %s/%s. Install it on the repository's owner, then retry.",
 			normalizedOwner, normalizedRepo,
 		)
-		diagnosis.InstallURL = githubAppInstallURL(true)
+		diagnosis.InstallURL = installURL
 		return diagnosis, nil
 	}
 
@@ -201,8 +199,8 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 	default:
 		diagnosis.Verdict = GitHubAccessVerdictPermissionMissing
 		diagnosis.MissingPermission = permissionLabel
-		diagnosis.GrantURL = githubAppPermissionsURL()
-		diagnosis.InstallURL = githubAppInstallURL(true)
+		diagnosis.GrantURL = githubAppPermissionsURL(credentials)
+		diagnosis.InstallURL = installURL
 		diagnosis.Detail = fmt.Sprintf(
 			"The GitHub App is installed on %s but its installation does not grant %s. Grant it on the app's permission configuration, then approve the update on the installation.",
 			installation.Account.Login, permissionLabel,
@@ -259,11 +257,7 @@ func (s *GitHubUserReposService) lookupRepoInstallation(
 	owner string,
 	repo string,
 ) (githubRepoInstallation, bool, error) {
-	appID, privateKey, err := readGitHubAppCredentialsFromEnv()
-	if err != nil {
-		return githubRepoInstallation{}, false, pkgerrors.Internal(err.Error())
-	}
-	jwt, err := createGitHubAppJWTFunc(appID, privateKey, s.now().UTC())
+	jwt, err := githubAppJWT(ctx, s.githubAppCredentials)
 	if err != nil {
 		return githubRepoInstallation{}, false, pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}

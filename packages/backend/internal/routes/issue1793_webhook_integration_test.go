@@ -14,7 +14,7 @@ import (
 func TestIssue1793GitHubWebhookSignedBodyLimitPostgres(t *testing.T) {
 	pool := setupGitHubWebhookRouteTestPool(t)
 	const secret = "issue1793-route-secret"
-	handler := &GitHubWebhookHandler{Service: services.NewGitHubWebhookService(pool, secret)}
+	handler := &GitHubWebhookHandler{Service: services.NewGitHubWebhookService(pool, routeWebhookCredentialFixture(secret))}
 
 	base := `{"ref":"refs/heads/issue1793","installation":{"id":9001},"repository":{"id":8001,"name":"demo","owner":{"login":"acme"}}}`
 	body := []byte(base + strings.Repeat(" ", gitHubWebhookMaxBodyBytes-len(base)))

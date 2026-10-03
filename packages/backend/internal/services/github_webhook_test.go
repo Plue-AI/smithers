@@ -34,7 +34,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InvalidSignature(t *testing.T)
 	t.Parallel()
 
 	callCount := 0
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			callCount++
 			return pgconn.NewCommandTag(""), nil
@@ -57,7 +57,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_UnsupportedEventIsNoOp(t *test
 	t.Parallel()
 
 	callCount := 0
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			callCount++
 			return pgconn.NewCommandTag(""), nil
@@ -81,7 +81,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_PushEnqueuesJob(t *testing.T) 
 
 	payload := []byte(`{"repository":{"id":99},"installation":{"id":123}}`)
 	calls := 0
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			calls++
 			assert.True(t, strings.Contains(sql, "INSERT INTO github_webhook_jobs"))
@@ -131,7 +131,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_SupportedAsyncEventsEnqueue(t 
 			))
 
 			calls := 0
-			svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+			svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 				execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 					calls++
 					assert.True(t, strings.Contains(sql, "INSERT INTO github_webhook_jobs"))
@@ -168,7 +168,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationCreatedStoresMappi
 	}`)
 
 	var callOrder []string
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			switch {
 			case strings.Contains(sql, "INSERT INTO github_app_installations"):
@@ -211,7 +211,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationDeletedCleansUp(t 
 	}`)
 
 	var callOrder []string
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			switch {
 			case strings.Contains(sql, "DELETE FROM github_app_installations"):
@@ -251,7 +251,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationSuspendEvictsToken
 		"action":"suspend",
 		"installation":{"id":919191,"account":{"login":"AcmeOrg","type":"Organization"}}
 	}`)
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		},
@@ -279,7 +279,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationRepositoriesEvicts
 		"installation":{"id":929292,"repository_selection":"selected","account":{"login":"AcmeOrg","type":"Organization"}},
 		"repositories_added":[{"id":3003,"name":"repo-added","owner":{"login":"AcmeOrg"}}]
 	}`)
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		},
@@ -312,7 +312,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationRepositoriesAddedA
 	}`)
 
 	var callOrder []string
-	svc := NewGitHubWebhookService(&mockGitHubWebhookDB{
+	svc := newTestGitHubWebhookService(&mockGitHubWebhookDB{
 		execFn: func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			switch {
 			case strings.Contains(sql, "INSERT INTO github_app_installations"):
@@ -433,7 +433,7 @@ func TestGitHubWebhookService_InstallationRepositoriesAdded_UsesTransaction(t *t
 		mock.execFn = func(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		}
-		svc := NewGitHubWebhookService(mock, "webhook-secret")
+		svc := newTestGitHubWebhookService(mock, "webhook-secret")
 
 		err := svc.HandleGitHubWebhook(
 			context.Background(),
@@ -461,7 +461,7 @@ func TestGitHubWebhookService_InstallationRepositoriesAdded_UsesTransaction(t *t
 			}
 			return pgconn.NewCommandTag("INSERT 1"), nil
 		}
-		svc := NewGitHubWebhookService(mock, "webhook-secret")
+		svc := newTestGitHubWebhookService(mock, "webhook-secret")
 
 		err := svc.HandleGitHubWebhook(
 			context.Background(),

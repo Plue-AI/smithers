@@ -32,6 +32,8 @@ import (
 type Config struct {
 	// HostProfile is measured once on the install state volume before startup.
 	HostProfile *microsandbox.HostProfile
+	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
+	EnvGitHubAppCredentials bool
 	// CanaryRuns supplies deployment run evidence for the public status page.
 	// Nil reports unknown; self-hosting does not require a canary service.
 	CanaryRuns    ports.CanaryRunSource
@@ -204,12 +206,13 @@ func Run(ctx context.Context, cfg Config) error {
 // a new field cannot reach one entry point and miss the other.
 func (cfg Config) options() compose.Options {
 	return compose.Options{
-		HostProfile:     cfg.HostProfile,
-		CanaryRuns:      cfg.CanaryRuns,
-		RuntimeStores:   cfg.RuntimeStores,
-		BeforeShutdown:  cfg.BeforeShutdown,
-		ComputeProvider: cfg.ComputeProvider,
-		Admission:       cfg.Admission, Commerce: cfg.Commerce,
+		HostProfile:             cfg.HostProfile,
+		EnvGitHubAppCredentials: cfg.EnvGitHubAppCredentials,
+		CanaryRuns:              cfg.CanaryRuns,
+		RuntimeStores:           cfg.RuntimeStores,
+		BeforeShutdown:          cfg.BeforeShutdown,
+		ComputeProvider:         cfg.ComputeProvider,
+		Admission:               cfg.Admission, Commerce: cfg.Commerce,
 		Duties:                 compose.Duties(cfg.Duties),
 		TraceExporter:          cfg.TraceExporter,
 		Blobs:                  cfg.Blobs,

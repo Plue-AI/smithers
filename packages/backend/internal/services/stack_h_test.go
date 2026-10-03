@@ -33,14 +33,14 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	stack := stackHStack(actor.ID)
 
 	dispatcher := &mockStackWorkflowDispatcher{}
-	svc := NewStackService(&mockStackQuerier{}, WithStackWorkflowRunDispatcher(dispatcher))
+	svc := newTestStackService(t, &mockStackQuerier{}, WithStackWorkflowRunDispatcher(dispatcher))
 	assert.Same(t, dispatcher, svc.workflowRunner)
 
 	_, err := svc.GetActiveStack(ctx, nil, "alice", "demo", "main")
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
 
-	svc = NewStackService(&mockStackQuerier{
+	svc = newTestStackService(t, &mockStackQuerier{
 		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 			return repo, nil
 		},
@@ -52,7 +52,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 404, apiStatus(t, err))
 
-	svc = NewStackService(&mockStackQuerier{
+	svc = newTestStackService(t, &mockStackQuerier{
 		getRepoByOwnerAndLowerNameFn: func(context.Context, db.GetRepoByOwnerAndLowerNameParams) (db.Repository, error) {
 			return repo, nil
 		},
@@ -75,13 +75,13 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 			return []db.StackChange{{StackID: stack.ID, ChangeID: "c1", BranchName: "b1", Position: 0}}, nil
 		},
 	}
-	svc = NewStackService(q)
+	svc = newTestStackService(t, q)
 	got, err := svc.GetActiveStack(ctx, actor, "alice", "demo", " ")
 	require.NoError(t, err)
 	assert.Equal(t, "main", q.lastGetActiveStackArg.TargetRef)
 	assert.Len(t, got.Changes, 1)
 
-	_, err = NewStackService(&mockStackQuerier{}).UpsertActiveStack(ctx, nil, "alice", "demo", UpsertActiveStackInput{})
+	_, err = newTestStackService(t, &mockStackQuerier{}).UpsertActiveStack(ctx, nil, "alice", "demo", UpsertActiveStackInput{})
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
 
@@ -93,7 +93,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 			return db.Stack{}, errors.New("upsert failed")
 		},
 	}
-	_, err = NewStackService(q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
+	_, err = newTestStackService(t, q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -101,7 +101,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	q.upsertStackChangeFn = func(context.Context, db.UpsertStackChangeParams) (db.StackChange, error) {
 		return db.StackChange{}, errors.New("change failed")
 	}
-	_, err = NewStackService(q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
+	_, err = newTestStackService(t, q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -111,7 +111,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	q.deleteStackChangesNotInSetFn = func(context.Context, db.DeleteStackChangesNotInSetParams) error {
 		return errors.New("prune failed")
 	}
-	_, err = NewStackService(q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
+	_, err = newTestStackService(t, q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -119,7 +119,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	q.listStackChangesByStackFn = func(context.Context, int64) ([]db.StackChange, error) {
 		return nil, errors.New("list failed")
 	}
-	_, err = NewStackService(q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
+	_, err = newTestStackService(t, q).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{Changes: []StackChangeInput{{ChangeID: "c1", BranchName: "b1"}}})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -129,7 +129,7 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 	failingDispatcher := &mockStackWorkflowDispatcher{dispatchForEventFn: func(context.Context, DispatchForEventInput) ([]WorkflowRunResult, error) {
 		return nil, errors.New("dispatch failed")
 	}}
-	upserted, err := NewStackService(q, WithStackWorkflowRunDispatcher(failingDispatcher)).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{TargetRef: " feature ", Changes: []StackChangeInput{{ChangeID: "c2", BranchName: "b2", Position: 1}}})
+	upserted, err := newTestStackService(t, q, WithStackWorkflowRunDispatcher(failingDispatcher)).UpsertActiveStack(ctx, actor, "alice", "demo", UpsertActiveStackInput{TargetRef: " feature ", Changes: []StackChangeInput{{ChangeID: "c2", BranchName: "b2", Position: 1}}})
 	require.NoError(t, err)
 	assert.Equal(t, "main", upserted.TargetRef)
 	require.Len(t, failingDispatcher.calls, 1)
@@ -137,14 +137,14 @@ func TestStack_H_ServiceBranches(t *testing.T) {
 
 	q.deleteAllStackChangesFn = nil
 	q.deleteStackByIDFn = func(context.Context, int64) error { return errors.New("delete stack failed") }
-	err = NewStackService(q).DeleteActiveStack(ctx, actor, "alice", "demo", "main")
+	err = newTestStackService(t, q).DeleteActiveStack(ctx, actor, "alice", "demo", "main")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
 	q.getActiveStackFn = func(context.Context, db.GetActiveStackParams) (db.Stack, error) {
 		return db.Stack{}, pgx.ErrNoRows
 	}
-	require.NoError(t, NewStackService(q).DeleteActiveStack(ctx, actor, "alice", "demo", "main"))
+	require.NoError(t, newTestStackService(t, q).DeleteActiveStack(ctx, actor, "alice", "demo", "main"))
 }
 
 func TestStack_H_AccessMappingAndAggregationBranches(t *testing.T) {
@@ -160,7 +160,7 @@ func TestStack_H_AccessMappingAndAggregationBranches(t *testing.T) {
 			return "", errors.New("permission failed")
 		},
 	}
-	svc := NewStackService(q)
+	svc := newTestStackService(t, q)
 	err := svc.requireReadAccess(ctx, repo, actor)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
@@ -203,7 +203,7 @@ func TestStack_H_AccessMappingAndAggregationBranches(t *testing.T) {
 func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	ctx := context.Background()
 
-	svc := NewStackService(&mockStackQuerier{})
+	svc := newTestStackService(t, &mockStackQuerier{})
 	require.NoError(t, svc.enrichStackResponseWithGitHub(ctx, 0, "owner", "repo", nil))
 	empty := StackResponse{}
 	require.NoError(t, svc.enrichStackResponseWithGitHub(ctx, 0, "owner", "repo", &empty))
@@ -215,7 +215,7 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 		return 123, nil
 	})
 	response := StackResponse{Changes: []StackChangeResponse{{ChangeID: "c1", PRNumber: &prNumber}}}
-	require.NoError(t, NewStackService(&mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).enrichStackResponseWithGitHub(ctx, 0, "Owner", "Repo", &response))
+	require.NoError(t, newTestStackService(t, &mockStackQuerier{}, WithStackGitHubInstallationResolver(resolver)).enrichStackResponseWithGitHub(ctx, 0, "Owner", "Repo", &response))
 	assert.Equal(t, "open", response.Changes[0].PRState)
 	assert.Equal(t, "https://github.com/Owner/Repo/pull/12", response.Changes[0].PRURL)
 
@@ -242,9 +242,9 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	assert.Equal(t, "approved", state.ReviewStatus)
 	assert.Equal(t, "passing", state.CIStatus)
 
-	t.Setenv(envGitHubAppID, "123")
-	t.Setenv(envGitHubAppPrivateKey, generateStackTestRSAPrivateKeyPEM(t))
-	token, err := createStackGitHubInstallationToken(ctx, 456)
+	setTestCallerCredentials(t, "ID", "123")
+	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
+	token, err := newTestStackGitHubInstallationToken(t, ctx, 456)
 	require.NoError(t, err)
 	assert.Equal(t, "install-token", token)
 
@@ -253,7 +253,7 @@ func TestStack_H_GitHubEnrichmentAndHTTPBranches(t *testing.T) {
 	}))
 	t.Cleanup(badTokenServer.Close)
 	t.Setenv(envGitHubAppAPIBaseURL, badTokenServer.URL)
-	_, err = createStackGitHubInstallationToken(ctx, 456)
+	_, err = newTestStackGitHubInstallationToken(t, ctx, 456)
 	require.ErrorContains(t, err, "missing token")
 
 	badJSONServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

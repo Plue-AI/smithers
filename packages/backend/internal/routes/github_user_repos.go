@@ -207,7 +207,17 @@ func (h *GitHubUserReposHandler) ListGitHubAppInstallations(w http.ResponseWrite
 		pkgerrors.WriteError(w, verifyErr)
 		return
 	}
-	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"repos": repos})
+	installURL := ""
+	if source, ok := h.Service.(interface {
+		GitHubAppInstallURL(context.Context) (string, error)
+	}); ok {
+		installURL, err = source.GitHubAppInstallURL(r.Context())
+		if err != nil {
+			writeRouteError(w, r, pkgerrors.Internal("failed to load github app install url").WithCause(err))
+			return
+		}
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{"repos": repos, "install_url": installURL})
 }
 
 var validInstallationID = regexp.MustCompile(`^[1-9][0-9]*$`)

@@ -77,10 +77,15 @@ type StackQuerier interface {
 }
 
 type StackService struct {
-	queries             StackQuerier
-	submitTxManager     stackSubmitTxManager
-	workflowRunner      StackWorkflowRunDispatcher
-	githubInstallations StackGitHubInstallationResolver
+	githubAppCredentials GitHubAppCredentialReader
+	queries              StackQuerier
+	submitTxManager      stackSubmitTxManager
+	workflowRunner       StackWorkflowRunDispatcher
+	githubInstallations  StackGitHubInstallationResolver
+}
+
+func WithStackGitHubAppCredentialStore(store GitHubAppCredentialReader) StackServiceOption {
+	return func(s *StackService) { s.githubAppCredentials = store }
 }
 
 type StackServiceOption func(*StackService)
@@ -709,7 +714,7 @@ func (s *StackService) enrichStackResponseWithGitHub(
 		return nil
 	}
 
-	token, err := createStackGitHubInstallationToken(ctx, installationID)
+	token, err := createStackGitHubInstallationToken(ctx, installationID, s.githubAppCredentials)
 	if err != nil {
 		for index := range response.Changes {
 			applyStackChangeDefaults(&response.Changes[index], owner, repo)
@@ -972,22 +977,23 @@ func normalizeStackPRState(value string) string {
 	return trimmed
 }
 
-func createStackGitHubInstallationToken(ctx context.Context, installationID int64) (string, error) {
+func createStackGitHubInstallationToken(ctx context.Context, installationID int64, stores ...GitHubAppCredentialReader) (string, error) {
 	if installationID <= 0 {
 		return "", stdErrors.New("invalid installation id")
 	}
-	// Installation tokens live about an hour and GitHub rate-limits minting;
-	// share the per-installation cache with RepoConnectionService.
+	var store GitHubAppCredentialReader
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+	if _, err := loadGitHubAppCredentials(ctx, store); err != nil {
+		return "", err
+	}
+	// Installation tokens live about an hour; share the per-installation cache.
 	if cached, ok := getCachedInstallationToken(installationID); ok {
 		return cached.token, nil
 	}
 
-	appID, privateKey, err := readGitHubAppCredentialsFromEnv()
-	if err != nil {
-		return "", err
-	}
-
-	jwtToken, err := createGitHubAppJWT(appID, privateKey, time.Now().UTC())
+	jwtToken, err := githubAppJWT(ctx, store)
 	if err != nil {
 		return "", err
 	}

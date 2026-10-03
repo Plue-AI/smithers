@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -44,13 +43,6 @@ func TestRepoConnectionGitHubApp_Cov_PrivateKeyCredentialAndURLBranches(t *testi
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be RSA")
 
-	t.Setenv(envGitHubAppID, "42")
-	t.Setenv(envGitHubAppPrivateKey, strings.ReplaceAll(string(pkcs8PEM), "\n", `\n`))
-	appID, envKey, err := readGitHubAppCredentialsFromEnv()
-	require.NoError(t, err)
-	assert.Equal(t, int64(42), appID)
-	assert.Equal(t, rsaKey.N, envKey.N)
-
 	t.Setenv(envGitHubAppAPIBaseURL, "https://api.github.test///")
 	assert.Equal(t, "https://api.github.test", githubAPIBaseURL())
 }
@@ -71,11 +63,11 @@ func TestRepoConnectionGitHubApp_Cov_CreateTokenHTTPErrorBranches(t *testing.T) 
 	}))
 	defer server.Close()
 
-	t.Setenv(envGitHubAppID, "12345")
-	t.Setenv(envGitHubAppPrivateKey, string(privateKeyPEM))
+	setTestCallerCredentials(t, "ID", "12345")
+	setTestCallerCredentials(t, "PEM", string(privateKeyPEM))
 	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
 
-	svc := NewRepoConnectionService(&mockRepoConnectionDB{
+	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(context.Context, string, ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
 				*(dest[0].(*int64)) = installationID

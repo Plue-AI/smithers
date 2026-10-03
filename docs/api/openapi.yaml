@@ -3240,6 +3240,62 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/install:
+    get:
+      summary: Read GitHub App setup status
+      operationId: get_api_install
+      tags:
+        - Install
+      description: Requires the setup token until an owner exists, then the owner's browser session.
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: GitHub App setup status without credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubAppSetupStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/install/setup/app:
+    post:
+      summary: Begin or resume GitHub App setup
+      operationId: post_api_install_setup_app
+      tags:
+        - Install
+      description: Post the returned manifest to action_url in the same browser. Organization repositories require an organization owner to create the App at that URL. The callback consumes state once and refuses a second App.
+      security:
+        - setupSession: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitHubAppSetupRequest'
+      responses:
+        '200':
+          description: Manifest and single-use browser state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubAppManifestStart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: This install already has a GitHub App
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/integrations/mcp:
     get:
       summary: GET /api/integrations/mcp
@@ -19814,8 +19870,11 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repos]
+                required: [repos, install_url]
                 properties:
+                  install_url:
+                    type: string
+                    description: Stored App installation URL, empty until configured.
                   repos:
                     type: array
                     items:
@@ -19868,8 +19927,11 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repos]
+                required: [repos, install_url]
                 properties:
+                  install_url:
+                    type: string
+                    description: Stored App installation URL, empty until configured.
                   repos:
                     type: array
                     items:
@@ -21453,6 +21515,11 @@ paths:
           $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
+    setupSession:
+      type: apiKey
+      in: cookie
+      name: smithers_setup_session
+      description: Live durable setup session exchanged from the terminal setup URL before claim.
     tokenAuth:
       type: apiKey
       in: header
@@ -23170,6 +23237,147 @@ components:
             - limit
             - corrupt
             - storage_failed
+    GitHubAppSetupRequest:
+      type: object
+      required:
+        - owner_login
+        - owner_kind
+        - repository
+      properties:
+        resume:
+          type: boolean
+          description: Return the stored App installation URL without repeating conversion.
+        owner_login:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$'
+        owner_kind:
+          type: string
+          enum:
+            - user
+            - org
+        repository:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$'
+    GitHubAppSetupStatus:
+      type: object
+      required:
+        - github_app
+      properties:
+        github_app:
+          type: object
+          required:
+            - configured
+            - installed
+          properties:
+            configured:
+              type: boolean
+            installed:
+              type: boolean
+            slug:
+              type: string
+            installation_id:
+              type: integer
+              format: int64
+            install_url:
+              type: string
+            callback_urls:
+              type: array
+              maxItems: 10
+              items:
+                type: string
+                format: uri
+            callback_fixes:
+              type: array
+              items:
+                $ref: '#/components/schemas/GitHubAppCallbackFix'
+    GitHubAppCallbackFix:
+      type: object
+      required:
+        - settings_url
+        - add_url
+      properties:
+        settings_url:
+          type: string
+          format: uri
+        add_url:
+          type: string
+          format: uri
+    GitHubAppManifestStart:
+      type: object
+      required:
+        - action_url
+        - manifest
+        - state
+      properties:
+        install_url:
+          type: string
+          format: uri
+        action_url:
+          type: string
+          format: uri
+        state:
+          type: string
+          minLength: 64
+          maxLength: 64
+        manifest:
+          $ref: '#/components/schemas/GitHubAppManifest'
+    GitHubAppManifest:
+      type: object
+      required:
+        - name
+        - url
+        - redirect_url
+        - setup_url
+        - callback_urls
+        - public
+        - hook_attributes
+        - default_permissions
+        - default_events
+      properties:
+        name:
+          type: string
+          maxLength: 34
+        url:
+          type: string
+          format: uri
+        redirect_url:
+          type: string
+          format: uri
+        setup_url:
+          type: string
+          format: uri
+        callback_urls:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: uri
+        public:
+          type: boolean
+          const: false
+        hook_attributes:
+          type: object
+          required:
+            - url
+            - active
+          properties:
+            url:
+              type: string
+              format: uri
+            active:
+              type: boolean
+              const: false
+        default_permissions:
+          type: object
+          additionalProperties:
+            type: string
+            enum:
+              - read
+              - write
+        default_events:
+          type: array
+          items:
+            type: string
   responses:
     BadRequest:
       description: Bad request
