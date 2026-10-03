@@ -4,6 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { fixtures } from "@smthrs/rpc/fixtures/Draft"
 import type { DraftViewProps } from "@smthrs/rpc/DraftCard"
+import config from "../../../../playwright.config"
 import { DraftView } from "./DraftView"
 
 GlobalRegistrator.register()
@@ -20,6 +21,12 @@ function render(props: Partial<DraftViewProps> = {}) {
 afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = ""; calls.length = 0 })
 afterAll(() => GlobalRegistrator.unregister())
 const blur = (element: HTMLElement) => act(() => element.dispatchEvent(new FocusEvent("focusout", { bubbles: true })))
+const change = (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) => act(() => {
+  const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype
+  Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(element, value)
+  element.dispatchEvent(new Event("input", { bubbles: true }))
+  element.dispatchEvent(new Event("change", { bubbles: true }))
+})
 const press = (element: HTMLElement) => act(() => element.click())
 
 for (const [name, fixture] of Object.entries(fixtures)) {
@@ -32,20 +39,20 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     expect(host.querySelector(".draft-private") !== null).toBe(!fixture.model.committed && fixture.model.private)
   })
 }
-test("blur sends literal string fields and bound arguments", () => {
+test("local fields encode at render and forward bound arguments", () => {
   const host = render({ model: { ...fixtures.issue_fixes.model, place: { mode: "append", options: [{ n: 12, title: "Keep edits", state: "queued" }] } } })
   const title = host.querySelector<HTMLInputElement>(".draft-field input")!
-  title.value = "  Literal title  "; blur(title)
+  change(title, "  Literal title  "); blur(title)
   const [prompt, acceptance] = host.querySelectorAll<HTMLTextAreaElement>("textarea")
-  prompt!.value = "Literal\nprompt"; blur(prompt!)
-  acceptance!.value = "passes checks\nkeeps edits"; blur(acceptance!)
+  change(prompt!, "Literal\nprompt"); blur(prompt!)
+  change(acceptance!, "passes checks\nkeeps edits"); blur(acceptance!)
   const place = host.querySelector("select")!
-  place.value = "before:12"; blur(place)
-  place.value = "amend:12"; blur(place)
-  place.value = "append"; blur(place)
+  change(place, '{"mode":"before","n":12}'); blur(place)
+  change(place, '{"mode":"amend","n":12}'); blur(place)
+  change(place, '{"mode":"append"}'); blur(place)
   const fixes = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-  fixes.checked = true; blur(fixes)
-  fixes.checked = false; blur(fixes)
+  press(fixes); blur(fixes)
+  press(fixes); blur(fixes)
   expect(calls).toEqual([
     ["form.set", { entry: "entry-draft-1", field: "title", value: "  Literal title  " }],
     ["form.set", { entry: "entry-draft-1", field: "prompt", value: "Literal\nprompt" }],
@@ -53,8 +60,8 @@ test("blur sends literal string fields and bound arguments", () => {
     ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"before","n":12}' }],
     ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"amend","n":12}' }],
     ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }],
-    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }],
-    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "false" }]
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "false" }],
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }]
   ])
 })
 test("Commit forwards full supplied input once; Discard only deletes Draft", () => {
@@ -87,7 +94,7 @@ test("disabled actions and gestures show reasons and never dispatch", () => {
 })
 test("committed amendment has +1 and seed remains data only", () => {
   const host = render(fixtures.committed_amendment)
-  expect(host.textContent).toContain("Committed as T9 ↗")
+  expect(host.textContent).toContain("Committed as T9")
   expect(host.textContent).toContain("+1")
   expect(host.querySelector("input")).toBeNull()
   act(() => root.render(<DraftView {...fixtures.seed} onAction={(...args) => calls.push(args)} onView={() => {}} />))
@@ -99,7 +106,7 @@ test("committed amendment has +1 and seed remains data only", () => {
 test("empty acceptance clears; amendment forwards its bound item", () => {
   const host = render(fixtures.amend)
   const acceptance = host.querySelectorAll<HTMLTextAreaElement>("textarea")[1]!
-  acceptance.value = ""; blur(acceptance)
+  change(acceptance, ""); blur(acceptance)
   press(host.querySelector('[data-flow="todo.amend"]')!)
   expect(calls).toEqual([
     ["form.set", { entry: "entry-draft-1", field: "acceptance", value: "[]" }],
@@ -110,4 +117,39 @@ test("hostile seed text is literal, with no executable surface", () => {
   const host = render({ model: { ...fixtures.seed.model, seed: { files: ['<script>alert("seed")</script>'] } } })
   expect(host.querySelector(".draft-seed")!.textContent).toContain('<script>alert("seed")</script>')
   expect(host.querySelector("script")).toBeNull()
+})
+
+test("unavailable placement stays selected and focus/blur never appends", () => {
+  for (const mode of ["before", "amend"] as const) {
+    const host = render({ model: { ...fixtures.append.model, place: { mode, n: 99, options: [] } } })
+    const select = host.querySelector("select")!
+    expect(select.selectedOptions[0]!.textContent).toBe(`${mode === "before" ? "Before" : "Amend"} T99 (unavailable)`)
+    expect(select.value).toBe(JSON.stringify({ mode, n: 99 }))
+    act(() => select.focus()); blur(select)
+    expect(calls).toEqual([])
+    act(() => root.unmount()); host.remove(); root = undefined!
+  }
+})
+test("checkbox and select dispatch once on change without focus or blur", () => {
+  const host = render(fixtures.issue_fixes)
+  const fixes = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+  const initial = fixes.checked
+  press(fixes)
+  expect(calls).toEqual([["form.set", { entry: "entry-draft-1", field: "fixes", value: String(!initial) }]])
+  blur(fixes)
+  expect(calls.length).toBe(1)
+  change(host.querySelector("select")!, '{"mode":"append"}')
+  expect(calls[1]).toEqual(["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }])
+  expect(calls.length).toBe(2)
+})
+test("Commit has no unsupported Enter hint", () => {
+  const host = render()
+  expect(host.querySelector('[data-flow="todo.new"]')!.textContent).toBe("Commit")
+})
+test("committed receipt has no unsupported link hint", () => {
+  const host = render(fixtures.committed)
+  expect(host.querySelector(".draft-receipt")!.textContent).not.toContain("↗")
+})
+test("main browser tier excludes the isolated Draft stories", () => {
+  expect(config.testIgnore).toContain("**/draft-view-stories.spec.ts")
 })
