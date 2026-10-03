@@ -1,6 +1,6 @@
 # T-COL-02 Live channel `/api/live`: topics, cursors, backpressure
 
-Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01 · Unblocks T-AGT-02, T-APP-01, T-APP-07, T-APP-08, T-APP-16, T-COL-06, T-COL-08b, T-FLW-07, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
+Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-ACC-04, T-INS-04, T-COL-10, T-FLW-01 · Unblocks T-ACC-05, T-ACC-06, T-AGT-02, T-APP-01, T-APP-07, T-APP-08, T-APP-16, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-07, T-FLW-08, T-GH-08, T-MCH-01, T-MCH-08, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
 Spec: spec.md §3 (`projection_events`), §3.1, §3.3, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
 
 ## Goal

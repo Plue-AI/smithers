@@ -1,6 +1,6 @@
 # T-APP-07 Edge toast map, timeline, conversation-entry and monitor summaries
 
-Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-23, T-UI-08, T-APP-19 · Unblocks T-APP-18, T-REL-02 · Issue: [#3501](https://github.com/smithersai/smithers/issues/3501)
+Stage S1 · Size L · Depends on T-COL-02, T-APP-08, T-APP-23, T-UI-08, T-APP-19, T-APP-09, T-FLW-08, T-FLW-07 · Unblocks T-APP-01, T-APP-18, T-REL-02 · Issue: [#3501](https://github.com/smithersai/smithers/issues/3501)
 Spec: spec.md §3 (`conversation_entries`, `member_conversation_state`), §4.1, §7.2 (`conversation:<branch>`), §10.8.3, §11.5a (`agent:fast`), §11.6.1, §14.1, §14.4, §14.5, §14.6, §19.3 · Delta: delta.md §8 (Add conversation-entry summarizer job), §9 (Add left-edge toast map + timeline; retire `ChatRunTimeline`) · Product: mvp.md §6.4 Toasts for events, Timeline, J4.3, M-08, M-14
 
 ## Goal
@@ -32,19 +32,21 @@ In:
 - On-screen detection: the shell and timeline Views report the entries on screen and whether the timeline is visible through `onView({on_screen, timeline_visible})` (T-UI-07, T-UI-08, using an `IntersectionObserver` in a ref callback, apps/app/AGENTS.md). The Container turns that report into the `timeline_visible` lease.
 
 Out:
+- Repository execution, model tools, browser notifications (T-APP-18), participant registration and S2 presence delivery. Summaries consume shared recorded events only; private entries have no summary.
 - Conversation storage, per-member scroll and card view state, and the branch tree (T-APP-16); the Context line and Inspect preflight (T-APP-17).
 - Browser, email and phone notifications ([D] §14.6); the run card's scrubber and the monitor (T-FLW-07).
 
 ## Changes
-- `packages/backend/db/product/migrations/` (new, next free number): the entry columns above on T-APP-16's conversation-entry table.
+- `packages/backend/db/product/migrations/` (new, next free number): `run_summaries` (§3), reserved as `planned:T-APP-07` under §21.3 before implementation. T-APP-16 creates the entry columns and `timeline_visible_until` view-state column; this ticket derives and updates their values, without duplicate column/table creation. smithers-3f accepts the table/column split with T-APP-16 before start. Checks: C-PRC-02, C-UI-04, C-J11-01.
 - `packages/backend/internal/services/conversation_entries.go` (new): derivation, `projection_events` row plus `NOTIFY` (§3.1), toast events.
 - `packages/backend/internal/services/conversation_summaries.go` (new): the summarizer on `packages/backend/jobs`, calling the model through `internal/services/model_proxy.go`.
 - `packages/rpc/src/ConversationEntry.ts` (new): the entry fields and `actionFor(entry, viewer)`, the one §14.5.2 function the Home adapter, the timeline and toast routing call.
 - `apps/app/src/mainview/cards/containers/timelineModel.ts` (new): `toTimelineModel(entries, view)` gives lines, the band, pins above and below, and the narrow pills; `toToasts(entries, viewer, hidden)` routes toasts to the TODO's owner, the prompter for their own runs and, from S2, a viewer present on the branch, and caps them at three plus `more`.
 - `apps/app/src/mainview/cards/containers/TimelineContainer.tsx` and `ToastContainer.tsx` (new): render `Timeline`, `EdgeMap` and `ToastStack` (T-UI-08). `App.tsx` mounts the TimelineContainer in place of `ChatRunTimeline` (`App.tsx:49`, `:603`). Hiding toasts is a `PUT …/view-state` patch. The toast collection keeps the shared stack's 300 ms law (`state/controller/failures.ts:236-285`).
-- Delete `ChatRunTimeline.tsx`, `ChatRunTimeline.test.tsx`, the `.chat-run-timeline*` rules (`styles/chat.css:951-961`), its row in `flows/parity.test.ts:344`, its use in `cards/fixtures/RunTraceBrowser.ts:10,141`, and the dock assertions in `e2e/playwright/chat-run-monitor.spec.ts:62` and `e2e/probes/run-trace-phase-strip.test.ts:46`. T-UI-08 replaces `ToastStack.tsx` (113 lines) with its View.
+- Delete `ChatRunTimeline.tsx`, `ChatRunTimeline.test.tsx`, the `.chat-run-timeline*` rules (`styles/chat.css:951-968`), its row in `flows/parity.test.ts:344`, its use in `cards/fixtures/RunTraceBrowser.ts:10,141`, and the dock assertions in `e2e/playwright/chat-run-monitor.spec.ts:62` and `e2e/probes/run-trace-phase-strip.test.ts:46`. T-UI-08 replaces `ToastStack.tsx` (113 lines) with its View.
 
 ## Tests
+- Boundary (C-UI-04, C-J11-01): submit through the production TODO command dispatcher, consume `/api/live` conversation and run topics, renew visibility through `PUT /api/conversations/{b}/view-state`, and invoke timeline/toast actions through `cardActions` → `flowAction`. Use checked-in event sequences and literal expected tones, labels, actions and timing bounds; no oracle reads spec files or computes expectations with production derivation code.
 
 - C-UI-04: In review has the quiet tone. Needs you and stack attention have the attention tone.
 
@@ -61,6 +63,8 @@ Out:
 
 ## Acceptance
 
+- [C-PRC-02](../checks/C-PRC-02.md): planned ownership of `run_summaries`, with no duplicate entry/lease columns or table creation.
+
 
 
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
@@ -71,5 +75,13 @@ Out:
 
 ## Risks and notes
 - The timeline's 1,180 px breakpoint is T-UI-08's; the Container passes the same lines at every width.
-- Risk: summaries cost money per live run. Bounded by the on-screen rule: falsified if C-UI-04 records more than 2 model calls per run-minute while watched, or any call between state changes while nobody watches.
+- Risk: summaries cost money per live run. C-UI-04 records event and call times: a watched run follows the 5 s debounce and 30 s maximum wait; an unwatched run makes no call between state changes. A fixed two-calls-per-minute ceiling does not apply to isolated events that each settle after 5 s.
 - The `timeline_visible` lease is this ticket's mechanism for "on screen"; §14.5.3 states the rule, not the signal. A lost lease only drops to once per state change, never to no summary.
+
+## Ready checklist
+1. Runtime preconditions: existing dependencies supply shared storage, live transport and Views; T-APP-09 supplies actor names, T-FLW-08 supplies fast/coding model routing, and T-FLW-07 supplies stable phase/cell ids and the monitor projection. S2 presence remains a later extension.
+2. Exclusions: Out names repository execution, model tools, notifications, presence, conversation storage, preflight and monitor presentation.
+3. Boundary tests: C-UI-04 and C-J11-01 use the production dispatcher, authenticated live topics and view-state route with literal fixture expectations; no test reads the spec or calls production code to derive its oracle.
+4. Decisions: smithers-06 accepts the Timeline/EdgeMap/ToastStack seam and visible copy; smithers-38 signs off `ConversationEntry` and action derivation exports before landing under §21.1; smithers-3f accepts migrations, job scheduling and model-proxy integration; smithers-b8 accepts shell wiring. smithers-8a resolves cross-owner disagreements; Will decides product changes.
+5. Before start: smithers-06: does `onView` supply the band and visibility without View business state? smithers-b8: do rail actions use the production dispatcher and hiding remain private? smithers-38: is `actionFor` the shared exported function with literal fixtures? smithers-3f: do summary jobs preserve transaction ordering and remain independent of run execution?
+6. Security: shipped host code summarizes shared event data with no tools and no repository imports or execution; repository code runs only in machines (§1.3, M-29). smithers-3f reviews model-proxy confinement and private-entry exclusion before start. C-UI-04 proves no summary machine request or run delay; C-UI-06 proves private data stays out of summaries.

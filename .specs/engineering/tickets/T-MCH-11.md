@@ -1,11 +1,11 @@
 # T-MCH-11 Member unix users, `team` group, no-sudo image, per-machine homes
 
-Stage S2 · Size L · Depends on T-MCH-02, T-ACC-02 · Unblocks T-COL-04, T-MCH-12, T-MCH-15, T-MNT-02, T-REL-02, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-07 · Issue: [#3570](https://github.com/smithersai/smithers/issues/3570)
+Stage S2 · Size L · Depends on T-MCH-02, T-ACC-02 · Unblocks T-COL-04, T-MCH-12, T-MNT-02, T-REL-02, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-07 · Issue: [#3570](https://github.com/smithersai/smithers/issues/3570)
 Spec: spec.md §5.5, §8.7, §8.10.3, §8.11.1, §9.1.2 (`open_session`), §17.1, §17.2 · Delta: delta.md §3 (per-member users row), §5 (`developer`/`root` delete row) · Product: mvp.md J6.1, J6.5, §6.8 Terminals, §6.15 SSH, M-18, M-29
 
 ## Goal
 
-On every machine, each member is their own unix user with a private home on that machine, created at their first session, never shared with another machine. Tool logins carry between machines through the credential store (T-MCH-15). The coding agent is `agent`, everyone shares the working copy through the `team` group, and nobody can become root.
+On every machine, each member is their own unix user with a private home on that machine, created at their first session, never shared with another machine. Tool logins persist in each machine’s home across sleep and wake; nothing copies tokens between machines (C-MCH-10). The coding agent is `agent`, everyone shares the working copy through the `team` group, and nobody can become root.
 
 ## Scope
 
@@ -36,6 +36,8 @@ Out:
 - Uid and login allocation: the `members.unix_uid` sequence starting at 20000, and the sanitized login with its collision suffix, both written once in T-ACC-02's table.
 
 ## Tests
+- Integration: C-MCH-10 uses independently created fixture tool logins on two real machines to prove persistence across sleep, wake and host restart, and no token copying.
+- Acceptance: C-MCH-10 gates this ticket’s S2 phase; C-REL-05 is T-REL-02’s live release soak.
 
 - integration (reference host, real microVM, `packages/backend/microsandbox/real_users_test.go`, new): `command -v sudo su` finds nothing; `find / -xdev -perm /6000 -type f` and `getcap -r /` are empty; `id agent` shows groups `agent team`; as `agent` and as another member, reading `/home/<login>` returns `EACCES`; Ben creates a file in `/workspace`, and Alice and `agent` can modify it. This is C-MCH-06.
 - integration (reference host, real microVM): Ben and Alice each have `/home/<login>` with their own uid, gid and 0700. As Alice and as `agent`, reading any file in Ben's home returns `EACCES`. `mount` lists no virtiofs mount under `/home`. (C-MCH-09)
@@ -51,6 +53,7 @@ Out:
 
 - [C-MCH-06](../checks/C-MCH-06.md): no sudo or setuid; homes are 0700; `agent` and other members can't read a home.
 - [C-MCH-09](../checks/C-MCH-09.md): homes are per machine, created at first session, never shared, kept across sleep.
+- [C-MCH-10](../checks/C-MCH-10.md): Tool logins persist per machine across sleep and wake; Smithers never stores or copies tokens between machines
 
 ## Risks and notes
 

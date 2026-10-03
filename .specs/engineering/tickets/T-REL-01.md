@@ -4,7 +4,7 @@ Stage R · Size M · Depends on T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06
 Spec: spec.md §8.2.1 (host profile), §9.3.4, §18, §20.3, §21 (Performance row) · Delta: none (new) · Product: mvp.md §9 Quality bar, M-19
 
 ## Goal
-One command on the reference host (the team's Mac mini, whatever its size) measures every spec §18 budget except GitHub freshness at p95 with n ≥ 100, and writes raw samples, summaries and the detected host profile under `.artifacts/perf/<date>/`.
+One command on the reference host (the team's 64 GB Mac mini with 10 performance cores) measures every spec §18 budget except GitHub freshness at p95 with n ≥ 100, and writes raw samples, summaries and the detected host profile under `.artifacts/perf/<date>/`.
 
 ## Scope
 In:

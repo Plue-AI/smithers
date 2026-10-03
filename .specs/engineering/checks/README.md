@@ -8,10 +8,10 @@ Layers:
 - **e2e**: a real browser against a real install with microVMs and a scratch GitHub repository
 - **fault**: kill points
 - **perf**: on the reference host
-- **journey**: recorded on a fresh Mac mini, mvp.md §12.1
+- **journey**: recorded on a fresh macOS user account on the reference mini, mvp.md §12.1
 - **spike**: disposable, answers a yes/no question
 
-The reference host is a 32 GB Apple Silicon Mac mini (mvp.md §9), where the performance budgets are measured (C-PERF-01..06). Limits are separate: every install derives them from its detected host (spec §8.2.1, C-MCH-04), and every perf artifact records the host profile. The browsers run on a second Mac on the same network. The scratch repository is `smithers-mvp-canary/<date>` on GitHub, made fresh per journey run.
+The reference host is the team's 64 GB Apple Silicon Mac mini (10 performance cores) (mvp.md §9), where the performance budgets are measured (C-PERF-01..06). Limits are separate: every install derives them from its detected host (spec §8.2.1, C-MCH-04), and every perf artifact records the host profile. The browsers run on a second Mac on the same network. The scratch repository is `smithers-mvp-canary/<date>` on GitHub, made fresh per journey run. A 32 GB host’s p95 is not measured until tested (C-PERF-01–06).
 
 Evidence goes to `.artifacts/checks/<check-id>/<UTC timestamp>/`. `scripts/check-run.mjs` executes named automation and writes `receipt.json` with `{check, commit, layer, command, exit, started, ended, log_digest}`. It refuses absent automation and `to write`. Closure verifies successful receipts for every phase check at the landed commit and their log digests; prose PASS claims are insufficient (C-PRC-03). The issue links the directory and its logs, screenshots or video.
 
@@ -34,7 +34,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-SPK-05](C-SPK-05.md) | Host swap and memory pressure with 2 (24 GB) and 3 (32 GB) busy machines | spike | W0 | T-MCH-01 |
 | [C-SPK-06](C-SPK-06.md) | A Homebrew-built, ad-hoc-signed binary with the hypervisor entitlement boots a microVM | spike | W0 | T-INS-03 |
 | [C-SPK-07](C-SPK-07.md) | Yjs keystroke p95 < 1 s browser→host→VM→browser, two browsers on a second Mac | spike | W0 | T-COL-01, T-COL-11 |
-| [C-SPK-08](C-SPK-08.md) | Daemon sessions carry a recorded VS Code Remote session (edit, terminal, port forward, reconnect); exit status, half-close and flow control hold; revocation leaves no member process within 5 s | spike | W0 | T-TRM-06 |
+| [C-SPK-08](C-SPK-08.md) | Daemon sessions carry a recorded VS Code Remote session (edit, terminal, port forward, reconnect); exit status, half-close and flow control hold; revocation leaves no member process within 5 s; SIGKILL restart drains old session cgroups before accepting open_session | spike | W0 | T-TRM-06 |
 | **Journeys (P0: J1–J5, J10)** | | | | |
 | [C-J1-01](C-J1-01.md) | Fresh Mac: built bundle at S1; Homebrew tap at R; setup card, no Smithers account | journey | S1, R | S1: T-INS-08 · R: T-INS-05, T-INS-08, T-REL-02 |
 | [C-J1-02](C-J1-02.md) | Setup card: App manifest, repository, squash check, owner sign-in, model access; Source ready and Machine ready separate | e2e | S1 | T-INS-06, T-APP-03, T-GH-11, T-GH-12, T-GH-13, T-REL-02 |
@@ -62,7 +62,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-J4-02](C-J4-02.md) | Answer, merge next, move up, retry with steer, all while chatting | e2e | S1 | T-STK-02, T-STK-05, T-APP-02 |
 | [C-J4-03](C-J4-03.md) | Only the next item merges; later items say "Merges after Tn" | integration+e2e | S1 | T-STK-04, T-REL-02 |
 | [C-J5-01](C-J5-01.md) | Flow edit from chat → TODO → merged → Active after sync; running TODOs keep their version, including a retry after a lockfile change | e2e | S1 | T-FLW-03..05, T-FLW-11, T-APP-05, T-FLW-04, T-FLW-05, T-REL-02 |
-| [C-J5-02](C-J5-02.md) | A broken flow merge leaves the previous version Active and shows the error; every `main` move loads, and a helper or lockfile change outside `flows/` makes a new version | integration | S1 | T-FLW-03 |
+| [C-J5-02](C-J5-02.md) | A broken flow merge leaves the previous version Active and shows the error; every `main` move loads, and a helper or lockfile change outside `flows/` makes a new version | integration | S1 | T-FLW-03, T-FLW-04, T-FLW-11 |
 | [C-J5-03](C-J5-03.md) | Learning proposal with evidence → TODO → merged → next TODO passes lint first time | journey | S3 | T-FLW-06, T-REL-02 |
 | [C-J10-01](C-J10-01.md) | PR on `smithers/<slug>` based on `main`, body with prompt, evidence, included items and requester | e2e | S1 | T-GH-03, T-REL-02 |
 | [C-J10-02](C-J10-02.md) | GitHub review comment → steer within 60 s → agent pushes a fix that updates the PR | e2e | S1 | T-GH-04 |
@@ -91,14 +91,14 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-J11-04](C-J11-04.md) | Thrashing: the same failing check 3× in one attempt with no edit in between shows on the TODO card and the Inspect phase; an edit clears it | integration | S1 | T-FLW-07, T-REL-02 |
 | [C-J11-02](C-J11-02.md) | Flow Source opens on the proposing TODO's branch; Plan and a "draft version" Run on a scratch branch show the edited graph live; a repository flow runs from its slash command with a form and shows its custom view | e2e | S2, S3 | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
 | **Access and security** | | | | |
-| [C-ACC-01](C-ACC-01.md) | Every permission-matrix row is enforced server-side for every credential kind | integration | S1 | T-ACC-03, T-ACC-04, T-STK-15 |
+| [C-ACC-01](C-ACC-01.md) | Every permission-matrix row is enforced server-side for every credential kind | integration | S1 | T-ACC-02, T-ACC-03, T-ACC-04, T-ACC-05, T-ACC-06, T-ACC-07, T-TRM-02, T-CUT-03, T-STK-15 |
 | [C-ACC-02](C-ACC-02.md) | Delegated, run and machine credentials can't merge or approve; a confirmation can be approved only from a session, only while `MergeReady` holds, and expires with a new generation | integration | S1 | T-ACC-04, T-ACC-05, T-STK-04, T-APP-04 |
 | [C-ACC-03](C-ACC-03.md) | Losing GitHub write suspends within 1 h; removal revokes everything within 5 s | integration | S1 | T-ACC-02, T-ACC-06 |
 | [C-ACC-04](C-ACC-04.md) | Sign-in is refused off the roster or without write access, with the reason | integration | S1 | T-ACC-01, T-ACC-02 |
 | [C-SEC-04](C-SEC-04.md) | Only the setup token opens setup sessions; concurrent sessions run each step once; the claim is atomic and closes every session; the owner can do only setup until GitHub confirms push | integration | S1 | T-ACC-01, T-INS-06 · T-ACC-07 owns the setup-URL stdout handoff and pre-claim restart rotation. |
 | [C-SEC-05](C-SEC-05.md) | The stage-1 terminal token allows only its scope list; an agent-uid process holding it can't drop, reorder or merge | integration | S1 | T-TRM-02 |
 | [C-SEC-01](C-SEC-01.md) | Provider keys, the App PEM and main-only secrets never appear in any branch machine | integration | S2 | T-MCH-12, T-FLW-01 |
-| [C-SEC-02](C-SEC-02.md) | The host process never loads or executes repository flows; no fallback to host processes | integration | S1 | T-FLW-01, T-INS-02, T-ACC-07 |
+| [C-SEC-02](C-SEC-02.md) | The host process never loads or executes repository flows; no fallback to host processes | integration | S1 | T-FLW-01, T-INS-02, T-ACC-07, T-FLW-11, T-STK-12, T-MCH-14 |
 | [C-SEC-03](C-SEC-03.md) | Issue admission by issue text, role and door: outsider issues become TODOs only by a maintainer; non-member labels are reverted; later outsider text never reaches the run | integration | S1 | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
 | **Machines** | | | | |
 | [C-MCH-01](C-MCH-01.md) | Two members and the agent on one branch share exactly one VM and one working copy | integration | S2 | T-MCH-04 |
@@ -110,15 +110,15 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-MCH-07](C-MCH-07.md) | All-branches secrets present in every session and the coding host; values never readable through the API | e2e | S2 | T-MCH-12, T-APP-13 |
 | [C-MCH-08](C-MCH-08.md) | Fork never stops the source machine and starts from the captured revision | integration | S2 | T-MCH-08 |
 | [C-MCH-09](C-MCH-09.md) | Homes are per machine, created at first session (also for a member added while awake), never shared, kept across sleep | integration | S2 | T-MCH-11 |
-| [C-MCH-10](C-MCH-10.md) | Log in once per install: the five credential files sync with newest-wins, a logout reaches every machine, history and caches stay local, revocation removes them | integration | S2 | T-MCH-15 |
+| [C-MCH-10](C-MCH-10.md) | Tool logins persist per machine across sleep and wake; Smithers never stores or copies tokens between machines | integration | S2 | T-MCH-11 |
 | [C-MCH-11](C-MCH-11.md) | Every VM holds a slot from grant to confirmed stop; demand coalesces per branch with promotion; a cold boot prepares inside one slot at capacity 1; free disk is re-read before every grant | integration | S2 | T-MCH-06 |
 | **Stack** | | | | |
 | [C-STK-01](C-STK-01.md) | The projection (item state × open waits × paused → TODO state, ranked by §4.1.0a; terminal states win) is exhaustive, and the engine's guards allow only §4.1's transitions, each with an event row | unit | S1 | T-STK-01, T-STK-13, T-STK-14 |
 | [C-STK-02](C-STK-02.md) | Items admit in stack order up to `parallel`; the parallel setting is clamped by capacity | integration | S2 | T-STK-03 |
 | [C-STK-04](C-STK-04.md) | A later item's draft PR un-drafted and merged first: both items marked merged with the note, `main` folds, maintainers see `order` attention | integration | S1 | T-GH-05 |
 | [C-STK-05](C-STK-05.md) | A review steer 25 h after the PR opened resumes the same run on the same working copy | integration | S1 | T-MCH-14 |
-| [C-STK-03](C-STK-03.md) | Stop → Resume continues from the last finished step; Retry and Retry with the current flow keep the earlier attempt | integration | S1 | T-STK-05, T-FLW-11 |
-| [C-STK-06](C-STK-06.md) | The PR head's tree is the tree checks ran on: an edit during capture or check, a steer during check, or a base move refuses `stack.propose`; a new item starts on the available prefix | integration | S1 | T-STK-12, T-FLW-11 |
+| [C-STK-03](C-STK-03.md) | Stop → Resume continues from the last finished step; Retry and Retry with the current flow keep the earlier attempt | integration | S1 | T-STK-05, T-FLW-11, T-STK-13, T-MCH-14 |
+| [C-STK-06](C-STK-06.md) | The PR head's tree is the tree checks ran on: an edit during capture or check, a steer during check, or a base move refuses `stack.propose`; a new item starts on the available prefix | integration | S1 | T-STK-12, T-FLW-11, T-STK-13, T-GH-09, T-MCH-14 |
 | [C-STK-07](C-STK-07.md) | One merge predicate and fence: steer, edit, reorder, rebase-pending and `main`-move races against Merge merge nothing stale; concurrent merges make one GitHub call | integration | S1 | T-STK-04, T-STK-12, T-STK-06, T-STK-15 |
 | [C-STK-08](C-STK-08.md) | Independent waits: question + foreign push, pause + conflict, Stop with open waits, resume after step 1, and merges on GitHub during a steer, a question or a pause each give the §4.1.0a state | integration | S1 | T-STK-07, T-STK-05, T-GH-05, T-GH-06 |
 | **GitHub** | | | | |
@@ -131,7 +131,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-COL-02](C-COL-02.md) | Live channel: a `gap` or reconnect resubscribes from the cursor with no duplicated or missing delta | fault | S1 | T-COL-02 |
 | [C-COL-01](C-COL-01.md) | Stage-1 contracts hold: every file write carries actor + `base_digest` and a stale write gets 409; reserved topics and frame kinds exist, and a browser addresses documents only by topic; the File card renders with CodeMirror 6 | unit+integration | S1 | T-COL-10, T-COL-07, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-03a, T-COL-03, T-COL-04a, T-COL-04, T-COL-06 |
 | [C-COL-03](C-COL-03.md) | The mutation lock: rebase and Return to Tn with every writer active lose no write and let none land mid-rewrite; queued writes revalidate; a stale write never applies | integration | S2, S3 | T-COL-03, T-STK-11, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
-| [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or payload identity gets through; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-15, T-MCH-11, T-COL-03a |
+| [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or payload identity gets through; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | [C-COL-05](C-COL-05.md) | Watcher completeness: overlapping bursts and actor switches keep exact per-file versions; metadata watches catch every move; an overflow resync loses no change | integration | S2 | T-COL-04, T-COL-05, T-COL-04a |
 | **Catalog and cuts** | | | | |
 | [C-CAT-01](C-CAT-01.md) | Slash, palette and `/help` equal mvp.md Appendix A (repository-flow doors asserted against `flows/*/flow.ts`); `in-card` rows equal B.4; each row's actors, minimum role and `agent` equal Appendix B; every tag has a non-Cut, non-Replaced Appendix C row and registers where that row says it runs | unit | S1 | T-CAT-01, T-CAT-03, T-FLW-11 |
@@ -157,11 +157,11 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-INS-05](C-INS-05.md) | The bundle runs from a clean checkout's build output with no hand-assembled files | integration | S1 | T-INS-01, T-INS-09 |
 | [C-INS-06](C-INS-06.md) | `smthrs host start` runs a built bundle as a launchd service: up before any login, restarted after a crash, idempotent, with setup URLs | integration | S1 | T-INS-08 |
 | [C-REL-01](C-REL-01.md) | In-app docs are one quickstart plus the flows reference; the site keeps one install page; every quoted command resolves; docs gates pass | unit | R | T-DOC-01..03, T-DOC-02, T-DOC-03, T-DOC-04 |
-| [C-REL-02](C-REL-02.md) | `brew install` + `smthrs host start` on a fresh Mac needs no Smithers account | journey | R | T-INS-05, T-INS-08 |
+| [C-REL-02](C-REL-02.md) | `brew install` + `smthrs host start` in a fresh macOS user account on the reference mini needs no Smithers account | journey | R | T-INS-05, T-INS-08 |
 | [C-REL-03](C-REL-03.md) | A launch-day install upgrades to the next release with all data intact, with work in flight | journey | R | T-INS-07 |
-| [C-REL-04](C-REL-04.md) | The alpha scorecard measures person-minutes; code authorship is diagnostic only | integration | S1 | T-REL-03 |
-| [C-REL-05](C-REL-05.md) | 24 h soak with live Claude Code, Codex and `gh` logins on two machines: no login prompt | e2e (release gate) | R | T-MCH-15, T-REL-02 |
-| [C-REL-06](C-REL-06.md) | A backup taken under concurrent work on host A restores on a fresh Mac B and matches its manifest; crashes during quiesce or backup reopen admissions; incomplete backups are refused | e2e and fault | R | T-INS-07 |
+| [C-REL-04](C-REL-04.md) | Automated scorecard counts and sampled, annotated alpha-session person-minutes; daily outside merge and effort reports | integration and recorded manual | S1 | T-REL-03 |
+| [C-REL-05](C-REL-05.md) | 24 h soak with independently created per-machine Claude Code, Codex and `gh` logins: no repeat login prompt | e2e (release gate) | R | T-REL-02 |
+| [C-REL-06](C-REL-06.md) | A backup taken under concurrent work on host A restores in a fresh macOS user account on Mac B and matches its manifest; crashes during quiesce or backup reopen admissions; incomplete backups are refused | e2e and fault | R | T-INS-07 |
 | **App** | | | | |
 | [C-UI-01](C-UI-01.md) | Every P0 journey (J1–J5, J6 steps 1–3, J7, J8, J10, J11) completes keyboard-only | e2e | R | T-REL-02 |
 | [C-UI-02](C-UI-02.md) | Deterministic copy lint: banned terms, 12-word card blocks, fixed phrases and one sentence per block, with boundary fixtures; prose and wrapping go to the design copy review | unit | S1 | T-CAT-01 |
@@ -181,7 +181,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-UI-11](C-UI-11.md) | Kept capabilities: File-card hover, definition and diagnostics on an awake branch (S1 build and release build), and the webpage reader card | e2e | S1, R | T-APP-15, T-APP-11 |
 | [C-UI-12](C-UI-12.md) | Each View renders every fixture of its card: its actions as `data-flow` controls in order, only the three handler kinds, light and dark at 1280 and 390 px | unit | S1, S2, S3 | T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 |
 | [C-UI-13](C-UI-13.md) | A Container's model from a real topic parses with its schema and its actions come from `cardActions`; at each stage exit every §14.3 row of the stage is wired and no View is orphaned | integration | S1, S2, S3 | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-20, T-APP-21, T-GH-08, T-STK-08, T-MCH-08, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-COL-05, T-CAT-01, T-APP-14a |
-| [C-PRC-01](C-PRC-01.md) | Declared-input existence in //:targetIndex and the drift set at landing | integration | S1 | T-PRC-01 |
+| [C-PRC-01](C-PRC-01.md) | Declared-input existence, all five drift labels, checkout-process gates without install credentials and required Per-commit drift status | integration | S1 | T-PRC-01 |
 | [C-PRC-02](C-PRC-02.md) | DB-free migration gate and planned table ownership at Ready | unit | S1 | T-PRC-02 |
 | [C-PRC-03](C-PRC-03.md) | Check receipts required to close a ticket | integration | S1 | T-PRC-03 |
 

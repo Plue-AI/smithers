@@ -14,22 +14,28 @@ Design (smithers-06) owns this ticket. Engineering wires it in T-FLW-08 and revi
 ## Scope
 
 In:
-- `AgentView`: the three roles ("Fast model", "Coding model", "Jev") with their model and the owner's Change model form, restored from `ModelCards.tsx` visuals.
+- Render the third model role as "<third role label: product ruling pending, batch 2>". Product decides the final label in batch 2; the View does not choose it. Retain the model picker, instructions and runs without a laboratory (J11 s14–16). Check: C-UI-12.
+- `AgentView`: the three roles ("Fast model", "Coding model", "<third role label: product ruling pending, batch 2>") with their model and the owner's Change model form; instructions path and runs from AgentModel. `apps/app/src/mainview/cards/ModelCards.tsx` is absent today; its visuals are a historical reference at `5b77095672`, not a current implementation or landing prerequisite.
 - Props exactly as `ui-components.md` § T-UI-13 until T-APP-19 lands, then the zod type from `packages/rpc/src/<Card>Card.ts`.
 - Fixture stories for every state the props allow, light and dark, desktop and 390 px.
 
 Out:
 - Topic subscriptions, commands, permissions and copy decisions owned by spec §14.6b (engineering and product).
+- Model credential entry, provider tests, persistence, fallback and effective-model selection (T-INS-06, T-FLW-08); editing tools, permissions or budgets; the model laboratory, Compose and model-call cards; direct instruction-file writes. Edit instructions only emits the supplied Draft TODO action.
 
 ## Changes
 
-- `apps/app/src/mainview/cards/views/<Card>View.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
+- Render the third model role as "<third role label: product ruling pending, batch 2>". Product decides the final label in batch 2; the View does not choose it. Retain the model picker, instructions and runs without a laboratory (J11 s14–16). Check: C-UI-12.
+
+- New `apps/app/src/mainview/cards/views/AgentView.tsx` and CSS; shared primitives stay in `packages/smithers/ui/src/`. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
 - Fixtures from `@smthrs/rpc` (`packages/rpc/test/fixtures/`, written with T-APP-19).
 
 ## Tests
 
+- Assert "Fast model", "Coding model" and the pending third-role label as literal fixture expectations, with no banned third-role UI copy or laboratory controls. Retain owner/non-owner model selection and keyboard access. Check: C-UI-12.
+
 - unit (C-UI-12): every fixture of the card renders with its actions and shows its `expect` strings, in light and dark at 1280 and 390 px; each press calls `onAction` or `onView` once. The View-seam rule passes on the View's file (C-UI-08).
-- copy: C-UI-02 (T-CAT-01's term list) renders every card fixture, this View's included once it lands. No test reads `.specs/`.
+- copy: use committed literal expected strings for this View under C-UI-12. C-UI-02 is a downstream T-CAT-01 audit, not a prerequisite for landing this View. No test reads `.specs/` or derives expected strings, tags, payloads or tone tokens from production code at runtime.
 
 ## Acceptance
 
@@ -40,4 +46,14 @@ Out:
 
 ## Risks and notes
 
-- A prop the mock needs but `ui-components.md` lacks is a spec change: raise it with the tech lead before building around it.
+- smithers-06 approves visual and copy conformance and records the screenshot decision. Will decides product changes. Tech lead smithers-8a accepts schema or seam changes with smithers-b8 and smithers-38 before implementation; update §14.3, ui-components.md and T-APP-19 together. Engineering, not the View, selects the effective model and enforces owner-only writes.
+
+## Ready checklist
+
+1. Dependencies: T-UI-01 supplies primitives and T-APP-19 supplies the landed AgentCard schema, per-module import and committed Agent fixtures. Restored ModelCards, provider access and backend configuration are not runtime prerequisites for this props-only View.
+2. Exclusions: Scope excludes provider credentials/tests, model persistence and selection, tools/permissions/budget editing, the model laboratory, Compose, model-call cards and direct instruction writes.
+3. Tests: C-UI-12 mounts the production AgentView export in `apps/app/src/mainview/cards/views/Views.test.tsx` and `apps/app/e2e/playwright/view-stories.spec.ts` (both new). Literal assertions cover Fast model/Coding model/<third role label: product ruling pending, batch 2> labels, supplied model and available choices, instructions path, empty and populated runs, owner/non-owner fixtures, Change model with the selected value, Edit instructions as the supplied Draft action, absent/disabled actions, keyboard operation, both themes and widths. Expectations come from neither spec files nor production code. T-FLW-08 owns real model routes, owner authorization and C-UI-13.
+4. Decisions: smithers-06 signs visual/copy conformance, Will decides product changes, and smithers-8a accepts seam changes with smithers-b8 and smithers-38. Model policy belongs to the wiring ticket.
+5. Pre-review before start: smithers-06: answered 18:10 with these changes (mock 21b445a6) smithers-b8: Does Change model emit only a supplied action? Does Edit instructions open a Draft rather than write a file? smithers-38: Do AgentCard fields and fixtures match the per-module contract? Shared primitive changes also need smithers-38 review.
+6. Security: AgentView receives no provider secrets and neither evaluates instructions nor executes repository code. It renders instructions as a path and emits supplied actions only. Owner presentation is not authorization; T-FLW-08 must enforce owner-session writes at its production route. smithers-b8 reviews the View boundary under C-UI-08; smithers-3f reviews any downstream repository execution, which M-29 confines to machines. C-UI-12 checks absent actions and inert instruction text.
+

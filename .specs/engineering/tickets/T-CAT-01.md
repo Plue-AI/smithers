@@ -1,6 +1,6 @@
 # T-CAT-01 One command catalog source; `catalog.mvp.json`; allowlist test from mvp.md Appendix B
 
-Stage S1 · Size L · Depends on T-UI-14, T-APP-19 · Unblocks T-ACC-03, T-ACC-05, T-APP-20, T-APP-21, T-CAT-02, T-CAT-03, T-CUT-03, T-FLW-05, T-MNT-01, T-REL-02 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
+Stage S1 · Size L · Depends on T-UI-14, T-APP-19 · Unblocks T-ACC-03, T-ACC-05, T-APP-15, T-APP-20, T-APP-21, T-CAT-02, T-CAT-03, T-CUT-03, T-FLW-03, T-FLW-05, T-FLW-07, T-FLW-08, T-INS-08, T-MCH-08, T-MNT-01, T-REL-02 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
 Spec: spec.md §6.1.1–§6.1.4 (incl. §6.1.2a–c), §14.2, §15.1.4, §15.1.5, §15.3 · Delta: delta.md §9 (Add one catalog source; Hide/Delete every command not in Appendix A) · Product: mvp.md §2 rule 1, §6.4 "Commands", §6.13, §6.14 (Advanced group), §8 (CLI and skill), §11 stage 1 item 8, M-21, Appendix A, Appendix B (B.1, B.2, B.4, B.6), Appendix C (`actions.md`)
 
 ## Goal

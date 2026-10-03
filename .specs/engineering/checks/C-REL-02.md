@@ -1,7 +1,7 @@
-# C-REL-02 `brew install` and `smthrs host start` on a fresh Mac need no Smithers account or Smithers-run service
+# C-REL-02 `brew install` and `smthrs host start` in a fresh macOS user account on the reference mini need no Smithers account or Smithers-run service
 
 Proves: mvp.md §12.5, §6.1 Install on a Mac, M-09 · spec.md §5.1.0, §16.1.0–§16.1.2, §16.2 · Layer: journey · Stage: R · Tickets: T-INS-05, T-INS-08
-Automation: `scripts/journeys/release-install.mjs` (new) for timings and the connection log; the session is screen-recorded · Runs in: reference host, erased, recorded manual
+Automation: `scripts/journeys/release-install.mjs` (new) for timings and the connection log; the session is screen-recorded · Runs in: reference mini, fresh macOS user account with no prior Smithers state, recorded manual
 
 ## Setup
 - The reference host after Erase All Content and Settings, macOS 15 or later, one new admin user, Homebrew installed from brew.sh.

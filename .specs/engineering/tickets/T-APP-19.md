@@ -1,6 +1,6 @@
 # T-APP-19 Card view-model schemas and fixtures from `ui-components.md`: the seam between design's views and engineering's containers
 
-Stage S1 · Size S · Depends on — · Unblocks T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-20, T-APP-21, T-CAT-01, T-COL-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-GH-08, T-MCH-08, T-MNT-01, T-MNT-04, T-REL-02, T-STK-08, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 · Issue: [#3474](https://github.com/smithersai/smithers/issues/3474)
+Stage S1 · Size S · Depends on — · Unblocks T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-15, T-APP-16, T-APP-17, T-APP-18, T-APP-20, T-APP-21, T-CAT-01, T-COL-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-GH-08, T-MCH-08, T-MNT-01, T-MNT-04, T-REL-02, T-STK-08, T-STK-10, T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 · Issue: [#3474](https://github.com/smithersai/smithers/issues/3474)
 Spec: spec.md §14.2.1, §14.3 · Delta: delta.md §9 · Product: mvp.md §6 (cards), design `.specs/design/`
 
 ## Goal

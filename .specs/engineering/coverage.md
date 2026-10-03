@@ -40,7 +40,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | J4.3 toasts while chatting; nothing blocks | P0 | §14.4.3, §19.3 | T-APP-07, T-APP-08 | C-J4-02; C-UI-04; C-UI-05 |
 | J5.1–J5.4 flow edit → TODO → merged → Active; running TODOs keep theirs | P0 | §11.3–§11.5 | T-FLW-05, T-FLW-03, T-FLW-04, T-FLW-11, T-APP-05 | C-J5-01; C-J5-02 |
 | J5.5 learning proposal → merged → next TODO passes lint | P0 | §11.8 | T-FLW-06 | C-J5-03 |
-| J6.1 terminal signed in to Smithers with the skill; own subscription | P0 | §5.3.2, §8.11.1, §8.7.3 | T-TRM-02, T-MCH-15 | C-J6-01 (steps 1–2); C-SEC-05; C-MCH-10 |
+| J6.1 terminal signed in to Smithers with the skill; own subscription | P0 | §5.3.2, §8.11.1, §8.7.3 | T-TRM-02 | C-J6-01 (steps 1–2); C-SEC-05; C-MCH-10 |
 | J6.2 its edits land in the shared working copy, live | P0 | §9.3.1 | T-COL-04 | C-J3-03 (a terminal tool's writes, attributed and live); C-PERF-04 |
 | J6.3 skill reads the wiki, answers, places a TODO as "Claude Code for Ben" | P0 | §6.4, §14.6a, §15.3 | T-TRM-02, T-APP-09, T-CAT-02 | C-J6-01 (step 4); C-CAT-03 |
 | J6.4 laptop `smthrs login` | P1 | §5.3.1 | T-ACC-04 | C-J6-02 |
@@ -175,7 +175,7 @@ P0 and P1 follow mvp.md §5: J6 is P0 for steps 1–3, and J9 is P1.
 | External changes | §9.3 | T-COL-04, T-COL-05, T-APP-11 | C-J3-03; C-J3-08; C-J3-09 |
 | Save and recovery guarantees | §9.2.2–§9.2.3a, §9.3.4–§9.3.5 | T-COL-08, T-COL-03 | C-J3-04; C-DUR-04 K7a–K7e (document recovery, lost-edit Reapply and Copy); C-COL-03 (S3 document writes during rebase) |
 | Live updates | §9.3.4, §7.2 | T-APP-11, T-COL-04 | C-J3-03; C-PERF-04 |
-| Terminals | §8.7, §8.11 | T-TRM-01, T-MCH-11, T-MCH-15 | C-J3-02; C-MCH-06; C-MCH-09; C-MCH-10; C-REL-05 |
+| Terminals | §8.7, §8.11 | T-TRM-01, T-MCH-11 | C-J3-02; C-MCH-06; C-MCH-09; C-MCH-10; C-REL-05 |
 | Shared agent activity | §8.11.2a, §10.7.3 | T-TRM-05, T-STK-06 | C-J3-10; C-J3-05 |
 | Carets and selections | Cut | — | — |
 

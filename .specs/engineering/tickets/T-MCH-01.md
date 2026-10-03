@@ -1,6 +1,6 @@
 # T-MCH-01 Measure VM memory on 24 and 32 GB; capacity formula
 
-Stage W0, S2 · Size M · Depends on — · Unblocks T-MCH-06, T-REL-02 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
+Stage W0, S2 · Size M · Depends on W0: — · S2: T-INS-06, T-INS-08, T-ACC-03, T-APP-03, T-COL-02 · Unblocks T-MCH-06, T-REL-02 · Issue: [#3470](https://github.com/smithersai/smithers/issues/3470)
 Spec: spec.md §8.2.1, §8.2.2, §8.6.1, §10.3.1, §14.3 (Settings), §18, §20.2 · Delta: delta.md §1 (host profile row), §3 (capacity row) · Product: mvp.md §6.7 Capacity and queue, §9, M-06
 
 ## Goal

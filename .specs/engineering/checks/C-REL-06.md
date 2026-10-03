@@ -5,14 +5,14 @@ Automation: `scripts/release/backup-restore.mjs` (new) drives both Macs, the loa
 
 ## Setup
 - Host A: the reference host with the release candidate at commit X installed from the tap, set up against the scratch repository `smithers-mvp-canary/<date>`, with members Ben and Alice.
-- Mac B: a different Apple Silicon Mac, erased, macOS 15 or later, with a macOS user name different from A's (so `$STATE` has a different absolute path), Homebrew, and Smithers installed from the tap at commit X with no `$STATE`.
+- Mac B: a different Apple Silicon Mac with a fresh macOS user account, macOS 15 or later, with a macOS user name different from A's (so `$STATE` has a different absolute path), Homebrew, and Smithers installed from the tap at commit X with no `$STATE`.
 - Load on A that runs through step 1:
   - branches T1 and S awake; on each, Ben's terminal appends a counter to `count.txt` every 100 ms;
   - TODO T1's coding run inside a step;
   - a wiki page edited through the API every 200 ms;
   - an app-agent turn running in `main`'s conversation;
   - a PR comment for T1 queued just before the backup starts;
-  - Ben's Claude Code and Codex logins in the credential store, and a `~/.marker` in his home on T1's machine.
+  - Ben's independently created Claude Code and Codex logins in T1's machine home, and a `~/.marker` in his home on T1's machine.
 
 ## Steps
 1. On A, run `smthrs host backup`. Throughout it, every 250 ms from a second client, try to create a TODO, open a terminal on S, edit the wiki page, wake an asleep branch and post a prompt.
@@ -22,7 +22,7 @@ Automation: `scripts/release/backup-restore.mjs` (new) drives both Macs, the loa
    - the Home card's stack (`GET /api/stack` and the `home` snapshot): each TODO's number, state and place;
    - every file's SHA-256;
    - each branch's captured head; after each branch wakes, its working copy is at that head, `count.txt` holds the captured content, and Ben's home holds `~/.marker` with his uid and mode 0700;
-   - each credential store row (member, file, `written_at`, ciphertext SHA-256), and that each row decrypts under the restored install key;
+   - the restored machine disk hashes, including Ben's home marker and local login files; verify these before starting tools, which can refresh their files;
    - each run journal's last finished step, and that no projection is ahead of its journal;
    - every `activity.snapshot_before` and `snapshot_after` exists in the repository store, and the wiki page's latest revision equals its persisted document state.
 5. Let B run for 5 min, and open Ben's terminal on T1's machine. Then stop B.

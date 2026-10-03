@@ -1,6 +1,6 @@
 # T-APP-09 Actor adapter: participants and "for Ben" (§14.6a, M-34)
 
-Stage S1 · Size S · Depends on T-ACC-04, T-UI-01, T-APP-19 · Unblocks T-AGT-03, T-APP-10, T-REL-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
+Stage S1 · Size S · Depends on T-ACC-04, T-UI-01, T-APP-19 · Unblocks T-AGT-03, T-APP-02, T-APP-04, T-APP-06, T-APP-07, T-APP-10, T-APP-16, T-APP-23, T-MCH-08, T-REL-02, T-TRM-02 · Issue: [#3503](https://github.com/smithersai/smithers/issues/3503)
 Spec: spec.md §2 (actor notation), §5.3, §6.4, §9.3.2, §12.3, §14.6a, §14.6a.1, §15.1 · Delta: delta.md §2 (Add actor `via` on audit events, activity, presence, todo_events), §9 (Modify: actor rendering with `via` badges) · Product: mvp.md J6.3, §6.13 Attribution, M-21, M-34, Appendix A closing paragraph
 
 ## Goal
@@ -21,6 +21,7 @@ In:
 - Adopt it in the S1 adapters that name actors: Home rows (owner), TODO (owner, answerer, amendment and steer authors), Confirm (`asked_by`), Members, entry authors (T-APP-16) and timeline lines (T-APP-07).
 
 Out:
+- Registering agent processes or inventing participant lifetimes from terminal command text; changing credential authority, roles, or avatar assets. Broker registration lands with the S2 session/presence tickets, not this S1 adapter.
 - Minting delegated credentials, the `Smithers-Via` header and recording `via` (T-ACC-04).
 - Participant presence (T-COL-06), activity (T-COL-04), agent terminals (T-TRM-05) and line-flag data (T-APP-14), which call `toActor`.
 - Branch and Terminal cards adopt it in T-APP-10 and T-APP-12.
@@ -31,6 +32,7 @@ Out:
 - `apps/app/lint/conformance/Rules.ts` (existing): card, adapter and toast source never builds " via " or ", for " by hand; every actor string comes from `actorName`.
 
 ## Tests
+- Boundary (C-J6-01, S1 CLI portion): invoke `todo.steer` through the production CLI command→API dispatcher as a Claude Code delegated actor, read its recorded actor from the served TODO/conversation projection, decode it with `ProductActor`, and assert the literal label "Claude Code for Ben" in the production adapter. Repeat a session-cookie request with a forged `Smithers-Via` header and assert the literal person label "Ben". Broker, presence and terminal cases are S2 qualification. All expectations are checked-in literals; no test reads spec files or uses `actorName` to manufacture expected names.
 - Unit (`ProductActor.test.ts`): `toActor` and `actorName` for each wire shape and each known `via`: "Smithers for Ben", "Claude Code for Ben", "Codex for Ben", "Ben via SSH", "Ben's terminal", "Ben via CLI", "Coding agent for Ben", "Reviewer for Ben", "Smithers", "Smithers for Ben" for a system write with a requester, "@login" and "changed outside Smithers". An unknown agent `via` becomes an agent participant named verbatim. A removed member keeps their login (§5.6).
 - Unit, same file: a `session` credential's actor never becomes an agent participant, even when the request carried `Smithers-Via` (§6.4); a system write never becomes an agent participant.
 - Unit, same file: one agent acting for two people yields one participant id per session with each person's `for` and `color_index`; an agent acting for nobody gets index 6.
@@ -50,3 +52,11 @@ Out:
 ## Risks and notes
 - M-34 replaces the "Ben via Smithers" badge with the agent's own avatar and "for Ben"; `via` stays on the wire, and only the rendering changes.
 - Risk: the app's local `ActorSchema` (`state/AppState.ts:525`, `user|smithers|system`) names the Flux dispatcher's actor, not the product actor. Confusing the two is the likely bug; the new schema lives in `@smthrs/rpc` under a distinct name (`ProductActor`).
+
+## Ready checklist
+1. Runtime preconditions: T-ACC-04 supplies credential-first actor attribution and session-header handling; T-UI-01 and T-APP-19 supply the ActorChip and its schema. S1 adapters accept recorded actors; S2 broker registration is not required to land them.
+2. Exclusions: Out names credential issuance, authorization changes, process registration, avatar assets, presence, activity, terminals and later card adoption.
+3. Boundary tests: the S1 CLI/API dispatcher test exercises recorded attribution and the production adapter with literal names; C-J6-01 qualifies the external-agent journey. Unit fixtures cover every wire shape without spec-derived or production-derived expectations.
+4. Decisions: smithers-38 signs off the `ProductActor` public subpath and stable-id mapping before landing under §21.1; smithers-06 accepts the ActorChip seam and names; smithers-b8 accepts consumer adoption and lint coverage. smithers-3f accepts the wire interpretation against credential attribution. smithers-8a resolves seam disagreements; Will decides product wording changes.
+5. Before start: smithers-38: do ids stay stable per session/run and exports avoid an app dependency? smithers-06: does every actor map to the existing chip props and correct avatar/color? smithers-b8: does lint cover all S1 actor strings without changing dispatcher actors? smithers-3f: does the adapter preserve session versus delegated attribution and grant no authority?
+6. Security: the adapter executes no repository code and grants no authorization rights. smithers-3f reviews credential-kind precedence and forged-header coverage before start; C-J6-01 and the session-header boundary test prove recorded attribution remains authoritative. Repository execution remains confined to machines (§1.3, M-29).

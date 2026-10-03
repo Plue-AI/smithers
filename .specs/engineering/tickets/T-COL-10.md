@@ -1,8 +1,8 @@
 # T-COL-10 Co-editing contracts: ADR 0004 wire contract, golden frames, the Go codec and the topology-neutral stage-1 contracts (spec §7.6)
 
-Stage S1 · Size L · Depends on — · Unblocks T-APP-14a, T-APP-15, T-COL-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-03r, T-COL-04, T-COL-04a, T-COL-06, T-COL-07, T-COL-08, T-COL-08a, T-COL-08b, T-REL-02 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
+Stage S1 · Size L · Depends on — · Unblocks T-APP-14a, T-APP-15, T-COL-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-03r, T-COL-04, T-COL-04a, T-COL-06, T-COL-07, T-COL-08, T-COL-08a, T-COL-08b, T-COL-11, T-REL-02 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
 Spec: spec.md §5.3, §7.4, §7.6, §9.1.1–9.1.4, §9.2, §9.5.3, §9.6.2 · Delta: delta.md §4 · Product: mvp.md M-02, M-27, J3.5, §11 item 14
-Ready: 2026-10-02 smithers-8a sha256:fe6c59fdc59b
+Ready: 2026-10-02 smithers-8a sha256:10a6b964ff50
 
 ## Goal
 Every interface that stage 3 co-editing depends on exists and is enforced from stage 1, so stage 3 adds a document layer without changing a stage-1 or stage-2 API.

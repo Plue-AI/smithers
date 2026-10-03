@@ -25,7 +25,7 @@ Members Ben and Alice. Branches A and B, both awake.
 - Step 7: every home, owner, mode and `~/.marker` is unchanged after the host restart.
 
 ## Fail when
-- Any file written in a home on one machine appears on another (other than the five credential files, C-MCH-10).
+- Any file written in a home on one machine appears on another (C-MCH-10 also proves tool tokens stay local).
 - A newly added member needs a restart to get a home.
 
 ## Evidence

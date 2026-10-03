@@ -4,6 +4,7 @@ Proves: mvp.md §3 "Member", §6.15 "Members and maintainers", M-05 · spec.md �
 Automation: `packages/backend/internal/compose/member_revocation_integration_test.go` (new) · Runs in: CI
 
 ## Setup
+- Mint multiple run credentials with sponsoring member A, including own/other subjects and a token minted before its TODO was transferred to O. Mint an independently workspace-scoped machine credential. Record token identities and sponsor bindings.
 - The backend at the commit under test in install mode, with real PostgreSQL. The recheck job runs on an injected clock.
 - A fake GitHub whose permission answer per login can be changed during the test.
 - Members: O (owner), A (member, GitHub `write`) and E (member).
@@ -17,6 +18,7 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 - A owns T3, which has 5 `todo_events` rows.
 
 ## Steps
+9. Suspend/remove A while persistent token cleanup is blocked: immediately call each run credential, then unblock cleanup and measure physical revocation from state commit. Restore A, take over a TODO and resume with a freshly minted O-sponsored run token. Force both serialized write/revocation orders with barriers.
 1. **Removal.** O calls `DELETE /api/members/A` and records the response time `t0`, then:
    - polls each of A's streams for close;
    - sends one request on A's old cookie and one on each delegated token right after `t0`.
@@ -29,7 +31,8 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
 8. Trigger user-token 401/403 through `RefreshUserGitHubToken` callers in `github_user_repos.go`, `github_import.go` and `auth.go`, and through refreshing/non-refreshing proxy paths. Assert one shared reactive recheck without waiting for the hour.
 
 ## Pass when
-- In step 1, every request on A's old credentials returns 401 or 403, including the one sent immediately after `t0`.
+- Step 9 subsequent run calls return 401 permission/unauthenticated immediately; every A-bound token, including pre-transfer tokens, is physically revoked within 5 s of state commit. Old tokens remain dead after restoration/takeover; resumed work uses a new O-sponsored identity and retained history. A machine token never continues the revoked member run. State-transition-first prevents writes with 401/no effect; write-first may stand under §5.2.1.
+- In step 1, every non-public request on A's old session, delegated and member-bound run credentials returns HTTP 401 permission/unauthenticated immediately after the committed state change, including the request right after t0.
 - In step 2, the maximum close time for each stream kind is ≤ 5.0 s over all 20 runs (monotonic clock, measured in the test process).
 - Step 3 sets `suspended_at` at the first tick after the flip, so detection takes ≤ 60 min plus one tick, and step 1's revocations happen within 5 s of it.
 - Step 4 suspends A without waiting for the hour.

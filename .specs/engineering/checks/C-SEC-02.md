@@ -1,9 +1,11 @@
 # C-SEC-02 The host never loads or executes repository flows
 
-Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02, T-ACC-07
+Proves: mvp.md §9 Isolation, §6.12 Change the factory, M-29, M-30 · spec.md §1.3, §11.1, §17.3, §10.4.4, §11.4, §15.2 · Layer: integration · Stage: S1 · Tickets: T-FLW-01, T-INS-02, T-ACC-07, T-FLW-11, T-STK-12, T-MCH-14
 Automation: `packages/backend/internal/compose/flow_isolation_integration_test.go` (new), with the process-tree sampler `scripts/checks/host-process-sampler.mjs` (new) · Runs in: reference host (needs `msb` 0.6.16 and libkrun), nightly
 
 ## Setup
+- FLW11 QA G07/G08/R50 fixtures add root/nested agent-written AGENTS.md, repo configuration, instruction files and diff/tool-returned instruction canaries to both workspace and immutable candidate. Capture the pinned reviewer instruction/closure hash before these writes. Reviewer tools expose framed read-only candidate data; exec, filesystem write and GitHub write are disabled.
+- Production NativeCoding calls have real current run/machine credentials plus wrong install/repository/TODO/attempt/branch/workspace/machine, stale attempt, draft, delegated/session and unbound machine controls. Host transfer uses minimal environment with hooks/helpers/config-selected filters disabled. Model requests use the host proxy; no provider key enters the guest.
 - Install built from the commit under test, started through the bundled launcher and `smthrs host start`; launcher-forced microVM mode and bundled runtime paths; real PostgreSQL 18; fake GitHub serving one repository. Use a disposable bundle copy for runtime-failure cases.
 - Repository at a fixture commit containing:
   - `flows/canary/beacon.ts`: on import, writes `$HOME/.smithers-canary/<nonce>` and opens TCP to `127.0.0.1:<canaryPort>` sending the nonce;
@@ -12,6 +14,9 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 - One owner session; capacity at least 2.
 
 ## Steps
+- FLW11 QA G07 (I14/I15/I52): invoke both stack.candidate and stack.propose Action.make tags through production guest-to-host dispatch with each credential/binding variant. Snapshot/check runs in guest; sample host execution around capture and object transfer with hostile repository configuration.
+- FLW11 QA G08/R50/R51 (I38/I39/U17/I41): review candidate/diff canaries in a fresh separate context on the TODO machine, inspect trusted prompt and tools, try denied exec/write, and vary exact first-line verdict. At 98,304 bytes review normally; at 98,305 bytes open generation-bound person approval without invoking reviewer. Advance generation and replay stale approval.
+- FLW11 QA G19/R60: wake a held run with missing guest and denied token capacity, then recover. The signal stays durable; host never runs the repository, and model dispatch resumes only after the same run reacquires reservations.
 1. Start the sampler: every 250 ms it records `ps -axo pid,ppid,uid,command` for all descendants of the launchd job, and `lsof -p <pid> -Fn` for every `node`, `bun` and `smithers-*` process among them.
 2. Create a TODO "add a README line" and let it run to In review.
 3. Run `/flow.run canary` with `{}`.
@@ -22,6 +27,10 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 8. In a separate fresh install, invoke the real bundled `bin/smithers-server` with real backend/PostgreSQL. Capture the backend stdout pipe and launcher terminal output at token mint; compare the single setup line byte-for-byte including newline. Seed literal stored origins `http://lan-a:4000` and `https://box.example`. Restart before claim, verify a new token and refusal of the old one through the served exchange. Claim through served OAuth with fake GitHub, then restart. Scan stdout outside the exact mint-line range, stderr and ordinary logs for both token values. This subcase enables no repository dispatch. No expectation is derived from spec files or launcher code at runtime.
 
 ## Pass when
+- Admission's server-resolved current live run/machine binding admits only its own install/repository/TODO/attempt/branch/workspace. Wrong, stale, draft, public and unbound callers deny before capture or receipt lookup. Both tags are packaged Action.make operations, not repository Flow.make registrations; dispatcher usage has a production receipt.
+- Trusted review instructions match the pinned hash and do not inherit the implementer's session or discover root/nested candidate/workspace AGENTS.md/config/instructions. Candidate/export/diff/tool-returned bytes are framed untrusted data. Tools deny commands, filesystem writes and GitHub writes; the reviewer runs on the TODO machine and host canaries stay absent.
+- Exact first-line approve continues; request-changes becomes one durable input to implement; unread yields review/unread. Oversize data opens person-only generation approval and records substituted human review evidence, never model approval; a new generation invalidates it.
+- Missing guest reaches the 15-minute wake failure without host fallback. Token denial parks the same run with the install owner, retaining inputs, and all resumed model requests traverse the host proxy's reacquired run/per-call gate.
 - The canary listener received 0 connections across steps 2–7.
 - `$HOME/.smithers-canary/` doesn't exist on the host. The marker exists inside the machine (positive control: the beacon ran there).
 - No host process imports, evaluates or executes repository code, including flow-load and coding steps; these run inside machines. Reading source, Markdown and object bytes as data for preflight, File cards or transfer is allowed. Capture host loader/exec targets and repository canary activity; a host file-open alone is not failure evidence.
@@ -31,10 +40,13 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 - Step 8: one structured mint line covers the literal loopback and configured origins; launcher bytes equal backend bytes without prefix or reconstruction. Pre-claim restart rotates and relays once; post-claim restart emits no setup line on either side. Neither token occurs in any other output or ordinary log. C-SEC-04 proves digest-only storage. Save redacted evidence, not raw tokens.
 
 ## Fail when
+- A caller widens its TODO/run binding, repository hooks/config-selected helpers/filters run on the host, or either reserved operation is registered as a repository flow.
+- Agent-written instructions enter the reviewer trusted prompt, its tools execute/write, size handling fabricates model approval, or stale generation human approval authorizes fresh acceptance.
 - The canary listener or the host marker sees the nonce: the host imported repository code.
 - The install starts in `process` mode on step 6, or the killed run continues as a host process: a silent fallback.
 - `flows/merge/flow.ts` replaces the system merge, or is silently ignored without a refusal on the Flow card.
 - The guest marker is absent, so the check proved nothing about where the code ran.
 
 ## Evidence
+- Also retain production binding/refusal receipts, guest capture/check location, hostile config host-canary logs, trusted review prompt/hash and framed tool data, exec/write refusal log, generation-specific oversize wait/approval evidence and host-proxy reservation/dispatch journal. Redact credentials and provider keys.
 `.artifacts/checks/C-SEC-02/<UTC timestamp>/`: `process-samples.jsonl`, `lsof-samples.jsonl`, `canary-listener.log`, host and guest `ls` output for the marker path, the `flows` projection JSON, step 6 stderr and exit codes, `smthrs host status` output, and the commit and install version.

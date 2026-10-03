@@ -1,6 +1,6 @@
 # T-FLW-02 Install-stored default config: checks, wiki pages, seats
 
-Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10 · Unblocks T-FLW-10, T-REL-02 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
+Stage S1 · Size M · Depends on T-FLW-01, T-MCH-10, T-INS-06 · Unblocks T-FLW-08, T-FLW-10, T-REL-02, T-STK-08 · Issue: [#3449](https://github.com/smithersai/smithers/issues/3449)
 Spec: spec.md §3 (`flow_config`), §8.6.2, §11.2, §11.5a, §13.5 · Delta: delta.md §8 (install-stored config row) · Product: mvp.md J1.4, §6.9 Works TODOs, §6.11 Generated pages, §6.12 Default flows, M-11
 
 ## Goal
@@ -21,6 +21,7 @@ Out:
 - Plans citing wiki revisions (T-FLW-10).
 - The Agent card and owner model choice (T-FLW-08).
 - Agent permissions, tools and budget editing ([D] spec §0).
+- Ruby detection, executing scripts during detection, committing generated defaults and running checks on the host.
 
 ## Changes
 - Migration (new, next free number) → `flow_config(scope[install|flow:<name>|agent:<role>], key, value jsonb, source[detected|owner|repo], updated_at)` as §3. A detected row keeps the files it came from in `value.detected_from`.
@@ -34,6 +35,9 @@ Out:
 - `flows/coding/project-config.md` and the coding host docs → describe install-stored defaults and field precedence; `pnpm docs:sync`, `pnpm docs:check`.
 
 ## Tests
+
+- Landing integration, `packages/backend/internal/services/flow_config_integration_test.go`: reach Source ready through the setup API wired by T-INS-06, then create and start a TODO through the production dispatcher and launcher. Observe its machine's merged config, recorded checks and generated-page refresh. Service calls alone do not qualify. Run the execution subcase in real microVM mode on the reference host; a process-runtime test is component coverage only. Check: C-J1-06, C-J8-06.
+- All expected commands, precedence results and page inventories are literal fixture values committed with these tests. Tests never read spec files or derive expected values from the detector or registry under test.
 - Unit, `packages/backend/internal/services/flow_config_test.go` (new): one fixture tree per §11.2 entry yields the expected `checks[]` in the stated order; a tree with none yields the build-only check; detection reads no file outside the list; the wiki declaration for a repository with 14 top-level packages lists overview, architecture and 8 package pages.
 - Unit, same file: merge precedence. Repository `checks` replaces stored `checks`; repository `seats` keys override only those keys; absent repository fields keep stored values; an invalid repository file refuses with its path, as `loadProject` does today.
 - Unit, `flows/test/coding-project-config.test.ts` (extend): the explicit merged file loads; unknown fields are still refused; one check passes planning.
@@ -54,3 +58,12 @@ Out:
 
 ## Risks and notes
 - Risk: `loadProject` reads the file once at host start (`flows/coding/project-config.md:12`). Per-run delivery holds only if each run starts its own coding host or the host reloads per run. Falsified if two runs on one machine see different files but the same config.
+
+## Ready checklist
+1. Dependencies: T-INS-06 supplies the Source-ready setup boundary and transitively T-INS-02's microVM launcher; T-MCH-10 supplies the single detector and image readiness; T-FLW-01 supplies machine-only execution.
+2. Exclusions: Out excludes a second detector, model UI, wiki citations and permission editing. Also exclude Ruby detection, running scripts during detection, committing generated config and executing checks on the host.
+3. Boundary tests: setup API → production TODO dispatcher → machine config and merge refresh in C-J1-06/C-J8-06; literal fixture oracles, no runtime spec or implementation-derived expectations.
+4. Decisions: smithers-3f approves the migration, Source-ready write and per-run delivery seam; smithers-38 approves check registration, the build-only check's bounded command and evidence, page selection order and config precedence before implementation. Escalate any change to §11.2 behavior to Will through smithers-8a.
+5. Owner pre-review before start: smithers-3f: Does Source ready write once and each admitted run receive its own config snapshot? smithers-38: Can registered checks and wiki defaults load without repository declarations? Does the build-only check report real execution evidence rather than unconditional success?
+6. Security: detection and merge read repository bytes as data; installs, checks and generated-page flows execute only in machines under T-INS-02/T-FLW-01, with no host-process fallback (M-29, §1.3). smithers-3f reviews this precondition; C-SEC-02 and C-J1-06 prove the boundary.
+

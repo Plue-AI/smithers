@@ -1,6 +1,6 @@
 # T-INS-06 Install setup backend: durable steps, model access API, squash check
 
-Stage S1 · Size M · Depends on T-INS-04, T-GH-01, T-ACC-01, T-MCH-10 · Unblocks T-APP-03, T-FLW-08, T-REL-01, T-REL-02, T-REL-03 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
+Stage S1 · Size M · Depends on T-INS-04, T-GH-01, T-ACC-01, T-MCH-10, T-ACC-03, T-GH-12, T-GH-13, T-CUT-02, T-FLW-01 · Unblocks T-APP-03, T-APP-08, T-APP-17, T-FLW-02, T-FLW-08, T-MCH-01, T-REL-01, T-REL-02, T-REL-03 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
 Spec: spec.md §3 (`install_settings`, `github_app`), §3.1, §5.1.0, §6.2, §6.3 (`/api/install`), §7.2 (`install` topic), §8.6.3, §10.6.2, §11.5a, §12.1, §14.3 (Setup/Settings), §15.1, §15.2, §16.2, §17.4 · Delta: delta.md §1 (Add [S1] setup card backend) · Product: mvp.md J1.2–J1.5, §6.1, §6.5, §6.9 Model access, M-09, M-11
 
 ## Goal
@@ -26,6 +26,7 @@ In:
 Out:
 - Bind address and public origins as settings, and their serving (T-INS-04). This ticket only sequences step 0.
 - The setup token and the owner claim (T-ACC-01); App manifest internals (T-GH-01); Setup and Settings cards (T-APP-03); toolchain detection and the image recipe (T-MCH-10); the Agent card and owner model configuration (T-FLW-08); capacity and `parallel` (T-MCH-01, T-STK-03).
+- New language detection (including Ruby), new image recipes, host execution of dependency installs, model laboratory screens, personal subscription pooling across members and new secret-reveal endpoints.
 - Credits and metering (M-09 defers billing). The five-job setup (`packages/backend/internal/services/repository_setup.go`, `apps/app/src/mainview/flows/entries/setup.ts`) is deleted by T-CUT-01 and T-CUT-02, not reused.
 
 ## Changes
@@ -33,9 +34,10 @@ Out:
 - `packages/backend/internal/routes/install.go` (from T-INS-04) → setup steps; wired in `packages/backend/internal/compose/router.go`; rows in `docs/api/openapi/install.yaml`; regenerate `packages/backend/apiclient/client.gen.go`.
 - Model access: reuse `POST /api/model/credential` (`packages/backend/internal/compose/chat_routes.go:78`) and `packages/backend/modelhost/owner_secrets.go`, with `CEREBRAS_API_KEY` (`modelhost/owner_models.go:40`) as the default fast provider. `apps/backend/main.go:136-152` builds the Jev recommender from the sealed Gateway key. For the Mac install, delete the `SMITHERS_PLATFORM_MODEL_KEYS_FILE` path (`packages/backend/modelproxy/keys.go:172-173`, `apps/backend/main.go:228-241`) and the `AI_GATEWAY_API_KEY` env path. The Docker image that used them is deleted (T-INS-05).
 - ChatGPT subscription: an owner setting in `install_settings` replaces `SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS` (`packages/backend/internal/config/config.go:172-182`) on the Mac install and turns the subscription pool on for the model proxy.
-- Step 5: the install's repository mirrors with `mirror: pull` as its default (`packages/backend/internal/services/github_main_pull.go:477`).
+- Step 5: the install's repository mirrors with `mirror: pull` as its default. Today `readGitHubMirrorPolicy` returns undeclared when no policy is present (`packages/backend/internal/services/github_main_pull.go:782-807`); set the install default explicitly without changing Plue policy. C-J1-02 checks a repository with no declared policy.
 
 ## Tests
+- Boundary: `packages/backend/internal/compose/install_setup_integration_test.go` (new) exercises `GET /api/install`, `POST /api/install/setup/{step}` and `POST /api/model/credential` through the composed install router, with real PostgreSQL and restart of the compiled host for recovery. Literal step ids, role names, error envelopes, fix URLs and secret-redaction predicates are committed test fixtures. No expectation comes from spec Markdown or implementation code at runtime. C-J1-02 uses the real setup card; C-J1-03 remains the later first-answer integration with T-APP-23/T-APP-15, not a prerequisite for these routes.
 - Unit `install_setup_test.go`: allowed step transitions; step 1 refused before step 0; Retry only from `failed` or `blocked`; a repeated POST with the same `Idempotency-Key` returns the first result (§6.2.1).
 - Integration (real PostgreSQL, fake GitHub): kill the host between steps 4 and 5; after restart `GET` shows the same states and step 5 resumes, not step 1. Squash disabled → `blocked` with the fix link; enabled → Retry → `done`. Model keys never appear in `GET`, logs or projection payloads. Step `source` done while `machine` runs → `GET` shows `source` done and `machine` running with its `pct`.
 - Integration: step 4 with all three keys stores `agent:fast`, `agent:coding` and `agent:jev`; without a fast key, `agent:fast` resolves to the coding model.
@@ -56,6 +58,16 @@ Out:
 - [C-SEC-04](../checks/C-SEC-04.md), with T-ACC-01: concurrent setup sessions run each step once.
 
 ## Risks and notes
+- Decisions before start: smithers-3f approves step persistence, secret storage and the setup-to-image seam; smithers-b8 approves install/model API contracts; smithers-38 approves packaged model-host integration. smithers-8a accepts the shared step and `flow_config` schema ownership before work; this ticket supplies the role-setting persistence required by setup and records any new table in `ownership.csv` (C-PRC-02), rather than depending on downstream T-FLW-08. Will decides provider-default or subscription-policy changes.
+- Security precondition: T-INS-02’s launcher, T-FLW-01’s guest-only flow dispatch and T-MCH-10’s isolated image preparation must be available. Source mirroring reads repository data only. Dependency installs, recipe commands, coding agents and test coding runs execute only in machines (§1.3, M-29), never on the host; provider/App keys remain sealed on the host. smithers-3f reviews this seam and C-J1-02/C-SEC-02 prove it.
 - Step 6 on a repository without a target index needs T-MCH-10, because layers refuse today (`packages/backend/microsandbox/layers.go:565`). Observation: C-J1-02 fails on the scratch repository until it lands.
 - The keys-file path meters every call in the credit ledger (`apps/backend/main.go:228-230`). Observation that confirms a leak of that behavior: a credits row per call made with the owner's sealed keys.
 - Step state lives in `install_settings`, which keeps spec §3's table list. Observation that it's too small: a step needs its own history to resume.
+
+## Ready checklist
+1. Dependencies: T-INS-04 supplies serving and projections transitively, T-ACC-01 setup identity, T-ACC-03 owner authorization, T-GH-01/T-GH-12/T-GH-13 durable App setup/fallback, T-MCH-10 image readiness, T-CUT-02 legacy route removal and T-FLW-01 isolated coding dispatch.
+2. Exclusions: setup identity/App internals, views, image detection/recipes including Ruby, host dependency execution, Agent configuration UI, personal subscription sharing, model laboratory, billing and capacity are explicit.
+3. Tests: composed install/model/setup routes, real PostgreSQL and compiled-host restart use fixed fixtures; C-J1-02 drives the Setup card. C-J1-03 runs when its answer/File-card consumers land; it cannot be replaced by direct service calls.
+4. Decisions: smithers-3f approves persistence/security/image seams, smithers-b8 public API, smithers-38 model-host integration, smithers-8a shared schema ownership; Will decides model/subscription policy exceptions.
+5. Owner pre-review before start: smithers-3f: Are steps and projections atomic and restart-safe? Do image installs run only in machines and sealed keys stay on the host? smithers-b8: Are setup-session versus owner gates and API models complete? smithers-38: Does role configuration work with the packaged model host without env-key fallback?
+6. Security: isolated launcher, flow dispatch and image preparation must land before setup runs code; §1.3/M-29 confines repository code to machines. smithers-3f reviews the seam; C-J1-02, C-SEC-04 and C-SEC-02 cover execution, secret redaction and claim concurrency.

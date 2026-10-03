@@ -63,7 +63,7 @@ Most of the MVP already exists as parts: the durable flow engine, the Mythical s
 | E-07 | A TODO is its own table with an explicit state machine and an event log. `mythical_items` stays the engine's work record, 1:1 with a TODO. | M-16. The 15 internal states project onto the 9 product states. | Keep issues as TODOs: contradicts M-16. | Hard after data exists |
 | E-08 | GitHub uses an App made by the manifest flow during install. Repo-wide conditional REST polls plus one GraphQL query for all TODO PRs cost at most 392 requests/h with ten TODO PRs (spec §12.2.2, C-GH-08). Webhooks only trigger a fetch and never stretch a cadence (C-GH-07). | M-03: no public address. 304 responses are free. | Per-PR REST polling: 1,200 check requests/h alone for ten pending PRs. Webhook relay service: needs our infrastructure. | Yes |
 | E-09 | Only a browser `session` credential can approve or merge. `smthrs login`, terminal sign-in and the app agent get `delegated` credentials with `via`. Every delegated catalog row is `run`, `confirm` (a one-click card the person presses) or `never` (spec §15.1.5). | §6.13 and M-21. The CLI can't know whether an agent holds its token. | Person PATs with an "agent" flag: trusts the client. | Hard |
-| E-10 | Each member has a stable unix uid on every machine and a per-machine home on that machine's disk; a host credential store syncs only five tool credential files (newest write wins). No sudo, for anyone. | M-18 and M-29. Spike T-MCH-02: two VMs writing one virtiofs home lost data. | Shared `developer` user: shared logins. One host home mounted into every machine: lost data. | Medium |
+| E-10 | Each member has a stable unix uid on every machine and a per-machine home on that machine's disk; tool logins persist in that machine's home across sleep and wake, with no token copying (C-MCH-10). No sudo, for anyone. | M-18 and M-29. Spike T-MCH-02: two VMs writing one virtiofs home lost data. | Shared `developer` user: shared logins. One host home mounted into every machine: lost data. | Medium |
 | E-11 | One admission queue with priority person > TODO > background. Capacity comes from the detected host (memory, cores, and free disk re-read before every grant), and every VM holds a slot from grant to confirmed stop (C-MCH-11). No preemption of a working agent. | M-06 and M-13. | Hard refusal at the cap (today). | Yes |
 | E-12 | A run pins the flow digest. Activation happens after a background `flow-load` run on the new `main`, and a failed load keeps the previous version. | J5 and §6.12. A per-machine coding host makes #3377 unnecessary. | Load in the host: violates E-02. | Yes |
 | E-13 | Origin-agnostic: loopback by default; the owner sets the bind address and public origins. The app works in secure and insecure contexts: no `crypto.randomUUID`, `crypto.subtle` or clipboard dependency. HTTPS comes from any proxy the team uses. | Will (2026-10-02): Tailscale isn't part of the product. Removing the secure-context dependency makes every exposure work. | Tailscale-only (`tailscale serve`): ties the product to one vendor. Install CA plus `smthrs connect`: certificate work for every teammate. | Yes |
@@ -80,7 +80,9 @@ ADRs: 0002 records E-01, E-02, E-03 and E-09 and supersedes ADR 0001 for the Mac
 
 ## Build plan
 
-The stages are mvp.md §11's, and launch needs all three. Each stage ends with its checks passing on the reference host, a 32 GB Apple Silicon Mac mini (mvp.md §9), where the performance budgets are measured. Limits are separate: every install derives them from its detected host (E-17), and every artifact records the host profile. The first days of stage 1 build one thin end-to-end path, and everything else in the stage widens it.
+The stages are mvp.md §11's, and launch needs all three. Each stage ends with its checks passing on the reference host, the team's 64 GB Apple Silicon Mac mini (10 performance cores) (mvp.md §9), where the performance budgets are measured. Limits are separate: every install derives them from its detected host (E-17), and every artifact records the host profile. The first days of stage 1 build one thin end-to-end path, and everything else in the stage widens it. A 32 GB host’s p95 is not measured until tested (C-PERF-01–06).
+
+After stage 1, all of Smithers' own work runs as TODOs on the install by default (M-37). Each exception names an owner, the reason it cannot run through Smithers yet, and an expiry. Report every outside merge and its person effort daily against the product §10 kill signal. Check: C-REL-04.
 
 ```
  W0 (days 1–3)   Spikes, in parallel. Each is a yes/no answer with a fallback:
@@ -112,7 +114,7 @@ The stages are mvp.md §11's, and launch needs all three. Each stage ends with i
                    TODO, Confirm, Home, shell, toasts/timeline, Members, Flow, CodeEditor, monitor, Agent, /help.
                    Each T-APP container waits for its T-UI view or wires a fixture stub.
  Stage 2         One live branch (drop user_id from the 0095 key), presence, member unix users + homes
- multiplayer     (per machine) + credential store, no sudo, owner-only terminals, the agent's own terminal, SSH + GitHub keys,
+ multiplayer     (per machine) + per-machine tool logins, no sudo, owner-only terminals, the agent's own terminal, SSH + GitHub keys,
  (J3 no co-edit) secrets in machines, smithers-machined watcher + bursts + Restore this file + moved-off,
                  Branch card, File/Diff reload on change, admission queue, sleep reads, fork from scratch,
                  presence-aware rebase, browser notifications, Obsidian folder sync
@@ -141,7 +143,7 @@ Critical path: T-COL-10 (L) → T-COL-03a (L) → T-COL-03 (M) → T-TRM-07 (M) 
 | One catalog from Appendices B and C breaks the 116 Playwright specs, or deletes too much | T-CAT-01 runs both suites; T-CUT-01 lists ambiguous rows for product | Migrate group by group behind the allowlist test (T-CUT-01's first run was discarded for deleting too much) |
 | Hypervisor.framework fails from a launchd daemon | T-INS-03 spike | Launchd agent plus automatic login, no sudo (spec §16.1.2) |
 
-Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so homes are per machine and only five credential files sync (spec §8.7.1, §8.7.3, T-MCH-15). The 24 GB swap risk is now handled by the host-derived capacity formula (§8.2.1), and T-MCH-01 calibrates it.
+Retired: the virtiofs homes risk. T-MCH-02 showed shared homes lose data, so homes are per machine and tool logins stay on their machine (spec §8.7.1, §8.7.3, C-MCH-10). The 24 GB swap risk is now handled by the host-derived capacity formula (§8.2.1), and T-MCH-01 calibrates it.
 
 ## Open questions
 

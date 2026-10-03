@@ -1,6 +1,6 @@
 # T-COL-07 Agent write tool checks `base_digest`
 
-Stage S1 · Size S · Depends on T-COL-10 · Unblocks T-COL-12, T-REL-02 · Issue: [#3507](https://github.com/smithersai/smithers/issues/3507)
+Stage S1, S2 · Size S · Depends on S1: T-COL-10, T-INS-02, T-FLW-01 · S2: T-COL-03, T-TRM-07 · Unblocks T-COL-12, T-REL-02 · Issue: [#3507](https://github.com/smithersai/smithers/issues/3507)
 Spec: spec.md §2 (actor notation), §7.6 (row 1), §9.3.4, §9.3.9, §10.7.3 (signal delivery), §15.2 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes ("The coding agent re-reads changed files before writing"), J3.4, M-02, M-27
 
 ## Goal
@@ -20,6 +20,7 @@ Out:
 - The app's file writes (T-COL-10) and the daemon's `write_file` (T-COL-03).
 - Live documents, where the agent's writes enter as attributed edits (T-COL-08, S3).
 - Notes for runs on other branches, and notes to the app agent.
+- Persisting the read ledger, auto-merging stale edits, disabling confinement, portable std-tool redesign, UI Views and a second file-write protocol.
 
 ## Changes
 
@@ -32,6 +33,8 @@ Out:
 ## Tests
 
 - Coverage gate (library, ledger #3480): every `@smthrs/std` src file this ticket edits gets a per-file 100/100/100/100 gate in `packages/smithers/agent/std/vitest.config.ts`, as `src/Container.ts` already has.
+- Boundary integration, S1 and S2 (`packages/smithers/agent/std/test/StaleRead.integration.test.ts`, new): run the production coding-host tool dispatcher for `coding/edit-atom` in a real machine, including `flows/coding/filesystem.ts` and std Read/Write/Edit/ApplyPatch handlers. A fake model may choose fixed tool calls; do not replace the ledger, guarded filesystem, mutation helper or daemon with a fake. Prove stale, unread, absent, own-write, reread, crash/resume and simultaneous-writer cases. Test fixed byte strings and independently calculated SHA-256 values; no expectation comes from spec files, production digest helpers or implementation constants at runtime.
+- Library seam: smithers-38 signs the §21.1 public-API diff before landing. Name `flows/coding/filesystem.ts` and `coding/edit-atom` as the real callers; show why the current per-file mkdir lock in FileMutation cannot validate a displaced outside write. Preserve portable std consumers; guest-only operations belong to the guarded coding-host binding. New exports require the documented caller sketch and review, not an extra abstraction.
 - unit, S1 (`packages/smithers/agent/std/test/StaleRead.test.ts`, new):
   - read, outside write, write → `stale_read`, file unchanged;
   - read, outside write, read, write → succeeds;
@@ -45,12 +48,21 @@ Out:
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 
 
-- [C-UI-05](../checks/C-UI-05.md) step 8 (S1): stale reads never overwrite newer bytes.
+- [C-UI-05](../checks/C-UI-05.md) agent-write extension (S1): stale coding-agent writes report refused, never saved; the existing app-write step 8 alone does not prove this tool boundary.
 
 
-- [C-COL-01](../checks/C-COL-01.md), S1: a coding-agent write after an outside write since its read is refused with `stale_read`, and the file is unchanged.
+- [C-COL-01](../checks/C-COL-01.md), S1 and S2: dispatch real std `read`, `write`, `edit` and `apply_patch` through the coding host's `coding/edit-atom` tool bindings. A coding-agent write after an outside write since its read is refused with `stale_read`, and the file is unchanged. S2 repeats against the authenticated daemon socket, not a direct `write_file` shim.
 
 ## Risks and notes
 
 - The simultaneous-writer integration test (`packages/smithers/agent/std/test/StaleRead.integration.test.ts`, real Linux guest) pauses the first write while it holds the branch lock and queues a second write with the same base. Release the first: it succeeds, the second gets `stale_read`, and final bytes equal the first write. Reverse arrival order and require the reverse winner. Also inject an outside replacement before exchange: displaced-digest mismatch restores the outside bytes and refuses the stale write (§9.2.2). Run for write, edit and apply_patch in S1 and against daemon `write_file` in S2; attach syscall and ordering traces.
 - Resume after a crash loses the in-memory read ledger, so the agent must re-read every file before its first write. That is safe but costs turns. Measured by a resume test that counts `stale_read` refusals. If the cost exceeds one extra turn per file, journal the ledger with the run (tech lead decides).
+
+## Ready checklist
+
+1. Dependencies: S1 lists the write contract, microVM launcher and machine-only flow dispatch; S2 separately lists daemon transport and registered session supervision. Interim guest writes are removed only when the authenticated daemon path lands.
+2. Exclusions: moved_off, app writes, daemon implementation, live documents, outside-change notes, persistent ledger, automatic merge, portable std redesign and Views are explicit.
+3. Boundary tests: C-COL-01 and StaleRead.integration dispatch real std tools through coding/edit-atom in a machine, with fixed bytes and independent digests. C-UI-05's agent extension proves refused state. Neither helpers alone nor runtime spec/code-derived expectations count.
+4. Decisions: smithers-38 accepts the std public API and compatibility diff under §21.1; smithers-3f accepts helper/socket confinement; smithers-b8 accepts user-facing refusal behavior. smithers-8a decides whether measured resume cost justifies a separate persistent-ledger change; this ticket keeps the ledger in memory.
+5. Owner pre-review: smithers-38, smithers-3f and smithers-b8 before each phase starts. Does the guarded coding binding validate the displaced digest without weakening portable std consumers? Do branch locking, absent-path creation and rollback preserve an outside writer's bytes under races and resume? Does S2 derive the actor from the registered agent session and remove the interim guest path?
+6. Security: smithers-3f reviews machine-only coding-host/helper execution and confinement before start. No repository tool or flow runs on the host; paths stay beneath the working-copy descriptor, last-component symlinks and non-regular files are refused. S2 authenticates agent uid/cgroup via §9.5.3, never caller-supplied identity. Integration includes traversal, symlink-swap, unregistered-caller and stale rollback refusals; no member/agent sudo or guest provider keys.

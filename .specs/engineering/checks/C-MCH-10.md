@@ -1,39 +1,27 @@
-# C-MCH-10 Log in once per install; credentials sync, history stays local
+# C-MCH-10 Tool logins persist per machine; tokens never copy
 
-Proves: mvp.md §6.8 Terminals (2026-10-02), J6.1 · spec.md §5.6, §8.7.2, §8.7.3, §9.1.2 · Layer: integration · Stage: S2 · Tickets: T-MCH-15
-Automation: `packages/backend/microsandbox/real_credentials_test.go` (new) · Runs in: reference host (real microVMs, a fixture credential set and a fixture token provider in place of live provider logins; the 24 h live soak is C-REL-05)
+Proves: mvp.md §6.8 Terminals, J6.1 · spec.md §8.7.2, §8.7.3 · Layer: integration · Stage: S2 · Tickets: T-MCH-11
+Automation: `packages/backend/microsandbox/real_credentials_test.go` (new) · Runs in: reference mini, two real microVMs with fixture tool logins
 
 ## Setup
-Ben on branches A and B, both awake. Fixture files for the five tracked paths. Ben's `~/.claude.json` on B already holds 40 unrelated keys and a `projects` history.
+Ben and Alice have private homes on machines A and B. Fixture tools write distinct login sentinels on each machine. Use no live tokens; C-REL-05 owns the live soak.
 
 ## Steps
-1. On A, write the five fixture files as Ben (a login).
-2. Open Ben's terminal on B and read the five paths and `~/.claude.json`.
-3. On B, rewrite `~/.claude/.credentials.json` (a token refresh). Read it on A.
-4. Rotation race: the fixture provider rotates refresh tokens (a refresh with a superseded refresh token fails, as real OAuth providers do). Within the same second, the fixture tool on A and on B each refreshes `~/.codex/auth.json` and `~/.claude/.credentials.json` from the same starting token.
-5. On A, write `~/.claude/history.jsonl` and `~/.npm/_cacache/x`. Look for them on B.
-6. Wake branch C for the first time and open Ben's terminal there.
-7. Query every API route and CLI command that lists members, secrets or settings for credential content.
-8. Restart the host service, then read the store and the five files on A and B.
-9. On A, Ben logs out of Codex (the tool deletes `~/.codex/auth.json`) and of `gh` (it rewrites `~/.config/gh/hosts.yml` without the host). Then sleep B and wake it.
-10. Suspend Ben.
+1. As Ben, create fixture Claude Code, Codex and `gh` login files on A. Start Ben's first session on B and inspect its home.
+2. Log in independently on B with different sentinels. Sleep and wake each machine; restart the host; read each machine's files as Ben.
+3. Refresh a login on A, then log out on A. Read B's files after each change and after B sleeps and wakes.
+4. Attempt to read Ben's files as Alice and `agent`. Inspect host database rows, daemon events and API responses for the fixture bytes.
+5. Recreate A from a new recipe and inspect its new home before Ben logs in.
 
 ## Pass when
-- Step 2: B has all five files, byte-equal except `~/.claude.json`, where only the account fields changed and the 40 keys and `projects` are untouched. Mode 0600, Ben's uid.
-- Step 3: A has the refreshed file within 5 s.
-- Step 4: at most one of the two refreshes fails at the fixture provider; the losing machine's tool adopts the store's newer token when it is seeded (within 5 s) and its next call succeeds with no login prompt; both machines and the store end with the same valid token.
-- Step 5: neither file appears on B or in the store, and the store holds exactly the five tracked files for Ben and nothing else.
-- Step 6: C has the five files before the terminal's first prompt.
-- Step 7: no response contains any credential byte; the PostgreSQL rows hold only ciphertext.
-- Step 8: the store and all five files on A and B are unchanged after the host restart.
-- Step 9: within 5 s of the logout, the store has no Codex row, B has no `~/.codex/auth.json`, and B's `hosts.yml` equals A's. After B wakes, neither login is seeded back.
-- Step 10: the store rows are gone and the five files are gone from A and B within 5 s.
+- Step 1: B has no A login files or sentinel bytes.
+- Step 2: each machine retains exactly its own login files across sleep, wake and host restart.
+- Step 3: B's login files remain unchanged. A's logout affects A alone.
+- Step 4: other users cannot read Ben's files; host database rows, events and responses contain no tool token bytes.
+- Step 5: the new home is empty; Smithers restores no login from another machine or a host store.
 
 ## Fail when
-- `~/.claude.json` is replaced whole or loses a non-account key.
-- A machine keeps a superseded token after step 4.
-- Any history, cache or database file crosses machines.
-- A logout on one machine is undone by a later seed.
+- Smithers stores or copies a tool token outside its machine, or local login files disappear after sleep and wake.
 
 ## Evidence
-`.artifacts/checks/C-MCH-10/<ts>/`: per-step file hashes per machine, the store rows (ciphertext only), timings, the test log and the commit.
+`.artifacts/checks/C-MCH-10/<ts>/`: redacted per-machine file digests, denied reads, event and database scan results, host profile and commit.

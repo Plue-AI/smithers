@@ -1,14 +1,16 @@
 # T-STK-12 Candidate generations: capture, propose receipts, pending work, the item's prefix
 
-Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-REL-02, T-STK-04, T-STK-06 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
+Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-APP-17, T-FLW-11, T-GH-03, T-GH-05, T-GH-09, T-MCH-08, T-REL-02, T-STK-02, T-STK-04, T-STK-06, T-STK-08, T-STK-15 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
 Spec: spec.md §4.1 (`working → in_review`, `in_review → in_review`), §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5, §10.5.3 · Delta: delta.md §6 (one `todo` run per attempt; PRs stay based on `main` as verified candidates) · Product: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), §6.10 PR card, Appendix B.5 (Stack: integrate, Stack: propose)
-Ready: 2026-10-02 smithers-8a sha256:141163c1a461
+Ready: 2026-10-02 smithers-8a sha256:f21352cdc175
 
 ## Goal
 Every PR head Smithers writes has the exact tree of a persisted accepted generation. GitHub may show the previous accepted head while newer work is checked or its push settles. An edit, a steer, an amendment or a base move after the capture yields a new generation before anything is proposed, and a new item starts on whatever verified prefix exists.
 
 ## Scope
 In:
+- Durable capture invocation keys and acceptance receipts under §10.4.4. Authorize the current live run binding server-side before any receipt read; replay returns its original generation/head/status without capture, fresh validation or new outbound decisions. Checks: C-STK-06, C-SEC-02.
+- Main-pinned outsider protected-path checks and the Drop terminal fence under §17.5 and §10.7.2. Maintainer admission retains outsider provenance; unreadable policy cannot publish. Checks: C-STK-06, C-SEC-02.
 - The generation record on the engine's work record: today's `mythical_items.generation`, `candidate_base`, `candidate_head`, `candidate_verified` and `pr_head`, plus `candidate_inputs_seq` (§10.4.4).
 - `stack.candidate`: refuse with `rebase_pending` off the prefix; capture; write the one commit from the captured tree on the prefix head; pin it; record generation g.
 - `stack.propose`: the second capture and the five acceptance rules of §10.4.4; the refusals `stale_generation`, `edited`, `stale_inputs` and `rebase_pending`; on acceptance, today's propose path (pin, record, push with lease, open or update the PR).
@@ -26,6 +28,10 @@ Out:
 - Out of scope: full evidence presentation (T-STK-10), new retry caps, detecting edits reverted before capture, rewriting working-copy history, new flow-engine APIs, and host execution of repository hooks or checks.
 
 ## Changes
+- Persist each candidate invocation identity before guest capture. Same-key replay returns its old generation after newer captures; unchanged (base, tree, inputs_seq) may reuse the current generation, while a changed base or consumed input always creates a new one. Reuse cannot clear later verification. Keep actor-scoped canonical request mismatch refusal. Check: C-STK-06.
+- Bind admission atomically to install, repository, TODO, attempt, run, branch and workspace. Both reserved Action.make tags resolve this binding from the authenticated run/machine credential and reject wrong or stale bindings, draft runs and public/session/delegated callers before capture or receipt lookup. Repository capture, checks and review execute in the guest; only packaged object handling runs on the host. Checks: C-STK-06, C-SEC-02.
+- Look up accepted (todo_id, attempt_id, generation_id) after authentication and before any fresh Propose capture or validation. Return the immutable acceptance receipt and recorded outbound status after g2 exists without restoring g1, creating an intent or rolling verification back; T-GH-09 reconciles existing intents. Check: C-STK-06.
+- Serialize Drop and fresh proposal acceptance with the shared TODO fence. Persist a close-after-reconcile obligation keyed to Drop even before PR number discovery; T-GH-09 resolves pending/unknown proposal effects and dependent closure. Do not archive or clean up until reconciliation and retained final capture permit it. Check: C-STK-06.
 - Implement the approved candidate-generation rules (§10.3.2a, §10.4.4a–e, §10.4.5, §10.4.5a, §10.5.3a, §10.6.2b, §12.5.1a) as pure `NextGeneration`, `DecideCandidate`, `DecidePropose`, `SelectPrefix`, `RebaseFanout` and `PendingWork` decisions over supplied facts. Adapters own capture, locking, persistence and outbound effects. Evaluate replay receipts before fresh-call decisions under §6.2.1 and the existing Propose receipt contract. Persist the immutable included-items manifest and main base, last accepted pointer, intended and settled PR heads, acknowledged input prefix, capture epoch/sequence and prior ordered capture tree. Checks: C-STK-06, C-STK-07.
 - Capture before and after each machine check. A changed tree fails visibly with `check_modified_tree` and changed paths; preserve files and stop automatic repropose cycling. Apply formatting or generation in implement before Candidate, then verify without write modes. Flow composition consumes this failure in T-FLW-11; C-STK-06 tests the fixture dispatcher and C-J1-04 completes the built-in run integration.
 - `packages/backend/db/product/migrations/01xx_todo_merge_fence.sql` → `todos.merging jsonb`; `packages/backend/internal/services/stack_lock.go` → `LockStack(tx)` (stack row, then TODO rows) and `FenceSet(tx, todo)`. Every stack mutation shares this seam.
@@ -48,12 +54,15 @@ Out:
 - S1 snapshots use `WorkspaceService.runtimeRepositoryCommandOutput` and the guest repository-command seam in `services/workspace_repository.go:301-320`; snapshot and report the resulting head inside the machine. Harden the host object-transfer subprocess environment in `services/github_import.go:2684` using `repository_source_retention.go:368`: a minimal environment, no system/global config, disabled hooks and credential helpers, fixed allowed protocols and redirects, and environment-only credentials. Do not execute configuration-selected filters or helpers. C-SEC-02 injects hostile repository configuration and checks zero host effects; C-STK-06 verifies the captured tree.
 
 ## Tests
+- FLW11 QA G04/G23 (I15/K7/F17/F19/K13–K15): crash before/after candidate and acceptance commit, replay g1 after g2, compare literal receipt/head/key identities and count zero new snapshots, pins or intents. Unaccepted old generation remains stale_generation; stale credentials cannot read either receipt. Check: C-STK-06.
+- FLW11 QA G07/R39 (I14/I15/I52/I33): wrong TODO/attempt/machine/install/repository/branch and draft/session/delegated/unbound callers refuse at production dispatch. For an admitted outsider, policy comes from current trusted main, not the candidate; protected change returns policy/protected_paths, unreadable policy has no acceptance/push/PR, insider control succeeds, egress stays restricted. Checks: C-STK-06, C-SEC-02.
+- FLW11 QA G03/G22 (K18/K23/F17/F19): Stop at capture, acceptance and push boundaries settles one operation receipt before pause. Drop before/after acceptance and held PR-create response records one close-after-reconcile obligation. Unknown sent writes reconcile first; unsent superseded writes never dispatch; final state has no open PR from that dropped decision. Terminal merge wins over pause. Check: C-STK-06.
 - Approved S1 (C-STK-06): TC-02 / P-G1a–c / P-G6: T1 and T3 accepted, T2 unverified yields T4 includes T1,T3,T4 only; after T2 acceptance and rebases, each change appears once..
 - Approved S2 (C-STK-06, C-STK-07): TC-12 / U-X / U-R: after T2 accepts g1 then captures g2, T3 still selects g1; T2 Merge is rechecking; accepting g2 fans out. Obsolete g1 is skipped rather than used..
 - Approved S3 (C-STK-06): U-P / I-19 / P-G5: stale inputs + changed tree yields stale_inputs; pending rebase + stale main yields rebase_pending; wrong/missing evidence yields invalid_evidence; explicit zero checks yields eligible; closed item yields todo_closed; refusal leaves durable/outbound state unchanged..
 - Approved S7 (C-STK-06): TC-04 / P-G1b / P-G3: fork keeps dropped bytes, dropped item absent from manifest/state merged; TthenX1thenX1thenTthenX1 yields 2 signals..
 - Approved S9 (C-STK-06, C-STK-07): F-16 / C-STK-07 race: fence + Candidate yields no snapshot, pin, row or verification change; merge succeeds yields delayed call todo_closed; definitive refusal yields capture may proceed after release..
-- Approved S10 (C-STK-06): F-04 / U-G / I-03: same key yields same g and no second effects; new key, identical capture yields g+1; attempt restart alone yields same counter; mismatched key yields idempotency_mismatch..
+- Approved S10 (C-STK-06): F-04 / U-G / I-03: same key yields same g and no second effects; new key with identical (base, tree, inputs_seq) may reuse current g; changed base/input yields g+1; attempt restart alone yields same counter; mismatched key yields idempotency_mismatch..
 - Approved S11 (C-STK-06, C-STK-07): U-C / U-P boundary rows: negative, future, unacknowledged, non-input, regressing yields invalid_inputs_seq; valid 0 baseline passes; later run answer yields stale_inputs; other-item amendment yields no input-cursor failure, normal rebase rules apply..
 - Approved S12 (C-STK-06, C-STK-07): I-27–32 / F-14 / P-G3: in_review differs yields one signal; working differs yields stored, no signal; seq12 X then seq11 T yields newest X and merge held; same seq/tree yields no effect; same seq/different tree or missing ordering yields refusal..
 - Approved S13 (C-STK-06): C-STK-06 / C-J1-04 new fixture: check writes tracked file yields failed check, bytes preserved, zero acceptance/push, no autonomous retry cycle; pre-capture formatting + read-only check yields accept..
@@ -62,7 +71,7 @@ Out:
 - Approved S16 (C-STK-06, C-STK-07): TC-05 / TC-07 / U-G / C-STK-06 D6: same T, changed base, nonempty own delta yields g+1, fresh checks tagged g+1, old approval void; equal patch-id permits review reuse only..
 - Integration, real PostgreSQL, `stack_lock_db_test.go` (C-STK-07): concurrent writers serialize in stack-then-TODO order; fenced placements/amends refuse; steers commit but do not signal. Clearing without merge releases each keyed signal once; a merged TODO never releases it. Full GitHub merge races complete with T-STK-04.
 - Unit, `todo_candidate_test.go` (new): the acceptance table. Each of the five rules fails alone and yields its reason with no write. Prefix selection for: no earlier item verified; N−1 verified; N−2 verified and N−1 not; the first item.
-- Integration with real PostgreSQL and a real jj working copy, `todo_candidate_db_test.go` (new): `Candidate` writes one commit with the captured tree on the prefix head and pins it. An edit after `Candidate` makes `Propose` refuse `edited`. An edit injected between the snapshot and the generation write lands in the next generation, not this one. A steer event above `inputs_seq` refuses `stale_inputs`. A replayed `Propose` for an old generation is refused with no GitHub write.
+- Integration with real PostgreSQL and a real jj working copy, `todo_candidate_db_test.go` (new): `Candidate` writes one commit with the captured tree on the prefix head and pins it. An edit after `Candidate` makes `Propose` refuse `edited`. An edit injected between the snapshot and the generation write lands in the next generation, not this one. A steer event above `inputs_seq` refuses `stale_inputs`. An unaccepted old generation refuses stale_generation with no GitHub write. An accepted old generation returns its existing receipt after a newer generation exists, with no capture, new intent or rollback.
 - Integration, same file: after acceptance, a head report with a different tree signals `edited` once; a report with the same tree signals nothing.
 - Integration, same file: with T1 still planning, T2 starts on `main`'s tip; T1's acceptance writes T2's `rebase_pending{onto: T1's verified head}`.
 
@@ -70,13 +79,14 @@ Out:
 - The fixture run proves the system-operation boundary here; C-STK-06's built-in TODO loop, steer routing and rebase orchestration complete with T-FLW-11 and their owning tickets. A pending integration is never counted as a pass.
 
 ## Acceptance
+- [C-SEC-02](../checks/C-SEC-02.md): production operation binding and guest capture reject host repository execution.
 - [C-STK-07](../checks/C-STK-07.md): shared lock, fence refusal and held-signal rows pass here; merge-dispatch races complete with T-STK-04.
 - [C-STK-06](../checks/C-STK-06.md): the PR head's tree is the tree checks ran on; a new item starts on the available prefix. Its run-side parts also need T-FLW-11.
 - [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
 
 ## Risks and notes
 - May start now against T-STK-01's final migration contract with test-only schema fixtures. Land after T-STK-01 and the other listed dependencies. C-STK-06 and C-STK-07 use real migrated PostgreSQL before acceptance.
-- Approved S13 policy: a repository check that changes the captured tree fails visibly with `check_modified_tree` and changed paths. Preserve the resulting files and stop automatic repropose cycling. Formatting and generation belong in implement before Candidate; checks then run without write modes. Do not add retry caps or reverted-edit detection. Check: C-STK-06.
+- Approved S13 policy: a repository check that changes the captured tree fails visibly with `check_modified_tree` and changed paths. Preserve the resulting files and stop automatic repropose cycling. Formatting and generation belong in implement before Candidate; checks then run without write modes. T-FLW-11 owns the aggregate §10.4.1b proposal-cycle cap; this ticket adds no retry counter or reverted-edit detection. Check: C-STK-06.
 - Risk: the S1 capture through the workspace adds a snapshot to every `Candidate` and `Propose`. Observation: `Propose` p95 over 2 s on the smithers repository. T-COL-01 measures snapshot latency (target 500 ms).
 - Decision not to make alone: detecting an edit reverted inside the window. §10.4.4 accepts it as a limit.
 

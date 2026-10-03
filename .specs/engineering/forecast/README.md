@@ -29,7 +29,7 @@ python3 .specs/engineering/forecast/sched.py .specs/engineering/forecast/plan-of
 
 Product made 4 concurrent reviewers the plan of record at 17:55; `y035-r4.json` is that scenario and `plan-of-record.json` keeps the 2-reviewer inputs. At 16:50 the 2-reviewer scenario gave Thu Oct 8. The 21 added tickets cost two days with 2 reviewers and nothing with 4: review concurrency absorbs them.
 
-**Launch-ready tickets (M-31 capacity).** `launch-2-machines.json` and `launch-5-machines.json` schedule every W0–R ticket. After stage 1, S and M tickets run as TODOs on the install's machines (`post_lanes`, M-37) and L tickets keep the old lanes. Review yield is 0.2 for the first 48 hours, then 0.35, with 4 reviewers.
+**Launch-ready tickets (M-37).** After stage 1, all sizes run as TODOs on the install by default. Each outside exception is recorded per ticket with an owner, reason and expiry; every outside merge and its effort is reported daily (C-REL-04). The existing launch forecast files exempt L tickets and must be regenerated before use; ticket size grants no exception.
 
 | Install machines | P50 | P90 |
 | --- | --- | --- |

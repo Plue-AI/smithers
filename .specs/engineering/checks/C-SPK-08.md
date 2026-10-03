@@ -18,7 +18,7 @@ Automation: `scripts/spikes/trm-06/run.sh` (new), plus a recorded VS Code sessio
 5. Port forward: `ssh -L 3000:localhost:3000 … 'python3 -m http.server 3000'`, then `curl -s localhost:3000`.
 6. VS Code: connect Remote-SSH, open `/workspace`, edit and save `a.ts`, open the integrated terminal and run `ls`, forward port 3000 from the Ports view, close the window, then reopen and reconnect.
 7. Revocation, 10 runs: with VS Code connected and `nohup sleep 10000 &` started in its terminal, call `kill_sessions(ben)`. Record the time to the SSH disconnect and to `populated 0` on every Ben cgroup.
-8. Supervisor restart: kill the supervisor; init restarts it. Run `pgrep -u ben`, then let VS Code reconnect.
+8. Supervisor restart: with foreground and background Ben processes active, send SIGKILL to the supervisor; init restarts it. Independently sample every child of `/sys/fs/cgroup/smithers/sessions/` and record populated 0 before any new open_session is accepted. Run `pgrep -u ben`, then let VS Code reconnect. Inject a cleanup failure and verify open_session is refused.
 9. Disconnect: during `ssh … 'seq 1 100000'`, cut the host↔guest stream for 10 s, then restore it within the 30 s grace.
 
 ## Pass when
@@ -30,7 +30,7 @@ Automation: `scripts/spikes/trm-06/run.sh` (new), plus a recorded VS Code sessio
 - Step 5: the directory listing arrives.
 - Step 6: no "Could not establish connection" dialog; the saved bytes on the machine equal the editor's; the terminal and the forwarded port work; the reconnect needs no user action.
 - Step 7: in 10 of 10 runs, the SSH session ends and every Ben cgroup reports `populated 0`, including the `nohup` process, within 5 s of the call (max reported).
-- Step 8: `pgrep -u ben` is empty within 2 s of the supervisor's death; VS Code reconnects without user action after the restart.
+- Step 8: `pgrep -u ben` is empty within 2 s of the supervisor's SIGKILL. Every old session cgroup reports populated 0 before any new open_session is accepted. VS Code reconnects without user action after restart. Cleanup failure refuses admission.
 - Step 9: all 100,000 lines arrive, in order, once each.
 
 ## Fail when
@@ -41,5 +41,7 @@ Automation: `scripts/spikes/trm-06/run.sh` (new), plus a recorded VS Code sessio
 - A number is reported without its raw samples, or the VS Code step is described instead of recorded.
 
 ## Evidence
+
+Retain SIGKILL timestamps, per-child cgroup samples and first accepted open_session timestamps, plus the cleanup-failure admission refusal. These observations prove startup ordering independently of supervisor log claims.
 
 `.artifacts/checks/C-SPK-08/<UTC timestamp>/`: ssh transcripts with `-vvv`, the VS Code screen recording, `revoke.csv` (run, disconnect ms, empty ms), `rss.csv`, `seq` output digests, the supervisor and gateway logs, and `env.json` (commit, `msb --version`, host profile, VS Code and OpenSSH versions).

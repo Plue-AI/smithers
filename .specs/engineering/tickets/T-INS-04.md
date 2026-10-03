@@ -1,6 +1,6 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02 · Unblocks T-COL-02, T-GH-11, T-GH-12, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
+Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-STK-01 · Unblocks T-ACC-04, T-COL-02, T-GH-03, T-GH-11, T-GH-12, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
@@ -30,7 +30,7 @@ Out:
 - Webhooks through a public URL (§12.2.4, optional). The SSH gateway itself (T-TRM-03). Setup steps (T-INS-06). The Settings card (T-APP-03).
 
 ## Changes
-- `packages/backend/internal/services/serving.go` (new): settings validation (absolute origin, no path, http or https), read and write of the `bind` and `origins` keys in `install_settings` (table from the first migration that needs it, after `packages/backend/db/product/migrations/0103_retire_chat_provider_dispatch.sql`), the added listener for 4000 and 2222 at start and on change, and a `projection_events` row on the `install` topic per change (§3.1, §7.2).
+- `packages/backend/internal/services/serving.go` (new): settings validation (absolute origin, no path, http or https), read and write of the `bind` and `public_origins` keys in `install_settings` (table from the first migration that needs it, after `packages/backend/db/product/migrations/0103_retire_chat_provider_dispatch.sql`), `public_origins` is a JSON array of validated origins shared with T-ACC-07 (checks C-INS-03, C-SEC-04), the added listener for 4000 and 2222 at start and on change, and a `projection_events` row on the `install` topic per change (§3.1, §7.2).
 - `packages/backend/internal/routes/install.go` (new; T-INS-06 extends it): `GET /api/install` `address {bind, origins[{origin, scheme}]}` (the §14.3 Setup/Settings field) and `PUT /api/install` for settings (owner).
 - `packages/backend/internal/middleware/effective_origin.go` (new): the §16.3.3 resolver, run before authentication. It reads the socket peer before `RealIP` (`middleware/real_ip.go`) rewrites it. In the install composition it replaces `AllowedOrigins` (`config.go:244-251`) and the single-origin `CanonicalBrowserAuthOrigin` (`middleware/browser_auth_origin.go`, mounted at `compose/router.go:273`); Plue's composition keeps both.
 - Every cookie writer reads the effective origin instead of the global `AuthConfig.CookieSecure` (`config.go:359`; `routes/auth.go:94-95, 225-226, 282, 290, 297, 308, 330, 335-337, 366, 398, 403, 424, 440, 445-446`; `middleware/auth.go:126`). The OAuth client builds `redirect_uri` per request instead of from the one `GitHubRedirectURL` (`compose/runtime_helpers.go:429`), and `config/validation.go:112` stops requiring that setting in install mode. The behavior asserted in `routes/auth_helpers_test.go:67-125` moves to per-origin cases. The launcher no longer forces `SMITHERS_AUTH_COOKIE_SECURE`.
@@ -42,6 +42,7 @@ Out:
 - `docs/api/openapi/install.yaml` (new), referenced from `docs/api/openapi/_root.yaml`; `packages/backend/internal/compose/openapi_conformance_test.go:220` passes; regenerate `packages/backend/apiclient/client.gen.go`.
 
 ## Tests
+- Boundary: `packages/backend/internal/compose/serving_integration_test.go` (new, C-INS-03) sends requests through the composed install router, including effective-origin middleware before authentication, and changes real listeners through `PUT /api/install`. `packages/smithers/test/host-service.integration.test.ts` invokes the registered `host start --bind --origin` flags. Literal fixtures supply origins, cookie attributes, redirect URIs, status codes and clipboard/slug golden values; no oracle reads spec Markdown or production helpers. The real live-channel upgrade cases run when T-COL-02 consumes this middleware; they are not replaced by a test-only upgrade route.
 - unit `apps/app/src/mainview/randomId.test.ts`: version and variant bits; 10^5 ids without collision; works with `crypto.randomUUID` removed from the global.
 - unit: `wikiAttachmentSlug` returns the same slugs as the old `crypto.subtle` path for fixed inputs (golden values).
 - unit `copyToClipboard`: no `navigator.clipboard` → `execCommand` path; both refused → `clipboard-unavailable`.
@@ -58,8 +59,18 @@ Out:
 - [C-INS-03](../checks/C-INS-03.md): bind address and public origins are owner settings, applied without a restart and reflected in CORS, cookies and the SSH line.
 
 ## Risks and notes
-- Serving settings and effective-origin logic may land after T-INS-02 against the final host-command interface. C-J1-01 and C-INS-06 still require T-INS-08's real daemon; request-origin fixtures do not discharge that gate.
+- Decisions before start: smithers-3f approves listener replacement, middleware ordering and the install-only composition; smithers-b8 approves flags and OpenAPI; smithers-38 approves the UUID/clipboard/crypto library seams; smithers-06 approves any changed visible clipboard failure copy. smithers-8a accepts cross-owner seams. Will decides any change to §16.3 origin policy, not the implementer.
+- Security: this ticket executes no repository code. Serving changes preserve T-INS-02’s microVM-only launcher (§1.3, M-29); no public listener or clipboard fallback grants host execution. smithers-3f reviews socket-peer trust, CSRF and owner authorization (C-INS-03).
+- T-INS-08 must land before this ticket adds host flags. T-ACC-03 supplies owner-only authorization and T-STK-01 supplies the transactional projection writer. T-COL-02 consumes the origin guard and must prove it on its actual live-channel upgrade; T-TRM-03 consumes the shared serving setting for its real SSH listener. These downstream transports are not prerequisites to the HTTP slice.
 - A third-party module in the bundle may still call a secure-context API. Observation that confirms it: an exception or a dead control on the plain-HTTP origin in C-INS-01. The conformance ban covers our sources only, so C-INS-01 is the gate.
 - `document.execCommand("copy")` is deprecated. Observation: the fallback fails in one of Chrome, Safari or Firefox in C-INS-01.
 - A non-loopback bind exposes the API and SSH on that network. Through the API the setting is owner-only; before an owner exists, only `smthrs host start` on the Mac sets it. A proxy placed in front of loopback before setup cannot claim the install, because the claim needs the setup token (§5.1.0, T-ACC-01).
 - A proxy on another host that rewrites `Host` (nginx's default) presents the upstream host, so its origin gets 403 or 421. Observation: C-INS-01 behind such a proxy. The quickstart's proxy examples pass `Host` (§16.3.4, T-DOC-01).
+
+## Ready checklist
+1. Dependencies: T-INS-02 supplies the launcher, T-INS-08 the real host command, T-ACC-03 owner authorization and T-STK-01 the projection writer. Later live/SSH transports consume this setting and test their own boundaries.
+2. Exclusions: TLS/Tailscale automation, CA, mDNS, connect, optional webhooks, SSH gateway, setup orchestration and Settings card are explicit.
+3. Tests: C-INS-03 uses the composed router, real listeners and registered CLI flags; C-INS-01 uses real browsers with fixed outcomes. Real live/SSH checks run in their consumer tickets; no runtime spec or implementation oracle.
+4. Decisions: smithers-3f approves serving/authentication, smithers-b8 API/CLI, smithers-38 library helpers, smithers-06 visible copy, smithers-8a shared seams; Will decides policy exceptions.
+5. Owner pre-review before start: smithers-3f: Is socket-peer trust captured before RealIP? Does listener replacement preserve loopback and owner/CSRF gates? smithers-b8: Do host flags and OpenAPI match the served contract? smithers-38: Are UUID, hash and clipboard helpers shared without another policy? smithers-06: Does changed clipboard copy fit the existing view?
+6. Security: no repository execution is added; §1.3/M-29 and T-INS-02 remain prerequisites. smithers-3f reviews origin spoofing, CSRF and public bind exposure in C-INS-03.

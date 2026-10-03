@@ -173,6 +173,8 @@ type StateWordProps = { state: TodoState; step?: string }   // "Working · Imple
 
 ### T-UI-02 Setup and Settings (`install` topic)
 
+Capacity 0 renders "No machine fits", the supplied limiting term and fix link on one line. The third role UI label is "<third role label: product ruling pending, batch 2>"; its key field remains "AI Gateway key". Check: C-UI-12.
+
 ```ts
 // One step identity and order: spec §16.2 and T-INS-06 steps 0–6. T-INS-06 stores each step under `setup.<id>`
 // and reports these states, so the container passes them through with no mapping. The squash check runs inside
@@ -186,7 +188,7 @@ type SetupStep = {
   pct?: number                                     // source and machine while running
 }
 type ModelRole = {
-  role: "fast" | "coding" | "jev"                  // visible: "Fast model", "Coding model", "Jev" (mvp.md §6.5)
+  role: "fast" | "coding" | "jev"                  // visible: "Fast model", "Coding model", "<third role label: product ruling pending, batch 2>" (mvp.md §6.5)
   provider: string                                 // "Cerebras", "OpenAI", "AI Gateway"
   key: "none" | "validating" | "saved" | "failed"  // jev's key field reads "AI Gateway key"
   error?: string                                   // the provider's reason, from the typed error (§6.2.3)
@@ -220,6 +222,8 @@ type SettingsModel = SetupModel & {
 
 ### T-UI-03 Draft
 
+When `private` is true, the header shows the small "Only you" lock chip used by Confirm. Commit removes the chip. Check: C-UI-12.
+
 ```ts
 type DraftModel = {                  // spec §14.3 Draft
   title: string
@@ -239,6 +243,8 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 ```
 
 ### T-UI-04 TODO (`todo:<n>` topic)
+
+A question and moved_off can be open together. Render separate wait rows and actions, primary first; T-UI-23 supplies the repair form. Check: C-UI-12.
 
 ```ts
 type TodoModel = {
@@ -337,19 +343,23 @@ type HomeViewProps = CardProps<HomeModel, HomeViewState>
 
 ### T-UI-07 Conversation shell
 
+Private entries show the Draft "Only you" lock chip. A tombstone shows only the card title in one muted line, with no summary or action. The final muted branch-tree node reads "Earlier · N" and opens archives with a "Read-only" chip and no mutation controls. Check: C-UI-12.
+
 [S2, M-38] T-AGT-03 supplies existing chat components with normalized message/tool/error parts plus `origin: "external"`, `agent_kind: "claude-code" | "codex"`, `format_version: string`, `source_id: string`, `session_id: string`, `actor: Actor` and `read_only: true`. Tool calls/results retain their correlation id; edit reports retain path and reported outcome. Mutation action lists are empty. Copy, disclosure and navigation use existing handlers. smithers-06 owns presentation in T-UI-07 and T-UI-01; smithers-b8 owns binding. No new View or card is introduced. Check: C-AGT-02.
 
 ```ts
 // Open branches only; a closed branch's conversation opens from its merged TODO.
 // "earlier" is the single read-only node for legacy per-member conversations (spec §14.1.5).
 type BranchTreeNode = { id: string; name: string; kind: "main" | "item" | "scratch" | "earlier"
-                        todo?: number; state?: TodoState; present: Actor[]; children: BranchTreeNode[] }
+                        todo?: number; state?: TodoState; present: Actor[]; children: BranchTreeNode[]
+                        archive_count?: number }   // required for earlier: N in "Earlier · N" (C-UI-12)
 type EntryRowProps = {
   kind: "prompt" | "answer" | "card" | "event"
   author: Actor; title: string; summary?: string; tone: Tone; state?: TodoState
   context?: { count: number; items: { kind: "file" | "page" | "todo" | "run" | "issue"; label: string
                                       ref: string; revision?: string }[] }   // §15.1.2 context[]
   action?: Action; private?: boolean; card?: React.ReactNode
+  tombstone?: boolean   // true: title only; ignore summary, action and card (C-UI-12)
   onAction: CardProps<unknown>["onAction"]
 }
 type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["context"]>["items"]; expanded: boolean
@@ -357,6 +367,8 @@ type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["conte
 ```
 
 ### T-UI-08 Toasts, edge map, timeline
+
+Show at most three notices. "+N more" opens all hidden entries through local disclosure state; the supplied `toasts` array includes those entries and `more` is their hidden count. Keyboard activation opens the same disclosure. Timeline and wide edge rows start at ≥1180 px. Check: C-UI-12.
 
 ```ts
 type Toast = { id: string; title: string; detail?: string; tone: Tone; action?: Action; entry_id: string
@@ -404,12 +416,15 @@ type FlowModel = {
 
 ### T-UI-11 File (read-only) and Diff
 
+Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor. Check: C-UI-12.
+
 ```ts
 type FileModel = FileBase & FileStates & CoEdit  // one schema, `FileCard.ts`; S2 and S3 fields are absent or empty before their stage
 type FileBase = {                                 // `branch:<id>:files` (§14.3 File)
   path: string; branch: string; language: string; digest: string
+  github_url?: string   // required for binary and too_large: "on GitHub ↗" (C-UI-12)
   content: { kind: "text"; text: string }         // UTF-8
-         | { kind: "too_large"; bytes: number; text: string }   // over 1 MiB: read-only, "too large to co-edit" (§9.2.1)
+         | { kind: "too_large"; bytes: number; text: string }   // over 1 MiB: muted size line and GitHub link, no editor (C-UI-12)
          | { kind: "binary"; bytes: number }      // no editor
   mode: "read_only" | "live"                      // live only at S3, for text up to 1 MiB
   last_writer?: Actor
@@ -488,13 +503,15 @@ type RunViewProps = CardProps<RunModel, RunView> & { custom?: React.ReactNode }
 
 ### T-UI-13 Agent and model roles
 
+Use the pending third-role UI label above; product rules in batch 2. Keep internal role identifiers unchanged. Check: C-UI-12.
+
 ```ts
 type AgentModel = {
   name: string                                    // planner, implementer, reviewer, app agent
   instructions_path: string                       // TODO-flow prompts beside the flow source;
                                                   // ".smithers/instructions/app.md" for the app agent (spec §11.5a)
   role: "fast" | "coding" | "jev"; model: string; provider: string; available: string[]
-                                                  // visible role names: "Fast model", "Coding model", "Jev" (mvp.md §6.5)
+                                                  // visible role names: "Fast model", "Coding model", "<third role label: product ruling pending, batch 2>" (mvp.md §6.5)
   runs: { id: string; title: string; state: string; at: string }[]   // runs it took part in
   owner: boolean
 }
@@ -502,6 +519,8 @@ type AgentModel = {
 ```
 
 ### T-UI-14 Commands (`/help`)
+
+Advanced starts collapsed and supports keyboard disclosure. Descriptions match all 57 product Appendix A rows. The supplied `agent` policy renders a muted trailing "Asks first" for confirm or "Only you" for never; run renders no mark. Check: C-UI-12.
 
 ```ts
 type CommandsModel = { groups: { label: string; advanced: boolean

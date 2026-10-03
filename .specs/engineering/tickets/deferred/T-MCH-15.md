@@ -1,7 +1,11 @@
 # T-MCH-15 Per-member credential store: tool logins carry across machines
 
-Stage S2, R · Size M · Depends on S2: T-MCH-11, T-COL-03 · Unblocks T-MNT-02, T-REL-02 · Issue: [#3571](https://github.com/smithersai/smithers/issues/3571)
-Spec: spec.md §3 (`member_credentials`), §5.6, §8.7.2, §8.7.3, §9.1.2 (`seed_credentials`), §17.4 · Delta: delta.md §3 (per-member users row) · Product: mvp.md §6.8 Terminals, J6.1, M-18
+Stage D · Size M · Depends on — · Unblocks — · Issue: [#3571](https://github.com/smithersai/smithers/issues/3571)
+Spec: spec.md §8.7.3a · Delta: delta.md §3 · Product: mvp.md §16 (logging in once per install)
+
+## Status
+
+Deferred by product on 2026-10-02 because machines compete to refresh the same token. The former design below is historical, not MVP implementation scope. T-MCH-11 owns per-person homes and per-machine login persistence (C-MCH-10); T-REL-02 owns the per-machine live soak (C-REL-05). This ticket gates no MVP work.
 
 ## Goal
 

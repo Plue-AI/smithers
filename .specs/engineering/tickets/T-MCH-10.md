@@ -1,6 +1,6 @@
 # T-MCH-10 Toolchain detection, `.smithers/machine.json`, Source and Machine ready
 
-Stage S1 · Size M · Depends on — · Unblocks T-APP-03, T-FLW-02, T-INS-06, T-REL-02 · Issue: [#3439](https://github.com/smithersai/smithers/issues/3439)
+Stage S1 · Size M · Depends on — · Unblocks T-APP-02, T-APP-03, T-FLW-02, T-INS-06, T-REL-02 · Issue: [#3439](https://github.com/smithersai/smithers/issues/3439)
 Spec: spec.md §8.6, §16.2 steps 5–6, §14.3 Setup · Delta: delta.md §3 (toolchain detector row) · Product: mvp.md J1.3, J1.4, §6.1 Machine image without declarations, M-29
 
 ## Goal

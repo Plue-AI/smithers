@@ -1,6 +1,6 @@
 # T-INS-01 Server bundle assembler from the `build-native.ts` stages at `5b77095672`
 
-Stage S1 · Size M · Depends on — · Unblocks T-ACC-07, T-INS-02, T-INS-05, T-INS-08, T-INS-09, T-REL-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
+Stage S1 · Size M · Depends on — · Unblocks T-ACC-07, T-INS-02, T-INS-05, T-INS-08, T-INS-09, T-REL-02, T-TRM-02 · Issue: [#3432](https://github.com/smithersai/smithers/issues/3432)
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Delta: delta.md §1 (Restore→rewrite row) · Product: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1, §12.5, M-10
 
 ## Goal

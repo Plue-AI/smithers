@@ -8,6 +8,7 @@ Automation: `packages/smithers/test/CatalogCli.test.ts` (new) · Runs in: CI
 - `packages/rpc/src/catalog/catalog.mvp.json` and its descriptors. C-CAT-01 proves their product parity. Tests consume committed catalog fixtures and never read `.specs/*.md` at runtime.
 
 ## Steps
+6. Feed recording HTTP stubs literal allow, 202 confirmation/requested, 403 never/never, 403 permission/permission, 401 permission/unauthenticated and 503 infra/confirmation_unavailable responses. Record CLI stdout, stderr and exit codes.
 1. For each Appendix A row, read its `cli` field in `catalog.mvp.json`.
 2. Resolve each non-null path in `Cli.toCommands.get(makeCli())`, using the technique of `test/McpDocs.test.ts`.
 3. For each resolved external-agent action command, compare its positional args and options with the descriptor payload's zod shape:
@@ -19,6 +20,7 @@ Automation: `packages/smithers/test/CatalogCli.test.ts` (new) · Runs in: CI
 5. List `Definitions.ts` entries whose HTTP method and path equal a descriptor's binding.
 
 ## Pass when
+- Step 6 prints Waiting for <person> to confirm with id/requested state for 202, makes no follow-up execution call and exits with a code distinct from refusal. Refusals preserve exact class/code and never fabricate pending/success or completion. S1 terminal immediate append and S2 ordinary confirmation remain distinct server-issued profile outcomes.
 - `/terminal` resolves through `workspace ssh`, `shell` and `exec`. `/search` and `/github` status expose read-only external-agent paths. GitHub App changes are Owner-only (C-ACC-01).
 
 - Every Appendix A row that lists `external_agent` has a resolvable CLI action path. `/secrets`, `/members` and `/settings` have only person card doors: running them opens the app card and sends no mutation. UI-only rows ⌘K, `/help`, `/stop` and `/theme` have no CLI path (§6.1.2a, mvp.md B.6).

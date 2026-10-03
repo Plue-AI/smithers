@@ -1,14 +1,15 @@
 # T-MCH-14 Keep TODO workspaces until settled; wake before delivering a signal
 
-Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-REL-02 · Issue: [#3526](https://github.com/smithersai/smithers/issues/3526)
+Stage S1 · Size S · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-FLW-11, T-GH-04, T-GH-05, T-REL-02, T-STK-07 · Issue: [#3526](https://github.com/smithersai/smithers/issues/3526)
 Spec: spec.md §8.4, §10.4.1, §10.7.4, §8.12 · Delta: delta.md §6 · Product: mvp.md J10.2, M-31
-Ready: 2026-10-02 smithers-8a sha256:f3572c6bf0fa
+Ready: 2026-10-02 smithers-8a sha256:363807c0a7ef
 
 ## Goal
 A TODO's working copy and its waiting `todo` run survive days in review, so a GitHub review steer resumes the same run on the same files.
 
 ## Scope
 In:
+- Per-TODO sequence/identity and wake-before-consumption for held/resumed inputs (§10.4.1, §10.7.3). Restore the same run and its next unfinished boundary; paused inputs stay durable until Resume. Model-active reservation reacquisition is T-FLW-11/§15.2's host gate. Checks: C-STK-03, C-STK-06.
 - Workspaces bound to an unmerged TODO are exempt from the 5-minute agent idle stop while their run waits on a durable signal, and from the 24 h stopped-disk reclaim.
 - They may still be suspended with the disk kept.
 - A reopened TODO (§10.7.4) whose workspace cleanup removed gets a new one from the branch's final capture when its first input needs the run.
@@ -23,6 +24,8 @@ Out:
 - Before reclaiming a settled TODO disk in S1, require `head_commit_id` to equal the pinned candidate and verify its retained host ref using the existing head report. S1 suspension has no final push (`services/workspace_lifecycle.go:1000`); do not assume it captures new work. A mismatched, missing or unverifiable head keeps the disk. Reopened work uses the retained capture. Checks: C-STK-05, C-J10-08.
 
 ## Changes
+- Keep one pending-signal identity through wake and run_attached. Stop/terminal facts are re-read under lifecycle locking: terminal settlement cancels pending work, and paused work cannot dispatch before Resume. Deliver held resumed input at the next unfinished step boundary, before a new model turn, without repeating the original first step. Checks: C-STK-03, C-STK-06.
+- Use §10.4.1's durable ordered batch and latest rebase target; finish required rebase before candidate or coding work. No additional host execution or in-memory signal path is added. Reacquire §15.2 run/call reservations before model work; budget denial parks the same run with the named owner. Checks: C-STK-06, C-SEC-02.
 - `packages/backend/internal/services/agent_dispatch.go:760` (`createAgentWorkspaceVM`) and `:209` (workspace suspension cleanup) → keep the TODO workspace/session binding while its run waits, and suspend without deleting its disk. `:1128` sets the legacy sandbox timeout; native workspace mode returns at `:1126` and never reaches it. Do not implement the native retention fix only at that timeout.
 - `packages/backend/internal/services/workspace_disk_reclaim.go:20` (`defaultAgentWorkspaceDiskReclaimAfter = 24h`) → skip workspaces whose TODO is unmerged (join through `todos.branch_id` and the lane binding).
 - Stack engine delivery in `services/mythical_items.go` persists the pending signal identity and queues delivery durably. Wake belongs behind the existing `flowhost/resolver.go:291-302` start path (`packages/backend/flowhost/resolver.go`), where the launcher uses `workspace_runtime.go:141` to start the workspace and verifies the guest host before delivery. Do not add a second pre-delivery wake in `mythical_items.go`. Re-read settlement and binding under the lifecycle lock. Retry the same identity after restart; a wake failure retries with backoff and surfaces as `failed{step: "wake"}` after 15 min. T-FLW-11 consumes this seam. Check: C-STK-05.
@@ -34,6 +37,8 @@ Out:
 - T-INS-02 and T-FLW-01 supply microVM startup and guest coding dispatch. A missing runtime or guest host keeps the signal pending or records the typed wake failure; no host process runs the repository. Provider keys remain on the host. C-SEC-02 checks that boundary. T-FLW-11 depends on this ticket, so tests here drive the production engine delivery seam with a fixture run, without depending on the future composition.
 
 ## Tests
+- FLW11 QA G02/G05/G19 (I25/I40/F30/K16/K17): on the reference host restart 50 held TODO runs; restore all waits within 60 s of backend/PG readiness. No idle model calls, run-side GitHub reads or polling timer. Stagger machine grants, deliver each queued input once within 60 s of guest run_attached, and report capacity queue/wake times separately. A resumed third step consumes held steer before model_turn_started; first two steps remain finished. Check: C-STK-06.
+- FLW11 QA G19/R60: unavailable guest reaches the distinct 15-minute failed{step: wake} policy without host fallback; outage delays do not extend it. Held/paused/person-waiting runs have no unused 60M reservation after calls settle; wake denial projects owner-named budget pause and retains inputs. Terminal settlement while waking consumes no input and cannot revive the run. Checks: C-STK-06, C-SEC-02.
 - Integration (real microVM): a TODO in review suspends after idle. A steer delivered 25 h later (simulated clock) wakes it, the same run id resumes, and the working copy holds the files from before.
 - Integration: drive the composed reclaim job with its injected clock; it skips an unmerged TODO, keeps a dropped disk without a final capture, and reclaims a dropped disk only with a retained final capture and no active terminal/service. Drive work input through the production delivery seam to verify provisioning from that capture. C-J10-08 later adds the real GitHub reopen and new-attempt path.
 - Fault: kill the host while a wake for a signal is in progress. On restart the signal is delivered exactly once.
@@ -43,6 +48,9 @@ Out:
 - C-STK-05 covers every lane retirement caller, a stale sweep list followed by resume, and a settlement race inside the lock. An unmerged TODO always keeps disk and binding. A settled TODO with a head different from its pinned candidate keeps the disk; only a matching retained head permits reclaim. Assert one resolver start and one consumed durable signal across restart.
 
 ## Acceptance
+- [C-STK-06](../checks/C-STK-06.md): 50-wait restart and delivery timing pass jointly with T-FLW-11; report queue time separately from wake and attached delivery.
+- [C-STK-03](../checks/C-STK-03.md): wake and attachment restore the existing run's next boundary without repeating finished steps.
+- [C-SEC-02](../checks/C-SEC-02.md): failed wake never dispatches repository work on the host.
 
 
 

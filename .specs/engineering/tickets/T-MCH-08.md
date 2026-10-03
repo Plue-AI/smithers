@@ -1,6 +1,6 @@
 # T-MCH-08 Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2)
 
-Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-23, T-APP-19 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-REL-02 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
+Stage S1, S2 · Size M · Depends on S1: T-STK-02, T-UI-23, T-APP-19, T-INS-02, T-CAT-01, T-ACC-05, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-REL-02, T-STK-05, T-STK-08 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
 Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md §3 (fork row) · Product: mvp.md J7.2, J7.3, §6.7 Fork, Appendix A (`/branch.fork`, `/branch.add-to-stack`), M-22
 
 ## Goal
@@ -24,31 +24,34 @@ In:
 - Drop keeps forked work (§8.5.3a): `FoldIntoForks(item)` in the stack service squashes a dropped item's change into the first later unmerged TODO whose `forked_from.item` is that item, before later items rebase. T-STK-05's drop calls it.
 
 In, S2 (§8.5.1–§8.5.2), once T-COL-03 and T-MCH-04 land:
-- Forking an awake branch runs an on-demand `capture()` first, so uncommitted work is included, and the fork starts from the captured revision without stopping the source machine.
+- Fork and Add to stack on an awake branch run an on-demand `capture()` first, so uncommitted work is included. Fork starts from the captured revision without stopping the source machine; Add to stack uses the captured scratch head (§8.5.3).
 - Forking a scratch branch, which stage 1 refuses.
 
 Out:
 - [D] **Replace Tn** (§0, §8.5.3). The `add-to-stack` schema has no mode; `replace` is absent from the OpenAPI document and the catalog.
-- **Rebase now** on a scratch branch (§8.5.2a, T-STK-08). Dropping the source item (T-STK-05). The Branch card (T-APP-10).
+- **Rebase now** on a scratch branch (§8.5.2a, T-STK-08). Dropping the source item (T-STK-05), except wiring its existing drop path to `FoldIntoForks`. The Branch card (T-APP-10).
+- Disk-copy forks, source-machine stop/snapshot/resume, scratch pushes to GitHub, shared homes, credential copying, free-form history commands and edits to design-owned Views.
 
 ## Changes
 
 - `packages/backend/internal/services/branch_fork.go` (new): resolve the source revision, create the `branches` row, record `forked_from`, write the activity entry.
 - `packages/backend/internal/services/workspace_runtime.go:502-675` `forkRuntimeWorkspace` and `forkRuntimeWorkspaceAuthorized`: delete the wake, stop, cold snapshot, resume and boot-from-snapshot path (from `:550`). The scratch workspace is created at the fork's commit through `CreateWorkspace`'s `SourceRef` path (`workspace_provisioning.go:658`, `:780`).
 - `packages/backend/internal/services/branch_add_to_stack.go` (new): make the change from `forked_from.base`, diff it into a blob, T-STK-02's create-and-place with `seed_patch_blob`, then the rename. `FoldIntoForks(item)` for the drop path. The workspace's target bookmark follows the new branch name.
-- `packages/backend/internal/routes/branches.go` (new); `docs/api/openapi/branches.yaml` gains `POST /api/branches` and `POST /api/branches/{b}` with `add-to-stack`; rebundle and regenerate clients.
+- `packages/backend/internal/routes/branches.go` (new); `docs/api/openapi/branches.yaml` (new) gains `POST /api/branches` and `POST /api/branches/{b}` with `add-to-stack`; rebundle and regenerate clients.
 - `packages/rpc/src/catalog/` (T-CAT-01): descriptors for `/branch.fork` and `/branch.add-to-stack`.
 - `docs/api/openapi/repositories.yaml` `POST …/workspaces/{id}/fork`: deleted with its route if no hosted consumer remains (see notes).
 
 ## Tests
 
-- integration (real PostgreSQL, real jj): fork from `main` starts at the mirror tip; fork from T2 starts at T2's last verified head with 0 runtime operations on T2's workspace; `from` naming a scratch branch gets a typed `user`-class refusal until S2.
+- integration (real PostgreSQL, real jj, production catalog dispatcher and authenticated HTTP router): fork from `main` starts at the mirror tip; fork from T2 starts at T2's last verified head with 0 runtime operations on T2's workspace; `from` naming a scratch branch gets a typed `user`-class refusal until S2.
 - integration: Add to stack creates Tk after the forked-from item with a seed patch equal to `jj diff` from `forked_from.base` to the scratch head, which holds T2's paths. The same branch id is now `smithers/<slug>`, kind `item`, with the same workspace id. No second workspace exists.
 - integration: dropping T2 after Add to stack leaves Tk's tree byte-identical, and Tk's item diff from T1's candidate holds T2's change and the scratch edits. With T2 steered after the fork, Tk still holds T2's latest change after the drop. With Tk moved before T2, the drop leaves Tk's tree unchanged.
 - integration: each operation writes exactly one activity entry, actor Smithers, requester Ben, rendered "Smithers, for Ben". The app agent's fork runs at once; its Add to stack runs only after Ben presses the Confirm card.
 - integration: a scratch branch's commits never appear in a push to GitHub (the fake GitHub records zero ref updates for `scratch/*`).
 - e2e, S1: C-J7-02.
-- integration, S2 (reference host, real microVM): C-MCH-08.
+- integration, S2 (reference host, real microVM): C-MCH-08. Also invoke Add to stack through the production dispatcher while the scratch branch is awake with an uncommitted fixture edit; its seed includes those bytes after capture and its workspace id stays unchanged.
+- boundary integration: use `/branch.fork`, `/branch.add-to-stack`, the person's Confirm action and `/todo.drop` through the catalog dispatcher and the routed HTTP surface. Service-only calls do not prove authorization, confirmation, history-writer ownership or drop integration. Repeating the same `Idempotency-Key` creates one branch/TODO/activity entry (§6.2.1).
+- Independent oracle: seed fixed repository trees and file bytes, then assert literal expected stack order, ids preserved and patch paths/content. `jj diff` and capture receipts are evidence to compare, not the sole source of expected results. No expectation reads spec files or derives the seed from production code at runtime.
 
 ## Acceptance
 
@@ -65,4 +68,13 @@ Out:
 
 - In S1 a fork of an item doesn't include its uncommitted work, only the last verified head. That is spec behavior (§8.5.0); C-J7-02 forks a working T2 and must not expect its live edits.
 - In S1 workspaces are still per member (T-MCH-04 is S2), so "keeps the people on it" means the requester's workspace becomes the item's. Falsified if Add to stack creates a second workspace for the new item.
-- Hosted Cloud may still call `ForkWorkspace` (`workspace_provisioning.go:855`) and `POST …/workspaces/{id}/fork`. Escalate to the tech lead before deleting them. This ticket deletes only the runtime stop-snapshot path.
+- Hosted Cloud may still call `ForkWorkspace` (`workspace_provisioning.go:855`) and `POST …/workspaces/{id}/fork`. smithers-3f and smithers-b8 verify hosted consumers; smithers-8a approves deletion or composition-specific retention before implementation. This ticket deletes only the runtime stop-snapshot path.
+
+## Ready checklist
+
+1. Dependencies: S1 names placement, Views/schema, microVM launcher, catalog, person confirmations, Drop integration, verified candidates/fence, live delivery and actor rendering. S2 requires daemon capture and one machine per branch. Both phase closures remain within stage order.
+2. Exclusions: Replace, scratch Rebase now, Drop implementation beyond its hook, Branch card, disk-copy forks, scratch pushes, credential copying and design-owned Views are explicit.
+3. Boundary tests: C-J7-02 drives app/catalog/Confirm/Drop; C-MCH-08 enters the routed fork endpoint and additionally proves awake Add to stack capture. Integration uses real PostgreSQL/jj and the production dispatcher/router with fixed repository fixtures and literal results, never runtime spec or code-derived expectations.
+4. Decisions: smithers-8a accepts the stack-service and hosted-route compatibility decision; smithers-3f approves history/capture seams, smithers-b8 command and Container seams, smithers-38 catalog/schema public API under §21.1, and smithers-06 View props. Will decides product changes such as Replace or source interruption.
+5. Owner pre-review: smithers-3f, smithers-b8, smithers-38 and smithers-06 before start. Do source resolution and capture preserve the sole history writer and never stop the source machine? Do Confirm, Add to stack and the Drop hook preserve the same branch/workspace and the fixed seed under routed retries? Do catalog schemas and action tags fit design's existing Views and preserve hosted consumers?
+6. Security: smithers-3f reviews launch, capture and credential boundaries before start. Repository code and scratch terminal commands run only in machines; host system flows call fixed stack-service operations and never load repository flows. SourceRef transfers a revision, not a disk, home or credentials; no member/agent sudo or provider keys in guests. C-J7-02/C-MCH-08 prove the actual runtime path.

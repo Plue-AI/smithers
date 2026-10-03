@@ -1,6 +1,6 @@
 # T-GH-02 Poll scheduler: streams, ETags, token cache, budget, 30–120 s cadences
 
-Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-ACC-02 · Unblocks T-FLW-03, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-MNT-01, T-REL-02, T-STK-04, T-STK-09 · Issue: [#3515](https://github.com/smithersai/smithers/issues/3515)
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-ACC-02 · Unblocks T-FLW-03, T-GH-04, T-GH-05, T-GH-06, T-GH-07, T-GH-08, T-GH-09, T-MNT-01, T-REL-02, T-REL-03, T-STK-04, T-STK-09 · Issue: [#3515](https://github.com/smithersai/smithers/issues/3515)
 Spec: spec.md §3 (`github_sync`), §3.0, §4.4, §6.2.3, §12.2, §19.4 · Delta: delta.md §7 · Product: mvp.md J10.6, §6.3 "No public address", §9 "GitHub freshness", M-03
 
 ## Goal
