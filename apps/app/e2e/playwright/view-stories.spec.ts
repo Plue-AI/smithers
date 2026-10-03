@@ -687,3 +687,29 @@ for (const [name, fixture] of Object.entries(draftFixtures)) test(`Draft ${name}
     await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
   }
 })
+
+test("Draft field edits forward literal payloads once and unchanged blur is silent", async ({ page }) => {
+  await page.goto("/view-stories.html?story=DraftView/From%20an%20issue%20it%20closes")
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => (window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("textbox", { name: "Title", exact: true }).focus()
+  await page.getByRole("textbox", { name: "Title", exact: true }).blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([])
+  for (const [label, value] of [["Title", "Browser title"], ["Prompt", "Browser\nprompt"], ["Acceptance", "First\nSecond"]]) {
+    const field = page.getByRole("textbox", { name: label!, exact: true })
+    await field.fill(value!); await field.blur()
+  }
+  const place = page.getByRole("combobox", { name: "Place", exact: true })
+  await place.selectOption('{"mode":"before","n":8}'); await place.blur()
+  const fixes = page.getByRole("checkbox")
+  await fixes.uncheck(); await fixes.blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "title", value: "Browser title" } } },
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "prompt", value: "Browser\nprompt" } } },
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "acceptance", value: '["First","Second"]' } } },
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "place", value: '{"mode":"before","n":8}' } } },
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "fixes", value: "false" } } }
+  ])
+})
