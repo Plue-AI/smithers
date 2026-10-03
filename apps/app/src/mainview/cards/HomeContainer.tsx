@@ -2,7 +2,6 @@ import type { ComponentType } from "react"
 import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
-import { HomeView } from "./views/HomeView"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -10,11 +9,11 @@ export interface HomeContainerProps {
   readonly role: "owner" | "maintainer" | "member"
   readonly allowed: ReadonlySet<CatalogTag>
   readonly dispatch: CardCommandDispatch
-  readonly View?: ComponentType<HomeViewProps>
+  readonly View: ComponentType<HomeViewProps>
   readonly view: HomeViewProps["view"]
   readonly onView: HomeViewProps["onView"]
 }
-export const HomeContainer = ({ model: source, role, allowed, dispatch, View = HomeView, view, onView }: HomeContainerProps) => {
+export const HomeContainer = ({ model: source, role, allowed, dispatch, View, view, onView }: HomeContainerProps) => {
   if (source === undefined || source === null) return null
   const parsed = HomeCardSchema.parse(source)
   const definitions: CardActionDefinition[] = []
