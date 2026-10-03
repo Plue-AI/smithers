@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import type { Card } from "@smthrs/rpc/Cards"
+import { CardSchema, type Card } from "@smthrs/rpc/Cards"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { CardView } from "../ChatCards"
 import type { AgentPort } from "../runtime/AgentPort"
@@ -225,7 +225,7 @@ describe("server-emitted card frames", () => {
     }
   })
 
-  test("the balance card renders dollars and the one-time first-run line", () => {
+  test("old balance cards keep their data without MVP renderer exposure", () => {
     const cardViewHandlers = {
       maximized: false,
       onDecideApproval: () => {},
@@ -248,12 +248,8 @@ describe("server-emitted card frames", () => {
       onRunCommand: () => {}
     }
     const markup = renderToStaticMarkup(<CardView card={balanceCard} {...cardViewHandlers} />)
-    expect(markup).toContain("data-kind=\"balance\"")
-    expect(markup).toContain("You have $500 of usage on us.")
-    expect(markup).toContain("$500 left.")
-    // Never a card form, never a credit abstraction.
-    expect(markup).not.toContain("credit card")
-    expect(markup).not.toContain("credits")
+    expect(CardSchema.parse(balanceCard)).toEqual(balanceCard)
+    expect(markup).toBe("")
   })
 
   test("a quiet or stopped run card never wears a Running pill (wave 12 §3, review)", () => {
