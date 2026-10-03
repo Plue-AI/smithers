@@ -77,7 +77,7 @@ const surfaceFiles = (): Array<string> => {
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
     // Design-owned Views have their own AST seam rule below, not legacy pins.
-    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/"))
+    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/") && !["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"].includes(entry))
     .map((entry) => `../${entry.split("\\").join("/")}`)
     .sort()
 }
@@ -743,6 +743,19 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     expect(
       files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`), new URL(`../cards/${file}`, import.meta.url)).map((violation) => `${file}: ${violation}`))
     ).toEqual([])
+  })
+
+  test("conversation shell paths enforce the seam and reject file-specific seeds (C-UI-08)", () => {
+    for (const name of ["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"]) {
+      const url = new URL(`../${name}`, import.meta.url)
+      expect(existsSync(fileURLToPath(url))).toBe(true)
+      expect(viewSeamViolations(readFileSync(url, "utf8"), url)).toEqual([])
+      for (const seed of ['<button onClick={() => launch()} />', '<button onClick={() => onAction(action.tag, action.args)} />']) {
+        expect(viewSeamViolations(seed, url).length).toBeGreaterThan(0)
+      }
+      expect(viewSeamViolations('<button data-flow={action.tag} onClick={() => onAction(action.tag, action.args)} />', url)).toEqual([])
+      expect(viewSeamViolations('<button onClick={() => onView({ selected_branch: "main" })} />', url)).toEqual([])
+    }
   })
 
   test("every shared UI View handler uses the action or presentation seam (C-UI-08 step 4)", () => {

@@ -19,8 +19,9 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
     ? stories.filter(story => story.name.includes(process.env.SMITHERS_VIEW_STORY_FILTER!))
     : stories
   expect(selectedStories.length).toBeGreaterThan(0)
+  // SMITHERS_VIEW_STORY_FILTER selects lane stories; include the ticket's 1440px acceptance width.
   const receipts = []
-  for (const story of selectedStories) for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
+  for (const story of selectedStories) for (const theme of ["light", "dark"]) for (const width of [1280, 1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
     await page.goto(`/view-stories.html${story.href}&theme=${theme}`)
     await expect(page.locator("[data-story]")).toBeVisible()
@@ -187,4 +188,75 @@ for (const native of ["unavailable", "refused"]) test(`Settings Copy uses the fa
   expect(await page.evaluate(() => (window as unknown as { copiedLines: string[] }).copiedLines)).toEqual(["smthrs login http://mac-mini.local:8080"])
   await expect(copy).toBeFocused()
   await expect(page.locator('textarea[aria-hidden="true"]')).toHaveCount(0)
+})
+
+// T-UI-07: literal callbacks from ui-components T-UI-07, independent of model actions.
+test("Conversation shell renders branch navigation, entries and Earlier", async ({ page }) => {
+  const callbacks = async () => page.evaluate(() => (window as unknown as { shellCalls: unknown[] }).shellCalls)
+  const clear = async () => page.evaluate(() => { (window as unknown as { shellCalls: unknown[] }).shellCalls = [] })
+  await page.addInitScript(() => {
+    const state = window as unknown as { shellCalls: unknown[] }
+    state.shellCalls = []
+    window.addEventListener("story-callback", event => state.shellCalls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=ConversationView/branch-main&theme=${theme}`)
+    await expect(page.locator(".mvp-tree-name")).toHaveText(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    for (const [node, expected] of [["main", { kind: "view", value: { selected_branch: "main" } }], ["todo-12", { kind: "view", value: { selected_branch: "todo-12" } }], ["scratch-repro", { kind: "action", value: { tag: "branch", args: { name: "scratch/repro" } } }], ["earlier", { kind: "view", value: { selected_branch: "earlier" } }]] as const) {
+      await clear()
+      const control = page.locator(`[data-node="${node}"]`)
+      await control.focus()
+      await page.keyboard.press("Enter")
+      await expect.poll(callbacks).toEqual([expected])
+      await expect(control).toBeFocused()
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/crumb-ancestry&theme=${theme}`)
+    const crumb = page.locator(".mvp-crumb-here")
+    await crumb.focus()
+    await page.keyboard.press("Space")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toBeVisible()
+    await page.locator('[data-node="main"]').focus()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("navigation", { name: "Branches", exact: true })).toHaveCount(0)
+    await expect(crumb).toBeFocused()
+    await page.goto(`/view-stories.html?story=ConversationView/context-collapsed&theme=${theme}`)
+    await page.locator(".mvp-context-toggle").focus()
+    await page.keyboard.press("Space")
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { expanded: true } }])
+    for (const [story, tag, label] of [["needs_you", "todo.answer", "Answer"], ["in_review", "merge", "Merge"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${story}&theme=${theme}`)
+      await expect(page.locator("[data-flow]")).toHaveAttribute("data-flow", tag!)
+      await page.getByRole("button", { name: label }).click()
+      await expect.poll(callbacks).toEqual([{ kind: "action", value: { tag, args: { n: "12" } } }])
+    }
+    // spec §14.5.2 and the Paper tone contract: literal token names, never schema-derived.
+    for (const [entry, token] of [["working", "--brand"], ["needs_you", "--attention"], ["failed", "--danger"]]) {
+      await page.goto(`/view-stories.html?story=ConversationView/entry-${entry}&theme=${theme}`)
+      const colors = await page.locator(".mvp-entry").evaluate((node, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(node).borderLeftColor, expected }
+      }, token!)
+      expect(colors.actual).toBe(colors.expected)
+    }
+    await page.goto(`/view-stories.html?story=ConversationView/entry-failed&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Retry" })).toBeDisabled()
+    await expect(page.getByText("Repository access refused")).toBeVisible()
+    expect(await callbacks()).toEqual([])
+    await page.goto(`/view-stories.html?story=ConversationView/entry-tombstone&theme=${theme}`)
+    await expect(page.locator("article[data-story]")).toHaveText("Card model contracts")
+    await expect(page.locator(".mvp-tombstone")).toHaveCSS("white-space", "nowrap")
+    await expect(page.locator("article[data-story] button")).toHaveCount(0)
+    await page.goto(`/view-stories.html?story=ConversationView/entry-private&theme=${theme}`)
+    await expect(page.getByText("Only you")).toBeVisible()
+    await page.goto(`/view-stories.html?story=ConversationView/earlier-selected&theme=${theme}`)
+    await expect(page.getByText("Read-only")).toBeVisible()
+    await expect(page.locator("[data-flow]")).toHaveCount(0)
+    await page.getByRole("button", { name: "Earlier question" }).click()
+    await expect.poll(callbacks).toEqual([{ kind: "view", value: { selected_archive: "old" } }])
+  }
 })

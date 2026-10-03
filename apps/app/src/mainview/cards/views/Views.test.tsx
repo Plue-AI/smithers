@@ -116,7 +116,7 @@ for (const path of paths) {
         expect(controls.map(control => control.dataset.flow)).toEqual(actions.map(action => action.tag))
         for (let index = 0; index < actions.length; index++) {
           const action = actions[index]!, control = controls[index]!
-          expect(control.textContent || control.getAttribute("aria-label")).toContain(action.label)
+          expect(control.getAttribute("aria-label") || control.textContent).toContain(action.label)
           onAction.mockClear(); onView.mockClear()
           if (action.disabled) {
             expect(control.disabled).toBe(true)
@@ -632,4 +632,116 @@ test("Settings actions live in their rows and unassigned actions retain order", 
   expect(row("Health").querySelector('button[data-flow="github"]')!.textContent).toBe("Repair")
   expect(row("Obsidian folder").querySelector("button")!.textContent).toBe("Change")
   expect([...host.querySelectorAll(".setup-view > .setup-actions button")].map(button => button.textContent)).toEqual(["Add", "Docs"])
+})
+
+// T-UI-07: spec §14.1.5, §14.5.1 and ui-components T-UI-07 literal oracles.
+test("Conversation shell renders branch navigation, entries and Earlier", async () => {
+  const { EntryRow } = await import("../../EntryRow")
+  const { BranchTree } = await import("../../BranchTree")
+  const { EarlierArchive } = await import("../../EarlierArchive")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/EntryRow")
+  const { fixtures: branches } = await import("@smthrs/rpc/fixtures/BranchTreeNode")
+  const row = await mounted({ name: "tombstone", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.tombstone.model} private action={{ tag: "merge", label: "Merge", args: { n: "12" } }} card={<button>Forbidden body</button>} onAction={onAction} /> })
+  try {
+    expect(row.host.textContent).toBe("Card model contracts")
+    expect(row.host.querySelectorAll("button, .mvp-avatar, .mvp-locked")).toHaveLength(0)
+    expect(row.host.querySelector(".mvp-tombstone")).not.toBeNull()
+  } finally { await row.close() }
+  const tree = await mounted({ name: "ancestry", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[branches.main.model]} view={{ selected_branch: "todo-12" }} onAction={onAction} onView={onView} /> })
+  try {
+    expect([...tree.host.querySelectorAll(".mvp-tree-name")].map(node => node.textContent)).toEqual(["main", "todo/12", "scratch/repro", "Earlier · 3"])
+    expect([...tree.host.querySelectorAll("li")].map(node => node.getAttribute("data-depth"))).toEqual(["0", "1", "2", "0"])
+    expect(tree.host.querySelector('[aria-current="page"]')?.textContent).toContain("todo/12")
+    await act(async () => tree.host.querySelector<HTMLButtonElement>('[data-node="scratch-repro"]')!.click())
+    expect(tree.onAction.mock.calls).toEqual([["branch", { name: "scratch/repro" }]])
+    await act(async () => tree.host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+    expect(tree.onView.mock.calls).toEqual([[{ selected_branch: "earlier" }]])
+  } finally { await tree.close() }
+  const archive = await mounted({ name: "archive", expect: [], render: ({ onView }) => <EarlierArchive model={{ node: { ...branches.earlier.model, kind: "earlier", archive_count: 3 }, read_only: true, archives: [{ id: "old", title: "Earlier question", entries: [<EntryRow key="entry" {...fixtures.tombstone.model} onAction={() => {}} />] }] }} view={{ selected_archive: "old" }} onView={onView} /> })
+  try {
+    expect(archive.host.textContent).toBe("Earlier · 3Read-onlyEarlier questionCard model contracts")
+    expect(archive.host.querySelector("[data-flow]")).toBeNull()
+    await act(async () => archive.host.querySelector<HTMLButtonElement>("button")!.click())
+    expect(archive.onView.mock.calls).toEqual([[{ selected_archive: "old" }]])
+    expect(archive.onAction.mock.calls).toEqual([])
+  } finally { await archive.close() }
+})
+
+// §14.5.1 and §15.1.2: hostile imported strings are text; only supplied actions dispatch.
+test("shell text is inert; private, empty and disabled boundaries", async () => {
+  const { EntryRow } = await import("../../EntryRow")
+  const { ContextLine } = await import("../../ContextLine")
+  const { BranchTree } = await import("../../BranchTree")
+  const { fixtures: actors } = await import("@smthrs/rpc/fixtures/ActorChip")
+  const { fixtures: branches } = await import("@smthrs/rpc/fixtures/BranchTreeNode")
+  const hostile = '<script>throw Error("executed")</script>'
+  const row = await mounted({ name: "hostile", expect: [], render: ({ onAction }) => <EntryRow kind="answer" author={actors.system.model.actor} title={hostile} summary={hostile} tone="quiet" onAction={onAction} /> })
+  try {
+    expect(row.host.querySelector(".mvp-entry-title")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".mvp-entry-summary")?.textContent).toBe(hostile)
+    expect(row.host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe("Install event")
+    expect(row.host.querySelector("script")).toBeNull()
+    expect(row.host.querySelector("button")).toBeNull()
+  } finally { await row.close() }
+  const context = await mounted({ name: "empty", expect: [], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> })
+  try {
+    expect(context.host.textContent).toBe("Context · 0")
+    expect(context.host.querySelector(".mvp-context-chip")).toBeNull()
+    await act(async () => context.host.querySelector<HTMLButtonElement>("button")!.click())
+    expect(context.onView.mock.calls).toEqual([[{ expanded: true }]])
+    expect(context.onAction.mock.calls).toEqual([])
+  } finally { await context.close() }
+  const disabled = await mounted({ name: "disabled branch", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[{ ...branches.scratch.model, action: { tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } } }]} view={{}} onAction={onAction} onView={onView} /> })
+  try {
+    const control = disabled.host.querySelector<HTMLButtonElement>("button")!
+    expect(control.dataset.flow).toBe("branch")
+    expect(control.disabled).toBe(true)
+    expect(disabled.host.textContent).toContain("Repository access refused")
+    await act(async () => control.click())
+    expect(disabled.onAction.mock.calls).toEqual([])
+    expect(disabled.onView.mock.calls).toEqual([])
+  } finally { await disabled.close() }
+})
+
+// T-UI-07 §14.2.1: every supplied action retains its tag, args and refusal at every door.
+for (const disabled of [false, true]) test(`ancestor crumb preserves action contract disabled=${disabled}`, async () => {
+  const { BranchCrumbs } = await import("../../BranchTree")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/BranchTreeNode")
+  const node = { ...fixtures.main.model, action: { tag: "branch" as const, label: "Open", args: { name: "parent" }, ...(disabled ? { disabled: { reason: "Repository access refused" } } : {}) } }
+  const row = await mounted({ name: "ancestor", expect: [], render: ({ onAction, onView }) => <BranchCrumbs nodes={[node]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> })
+  try {
+    const button = row.host.querySelector<HTMLButtonElement>('[data-branch="main"]')!
+    expect(button.dataset.flow).toBe("branch")
+    expect(button.disabled).toBe(disabled)
+    if (disabled) expect(row.host.textContent).toContain("Repository access refused")
+    await act(async () => button.click())
+    expect(row.onAction.mock.calls).toEqual(disabled ? [] : [["branch", { name: "parent" }]])
+    expect(row.onView.mock.calls).toEqual([])
+  } finally { await row.close() }
+})
+test("missing selected branch has no unnamed crumb; popover arrows move and go to parent", async () => {
+  const { BranchCrumbs } = await import("../../BranchTree")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/BranchTreeNode")
+  const missing = await mounted({ name: "missing", expect: [], render: ({ onAction, onView }) => <BranchCrumbs nodes={[fixtures.main.model]} view={{ selected_branch: "closed" }} onAction={onAction} onView={onView} /> })
+  try { expect(missing.host.querySelector("button")).toBeNull() } finally { await missing.close() }
+  const row = await mounted({ name: "keys", expect: [], render: ({ onAction, onView }) => <BranchCrumbs nodes={[fixtures.main.model]} view={{ selected_branch: "scratch-repro" }} onAction={onAction} onView={onView} /> })
+  try {
+    const trigger = row.host.querySelector<HTMLButtonElement>(".mvp-crumb-here")!
+    await act(async () => { trigger.click(); trigger.focus() })
+    const press = async (key: string) => act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })) })
+    await press("ArrowDown")
+    expect((document.activeElement as HTMLElement).dataset.node).toBe("main")
+    await press("ArrowDown")
+    expect((document.activeElement as HTMLElement).dataset.node).toBe("todo-12")
+    await press("ArrowDown")
+    expect((document.activeElement as HTMLElement).dataset.node).toBe("scratch-repro")
+    expect(document.activeElement!.getAttribute("aria-label")).toContain("Open scratch/repro")
+    await press("ArrowLeft")
+    expect((document.activeElement as HTMLElement).dataset.node).toBe("todo-12")
+    await press("ArrowUp")
+    expect((document.activeElement as HTMLElement).dataset.node).toBe("main")
+    await press("Escape")
+    expect(document.activeElement).toBe(trigger)
+    expect(row.host.querySelector(".mvp-tree")).toBeNull()
+  } finally { await row.close() }
 })

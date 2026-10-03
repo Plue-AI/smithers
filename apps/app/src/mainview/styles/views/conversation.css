@@ -1,0 +1,39 @@
+/* PORT: mock Tree.tsx, AppFrame author rows and mock.css Context/tree rules. */
+.mvp-tree { width: 360px; max-width: 100%; max-height: 60vh; overflow: auto; box-sizing: border-box; padding: 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); box-shadow: var(--shadow-3); }
+.mvp-tree ol { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
+.mvp-tree li { padding-left: calc(var(--depth, 0) * 16px); min-width: 0; }
+.mvp-tree-row { display: flex; width: 100%; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: var(--fs-small) var(--font-ui); text-align: left; }
+.mvp-tree-row:hover { background: var(--hover-subtle); }
+.mvp-tree-row[aria-current] { background: var(--surface-2); font-weight: 600; }
+.mvp-tree li[data-kind="earlier"] .mvp-tree-row { color: var(--text-muted); }
+.mvp-tree-row .mvp-state { padding: 0; border: 0; background: transparent; font-size: 0; gap: 0; }
+.mvp-tree-name { min-width: 0; flex: 1; overflow: hidden; font: 12.5px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.mvp-tree-presence { display: flex; gap: 2px; flex-wrap: wrap; }
+.mvp-crumbs { position: relative; }
+.mvp-crumb-path { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-faint); font-size: var(--fs-small); }
+.mvp-crumb { padding: 2px 6px; border: 0; background: transparent; border-radius: 6px; color: var(--text-muted); font: 12.5px var(--font-mono); overflow-wrap: anywhere; }
+.mvp-crumb:hover { background: var(--hover); color: var(--text); }
+.mvp-crumb-here { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 600; }
+.mvp-crumbs > .mvp-tree { margin-top: 6px; }
+.mvp-entry { padding: 12px 0; min-width: 0; overflow-wrap: anywhere; }
+.mvp-entry header, .mvp-earlier header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.mvp-author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.mvp-locked { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
+.mvp-entry-title { color: var(--text); font-size: var(--fs-body); line-height: 1.5; }
+.mvp-entry-summary { margin: 4px 0; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-entry[data-tone="attention"] { border-left: 2px solid var(--attention); padding-left: 10px; }
+.mvp-entry[data-tone="failed"] { border-left: 2px solid var(--danger); padding-left: 10px; }
+.mvp-entry[data-tone="live"] { border-left: 2px solid var(--brand); padding-left: 10px; }
+.mvp-tombstone { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: var(--fs-small); }
+.mvp-context { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0 4px; color: var(--text-faint); font-size: var(--fs-caption); max-width: 100%; }
+.mvp-context-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border: 0; border-radius: var(--r-full); background: var(--surface-2); color: var(--text-muted); font: 500 var(--fs-caption) var(--font-ui); }
+.mvp-context[data-open] .mvp-context-toggle { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--text); }
+.mvp-context-chip { padding: 1px 7px; border: 1px solid var(--border); border-radius: var(--r-full); color: var(--text-muted); font: 11.5px var(--font-mono); overflow-wrap: anywhere; }
+.mvp-entry-action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mvp-entry-action button, .mvp-earlier nav button { padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: var(--fs-small) var(--font-ui); }
+.mvp-disabled-reason { color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-earlier { min-width: 0; overflow-wrap: anywhere; }
+.mvp-read-only { padding: 1px 7px; border: 1px solid var(--border); border-radius: var(--r-full); color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-earlier nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.mvp-earlier nav button[aria-current] { background: var(--surface-2); }
+:is(.mvp-tree, .mvp-crumbs, .mvp-entry, .mvp-context, .mvp-earlier) button:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }

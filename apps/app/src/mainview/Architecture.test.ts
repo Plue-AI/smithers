@@ -127,6 +127,17 @@ describe("props-only View imports (C-UI-08)", () => {
         violations.push(...viewAuthorityViolations(path, (file) => readFileSync(file, "utf8"), locate))
       }
     }
+    for (const name of ["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"]) {
+      const path = resolve(import.meta.dir, name)
+      expect(existsSync(path)).toBe(true)
+      selected.push(path)
+      violations.push(...viewAuthorityViolations(path, file => readFileSync(file, "utf8"), locate))
+      for (const seed of ['import { store } from "./state/Store"', 'fetch("/api")']) {
+        expect(viewAuthorityViolations(path, () => seed, () => undefined).length).toBeGreaterThan(0)
+      }
+      expect(viewAuthorityViolations(path, file => file === path ? 'import "./presentation"' : 'import "./state/Store"', specifier => specifier === "./presentation" ? `${path}/presentation` : undefined).length).toBeGreaterThan(0)
+      expect(viewAuthorityViolations(path, () => 'import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"', () => undefined)).toEqual([])
+    }
     for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(selected).toContain(resolve(import.meta.dir, "cards/views", name))
     for (const name of ["actor-chip.tsx", "state-word.tsx"]) {
       const path = resolve(repository, "packages/smithers/ui/src", name)
