@@ -119,7 +119,7 @@ describe("derived typecheck commands over hostile tsconfig names", () => {
     )
   })
 
-  it.effect("grant exactly the rendered lines, and refuse the unquoted line and the injected command", () =>
+  it.effect("refuse every process spawn, the project's own verification lines included", () =>
     Effect.gen(function*() {
       const root = "/tmp/project"
       const hostile = "tsconfig.;touch pwned;.json"
@@ -129,18 +129,18 @@ describe("derived typecheck commands over hostile tsconfig names", () => {
         flowsDir: "flows"
       }
       const grants = yield* GrantStore.GrantStore
-      const permitted = (resource: string) =>
+      const outcome = (resource: string) =>
         grants.check(Capability.make("proc:spawn", resource)).pipe(
-          Effect.as(true),
-          Effect.catch(() => Effect.succeed(false))
+          Effect.match({ onFailure: (error) => error._tag, onSuccess: () => "granted" })
         )
 
+      // 401d89f9 removed every migration-agent process grant (verification runs in the orchestrator), so an unattended spawn check fails PermissionRequired.
       for (const line of Layers.verificationCommands(commands)) {
-        expect([line, yield* permitted(line)]).toEqual([line, true])
+        expect([line, yield* outcome(line)]).toEqual([line, "@smthrs/capability/PermissionRequired"])
       }
-      expect(yield* permitted(`tsc --noEmit -p ${hostile}`)).toBe(false)
-      expect(yield* permitted("touch pwned")).toBe(false)
-      expect(yield* permitted("tsc --noEmit -p tsconfig.json")).toBe(false)
+      expect(yield* outcome(`tsc --noEmit -p ${hostile}`)).toBe("@smthrs/capability/PermissionRequired")
+      expect(yield* outcome("touch pwned")).toBe("@smthrs/capability/PermissionRequired")
+      expect(yield* outcome("tsc --noEmit -p tsconfig.json")).toBe("@smthrs/capability/PermissionRequired")
     }).pipe(Effect.provide(
       GrantStore.layer({
         attended: false,
