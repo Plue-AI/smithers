@@ -58,9 +58,7 @@ export const fixtures = {
   ),
   coding_agent_for_ben: chip("Coding agent, for Ben", { actor: agent, size: "m", live: true }, ["Ben"]),
   reviewer_for_ben: chip("Reviewer, for Ben", { actor: reviewer, size: "s", live: true }, ["Ben"]),
-  undelegated_agent: chip("An agent acting for nobody", { actor: undelegated_agent, size: "m", live: true }, [
-    "Coding agent"
-  ]),
+  undelegated_agent: chip("An agent acting for nobody", { actor: undelegated_agent, size: "m", live: true }, ["Aider"]),
   undelegated_smithers: chip("Smithers acting for nobody", { actor: smithers, size: "s", live: false }, ["Smithers"]),
   system: chip("An install event", { actor: system, size: "s", live: false }, ["system"]),
   github_user: chip("A GitHub user", { actor: github_user, size: "m", live: false }, ["octocat"]),

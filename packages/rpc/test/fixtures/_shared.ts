@@ -59,13 +59,15 @@ export const codex = {
   for_member: will,
   color_index: will_color
 }
+// An agent acting for nobody (color_index 6). It is a named external agent, so the label it renders, its name, is a
+// string the model carries; the undelegated coding agent's derived label "Coding agent" is covered by ActorChip.test.tsx.
 export const undelegated_agent = {
   kind: "agent" as const,
-  id: "agent-run-77-wiki",
-  agent: "coding" as const,
+  id: "agent-session-aider-77",
+  agent: "external" as const,
   avatar_url: placeholder_avatar,
-  run_id: "run-77",
-  name: "wiki refresh",
+  session_id: "session-77",
+  name: "Aider",
   color_index: 6
 }
 export const smithers_for_ben = {
