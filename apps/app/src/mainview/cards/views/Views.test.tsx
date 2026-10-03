@@ -1481,3 +1481,20 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
     expect(host.querySelector("button")).toBeNull()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+test("File Copy writes the recovered edit, with singular recovery copy", async () => {
+  const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const writeText = mock(async (_text: string) => {})
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  try {
+    const onAction = mock(() => {})
+    const host = render(<CodeEditorView {...files.unsaved_one} onAction={onAction} onView={() => {}} />)
+    expect(host.textContent).toContain("1 edit wasn't saved")
+    await act(async () => host.querySelector<HTMLButtonElement>('.code-recovery button')!.click())
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText).toHaveBeenCalledWith('const recovered = true')
+    expect(onAction).toHaveBeenCalledTimes(0)
+  } finally {
+    if (previous) Object.defineProperty(navigator, 'clipboard', previous)
+    else Reflect.deleteProperty(navigator, 'clipboard')
+  }
+})
