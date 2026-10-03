@@ -23,6 +23,7 @@ Out:
 - Triggers and scheduled trusted runs (spec §11.7 [D]).
 
 ## Changes
+- Add scope to existing repository_secrets; keep repository_agent_environment_secrets for host-bound values. No parallel secrets table. Check: C-MCH-07.
 
 - `packages/backend/internal/services/workspace_provisioning.go:445-490` `workspaceEgressProxy` and the boot path: fetch `SecretInjector.RepositorySecrets(ctx, repo, mainTrusted=false)` (`packages/backend/internal/services/secret_injection.go:118`), which already drops main-only rows at `:233`. Split the result once: rows with declared hosts go to the egress relay policy, rows without go to the env file. No row goes to both.
 - `packages/backend/microsandbox/runtime.go` `prepareGuest` (`:581`): write `/run/smithers/env` at boot through the guest helper (new `put-env` subcommand in `packages/backend/microsandbox/guest/smithers-guest.py`), with mode 0640 and group `team`, on tmpfs so it never reaches the disk or a capture.
@@ -34,6 +35,31 @@ Out:
 - Docs: the Secrets page states that a secret is readable inside any session on any branch machine, and that main-only secrets are not.
 
 ## Tests
+
+C-MCH-07 (folded steps and assertions):
+1. Ben opens the Secrets card and sets `CANARY_TOKEN` (all branches) to a random 32-byte value V, and `DEPLOY_KEY` (main-only) to W.
+2. At least 5 s after step 1, Alice opens a new terminal on branch A, which stayed awake. She runs `printenv CANARY_TOKEN DEPLOY_KEY`.
+3. Alice runs `ssh -p 2222 <branch>@<install host> 'printenv CANARY_TOKEN'`.
+4. A TODO run on the branch executes the check step `pnpm test`.
+5. Every member credential kind (owner session, Alice session, Ben delegated CLI) calls `GET /api/secrets` and every documented secrets route. Record the response bodies.
+6. Search all response bodies, the run's projected logs and the activity for V and W.
+7. Read the terminal opened before step 1 (on branch A): `printenv CANARY_TOKEN`.
+
+Pass when:
+- Step 2 prints V and an empty line for `DEPLOY_KEY`.
+- Step 3 prints V.
+- Step 4 passes, which shows the coding host's step saw V.
+- Step 5 returns names and scopes only, with no field holding V or W, for every credential.
+- Step 6 finds V and W 0 times. A value echoed by `printenv` into a terminal stream is excluded: any session can print all-branches values by design (§8.8.1).
+- Step 7 prints an empty line: running processes keep their environment, and only new sessions load the rewritten file (§8.8.1).
+
+Fail when:
+- The secret reaches the terminal but not the coding host, or the reverse.
+- A new session opened 5 s after the write lacks V, which means the daemon didn't rewrite `/run/smithers/env`.
+- `DEPLOY_KEY` is set in any branch session.
+- Any API response, log line or activity entry contains V or W.
+- The card shows "set" before the write commits (honest state, §19.3).
+
 
 - unit (`packages/backend/internal/services/secret_machine_env_test.go`, new): for {item branch, scratch branch, agent run, outsider-started run, maintainer manual run on `main`}, only the last includes main-only rows. For every input, a secret with declared hosts appears in the relay policy and never in the env set.
 - integration (real PostgreSQL, `secret_main_only_test.go` extended): a branch machine's env snapshot never contains a main-only name.

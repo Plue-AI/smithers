@@ -30,7 +30,7 @@ Out:
 - Keep (landed): `microsandbox/toolchains.json`, `toolchains.go` (`Resolve` with the nearest-patch rule), `machine_json.go`, the root-boundary fixes of `617c991b3` and `0ecf139ad`, and the exit-127 mapping to a `user`-class error.
 - Reshape, one detector: the package-manager and lockfile rules live once, in `packages/smithers/src/suggest/Checklist.ts:183` (`evidence`). Extend it with the §8.6.2 version files (`.node-version`, `.nvmrc`, `engines.node`, `go.mod`, `rust-toolchain.toml`, `.python-version`, `pyproject.toml`, `uv.lock`, `requirements*.txt`) and delete the duplicate rules from `microsandbox/toolchain_detect.go` (354 lines, `7a5ab6140`). Go keeps only manifest resolution and recipe assembly from the evidence.
 - Reshape `microsandbox/layers.go`: merge `detectedToolchainRecipe` (`:1623`) and `detectedDependencyRecipe` (`:1678`) into `toolchainRecipe` (`:850`) and `dependencyRecipe` (`:1293`), which take either index rows or detected rows. One recipe digest covers both.
-- Delete `internal/services/install_machine_ready.go` and its two tests (670 lines, zero callers). T-INS-06's step store reports `source` from the mirror and `machine` from the layer build of `main`'s recipe; no `projection_events` writer.
+- Delete `internal/services/install_machine_ready.go` and its two tests (670 lines, zero callers). T-INS-06's step store reports `source` from the mirror and `machine` from the layer build of `main`'s recipe; no source durable cursors writer.
 - Docs: `packages/backend/microsandbox/README.md` "Environment layers"; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/backend:docs`.
 - New: none.
 

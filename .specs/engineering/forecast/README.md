@@ -8,7 +8,7 @@ The date for "stage 1 passes J1 and J2" comes from a Monte Carlo list scheduler 
 python3 .specs/engineering/forecast/sched.py .specs/engineering/forecast/plan-of-record.json
 ```
 
-**Scope.** The transitive dependency closure of the W0/S1 tickets that C-J1-01..06 and C-J2-01..05 name: 86 tickets at 19:00, up from 71 at 17:50 and 50 at 16:50. The Ready wave made every ticket name its landing preconditions, and T-STK-16 (M-39) joined. A staged Depends (`S1: a · S2: b`) contributes only its W0/S1 segments.
+**Scope.** The transitive dependency closure of the W0/S1 tickets that C-J1-01..06 and C-J2-01..05 name: 86 tickets at 19:00, up from 71 at 17:50 and 50 at 16:50. The Ready wave made every ticket name its landing preconditions, and T-STK-04 (M-39) joined. A staged Depends (`S1: a · S2: b`) contributes only its W0/S1 segments.
 
 **Inputs.** All inputs were measured on 2026-10-02 unless marked as a prior.
 - First-pass hours per size (P50/P90): S 0.75/1.5, M 1.5/3.5, L 4/9. Source: smithers-22's lanes. In-flight tickets are censored at their elapsed hours.

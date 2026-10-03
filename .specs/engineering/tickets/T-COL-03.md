@@ -34,12 +34,34 @@ Out:
 
 ## Tests
 
+C-COL-03 (folded steps and assertions):
+1. Start every writer. Call `rebase(onto)` 50 times, 2 s apart.
+2. Move the working copy with `jj new main` from W3's session, then call `return_to_item()`. Repeat 10 times.
+3. Pause at the `frozen` point. Issue W1 and W2 writes, one of them with a `base_digest` on `README.md` taken before the rebase. Release.
+4. Force a freeze timeout (hook: `frozen` never reported) and call `rebase(onto)`.
+5. Race `write_file` against an outside rename: a hook pauses between the daemon's digest check and its swap while W4 saves, 100 times.
+
+Pass when:
+- Every write a writer logged before a rebase or move started is, by SHA-256, in the rewritten working copy or in a recorded version (a versions commit in the host store). None is lost.
+- Between `frozen 1` and the thaw, the inotify log shows no working-copy event from any session process.
+- Step 3: the queued writes complete after the rewrite; the stale `README.md` write gets `409 stale`, and the others apply on the new base.
+- Step 4: nothing is rewritten, every session thaws within 1 s, the reply is `busy`, and `rebase_pending` stays set. The reply names the blocking session for the presser; releasing that blocker triggers an automatic retry (§9.4.2).
+- Step 5: in 100 of 100 runs the daemon's write is either applied over the base it named or refused `409 stale` with W4's file swapped back; W4's save is never lost.
+- (S3) Both document texts after each reconcile hold every keystroke typed during the hold, with its author, and "Rebased onto Tk" is one transaction.
+- The lock hold is recorded per run; p95 under 2 s (C-PERF-06 measures it on the reference host).
+
+Fail when:
+- A session process writes while frozen, or a write lands between capture and thaw.
+- A queued write applies against a stale base, or a stale write silently replaces newer content.
+- Keystrokes stop relaying to other clients during the hold.
+
+
 - integration, real PostgreSQL (`packages/backend/internal/machined/registry_integration_test.go`, new):
   - The machine credential for branch A can't call or publish for branch B.
   - A second connection from a new boot replaces the first.
   - An event delivered twice yields one row.
 
-- Contract: replay T-COL-10 golden frames against the Go RPC client and registry, first with T-COL-03f, then with T-COL-03a. Reserved document frames get typed unsupported in S2; capture calls flush first.
+- Contract: replay T-COL-03r golden frames against the Go RPC client and registry, first with T-COL-03f, then with T-COL-03a. Reserved document frames get typed unsupported in S2; capture calls flush first.
 - Integration, real daemon, Linux VM and host store: all original capture, wake, stale-write, branch-credential and newer-boot cases, plus init restart. Run C-DUR-04 capture kill points K3–K6. T-COL-04 runs the complete K1–K6 matrix once bursts exist.
 - Integration: reject unauthenticated relay and cross-branch actor envelopes (C-COL-04); run the C-COL-03 writer matrix with the real Go client.
 
@@ -50,7 +72,7 @@ Out:
 - [C-DUR-04](../checks/C-DUR-04.md): killing the daemon or the VM during a capture loses no acknowledged write and never moves the head ref to a commit the host store lacks.
 - [C-COL-03](../checks/C-COL-03.md): the mutation lock and freeze sequence lose no write from any writer.
 - [C-COL-04](../checks/C-COL-04.md): no path, special file or forged identity gets past the daemon's confinement.
-- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-10 golden-frame gate.
+- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-03r golden-frame gate.
 
 ## Risks and notes
 

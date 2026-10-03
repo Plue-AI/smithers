@@ -15,12 +15,12 @@ Automation: `packages/backend/internal/compose/member_revocation_integration_tes
   - an SSE ticket stream;
   - a workspace SSH session through `packages/backend/internal/ssh` (harness of `ssh/workspace_session_test.go`); SSH gateway sessions on `:2222` join this check when T-TRM-03 lands (S2);
   - an `/api/live` socket.
-- A owns T3, which has 5 `item_events` rows.
+- A owns T3, which has 5 `product_job_events` rows.
 
-T-APP-23 reruns revocation with real queued/running host turns; T-TRM-07 reruns it through kill_sessions and waits for populated 0; T-MCH-15 proves store deletion and awake-machine file removal, plus deletion before first session after wake. These downstream cases stay pending until consumers land; socket closure alone does not prove them. Preserve all approved member-bound run-sponsor revocation cases.
+T-APP-16 reruns revocation with real queued/running host turns; T-TRM-07 reruns it through kill_sessions and waits for populated 0; T-MCH-15 proves store deletion and awake-machine file removal, plus deletion before first session after wake. These downstream cases stay pending until consumers land; socket closure alone does not prove them. Preserve all approved member-bound run-sponsor revocation cases.
 
 ## Steps
-- Adopted T-ACC-06 boundary cases: Drop NOTIFY delivery to a separate consumer, then remove/suspend through production routes/jobs. Measure state-commit-to-stream-close and guest-parent/child termination at no more than 5 s. Inject event insert/NOTIFY failure before commit and assert member state, credential changes and events roll back with no fanout. Crash after commit and verify durable catch-up closes every transport and guest process
+- Adopted T-ACC-02 boundary cases: Drop NOTIFY delivery to a separate consumer, then remove/suspend through production routes/jobs. Measure state-commit-to-stream-close and guest-parent/child termination at no more than 5 s. Inject event insert/NOTIFY failure before commit and assert member state, credential changes and events roll back with no fanout. Crash after commit and verify durable catch-up closes every transport and guest process
 
 10. Suspend/remove A while persistent token cleanup is blocked: immediately call each run credential, then unblock cleanup and measure physical revocation from state commit. Restore A, take over a TODO and resume with a freshly minted O-sponsored run token. Force both serialized write/revocation orders with barriers.
 1. **Removal.** O calls `DELETE /api/members/A` and records the response time `t0`, then:

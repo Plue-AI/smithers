@@ -31,14 +31,14 @@ In:
   - a delete sets `gone{deleted, by}` and pauses editing; **Restore** (`file.restore-deleted`) rewrites the last document text;
   - a rename inside the working copy sets `gone{renamed, to, by}`; **Follow** (`file.follow-rename`) reopens the document at `to`.
 - `capture()` flush phase and safe-idle: every document flushed (§8.4.1, §8.4.3).
-- Rebase (§9.4.2): the document part of `rebase(onto)` and `return_to_item()`. Edits keep applying in memory while the lock holds saves; afterwards each open document reconciles from disk as one transaction attributed "Rebased onto Tk", keeping unsaved typing. T-STK-11 schedules it.
+- Rebase (§9.4.2): the document part of `rebase(onto)` and `return_to_item()`. Edits keep applying in memory while the lock holds saves; afterwards each open document reconciles from disk as one transaction attributed "Rebased onto Tk", keeping unsaved typing. T-STK-08 schedules it.
 - The first keystroke in a File card on a sleeping branch requests a `person` wake (§8.4.4). Until the machine is awake the card stays read-only.
 
 Out:
 - Wiki pages (T-COL-09) and the File card client (T-APP-14a).
 - Carets and selections (cut, mvp.md §6.8).
 - Per-entry Undo, command names and replaced-edit flags (§9.3.5–9.3.7 [D]).
-- Rebase scheduling (T-STK-08, which absorbed T-STK-11).
+- Rebase scheduling (T-STK-08, which absorbed T-STK-08).
 - Component boundary: inject watcher/session events and recorded versions using Linux fixtures; T-COL-08 integrates T-COL-04a’s production watcher. Consume T-COL-08b's document envelopes and saved/epoch schemas.
 
 ## Changes

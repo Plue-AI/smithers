@@ -19,7 +19,7 @@ In:
 Out:
 - Deciding when to sleep and which machine to release (T-MCH-06).
 - The capture RPC and the daemon (T-COL-03). Deleting the bash head loop in `packages/backend/internal/services/workspace_head.go:52-171` belongs with it (delta.md §4).
-- Asleep rebase on the host (T-STK-11).
+- Asleep rebase on the host (T-STK-08).
 
 ## Changes
 
@@ -31,6 +31,26 @@ Out:
 - `packages/backend/internal/services/workspace_mutation_authority_test.go:242-452`: assertions move from "a reader doesn't start the VM" to "nobody's read starts the VM".
 
 ## Tests
+
+C-MCH-03 (folded steps and assertions):
+- Capture a branch with committed retry.ts and uncommitted backoff.ts; read with owner session, member session and delegated CLI credentials. All return the captured bytes without waking it.
+1. Put the branch to sleep (capture, then stop). Record `workspaces.head_commit_id`, the ref `refs/smithers/branches/<id>/head`, and the runtime start counter.
+2. With each credential: list files, read `src/retry.ts` and `src/backoff.ts`, get the diff, and get activity through the HTTP API (the same calls the File, Diff and Branch cards make).
+3. Read the `branch:<id>` projection.
+4. Positive control: Alice opens a terminal on the branch.
+
+Pass when:
+- Step 1: the ref equals `head_commit_id`, and the captured tree contains `src/backoff.ts`.
+- Step 2: every call succeeds with content byte-equal to the captured tree, and the runtime start counter is unchanged (0 starts, 0 resumes) for all three credentials.
+- Step 3: the machine state is `asleep` throughout step 2, with no `waking` delta.
+- Step 4: a `person` admission request is created and the machine wakes, which proves the counter works.
+
+Fail when:
+- The owner's or a writer's read wakes the VM (the old `workspaceRuntimeFacetTarget` branch at `packages/backend/internal/services/workspace_facets.go:457-461`).
+- A read returns 409 "workspace is stopped" instead of the captured content.
+- `src/backoff.ts` is missing because the sleep stopped the VM without a final capture.
+- The diff is computed against `main` instead of the item's base.
+
 
 - integration (real PostgreSQL, real jj, fake runtime that counts starts): as owner, maintainer, member and a delegated CLI credential, read files, a file, diff and activity of an asleep branch. 0 runtime starts; content equals the captured commit. This is C-MCH-03.
 - integration (reference host, real microVM): write a file, then sleep within 100 ms; the file is in the captured ref (no 2 s/30 s loss as in research/workspaces-machines.md risk 3).

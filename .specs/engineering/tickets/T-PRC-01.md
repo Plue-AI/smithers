@@ -2,7 +2,6 @@
 
 Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3613](https://github.com/smithersai/smithers/issues/3613)
 Spec: spec.md §21.2 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-38 + smithers-22
-Ready: 2026-10-02 smithers-8a sha256:237526efe8d4
 
 ## Goal
 
@@ -34,6 +33,25 @@ Out:
 - `PACKAGE.ts` owns the generated `.github/workflows/drift.yml`: add //:ci there and regenerate the workflow; retain per-SHA non-cancelling concurrency. smithers-3f verifies the required-status setting on main after a clean per-SHA run.
 
 ## Tests
+
+C-PRC-01 (folded steps and assertions):
+1. Index a valid fixture, then rename a declared input without changing its declaration.
+2. Exercise file, paths, workflows, glob, brace-expansion and ignore-rule fixtures through `withTargetIndex`. Verify `Input.expandGlob` returns `[]` for a missing static prefix and `Input.digestFile` returns `undefined` for a missing file outside the TargetIndex check. Verify Actionlint consumes its declared workflow list.
+3. Attempt landing with stale workflow input, generated drift, tracked temporary-path leakage and a conflict marker.
+4. Resolve and execute all five target labels, including `//scripts:trackedHygiene`; the temporary-path fixture must fail that target. Run the gates in the invoking checkout's process for local landing and ubuntu-latest CI, with no install credentials.
+5. Refuse machine execution and assert zero push attempts. Read main required-status settings through the repository settings API and verify the literal per-SHA status name; generated YAML alone is insufficient.
+6. Land a clean fixture and inspect the per-SHA drift configuration and repository-settings read API. Verify the required context is `Per-commit drift` after a clean per-SHA run.
+
+Pass when:
+- The TargetIndex check rejects missing declarations with the absent path, target label and `metadata.sourceFile`; valid declarations pass. Input.ts, public planner semantics and Metadata exports remain unchanged. Errors do not require a PACKAGE.ts line. Actionlint consumes its declared workflow list.
+- Every drift failure prevents push; a clean fixture reaches the push seam after all five gates pass.
+- Drift includes //:ci, never cancels another SHA and requires `Per-commit drift` on main after a clean per-SHA run.
+- All five labels resolve. trackedHygiene rejects tracked temporary-path leakage. Local and CI gates run in the invoking checkout's process with no install credentials.
+
+Fail when:
+- A defective fixture reaches the push or close seam.
+- A valid fixture fails, or prose PASS claims replace observed output.
+
 
 - C-PRC-01 resolves and executes every label in the five-target set, including the declared trackedHygiene target. Run the production gates in local and ubuntu-latest fixture checkout processes with install credentials absent. A temporary-path fixture fails trackedHygiene and reaches no push; a clean fixture passes all five gates. Assert the literal required context `Per-commit drift` through the repository-settings read API; retain the clean per-SHA run before enabling enforcement.
 

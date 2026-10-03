@@ -38,6 +38,8 @@ Out:
   - On the plain-HTTP origin the toasts appear, no Allow action shows, no notification is raised or attempted, and the console has no error.
 
 ## Acceptance
+- [C-UI-03](../checks/C-UI-03.md): passes for this ticket’s phase at its stated layer.
+- [C-UI-13](../checks/C-UI-13.md): passes for this ticket’s phase at its stated layer.
 - The notifications spec passes in Chromium and WebKit on both origins.
 
 ## Risks and notes

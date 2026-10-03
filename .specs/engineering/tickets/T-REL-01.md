@@ -11,7 +11,7 @@ In:
 - One script per budget (C-PERF-01 to C-PERF-06) and a runner that runs the budgets whose features exist and names the ones it skipped.
 - Shared helpers: nearest-rank percentiles, a refusal below the stated sample size, the artifact writer.
 - Every artifact records commit, install version, the detected host profile (§8.2.1: memory, performance cores, free disk, macOS version, Hypervisor.framework) and the limits derived from it, never a Mac model name; the public origin used (plain-HTTP LAN or HTTPS proxy); the browser and version; the app agent's model (`agent:` setting, §11.5a, for C-PERF-01); and the clock each sample used.
-- Each run also copies its summary into the check's evidence directory, `.artifacts/checks/C-PERF-0n/<UTC timestamp>/`.
+- Each run also copies its summary into the check's evidence directory, `.artifacts/checks/C-PERF-01 through C-PERF-06/<UTC timestamp>/`.
 - `/api/install/metrics` (owner, §20.3) supplies the server-side latencies as a cross-check, never as the pass value.
 
 Out:

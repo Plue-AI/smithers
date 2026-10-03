@@ -38,12 +38,12 @@ Out:
 - integration, real inotify (`crates/smithers-machined/tests/watch.rs`, Linux runner or microVM): Maya alone runs a 12-file formatter → one burst by Maya; the same with Ben's terminal busy → one outside burst; each write emits `file_written` within 200 ms with the right `post_digest`; `node_modules/` and `target/` writes give no events; `mkdir d && touch d/x` is captured; `mv a b` gives `renamed` and an editor's temp-and-rename save gives `modified`; the daemon's own writes give no outside event; a forced `IN_Q_OVERFLOW` runs the resync (C-COL-05).
 - integration, real inotify and cgroups (`crates/smithers-machined/tests/versions.rs`, new): C-COL-05's overlap, actor-switch and drain-before-write cases; every entry's `before` and `after` equal the bytes each actor wrote.
 
-- Contract: the Rust fake host replays T-COL-10 golden event and ack frames; actual watcher events decode against those schemas, with post_digest on each file.
+- Contract: the Rust fake host replays T-COL-03r golden event and ack frames; actual watcher events decode against those schemas, with post_digest on each file.
 - Fault: C-DUR-04 K1–K3b component cases with durable versions refs and the Rust fake host.
 
 ## Acceptance
 
-- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-10 golden-frame gate.
+- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-03r golden-frame gate.
 - C-COL-05: Linux overlap, actor-switch, drain, metadata and overflow cases.
 - C-DUR-04: watcher-side K1–K3b evidence; full checks remain gated by T-COL-04.
 

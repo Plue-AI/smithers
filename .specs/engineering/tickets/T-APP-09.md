@@ -32,6 +32,7 @@ Out:
 - Unit (conformance): a card or toast that formats " via " or " for " itself fails the lint.
 
 ## Acceptance
+- [C-UI-13](../checks/C-UI-13.md): passes for this ticket’s phase at its stated layer.
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 - [C-J6-01](../checks/C-J6-01.md): actions Claude Code takes from Ben's branch terminal show "Claude Code for Ben" on the cards that record them.
 

@@ -8,14 +8,14 @@ Automation: to write, as a `smthrs test` target · Runs in: recorded manual (W0)
 - A GitHub test account that owns the organization `smithers-mvp-canary`, signed in on the Mac's browser. Scratch repository `smithers-mvp-canary/<date>` with squash merging allowed. No Smithers App exists for the organization.
 - No `SMITHERS_GITHUB_APP_*` variable in the launchd environment. The setup token printed by `smthrs host start` is at hand.
 
-- Pin localhost, http://lan-a:4000 and https://box.example origin/callback fixtures and the nine permissions reviewed in T-GH-12. Drive production setup/OAuth routes with real PostgreSQL; no runtime .specs reads or production-derived expectations. smithers-8a accepts these fixed fixtures.
+- Pin localhost, http://lan-a:4000 and https://box.example origin/callback fixtures and the nine permissions reviewed in T-GH-01. Drive production setup/OAuth routes with real PostgreSQL; no runtime .specs reads or production-derived expectations. smithers-8a accepts these fixed fixtures.
 
 Candidate Automation declaration (unapproved): W0: the disposable T-GH-01 form, recorded manually. S1: `apps/app/e2e/real/github-j10/app-manifest.spec.ts` (new), driving a signed-in GitHub profile · Runs in: recorded manual (W0), reference host (S1)
 
 Receipt: CI's own check run at the landed SHA, or a `smthrs test` run on the reference host, recorded through `scripts/check-run.mjs` (minimal-code synthesis ruling 3).
 
 ## Steps
-- Adopted T-GH-12 boundary cases: Use production setup/callback routes and independent GitHub request counts. Expired and claim-invalidated durable setup sessions, foreign/replayed state and invalid origin each make zero outbound exchanges. Race two starts, crash after durable CAS and around callback conversion/local commit, and assert one begin, single-use state and all-or-none sealed credentials/configuration/completion/projection; restart preserves done and prevents overwrites
+- Adopted T-GH-01 boundary cases: Use production setup/callback routes and independent GitHub request counts. Expired and claim-invalidated durable setup sessions, foreign/replayed state and invalid origin each make zero outbound exchanges. Race two starts, crash after durable CAS and around callback conversion/local commit, and assert one begin, single-use state and all-or-none sealed credentials/configuration/completion/projection; restart preserves done and prevents overwrites
 
 1. Record `lsof -nP -iTCP -sTCP:LISTEN` for the host processes and the configured origins.
 2. Open the token-backed setup session on http://localhost:4000, complete Address, choose the owning user or organization account, and start Create GitHub App. Do not select a repository yet.
@@ -29,7 +29,7 @@ Receipt: CI's own check run at the landed SHA, or a `smthrs test` run on the ref
 10. In a fresh unclaimed install, from a second Mac, call `POST /api/install/setup/app` at the LAN origin without the setup token.
 11. Delete the App on GitHub and start a fresh `$STATE`. Repeat steps 2–5 from the second Mac at the LAN origin with the setup URL printed for that listener (§5.1.0).
 
-W0 uses T-GH-01's disposable manifest form at localhost and plain-HTTP LAN origins. On a recorded refusal at either origin, exercise T-GH-13's complete manual fallback: App id/slug, PEM, client id/secret, webhook secret and confirmed OAuth callback registrations, validated with authenticated GET /app.
+W0 uses T-GH-01's disposable manifest form at localhost and plain-HTTP LAN origins. On a recorded refusal at either origin, exercise T-GH-01's complete manual fallback: App id/slug, PEM, client id/secret, webhook secret and confirmed OAuth callback registrations, validated with authenticated GET /app.
 
 - Boot the production Plue credential composition with env App id/private key, no env slug and githubfake unavailable. Record zero identity-validation requests during boot. At the first production installation credential caller, return an authenticated GET /app response with literal id/slug; assert the request JWT issuer, returned canonical identity and successful credential use. Call again and assert no second identity request. Restart and assert validation repeats only at the first caller. A poisoned env slug cannot override the authenticated response.
 - At that production caller, return GET /app failure, a response id different from the configured env id, and missing canonical identity. Assert refusal with no installation lookup or token-mint request. A later successful response supplies identity; a failed validation is not cached as success. Use independent request logs and literal fixtures.

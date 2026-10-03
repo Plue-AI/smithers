@@ -1,6 +1,6 @@
 # C-UI-13 Every View is mounted, and no replaced legacy card remains
 
-Proves: spec.md §14.2.1 (one card file per card; a View replaces its old card in the same commit) · Layer: unit · Stage: S1, S2, S3 · Tickets: T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-UI-11, T-UI-12, T-UI-13, T-UI-14
+Proves: spec.md §14.2.1 (one card file per card; a View replaces its old card in the same commit) · Layer: unit · Stage: S1, S2, S3 · Tickets: T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14
 Automation: `apps/app/lint/conformance/CardReachability.test.ts` (new, about 30 lines) in `//apps/app:unitTests` · Runs in: CI
 
 Rewritten by ruling 4 of the minimal-code synthesis (2026-10-03). Part A (per-card Container integration tests) and part B (the spec-transcribed inventory gate) are deleted. Revert `8903feed4` and `94adaa285`: `apps/app/checks/Inventory.test.ts`, `apps/app/src/mainview/inventory/inventory.json` and its stage parser go. Each wiring ticket proves its own dispatch, role gates and data in its own tests.

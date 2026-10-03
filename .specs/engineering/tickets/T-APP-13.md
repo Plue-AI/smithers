@@ -27,7 +27,7 @@ Out:
 ## Changes
 - `apps/app/src/mainview/cards/SecretsCard.tsx` stays the Secrets card file and the only mount point through `CardRenderers.tsx`: rows with name, scope and hosts; Add, Replace and Delete only for a maintainer or owner viewer; widening from main only to all branches carries a confirm step; Add and Replace send the value only in the write request. Deletes its own markup and the matching `SecretsCard.test.tsx` assertions (pair: SecretsView ↔ `SecretsCard` markup). T-APP-03 removes its `provider-accounts` family first.
 - `packages/rpc/src/SecretsCard.ts` (T-UI-18 adds back the props type): zod only for the `secrets` payload, which crosses the live socket.
-- `apps/app/src/mainview/state/seams/SecretsSeam.ts`: reads move to the `secrets` topic through `runtime/LiveChannel.ts` (T-APP-08); writes stay `PUT`/`DELETE /api/secrets` with `Idempotency-Key`.
+- `apps/app/src/mainview/state/seams/SecretsSeam.ts`: reads move to the `secrets` topic through `runtime/LiveChannel.ts` (T-COL-02); writes stay `PUT`/`DELETE /api/secrets` with `Idempotency-Key`.
 - `apps/app/src/mainview/flows/entries/secrets.ts`: scope words become "all branches" and "main only" (product words, §2); `/secrets` replaces the member doors of `secrets.list` (`:140`) and `secrets.set` (`:100`).
 - `packages/rpc/src/Cards.ts`: the `secrets` payload loses per-secret host counts. The kind keeps its name, so every pinned `secrets` row still decodes (card-kinds.md L4).
 
@@ -38,6 +38,7 @@ Out:
 - e2e: a maintainer adds a main-only secret on the card through `SecretsView`; a member sees its name and scope read-only, and no value appears in the DOM, the card payload or `GET /api/secrets`.
 
 ## Acceptance
+- [C-MCH-07](../checks/C-MCH-07.md): passes for this ticket’s phase at its stated layer.
 - [C-UI-13](../checks/C-UI-13.md): `SecretsView` is reachable from `CardRenderers`; the `SecretsCard.tsx` markup is deleted.
 
 ## Risks and notes

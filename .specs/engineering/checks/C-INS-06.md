@@ -4,46 +4,45 @@ Proves: mvp.md J1.1, §6.1 Install on a Mac, §11 stage 1 item 1 · spec.md §1.
 Automation: `packages/smithers/test/host-service.integration.test.ts` (new) drives the CLI and records timings · Runs in: reference host (every step); a macOS arm64 CI runner (every step except 5)
 
 ## Setup
-- The reference host with a clean macOS user that is an administrator, no `$STATE` and no `SMITHERS_*` variable. Remote Login is on, so steps can run over SSH with no GUI session.
+- The reference host with a clean macOS user , no `$STATE` and no `SMITHERS_*` variable. The installing user is logged in.
 - The T-INS-01 bundle built from a clean checkout at commit X (`smthrs build //apps/app:serverBundle`) into `<out>`, and the `smthrs` CLI from the installer archive of the same commit.
-- If T-INS-03 chose the LaunchAgent fallback, step 1 expects no `sudo`; configure the selected automatic-login path before step 5. C-SPK-06 proves only the agent boot/doctor alternative. Step 5 must prove automatic login after reboot.
 
 ## Steps
-10. Record launcher, backend, PostgreSQL and flow-host effective UIDs at initial service start and after restart. Invoke installation through sudo and record the original installing user plus LaunchDaemon UserName, without credential values.
+11. Record launcher, backend, PostgreSQL and flow-host effective UIDs at initial start and after restart.
 
-1. `smthrs host start --bundle <out>`. Answer the `sudo` prompt. Record every printed line and the time to `/readyz`.
+1. `smthrs host start --bundle <out>`. Record every printed line and time to `/readyz`; require no privilege prompt.
 2. Run step 1's command again. Record the backend pid before and after.
 3. `smthrs host status`.
 4. Open the printed setup URL in a browser on the Mac and exchange the token for a setup session.
-5. Reboot. For the LaunchDaemon, reach the login window and use SSH with `who` showing no console user to run `curl http://127.0.0.1:4000/readyz` and `smthrs host status`. For the LaunchAgent fallback, perform no manual GUI login; record the automatically logged-in installing user, then run the same readiness/status probes. Record boot plus doctor in the selected service context.
+5. Reboot, log in as the installing user, then probe `/readyz` and `smthrs host status`. Record boot and doctor in the LaunchAgent context.
 6. Log in. `kill -9` the backend process, then poll `/readyz` every second.
 7. `smthrs host stop`, and list processes under the bundle prefix. Then `smthrs host start --bundle <out>`, and reload the setup card from step 4.
 8. Copy the bundle to `<out2>` and run `smthrs host start --bundle <out2>`. Move `<out2>` away and run `smthrs host status`.
 9. Change one byte of one file in a third copy of the bundle and start with it.
 10. Before T-INS-06 lands, run the real host status command and require exit 0 for healthy processes with unavailable install telemetry omitted. With T-INS-04, invoke host start --bind --origin through the registered CLI. Disable the configured msb in a disposable bundle and require startup refusal with no repository process. A file absent from manifest.json must also refuse before plist mutation.
-- Inspect literal ProgramArguments for `--setup-handoff=socket`, stat `$STATE/run/host.sock`, and invoke host start before and after claim. Scan `$STATE/logs/*` plus the configured launchd stdout/stderr files after each start/restart.
+- Inspect literal ProgramArguments for `--setup-handoff=file`, stat `$STATE/run/setup-urls.json`, and invoke start before and after claim. Scan service logs after each start/restart.
 
 ## Pass when
-- Step 10: the original installing user, LaunchDaemon UserName and every recorded service effective UID match before and after restart. Sudo never changes service identity to root.
+- Step 11: every service effective UID equals the installing user before and after restart.
 
-- Service mode (T-INS-02/T-INS-08, smithers-b8): after setup, scan `$STATE/logs/` for both the first and the re-minted token (absent); `$STATE/run/host.sock` answers "already set up" after the claim.
-- Step 1: for the LaunchDaemon, exactly one `sudo` prompt and `launchctl print system/<label>` shows `UserName` = the installing administrator and the absolute bundled `bin/smithers-server`; for the LaunchAgent, no sudo and `launchctl print gui/<uid>/<label>` shows the installing user and that launcher path. Both reach `/readyz` within 60 s and print the loopback setup URL.
+- Service mode: neither initial nor rotated token occurs in logs; claim removes the handoff file and subsequent start prints "already set up".
+- Step 1: no privilege prompt; `launchctl print gui/<uid>/<label>` shows the absolute bundled launcher. `/readyz` answers within 60 s and start prints the loopback setup URL.
 - Step 2: no prompt, the same backend pid and the same setup URL (the token didn't rotate).
 - Step 3: exit 0, one healthy line per process, and the bundle path.
 - Step 4: the setup card opens a setup session.
-- Step 5: `/readyz` answers 200 and status reports doctor ready. The LaunchDaemon passes with no GUI session. The LaunchAgent passes only after the configured automatic login, without manual login. This step completes automatic-login evidence left unproven by C-SPK-06.
+- Step 5: after login, `/readyz` answers 200 and status reports doctor ready.
 - Step 6: launchd restarts the launcher, the backend and PostgreSQL return, and `/readyz` answers 200 within 30 s.
 - Step 7: after `stop`, no launcher, backend or PostgreSQL process remains; after `start`, the setup session and every setup step state from step 4 are unchanged.
 - Step 8: after one restart the plist points at `<out2>`; with `<out2>` gone, `status` exits non-zero and names the missing path.
 - Step 9: refused before any plist change, naming the file whose hash differs.
 - Expected plist fields, URL prefixes, exit codes and timing limits are committed literal fixtures; no test reads spec Markdown or derives expected results from production helpers.
-- ProgramArguments includes `--setup-handoff=socket`; host.sock is mode 0600 and is the only setup-output source. No log contains `setup?token=` or setup token bytes. After claim host start prints "already set up"; the host group preserves up/status.
+- ProgramArguments includes `--setup-handoff=file`; the handoff file is mode 0600, owned by the installing user, and absent after claim. No log contains setup token bytes; after claim start prints "already set up".
 
 ## Fail when
 - A repeated start launches a second backend or PostgreSQL, or changes the setup token.
 - Any Smithers process runs as root.
-- The selected LaunchDaemon answers only after GUI login, or the selected LaunchAgent needs manual login instead of the configured automatic login.
+- The service requires privilege escalation or runs outside the installing user’s GUI domain.
 - The install needs a Homebrew formula, `pnpm dev` or a file placed by hand.
 
 ## Evidence
-`.artifacts/checks/C-INS-06/<UTC timestamp>/`: timestamped transcript, literal selected plist, exact bootstrap and `launchctl print` commands/output, process lists per step, `/readyz` timings, status output, bundle manifest hash and commit X. Record administrator identity, macOS version, `/opt/homebrew` spike prerequisite and sudo count. For the fallback, record reboot and automatic-login evidence without manual login, plus service-context boot and doctor results.
+`.artifacts/checks/C-INS-06/<UTC timestamp>/`: timestamped transcript, literal LaunchAgent plist, GUI bootstrap/print output, process UIDs, readiness timings, status, manifest hash, commit X and post-login boot/doctor results.

@@ -23,7 +23,7 @@ In (app paths under `apps/app/src/mainview/`; backend paths under `packages/back
   - `repos.import*` is Hide: setup's mirror step uses it, with no member door. Its `repo-import` card is replaced by Setup's Source ready row (T-APP-03).
   - `smthrs org *` (18 `Definitions.ts` entries) stays out of the MVP docs and skill (B.5).
   - `/api/orgs*` stays 404 on the install through `RejectTenantProvisioning` (`middleware/single_owner.go:21`). Rename the file to `tenant_routes.go` when T-ACC-01 removes the single-owner wording.
-- **Triggers** (§11.7 [D], §6.3.1): app triggers.* (flows/entries/triggers.ts:76–186) and cards/TriggersCard.tsx have no member door; smthrs triggers (packages/smithers/src/operator/Triggers.ts) stays out of MVP discovery/docs/skills. Unmount the seven user-management operations in Approved SG-09 requirements above from install mode only, with no resume alias. Plue retains its operations; the internal registrar, engine and event dispatch stay intact. Retained worker routes require hidden system grants, not user-management authority (T-ACC-03, transitively supplied through T-CAT-02; C-ACC-01). smithers-3f approves this split before start.
+- **Triggers** (§11.7 [D], §6.3.1): app triggers.* (flows/entries/triggers.ts:76–186) and cards/TriggersCard.tsx have no member door; smthrs triggers (packages/smithers/src/operator/Triggers.ts) stays out of MVP discovery/docs/skills. Unmount the seven user-management operations in Approved SG-09 requirements above from install mode only, with no resume alias. Plue retains its operations; the internal registrar, engine and event dispatch stay intact. Retained worker routes require hidden system grants, not user-management authority (T-ACC-03, transitively supplied through T-CAT-01; C-ACC-01). smithers-3f approves this split before start.
 - **Hidden developer tools** (§8 Hide): `sync.ops.*` and its `sync-ops` card have no member door.
 - **Other [D] rows with a door today** (Appendix B.2 Defer): `box.egress`, `box.services`, `box.images` and `egress.*` (the Machine view, whose `environment-images` card stays live); `runs.signal` (signals by hand); `prs.review` and `review.request|unrequest|since-mine|done|ack|reopen` (in-app review); `issue.repro|poc|add-flow|flows` (maintainer release, mvp.md §14). Each is `hidden`.
 - `cuts.json` (T-CUT-01) gets a `deferred` section listing each hidden surface above. C-CUT-01 asserts that each is absent from every door and still present in source.
@@ -42,7 +42,7 @@ Out:
   - the shell slot that shows the anonymous-ceiling paywall (the card stays in source);
   - any triggers field on the Flow card (§14.3 lists none).
 - docs/api/openapi/*.yaml marks the listed trigger-management operations and every billing operation, including org billing, with x-composition: plue; re-bundle with scripts/openapi-bundle.mjs (C-ACC-01, C-CUT-01).
-- `packages/smithers/src/Cli.ts`: `tui`, `triggers` and `org` join the hidden list (mechanism from T-CAT-02), so skill sync and the generated MVP command page exclude them.
+- `packages/smithers/src/Cli.ts`: `tui`, `triggers` and `org` join the hidden list (mechanism from T-CAT-01), so skill sync and the generated MVP command page exclude them.
 - `apps/app/e2e/real/coverage/deferrals/{billing,triggers,repo,repos}.ts`: mark the reason "deferred: mvp.md §8/§16" so the real-e2e gate expects no door.
 - The `apps/tui-docs` deletion and its reference removals listed in Scope; `cuts.json` lists it as a `cut` entry with its docs paths.
 - Docs: launch docs and the quickstart (T-DOC-01) link no TUI docs site and no billing. Run `pnpm docs:check`.
@@ -65,7 +65,7 @@ Out:
 - Before start, smithers-b8 approves app/CLI visibility and the TUI docs deletion; smithers-06 approves visual shell removals; smithers-38 approves catalog/card-schema retention; smithers-3f approves billing/tenant composition, CI reference removal and security preconditions. Will decides any change to Cut/Defer/Hide policy; smithers-8a resolves spec conflicts. Deferred runtime code stays intact.
 
 ## Ready checklist
-1. Dependencies: T-CAT-01 supplies visibility; T-CAT-02 supplies CLI/skill hiding; T-CUT-01 supplies cuts.json; T-ACC-01 supplies install membership/composition and removes single-owner wording before the middleware rename. Existing billing capability gates and retained runtime code remain in use.
+1. Dependencies: T-CAT-01 supplies visibility; T-CAT-01 supplies CLI/skill hiding; T-CUT-01 supplies cuts.json; T-ACC-01 supplies install membership/composition and removes single-owner wording before the middleware rename. Existing billing capability gates and retained runtime code remain in use.
 2. Exclusions: deferred code and live kinds, Plue billing/ACL, published hidden CLI invocation, trigger engine, TUI app, visual redesign and host execution are explicit; browser notifications remain T-APP-18's S2 work.
 3. Tests: pinned MvpCuts.ts expectations drive production app discovery/turn, CLI serve, billing/tenant HTTP and docs-lane command assertions; build and retained test targets prove deferred code remains usable (C-CUT-01).
 4. Decisions: smithers-b8 approves app/CLI hiding and docs deletion; smithers-06 approves visual removals; smithers-38 approves TS schemas/catalog; smithers-3f approves composition/CI/security; Will decides policy changes and smithers-8a resolves spec conflicts.

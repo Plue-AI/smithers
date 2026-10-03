@@ -1,6 +1,6 @@
 # T-APP-01 Home card on the `home` topic
 
-Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07 · Unblocks T-APP-08, T-MNT-01, T-REL-01, T-REL-02 · Issue: [#3496](https://github.com/smithersai/smithers/issues/3496)
+Stage S1 · Size M · Depends on T-COL-02, T-STK-01, T-STK-05, T-APP-16, T-APP-07, T-APP-22, T-APP-02, T-APP-04, T-UI-06, T-GH-03, T-GH-07 · Unblocks T-MNT-01, T-REL-01, T-REL-02 · Issue: [#3496](https://github.com/smithersai/smithers/issues/3496)
 Spec: spec.md §14.1, §14.2, §14.3 (Home), §14.5.2, §7.2, §4.1, §4.1.1, §4.1.2a, §4.4, §6.1.2, §8.2.1, §10.3, §10.6.1, §10.6.4, §12.3, §12.6, §15.1.5, §19.3 · Product: mvp.md J4, §6.4 Home card, §4.1, §4.2, M-08, M-14
 
 ## Goal
@@ -19,13 +19,13 @@ In:
 - **New TODO** runs `/todo.new` with no input, so the form law opens the Draft card (T-APP-02).
 
 Out:
-- TODO and Draft cards (T-APP-02); Confirm (T-APP-04); the edge map and timeline (T-APP-07); the per-resource SSE route deletions (T-APP-08).
+- TODO and Draft cards (T-APP-02); Confirm (T-APP-04); the edge map and timeline (T-APP-07); the per-resource SSE route deletions (T-COL-02).
 - The "incoming" filter (maintainer release); browser notifications (T-APP-18); order and merge semantics (T-STK-02, T-STK-04); sync health and attention writers (T-GH-07, T-GH-03).
 - The S2 `parallel` stepper (T-STK-03), live presence and Branch navigation, S3 learning, TUI changes and View/CSS changes (T-UI-06).
 
 ## Changes
-- Home data, taken directly (absorbs T-APP-08's home builder): extend the existing stack read `packages/backend/internal/services/mythical_view.go`, served at `GET …/mythical` (`compose/router.go:1128`), to return the `HomeCard` payload. It is one pure function over facts committed in one transaction: T-STK-01's items, T-GH-07's sync health and attention, T-INS-06's capacity and background runs minus dismissals. Change notices reach the client over `/api/live` (T-COL-02, the WebSocket adapter over `sse.Broker`). No topic decoder, fixture, golden or second builder.
-- `background_dismissals` (§3) migration and `POST /api/runs/{id} {retry|dismiss}` (§6.3) with `Idempotency-Key`. Existing code considered: `POST …/mythical/items/{id}/retry` (`compose/router.go:1133`) retries stack items, not flow runs. Retry admits the failed run's flow, digest and input through T-FLW-01 on a machine; Dismiss writes one row.
+- Home data, taken directly (absorbs T-COL-02's home builder): extend the existing stack read `packages/backend/internal/services/mythical_view.go`, served at `GET …/mythical` (`compose/router.go:1128`), to return the `HomeCard` payload. It is one pure function over facts committed in one transaction: T-STK-01's items, T-GH-07's sync health and attention, T-INS-06's capacity and background runs minus dismissals. Change notices reach the client over `/api/live` (T-COL-02, the WebSocket adapter over `sse.Broker`). No topic decoder, fixture, golden or second builder.
+- Add dismissed_by and dismissed_at to the existing run record. `POST /api/runs/{id} {retry|dismiss}` uses Idempotency-Key; Retry admits the pinned flow/input in a machine, Dismiss updates that run once. No dismissal table.
 - `cards/HomeContainer.tsx` (landed): reads the Home payload, re-reads it on each `/api/live` notice, ticks a 1 s clock, maps role and view state to `HomeView` props and binds actions with `flows/cardActions.ts`. The filter and ⋯ menu are `onView` patches; last look writes `PUT /api/conversations/main/view-state`. `cards/CardRenderers.tsx` maps kind `home` to it.
 - `packages/rpc/src/Cards.ts`: kind `home {repo}`; `stack` and `factory.home` move to the legacy decoder (T-APP-22).
 - `flows/entries/history.ts`: `history.show` becomes `/stack`; add `/stack.move`, `background.retry` and `background.dismiss`; hide `history.bootstrap`, `history.backfill` and `history.parallel`.

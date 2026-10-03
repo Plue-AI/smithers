@@ -17,7 +17,7 @@ Design builds Views and visual components. Engineering uses the existing card fi
 - A View never decides who may act. The container passes `actions[]` already filtered for the viewer, and the View renders them in order. A missing action means no button. A non-button gesture (hover, go to definition, a docs link) uses the action in `gestures`; a missing one means the gesture does nothing.
 - A View handler does exactly one of three things (frontend lead, smithers-b8, adopted by the tech lead 2026-10-02). `flows/parity.test.ts` fails any other handler:
   1. It calls `onAction(action.tag, {...action.args, ...input})` with an action from `actions[]`, `gestures` or a row's own `actions`, and the control carries `data-flow={action.tag}`.
-  2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `member_conversation_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
+  2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `collaborators.view_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
   3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-UI-01 exports it).
 - Tags are opaque to the View. T-APP-03 merges `CardActions.ts` and `InstallCardActions.ts` into `flows/cardActions.ts` and deletes both extra layers in the same change.
 - Views live in `apps/app/src/mainview/cards/views/*View.tsx`. The existing card file binds `actions[]` and `gestures` through `flows/cardActions.ts` to `flowAction`. The View-seam rules also cover the branch tree, entry rows, Context line, Earlier archive, toasts, edge map and timeline. Their tickets update parity scans in the same change.
@@ -37,17 +37,17 @@ Stage 1 is on the critical path. Within a stage, design builds in J1 order, then
 | 1 | [T-UI-01](tickets/T-UI-01.md) | `ActorChip`, `StateWord`, `Tone` primitives | T-APP-09 | S1 | every card |
 | 2 | [T-UI-02](tickets/T-UI-02.md) | `SetupView`, `SettingsView` | T-APP-03, T-FLW-12 | S1 | J1.2–J1.4 |
 | 3 | [T-UI-07](tickets/T-UI-07.md) | Conversation shell: `BranchTree`, `EntryRow`, `ContextLine`, Earlier archive | T-APP-16, T-APP-17 | S1 | J1.5, the first question |
-| 4 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-08 | S1 | J1.5: `main`'s conversation opens on it |
-| 5 | [T-UI-11](tickets/T-UI-11.md) | File on the existing `CodeFileView`; `DiffView` folded into `DiffSurface` | T-APP-15 | S1 | J1.5: the answer's file cards |
+| 4 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-07 | S1 | J1.5: `main`'s conversation opens on it |
+| 5 | [T-APP-15](tickets/T-APP-15.md) | File on the existing `CodeFileView`; `DiffView` folded into `DiffSurface` | T-APP-15 | S1 | J1.5: the answer's file cards |
 | 6 | [T-UI-03](tickets/T-UI-03.md) | `DraftView` | T-APP-02 | S1 | J1.6, J2.2 |
-| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: states, question and approval forms, failure, evidence, PR, merge and repair controls (absorbs T-UI-23) | T-APP-02, T-STK-08, T-MCH-08, T-GH-06 | S1 | J1.6–J1.7; repair: J7, J10.3 |
+| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: states, question and approval forms, failure, evidence, PR, merge and repair controls (absorbs T-UI-04) | T-APP-02, T-STK-08, T-MCH-08, T-GH-06 | S1 | J1.6–J1.7; repair: J7, J10.3 |
 | 8 | [T-UI-08](tickets/T-UI-08.md) | `ToastStack`, `EdgeMap`, `Timeline` (Allow notifications variant at S2) | T-APP-07, T-APP-18 | S1 | J1.6: background progress |
 | 9 | [T-UI-05](tickets/T-UI-05.md) | `ConfirmView` (`one_click`, `review_merge`) | T-APP-04 | S1 | J1.7 by an agent, J6 |
 | 10 | [T-UI-09](tickets/T-UI-09.md) | `MembersView` | T-APP-06 | S1 | J1.8 |
 | 11 | [T-UI-14](tickets/T-UI-14.md) | `CommandsView` (`/help`) | T-UI-14 (`CommandsContainer.tsx`), T-CAT-01 | S1 | any journey |
 | 12 | [T-UI-10](tickets/T-UI-10.md) | `FlowView` | T-APP-05 | S1 | J5 |
-| 13 | [T-UI-12](tickets/T-UI-12.md) | Run monitor and Inspect: `RunTraceCard.tsx` reshaped in place | T-FLW-07 | S1 | J11 |
-| 14 | [T-UI-13](tickets/T-UI-13.md) | Model roles: restored `ModelCards.tsx` slice; `AgentCards.tsx` | T-FLW-08 | S1 | J11 |
+| 13 | [T-FLW-07](tickets/T-FLW-07.md) | Run monitor and Inspect: `RunTraceCard.tsx` reshaped in place | T-FLW-07 | S1 | J11 |
+| 14 | [T-FLW-08](tickets/T-FLW-08.md) | Model roles: restored `ModelCards.tsx` slice; `AgentCards.tsx` | T-FLW-08 | S1 | J11 |
 | 15 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
 | 16 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
 | 17 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
@@ -440,9 +440,9 @@ type FlowModel = {
 // buttons: Source, Plan, Run, Edit
 ```
 
-### T-UI-11 File (read-only) and Diff
+### T-APP-15 File (read-only) and Diff
 
-The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*`, `yjs` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
+The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
 
 Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
 
@@ -484,12 +484,12 @@ type DiffModel = {
 // preserve op/text and file paths, with /dev/null for added/deleted sides. The View test pins literal patches.
 ```
 
-### T-UI-12 Run monitor and Inspect (`run:<id>` topic)
+### T-FLW-07 Run monitor and Inspect (`run:<id>` topic)
 
 ```ts
 type PhaseTone = "live" | "ok" | "fail" | "thrash" | "wait"
 // Run is the UI name. No new RunView: RunTraceCard.tsx and RunTracePhaseStrip.tsx are reshaped in place to
-// take these props, and RunsCards.tsx folds into the same card (T-UI-12). Props are TypeScript types.
+// take these props, and RunsCards.tsx folds into the same card (T-FLW-07). Props are TypeScript types.
 type RunModel = {
   id: string; flow: string; version: string; title: string
   todo?: number; branch?: string
@@ -534,7 +534,7 @@ type RunViewProps = CardProps<RunModel, RunView> & { custom?: React.ReactNode }
 // and placed by the View as the "View" tab. buttons: Inspect, Steer, Stop, Retry (interrupted)
 ```
 
-### T-UI-13 Agent and model roles
+### T-FLW-08 Agent and model roles
 
 No new AgentView. Restore the model-assignment slice of `cards/ModelCards.tsx` and `flows/entries/model.ts` from `39e43c0f^`, without the laboratory, and delete `views/SettingsModels.tsx` (786f9ac5) as its duplicate (ruling 5). The Agent card stays `cards/AgentCards.tsx`. Use Decisions as the third-role UI label. Keep the internal role id jev.
 

@@ -38,6 +38,7 @@ The Members cases in `apps/app/src/mainview/cards/views/Views.test.tsx` cover:
 - Add, Role and Remove dispatch their literal tags and username payloads once; omitted actions render no control; disabled ones do not dispatch.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - The tests above pass in CI at the landed SHA. `MembersActionView.tsx` and `styles/views/members.css` are gone.
 

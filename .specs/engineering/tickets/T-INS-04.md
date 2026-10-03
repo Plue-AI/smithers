@@ -1,6 +1,6 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-STK-01 · Unblocks T-COL-02, T-GH-03, T-GH-01, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
+Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03 · Unblocks T-COL-02, T-GH-01, T-GH-03, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 
 ## Goal
@@ -30,11 +30,12 @@ Out:
 - Webhooks through a public URL (§12.2.4, optional). The SSH gateway itself (T-TRM-03). Setup steps (T-INS-06). The Settings card (T-APP-03). The shared clipboard export and fallback implementation belong to T-UI-01 (follow-up), not this ticket. Check: C-INS-01.
 
 ## Changes
+- Reuse `middleware/effective_origin.go` at browser-auth and `routes/workspace_terminal.go:104–117` call sites; live upgrades use that same resolver. Check: C-INS-03.
 
 - Derive scheme from each origin string. Origin mismatch returns HTTP 403 with the §6.2.3 envelope, class `permission`, code `origin`; a missing or invalid CSRF token returns HTTP 403, class `permission`, code `csrf`. Document both in OpenAPI. Check: C-INS-03.
-- `packages/backend/internal/services/serving.go` (new): settings validation (absolute origin, no path, http or https), read and write of the `bind` and `public_origins` keys in `install_settings` (table from the first migration that needs it, after `packages/backend/db/product/migrations/0103_retire_chat_provider_dispatch.sql`), `public_origins` is a JSON array of validated origins shared with T-ACC-07 (checks C-INS-03, C-SEC-04), the added listener for 4000 and 2222 at start and on change, and a `projection_events` row on the `install` topic per change (§3.1, §7.2).
-- `packages/backend/internal/routes/install.go` (new; T-INS-06 extends it): `GET /api/install` `address {listen: mac|network, bind, origins: string[]}` (the §14.3 Setup/Settings field) and `PUT /api/install` for settings (owner).
-- `packages/backend/internal/middleware/effective_origin.go` (new): the §16.3.3 resolver, run before authentication. It reads the socket peer before `RealIP` (`middleware/real_ip.go`) rewrites it. In the install composition it replaces `AllowedOrigins` (`config.go:244-251`) and the single-origin `CanonicalBrowserAuthOrigin` (`middleware/browser_auth_origin.go`, mounted at `compose/router.go:273`); Plue's composition keeps both.
+- Publish committed install changes through the existing broker and source cursor; no projection table. Check: C-INS-03.
+- `packages/backend/internal/routes/github_app_setup.go` (new; T-INS-06 extends it): `GET /api/install` `address {listen: mac|network, bind, origins: string[]}` (the §14.3 Setup/Settings field) and `PUT /api/install` for settings (owner).
+- `packages/backend/internal/middleware/effective_origin.go` (existing): the §16.3.3 resolver, run before authentication. It reads the socket peer before `RealIP` (`middleware/real_ip.go`) rewrites it. In the install composition it replaces `AllowedOrigins` (`config.go:244-251`) and the single-origin `CanonicalBrowserAuthOrigin` (`middleware/browser_auth_origin.go`, mounted at `compose/router.go:273`); Plue's composition keeps both.
 - Every cookie writer reads the effective origin instead of the global `AuthConfig.CookieSecure` (`config.go:359`; `routes/auth.go:94-95, 225-226, 282, 290, 297, 308, 330, 335-337, 366, 398, 403, 424, 440, 445-446`; `middleware/auth.go:126`). The OAuth client builds `redirect_uri` per request instead of from the one `GitHubRedirectURL` (`compose/runtime_helpers.go:429`), and `config/validation.go:112` stops requiring that setting in install mode. The behavior asserted in `routes/auth_helpers_test.go:67-125` moves to per-origin cases. The launcher no longer forces `SMITHERS_AUTH_COOKIE_SECURE`.
 - WebSocket upgrade origin check against the effective origin, for `ws://` and `wss://` (T-COL-02 consumes it).
 - `apps/app/src/mainview/randomId.ts` (new): RFC 4122 version 4 from `getRandomValues`; every `crypto.randomUUID()` under `apps/app/src` moves to it.
@@ -44,6 +45,39 @@ Out:
 - `docs/api/openapi/install.yaml` (new), referenced from `docs/api/openapi/_root.yaml`; `packages/backend/internal/compose/openapi_conformance_test.go:220` passes; regenerate `packages/backend/apiclient/client.gen.go`.
 
 ## Tests
+
+C-INS-03 (folded steps and assertions):
+1. As the member and as the delegated credential, `PUT /api/install` with a new bind and origin.
+2. As the owner, `PUT` invalid values: a relative origin, an origin with a path, `ftp://h`, an unparsable bind, and the pair `http://box` and `https://box`.
+3. As the owner, `PUT` bind `0.0.0.0` and origins `http://lan-a:4000`, `https://box.example`. Record the backend process id.
+4. Without restarting, for each known origin O (`http://lan-a:4000`, `https://box.example` and the loopback origin): send a cookie-authenticated `POST` and a WebSocket upgrade to `/api/live` with `Host` and `Origin` from O. Then send: `Host` from `http://lan-a:4000` with `Origin: https://box.example`; `Origin: http://evil.example`; `Host: evil.example`; the loopback `Host` from the non-loopback interface; `X-Forwarded-Host: box.example` from a loopback client; and `Host: lan-a:4000` with `X-Forwarded-Host: box.example` and `X-Forwarded-Proto: https` from a non-loopback client.
+5. At each known origin: start GitHub sign-in and read `redirect_uri`, finish the callback, refresh the session, open and reconnect `/api/live`, and sign out, reading every `Set-Cookie`. Then start sign-in at `http://127.0.0.1:<port>`, and finish a callback whose state cookie was set on another origin.
+6. Read the Branch card model for any branch (or the SSH line field of `GET /api/install`).
+7. Connect to port 4000 (and 2222 when the SSH gateway exists) through the runner's non-loopback interface address and through loopback, once before step 3 and once after.
+8. `PUT` origins `https://box.example` only; repeat step 4 for `http://lan-a:4000`.
+9. Restart the backend; `GET /api/install`.
+10. On a second, empty database with bind `0.0.0.0` and origin `http://lan-a:4000` seeded the way `smthrs host start --bind --origin` seeds them, and no owner: `GET /api/install` at `http://lan-a:4000` without a setup session, then after exchanging the token there.
+
+Pass when:
+- Pin Address {listen: mac|network, bind, origins: string[]} and scheme derived from origin strings. Assert Origin and CSRF refusals are 403 permission/origin and permission/csrf with no mutation.
+- Step 1: 403 for both; settings unchanged.
+- Step 2: each returns a typed `user` error naming the field; settings unchanged.
+- Step 3: 200; one `install_settings` change and one `source event` row on `install` per write; the process id never changes during steps 3 to 8.
+- Step 4: each matched request is accepted. The mismatched `Origin` and `evil.example` get 403; `Host: evil.example` and the loopback `Host` from the interface get 421 `unknown_origin`; the loopback client's `X-Forwarded-Host` resolves to `https://box.example`; the non-loopback client's forwarding headers are ignored, so its effective origin stays `http://lan-a:4000`.
+- Step 5: `redirect_uri` is `<O>/api/auth/github/callback` at each origin, and the `127.0.0.1` start first redirects to the `localhost` origin. Every cookie is host-only and `SameSite=Lax`, with `Secure` on `https://box.example` only. Sign-in, refresh, reconnect and sign-out succeed at each origin; the cross-origin callback is refused.
+- Step 6: the SSH line is `ssh -p 2222 <branch>@lan-a` (the first origin's host); with origins empty it uses `localhost`.
+- Step 7: the interface address answers; loopback still answers. Before step 3 the interface address was refused.
+- Step 8: `http://lan-a:4000` is refused on the next request.
+- After step 3, `GET /api/install` carries the one-line fix for each configured origin missing from the App's recorded callback URLs, and for no other origin.
+- Step 9: settings survive the restart.
+- Step 10: 403 without a setup session; 200 with it, on the LAN origin as on loopback (§5.1.0).
+
+Fail when:
+- A change needs a restart to reach CORS, cookies or the SSH line.
+- The cookie scheme follows a client header (`X-Forwarded-Proto`) instead of the configured origin, or a non-loopback peer sets the host through `X-Forwarded-Host`.
+- The loopback listener closes when another bind is set, locking the owner out on the Mac.
+- A removed origin keeps working for an open WebSocket beyond its next reconnect.
+
 
 - C-INS-03 asserts literal Address JSON and `403 permission/origin` and `403 permission/csrf` envelopes through the production routes, with no setting mutation on refusal.
 - Boundary: `packages/backend/internal/compose/serving_integration_test.go` (new, C-INS-03) sends requests through the composed install router, including effective-origin middleware before authentication, and changes real listeners through `PUT /api/install`. `packages/smithers/test/host-service.integration.test.ts` invokes the registered `host start --bind --origin` flags. Literal fixtures supply origins, cookie attributes, redirect URIs, status codes and clipboard/slug golden values; no oracle reads spec Markdown or production helpers. The real live-channel upgrade cases run when T-COL-02 consumes this middleware; they are not replaced by a test-only upgrade route.
@@ -63,6 +97,7 @@ Out:
 - [C-INS-03](../checks/C-INS-03.md): bind address and public origins are owner settings, applied without a restart and reflected in CORS, cookies and the SSH line.
 
 ## Risks and notes
+- Activation with T-STK-01: install_settings and effective-origin resolution already exist; stack projections are consumer wiring. Missing providers refuse; joint acceptance gates enabling the path.
 - Decisions before start: smithers-3f approves listener replacement, middleware ordering and the install-only composition; smithers-b8 approves flags and OpenAPI; smithers-38 approves the UUID/clipboard/crypto library seams; smithers-06 approves any changed visible clipboard failure copy. smithers-8a accepts cross-owner seams. Will decides any change to §16.3 origin policy, not the implementer.
 - Security: this ticket executes no repository code. Serving changes preserve T-INS-02’s microVM-only launcher (§1.3, M-29); no public listener or clipboard fallback grants host execution. smithers-3f reviews socket-peer trust, CSRF and owner authorization (C-INS-03).
 - T-INS-08 must land before this ticket adds host flags. T-ACC-03 supplies owner-only authorization and T-STK-01 supplies the transactional projection writer. T-COL-02 consumes the origin guard and must prove it on its actual live-channel upgrade; T-TRM-03 consumes the shared serving setting for its real SSH listener. These downstream transports are not prerequisites to the HTTP slice.

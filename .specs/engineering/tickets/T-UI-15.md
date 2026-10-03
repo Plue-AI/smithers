@@ -26,15 +26,14 @@ Out:
 
 - Branch card and rebase freeze.
 - `apps/app/src/mainview/cards/views/BranchView.tsx` and CSS, or `@smthrs/ui` for shared primitives. Every handler is one of the three kinds ui-components.md Rules allows: `onAction` with `data-flow`, `onView`, or local state.
-- `apps/app/src/mainview/cards/views/BranchView.stories.tsx`: one story per state, with literal expected strings and actions.
 
 ## Tests
 
-- unit (`cards/views/Views.test.tsx` over `*View.stories.tsx`): each story renders in both themes with no console error and shows its literal expected strings; each press calls `onAction` with its literal tag and arguments, or `onView` with its literal patch, once; a story with its first action removed shows no control for it. The View-seam rule (`flows/parity.test.ts`) passes on the View's file.
 - Playwright (`view-stories.spec.ts`): in both themes, no overflow at 390 px and no serious or critical axe-core violation.
 - copy: T-CAT-01's term-list test renders this ticket's stories. No test reads `.specs/`.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - Copy review: the design reviewer reads every story screenshot at 1,440 px and 390 px, light and dark, against spec §14.6b, and records approve or fix per screen in this ticket’s issue. The wiring ticket's own checks prove the card end to end.
 

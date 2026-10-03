@@ -26,9 +26,30 @@ Out:
 - `packages/backend/internal/services/workspace_disk_reclaim.go:19-95` (`defaultAgentWorkspaceDiskReclaimAfter`, `reclaimAgentWorkspaceDisk`) and `packages/backend/internal/db/workspace_disk_reclaim_ext.go`: the `kind=agent` 24 h reclaim has no rows after T-MCH-04, so delete it with its tests (`workspace_disk_reclaim_test.go`).
 - `packages/backend/internal/services/workspace_abandon_reaper.go`: lease-lapse deletion never applies to branch machines. Keep it for any non-branch workspace that remains, or delete it if none remains.
 - `packages/backend/internal/services/workspace_lifecycle.go:219` `destroyWorkspace`: refuses a branch machine unless called by the cleanup job with a passing decision. `deleteWorkspaceRefs` (`workspace_source.go:75`) keeps the branch head ref.
-- `packages/backend/db/product/queries/machine_cleanup.sql` (new): candidates joined to `todos.state` and `branches.archived_at`.
+- `packages/backend/db/product/queries/machine_cleanup.sql` (new): candidates joined to `mythical_items.state` and `branches.archived_at`.
 
 ## Tests
+
+C-MCH-05 (folded steps and assertions):
+- Run cases a/i after 24 h: merged or archived scratch, captured and no sessions; remove VM/disk. Retain b failed capture, c post-capture write, d terminal, e SSH, f live service, g dropped at 23 h 59 m, and h in-review after 30 d idle. Preserve all captured objects and evidence.
+1. Run the cleanup job once at the case's age.
+2. For each case, record whether the VM and disk were removed and `workspaces.state`.
+3. For case a: read activity, attempts and evidence for the TODO; `git cat-file -e <captured commit>` in the host store; read the branch head ref.
+4. In the policy suite advance case g past 24 h and run cleanup before testing reopen. In the real-microVM suite create a dropped TODO with distinct tracked and untracked files plus a binary file, capture it, record each path’s bytes and digest, and settle it with no sessions. Advance the clock to 24 h plus 1 min, run the production cleanup job, and verify the original runtime and disk path are absent. Verify captured commit, tree, blobs, branch head, activity, attempts and evidence remain in the host store. At 7 days minus 1 h reopen through the normal PR-reopen path, admit a fresh real microVM reconstructed from the captured head, and compare every recorded path byte for byte. Never reuse the old disk or preseed the new working copy.
+5. Kill the host process between marking case i `archived` and removing its disk. Restart and run the job.
+
+Pass when:
+- Step 2: only a and i are removed. b, c, d, e, f, g and h keep their VM and disk.
+- Step 3: every row is present, the commit exists and the ref resolves.
+- Step 4: cleanup removes g’s original disk after retention. Reopen creates a fresh real machine from retained objects, and all recorded tracked, untracked and binary bytes match the capture. A missing object or use of the original disk fails the check.
+- Step 5: case i's disk is removed exactly once, and no other machine changes.
+
+Fail when:
+- Case b or c is deleted, which means uncommitted work was lost.
+- Case d, e or f is deleted while a session or service is live.
+- Deletion removes the head ref, activity or evidence.
+- The job uses `last_activity_at` instead of the settle time, so case h, which isn't settled, is deleted.
+
 
 - C-MCH-05 has two required suites: policy decisions with a runtime fake, and real-microVM recovery after removal of a dropped TODO’s disk past 24 h. Reopen must reconstruct from retained host objects and reproduce every recorded byte.
 

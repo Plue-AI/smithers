@@ -37,8 +37,6 @@ Out:
 
 ## Acceptance
 
-
-
 - [C-J10-09](../checks/C-J10-09.md): `/review` on a teammate's PR.
 - C-J10-09 steps 1–5 prove the S1 behavior. T-MCH-06 owns the S2 capacity assertions.
 
@@ -49,7 +47,7 @@ Out:
 - This follow-up's issue is linked in the header; T-FLW-01's frozen issue remains unchanged.
 
 ## Ready checklist
-1. Dependencies: T-FLW-03 supplies Active review versions; T-FLW-04 supplies verified closure restoration; T-ACC-02 supplies membership; T-ACC-05/T-APP-04 supply person confirmation and its card; T-APP-16 supplies host agent dispatch and findings delivery; T-CAT-02 supplies the external CLI door and transitively T-CAT-01; T-FLW-01 supplies machine-only dispatch. T-INS-02's launcher is inherited through T-FLW-03/T-FLW-11.
+1. Dependencies: T-FLW-03 supplies Active review versions; T-FLW-04 supplies verified closure restoration; T-ACC-02 supplies membership; T-APP-04/T-APP-04 supply person confirmation and its card; T-APP-16 supplies host agent dispatch and findings delivery; T-CAT-01 supplies the external CLI door and transitively T-CAT-01; T-FLW-01 supplies machine-only dispatch. T-INS-02's launcher is inherited through T-FLW-03/T-FLW-11.
 2. Exclusions: Out explicitly excludes outsiders, automatic event-triggered review, GitHub writes, TODO/persistent branch creation, TODO-machine reuse, new findings visuals, baseline isolation implementation and S2 scheduling.
 3. Boundary tests: production prs.triage/review catalog/API dispatcher → confirmation → real microVM launcher → retained findings card/conversation, with literal PR/head/author oracles and zero-write evidence (C-J10-09/C-ACC-02).
 4. Decisions: smithers-3f accepts membership/head/digest admission, credential scope and ephemeral cleanup; smithers-38 accepts review payload and closure restoration; smithers-b8 signs off the review command/API and retained findings handoff. smithers-8a accepts the S1/S2 qualification split; Will decides any expansion to outsider or automatic review.

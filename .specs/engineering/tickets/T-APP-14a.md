@@ -1,6 +1,6 @@
 # T-APP-14a File card client against the TS fake relay
 
-Stage S3 · Size M · Depends on T-COL-08b, T-APP-15 · Unblocks T-UI-19, T-APP-14, T-COL-08, T-COL-09, T-REL-02 · Issue: [#3628](https://github.com/smithersai/smithers/issues/3628)
+Stage S3 · Size M · Depends on T-COL-08b, T-APP-15 · Unblocks T-APP-14, T-COL-08, T-COL-09, T-REL-02, T-UI-19 · Issue: [#3628](https://github.com/smithersai/smithers/issues/3628)
 Spec: spec.md §7.1, §7.1.1, §7.4, §7.6, §9.2, §14.3 (File [S3]), §14.7, §18 · Delta: delta.md §9 (Add [S3] File live co-edit … + Yjs binding with gutter flags) · Product: mvp.md J3.2, J3.5, §6.8 Live co-editing, Not in MVP (carets), M-02, M-24
 
 ## Goal
@@ -12,7 +12,7 @@ Design (smithers-06) builds the co-editing visuals (author colours, gutter name 
 
 ## Scope
 In:
-- CodeMirror arrives here: restore the code-editor adapter, `CodeEditorView` and the pins that T-UI-11 reverted in S1 from `4a36b0cfb`.
+- CodeMirror arrives here: restore the code-editor adapter, `CodeEditorView` and the pins that T-APP-15 reverted in S1 from `4a36b0cfb`.
 - Build the client in Wave A against T-COL-08b's TS fake relay (`packages/rpc/src/testing/LiveDocRelay.ts`). T-COL-08 uses the completed client for real-stack p95; T-APP-14 owns final integration.
 - Bind `y-codemirror.next`'s sync extension to the restored CodeMirror 6 `CodeEditorView` in the File card on the reserved topic `doc:code:<branch>:<path>`, using binary kinds 1 (sync) and 2 (awareness) of the live channel (§7.4.1, §7.6). The document is `Y.Text("content")` (§9.2.1).
 - One client Yjs provider over the live channel: sync step 1 and 2, updates, awareness, and a restart from step 1 when the server signals backpressure (§7.1.1). T-COL-09 reuses it for the wiki (§7.4.1 "one client provider").
@@ -31,7 +31,7 @@ Out:
 - Vim editing in the File card: §14.7 keeps input modes as built, and none of today's editors has a Vim mode; mvp.md §6.4 says input modes don't gate acceptance.
 
 ## Changes
-- Restore from `4a36b0cfb` (reverted in S1 by T-UI-11): `packages/smithers/ui/src/adapters/code-editor/index.tsx` and `tests/code-editor.test.tsx`, `apps/app/src/mainview/cards/views/CodeEditorView.tsx` and its stories, and the `@codemirror/*`, `yjs` and `y-codemirror.next` pins in `packages/smithers/ui/package.json`; add `y-protocols`. `yjs` moves to one shared pin with `apps/app/package.json:62`. The File card file renders `CodeEditorView` for every file, read-only ones included, and deletes `CodeSurface.tsx`'s `CodeFileView` rendering in the same change (pair: CodeEditorView ↔ `CodeSurface.tsx`), so one code surface remains.
+- Restore from `4a36b0cfb` (reverted in S1 by T-APP-15): `packages/smithers/ui/src/adapters/code-editor/index.tsx` and `tests/code-editor.test.tsx`, `apps/app/src/mainview/cards/views/CodeEditorView.tsx` and its stories, and the `@codemirror/*` and `y-codemirror.next` pins in `packages/smithers/ui/package.json`; add `y-protocols`. `yjs` moves to one shared pin with `apps/app/package.json:62`. The File card file renders `CodeEditorView` for every file, read-only ones included, and deletes `CodeSurface.tsx`'s `CodeFileView` rendering in the same change (pair: CodeEditorView ↔ `CodeSurface.tsx`), so one code surface remains.
 - `apps/app/src/mainview/runtime/LiveDocProvider.ts` (new) and test, over `runtime/LiveChannel.ts`. Considered `wiki/CloudWiki.ts`'s Yjs sync over SSE and HTTP; §7.4.1 puts documents on the live channel's binary kinds 1 and 2, and T-COL-09 moves the wiki onto this provider, so one client provider remains.
 - `apps/app/src/mainview/cards/liveDoc.ts` (new, the File card file's binding): the `EditorBinding` the File card hands `CodeEditorView` (its type lives in the restored code-editor adapter; T-UI-19 writes the props): the `y-codemirror.next` sync extension without remote selections, a Yjs `UndoManager` that tracks only the local client id, and the `authorRanges` facet built from each `Y.Text` item's client id; plus the props' `authors[]` (through `toActor`), `editors[]` from awareness, `saved` and `unsaved`. CodeMirror's own history is off.
 - `apps/app/src/mainview/cards/FileCards.tsx` (T-APP-11's File card file): live when the document is live; the S3 gone states through document semantics; the outside-change flag from `branch:<id>:files`; read-only with `too_large` for files over 1 MiB or not UTF-8.

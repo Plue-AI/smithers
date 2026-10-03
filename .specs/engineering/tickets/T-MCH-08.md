@@ -9,7 +9,7 @@ A member forks `main` or an item into a scratch branch that starts from a revisi
 
 ## Scope
 
-- Extend branch.fork through T-APP-19b (#3601) with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
+- Extend branch.fork through the existing RPC schema with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
 
 In:
 - Fork and Add to stack are system flows run by the stack service, the only writer of branch history (§8.5.0, M-32). People, the app agent and external agents request them; nobody else writes the branch's history. Each writes one activity entry attributed to Smithers with the requester recorded, rendered "Smithers, for Ben".
@@ -17,7 +17,7 @@ In:
 - Source revision in S1: `main` → the mirror's tip; an item → its last verified head (§10.3.2). Neither touches the source machine, so a fork never stops it (§8.5.2).
 - The scratch branch's workspace is created at that commit through the existing `SourceRef` create path, not by a disk copy.
 - `POST /api/branches/{b} add-to-stack` (§8.5.3) in one stack-service transaction:
-  - creates a TODO whose change is one jj change with parent `forked_from.base` and the scratch head's tree, and whose revision 1 carries `seed_patch_blob` = the diff from `forked_from.base` to the scratch head, so a fork of T2 seeds T2's change plus the scratch edits (J7.3);
+  - creates a TODO whose change is one jj change with parent `forked_from.base` and the scratch head's tree, and whose revision 1 carries captured source head and proposed diff context from `forked_from.base` to the scratch head, so a fork of T2 seeds T2's change plus the scratch edits (J7.3);
   - places it after the forked-from item by default (or `append` for a fork of `main`), or where the member picks through T-STK-02's placement;
   - renames the branch to `smithers/<slug>`, sets `kind = item` and `todo_id`, and keeps its workspace, working copy and the people on it.
 - Scratch branches never reach GitHub (M-22). After Add to stack, the branch reaches GitHub like any item, when its PR is proposed (§12.5.2).
@@ -30,14 +30,15 @@ In, S2 (§8.5.1–§8.5.2), once T-COL-03 and T-MCH-04 land:
 - Forking a scratch branch, which stage 1 refuses.
 
 Out:
-- A second placement shape and RPC implementation outside T-APP-19b (#3601) are excluded.
+- A second placement shape and RPC implementation outside the existing RPC schema are excluded.
 - [D] **Replace Tn** (§0, §8.5.3). The `add-to-stack` schema has no mode; `replace` is absent from the OpenAPI document and the catalog.
 - **Rebase now** on a scratch branch (§8.5.2a, T-STK-08). Dropping the source item (T-STK-05), except wiring its existing drop path to `FoldIntoForks`. The Branch card (T-APP-10).
 - Disk-copy forks, source-machine stop/snapshot/resume, scratch pushes to GitHub, shared homes, credential copying, free-form history commands and edits to design-owned Views.
 
 ## Changes
+- Fork, Add to stack and Rebase now call the stack service for every mythical_items mutation; system flows never write the table directly. Check: C-MCH-08.
 
-- Extend branch.fork through T-APP-19b (#3601) with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
+- Extend branch.fork through the existing RPC schema with required from: "main" | Tn and optional name. branch.add-to-stack reuses todo.new placement {after?, before?} alongside text. Route placement through T-STK-02 and retain the source-based default when neither field is supplied. Check: C-MCH-08.
 - `apps/app/src/mainview/flows/entries/` → add `branch.fork` and `branch.add-to-stack` flow entries. `TodoContainer` wires Fork and Add to stack through `cardActions` → `flowAction`; Fork sends `{from: Tn}`. Delegated Add to stack consumes `202 {confirmation: id, state: "pending"}` and renders T-APP-04’s private Confirm card; only the requesting person’s session press executes it. Checks: C-J7-02, C-UI-13.
 
 - Include the surviving `ForkWorkspace` caller at `packages/backend/internal/services/workspace_provisioning.go:855` and its served route at `packages/backend/internal/compose/router.go:541` in the hosted compatibility decision. Any retained caller must use revision-based creation and preserve the no-stop guarantee. Check: C-J7-02.
@@ -45,12 +46,36 @@ Out:
 
 - `packages/backend/internal/services/branch_fork.go` (new): resolve the source revision, create the `branches` row, record `forked_from`, write the activity entry.
 - `packages/backend/internal/services/workspace_runtime.go:502-675` `forkRuntimeWorkspace` and `forkRuntimeWorkspaceAuthorized`: delete the wake, stop, cold snapshot, resume and boot-from-snapshot path (from `:550`). The scratch workspace is created at the fork's commit through `CreateWorkspace`'s `SourceRef` path (`workspace_provisioning.go:658`, `:780`).
-- `packages/backend/internal/services/branch_add_to_stack.go` (new): make the change from `forked_from.base`, diff it into a blob, T-STK-02's create-and-place with `seed_patch_blob`, then the rename. `FoldIntoForks(item)` for the drop path. The workspace's target bookmark follows the new branch name.
+- `packages/backend/internal/services/branch_add_to_stack.go` (new): make the change from `forked_from.base`, retain its captured head, T-STK-02's create-and-place with revision-1 request context and captured head, then the rename. `FoldIntoForks(item)` for the drop path. The workspace's target bookmark follows the new branch name.
 - `packages/backend/internal/routes/branches.go` (new); `docs/api/openapi/branches.yaml` (new) gains `POST /api/branches` and `POST /api/branches/{b}` with `add-to-stack`; rebundle and regenerate clients.
 - `packages/rpc/src/catalog/` (T-CAT-01): descriptors for `/branch.fork` and `/branch.add-to-stack`.
 - `docs/api/openapi/repositories.yaml` `POST …/workspaces/{id}/fork`: deleted with its route if no hosted consumer remains (see notes).
 
 ## Tests
+
+C-MCH-08 (folded steps and assertions):
+1. Record the source VM's boot id (`/proc/sys/kernel/random/boot_id`) and the counter loop's pid.
+2. Ben forks T2: `POST /api/branches {from: "T2", name: "try-retry"}`.
+3. Record the capture's commit C, the scratch branch's `forked_from`, and the source boot id and loop pid again.
+4. Compute the largest gap between consecutive `.tick` lines during steps 2–3.
+5. Fork T3 (asleep) and fork `main`.
+6. Open a terminal on the scratch branch. `cat src/try.ts`, `jj log -r @-`.
+7. Write a fixed uncommitted fixture edit on the awake scratch branch, invoke branch.add-to-stack through the production catalog dispatcher and complete its person confirmation. Assert the seed contains those fixture bytes after capture, the branch/workspace ids are preserved and no source machine stops.
+8. Exercise every retained hosted ForkWorkspace consumer and its served workspace fork route with the compatibility decision applied. Verify revision-based creation and the same source boot id, loop pid and no-stop timing assertions; a deleted route is explicitly absent rather than silently falling back to stop/snapshot.
+
+Pass when:
+- The adopted owner contract passes: Decode and dispatch forks from main and T2; reject missing from. Test Add to stack with after and before independently and reject both together under todo.new placement rules. Verify explicit and default placement through production dispatch and Confirm.
+- Step 8: retained hosted callers use revision-based creation and preserve the no-stop guarantee. No caller can reach the old wake/stop/snapshot path.
+- Step 3: the boot id and loop pid are unchanged, and `forked_from.commit` equals C.
+- Step 4: no gap exceeds 1 s.
+- Step 5: the T3 fork starts from H3 with 0 runtime starts for T3's machine; the `main` fork starts from the mirror's `main` tip.
+- Step 6: `src/try.ts` is present with its content at fork time, and the scratch branch's parent revision is C's.
+
+Fail when:
+- The source VM restarts or pauses (new boot id, the loop pid gone, or a gap over 1 s): the old stop-snapshot-resume path (`packages/backend/internal/services/workspace_runtime.go:547-560`) is still live.
+- The fork copies the disk instead of starting from C. That shows as files written after C appearing in the fork.
+- Forking an asleep item wakes it.
+
 
 - Decode and dispatch forks from main and T2; reject missing from. Test Add to stack with after and before independently and reject both together under todo.new placement rules. Verify explicit and default placement through production dispatch and Confirm. Check: C-MCH-08.
 - Mount the real TODO Container and record production flow dispatch. Fork dispatches `branch.fork` with literal `{from: "T2"}` once. Add to stack dispatches `branch.add-to-stack`; a delegated request returns literal pending 202 and displays its private Confirm card through T-APP-04 without creating a TODO until the person presses it. Checks: C-J7-02, C-UI-13.
@@ -67,8 +92,6 @@ Out:
 - Independent oracle: seed fixed repository trees and file bytes, then assert literal expected stack order, ids preserved and patch paths/content. `jj diff` and capture receipts are evidence to compare, not the sole source of expected results. No expectation reads spec files or derives the seed from production code at runtime.
 
 ## Acceptance
-
-
 
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 

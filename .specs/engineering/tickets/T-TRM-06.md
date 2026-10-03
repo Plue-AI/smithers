@@ -2,7 +2,6 @@
 
 Stage W0 · Size M · Depends on — · Unblocks T-COL-03a, T-TRM-07 · Issue: [#3554](https://github.com/smithersai/smithers/issues/3554)
 Spec: spec.md §5.6, §8.10.3, §8.11, §9.5.3, §9.6 · Delta: delta.md §5 (session supervisor row) · Product: mvp.md §6.15 SSH into a branch, §6.8 Terminals, J3.2, J3.3, M-18, M-24, M-29
-Ready: 2026-10-02 smithers-8a sha256:d2c805dd2259
 
 ## Goal
 
@@ -19,7 +18,7 @@ In:
 
 Out:
 - Product code. T-TRM-07 rebuilds only the validated decisions.
-- Admission, branch-name usernames and key import (T-TRM-03, T-TRM-04); attribution (T-COL-04); the broker's privilege split (T-COL-03).
+- Admission, branch-name usernames and key import (T-TRM-03, T-ACC-02); attribution (T-COL-04); the broker's privilege split (T-COL-03).
 - Guest sshd, SSH agent forwarding, remote forwarding (`tcpip-forward`), Cursor/Zed certification and any weakening of revocation or isolation.
 
 ## Changes

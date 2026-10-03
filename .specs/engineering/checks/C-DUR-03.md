@@ -1,48 +1,29 @@
-# C-DUR-03 Killing the host during a GitHub write or push reconciles it without duplication
+# C-DUR-03 One pending GitHub operation per item survives restart
 
 Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`pending_op`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09, T-REL-04
-Automation: to write, as a `smthrs test` target · Runs in: CI
+Automation: `packages/backend/internal/compose/github_outbound_kill_test.go` · Runs in: CI with real PostgreSQL and githubfake
 
 ## Setup
-- `smithers-backend` built from the commit under test and started as a subprocess with real PostgreSQL. `SMITHERS_GITHUB_APP_API_BASE_URL` and `SMITHERS_GITHUB_GIT_BASE_URL` point at `githubfake`; the `github_app` row holds a test App key the fake accepts.
-- `githubfake` keeps its write log in a file that survives the host, and signals the harness from a hook when a request reaches the chosen point.
-- One TODO prepared before each write kind, as in C-GH-09. Committed literal expected final rows and effective-object counts per kind are reviewed by smithers-3f; an uncrashed control is diagnostic only.
-- S2 adds a TODO run on a machine whose flow reaches its "open PR" step and a push step (T-FLW-09).
-
-Candidate Automation declaration (unapproved): S1: `packages/backend/internal/compose/github_outbound_kill_test.go` (new). S2: `packages/smithers/test/faults/github-step-kill.test.ts` (new, T-FLW-09) · Runs in: CI
-
-Receipt: CI's own check run at the landed SHA, or a `smthrs test` run on the reference host, recorded through `scripts/check-run.mjs` (minimal-code synthesis ruling 3).
+Use production install composition, literal expected item rows, a canonical App identity and a bare remote. Prepare one item for each kind: push, open PR, body, merge, close PR.
 
 ## Steps
-For each kind in {open PR, update body, merge, close PR, close issue, add label, revert label, comment, push} and each window W:
-- W1, the request is held at the fake before it is applied;
-- W2, it is applied and the response is held;
-- W3, the response is delivered and the host hasn't settled the record (the harness kills on the host's "write returned" log line);
-
-1. Arm the hook. Let the host's worker reach the write.
-2. When the hook fires, `SIGKILL` the host's process group. Release the held request after the kill.
-3. Start the host subprocess again. Wait until `pending_op` holds no `intended` or `unknown` entry and the TODO reaches a terminal or stable state, with a 60 s limit.
-4. Compare the write log and the TODO with the committed expected fixture rows and counts.
-
-S2: repeat steps 1–4 with the kill inside the run's "open PR" step and its push step.
-
-Exercise every production GitHub writer: TODO issue creation, landing push and PR creation, outbound mirror push, and check-run creation, cancellation and terminal updates, in addition to existing kinds. Kill before the intended-to-unknown commit, after that commit before the call, and after remote success before local settlement. Only intended is unsent. Every kind durably commits unknown before dispatch; restart looks up unknown work before repeat and produces the literal intended effect once. Preserve per-target order and atomic mirror ref-set preconditions.
+1. For every kind, stop the backend process group with SIGKILL before send, after potentially-sent commit, after remote success and before local settlement.
+2. Restart on the same database and remote; record lookup, any repeat, item facts and pending_op.
+3. Hold an open-PR response, Drop, restart and release the response.
+4. Hold body v1, request v2; also race a push against a foreign head and close against a person's later reopen.
+5. Recover a merge with revoked authority, stale head, missing approval or competing fence; repeat with GitHub already reporting merged.
+6. Supply matching event/comment markers from a person, another App and the canonical App. Attempt machine-proxy mutations.
 
 ## Pass when
-- Every baseline and extended case in S1 and S2 shows zero duplicate effects in the write log: one PR, one comment per marker, one successful merge, one close per PR or issue, each label applied or removed once, and the intended head pushed once.
-- Each repeat in the log is preceded by its lookup.
-- The TODO's final state equals its committed expected fixture row, and the run resumes rather than failing (§19.1).
-- Restart to settled takes ≤ 60 s per case.
-- The host writes one recovery receipt per reconciled write: key, lookup result and action taken.
-- No `needs_you{foreign_push}` is raised for Smithers' own push.
-
-- Exercise every production GitHub writer: TODO issue creation, landing push and PR creation, outbound mirror push, and check-run creation, cancellation and terminal updates, in addition to existing kinds. Kill before the intended-to-unknown commit, after that commit before the call, and after remote success before local settlement. Only intended is unsent. Every kind durably commits unknown before dispatch; restart looks up unknown work before repeat and produces the literal intended effect once. Preserve per-target order and atomic mirror ref-set preconditions.
+- One pending_op per item; no later operation overwrites or passes an uncertain slot. Every uncertain repeat follows lookup. The expected fixture state settles within 60 s.
+- One effective PR, merge and close; push preserves a foreign head and reports conflict. Body v2 follows settled v1. A person's reopen is not undone.
+- Drop closes a late-created PR once. Merge repeats only with its bound head, current maintainer authority and shared readiness; already merged settles without another PUT.
+- Canonical App identity is required for marker/event settlement. Machine proxy mutations issue no token and make no upstream call.
+- Labels, unlabels, comments and issue-close remain best-effort; comment retries use the existing marker. These are not queued writes.
+- Recovery receipt and literal expected item state agree; no fabricated success or approval.
 
 ## Fail when
-- A duplicate PR, comment, close, label or merge appears in the write log.
-- A write repeats with no lookup.
-- The run shows `failed` or stays `interrupted` when its write had in fact landed.
-- The host's own push is reported as a foreign push.
+Any duplicate effective operation, blind repeat, foreign overwrite, unauthorized send or lost Drop obligation occurs.
 
 ## Evidence
-`.artifacts/checks/C-DUR-03/<UTC timestamp>/`: per case `writes.jsonl`, host logs before and after the kill, `pending_op` entries before and after, the recovery receipts, `summary.json`, the commit and the built binary's version.
+Record fixture identity, commit, write log, before/after pending_op, lookup result, item state and recovery receipt for each case.

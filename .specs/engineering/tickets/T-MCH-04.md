@@ -1,6 +1,6 @@
 # T-MCH-04 One machine per branch: drop `user_id` from the 0084 key; the agent attaches
 
-Stage S2 · Size L · Depends on T-ACC-03, T-STK-01 · Unblocks T-COL-03, T-COL-05, T-MCH-05, T-MCH-06, T-MCH-07, T-MCH-08, T-REL-02, T-STK-08 · Issue: [#3565](https://github.com/smithersai/smithers/issues/3565)
+Stage S2 · Size L · Depends on T-ACC-03, T-STK-01 · Unblocks T-COL-03, T-COL-05, T-MCH-06, T-MCH-07, T-MCH-08, T-REL-02, T-STK-08 · Issue: [#3565](https://github.com/smithersai/smithers/issues/3565)
 Spec: spec.md §2 (Branch, Machine), §3 (`branches`, `machines`), §4.2, §7.6 (one machine per branch), §8.1, §17.2 · Delta: delta.md §3 (identity row), §6 (`branches` in S1) · Product: mvp.md J3, §6.7 One live branch, §11 item 9, M-17
 
 ## Goal
@@ -22,7 +22,7 @@ In:
 
 Out:
 - Admission, positions, release and sleep timers (T-MCH-06). Final capture and sleep reads (T-MCH-07). Keeping S1 TODO workspaces until settled (T-MCH-14).
-- Branch locks (T-MCH-05). Presence (T-COL-06). Member unix users (T-MCH-11).
+- Branch locks (T-CUT-02). Presence (T-COL-06). Member unix users (T-MCH-11).
 - [D] The Machine view (§0). `box.facet`, `box.services`, `box.egress` and `box.images` stay hidden.
 
 ## Changes
@@ -42,6 +42,28 @@ Out:
 - `docs/api/openapi/branches.yaml` (new): `GET /api/branches` and `GET /api/branches/{b}`; run `node scripts/openapi-bundle.mjs` and `node scripts/openapi-clients.mjs`.
 
 ## Tests
+
+C-MCH-01 (folded steps and assertions):
+1. Ben, Alice and the TODO run each request the branch's machine at the same moment, 20 times in parallel (60 requests).
+2. Count `workspaces` rows for the branch, active `workspaces` rows for it, and (reference host) `msb list` machines carrying its label.
+3. Reference host: Ben's terminal runs `echo ben > /workspace/shared.txt`. Alice reads `shared.txt` through the file API. The agent's tool reads it through its own step.
+4. A second agent session attaches to the same branch (a retry). Count `workspace_agent_sessions` rows.
+5. Erase Ben's account (`account_erasure.go`), then read the branch's machine.
+6. Read `workspaces.user_id` of the branch machine.
+- Step 2: exactly 1 `workspaces` row, 1 active `workspaces` row and (reference host) 1 VM.
+
+Pass when:
+- Step 3: Alice and the agent both read `ben`.
+- Step 4: 2 rows in `workspace_agent_sessions` and still 1 `workspaces` row, with no unique-violation error.
+- Step 5: the machine row, its VM and its disk still exist.
+- Step 6: the value is the install system user's id, not Ben's or Alice's.
+
+Fail when:
+- Any request creates a second `workspaces` row (a `kind=agent` row, or one per member).
+- The agent forks a separate machine (`agentForkSource` path still live).
+- Erasing the first joiner deletes the machine.
+- The test passes only with requests serialized: the race in step 1 must run concurrently.
+
 
 - integration (real PostgreSQL, `packages/backend/internal/services/branch_machine_integration_test.go`, new): 20 concurrent joins by 2 members and the agent produce one `machines` row and one active `workspaces` row. The agent's session appears in `workspace_agent_sessions`, and two agent sessions on one branch don't violate a unique index.
 - integration: one table-driven case per provisioning path above (named, explicit create, pushed ref, fork, snapshot restore, agent attach) on a branch that already has a machine yields that machine, never a second runtime row.

@@ -44,6 +44,7 @@ Out:
 Test inputs are small literal registries in the test files.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - The tests above pass in CI at the landed SHA.
 - [C-UI-13](../checks/C-UI-13.md): `CommandsView` is reachable from `CardRenderers`; `showCommandCatalog`, `CommandsCases.ts`, `CommandsExpectations.ts` and `CommandActionView.tsx` are deleted.

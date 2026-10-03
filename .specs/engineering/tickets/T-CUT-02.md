@@ -22,12 +22,13 @@ In: one decision per route, recorded in `packages/rpc/src/catalog/cuts.json` (fr
 
 Out:
 - `/api/agent/turn*` and `/api/agent/conversations*` (`packages/rpc/src/AgentApiRoutes.ts:13-48`). Research listed them among the agent-session cuts, but they are the app agent's turn routes. T-APP-16 deletes the write half (`/api/agent/turn`, `/cancel`, `/retire`) at the host-turn cutover and keeps the read half for the Earlier archive (spec §14.1.5).
-- Branch locks (T-MCH-05).
+- Branch locks (T-CUT-02).
 - Billing routes (T-CUT-03).
 - Deleting kept event-admission, dispatch, reply or approval machinery; deleting Plue-only admin routes; changing generic workflow RPC behavior or installing a host executor. Preserve the existing GET /api/health route. T-INS-08's host status must report process health without /api/install before the install admin routes are unmounted; T-INS-06 later adds richer install telemetry.
 - **Hide** rows: `mythical/{bootstrap,backfill,config}` (`router.go:1118-1120`), `mirror-sync`, notifications and devtools keep running and stay documented.
 
 ## Changes
+- Delete branch-lock service, routes, queries and generated client entries in S1; no app consumer uses them. Shared access uses workspace_shares. Check: C-CUT-01.
 - Delete each "Delete" route with its handler, service, sqlc queries (then regenerate) and tests. Delete its rows in `docs/api/openapi/{repository-setup,admin,repositories,…}.yaml`, then re-bundle with `scripts/openapi-bundle.mjs`.
 - `compose/router.go:1778`: mount `/admin` only outside the install composition (`config.IsMultitenant(cfg.Auth)`, `config/auth_mode.go:19`). Its rows in `docs/api/openapi/admin.yaml` gain `x-composition: plue`. The owner's health view is `/api/install` (§20.2, T-INS-06), not `/api/admin/system/health`.
 - `compose/openapi_conformance_test.go`: each composition is checked against its own rows. The install router serves exactly the rows without `x-composition: plue`; the Plue router serves every row (§6.2.4).

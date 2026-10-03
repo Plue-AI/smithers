@@ -31,8 +31,6 @@ Out:
 
 - [C-J1-04](../checks/C-J1-04.md): R part at its named layer.
 
-
-
 - [C-REL-02](../checks/C-REL-02.md): install and start on an erased Mac contact no Smithers-run host, need no Smithers account, and ask for `sudo` once.
 - [C-J1-01](../checks/C-J1-01.md): Homebrew install to the setup card, recorded.
 

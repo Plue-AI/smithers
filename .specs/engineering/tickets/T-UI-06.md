@@ -40,6 +40,7 @@ The Home cases in `apps/app/src/mainview/cards/views/Views.test.tsx` cover:
 - agent presence, queue reasons and zero capacity.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - The tests above pass in CI at the landed SHA. `HomeRowView.tsx`, `HomeActionView.tsx` and `styles/views/home.css` are gone.
 

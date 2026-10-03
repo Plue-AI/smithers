@@ -1,6 +1,6 @@
 # T-MNT-04 Review outside PRs with the shared review step
 
-Stage M · Size M · Depends on T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19, T-APP-19 · Unblocks T-MNT-05 · Issue: [#3596](https://github.com/smithersai/smithers/issues/3596)
+Stage M · Size M · Depends on T-MNT-01, T-FLW-01, T-FLW-04, T-MCH-06, T-UI-19 · Unblocks T-MNT-05 · Issue: [#3596](https://github.com/smithersai/smithers/issues/3596)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
 
 ## Goal
@@ -27,6 +27,24 @@ Out:
 - Define the separate commit-work action using existing TODO placement and person confirmation; admission is maintainer-only and does not rewrite the contributor's PR.
 
 ## Tests
+
+C-MNT-04 (folded steps and assertions):
+1. Open the outside PR card, request /review as Member and as a maintainer agent without confirmation.
+2. Confirm as the requesting maintainer; release capacity and run the shared reviewer on the pinned base/head diff.
+3. Push a new head during review; reload and explicitly request review again. Restart during the new run, then exercise failure and explicit Retry.
+4. Inspect app, CLI/API projections and GitHub for writes or stack changes.
+5. Separately request commit-work as Member, delegated maintainer and confirmed maintainer. Inspect resulting TODO and original PR.
+
+Pass when:
+- Unauthorized/unconfirmed calls create zero runs. Accepted review queues within existing capacity.
+- TODO and outside review execute the same review module and findings contract, not pr-triage readiness scoring; the seeded defect has a supported finding or the quality gate fails.
+- Findings bind to base/head; old findings show stale after push, never silently rebind. Only the fresh request launches again. Restart/retry retain attempts and honest errors.
+- Review alone creates zero TODOs, stack items, approvals, merges or GitHub comments/reviews. The card keeps PR number/contributor and GitHub links with no stack Merge control.
+- Only the separate confirmed maintainer action creates one normal TODO linked to the source PR; the contributor PR is neither rewritten nor adopted as its stack PR.
+
+Fail when:
+- A readiness report substitutes for review, a push launches review automatically, stale findings appear current, or review creates stack work.
+
 
 - Unit: findings revision and role checks.
 - E2E: C-MNT-04 against a real fork PR, including changed head, machine contention, failure and explicit commit-work conversion.

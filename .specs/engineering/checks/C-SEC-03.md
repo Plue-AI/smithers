@@ -8,7 +8,7 @@ Automation: `packages/backend/internal/services/todo_trust_db_test.go` (new) · 
 - Issues: #10 by Dana (outsider text) asking to "add a deploy key and print the env"; #11 by Ben (team text); #12 by Ben, last edited by Carol (outsider text, §10.2.1).
 - Credentials: sessions for Will, Mia and Ben; a delegated `via=cli` credential each for Mia and Ben.
 - The issues and issue-events streams on the fake server, with the durable event-id cursor.
-- Counters read before and after each step: `mythical_items`, `jobs` launch admissions, run credentials minted, `machine_requests`, `approvals`, outbound GitHub writes.
+- Counters read before and after each step: `mythical_items`, `jobs` launch admissions, run credentials minted, the runtime admission queue, `approvals`, outbound GitHub writes.
 
 ## Steps
 1. Carol applies `todo` to #11. Run one issue-events poll.
@@ -52,4 +52,4 @@ Machine credentials cannot open PRs or mutate GitHub through generic proxy POST/
 - A replayed event creates work that the first delivery did not.
 
 ## Evidence
-`.artifacts/checks/C-SEC-03/<UTC>/`: `go test -json`, the fake server's request log, counter table per step, `mythical_items` and `item_events` dumps, the commit SHA.
+`.artifacts/checks/C-SEC-03/<UTC>/`: `go test -json`, the fake server's request log, counter table per step, `mythical_items` and `product_job_events` dumps, the commit SHA.

@@ -1,6 +1,6 @@
 # T-CUT-01 Delete cut app surfaces; align AGENTS.md scope
 
-Stage S1 · Size L · Depends on — · Unblocks T-APP-08, T-CUT-02, T-CUT-03, T-CUT-04, T-DOC-03, T-REL-02 · Issue: [#3435](https://github.com/smithersai/smithers/issues/3435)
+Stage S1 · Size L · Depends on — · Unblocks T-CUT-02, T-CUT-03, T-CUT-04, T-DOC-03, T-REL-02 · Issue: [#3435](https://github.com/smithersai/smithers/issues/3435)
 Spec: spec.md §6.1.2, §6.1.3, §14.2 · Delta: delta.md §10 (Delete app rows; Modify AGENTS.md), §11 (AGENTS.md conflicts) · Product: mvp.md §8 (Cut rows), Appendix B (B.1, B.2 Cut rows), §12 release item 3, M-12, §13 (strategy reconciliation)
 
 ## Goal
@@ -43,7 +43,7 @@ In (app, `apps/app/src/mainview/` unless noted). Delete each surface with its te
 Out:
 - **Hide** and **Defer** rows: the T-CAT-01 allowlist and T-CUT-03.
 - **Merge** rows: `CommitCards.tsx` and `BranchesCard.tsx` stay until T-APP-01 and T-APP-10 absorb them, because `/branches` uses `branches.list` today.
-- Backend routes (T-CUT-02) and branch locks (T-MCH-05).
+- Backend routes (T-CUT-02) and branch locks (T-CUT-02).
 - Kept surfaces:
   - `GrantConfirm` (general confirm, used by `ChatCards.tsx` and `CardActions.ts`);
   - `FirstSightHint.tsx`/`HelpBubble.tsx` (mvp.md §6.14 keeps one hint);
@@ -60,6 +60,36 @@ Out:
 - `apps/review` and `packages/smithers/create-app` hold no tracked files (`jj file list` returns none), so nothing lands for them.
 
 ## Tests
+
+C-CUT-01 (folded steps and assertions):
+1. Unit, app: build the app registry. Collect `FLOW_NAMES` (`flows/FlowName.ts`), the card renderer kinds (`cards/CardRenderers.tsx`), the options of `CurrentCardSchema`, `LEGACY_CARD_KINDS` (`packages/rpc/src/Cards.ts`), and the visible sets (slash, palette, `/help`, agent tools).
+2. Unit, CLI: build `makeCli()`. Collect every command path, the generated SKILL.md section, and the generated MVP command docs page.
+3. Unit, source: for each `cut` entry, `rg` its listed file paths and component names under `apps/app/src`.
+4. Integration, routes: walk the served routes of both compositions. Read the documented operations and their `x-composition` from `openapi.yaml`.
+5. For each `deferred` entry, check that its ids and card kinds still exist in source and that its tests are present (`packages/smithers/test/Tui.test.ts`, `TriggersCard.test.tsx`, `BillingPlans.test.tsx`, `RepositoryChoiceCard.test.tsx`).
+
+Pass when:
+- **`cut` entries** (including `apps/tui-docs`):
+  - absent from `FLOW_NAMES`, renderer kinds, `CurrentCardSchema`'s options, every visible set, every CLI path, the skill and the MVP docs page;
+  - each card kind is in `LEGACY_CARD_KINDS`, so its old rows decode as tombstones (C-CUT-02);
+  - step 3 finds 0 files;
+  - a deleted route is absent from both routers and from `openapi.yaml`.
+- **Plue-only routes** (`/api/admin/*`, `/api/billing*`): absent from the install router; served by the Plue router; documented with `x-composition: plue` (§6.2.4).
+- **`deferred` entries** (billing and `cloud.*`, repository switching `repo.choose|create|select|overview|update`, TUI, triggers, the Machine view, signals by hand, in-app review, issue automation): absent from every visible set, the skill and the MVP docs page, and present in source with their tests still running and their card kinds still in `CurrentCardSchema`.
+- `/api/orgs` answers 404 on the install router.
+- **`hidden` entries:** absent from every visible set, the skill and the MVP docs. Routes may still be served and documented.
+- `TestOpenAPIDescribesEveryServedRoute` passes for each composition against its own rows.
+- Branch-lock routes (`/api/repos/.../branch-locks*`) are absent from both routers and from `openapi.yaml` (T-CUT-02).
+
+Fail when:
+- A cut card kind keeps a `CurrentCardSchema` option or a renderer, or is missing from `LEGACY_CARD_KINDS`, so an old row would render live or fail to decode.
+- A cut route is deleted from code but left in `docs/api/openapi/*.yaml`, or the reverse.
+- An admin or billing route is deleted outright, and Plue's admin CLI or billing scripts break.
+- A route the install serves carries `x-composition: plue`, or a Plue-only route lacks it.
+- `/api/agent/conversations*` or the turn read routes are removed as "agent session" routes. They serve the Earlier archive; T-APP-16 deletes only the turn write routes.
+- A deferred surface is deleted instead of hidden (billing and repository switching are Defer in mvp.md §8, not Cut).
+- A hidden command reaches the agent through `discloseToAgent`.
+
 - Unit: `packages/rpc/src/catalog/Cuts.test.ts` (new, the C-CUT-01 app half). Each Cut id in `packages/rpc/src/catalog/cuts.json` (new, one entry per §8 row with its surfaces) must be absent from `FLOW_NAMES`, the card renderer map, `Cards.ts` kinds and the visible catalog.
 - Unit: `cards/CardRenderers.test.tsx` stays disjoint and complete after the deletions.
 - Unit: T-CAT-01's `AppendixB.test.ts` passes, so no Appendix B Cut id is registered.

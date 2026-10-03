@@ -26,14 +26,14 @@ In:
 - The guest session environment gets `SMITHERS_TOKEN_FILE` for its delegated session credential only, and `SMITHERS_URL`. Person commands use the authenticated host terminal UI broker; the person bearer never enters the guest. Check: C-SEC-05. `SMITHERS_URL` is the backend as the guest reaches it: the bridge at guest `127.0.0.1:<backend port>` (`packages/backend/microsandbox/README.md` "bridge").
 - The `smthrs` CLI gains a `SMITHERS_TOKEN_FILE` reader. None exists today: `packages/smithers/src/internal/backend/Session.ts` reads only `SMITHERS_TOKEN` (`:151`, `:346`), the keyring and the auth file. Outside managed terminals, read the file after `SMITHERS_TOKEN` and before the keyring. Managed terminals resolve only their issuer-bound session file, refusing environment/keyring identity overrides. Check: C-SEC-05.
 - `Smithers-Via` from the environment (§6.4): `CLAUDECODE=1` gives `claude-code`, `CODEX_*` gives `codex`, otherwise the credential's `via`. This is an attribution hint, not authority to select another person, branch, role or participant; the host resolves identity from authenticated context. A plain terminal command remains the person's terminal, not an inferred working agent (§14.6a, M-34).
-- The packaged linux-arm64 `smthrs` CLI is planted in every machine. The generated Smithers skill (T-CAT-02) is placed where Claude Code and Codex discover skills in the session's home.
+- The packaged linux-arm64 `smthrs` CLI is planted in every machine. The generated Smithers skill (T-CAT-01) is placed where Claude Code and Codex discover skills in the session's home.
 - Stage 1 token path: `/run/smithers/sessions/<session id>/token`, mode 0600, owned by the session's unix user. In S1 terminals keep `msb exec -t` as the guest's single user, uid 1500 (§8.11.1).
 - When T-MCH-11 lands, `/run/smithers/<uid>/token` becomes the private per-member credential directory (0700), with `sessions/<session id>/token` files (0600) owned by the member. The effective path is session-specific; no shared token alias selects another session. Check: C-SEC-05. In S2 the delegated S1 list gives way to the catalog's `agent: run | confirm | never` rules that every delegated credential follows (§15.1.5), so a merge from the terminal opens the person's Review & merge confirmation.
 
 Out:
 - Public export changes, cross-file cache eviction, identity fallback and automatic mutation replay are excluded.
 - Per-member unix users and homes (T-MCH-11). Owner-only input (T-TRM-01).
-- Person confirmations themselves (T-ACC-05).
+- Person confirmations themselves (T-APP-04).
 - `via` badges in the UI (T-APP-09).
 - A member's personal Claude or Codex subscription. They sign in with their own login in their own terminal (spec §15.2).
 - Deferred credential-store carry between machines (product §16), SSH authentication, external-transcript import (T-AGT-01..03), participant Views and edits to catalog confirmation policy. This ticket consumes those contracts; it does not infer agent identity from process environment alone.
@@ -50,7 +50,7 @@ Out:
 - `packages/smithers/src/internal/backend/Session.ts`: a new `SMITHERS_TOKEN_FILE` branch beside `SMITHERS_TOKEN` at `:151` and `:346`. On 401, invalidate that session’s credential in both Session.ts and Client.ts; reread only its bound file on the next explicit request, with no automatic mutation replay or identity fallback. Check: C-SEC-05. The no-login error at `:377` names `SMITHERS_TOKEN_FILE` too. `logout`'s return (`:413`) reports `env_active` for either variable.
 - `packages/rpc/src/catalog/` and `packages/backend/internal/access/` (T-CAT-01 and T-ACC-03): encode the named `terminal_s1` scope profile in the shared catalog and enforce it through `Authorize` (§6.1.2c1). Do not create a second permission table. Each terminal scope is intersected with catalog actor eligibility and current member rights; tests pin allowed/denied outcomes independently of the runtime catalog.
 - `apps/backend/isolation.go:147` `microVMConfig` `Artifacts` (same mechanism as `guestHostBundle`, `:145`): plant the packaged `smthrs` and the generated skill directory at `/opt/smithers/bin` and `/opt/smithers/skills`. The session start links the skill into the home.
-- Bundle follow-up owned here: extend T-INS-01's `apps/app/scripts/build-server-bundle.ts` (new there) to include the linux-arm64 `smthrs` executable and T-CAT-02's generated skill with hashes in `manifest.json`. This ticket plants those declared artifacts; it refuses a missing or wrong-architecture artifact rather than using a laptop CLI.
+- Bundle follow-up owned here: extend T-INS-01's `apps/app/scripts/build-server-bundle.ts` (new there) to include the linux-arm64 `smthrs` executable and T-CAT-01's generated skill with hashes in `manifest.json`. This ticket plants those declared artifacts; it refuses a missing or wrong-architecture artifact rather than using a laptop CLI.
 - Docs: `packages/smithers/docs/` CLI auth page (`SMITHERS_TOKEN_FILE`); `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/smithers:docs`.
 
 ## Tests

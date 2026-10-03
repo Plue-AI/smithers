@@ -26,6 +26,25 @@ Out:
 
 ## Tests
 
+C-MNT-05 (folded steps and assertions):
+1. Run smthrs host upgrade to the M artifact using the owner command; exercise the C-REL-03 failure/recovery and restore cases.
+2. Compare identities, rows and retained history before/after. Resume the in-flight TODO through person-approved merge.
+3. Receive a new outsider issue, open Incoming, authorize triage, inspect duplicates and measured reproduction, edit and approve a draft reply. Read the exact comment on GitHub.
+4. Receive a fork PR, authorize review and inspect findings/links without a stack Merge action.
+5. Repeat browser interactions in light/dark, keyboard-only, through CLI/API where applicable; reload during unresolved launch and running work.
+6. Verify release manifest, publication availability and date receipts against recorded launch UTC + seven days.
+
+Pass when:
+- Upgrade and recovery preserve all listed identities, active work, pinned versions, approvals and old readable history; C-REL-03 passes for the M artifact.
+- Complete §14 journey works against real GitHub; no event starts work before the maintainer action, reply bytes match approval and outside PR remains outside the stack.
+- Home Incoming, Issue evidence/draft and Outside PR review are accessible in both themes. Chat stays usable, duplicate requests coalesce, reload recovers durable state, and completion follows the actual receipt.
+- Publication evidence names the exact tested M artifact available on day seven. A draft or target date alone does not satisfy shipment.
+- No setup jobs, dispatcher screen, issue-sweep, triggers, Cloud or other §16 surfaces return.
+
+Fail when:
+- Any data loss, false completion, missing §14 slice, unapproved write, restored cut surface or absent day-seven publication receipt.
+
+
 - E2E: C-MNT-05 upgrades a populated launch install with work in flight and completes the maintainer journey against real GitHub.
 - Re-run C-REL-03 on that artifact and retain the current launch C-SEC-03 receipt. C-MNT-06 is the security gate on the M artifact.
 

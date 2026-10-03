@@ -20,7 +20,7 @@ In:
 - Remaining: merge `apps/app/src/mainview/styles/views/conversation.css` into `styles/chat.css` and drop the `mvp-` prefix (minimal-code synthesis v1 §6).
 
 Out:
-- Conversation storage, subscriptions, archive migration, access enforcement, preflight selection, summaries and transcript ingestion (T-APP-16, T-APP-17, T-AGT-03). The Inspect preflight cell is T-UI-12.
+- Conversation storage, subscriptions, archive migration, access enforcement, preflight selection, summaries and transcript ingestion (T-APP-16, T-APP-17, T-AGT-03). The Inspect preflight cell is T-FLW-07.
 
 ## Changes
 
@@ -36,6 +36,7 @@ The shell cases in `apps/app/src/mainview/cards/views/Views.test.tsx` cover:
 - shell text renders inert; a missing selected branch shows no unnamed crumb; popover arrow keys move and go to the parent.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - The tests above pass in CI at the landed SHA. `styles/views/conversation.css` is gone.
 

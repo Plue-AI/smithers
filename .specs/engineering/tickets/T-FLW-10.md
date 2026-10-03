@@ -24,7 +24,7 @@ Out:
 - `flows/coding/planning-memory.ts:93-135` (`wikiMemory`) → choose pages with the preflight selector restricted to `kind: wiki`, then `GET /api/repos/{owner}/{repo}/wiki/{slug}` (`packages/backend/internal/compose/router.go:1672`) for each selected page. Generated pages keep arriving from the stack (`input.wiki`) through the `freshWikiPages` filter, now with slug and revision. Replace the host-local `wikiOutput/current.json` pointer branch with the same API reads, and delete it in the same change.
 - `flows/coding/planning.ts:26-46` (`PlanningContext`) → add optional `wikiCitations: Array<{slug, revision, digest}>`. Optional, so a run parked before this field replays its captured context.
 - `flows/coding/schema.ts:78-88` (`SuppliedWiki`) → carry `slug` and `revision` per page. The stack engine passes the revision it published, not only `inputDigest`.
-- Evidence (T-STK-10) → the attempt evidence includes `wikiCitations`; the TODO card links each to `…/wiki/history/{pageID}/{revision}/content` (`router.go:1665`).
+- Evidence (T-STK-01) → the attempt evidence includes `wikiCitations`; the TODO card links each to `…/wiki/history/{pageID}/{revision}/content` (`router.go:1665`).
 - The coding host reaches the host API only through the relay port with the run credential (§8.9, §17.2). Add the run credential's read scope for `wiki` and for the selector if `gateWiki` refuses it.
 
 ## Tests
@@ -34,9 +34,6 @@ Out:
 - Integration: [C-J8-04](../checks/C-J8-04.md), with the real PostgreSQL wiki store and a real plan step.
 
 ## Acceptance
-
-
-
 
 - [C-J8-05](../checks/C-J8-05.md): after a decision page is edited, the next related plan cites the new revision and its change follows it.
 

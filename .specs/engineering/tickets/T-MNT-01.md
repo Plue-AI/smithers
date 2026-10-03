@@ -1,6 +1,6 @@
 # T-MNT-01 Gate maintainer admission and expose passive incoming items
 
-Stage M · Size S · Depends on T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01, T-APP-19 · Unblocks T-MNT-02, T-MNT-04 · Issue: [#3593](https://github.com/smithersai/smithers/issues/3593)
+Stage M · Size S · Depends on T-CAT-01, T-CUT-03, T-APP-04, T-STK-09, T-GH-02, T-GH-09, T-APP-01 · Unblocks T-MNT-02, T-MNT-04 · Issue: [#3593](https://github.com/smithersai/smithers/issues/3593)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
 
 ## Goal
@@ -22,10 +22,28 @@ Out:
 
 - Extend the shared catalog and authorizer, retained admission adapter and Home projection. Persist idempotent manual requests in the existing durable request/job store.
 - Deduplicate by subject revision plus action and accepted request identity; duplicate delivery cannot manufacture a new permission. Explicit Retry retains attempt history.
-- Add Incoming view props and container through the T-APP-19 seam. Show requested, queued, working, waiting, failed and done from real receipts.
+- Add Incoming view props and container through the the consuming card ticket seam. Show requested, queued, working, waiting, failed and done from real receipts.
 - Document the M catalog extension and hidden launch behavior. Product agent approves command names and 06 approves the card controls before implementation (C-MNT-01).
 
 ## Tests
+
+C-MNT-01 (folded steps and assertions):
+1. Deliver outsider issue-open/edit/comment/mention/label and PR-open/push/review events, twice and across a host restart.
+2. Query launch palette, help, agent tools, CLI and direct API; query M Incoming and catalog.
+3. Request triage/review as each credential and role, including delegated agents. Change role or subject revision between request and confirmation.
+4. Confirm one fresh request as its requesting maintainer; duplicate the request and delivery after restart.
+5. Exercise Make TODO and todo-label doors for team and outsider text with the C-SEC-03 matrix.
+
+Pass when:
+- Step 1 adds only synced input/activity and cursor receipts; zero new jobs, proposals, run credentials, machine requests or TODOs. Non-member todo labels are reverted once.
+- Launch surfaces hide M commands and direct calls refuse them. M Incoming lists the original identities without launching work.
+- Only owner/maintainer sessions or their own confirmed delegated requests admit work; wrong confirmer, suspended actor or stale subject admits zero.
+- Step 4 creates exactly one durable run request with pinned subject/action/actor/version; 202 is requested, not completion.
+- Step 5 preserves §10.2.1 and C-SEC-03, including refusal before a Member's outsider draft and exact label snapshots.
+
+Fail when:
+- Any event bypasses manual admission, any Member admits outsider work, or catalog hiding alone is treated as authorization.
+
 
 - Unit: permission matrix and revision digest boundaries.
 - Integration: C-MNT-01 through real catalog dispatch, poll consumption and durable admission; exercise browser-session and delegated CLI/API requests.

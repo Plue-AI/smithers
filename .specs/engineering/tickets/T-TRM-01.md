@@ -29,7 +29,7 @@ Out:
 - `packages/backend/internal/routes/live.go` (T-COL-02): route binary kinds 3–5 to the terminal manager by subscription id.
 - `packages/backend/internal/services/workspace_runtime.go:1084` `OpenWorkspaceTerminal` and `packages/backend/microsandbox/exec.go:597-627` (`msb exec -t` as the guest's single user, uid 1500): replaced by the daemon session as the owner. Delete the runtime terminal backend (`workspace_terminal.go:407-427`, `newRuntimeTerminalBackend`) and the non-durable `pipeWSToSSH` path (`workspace_terminal.go:659`).
 - Delete the terminal WebSocket route (`internal/compose/router.go:818`) and the terminal kind of the Bun `/api/cloud-ws/` bridge (`apps/app/src/bun/server.ts:191`, `server.test.ts:139-146`, `CloudWsTunnel.test.ts`). The language-server kind stays.
-- `apps/app/src/mainview/state/CloudTerminalClient.ts`: rewrite over `runtime/LiveChannel.ts` (T-APP-08); delete the socket-per-session code.
+- `apps/app/src/mainview/state/CloudTerminalClient.ts`: rewrite over `runtime/LiveChannel.ts` (T-COL-02); delete the socket-per-session code.
 - `packages/backend/db/product/migrations/0107_terminals.sql` (new; number at landing): the `terminals` table. Terminal-kind `workspace_sessions` rows for branch machines are no longer written.
 - `docs/api/openapi/branches.yaml`: `POST /api/terminals`; remove the terminal WebSocket path; rebundle and regenerate clients.
 

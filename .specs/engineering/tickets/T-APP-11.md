@@ -8,7 +8,7 @@ An open File or Diff card on a branch shows each outside write (SSH editor, term
 
 ## Ownership (Will, 2026-10-02)
 
-Design (smithers-06) builds the File and Diff states: reload, deleted and renamed, Restore this file, Compare, with the CSS, in T-UI-16 (on `CodeSurface.tsx` and on `DiffSurface.tsx`, where T-UI-11 folds `DiffView`). This ticket builds no View, CSS or editor presentation. It owns the File and Diff card files, which map the topic to View props, the commands in Changes, and the language server's move onto the daemon (minimal-code synthesis v1 §2).
+Design (smithers-06) builds the File and Diff states: reload, deleted and renamed, Restore this file, Compare, with the CSS, in T-UI-16 (on `CodeSurface.tsx` and on `DiffSurface.tsx`, where T-APP-15 folds `DiffView`). This ticket builds no View, CSS or editor presentation. It owns the File and Diff card files, which map the topic to View props, the commands in Changes, and the language server's move onto the daemon (minimal-code synthesis v1 §2).
 
 ## Scope
 In:
@@ -48,6 +48,7 @@ Out:
 - Scroll and line survival across a reload, the banners and the Compare layout are T-UI-16's.
 
 ## Acceptance
+- [C-UI-11](../checks/C-UI-11.md): passes for this ticket’s phase at its stated layer.
 - [C-J3-08](../checks/C-J3-08.md): a file deleted or renamed while open says so, and Restore and Follow work.
 - [C-PERF-04](../checks/C-PERF-04.md): an outside disk write reaches an open File card in under 1 s p95.
 - [C-UI-13](../checks/C-UI-13.md): the T-UI-16 states are reachable from `CardRenderers` through `FileCards.tsx` and `ChangeCards.tsx`; their duplicate legacy rendering is deleted.

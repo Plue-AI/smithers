@@ -1,6 +1,6 @@
 # T-APP-24 Settings HTTPS hint opens the quickstart page
 
-Stage S2 · Size S · Depends on T-APP-20, T-APP-03 · Unblocks none · Issue: [#3642](https://github.com/smithersai/smithers/issues/3642)
+Stage S2 · Size S · Depends on T-APP-20, T-APP-03 · Unblocks — · Issue: [#3642](https://github.com/smithersai/smithers/issues/3642)
 Spec: spec.md §14.3 (Settings), §16.3.4 · Delta: delta.md §1 (HTTPS) · Product: mvp.md §6.1
 
 ## Goal
@@ -24,6 +24,7 @@ Out:
 - e2e (`apps/app/e2e/playwright/docs.spec.ts`, T-APP-20's): on a plain-HTTP, non-localhost origin, pressing "Notifications need HTTPS ↗" in Settings dispatches `/docs` with exactly `{page: "quickstart#put-https-in-front"}` and lands on the "Put HTTPS in front" heading.
 
 ## Acceptance
+- [C-UI-09](../checks/C-UI-09.md): passes for this ticket’s phase at its stated layer.
 
 - The Settings hint opens the quickstart's "Put HTTPS in front" heading.
 

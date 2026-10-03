@@ -1,6 +1,6 @@
 # T-COL-05 Moved off the item: detect; Return to Tn; Keep for now
 
-Stage S2 · Size M · Depends on T-COL-04, T-STK-01, T-MCH-04, T-UI-15, T-APP-19 · Unblocks T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
+Stage S2 · Size M · Depends on T-COL-04, T-STK-01, T-MCH-04, T-UI-15 · Unblocks T-REL-02 · Issue: [#3562](https://github.com/smithersai/smithers/issues/3562)
 Spec: spec.md §3 (`branches.moved_off`), §4.1 (working → needs_you), §6.1.2 (`in-card`), §9.1.2 (`return_to_item`), §9.3.2–9.3.4, §9.3.8, §9.4.2, §10.8, §14.5.2 · Delta: delta.md §4 (moved-off detection) · Product: mvp.md §6.8 External changes, M-27, M-14
 
 ## Goal
@@ -11,7 +11,7 @@ A hand-run `git checkout main` or `jj edit` that takes an item branch's working 
 
 In:
 - Detection (§9.3.8). When a metadata watch fires (`.jj/repo/op_heads/heads/`, `.git/HEAD`, `.git/refs/`, `packed-refs`; §9.3.3) and after every overflow resync (§9.3.2), check two conditions: the item change is still present (by change id), and `@` descends from it (`jj log -r '<item_change>::@'` is non-empty). If either fails, emit `moved_off{by, item}` through the outbox, with `by` attributed like a burst (§9.3.1). The pre-move commit is `@` of the latest operation in `jj op log` whose `@` descends from the item change; it covers git moves and jj moves alike.
-- Host: in one transaction, set `branches.moved_off` and open `needs_you{kind: moved_off}` through T-STK-07's wait API. Publish `branch:<id>` and `todo:<n>`. Toasts go to the TODO's owner and the members present on the branch (§10.8.3). The entry's action is Resolve → `/branch Tn` (§14.5.2).
+- Host: in one transaction, set `branches.moved_off` and open `needs_you{kind: moved_off}` through T-STK-01's wait API. Publish `branch:<id>` and `todo:<n>`. Toasts go to the TODO's owner and the members present on the branch (§10.8.3). The entry's action is Resolve → `/branch Tn` (§14.5.2).
 - The agent stops writing: the daemon publishes the branch state at `/run/smithers/branch-state` (root, 0644), and the coding agent's write tool refuses with `moved_off` while it is set (§9.3.8). The TODO flow parks in the durable wait.
 - Two in-card controls (§6.1.2 `in-card` catalog rows, registered through T-CAT-01):
   - **Return to Tn** answers the wait (first answer wins, §10.8.2). The daemon's `return_to_item()` (§9.1.2) runs `jj edit` back to the pre-move working-copy commit under the §9.4.2 sequence (lock, sessions frozen, bursts closed, capture, rewrite, documents reconciled, thaw), so no session writes during the move back. Anything written after the move stays in its own commit and is recoverable. The host clears `moved_off`, settles the wait and writes one activity entry attributed to the person who pressed it. The run continues.
@@ -21,14 +21,14 @@ In:
 Out:
 - Per-entry Undo of ordinary bursts (§9.3.5 [D]).
 - Scratch branches, which have no item and so no detection.
-- Conflict handling and rebase (T-STK-08, T-STK-11).
+- Conflict handling and rebase (T-STK-08, T-STK-08).
 
 ## Changes
 
 - `crates/smithers-machined/src/moved_off.rs` (new): the detector, the `/run/smithers/branch-state` writer, and the `return_to_item()` control RPC.
 - `packages/backend/internal/machined/moved_off.go` (new): ingest, the wait opening, and the Return and Keep handlers.
-- `branches.moved_off jsonb` (§3): the `branches` table comes from T-STK-01; add the column in a new migration only if it is missing.
-- `packages/smithers/agent/std/src/internal/FileMutation.ts`, `StdError.ts`: add the `moved_off` refusal next to T-COL-07's `stale_read`.
+- `branches.moved_off jsonb` (§3): branch identity comes from the existing workspaces row; add the column in a new migration only if it is missing.
+- `packages/smithers/agent/std/src/internal/FileMutation.ts`, `StdError.ts`: add the `moved_off` refusal next to T-COL-10's `stale_read`.
 - The two `in-card` commands in the catalog source (T-CAT-01). The Branch card and TODO card buttons are T-APP-10 and T-APP-02.
 
 ## Tests
@@ -44,8 +44,6 @@ Out:
 - e2e: C-J3-09.
 
 ## Acceptance
-
-
 
 - [C-COL-05](../checks/C-COL-05.md): metadata watches and the overflow resync raise every move.
 - [C-J3-09](../checks/C-J3-09.md): `git checkout main` over SSH shows Needs you with Return to Tn and Keep for now. Return restores the item, Keep holds Needs you until the working copy is back, and the agent writes nothing while moved off.

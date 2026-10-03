@@ -20,12 +20,12 @@ In:
   - `write_file(path, base_digest | "absent", content, actor)`: the §7.6 row-1 compare-and-write, done in the daemon under the mutation lock with the `RENAME_EXCHANGE` swap and displaced-digest check (§9.4.1), so the check and the write can't be split, even against an outside writer. Paths resolve with `openat2` confined to `/workspace` (§9.5.2). It replaces the guest-helper write T-COL-10 used in S1;
   - `wake_reconcile()` (§9.1.2), on every boot before any session is admitted: fetch `refs/smithers/branches/<id>/head` from the host. If the host rebased the branch while it slept (§10.5.5), move or rebase `@` onto that head and emit "Rebased onto Tk". A conflict becomes `needs_you{kind: conflict}` on wake (§10.5.4). The machine reports `awake` only after it finishes;
   - `capture()`, run in phases: flush documents (a no-op until T-COL-08) → close bursts (a no-op until T-COL-04) → `jj util snapshot` → push the head to the host repo store → verify the head ref equals the snapshot commit → return once the outbox is empty (§9.1.4). T-COL-03 adds `repohost.BranchHeadRef` beside `WorkspaceHeadRef` (`packages/backend/internal/repohost/refs.go:166`). T-MCH-07 moves every reader to it and deletes the workspace form.
-- The rest of §9.1.2 lands with its owner: `open_session`, `tcp_connect`, `close_session` and `kill_sessions` (T-TRM-07), `register_run` (T-COL-04), `rebase` (T-STK-11), `return_to_item` (T-COL-05), and `open_doc`/`close_doc` (T-COL-08, S3). Until then each answers a typed `unsupported`.
+- The rest of §9.1.2 lands with its owner: `open_session`, `tcp_connect`, `close_session` and `kill_sessions` (T-TRM-07), `register_run` (T-COL-04), `rebase` (T-STK-08), `return_to_item` (T-COL-05), and `open_doc`/`close_doc` (T-COL-08, S3). Until then each answers a typed `unsupported`.
 - Capture cadence while awake (§9.1.3): after every burst, coalesced to one per 5 s, and at least every 5 min. Sleep, fork, rebase and upgrade also call it (§8.4.3, §8.5.1, §9.4.1, §16.4).
 - Operation log policy (§9.1.2a): each capture is one jj operation, and nothing outside the machine references one. Weekly, the daemon abandons operations older than 7 days (`jj op abandon`) and runs `jj util gc`. Pending outbox refs (§9.1.4) keep unpushed objects alive.
 - Sessions are daemon-owned (§8.10.3, §8.11.1): the guest runs no sshd, and every terminal and SSH session is a PTY or process the daemon starts through `open_session`. This ticket ships the typed `unsupported` stub and the session cgroup parent; T-TRM-07 implements the sessions in the broker (§9.6).
 - The outbox (§9.1.4): objects durable and held by `refs/smithers/pending/<event id>` before an event enters; `seq` and `event_id`; refs pushed before the event is sent; the Rust fake host checks objects and models transactional receipts before acknowledging `seq`; T-COL-03 implements that host path; resend in order after any reconnect or restart. `file_written` and presence skip it.
-- The mutation lock (§9.4.1): one per branch, in arrival order, over `write_file`, saves, burst closes, `capture()`, `rebase`, `return_to_item()`, `wake_reconcile()` and the overflow resync. It also provides the §9.4.2 freeze sequence (freeze the session cgroup parent, wait ≤ 1 s for `frozen 1`, drain, capture, run the rewrite, thaw) that T-STK-11 and T-COL-05 call.
+- The mutation lock (§9.4.1): one per branch, in arrival order, over `write_file`, saves, burst closes, `capture()`, `rebase`, `return_to_item()`, `wake_reconcile()` and the overflow resync. It also provides the §9.4.2 freeze sequence (freeze the session cgroup parent, wait ≤ 1 s for `frozen 1`, drain, capture, run the rewrite, thaw) that T-STK-08 and T-COL-05 call.
 - Privilege split (§9.5): the root broker (session cgroups, freeze and kill, `/run/smithers/env`, home and token-file IO through a child dropped to the member) and the `machined` daemon (everything else), joined by a socketpair. `openat2` confinement for every working-copy path. The agent-only local socket `/run/smithers/machined.sock` (`root:agent` 0660) with `SO_PEERCRED` and cgroup-to-run mapping; `register_run` accepted only from the host.
 
 Out:
@@ -57,7 +57,7 @@ Out:
 
 ## Acceptance
 
-- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-10 golden-frame gate.
+- [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-03r golden-frame gate.
 - C-COL-03: Rust mutation-lock and freeze cases.
 - C-COL-04: Rust confinement and broker cases.
 - C-DUR-04: Rust capture and outbox kill cases. Fake results are component evidence, not full-check passes.

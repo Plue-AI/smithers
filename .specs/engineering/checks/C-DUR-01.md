@@ -18,7 +18,7 @@ Automation: `packages/smithers/test/faults/host/case40-host-kill-todo-run.test.t
 2. `SIGKILL` the target process. Let the launcher restart it.
 3. For K4, answer the question after the restart.
 4. Let the run reach In review, or a terminal state.
-5. Read the journal attempt rows per step, `item_events`, the provider fixture log and the `run:<id>` projection.
+5. Read the journal attempt rows per step, `product_job_events`, the provider fixture log and the `run:<id>` projection.
 
 ## Pass when
 - For every kill point, each step that had finished before the kill has exactly one attempt row and is not re-dispatched.
@@ -26,7 +26,7 @@ Automation: `packages/smithers/test/faults/host/case40-host-kill-todo-run.test.t
 - K3: the check re-runs once because it is declared idempotent, and the evidence shows one result.
 - K4: the wait survives with the same wait id and "since"; the answer settles it.
 - Every run reaches In review, or shows `interrupted` with Retry; none stays `working` with no progress for 5 min.
-- No state appears on the TODO card before its `item_events` row exists, before or after the restart.
+- No state appears on the TODO card before its `product_job_events` row exists, before or after the restart.
 
 ## Fail when
 - A finished step (plan, a passed check) runs a second time.
@@ -35,4 +35,4 @@ Automation: `packages/smithers/test/faults/host/case40-host-kill-todo-run.test.t
 - The TODO shows `in_review` or a passed check before the event that proves it.
 
 ## Evidence
-`.artifacts/checks/C-DUR-01/<UTC timestamp>/`: per kill point, the attempt table dump, provider fixture log, `item_events`, launcher restart log with timestamps, `run:<id>` snapshots before and after, and the commit and install version.
+`.artifacts/checks/C-DUR-01/<UTC timestamp>/`: per kill point, the attempt table dump, provider fixture log, `product_job_events`, launcher restart log with timestamps, `run:<id>` snapshots before and after, and the commit and install version.

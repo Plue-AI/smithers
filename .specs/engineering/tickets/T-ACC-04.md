@@ -1,6 +1,6 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-04, T-ACC-02, T-APP-09, T-APP-16, T-CAT-01, T-GH-04, T-REL-02, T-STK-04, T-STK-01, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
+Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-04, T-APP-09, T-APP-16, T-GH-04, T-REL-02, T-STK-04, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Add `delegated` + `via`; Add actor `via` on audit) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 
 ## Goal
@@ -9,46 +9,16 @@ Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, �
 ## Scope
 In (adopted owner pre-review):
 - Lands before T-INS-04 (tech lead 2026-10-02, edge cut): ACC-04 lands stored-kind migration, attribution and host mint/revoke APIs against ACC-03/02. Install OAuth start/callback, exchange and public minting remain unmounted or return **503 infra/credential_issuer_unavailable** before cookies, token mint or disclosure unless the INS-04 effective-origin provider is installed. This code is a proposed new refusal contract, requiring the named API owner's review. Never fall back to the old global-origin middleware. INS-04 integration then wires the provider and runs the actual configured-origin OAuth/login matrix before enabling those routes.; its integration test with T-INS-04 runs after T-INS-04 lands and gates C-ACC-01 and C-J6-02 (S1 configured-origin credential exit).
-- Backfill stored credential kind/profile metadata in both compositions, but change authorization only in the install composition. Update every credential classifier caller, including the Git HTTP proxy, to resolve install authority from immutable stored kind, actor class and scope profile; system_issued, scopes and userType cannot recreate person authority. Preserve Plue PAT outcomes. Set explicit finite expiries: CLI delegated credentials expire after 30 days; turn and terminal credentials expire after 1 hour. Renewal requires a fresh active-member and subject check and creates a new immutable credential identity. Revoke turn credentials on completion or cancellation; revoke terminal credentials within 5 s of close; suspension/removal immediately denies authorization and physically revokes credentials within 5 s. No renewal outlives the owning turn or terminal session. Check: C-ACC-01.
-
-Approved integration requirements (In):
-- The issuer binds delegated actor class to the stored credential: `smithers` is app_agent; `cli`, `claude-code`, `codex` and `terminal` are external_agent. Unknown issuer actor classes are refused. `Smithers-Via` is attribution only and cannot alter that binding or scope profile. Mint immutable credential identity and stored class/profile. Legacy sync/platform kinds have no implicit install authority. Checks: C-ACC-01, C-ACC-02, C-SEC-05.
-In:
-- `kind` and `via` stored on every non-session token.
-- `smthrs login <install origin>` always mints `delegated`, for any origin the owner configured (http or https). `via` defaults to `cli`; `--agent <name>` sets it (§5.3.1).
-- The `Smithers-Via` header: the CLI sets it from the environment, and the host records `via` with the credential first (§6.4).
-- One actor resolver producing `{person, via?, session?}` / `{agent: "coding", run}` (§2) for audit and for every event writer that adopts it.
-- A host-side minting API for the other doors:
-  - `delegated(via=smithers)` per app-agent turn for the prompt's author (§15.1.1, §15.1.4). The host turn runner holds it in memory for the turn and revokes it at the turn's end; it never reaches a browser. T-APP-16 moves turns and command dispatch onto the host and uses it.
-  - `delegated(via=terminal)` for T-TRM-02.
-- The browser holds only its `session` cookie. Every request from a browser is a person's request; no bearer rides beside the cookie, and the server never has to choose between two credentials on one request.
-- SG-02 (security, tech lead 2026-10-02 18:01): issue a person-bound session credential with stored via `terminal` or `cli` only to a person typing with no agent session; issue a delegated credential, with issuer-bound stored via, to every agent session. Never take kind or authority from `Smithers-Via`, environment flags or client actor assertions, and never place the person direct-append credential in the S1 shared guest token file. Checks: C-SEC-05, C-J6-01.
-
-Out:
-- Confirmations and per-command `agent` dispatch (§15.1.5, T-ACC-05).
-- The host turn runner and the live-channel UI-only instructions (T-APP-16); context preflight (T-APP-17).
-- Terminal auto sign-in files (T-TRM-02).
-- Rendering "via" badges (T-APP-09).
-- Presence and activity actors (S2: T-COL-04, T-COL-06).
-
-## Changes
-- Update the Git HTTP classifier at `packages/backend/internal/services/git_http_proxy.go:346` to use stored install kind/profile, not legacy scope inference. The install OAuth scope branch at `packages/backend/internal/services/auth.go:805` must remove approval authority while Plue behavior stays unchanged. Check: C-ACC-01, C-ACC-02.
-
-- Backfill stored credential kind/profile metadata in both compositions, but change authorization only in the install composition. Update every credential classifier caller, including the Git HTTP proxy, to resolve install authority from immutable stored kind, actor class and scope profile; system_issued, scopes and userType cannot recreate person authority. Preserve Plue PAT outcomes. Set explicit finite expiries: CLI delegated credentials expire after 30 days; turn and terminal credentials expire after 1 hour. Renewal requires a fresh active-member and subject check and creates a new immutable credential identity. Revoke turn credentials on completion or cancellation; revoke terminal credentials within 5 s of close; suspension/removal immediately denies authorization and physically revokes credentials within 5 s. No renewal outlives the owning turn or terminal session. Check: C-ACC-01.
-
-- `packages/backend/db/product/migrations/01NN_credential_kind.sql` (new) on `access_tokens` (`0001_product_baseline.sql:1536`).
-  - Stores delegated/run/machine token kinds and via; the classifier also admits session cookies and memberless setup. Legacy sync/platform storage keeps compatibility but no implicit install authority. Check: C-ACC-01.
-  - Backfill stores metadata only for Plue. In install mode, user-created tokens become `delegated`/`cli`; classify system tokens by their persisted issuer and subject bindings. Refuse unknown or unprovable bindings. Stored metadata grants no new Plue authority. Check: C-ACC-01.
-  - Spec §3 names the logical table `credentials`. This ticket reshapes `access_tokens` in place and adds no parallel table.
-- `packages/backend/internal/middleware/run_credential.go:62-77`: `TokenCredentialKind` reads the stored kind. A token is never `person`; only a session is.
+- Extend `TokenCredentialKind` in `middleware/run_credential.go`: issuer-bound `via:<name>` is a scope entry; system-issued plus via classifies delegated. Install user-created PATs are delegated/cli. Preserve run/machine subject bindings and Plue classification; unknown install bindings fail closed. No schema migration.
+- CLI credentials expire in 30 days; turn/terminal credentials in 1 hour. Renewal rechecks active membership and subject. Revoke on completion, close or suspension within 5 s; no renewal outlives its subject. Check: C-ACC-01.
 - `packages/backend/internal/routes/auth.go:482-500` (`completeCLIOAuth`) and the `/api/auth/github/cli` start (`compose/router.go:932`):
   - accept `agent` (`[a-z0-9-]{1,32}`);
   - mint `delegated(via)`;
   - never include an approval scope. `ExchangeGitHubToken` (`services/auth.go:804-806`) does the same in install mode.
   - `POST /api/user/tokens` (`router.go:1565`) mints `delegated(via=cli)`.
-- `packages/backend/internal/services/delegated_mint.go` (new): `MintForTurn(member, conversation)` and `MintForTerminal(member, branch)`, each with a TTL and revocation, callable only from host code (no HTTP route).
-- `packages/backend/internal/actor/actor.go` (new): `FromRequest(ctx)` → actor JSON. It resolves `via` from the credential first, then from the header; a session ignores the header.
-- `packages/backend/internal/services/audit.go:24-77`: `AuditEvent.Via`, with a migration adding `audit_log.via` (`0001_product_baseline.sql:1907`). `routes/auth.go` audit calls use `actor.FromRequest`.
+- Add `MintForTurn` and `MintForTerminal` to the existing token service with TTL and revocation; host-only functions, no new route.
+- Define `FromRequest` beside `AuditEvent`; resolve via from issuer-bound scopes, never from a client authority assertion.
+- Write via in `AuditEvent.Metadata` (`audit.go:24–34`); no audit migration.
 - CLI:
   - `packages/smithers/src/internal/backend/Auth.ts:100-170` adds `login --agent <name>`.
   - `Client.ts` sends `Smithers-Via` from the environment: `CLAUDECODE=1` → `claude-code`, `CODEX_*` → `codex`, else none.
@@ -74,12 +44,10 @@ Out:
 
 ## Acceptance
 
-
-
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 
 - [C-ACC-02](../checks/C-ACC-02.md): delegated credentials can't merge or approve.
-- [C-J6-02](../checks/C-J6-02.md): laptop `smthrs login` gets a delegated credential (the merge-confirmation half needs T-ACC-05).
+- [C-J6-02](../checks/C-J6-02.md): laptop `smthrs login` gets a delegated credential (the merge-confirmation half needs T-APP-04).
 - [C-ACC-01](../checks/C-ACC-01.md): Every permission-matrix row is enforced server-side for every credential kind
 
 ## Risks and notes

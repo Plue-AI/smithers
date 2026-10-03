@@ -10,9 +10,9 @@ The owner sets how many TODOs work at once, the install never runs more than the
 In:
 - Owner setting `parallel` from 1 to 8. Effective value = `min(parallel, capacity)`, with capacity from the detected host profile (§8.2.1).
 - Default `parallel = max(1, capacity − 1)` (§10.3.1): 1 at capacity 1 or 2, 2 at capacity 3, 5 at capacity 6. The spare machine serves `person` and `background` requests (§8.3.1), so learning, `flow-load` and wiki refresh don't wait behind working TODOs.
-- Queued TODOs file `machine_requests` of class `todo` (§8.3.1) in stack order; at most the effective `parallel` TODOs hold machines.
+- Queued TODOs file the runtime admission queue of class `todo` (§8.3.1) in stack order; at most the effective `parallel` TODOs hold machines.
 - What counts (§10.3.1): `starting` and `working` TODOs, plus `paused`, `needs_you` and `in_review` TODOs until their machine is released at safe-idle (§8.4.2).
-- `todos.queue = {reason: machine, position}` from the scheduler's ordered waiting set (§4.1.1, §8.3.2).
+- `mythical_items.queue = {reason: machine, position}` from the scheduler's ordered waiting set (§4.1.1, §8.3.2).
 - The setting on `/api/install` and the Settings card's field (owner only, `agent: never`, §15.1.5).
 
 Out:
@@ -25,9 +25,32 @@ Out:
 - `packages/backend/internal/services/mythical_items.go` → `slot` and `freeLane` (`:1038`, `:1050`) read the effective `parallel`; delete the chat-lane reserve `mythicalLaunchSlot` (`:3506`) and its comment (`:1036`). The default's spare machine replaces that reserve.
 - Delete `SetMaxParallel` (`:2686`), route `PUT /mythical/config` (`internal/compose/router.go:1120`, `routes/mythical.go:246`), its OpenAPI row (`docs/api/openapi/repositories.yaml:12686`) and `history.parallel` (`apps/app/src/mainview/flows/entries/history.ts:70`). The value moves to the owner settings of `/api/install` (T-INS-06), migrating `mythical_stacks.max_parallel` (`0026_mythical_stacks.sql:22`).
 - `home` projection → `parallel` (owner only) and each queued item's position.
-- `docs/api/openapi` install schema field; regenerated `ProductApi.ts`; `packages/backend/docs/todos.md`; docs gates.
+- `docs/api/openapi` install schema field; regenerated `ProductApi.ts`; `packages/backend/docs/mythical_items.md`; docs gates.
 
 ## Tests
+
+C-STK-02 (folded steps and assertions):
+1. Set `parallel = 2`. Run engine passes until stable.
+2. Place T6 with Before T2. Release T1's step so T1 reaches `in_review`, then let its machine reach safe-idle and be released (§8.4.2).
+3. Set `parallel = 8`.
+4. Change the fake host profile so capacity becomes 2 while T6 and T2 are working.
+5. Ben opens a terminal on a sleeping scratch branch (a `person` request) while TODOs wait.
+6. Read `todos.queue` positions after each step.
+
+Pass when:
+- Step 1: exactly T1 and T2 pass through `starting` to `working`; T3, T4 and T5 are `queued` with reason `machine` and positions 1, 2 and 3.
+- Step 2: T1 holds its slot while `in_review` until its machine is released; the next TODO admitted after that is T6, not T3.
+- Step 3: the stored value is 8; the effective value reported on `home` is 3; a third TODO admits in stack order.
+- Step 4: the effective value drops to 2; no working agent is stopped (both runs keep running to their next step).
+- Step 5: Ben's request is granted before any queued TODO; TODO positions update in the same projection delta.
+- Positions in every `home` snapshot match the scheduler's waiting order.
+
+Fail when:
+- Admission follows creation or issue order instead of `stack_position`.
+- More than `min(parallel, capacity)` TODOs hold machines at any sampled instant.
+- Lowering capacity pauses or cancels a working agent (preemption, §8.3.3).
+- A position stays stale after a reorder (shows #2 for a TODO now first).
+
 - Unit, `todo_admission_test.go` (new): the default for capacity 1, 2, 3, 6 and 7 (1, 1, 2, 5, 6); effective parallel for those capacities against requested 1..8.
 - Integration with real PostgreSQL and the T-MCH-06 scheduler on a fake runtime whose host profile gives capacity 3, `todo_admission_db_test.go` (new): with the default (2) and 5 queued TODOs, exactly T1 and T2 are admitted, and a `background` request is granted the third machine. A new TODO placed Before T2 admits before the old T2 the next time a slot frees.
 - Same file: setting parallel to 8 stores 8 and reports effective 3; a profile change to capacity 2 lowers the effective value without stopping a working agent.

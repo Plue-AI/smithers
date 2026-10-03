@@ -1,9 +1,9 @@
 # T-GH-07 Follow `main`: always pull, sync health and Retry; a force-push becomes Needs you for the owner
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-ACC-03, T-FLW-03, T-COL-02, T-UI-06 · Unblocks T-APP-01, T-APP-03, T-APP-08, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-ACC-03, T-FLW-03, T-COL-02, T-UI-06 · Unblocks T-APP-01, T-APP-03, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
 Spec: spec.md §4.4, §4.1.2a, §6.1.2, §6.3 (`/api/github/sync`), §7.2 (`home`), §10.1, §10.5.1, §11.3.1, §12.2.3, §12.3 (`main` rows), §12.6, §14.3 (Home `main`) · Delta: delta.md §7 · Product: mvp.md J10.4, J10.6, J10.7, §6.3 "`main` moves", "`main` rewritten on GitHub", "Sync status", Appendix A `/github`, M-22
 
-Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges, GH-07+08; v1 §6 ancestor check 3 → 1). Absorbs T-GH-08 ([#3453](https://github.com/smithersai/smithers/issues/3453)).
+Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges, GH-07+08; v1 §6 ancestor check 3 → 1). Absorbs T-GH-07 ([#3453](https://github.com/smithersai/smithers/issues/3453)).
 
 ## Goal
 The install follows GitHub's `main` with no declaration. The Home card's `main` row reads "synced 40 s ago", turns gold past 120 s with Retry, and names the cause when GitHub refuses. When `main` is rewritten, the owner sees it as Needs you, and nothing moves until the owner presses **Reset to GitHub main**.

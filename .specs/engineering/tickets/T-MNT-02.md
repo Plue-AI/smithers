@@ -27,6 +27,24 @@ Out:
 
 ## Tests
 
+C-MNT-02 (folded steps and assertions):
+1. Request triage as a maintainer. Observe queued state, free capacity and let research/duplicate steps finish.
+2. Inspect proposed reproduction, then reject it. Request another, change its fixture after approval, then attempt execution.
+3. Approve a fresh fixture/argv/base digest and execute it inside a real microVM.
+4. Run the passing control, a missing-evidence bug and the question. Inject executor/model failure and exhaust the budget.
+5. Restart during execution and inspect evidence and machine release. Open the Issue card from a second laptop.
+
+Pass when:
+- Duplicate results cite the captured candidate IDs/revisions and distinguish the unrelated candidate; no labels or closures are written.
+- Denied and changed proposals execute zero commands. The approved fixture runs only inside a machine on the recorded source; measured command, exit, expected/actual behavior and reproduction judgment have matching receipts.
+- Missing evidence requests specific input; questions have not-applicable reproduction; infrastructure/model errors show failed and never reproduced or invalid report.
+- Capacity is respected, terminal states release the slot, restart retains one attempt identity and evidence, and the card shows the same measured result.
+- No personal credential seed, repository secret, main-only secret or GitHub token reaches the machine.
+
+Fail when:
+- A proposed command is reported as executed, a host process runs it, a duplicate closes an issue, or failure fabricates reproduction evidence.
+
+
 - Unit: schema validation and evidence/status consistency.
 - Integration: durable duplicate judgments and failed-step receipts through the real composition.
 - E2E: C-MNT-02 executes a real failing reproduction in a microVM and covers denied, expired and changed proposals; C-MNT-06 covers malicious input.

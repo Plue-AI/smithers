@@ -1,12 +1,14 @@
 # T-APP-02 TODO card and Draft card
 
-Stage S1 · Size M · Depends on T-STK-01, T-STK-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-ACC-02, T-APP-16, T-APP-04, T-APP-09, T-UI-03, T-UI-04, T-GH-06, T-FLW-07, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
+Stage S1 · Size M · Depends on first merge: T-STK-01; rest of S1: T-STK-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-ACC-02, T-APP-16, T-APP-04, T-APP-09, T-UI-03, T-UI-04, T-GH-06, T-FLW-07, T-MCH-10, T-APP-15 · Unblocks T-APP-01, T-APP-03, T-APP-05, T-REL-02 · Issue: [#3466](https://github.com/smithersai/smithers/issues/3466)
 Spec: spec.md §14.2, §14.3 (TODO, Draft), §5.6, §8.6.1, §14.5.1, §4.1, §6.1.4, §6.2.1–6.2.2, §10.2, §10.4, §10.5.4, §10.6, §10.7, §10.8, §12.3, §12.5.1, §15.1.5, §19.3 · Product: mvp.md J2, J4, J9, §4.1, §4.2, §6.6 TODO card, Appendix A "TODOs and the stack"
 
 ## Goal
 A member opens `/todo Tn` and sees the TODO's prompt, place, flow progress, every open wait, failure or evidence, and acts on it from the card; `/todo.new` and "make that a TODO" open a Draft card that commits a placed TODO exactly once.
 
 ## Scope
+First merge: Mount TodoContainer through its card file over T-STK-01 routes; retain existing Draft/append and evidence paths. Take over and image.add wait for rest of S1. Check: C-J1-04.
+Later dependency integrations land dark until their providers and phase checks pass.
 In:
 - `todo` card: title, state word (Queued with its position, Starting, Working with its step, §4.1), owner; place and linked issue; prompt and acceptance while Queued or Dropped, step strip otherwise, "+n" amendments.
 - Needs you by kind (§10.8.1): Answer inline (`/todo.answer Tn`); after the first answer "Ben answered …"; a late submitter's `409 {answered_by}` keeps their text with **Send as steer**. `foreign_push` shows **Bring in** and **Discard** (§12.3). A conflict shows conflicted files, the terminal and SSH line, and **Done** (§10.5.4).
@@ -43,6 +45,9 @@ Out: `/todo.from-issue` (T-STK-09); state transitions, placement and steer deliv
 - e2e: C-J2-01, C-J4-02 and C-J9-01 run `/todo` and `/todo.new` through the production dispatcher, `CardRenderers`, both card files and their Views. C-J9-01 asserts a persisted wiki page with the literal answer Markdown.
 
 ## Acceptance
+- [C-APP-01](../checks/C-APP-01.md): passes for this ticket’s phase at its stated layer.
+- [C-APP-02](../checks/C-APP-02.md): passes for this ticket’s phase at its stated layer.
+- [C-APP-03](../checks/C-APP-03.md): passes for this ticket’s phase at its stated layer.
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 - [C-J2-01](../checks/C-J2-01.md): the Draft card drafted from an issue is edited, placed and committed once.
 - [C-J4-02](../checks/C-J4-02.md): answer, merge next and retry with a steer from the TODO card while chatting.

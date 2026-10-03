@@ -21,10 +21,26 @@ Out:
 ## Changes
 
 - Adapt ConfirmReply and PublishReply to session authorization and digest-bound approval, using the shared Confirm card and Issue draft section.
-- Publish through the existing keyed outbound_writes transaction and reconcile-before-retry protocol. The host writes approved text via the install App; no GitHub write token enters a machine.
+- Publish exact approved bytes through the retained reply publisher and canonical App comment marker. After a lost response, lookup that marker before retry and retain the approval’s GitHub identity receipt. No outbound queue or machine-held GitHub token.
 - A lost HTTP response leaves publication pending reconciliation, never safe to blindly post again. Preserve the returned GitHub comment identity and authorship receipt (C-MNT-03).
 
 ## Tests
+
+C-MNT-03 (folded steps and assertions):
+1. Draft without approving; attempt publication as an agent, Member and forged confirmation.
+2. Reject or time out; edit the draft and change subject/evidence after approval; retry each stale publish.
+3. Approve fresh exact text from the requesting maintainer session, then revoke their role before dispatch.
+4. Approve again with live authority and publish; drop the response after commit, restart, reconcile and retry twice.
+5. Deliver an outsider reply and edits to it while the run is waiting for the author.
+
+Pass when:
+- Steps 1–3 publish zero comments. Denied/timeout drafts persist; stale approval requires a new decision. No event text can satisfy approval.
+- Step 4 publishes exactly one comment with approved bytes and target. Approval digest, keyed write and returned GitHub identity persist; retry reconciles the existing comment before another attempt.
+- Step 5 updates passive context only; zero new credentialed work or resumed steps until a fresh maintainer admission.
+
+Fail when:
+- Changed text publishes under an old approval, publication duplicates after a lost response, or author content resumes a run.
+
 
 - Unit: changed draft/evidence invalidates the approval; authorization covers every credential kind.
 - Integration/fault injection: C-MNT-03 exercises the publisher through real PostgreSQL and a protocol server that commits then drops the response.

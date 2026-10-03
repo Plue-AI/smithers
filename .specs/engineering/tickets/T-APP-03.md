@@ -1,12 +1,14 @@
 # T-APP-03 Setup and Settings cards; Add to machine image
 
-Stage S1 · Size M · Depends on T-INS-06, T-INS-08, T-UI-02, T-UI-13, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 · Unblocks T-APP-24, T-FLW-12, T-MCH-01, T-REL-02 · Issue: [#3497](https://github.com/smithersai/smithers/issues/3497)
+Stage S1 · Size M · Depends on first merge: T-INS-06; rest of S1: T-INS-08, T-UI-02, T-FLW-08, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 · Unblocks T-APP-24, T-FLW-12, T-REL-02 · Issue: [#3497](https://github.com/smithersai/smithers/issues/3497)
 Spec: spec.md §14.3 (Setup / Settings), §8.6.1, §16.2, §16.3, §1.4, §5.1.0, §5.1.1, §6.3 (`/api/install`), §7.2 (`install`), §8.2.1, §10.3.1, §10.6.2, §12.1, §4.4, §17.6, §19.3, §20.2 · Product: mvp.md J1.2–J1.4, J1.8, §6.1 Reaching the install, §6.3 Sync status, M-11, M-28, Appendix A `/settings`
 
 ## Goal
 From the setup link `smthrs host start` prints, on the Mac or a LAN laptop, the owner completes setup on one card (GitHub App, repository, owner sign-in, model access) and watches **Source ready** and **Machine ready** as separate steps; afterwards `/settings` shows the same install model with the address, host limits, capacity and the laptop-agent line.
 
 ## Scope
+First merge: Mount SetupContainer through its card file over InstallSeam; keep existing question/file-card path. Settings waits for rest of S1. Check: C-J1-04.
+Later dependency integrations land dark until their providers and phase checks pass.
 In:
 - `setup` card: one row per §16.2 step in the order T-INS-06 reports (`address`, `app`, `sign_in`, `repository`, `models`, `source`, `machine`), each with one control and a check mark only when its event exists. A step's control enables only when the step before it is done; every row survives a reload mid-step.
   - Before an owner exists the card reads `GET /api/install` with the setup token (§5.1.0); after the claim it follows `/api/live`.
@@ -15,7 +17,7 @@ In:
   - Source ready and Machine ready as two progress rows; a failed image build keeps its reason and Retry. The listen addresses and "This Mac" with its derived limits, read-only.
 - `settings` card (`/settings`, owner only): Address (bind address and public origins, applied without restart; non-localhost `http` marked "unencrypted"; the one-line callback fix when the API can't update it); GitHub (App installed, squash allowed, sync health with cause and fix); model settings; "This Mac"; Machines stepper (lower only, never above the formula); health as `smthrs host status` reports it (§20.2); one `smthrs login <origin>` line per origin.
 - The owner-only `todo_daily_admissions` setting (default 12, positive integer, §10.4.1b). A raise releases queued `daily_limit` work without bypassing other gates. Check: C-STK-06.
-- **New TODOs start pre-approved**, owner-only, default off, bound to T-STK-16's field; affects only TODOs created after the change.
+- **New TODOs start pre-approved**, owner-only, default off, bound to T-STK-04's field; affects only TODOs created after the change.
 - **Add to machine image**: Settings binds its package-name field to T-APP-02's shared `image.add` command and `addImagePackage` helper. A refused name stays in the field with its literal reason.
 - Copy buttons use the `execCommand` fallback and IDs come from `getRandomValues`, so both cards work on plain HTTP (§16.3.2).
 - Settings controls are hidden owner-only, `agent: never` card controls; the server authorizer enforces the owner. `/settings` from the CLI opens the card and offers no mutation path.
@@ -24,7 +26,7 @@ Out: step execution, setup token, App manifest exchange, origin validation and s
 
 ## Changes
 - `cards/SetupContainer.tsx` and `cards/SettingsContainer.tsx` (landed, e4c93b0b9 and d689a6833) are the card files, over `state/seams/InstallSeam.ts` and `InstallModel.ts`. Map kinds `setup` and `settings` to them in `cards/CardRenderers.tsx`.
-- Model settings: the Settings model section is the restored model-assignment slice of `ModelCards.tsx` (ruling 5; T-UI-13 restores it), not `views/SettingsModels.tsx`.
+- Model settings: the Settings model section is the restored model-assignment slice of `ModelCards.tsx` (ruling 5; T-FLW-08 restores the Models section), not `views/SettingsModels.tsx`.
 - Delete the cards Setup and Settings replace, in this change (pair: SetupView and SettingsView ↔ the legacy setup cards; minimal-code synthesis v1 §2): `cards/AccountCard.tsx` and `AccountCard.test.tsx`; `cards/EnvCard.tsx` and `EnvCard.test.tsx`; `cards/RepoImportCard.tsx`; `cards/RepositoryChoiceCard.tsx`, `.css` and `.test.tsx`; the `provider-accounts` body `ProviderAccountsCardBody` (`cards/SecretsCard.tsx:83`) and `ProviderAccountsCard.test.tsx`; the `connector-setup` family (`cards/SyncCards.tsx:154,270`). Remove their producers in `state/controller/account.ts`, `state/seams/EnvironmentSeam.ts`, `SecretsSeam.ts`, `GitHubSeam.ts` and `RepoImportSeam.ts`, and their entries in `CardRenderers.tsx`. `account.show` folds into Settings; every member keeps `/sign-in` and `/sign-out`; `repos.import*` stays a hidden system flow.
 - Collapse the card-action layers (v1 §6, smithers-b8): delete `cards/CardActions.ts`, `CardActions.test.tsx` and `cards/InstallCardActions.ts`; `App.tsx`, `SetupContainer.tsx` and `SettingsContainer.tsx` use `flows/cardActions.ts`.
 - `packages/rpc/src/Cards.ts`: kinds `setup` and `settings`; `account`, `env`, `provider-accounts`, `connector-setup` and `repo-import` move to the legacy decoder (T-APP-22).
@@ -38,6 +40,7 @@ Out: step execution, setup token, App manifest exchange, origin validation and s
 - e2e (`setup.spec.ts`): start the built bundle through T-INS-08, open its printed link on loopback and a plain-HTTP LAN origin, and complete setup through the production dispatcher, `CardRenderers`, both card files and their Views. Cover a reload during mirror and build, the callback on its initiating origin, a refused key and squash-disabled Retry, with literal step, status and error expectations.
 
 ## Acceptance
+- [C-APP-03](../checks/C-APP-03.md): passes for this ticket’s phase at its stated layer.
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 - [C-J1-02](../checks/C-J1-02.md): every setup step completes from the card, a failure links its fix, and Source ready and Machine ready are separate.
 - [C-UI-13](../checks/C-UI-13.md): `SetupView` and `SettingsView` are reachable from `CardRenderers`; `AccountCard.tsx`, `EnvCard.tsx`, `RepoImportCard.tsx`, `RepositoryChoiceCard.tsx`, `ProviderAccountsCardBody`, the `connector-setup` family, `CardActions.ts` and `InstallCardActions.ts` are deleted.

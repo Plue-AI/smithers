@@ -38,6 +38,7 @@ The Confirm cases in `apps/app/src/mainview/cards/views/Views.test.tsx` cover:
 - hostile command text renders exact and inert.
 
 ## Acceptance
+- [C-UI-12](../checks/C-UI-12.md): passes for this ticket’s phase at its stated layer.
 
 - The tests above pass in CI at the landed SHA. `styles/views/confirm.css` is gone.
 

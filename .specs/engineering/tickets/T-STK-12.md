@@ -2,7 +2,6 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-INS-02, T-FLW-01 · Unblocks T-APP-17, T-FLW-11, T-GH-03, T-GH-09, T-MCH-08, T-REL-02, T-STK-02, T-STK-04, T-STK-06, T-STK-08 · Issue: [#3533](https://github.com/smithersai/smithers/issues/3533)
 Spec: spec.md §4.1 (`working → in_review`, `in_review → in_review`), §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5, §10.5.3 · Delta: delta.md §6 (one `todo` run per attempt; PRs stay based on `main` as verified candidates) · Product: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), §6.10 PR card, Appendix B.5 (Stack: integrate, Stack: propose)
-Ready: 2026-10-02 smithers-8a sha256:360b10e80c07
 
 ## Goal
 Every PR head Smithers writes has the exact tree of a persisted accepted generation. GitHub may show the previous accepted head while newer work is checked or its push settles. An edit, a steer, an amendment or a base move after the capture yields a new generation before anything is proposed, and a new item starts on whatever verified prefix exists.
@@ -16,16 +15,16 @@ In:
 - `stack.propose`: the second capture and the five acceptance rules of §10.4.4; the refusals `stale_generation`, `edited`, `stale_inputs` and `rebase_pending`; on acceptance, today's propose path (pin, record, push with lease, open or update the PR).
 - The item's prefix (§10.3.2) for admission and for `stack.candidate`, and `rebase_pending{onto}` for later items when an earlier item's verified head changes.
 - Pending work (§10.4.5): compare each later capture's tree with the accepted generation's tree and signal `edited`.
-- The `generation` tag on every evidence part. This ticket owns the minimal generation field and validation needed by the handshake; T-STK-10 adopts it when building full attempt evidence. T-STK-10 depends transitively on this ticket and is not a prerequisite.
+- The `generation` tag on every evidence part. This ticket owns the minimal generation field and validation needed by the handshake; T-STK-01 adopts it when building full attempt evidence. T-STK-01 depends transitively on this ticket and is not a prerequisite.
 - S1 captures from the workspace: a jj snapshot and the head push that `workspace_head.go` already makes.
 
 Out:
 - The `todo` flow's `candidate`, `check` and `review` steps and the run's signal loop (T-FLW-11).
 - `MergeReady`, GitHub squash dispatch and merge reconciliation belong to T-STK-04. Shared fence primitives are in scope here (C-STK-07).
 - The daemon's `capture()` (T-COL-03). S2 swaps the capture source, not the rules.
-- Presence-aware rebase scheduling (T-STK-11) and conflict handling (T-STK-08).
+- Presence-aware rebase scheduling (T-STK-08) and conflict handling (T-STK-08).
 
-- Out of scope: full evidence presentation (T-STK-10), new retry caps, detecting edits reverted before capture, rewriting working-copy history, new flow-engine APIs, and host execution of repository hooks or checks.
+- Out of scope: full evidence presentation (T-STK-01), new retry caps, detecting edits reverted before capture, rewriting working-copy history, new flow-engine APIs, and host execution of repository hooks or checks.
 
 ## Changes
 - Persist each candidate invocation identity before guest capture. Same-key replay returns its old generation after newer captures; unchanged (base, tree, inputs_seq) may reuse the current generation, while a changed base or consumed input always creates a new one. Reuse cannot clear later verification. Keep actor-scoped canonical request mismatch refusal. Check: C-STK-06.
@@ -34,14 +33,14 @@ Out:
 - Serialize Drop and fresh proposal acceptance with the shared TODO fence. Persist a close-after-reconcile obligation keyed to Drop even before PR number discovery; T-GH-09 resolves pending/unknown proposal effects and dependent closure. Do not archive or clean up until reconciliation and retained final capture permit it. Check: C-STK-06.
 - Implement the approved candidate-generation rules (§10.3.2a, §10.4.4a–e, §10.4.5, §10.4.5a, §10.5.3a, §10.6.2b, §12.5.1a) as pure `NextGeneration`, `DecideCandidate`, `DecidePropose`, `SelectPrefix`, `RebaseFanout` and `PendingWork` decisions over supplied facts. Adapters own capture, locking, persistence and outbound effects. Evaluate replay receipts before fresh-call decisions under §6.2.1 and the existing Propose receipt contract. Persist the immutable included-items manifest and main base, last accepted pointer, intended and settled PR heads, acknowledged input prefix, capture epoch/sequence and prior ordered capture tree. Checks: C-STK-06, C-STK-07.
 - Capture before and after each machine check. A changed tree fails visibly with `check_modified_tree` and changed paths; preserve files and stop automatic repropose cycling. Apply formatting or generation in implement before Candidate, then verify without write modes. Flow composition consumes this failure in T-FLW-11; C-STK-06 tests the fixture dispatcher and C-J1-04 completes the built-in run integration.
-- `packages/backend/db/product/migrations/01xx_todo_merge_fence.sql` → `todos.merging jsonb`; `packages/backend/internal/services/stack_lock.go` → `LockStack(tx)` (stack row, then TODO rows) and `FenceSet(tx, todo)`. Every stack mutation shares this seam.
+- Reuse the item’s version and pending_op plus stack claim as the merge fence; keep approval evidence in checks.Land. No parallel approval table. Check: C-STK-07.
 - Implement §10.6.2b's held-signal delivery: steers and review comments commit durably while fenced; release them once if the fence clears without merge, and keep them undelivered after merge. Placements and amends return `409 merging`; rebase and propose defer. T-STK-04 owns setting and reconciling the marker around GitHub dispatch. Check: C-STK-07.
 - `packages/backend/db/product/migrations/01xx_candidate_inputs.sql` (new) → `mythical_items.candidate_inputs_seq bigint NOT NULL DEFAULT 0`.
 - `packages/backend/internal/services/todo_candidate.go` (new) → `Candidate(todo, inputsSeq) (Generation, error)` and `Propose(todo, generation, evidence) error`, each in one transaction inside the stack claim. The S1 capture runs `jj` in the TODO's workspace and fetches the commit. The candidate commit is written like today's PR head commit (`writeCommit`, `mythical_items.go:2029`), with the prefix head as its parent, and pinned with `pin` before the generation row commits.
 - `packages/backend/internal/services/mythical_items.go` → `start` (`:1665`) launches from the item's prefix instead of `r.row.TipCommit`; `propose` (`:1951`) runs only after `Propose` accepts, keeping its pin → record → push order; the `CandidateVerified` reset at `:1901` moves into `Candidate`.
 - `packages/backend/internal/routes/workspace_head.go` (`ReportWorkspaceHead`, `:49`) → after recording a head for an item branch whose TODO is `in_review`, compare its tree with the accepted generation's tree and use engine-issued capture epochs and sequences in every state, and signal `edited` only for eligible ordered in_review transitions (§10.4.5).
 - `stack.candidate` and `stack.propose` are system operations with Appendix C rows that land in this change. They have no slash, CLI or agent door and are absent from `/help`. T-ACC-03's route→action table admits only run and machine credentials for them. Refusals use named codes `stale_generation`, `edited`, `stale_inputs` and `rebase_pending`, all class `conflict`; `rebase_pending` carries `onto`, the required prefix head. Checks: C-STK-06, C-ACC-01, C-CAT-01.
-- `packages/backend/docs/todos.md` (new; absent today) → generations, refusals and pending work; docs gates.
+- `packages/backend/docs/mythical_items.md` (new; absent today) → generations, refusals and pending work; docs gates.
 
 - `Candidate` and `Propose` enter through the stack worker’s `runClaimed` seam (`services/mythical.go`, claim loop near `:168`, current function near `:224`). Queue a keyed operation for the owning stack claim; do not acquire a second independent claim or recursively claim inside the worker. Keep the stack-then-TODO transaction lock and pin-before-record order. C-STK-07 races dispatcher operations against normal stack mutations.
 
@@ -80,7 +79,6 @@ Out:
 
 ## Acceptance
 - [C-SEC-02](../checks/C-SEC-02.md): production operation binding and guest capture reject host repository execution.
-- [C-STK-07](../checks/C-STK-07.md): shared lock, fence refusal and held-signal rows pass here; merge-dispatch races complete with T-STK-04.
 - [C-STK-06](../checks/C-STK-06.md): the PR head's tree is the tree checks ran on; a new item starts on the available prefix. Its run-side parts also need T-FLW-11.
 - [C-J1-04](../checks/C-J1-04.md): First TODO to merged PR, unassisted, within 60 minutes of starting the install
 

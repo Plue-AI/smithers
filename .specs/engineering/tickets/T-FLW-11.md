@@ -1,6 +1,6 @@
 # T-FLW-11 One `todo` run per attempt: composition flow over coding steps, the candidate handshake and the post-propose wait
 
-Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-GH-09 · Unblocks T-CAT-01, T-FLW-03, T-FLW-04, T-FLW-05, T-GH-03, T-REL-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
+Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-GH-09 · Unblocks T-FLW-03, T-FLW-04, T-FLW-05, T-GH-03, T-REL-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
 Spec: spec.md §10.4.1, §10.4.1a, §10.4.4, §10.4.5, §11.1, §11.4 · Delta: delta.md §6 · Product: mvp.md §6.9, §6.12, J5, M-30
 
 ## Goal
@@ -8,7 +8,7 @@ A TODO attempt is one durable run of one pinned `todo` flow version, from route 
 
 ## Scope
 In:
-- Implement the recovery, launch, correction, recapture and token-accounting clauses in §10.4.1b and §15.2 as host-enforced persisted counters, separate from todo_attempts identity. No recovery path launches a second todo run for the same attempt. Checks: C-STK-06, C-STK-03.
+- Implement the recovery, launch, correction, recapture and token-accounting clauses in §10.4.1b and §15.2 as host-enforced persisted counters, separate from checks.Attempts identity. No recovery path launches a second todo run for the same attempt. Checks: C-STK-06, C-STK-03.
 - Review isolation includes pinned trusted instructions, separate reviewer session and immutable framed candidate data as in §10.4.4; shared-machine placement does not permit inherited implementer instructions or automatic AGENTS.md discovery. Checks: C-STK-06, C-SEC-02.
 - Host-persisted input ordering, terminal outcomes, admission allowance and token pauses in §4.1, §10.4.1a–b and §15.2. Counter updates and admission are transactional; replay cannot reset or double-charge them. Checks: C-STK-06, C-STK-03.
 - The built-in composition extends `flows/coding/todo.ts` (`factory/Todo`, 115 lines, already the head of a TODO's lane and its route step) into `Flow.make("todo", …)`, composing step flows exported from `flows/coding/` (route, plan, implement, check, review) with calls to the packaged `stack.candidate` and `stack.propose` system operations, plus the post-propose event loop in spec §10.4.1, including `edited` and the propose refusals (§10.4.4).
@@ -90,8 +90,6 @@ Out:
 - All 37 FLW11 QA ruling cases above pass at their named layers. Counter, replay, review-isolation, cancellation and signal tests enter production seams. Built-in D1/D2 fixtures do not count as real Active-main activation; C-J5-01 is a joint release gate with T-FLW-03/04. The legacy-drain fixture gates activation, including queued deliveries and unsettled writes. Checks: C-STK-06, C-STK-03, C-J5-01, C-SEC-02.
 - [C-J5-02](../checks/C-J5-02.md): immutable resolver/pin behavior integrates with real loading; fixture-only results do not pass activation.
 - [C-SEC-02](../checks/C-SEC-02.md): run binding, guest execution and isolated read-only reviewer pass the production boundary.
-
-
 
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 

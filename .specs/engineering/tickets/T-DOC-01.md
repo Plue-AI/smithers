@@ -35,6 +35,28 @@ Out:
 The in-app quickstart's HTTPS section has the fixed heading "Put HTTPS in front" (anchor `put-https-in-front`). The Settings line "Notifications need HTTPS ↗" opens `docs quickstart#put-https-in-front` (T-APP-20), so a test asserts the anchor exists.
 
 ## Tests
+
+C-REL-01 (folded steps and assertions):
+1. `pnpm docs:sync`, then check the working copy for changes.
+2. `pnpm docs:check`; `smthrs lint //apps/site:supportDocs`; `smthrs docs //packages/smithers:docs`.
+3. App test: list the in-app docs index. Site test: list the site's docs sidebar.
+4. App and site tests: extract every `smthrs …` invocation and every `/slash` command from the quickstart, the flows reference and the install page. Resolve each CLI path and its flags against `makeCli()` (a command on the planned-commands allowlist passes until it ships, then the allowlist entry fails), and each slash command against `catalog.mvp.json`.
+5. App test: scan both pages for banned terms and for links to deleted pages; check that the quickstart names both HTTPS examples (Tailscale serve and a reverse proxy), the launchd fallback (§16.1.2) and a link to the API reference, the anchor `put-https-in-front`, and that Tailscale appears nowhere else in the docs.
+6. Repo test (runs from S1, with T-DOC-02): Run the existing //scripts:mvpDocs target against the actual architecture documents with committed literal behavioral expectations. ADR 0002 remains proposed during drafting; T-DOC-02 passes only after Will's engineering-spec approval is recorded with a reference/date and Status is accepted. Update the existing proposed-only test after that approval. pnpm docs:check is a separate docs gate and cannot substitute for this target or human approval. The status line of docs/architecture/0001-shared-product.md links ADR 0002; docs/architecture/self-host-implementation.md has no native-own row.
+7. Repo test (R): every relative Markdown link in `AGENTS.md`, `docs/**/*.md` and `apps/site/docs/**` resolves; `docs/mvp/` holds only the pointer pages and evidence files something reads; every decision ID cited in `apps/`, `packages/` and `flows/` has a row in `docs/mvp/PRODUCT.md`.
+
+Pass when:
+- Step 1 produces no change; step 2 exits 0 for all three commands.
+- Step 3: the in-app index equals exactly {Quickstart, Flows reference}; the site sidebar equals exactly {Install} plus the API reference, which the quickstart links.
+- Steps 4 to 7 report zero failures.
+
+Fail when:
+- A quickstart command exists only in an installed build, or a flag in the docs differs from the command's schema.
+- A cut surface (Docker self-host, five-job setup, TUI, Cloud pricing, create-app) is reachable from the in-app docs or the site.
+- A site page other than the install page and the API reference remains.
+- A generated copy was edited by hand, so `docs:sync` rewrites it.
+- `AGENTS.md`'s D-16 link or a `.specs/` link is dead.
+
 - unit `apps/app/src/docs/pages.test.ts` (new, beside T-APP-20's loader): the in-app docs index is exactly {Quickstart, Flows reference}; the quickstart links the API reference; every `smthrs …` invocation in both pages resolves in source `makeCli()` with valid flags (the technique of `packages/smithers/test/McpDocs.test.ts`); a planned-commands allowlist names commands the docs may cite before they ship, and the test fails when a listed command ships, so the list can't go stale; every slash command exists in `catalog.mvp.json` (T-CAT-01); no banned term from the C-UI-02 list; "Tailscale" appears only in the HTTPS examples; the anchor `put-https-in-front` exists; no link to a deleted page.
 - unit `apps/site/scripts/install-page.test.mjs` (new): the site's docs sidebar is exactly the install page (plus the API reference); its commands resolve in `makeCli()`; it links no deleted page.
 - journey: the C-J1-04 operator at stage R uses only the install page and the in-app quickstart.

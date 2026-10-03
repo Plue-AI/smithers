@@ -1,7 +1,7 @@
 # T-COL-02 Live channel `/api/live`: topics, cursors, backpressure
 
-Stage S1 · Size L · Depends on T-STK-01, T-ACC-03, T-INS-04, T-FLW-01, T-APP-19b · Unblocks T-APP-04, T-ACC-02, T-AGT-02, T-APP-01, T-APP-07, T-APP-08, T-APP-16, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-07, T-FLW-08, T-GH-07, T-MCH-01, T-MCH-08, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
-Spec: spec.md §3 (`projection_events`), §3.1, §3.3, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
+Stage S1 · Size M · Depends on T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 · Unblocks T-AGT-02, T-APP-01, T-APP-04, T-APP-07, T-APP-16, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-07, T-FLW-08, T-GH-07, T-MCH-08, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
+Spec: spec.md §3 (source durable cursors), §3.1, §3.3, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
 
 ## Goal
 
@@ -9,57 +9,85 @@ A browser tab opens one WebSocket to `/api/live` on the page's origin (`ws://` o
 
 ## Scope
 
-- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via T-APP-19b (#3601). Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
+- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via the existing RPC schema. Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
 
 In:
 - Lands before T-ACC-04 (tech lead 2026-10-02, edge cut): Live transport uses ACC-03's trusted credential decision; before ACC-04's stored-kind classifier is installed, reject every bearer upgrade before subscription/snapshot/frames. Do not interpret existing PATs as sessions. Cookie transport can activate only with INS-04 origin checks and the real active-member/revocation provider; if that provider is absent, refuse the whole upgrade with a typed unavailable response. ACC-02's revocation integration is an explicit activation gate, since removing ACC-04 also removes its transitive ACC-02 edge. ACC-04 later qualifies production bearer login → live subscribe → revoke.; its integration test with T-ACC-04 runs after T-ACC-04 lands and gates C-COL-02, C-ACC-01 and C-UI-05 (S1 authenticated live/revocation exit).
 - Endpoint with subprotocol `smithers.live.v1`, authenticated by the session cookie or a bearer token. Apply T-INS-04’s effective-origin rules (§16.3.3): unknown request hosts get 421, cookie upgrades require Origin equal to the effective origin, and cookie-free bearer upgrades need no Origin. Settings changes apply without a restart.
 - Text frames `sub`, `unsub`, `snap`, `delta`, `gap` and `err` (§7.1). `err` refuses one subscription with `unknown_topic`, `forbidden` or `unsupported`, and the socket stays open.
 - Per-topic cursors. Reconnect with jitter from 250 ms to 5 s and resubscribe with the last cursors (§7.1.2).
-- `projection_events` with a per-topic monotonic `seq`. A shared `Publish(tx, topic, payload)` writes the row in the caller's transaction and runs `NOTIFY live, '<topic>'` (§3.1).
+- Reuse each source’s durable cursor and existing broker; publish after the source transaction commits.
 - Retention: 24 h or 10,000 rows per topic, whichever is larger. An older cursor gets a fresh `snap` (§3.3).
 - A topic registry. Each topic declares a snapshot builder and an authorization rule, enforced through the one authorizer (§5.2.1).
 - Shared and member topics (§7.2.2). One `(topic, seq)` stream serves every subscriber, so `NOTIFY` fan-out needs no member filter:
   - shared topics (`home`, `todo:<n>`, `branch:<id>` with `:activity` and `:files`, `run:<id>`, `conversation:<branch>` and the card topics) carry only shared state, identical for every subscriber;
   - member topics are named with the member id and refuse every other subscriber with `forbidden`: `confirmations:<member>` (pending confirmations) and `view:<member>:<branch>` (view state, `last_seen_seq`);
-  - private entries (`audience_member_id`: Confirm cards and uncommitted Draft cards, §14.5.1) publish on their member's `view:<member>:<branch>` topic, never on `conversation:<branch>`.
+  - Confirm cards publish on `confirmations:<member>`; uncommitted Drafts remain browser-local. Neither enters shared conversation output.
 - The base `run:<id>` topic (§7.2): run summary and steps, projected from runtime events (§11.6.1). It ships in S1 so Inspect and the monitor (T-FLW-07) build on it.
 - Backpressure: a 2 MiB send budget per connection. On overflow, projection subscriptions receive `gap` (§7.1.1).
 - Revocation closes the member's sockets within 5 s (§5.6).
 - A connection count in the in-process metrics (§20.3).
 - Stage-3 contract (§7.6 row 2, ADR 0003 from T-COL-10), reserved now:
   - Topic names `doc:code:<branch>:<path>` and `doc:wiki:<page>`.
-  - Binary frame kinds 1 (yjs-sync) and 2 (yjs-awareness), plus kinds 3–5 (terminals, S2).
+  - Binary frame kinds 1 (yjs-sync) and 2 (yjs-awareness). Terminals retain their WebSocket.
   - The `presence` text frame (S2).
   - The S1 server parses these and answers `{"t":"err","id":…,"code":"unsupported"}` (§7.1, T-COL-10). The connection stays open, and nothing is ignored silently.
 
 Out:
-- A barrel export, replacement fixture history and RPC implementation outside T-APP-19b (#3601) are excluded.
+- A barrel export, replacement fixture history and RPC implementation outside the existing RPC schema are excluded.
 - Presence (T-COL-06), terminal frames (T-TRM-01), Yjs relay and documents (T-COL-08, T-COL-09).
-- Moving the app's seams and deleting per-resource SSE routes (T-APP-08).
+- Move app seams in this change. Delete each SSE route only after its last consumer moves, S2 at the earliest.
 - Card Views, document authority placement, repository-code execution and new public flow-library abstractions.
-- Each topic's projection rows and snapshot model (§7.2 lists them). Each owning ticket registers its builder: `home` T-APP-08, `todo:<n>` T-STK-01, `conversation:<branch>` and `view:<member>:<branch>` T-APP-16, `confirmations:<member>` T-ACC-05, timeline fields T-APP-07. T-FLW-07 extends `run:<id>` with cost, waits since and the raw journal.
+- Each topic's projection rows and snapshot model (§7.2 lists them). Each owning ticket registers its builder: `home` T-COL-02, `todo:<n>` T-STK-01, `conversation:<branch>` and `view:<member>:<branch>` T-APP-16, `confirmations:<member>` T-APP-04, timeline fields T-APP-07. T-FLW-07 extends `run:<id>` with cost, waits since and the raw journal.
 - Client derivations from shared rows plus the member's own `last_seen_seq` and role: `merged_since_last_look` and the Home card's `attention[]` (T-APP-01).
 
 ## Changes
+- Absorb T-COL-02: move each seam to the live adapter and delete its replaced consumer in the same change. Retain an SSE route until its last consumer, including other compositions, has moved; S2 at the earliest. Check: C-UI-05.
 
-- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via T-APP-19b (#3601). Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
+- Keep Live subpath exports without a barrel. Define frames as z.discriminatedUnion("t") via the existing RPC schema. Add packages/rpc/test/fixtures/Live.ts and decode tests over every frame, following the committed old-record convention in Cards.test.ts. Reserved presence and binary kinds decode to err unsupported. Check: C-COL-02.
 
-- Reuse T-STK-01’s `projection_events` migration and writer (§3.1); do not add a second migration or writer. Add `projection_topics(topic PK, last_seq)` and topic-row locking to that writer so seq order equals commit order.
-- `packages/backend/db/product/queries/projection_events.sql` (new) and the sqlc output in `packages/backend/internal/db/` (run `scripts/check-sqlc-drift.sh`).
-- `packages/backend/internal/live/` (new):
-  - `protocol.go`: frame codec, including the reserved kinds.
-  - `hub.go`: one `LISTEN live`, reusing `packages/backend/internal/sse/listener.go`. It reads rows once per notification and fans them out.
-  - `registry.go` (with the member-topic rule: the topic's member id must equal the credential's member), `publish.go`, `retention.go`.
-  - `run_topic.go`: the base `run:<id>` builder, fed by the host's projection of runtime events (§11.6.1) in the same transaction as the run row change.
-- `packages/backend/internal/routes/live.go` (new): upgrade through `github.com/coder/websocket` (`go.mod:6`, already used by `packages/backend/internal/routes/terminal_session_manager.go:14`). Auth uses the existing `authLoader`. For the install, validate every upgrade against T-INS-04’s live effective-origin source. The static configuration seam (`packages/backend/internal/config/config.go:246`, AllowedOrigins) is not the install authority. Check: C-COL-02.
+- Add `routes/live.go` and its frame codec only: share the origin/auth prefix of workspace socket preflight, without its workspace-session lookup; map sub/unsub to `sse.Broker.Subscribe` and reconnect cursors to the replay/snapshot behavior of `DurableStream.OnConnect`, adapted to WebSocket frames. Reuse source snapshots, retention and authorization; no parallel hub, registry, writer or cursor table.
 - `packages/backend/internal/compose/router.go`: mount `GET /api/live` outside the JSON timeout group, beside the terminal WebSocket (`router.go:789`).
 - `docs/api/openapi/live.yaml` (new) describes the upgrade route and the frames. `packages/backend/internal/compose/openapi_conformance_test.go` covers it (§6.2.4).
 - `packages/rpc/src/Live.ts` (new): frame schemas shared by the app and the CLI.
-- `apps/app/src/mainview/runtime/LiveChannel.ts` (new): one socket per tab, cursor store, backoff, resubscribe, `gap` → resubscribe without a cursor.
+- `apps/app/src/mainview/runtime/LiveChannel.ts` (existing): one socket per tab, cursor store, backoff, resubscribe, `gap` → resubscribe without a cursor.
 - `packages/backend/docs/live-channel.md` (new). Run `pnpm docs:sync` and `pnpm docs:check`, then `smthrs docs //packages/backend:docs`.
 
 ## Tests
+
+C-UI-05 (folded steps and assertions):
+1. Integration: drive a TODO through queued → starting → working → needs_you → working → in_review. Record every delta on `todo:<n>` and `home`, and every `product_job_events` row.
+2. Integration: fail a transition after its row update and before commit.
+3. e2e: Ben sends `/todo.new` with the backend hold on the create handler. While it is held, he sends a chat message.
+4. e2e: release the hold. The TODO queues behind the working one.
+5. e2e: Ben reloads the tab while the TODO is queued, then lets it run until it fails (the fake model returns an error).
+6. e2e: Ben submits the same `/todo.retry Tn` twice within 100 ms. The two submissions carry the same `Idempotency-Key`.
+7. e2e: block Ben's live socket for 10 s while the TODO moves through two states. Then unblock it.
+8. Integration (T-COL-10 contract): two writes to one branch file carry the same `base_digest`, and the app's write door renders the second response.
+8a. Integration (T-COL-10): dispatch the real coding-agent read and each of write, edit and apply_patch through coding/edit-atom in a machine, with an outside fixture write between read and mutation. Observe the tool result and its displayed run event through the production path.
+
+Pass when:
+- T-COL-10 agent-write extension: apply_patch add, delete, update and move all use the guarded mutation boundary. A stale source or destination reports refused, never saved. A later stale hunk leaves every earlier hunk unchanged; no move source disappears and no destination is created.
+- Every delta's state has a committed `product_job_events` row with that `to_state`. Delta order equals event `seq` order. Step 2 emits no delta.
+- During the hold (step 3):
+  - the toast and card show only "requested", never "queued" or "working";
+  - the chat message sends and gets its answer while the launch is still held;
+  - the toast appears no sooner than 300 ms after the command (the shared debounce).
+- After step 4, the card shows "waiting for a machine #1" (§4.1.1) until admission. It shows "starting" only after the `starting` event exists, and "working" only after the `working` event exists.
+- After the reload in step 5, the toast reconnects and shows the current state from the snapshot. It settles to failed with **Retry** only after the `failed` event.
+- Step 6 creates one attempt, and the second response returns the first result (§6.2.1).
+- After step 7, the client resubscribes with its cursors and receives both missed deltas once, in order, with no `gap`. The card ends on the final state without showing a state out of order.
+- In step 8, the second write returns `409 stale` (§7.6 row 1). The caller shows it as refused and reloads the file, and never shows it as saved.
+- Step 8a returns stale_read and leaves the outside fixture bytes unchanged; its run event displays refused and never saved. The oracle uses fixed fixture bytes and literal expected states, never spec files or production code at runtime.
+
+Fail when:
+- A card or toast shows "working", "done" or "merged" before the corresponding event row exists. For example, an HTTP 202 is rendered as started, or a toast settles on transport success.
+- The chat composer is disabled, or the message waits, while a launch is pending.
+- After reload, the toast is gone or shows a terminal state the projection never sent.
+- A duplicate retry starts two attempts.
+- A stale write shows "Saved", or is applied.
+- A delta is lost or applied twice across the reconnect, or a stale response from the pre-reload socket changes the card.
+
 
 - Decode every committed Live frame and old record. Assert discriminator t and reserved presence/binary kinds produce err unsupported with the socket left open. Preserve subpath exports and assert no barrel export. Check: C-COL-02.
 
@@ -86,7 +114,6 @@ Out:
 
 
 - [C-PERF-02](../checks/C-PERF-02.md): the committing transaction to the delta at a subscriber in < 1 s p95.
-- [C-UI-05](../checks/C-UI-05.md): no card state shown before its committed event. Reconnect replays from cursors without duplicates or gaps.
 - [C-COL-02](../checks/C-COL-02.md): Live channel: a `gap` or reconnect resubscribes from the cursor with no duplicated or missing delta
 
 ## Risks and notes

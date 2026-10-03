@@ -3,7 +3,7 @@
 Stage S1, S2 · Size L · Depends on S1: T-STK-01, T-STK-02, T-STK-12, T-FLW-02, T-FLW-11, T-MCH-08 (S1), T-UI-04 · S2: T-COL-03, T-COL-04, T-COL-06, T-MCH-04, T-MCH-07 · Unblocks T-APP-02, T-APP-10, T-GH-06, T-REL-01, T-REL-02, T-REL-04 · Issue: [#3532](https://github.com/smithersai/smithers/issues/3532)
 Spec: spec.md §8.5.0, §8.5.2a, §9.4.2, §10.5.1–§10.5.5, §14.5.2, §15.1.5 · Delta: delta.md §6 (Modify rebase) · Product: mvp.md §4.2 Rebase, J7.4, J10.4, M-32, Appendix A `/branch.rebase`
 
-Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges STK-08+11). Absorbs T-STK-11 ([#3573](https://github.com/smithersai/smithers/issues/3573)).
+Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges STK-08+11). Absorbs T-STK-08 ([#3573](https://github.com/smithersai/smithers/issues/3573)).
 
 ## Goal
 S1: anyone on a branch rebases it now; the stack service performs it and records "Smithers, for Ben". A conflict gets one agent attempt, then Needs you with the paths and Resolve; nothing retries silently. S2: with people on the branch the rebase waits as "Rebase pending" and never runs during a write made through Smithers.
@@ -22,7 +22,7 @@ Out: Fork and Add to stack (T-MCH-08); other conflict producers (T-GH-06, T-COL-
 - Reshape `merge3` (`mythical_git.go:233`) and `rebaseCandidate` (`:533`) to keep the conflict tree and materialize it in the guest working copy before the agent starts.
 - Reuse `replant` (`mythical_git.go:461`) and T-STK-12's stack claim and fence; a fenced item stays pending.
 - Delete the `conflict` label derived from `retrying` in `itemStateLabel` (`packages/rpc/src/StackView.ts:56`).
-- Reuse T-STK-01's `mythical_item_events` for the `rebase` entry with the system actor and requester.
+- Reuse T-STK-01's `product_job_events` for the `rebase` entry with the system actor and requester.
 - S2 Reshape: `integrate` calls the daemon `rebase` for an awake branch; the host path stays only for asleep branches. One path per case, no fallback.
 - New (S1): the Rebase now flow in `branch_rebase_now.go`. Rejected reuse: `POST /mythical/items/{id}/retry` relaunches an attempt and has no scratch-branch or target semantics.
 - New (S2): `Decide` in `todo_rebase.go` and the daemon `rebase(onto)` RPC in `crates/smithers-machined`. Rejected reuse: no presence-aware scheduler or guest-side rebase exists; the host-side `rebaseCandidate` cannot freeze writers.
@@ -32,7 +32,7 @@ Out: Fork and Add to stack (T-MCH-08); other conflict producers (T-GH-06, T-COL-
 - S2: unit decision table over presence {none, agent, agent + person, person + SSH} × pending; `crates/smithers-machined/tests/rebase.rs` closes an open burst first and lands a held `write_file` after the rebase; Alice present gives "Rebase pending", Alice leaving rebases within 2 s; an asleep branch rebases with zero wakes.
 
 ## Acceptance
-- S1: [C-J7-03](../checks/C-J7-03.md), [C-STK-07](../checks/C-STK-07.md), [C-SEC-02](../checks/C-SEC-02.md), [C-UI-13](../checks/C-UI-13.md).
+- S1: [C-J7-03](../checks/C-J7-03.md), [C-SEC-02](../checks/C-SEC-02.md), [C-UI-13](../checks/C-UI-13.md).
 - S2: [C-COL-03](../checks/C-COL-03.md), [C-J10-04](../checks/C-J10-04.md), [C-PERF-06](../checks/C-PERF-06.md).
 
 ## Risks and notes

@@ -13,7 +13,7 @@ In:
 - Construct the SSH server (`packages/backend/ssh/ssh.go:61` `New`) in `apps/backend`. It listens on `127.0.0.1:2222` always, plus `<bind>:2222` when the owner sets a bind address in Settings or with `smthrs host start --bind <addr>`, the same rule the HTTP listener follows (§1.4, T-INS-04). The product runs no network tool of its own; reaching port 2222 from another machine is the owner's network setup, described in the docs.
 - Username = branch name or slug (§8.10.1): `retry-webhooks` resolves `smithers/retry-webhooks`, then `scratch/*/retry-webhooks`. Ambiguity fails with the candidate list on stderr.
 - Composition-specific logins (§8.10.1): the install composition accepts branch-name usernames only. Plue's composition keeps its `<sandbox>+<user>` grant login and doesn't accept branch names. One server, two parsers, chosen at composition.
-- Authentication: the public key must belong to a member (keys from T-TRM-04 and `smthrs ssh-key`). Deploy keys are refused for shells (`packages/backend/internal/ssh/server.go:387-395`). Suspended or removed members are refused.
+- Authentication: the public key must belong to a member (keys from T-ACC-02 and `smthrs ssh-key`). Deploy keys are refused for shells (`packages/backend/internal/ssh/server.go:387-395`). Suspended or removed members are refused.
 - The gateway makes a `person` admission request (T-MCH-06). While waiting, it writes "waiting for a machine #n" to stderr and keeps the connection alive.
 - Channels map onto `smithers-machined` session primitives (§8.10.3, §9.1.2); machines run no sshd:
   - shell and exec become `open_session(member, pty|exec)` as the member's uid in a new session cgroup, in `/workspace`;
@@ -28,7 +28,7 @@ In:
 
 Out:
 - Presence rendering and attribution of saves (T-COL-06, T-COL-04). The Branch card SSH line (T-APP-10).
-- GitHub key import (T-TRM-04).
+- GitHub key import (T-ACC-02).
 - [D] mDNS names, a LAN CA and `smthrs connect`: never built.
 - Remote port forwarding (`tcpip-forward`), which §8.10.3 doesn't list.
 
@@ -53,8 +53,6 @@ Out:
 - e2e: C-J3-06.
 
 ## Acceptance
-
-
 
 - [C-J3-06](../checks/C-J3-06.md): SSH from another machine to the install host with GitHub keys; a VS Code Remote edit lands attributed; port forwarding works.
 

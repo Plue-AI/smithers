@@ -8,20 +8,20 @@ This page does three things. §1 names each card's one card file, its View and i
 
 A card has one card file in `MV/cards/`. It reads the card's data, maps it to the View's props, binds `actions[]` through `MV/flows/cardActions.ts` to `flowAction`, stores `onView` patches as view state, and is mounted only from `MV/cards/CardRenderers.tsx`. There is no separate Container class, view-model module, topic decoder fixture or golden test (minimal-code synthesis v1 §2). Where a `*Container.tsx` already landed, that file is the card file. The ticket that wires a View deletes the old card it replaces in the same change (C-UI-13).
 
-View props are TypeScript types. Zod schemas exist only where data crosses HTTP or storage: the card reference a conversation stores (`Cards.ts`, decoded by `CardSchema`) and the kept rpc card schemas Todo, Draft, Setup, Settings, Confirm, Home, Members, `CardAction` and `CardPrimitives`. T-APP-19 deletes the S2/S3 schemas (Proposal, Terminal, Secrets, Branch, Docs, DebugApi), `RetainedCards.test.ts` and its snapshot; each later card's ticket adds what it needs. A card with a topic stores only its subject (`todo {n}`, `branch {id}`); a Draft stores its fields (spec §3, `conversation_entries.card`).
+View props are TypeScript types. Zod schemas exist only where data crosses HTTP or storage: the card reference a conversation stores (`Cards.ts`, decoded by `CardSchema`) and the kept rpc card schemas Todo, Draft, Setup, Settings, Confirm, Home, Members, `CardAction` and `CardPrimitives`. T-APP-19 deletes the S2/S3 schemas (Proposal, Terminal, Secrets, Branch, Docs, DebugApi), `RetainedCards.test.ts` and its snapshot; each later card's ticket adds what it needs. A card with a topic stores only its subject (`todo {n}`, `branch {id}`); a Draft stores its fields (spec §3, `chat_turns.card`).
 
 | Card | Card file (wiring ticket) | Deleted in the same change | View |
 | --- | --- | --- | --- |
 | Home | `HomeContainer.tsx` (T-APP-01) | `StackCard.tsx`, `RepositoryHomeCard.tsx`, then `StackSeam.ts` | T-UI-06 |
-| TODO | `TodoContainer.tsx` (T-APP-02; T-STK-08 and T-MCH-08 add actions) | StackSeam's TODO paths, `history.view/todo/retry` | T-UI-04 (absorbs T-UI-23) |
+| TODO | `TodoContainer.tsx` (T-APP-02; T-STK-08 and T-MCH-08 add actions) | StackSeam's TODO paths, `history.view/todo/retry` | T-UI-04 (absorbs T-UI-04) |
 | Draft | `DraftContainer.tsx` (T-APP-02) | none | T-UI-03 |
 | Setup, Settings | `SetupContainer.tsx`, `SettingsContainer.tsx` (T-APP-03; T-FLW-12 adds the Obsidian row) | `AccountCard.tsx`, `EnvCard.tsx`, `RepoImportCard.tsx`, `RepositoryChoiceCard.tsx`, `CardActions.ts`, `InstallCardActions.ts` | T-UI-02 |
 | Confirm | `ApprovalCard.tsx`, migrated in place (T-APP-04) | `ApprovalAnswer.tsx` | T-UI-05 |
 | Flow | `FlowContainer.tsx` (T-APP-05) | `WorkflowCards.tsx` | T-UI-10 |
 | Members | `MembersCard.tsx`, new: no members card exists (T-APP-06) | none | T-UI-09 |
-| File, Diff | `FileCards.tsx` + `CodeSurface.tsx`; `ChangeCards.tsx` + `DiffSurface.tsx` (T-APP-15 [S1], T-APP-11 [S2], T-APP-14 [S3]) | `CodeEditorView.tsx`, the CodeMirror adapter (T-UI-11); `DiffView.tsx` folds into `DiffSurface.tsx` | T-UI-11, T-UI-16, T-UI-19 |
-| Run (monitor, Inspect) | `RunTraceCard.tsx`, reshaped in place (T-FLW-07) | `RunsCards.tsx` folds into it | T-UI-12 |
-| Agent, model roles | `AgentCards.tsx`; restored `ModelCards.tsx` slice (T-FLW-08) | `views/SettingsModels.tsx` | T-UI-13 |
+| File, Diff | `FileCards.tsx` + `CodeSurface.tsx`; `ChangeCards.tsx` + `DiffSurface.tsx` (T-APP-15 [S1], T-APP-11 [S2], T-APP-14 [S3]) | `CodeEditorView.tsx`, the CodeMirror adapter (T-APP-15); `DiffView.tsx` folds into `DiffSurface.tsx` | T-APP-15, T-UI-16, T-UI-19 |
+| Run (monitor, Inspect) | `RunTraceCard.tsx`, reshaped in place (T-FLW-07) | `RunsCards.tsx` folds into it | T-FLW-07 |
+| Agent, model roles | `AgentCards.tsx`; restored `ModelCards.tsx` slice (T-FLW-08) | `views/SettingsModels.tsx` | T-FLW-08 |
 | Commands | `CommandsContainer.tsx` (T-UI-14, T-CAT-01) | `CommandsCases.ts`, `CommandsExpectations.ts` | T-UI-14 |
 | Shell: entries, branch tree, Earlier | the conversation surface (T-APP-16; T-APP-17 adds the Context line) | `BranchesCard.tsx` | T-UI-07 |
 | Timeline, toasts, edge map | `ChatRunTimeline.tsx`, `ToastStack.tsx`, `EdgeMap.tsx` (T-APP-07; T-APP-18 adds Allow notifications) | their old markup | T-UI-08 |
@@ -37,7 +37,7 @@ View props are TypeScript types. Zod schemas exist only where data crosses HTTP 
 Confirm references and receipts are visible only to the person who must press the card; every other viewer sees nothing. Keep `file`, `diff`, `run-trace` and `agents` live when their names are reused under L4; never add those live kinds to `LEGACY_CARD_KINDS`. Check: C-ACC-02; T-APP-22's tests cover old-row decoding. Legacy decoding preserves pinned records; current Confirm references validate their authorized confirmation subject. Legacy decoding never grants access to a forbidden Confirm subject.
 
 
-L1. **One decoder.** `CardSchema` (`packages/rpc/src/Cards.ts`) decodes every persisted card: today's per-member transcripts (`MV/state/AppStore.ts`, OPFS or localStorage), the `card` frames of the agent turn journals read through `/api/agent/conversations/replay` (`packages/backend/internal/chat`), and from T-APP-16 `conversation_entries.card`. Its preprocessor turns a row whose kind is in `LEGACY_CARD_KINDS` into the tombstone `{kind: "retired", payload: {was: <kind>}}`. The tombstone keeps `id`, `ordinal`, `createdAt` and the stored `title`, and drops `body` and the payload. Today's two mechanisms, the preprocessor's `retiredKinds` (`Cards.ts:3040-3056`, 14 names) and the app's `RETIRED_CARD_KINDS` (`MV/state/CardAvailability.ts:1`, 20 names), become this one set. T-APP-22 builds it.
+L1. **One decoder.** `CardSchema` (`packages/rpc/src/Cards.ts`) decodes every persisted card: today's per-member transcripts (`MV/state/AppStore.ts`, OPFS or localStorage), the `card` frames of the agent turn journals read through `/api/agent/conversations/replay` (`packages/backend/internal/chat`), and from T-APP-16 `chat_turns.card`. Its preprocessor turns a row whose kind is in `LEGACY_CARD_KINDS` into the tombstone `{kind: "retired", payload: {was: <kind>}}`. The tombstone keeps `id`, `ordinal`, `createdAt` and the stored `title`, and drops `body` and the payload. Today's two mechanisms, the preprocessor's `retiredKinds` (`Cards.ts:3040-3056`, 14 names) and the app's `RETIRED_CARD_KINDS` (`MV/state/CardAvailability.ts:1`, 20 names), become this one set. T-APP-22 builds it.
 
 L2. **Rendering.** A tombstone is a read-only entry row with its title alone: no body, no action, no maximize, no reopen. A tombstone with an empty title renders nothing. `cardAvailable` is false for it, so no flow reopens it and no turn sends it to a model. The View is T-UI-07's entry row without a card.
 

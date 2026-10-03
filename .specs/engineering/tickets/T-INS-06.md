@@ -1,6 +1,6 @@
 # T-INS-06 Install setup backend: durable steps, model access API, squash check
 
-Stage S1 · Size M · Depends on T-INS-04, T-GH-01, T-ACC-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 · Unblocks T-APP-03, T-APP-08, T-APP-17, T-FLW-02, T-FLW-08, T-MCH-01, T-REL-01, T-REL-02, T-REL-03 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
+Stage S1 · Size M · Depends on first merge: T-INS-02, T-ACC-01; rest of S1: T-INS-04, T-GH-01, T-MCH-10, T-ACC-03, T-CUT-02, T-FLW-01 · Unblocks T-APP-03, T-APP-17, T-FLW-02, T-FLW-08, T-MCH-01, T-REL-01, T-REL-02, T-REL-03, T-STK-01 · Issue: [#3455](https://github.com/smithersai/smithers/issues/3455)
 Spec: spec.md §3 (`install_settings`, `github_app`), §3.1, §5.1.0, §6.2, §6.3 (`/api/install`), §7.2 (`install` topic), §8.6.3, §10.6.2, §11.5a, §12.1, §14.3 (Setup/Settings), §15.1, §15.2, §16.2, §17.4 · Delta: delta.md §1 (Add [S1] setup card backend) · Product: mvp.md J1.2–J1.5, §6.1, §6.5, §6.9 Model access, M-09, M-11
 Edited by the minimal-code synthesis, 2026-10-03 (v2 reverts list; v1 §6): `/api/host` folds into `/api/install`; three model-key stores become the sealed owner secrets.
 
@@ -8,12 +8,14 @@ Edited by the minimal-code synthesis, 2026-10-03 (v2 reverts list; v1 §6): `/ap
 An owner completes setup steps 0 to 6 from any known origin (`http://localhost:4000` on the Mac, or a configured public origin from a LAN laptop), each persisted and resumable across a restart. Address comes first, so the GitHub App is created with the right callback URLs. Model access covers the three roles, and Source ready and Machine ready are separate steps.
 
 ## Scope
+First merge: Complete steps address through machine with landed App, model and image services. Check: C-J1-04.
+Later dependency integrations land dark until their providers and phase checks pass.
 
-- Persist a stable operation id, validated inputs, external target identity and execution fence with each running setup step. Recovery inspects running steps, claims a new fence for the same operation and reconciles its external effect before resuming; it never resets running to pending and blindly repeats an App creation, mirror or image effect. Completion compares the operation id and fence and commits step state plus projection atomically. A stale worker cannot complete or overwrite the recovered step. Unknown external outcomes remain running or blocked with a retry explanation until reconciled. Checks: C-J1-02, C-SEC-04.
+- Reuse the jobs runner’s operation identity, lease and external-effect recovery: one `product_job_requests` operation per setup step; `BeginExternal` before effects, `Checkpoint` after success, `Park` for uncertain outcomes. Recovery retains the operation id and refuses stale completion. Check: C-J1-02.
 In:
 - `GET /api/install`: every step with state, progress and error, plus the §14.3 Setup model (address, `steps[]` with ids, states and `pct`, This Mac, GitHub, repository, models[] per role with key state, and the ChatGPT flag). Before the claim it answers only to a setup session (§5.1.0), on any known origin (§16.3.3); afterwards only to the owner.
 - `POST /api/install/setup/{step}` for each step's action and Retry. A setup session reaches only address, app_manifest and sign_in. Repository through machine require the provisional owner's person session; setup-session requests return HTTP 403, class and code `permission`. App setup uses only `POST /api/install/setup/app`, mapped by the handler to stored id `app_manifest`, with no `github_app` alias. Starting a step is a compare-and-set from `pending`, `failed` or `blocked` to `running`, so two setup sessions never run one step twice (§5.1.0). Quiesce (T-INS-07) and the scorecard (T-REL-03) share the resource. States: `pending`, `running`, `done`, `blocked{line, fix_url}`, `failed{class, message}` (§6.2.3 envelope).
-- Steps (§16.2): store and report each step by id: 0 `address`, 1 `app_manifest`, 2 `sign_in`, 3 `repository`, 4 `models`, 5 `source`, 6 `machine` (`setup.<id>` keys).
+- Steps (§16.2): store and report each step by id: 0 `address`, 1 `app_manifest`, 2 `sign_in`, 3 `repository`, 4 `models`, 5 `source`, 6 `machine` (`setup.step.<id>` keys).
   0. Address: confirm the bind address and public origins (T-INS-04's settings), because the App's callback URLs are fixed at creation (§16.3.3).
   1. Create the GitHub App (T-GH-01).
   2. Owner sign-in and the claim (T-ACC-01).
@@ -22,27 +24,27 @@ In:
   5. Mirror, then Source ready; questions work from here.
   6. First image for `main`, then Machine ready (§8.6.3).
 - Squash check at step 3 and on every Retry: `GET /repos/{o}/{r}` `allow_squash_merge`; when false, block with "Enable squash merging on GitHub ↗" (§10.6.2).
-- Model access: keys sealed as owner secrets; default models per role in `flow_config` (`agent:fast`, `agent:coding`, `agent:jev`, §11.5a); Jev reads the sealed Gateway key. Without a fast key the step records the coding-model fallback. `GET` returns names and flags, never values.
+- Model access: keys sealed as owner secrets; default models per role in `install_settings` (`agent:fast`, `agent:coding`, `agent:jev`, §11.5a); Jev reads the sealed Gateway key. Without a fast key the step records the coding-model fallback. `GET` returns names and flags, never values.
 - ChatGPT subscription (F-27, §15.2): enable the subscription pool on the Mac install behind the owner setting set in step 4 or Settings. Off by default; when on, coding runs may use the owner's ChatGPT sign-in, and each run records which model access it used.
-- Each step change writes its state and a `projection_events` row on the `install` topic in one transaction (§3.1, §7.2).
+- Commit each step change and its job event in the same transaction, then publish through the existing broker. Check: C-J1-02.
 
 Out:
 - Bind address and public origins as settings, and their serving (T-INS-04). This ticket only sequences step 0.
 - The setup token and the owner claim (T-ACC-01); App manifest internals (T-GH-01); Setup and Settings cards (T-APP-03); toolchain detection and the image recipe (T-MCH-10); the Agent card and owner model configuration (T-FLW-08); capacity and `parallel` (T-MCH-01, T-STK-03).
 - New language detection (including Ruby), new image recipes, host execution of dependency installs, model laboratory screens, personal subscription pooling across members and new secret-reveal endpoints.
-- Credits and metering (M-09 defers billing). The five-job setup (`packages/backend/internal/services/repository_setup.go`, `apps/app/src/mainview/flows/entries/setup.ts`) is deleted by T-CUT-01 and T-CUT-02, not reused.
+- Credits and metering remain deferred. T-CUT-01/02 remove the five-job UI and routes; retain `repository_setup.go` and its durable request-to-job pattern for this sequence.
 
 ## Changes
 
 - Reshape (56c3fb2f4): fold `routes/host_status.go` (`GET/PATCH /api/host`, `compose/router.go:1902-1903`), its OpenAPI row (`docs/api/openapi/health.yaml:2`), the generated client and the CLI `host status` handler (`packages/smithers/src/internal/backend/Commands.ts:32`) into `GET/PUT /api/install` (served at `router.go:881`). Keep the sizing code (`services/install_capacity.go`, `microsandbox/hostprofile.go`). Delete `host_status.go` and move `compose/host_status_integration_test.go`'s cases onto `/api/install`. One install-status surface remains; the app already reads capacity from `InstallModel.ts`.
 - Collapse model-key stores 3 → 1 (v1 §6): the sealed owner secrets in `packages/backend/modelhost/owner_secrets.go` are the only store. Delete the keys-file path (`packages/backend/modelproxy/keys.go:173`, `KeysFileEnv`) and the read-only keychain vault `apps/app/src/bun/ModelCredentials.ts` with their tests and callers, in the same change that wires sealed access below.
-- Adopt T-GH-01's App handler (absorbed T-GH-12) only at POST /api/install/setup/app under the existing {step} route. Register no github_app alias or second handler. Check: C-GH-01.
+- Adopt T-GH-01's App handler (absorbed T-GH-01) only at POST /api/install/setup/app under the existing {step} route. Register no github_app alias or second handler. Check: C-GH-01.
 
 - Step 4 uses `POST /api/install/setup/models`; declare its request and refusal schemas in `docs/api/openapi/install.yaml`. Literal seven-step fixtures store and return ordered ids `address`, `app_manifest`, `sign_in`, `repository`, `models`, `source`, `machine`. Preserve blocked fix links and the repository squash check. Check: C-J1-02.
 
-- `install_setup.go`: store operation identity and fence in the existing setup step record, claim recovery by compare-and-set and reconcile the dependency’s durable external operation. Commit fenced completion and install projection together. Image recovery uses T-MCH-10’s isolated preparation and retained operation identity; repository recipes never run on the host and provider/App secrets never enter the machine. Checks: C-J1-02, C-SEC-04.
-- `packages/backend/internal/services/install_setup.go` (new): the step machine, steps 0 to 6. Step state lives in `install_settings` under `setup.<step>` keys, since spec §3 lists no separate setup table; queries in `packages/backend/db/product/queries/install.sql` (new); `sqlc generate`. Step 1 is refused until step 0 is done.
-- `packages/backend/internal/routes/install.go` (from T-INS-04) → setup steps; wired in `packages/backend/internal/compose/router.go`; rows in `docs/api/openapi/install.yaml`; regenerate `packages/backend/apiclient/client.gen.go`.
+- Reshape `repository_setup.go` and `repository_setup_contract.go`: replace five-job names with the seven install steps. Retain durable admission and recovery; wire `InstallMachineReadyService.Prepare` for Source ready and Machine ready.
+- Store step state in `install_settings` under `setup.step.<id>`, as in `github_app_manifest.go`; reuse existing settings queries. Step 1 refuses until Address completes.
+- Extend `packages/backend/internal/routes/github_app_setup.go`, which already serves `/api/install`; update its OpenAPI and generated client.
 - Model access: reuse `POST /api/model/credential` and `packages/backend/modelhost/owner_secrets.go`. Replace the Mac install’s Jev composition in `apps/backend/main.go:147` and its platform-key or env-key constructors with sealed owner Gateway access resolved through `agent:jev`. Main currently passes platformKeys to NewJevRecommender at `apps/backend/main.go:155` and the env key at `:161`; it does not use sealed access. Remove the Mac install’s SMITHERS_PLATFORM_MODEL_KEYS_FILE helper (`apps/backend/main.go:240`) and AI_GATEWAY_API_KEY path only after that replacement is wired. No platform-key, env-key or credit-meter fallback remains for owner Jev calls. Keys stay sealed on the host; GET returns names and flags only. Check: C-J1-02.
 - ChatGPT subscription: an owner setting in `install_settings` replaces `SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS` (`packages/backend/internal/config/config.go:172-182`) on the Mac install and turns the subscription pool on for the model proxy.
 - Step 5: the install's repository mirrors with `mirror: pull` as its default. Today `readGitHubMirrorPolicy` returns undeclared when no policy is present (`packages/backend/internal/services/github_main_pull.go:782-807`); set the install default explicitly without changing Plue policy. C-J1-02 checks a repository with no declared policy.
@@ -66,16 +68,12 @@ Out:
 
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 
-
-
-
-
 - [C-J1-02](../checks/C-J1-02.md): every setup step, Address first, durable and resumable; three model roles; Source ready and Machine ready separate; squash check blocks with its fix link.
 - [C-J1-03](../checks/C-J1-03.md): a question is answered with file cards after Source ready and before Machine ready.
 - [C-SEC-04](../checks/C-SEC-04.md), with T-ACC-01: concurrent setup sessions run each step once.
 
 ## Risks and notes
-- Decisions before start: smithers-3f approves step persistence, secret storage and the setup-to-image seam; smithers-b8 approves install/model API contracts; smithers-38 approves packaged model-host integration. smithers-8a accepts the shared step and `flow_config` schema ownership before work; this ticket supplies the role-setting persistence required by setup and records any new table in `ownership.csv` (C-PRC-02), rather than depending on downstream T-FLW-08. Will decides provider-default or subscription-policy changes.
+- Decisions before start: smithers-3f approves step persistence, secret storage and the setup-to-image seam; smithers-b8 approves install/model API contracts; smithers-38 approves packaged model-host integration. smithers-8a accepts the shared step and `install_settings` schema ownership before work; this ticket supplies the role-setting persistence required by setup and records any new table in `ownership.csv` (C-PRC-02), rather than depending on downstream T-FLW-08. Will decides provider-default or subscription-policy changes.
 - Security precondition: T-INS-02’s launcher, T-FLW-01’s guest-only flow dispatch and T-MCH-10’s isolated image preparation must be available. Source mirroring reads repository data only. Dependency installs, recipe commands, coding agents and test coding runs execute only in machines (§1.3, M-29), never on the host; provider/App keys remain sealed on the host. smithers-3f reviews this seam and C-J1-02/C-SEC-02 prove it.
 - Step 6 on a repository without a target index needs T-MCH-10, because layers refuse today (`packages/backend/microsandbox/layers.go:565`). Observation: C-J1-02 fails on the scratch repository until it lands.
 - Main’s platformModelKeys helper meters file-key calls (`apps/backend/main.go:240`). The Mac install replacement must prove sealed owner Jev calls produce no credit-ledger row. Check: C-J1-02.

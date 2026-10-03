@@ -41,6 +41,7 @@ Out:
   - `/docs no-such-page` shows the first page with a not-found state and no error toast.
 
 ## Acceptance
+- [C-UI-09](../checks/C-UI-09.md): passes for this ticket’s phase at its stated layer.
 
 - [C-UI-13](../checks/C-UI-13.md): `DocsView` is reachable from `CardRenderers`; it replaces no legacy card.
 

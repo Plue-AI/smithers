@@ -29,6 +29,22 @@ Out:
 
 ## Tests
 
+C-AGT-01 (folded steps and assertions):
+1. Decode each fixture with its declared format version and compare complete entries/events to committed expected output.
+2. Assert prompt ownership inputs, assistant turns, tool ids and paired results, reported file edits and explicit errors. Test known metadata skip rules.
+3. Replay whole input and every record-boundary chunk partition with the same explicit parser state; compare event ids and order.
+4. Supply missing and unknown versions, changed record shapes, malformed complete records and unknown semantic records. Supply an incomplete final record separately.
+
+Pass when:
+- Both real formats match golden output without losing semantic content; adapter functions perform no I/O.
+- Replay and chunk boundaries yield identical ordered output with correlated tools.
+- Missing/unknown versions and unsupported semantic records return tagged errors. An incomplete record requests more bytes rather than disappearing.
+- Fixture manifests identify real CLI releases and redactions; fabricated-only transcripts do not pass.
+
+Fail when:
+- Any pass condition fails or either agent format is skipped.
+
+
 - C-AGT-01 covers both formats, deterministic replay, tool correlation, malformed records and version rejection.
 - A golden Codex transcript with an encrypted message body (product, 2026-10-02): the entry renders as one line, "Encrypted by Codex", in place of the body, and is never dropped.
 

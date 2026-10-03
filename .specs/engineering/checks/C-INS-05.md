@@ -1,3 +1,1 @@
-# C-INS-05 The bundle runs from a clean checkout's build output with no hand-assembled files
-
-Folded into T-INS-01's tests (minimal-code synthesis, 2026-10-03).
+C-INS-05: assembly steps 1–3 and layout/relocatability are folded into [T-INS-01](../tickets/T-INS-01.md); launcher readiness steps 4–7 (Goal T7, test T35) are folded into [T-INS-02](../tickets/T-INS-02.md).

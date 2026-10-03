@@ -39,6 +39,7 @@ Out:
   - The operation set the playground lists equals `docs/api/openapi.yaml` exactly, and opening the playground sends no request.
 
 ## Acceptance
+- [C-UI-10](../checks/C-UI-10.md): passes for this ticket’s phase at its stated layer.
 
 - [C-UI-13](../checks/C-UI-13.md): `DebugApiView` is reachable from `CardRenderers`; it replaces no legacy card.
 

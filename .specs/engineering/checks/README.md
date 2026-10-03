@@ -40,14 +40,14 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-SPK-02](C-SPK-02.md) | Answered NO (2026-10-02): two VMs writing one virtiofs home lost data, so homes are per machine (spec §8.7.1); C-MCH-09 and C-MCH-10 carry the two-machine qualification | spike | W0 | T-MCH-02 |
 | [C-SPK-03](C-SPK-03.md) | Host↔guest relay round trip p95 < 20 ms on the reference host | spike | W0 | T-COL-01, T-COL-11 |
 | [C-SPK-05](C-SPK-05.md) | Host swap and memory pressure with 2 (24 GB) and 3 (32 GB) busy machines | spike | W0 | T-MCH-01 |
-| [C-SPK-06](C-SPK-06.md) | Homebrew signing and daemon VM boot decisions with exact plists, commands and LaunchAgent fallback evidence | spike | W0 | T-INS-03 |
+| [C-SPK-06](C-SPK-06.md) | Homebrew signing and daemon VM boot decisions with exact plists, commands and LaunchAgent fallback evidence | spike | R | T-INS-03 |
 | [C-SPK-07](C-SPK-07.md) | Yjs keystroke p95 < 1 s browser→host→VM→browser, two browsers on a second Mac | spike | W0 | T-COL-01, T-COL-11 |
 | [C-SPK-08](C-SPK-08.md) | Daemon sessions carry a recorded VS Code Remote session (edit, terminal, port forward, reconnect); exit status, half-close and flow control hold; revocation leaves no member process within 5 s; SIGKILL restart drains old session cgroups before accepting open_session | spike | W0 | T-TRM-06 |
 | **Journeys (P0: J1–J5, J10)** | | | | |
-| [C-J1-01](C-J1-01.md) | Fresh Mac: built bundle at S1; Homebrew tap at R; setup card, no Smithers account | journey | S1, R | S1: T-INS-08 · R: T-INS-05, T-INS-08, T-REL-02 |
+| [C-J1-01](C-J1-01.md) | Fresh Mac: built bundle at S1; Homebrew tap at R; setup card, no Smithers account | journey | S1, R | S1: T-INS-08 · R: T-INS-05, T-REL-02 |
 | [C-J1-02](C-J1-02.md) | Setup card: App manifest, repository, squash check, owner sign-in, model access; Source ready and Machine ready separate | e2e+integration | S1 | T-INS-06, T-APP-03, T-GH-01, T-REL-02 |
 | [C-J1-03](C-J1-03.md) | A question is answered with file cards before Machine ready | e2e | S1 | T-INS-06, T-APP-15, T-REL-02 |
-| [C-J1-04](C-J1-04.md) | First TODO to merged PR, unassisted, within 60 minutes of starting the install | journey | S1, R | T-ACC-01, T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-APP-01, T-APP-02, T-APP-03, T-APP-05, T-APP-06, T-APP-07, T-APP-08, T-APP-09, T-APP-15, T-APP-16, T-APP-17, T-APP-19, T-APP-22, T-CAT-01, T-COL-02, T-COL-07, T-COL-10, T-DOC-01, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-11, T-GH-01, T-GH-02, T-GH-03, T-GH-09, T-INS-01, T-INS-02, T-INS-03, T-INS-04, T-INS-05, T-INS-06, T-MCH-08, T-MCH-10, T-MCH-14, T-REL-02, T-STK-01, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-12 |
+| [C-J1-04](C-J1-04.md) | First TODO to merged PR, unassisted, within 60 minutes of starting the install | journey | S1, R | T-INS-01, T-INS-02, T-INS-08, T-INS-06, T-ACC-01, T-STK-01, T-STK-04, T-APP-02, T-APP-03 |
 | [C-J1-05](C-J1-05.md) | Add members by username; "needs access on GitHub"; a teammate signs in at the install's public origin | e2e | S1 | T-ACC-02, T-APP-06, T-REL-02 |
 | [C-J1-06](C-J1-06.md) | A repository with no Smithers files gets a working machine and checks | e2e | S1 | T-MCH-10, T-FLW-02, T-REL-02 |
 | [C-J2-01](C-J2-01.md) | Make TODO from an issue: drafted from the discussion, edited, placed, committed, issue labeled and commented | e2e | S1 | T-STK-09, T-APP-02, T-REL-02 |
@@ -121,33 +121,33 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-MCH-10](C-MCH-10.md) | Tool logins persist per machine across sleep and wake; Smithers never stores or copies tokens between machines | integration | S2 | T-MCH-11 |
 | [C-MCH-11](C-MCH-11.md) | Folded into T-MCH-06's tests | integration | S2 | T-MCH-06 |
 | **Stack** | | | | |
-| [C-STK-01](C-STK-01.md) | Folded into T-STK-01's tests | unit | S1 | T-STK-01, T-STK-13, T-STK-14 |
+| [C-STK-01](C-STK-01.md) | Folded into T-STK-01's tests | unit | S1 | T-STK-01|
 | [C-STK-02](C-STK-02.md) | Folded into T-STK-03's tests | integration | S2 | T-STK-03 |
-| [C-STK-04](C-STK-04.md) | Folded into T-GH-03's tests | integration | S1 | T-GH-05 |
+| [C-STK-04](C-STK-04.md) | Folded into T-GH-03's tests | integration | S1 | T-GH-03 |
 | [C-STK-05](C-STK-05.md) | Folded into T-MCH-14's tests | integration | S1 | T-MCH-14 |
-| [C-STK-03](C-STK-03.md) | Folded into T-STK-05's tests | integration | S1 | T-STK-05, T-FLW-11, T-STK-13, T-MCH-14 |
+| [C-STK-03](C-STK-03.md) | Folded into T-STK-05's tests | integration | S1 | T-STK-05, T-FLW-11, T-STK-01, T-MCH-14 |
 | [C-STK-06](C-STK-06.md) | The PR head's tree is the tree checks ran on: an edit during capture or check, a steer during check, or a base move refuses `stack.propose`; a new item starts on the available prefix | integration | S1 | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
-| [C-STK-07](C-STK-07.md) | Folded into T-STK-04's tests | integration | S1 | T-STK-04, T-STK-12, T-STK-06, T-STK-15 |
-| [C-STK-08](C-STK-08.md) | Folded into T-STK-01's tests | integration | S1 | T-STK-07, T-STK-05, T-GH-05, T-GH-06 |
-| [C-STK-13](C-STK-13.md) | Folded into T-STK-16's tests | integration | S1 | T-STK-16 |
+| [C-STK-07](C-STK-07.md) | Folded into T-STK-04's tests | integration | S1 | T-STK-04, T-STK-12, T-STK-06|
+| [C-STK-08](C-STK-08.md) | Folded into T-STK-01's tests | integration | S1 | T-STK-01, T-STK-05, T-GH-03, T-GH-06 |
+| [C-STK-13](C-STK-13.md) | Folded into T-STK-04's tests | integration | S1 | T-STK-04 |
 | **GitHub** | | | | |
 | [C-GH-01](C-GH-01.md) | The App manifest flow completes from `http://localhost:4000` with no public address | e2e | W0, S1 | T-GH-01 |
 | [C-GH-07](C-GH-07.md) | Freshness: PR, checks and `main` within 60 s, issues within 5 min, with ten pending TODO PRs and webhooks off or dropped | e2e | S1 | T-GH-02 |
 | [C-GH-08](C-GH-08.md) | Folded into T-GH-02's tests | integration | S1 | T-GH-02 |
 | [C-GH-09](C-GH-09.md) | A crash during each outbound write produces no duplicate; writes to one target keep order; superseded and overtaken writes are never replayed | fault | S1 | T-GH-09, T-GH-01 |
-| [C-GH-13](C-GH-13.md) | Folded into T-GH-04's tests | integration | S1 | T-GH-04, T-GH-05, T-GH-06 |
+| [C-GH-13](C-GH-13.md) | Folded into T-GH-04's tests | integration | S1 | T-GH-04, T-GH-03, T-GH-06 |
 | **Co-editing contracts** | | | | |
 | [C-COL-02](C-COL-02.md) | Live channel: a `gap` or reconnect resubscribes from the cursor with no duplicated or missing delta | fault | S1 | T-COL-02 |
-| [C-COL-01](C-COL-01.md) | Folded into T-COL-10's tests | unit+integration | S1 | T-COL-10, T-COL-07, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-03a, T-COL-03, T-COL-04a, T-COL-04, T-COL-06 |
-| [C-COL-03](C-COL-03.md) | Folded into T-COL-03's tests | integration | S2, S3 | T-COL-03, T-STK-11, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
+| [C-COL-01](C-COL-01.md) | Folded into T-COL-10's tests | unit+integration | S1 | T-COL-10, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-04, T-COL-06 |
+| [C-COL-03](C-COL-03.md) | Folded into T-COL-03's tests | integration | S2, S3 | T-COL-03, T-STK-08, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
 | [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or payload identity gets through; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | [C-COL-05](C-COL-05.md) | Folded into T-COL-04's tests | integration | S2 | T-COL-04, T-COL-05, T-COL-04a |
 | **Catalog and cuts** | | | | |
-| [C-CAT-01](C-CAT-01.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01, T-CAT-03, T-FLW-11 |
-| [C-CAT-02](C-CAT-02.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-02 |
-| [C-CAT-03](C-CAT-03.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-02 |
-| [C-CUT-01](C-CUT-01.md) | Folded into T-CUT-01's tests | unit+integration | S1, S2 | T-CUT-01..04, T-MCH-05, T-APP-22, T-CUT-02, T-CUT-03 |
-| [C-CUT-02](C-CUT-02.md) | Folded into T-APP-22's tests | unit+e2e | S1 | T-APP-22, T-APP-23, T-CUT-04 |
+| [C-CAT-01](C-CAT-01.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01, T-FLW-11 |
+| [C-CAT-02](C-CAT-02.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01 |
+| [C-CAT-03](C-CAT-03.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01 |
+| [C-CUT-01](C-CUT-01.md) | Folded into T-CUT-01's tests | unit+integration | S1, S2 | T-CUT-01..04, T-CUT-02, T-APP-22, T-CUT-03 |
+| [C-CUT-02](C-CUT-02.md) | Folded into T-APP-22's tests | unit+e2e | S1 | T-APP-22, T-APP-16, T-CUT-04 |
 | **Durability** | | | | |
 | [C-DUR-01](C-DUR-01.md) | Killing the host mid-run re-runs no completed step; the run resumes | fault | S2 | T-FLW-09, T-REL-04 |
 | [C-DUR-02](C-DUR-02.md) | Killing a machine mid-run resumes the run or shows it interrupted with Retry | fault | S2 | T-FLW-09, T-REL-04 |
@@ -163,7 +163,7 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | **Install and release** | | | | |
 | [C-INS-01](C-INS-01.md) | The app works on localhost, on a plain-HTTP LAN origin and behind an HTTPS proxy; no secure-context API is required | e2e | S1 | T-INS-04 |
 | [C-INS-03](C-INS-03.md) | Folded into T-INS-04's tests | integration | S1 | T-INS-04 |
-| [C-INS-05](C-INS-05.md) | Folded into T-INS-01's tests | integration | S1 | T-INS-01, T-INS-09 |
+| [C-INS-05](C-INS-05.md) | Folded into T-INS-01's tests | integration | S1 | T-INS-01 (assembly), T-INS-02 (readiness) |
 | [C-INS-06](C-INS-06.md) | `smthrs host start` runs a built bundle as a launchd service: selected daemon or automatic-login agent, crash recovery, idempotence and setup URLs | integration | S1 | T-INS-08 |
 | [C-REL-01](C-REL-01.md) | Folded into T-DOC-01's tests | unit | R | T-DOC-01..03, T-DOC-02, T-DOC-03, T-DOC-04 |
 | [C-REL-02](C-REL-02.md) | `brew install` + `smthrs host start` in a fresh macOS user account on the reference mini needs no Smithers account | journey | R | T-INS-05, T-INS-08 |
@@ -174,22 +174,22 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | **App** | | | | |
 | [C-UI-01](C-UI-01.md) | Every P0 journey (J1–J5, J6 steps 1–3, J7, J8, J10, J11) completes keyboard-only | e2e | R | T-REL-02 |
 | [C-UI-02](C-UI-02.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01 |
-| [C-UI-08](C-UI-08.md) | Folded into T-APP-19's tests | unit | S1 | T-APP-19, T-APP-19b, T-UI-07, T-UI-08 |
+| [C-UI-08](C-UI-08.md) | Retained boundary schemas and historical records decode | unit | S1 | T-APP-22 |
 | [C-UI-09](C-UI-09.md) | Folded into T-APP-20's tests | e2e | S2 | T-APP-20 |
 | [C-UI-10](C-UI-10.md) | Folded into T-APP-21's tests | integration | S2 | T-APP-21 |
 | [C-UI-03](C-UI-03.md) | Folded into T-APP-18's tests | e2e | S2 | T-APP-18 |
 | [C-UI-04](C-UI-04.md) | Folded into T-APP-07's tests | e2e+integration | S1 | T-APP-07 |
-| [C-UI-05](C-UI-05.md) | Folded into T-COL-02's tests | integration+e2e | S1 | T-COL-02, T-APP-08, T-STK-01, T-COL-10, T-COL-07 |
-| [C-UI-06](C-UI-06.md) | Folded into T-APP-16's tests | e2e | S1 | T-APP-16, T-APP-23 |
+| [C-UI-05](C-UI-05.md) | Folded into T-COL-02's tests | integration+e2e | S1 | T-COL-02, T-STK-01, T-COL-10|
+| [C-UI-06](C-UI-06.md) | Folded into T-APP-16's tests | e2e | S1 | T-APP-16|
 | [C-UI-07](C-UI-07.md) | Folded into T-APP-17's tests | integration | S1 | T-APP-17 |
-| [C-APP-01](C-APP-01.md) | Folded into T-APP-02's tests | e2e | S1 | T-ACC-06, T-APP-02 |
-| [C-APP-02](C-APP-02.md) | Folded into T-APP-02's tests | e2e | S1 | T-APP-02, T-STK-15 |
+| [C-APP-01](C-APP-01.md) | Folded into T-APP-02's tests | e2e | S1 | T-ACC-02, T-APP-02 |
+| [C-APP-02](C-APP-02.md) | Folded into T-APP-02's tests | e2e | S1 | T-APP-02, T-STK-06 |
 | [C-APP-03](C-APP-03.md) | Folded into T-APP-03's tests | e2e | S1 | T-APP-02, T-APP-03, T-MCH-10 |
 | [C-APP-04](C-APP-04.md) | Folded into T-APP-16's tests | integration | S1 | T-APP-16 |
-| [C-APP-05](C-APP-05.md) | Folded into T-APP-16's tests | integration | S1 | T-APP-23 |
+| [C-APP-05](C-APP-05.md) | Folded into T-APP-16's tests | integration | S1 | T-APP-16 |
 | [C-UI-11](C-UI-11.md) | Folded into T-APP-15's tests | e2e | S1, R | T-APP-15, T-APP-11 |
-| [C-UI-12](C-UI-12.md) | Folded into T-UI-01..T-UI-14's tests | unit | S1, S2, S3 | T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-11, T-UI-12, T-UI-13, T-UI-14, T-UI-15, T-UI-16, T-UI-17, T-UI-18, T-UI-19, T-UI-20, T-UI-21, T-UI-22, T-UI-23 |
-| [C-UI-13](C-UI-13.md) | Every `*View.tsx` is reachable from `CardRenderers` (shell Views from `App.tsx`), and no replaced legacy card remains | unit | S1, S2, S3 | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-UI-11, T-UI-12, T-UI-13, T-UI-14 |
+| [C-UI-12](C-UI-12.md) | Folded into T-UI-01..T-UI-14's tests | unit | S1, S2, S3 | T-UI-01, T-UI-02, T-UI-03, T-UI-04, T-UI-05, T-UI-06, T-UI-07, T-UI-08, T-UI-09, T-UI-10, T-UI-14 |
+| [C-UI-13](C-UI-13.md) | Every `*View.tsx` is reachable from `CardRenderers` (shell Views from `App.tsx`), and no replaced legacy card remains | unit | S1, S2, S3 | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
 | [C-PRC-01](C-PRC-01.md) | Folded into T-PRC-01's tests | integration | S1 | T-PRC-01 |
 | [C-PRC-02](C-PRC-02.md) | Folded into T-PRC-02's tests | unit, integration | S1 | T-PRC-02 |
 | [C-PRC-03](C-PRC-03.md) | Folded into T-PRC-03's tests | integration | S1 | T-PRC-03 |

@@ -16,7 +16,7 @@ In:
 - Heartbeat sources (§7.3.1): browsers every 10 s and on every move; `smithers-machined` for SSH and terminal sessions with the last file that session wrote (an outside burst moves nobody); the runtime for agents.
 - `PresenceOn(branch)` for safe-idle (T-MCH-06) and presence-aware rebase (T-STK-08) returns `unknown` for 30 s after host start; callers treat `unknown` as present.
 - Revocation (§5.6) and a closed socket or SSH session remove entries at once; the lease covers silent loss.
-- One coarse `presence_sessions` row per person per branch visit of at least 2 min, for the scorecard (T-REL-03).
+- One coarse `audit_log` row per person per branch visit of at least 2 min, for the scorecard (T-REL-03).
 
 Out:
 - Branch card rendering (T-APP-10), terminal watch/type control (T-TRM-01), Yjs awareness (T-COL-08), admission leases (T-MCH-06).
@@ -33,15 +33,15 @@ Reshape:
 - `apps/app/src/mainview/runtime/LiveChannel.ts`: 10 s heartbeat timer and move events.
 - `packages/rpc/src/Live.ts`: `Where` and `PresenceRow` types.
 
-Restore (adapted, forward migration only): the lease compare-and-set shape of `UpdatePairSessionMemberPresence` and `TouchPairSessionMemberSeen` from `2753d2e3^:packages/backend/db/product/queries/pair_sessions.sql:152-176`, applied to `presence_sessions` only.
+Reuse the in-memory BranchPresence lease transitions; append only the coarse scorecard fact to audit_log.
 
 New:
-- `packages/backend/db/product/migrations/<next>_presence_sessions.sql` and queries. Rejected reuse: `branch_locks` heartbeats end with T-MCH-05, and the Pair member table goes with the orphan `pair_*` drop.
+- Record presence lasting at least 2 min as an `audit_log` event with branch, member, via, start and end metadata; no presence migration. Check: C-REL-04.
 - Coalescer to ≤ 4 deltas per second per branch on `branch:<id>`. Rejected reuse: `BranchPresence.changes` signals a branch changed but does not rate-limit fan-out.
 
 ## Tests
 - Unit (fake clock): expiry at 30 s, not 29.9 s; two sessions of one person stay two rows; 100 moves per second emit ≤ 4 deltas and keep the last state; `PresenceOn` is `unknown` at 29.9 s after start.
-- Unit: 1 min 59 s writes no `presence_sessions` row; 2 min writes one; two tabs plus SSH write one.
+- Unit: 1 min 59 s writes no `audit_log` row; 2 min writes one; two tabs plus SSH write one.
 - Integration (real PostgreSQL, WebSocket, real runtime bridge): a heartbeat for an unreadable branch is refused; a spoofed actor in the body is ignored; revocation removes rows in ≤ 5 s; a closed socket removes the browser row at once; `PresenceOn` ignores watchers of a finished run.
 - `crates/smithers-machined/tests/presence.rs`: an SSH session's write sets its `where`; the same write during an outside burst does not.
 - Contract: the §7.6 row-4 assertion in `packages/backend/internal/compose/cocontracts_test.go` (T-COL-03r).

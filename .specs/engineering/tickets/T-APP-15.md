@@ -1,6 +1,6 @@
 # T-APP-15 File card with code intelligence (read-only)
 
-Stage S1 · Size S · Depends on T-INS-02, T-CAT-01 · Unblocks T-APP-02, T-APP-05, T-APP-11, T-REL-02 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
+Stage S1 · Size S · Depends on T-INS-02, T-CAT-01 · Unblocks T-APP-02, T-APP-05, T-APP-11, T-APP-14a, T-REL-02 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
 Spec: spec.md §7.6, §14.3 (File) · Delta: delta.md §4, §9 · Product: mvp.md §8 (code intelligence in file cards: Keep), §1.4, J1.5, J9
 
 ## Goal
@@ -13,7 +13,7 @@ In:
 - The read-only `GET /api/branches/{b}/files/{path}` content route (§6.3), including `main:.smithers/machine.json`, served from mirrored data without waking a machine or executing repository code. The existing `/workspaces/{id}/files/content` (`router.go:1441`) needs a live workspace, so it cannot serve before Machine ready. Declare it in `docs/api/openapi/branches.yaml` and regenerate the client.
 
 Out:
-- CodeMirror 6, `EditorBinding` and editing (T-APP-14, S3). T-UI-11 reverts the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*`, `yjs` and `y-codemirror.next` pins, and folds `DiffView` into `DiffSurface`.
+- CodeMirror 6, `EditorBinding` and editing (T-APP-14, S3). T-APP-15 reverts the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins, and folds `DiffView` into `DiffSurface`.
 - Diffs, which stay on `@pierre/diffs` (`DiffSurface.tsx`).
 - Host or browser language-server processes, repository plugin execution outside a machine, automatic machine wake from a read. The existing S1 workspace LSP tunnel stays; T-APP-11 moves it to the daemon in S2.
 
@@ -27,10 +27,13 @@ Folded from C-UI-11 (kept capabilities). Fixture repository, TypeScript: `src/a.
 - Same spec: the gestures pass through `cardActions` → `flowAction` and the registered `code.hover`/`code.definition` dispatcher to the workspace LSP tunnel; the flow log records each request. Expected signature, target and diagnostic values are literals.
 - Same spec, webpage reader: `/browser.open` on a static `page.html` titled "Reader canary" shows a reader card with that title and the paragraph "Reader canary body".
 - Security: a fixture language-server plugin that attempts a file write runs only inside the branch machine, with no host or browser process or write. With the LSP capability unavailable, no gesture binds and no host fallback starts.
-- Integration (Go, real PostgreSQL): the branch route returns literal bytes for `src/a.ts` and `main:.smithers/machine.json` with no `machine_requests` row; an absent path returns 404.
+- Integration (Go, real PostgreSQL): the branch route returns literal bytes for `src/a.ts` and `main:.smithers/machine.json` with no the runtime admission queue row; an absent path returns 404.
 - Release build: rerun the spec after S2 lands. Stage 2 moves the language server to the daemon (T-APP-11); a capability the S1 build had must not be lost.
 
 ## Acceptance
+- [C-COL-01](../checks/C-COL-01.md): passes for this ticket’s phase at its stated layer.
+- [C-UI-11](../checks/C-UI-11.md): passes for this ticket’s phase at its stated layer.
+- [C-UI-13](../checks/C-UI-13.md): passes for this ticket’s phase at its stated layer.
 - [C-J1-04](../checks/C-J1-04.md): S1 part at its named layer.
 - [C-J1-03](../checks/C-J1-03.md): a question is answered with File cards before Machine ready.
 
