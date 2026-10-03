@@ -215,7 +215,8 @@ const DELEGATED_HANDLERS: Readonly<Record<string, readonly string[]>> = {
   "../ToastAction.tsx": ["onAction(action)"], // ToastStack/App bind the typed action to runCommand(action.flow, action.args)
   "../HelpBubble.tsx": ["onClick={dismiss}"], // restores focus, then onDismiss() dismisses transient help
   "../InputModeMenu.tsx": ["open ? close() : setOpen(true)", "latest.current.onChange(value)"], // transient menu; selection is input.mode at both mounts
-  "../cards/WorkflowCards.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
+  "../cards/FlowCard.tsx": ["sendRunCommand("],
+  "../cards/RunTraceCard.tsx": ["sendRunCommand("], // the original onRunCommand prop, before the frame wrapper
   "../cards/FlowFormCards.tsx": ["cancel.onClick()"], // card.dismiss after the keyboard focus handoff; the full submit handler is inspected
   "../cards/ApprovalAnswer.tsx": ["onAnswer(", "onClick={send}"], // the answer is a value, not a flow argument; both mounts bind onAnswer to the controller
   "../ToastStack.tsx": ["setExpanded("] // the "+N more" row is a local disclosure of the capped stack
@@ -1057,7 +1058,7 @@ describe("launch-law parity: every affordance is a command", () => {
     for (const file of ["../App.tsx"]) {
       expect(files[file]).toContain("onChange={mode => controller.runCommand(\"input.mode\", mode)}")
     }
-    expect(files["../cards/WorkflowCards.tsx"]).toContain("onRunCommand: sendRunCommand")
+    expect(files["../cards/FlowCard.tsx"]).toContain("onRunCommand: sendRunCommand")
     const form = files["../cards/FlowFormCards.tsx"]!
     expect(form).toContain('onRunCommand("form.submit", card.id)')
     expect(form).toContain('const cancel = flowAction(onRunCommand, "card.dismiss", card.id)')
@@ -1145,7 +1146,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * watching, launch Retry, Stop, Run again, the steer row's send, the
        * repository chooser's row and the workflow list's Run.
        */
-      "../cards/WorkflowCards.tsx": 16, // Includes a failed launch's Retry, a FailureNotice action (flow.run.retry).
+      "../cards/FlowCard.tsx": 6, // Includes a failed launch's Retry, a FailureNotice action (flow.run.retry).
       "../DevtoolsPanel.tsx": 2, // + Reset conversation, admin.reset.ask's door since the rail left (#3334).
       "../SearchPalette.tsx": 6, // + Ask Smithers, the first row of an empty ⌘K
       "../SurfaceChrome.tsx": 3,
@@ -1184,7 +1185,7 @@ describe("launch-law parity: every affordance is a command", () => {
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */
-      "../cards/RunTraceCard.tsx": 14, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
+      "../cards/RunTraceCard.tsx": 24, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
       "../cards/RunTraceSummary.tsx": 4, // A parked run offers Continue and Stop.

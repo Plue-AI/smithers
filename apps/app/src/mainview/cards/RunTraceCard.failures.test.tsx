@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
 import type { WorkflowLaunch } from "../state/WorkflowLaunch"
-import { FACET_FAILURES, LAUNCH_FAILURES, LAUNCH_FLOW_MISSING, OBSERVATION_FAILURES, WorkflowRunCardBody } from "./WorkflowCards"
+import { FACET_FAILURES, LAUNCH_FAILURES, LAUNCH_FLOW_MISSING, OBSERVATION_FAILURES, WorkflowRunCardBody } from "./RunTraceCard"
 
 /*
  * The run card never shows a gateway's, reader's or observer's raw words as

@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client"
 import type { Card } from "../state/AppState"
 import { projectRuntimeCard, runtimeRunKey } from "../state/RuntimeProjection"
 import { timeLabel } from "../Timestamps"
-import { WorkflowRunCardBody } from "./WorkflowCards"
+import { WorkflowRunCardBody } from "./RunTraceCard"
 
 /*
  * A run's approved deadline on its run card: the gateway row's `deadlineAt`

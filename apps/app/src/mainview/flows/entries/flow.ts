@@ -14,6 +14,31 @@ import type { CommandActions } from "./Declare"
 /** The `flow` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
 
+/** No repository effect until the version projection and catalog providers land. */
+const unavailableFlow = (): never => {
+  throw Object.assign(new Error("Flow provider unavailable"), { code: "provider_unavailable", class: "infra" })
+}
+const flowNameGrammar = (args: string | undefined) => {
+  const [name, ...request] = (args ?? "").trim().split(/\s+/)
+  return { payload: { ...(name ? { name } : {}), ...(request.length ? { request: request.join(" ") } : {}) } }
+}
+
+/** Dark catalog doors: register only after version, TODO and private confirmation providers pass. */
+export const flowVersionFlows = (): ReadonlyArray<FlowEntry> => [
+  flow({ name: "flow", summary: "Open a flow", args: "<name>", runtime: ["cloud"],
+    input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    handler: unavailableFlow }),
+  flow({ name: "flow.edit", summary: "Change a flow", args: "<name> <request>", runtime: ["cloud"],
+    input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
+    grammar: flowNameGrammar, confirm: "change this flow",
+    form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
+      args: payload => line(text(payload, "name"), text(payload, "request")) },
+    handler: unavailableFlow }),
+  flow({ name: "flow.source", summary: "Open a flow's source", args: "<name>", runtime: ["cloud"],
+    input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    handler: unavailableFlow })
+]
+
 /** The `flow.*` flows: create, choose a repository, list, run, and the run controls. */
 export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({

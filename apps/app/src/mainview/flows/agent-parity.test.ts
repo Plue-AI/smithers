@@ -327,3 +327,25 @@ describe("the three-door law", () => {
     for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(false)
   })
 })
+
+
+
+test("versioned flow doors stay dark without projection, TODO and private confirmation providers", async () => {
+  const { flowVersionFlows } = await import("./entries/flow")
+  const entries = flowVersionFlows()
+  expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source"])
+  expect(entries.every(modelInvocable)).toBe(true)
+  const edit = entries[1]!
+  expect(edit.metadata.confirm).toBe("change this flow")
+  expect(edit.metadata.grammar?.("todo")).toEqual({ payload: { name: "todo" } })
+  expect(edit.metadata.grammar?.("todo Add review")).toEqual({ payload: { name: "todo", request: "Add review" } })
+  expect(edit.metadata.form?.args?.({ name: "todo", request: "Add review" })).toBe("todo Add review")
+  const { store, controller } = await boot()
+  for (const name of ["flow", "flow.source", "flow.edit"]) {
+    expect(controller.commands.find(name)).toBeUndefined()
+    expect((await controller.commands.run(name, "todo Add review")).status).toBe("unknown-command")
+    expect(await execute(controller, name, "todo Add review")).toStartWith("unknown-command:")
+  }
+  expect(confirmationFor(store, "flow.edit")).toBeUndefined()
+  expect([...store.collections.cards.values()].some(card => card.kind === "todo" || card.kind === "run-trace")).toBe(false)
+})

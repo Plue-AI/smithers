@@ -1,3 +1,4 @@
+import { runTraceCardFamily } from "./RunTraceCard"
 import { repositoryUpdateCardFamily } from "./RepositoryUpdateCard"
 import { repositoryHomeCardFamily } from "./RepositoryHomeCard"
 import { useLiveQuery } from "@tanstack/react-db"
@@ -37,7 +38,7 @@ import { syncCardFamily } from "./SyncCards"
 import { triggersCardFamily } from "./TriggersCard"
 import { turnCardFamily } from "./TurnCards"
 import { wikiCardFamily } from "./WikiCards"
-import { workflowCardFamily } from "./WorkflowCards"
+import { workflowCardFamily } from "./FlowCard"
 import { workspaceCardFamily } from "./WorkspaceCard"
 
 /* The tutorial's two embedded surfaces: the ranked repository chooser and the Library shelf. */
@@ -68,6 +69,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   approvalCardFamily,
   conversationCardFamily,
   workflowCardFamily,
+  runTraceCardFamily,
   flowPlanCardFamily,
   triggersCardFamily,
   runsCardFamily,
@@ -100,6 +102,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...approvalCardFamily,
   ...conversationCardFamily,
   ...workflowCardFamily,
+  ...runTraceCardFamily,
   ...flowPlanCardFamily,
   ...triggersCardFamily,
   ...runsCardFamily,

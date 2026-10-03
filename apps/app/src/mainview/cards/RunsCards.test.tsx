@@ -4,7 +4,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { Card } from "../state/AppState"
-import { workflowCardFamily, WorkflowRunCardBody } from "./WorkflowCards"
+import { runTraceCardFamily as workflowCardFamily, WorkflowRunCardBody } from "./RunTraceCard"
 import { ApprovalsInboxCardBody, RunListCardBody } from "./RunsCards"
 
 /*
