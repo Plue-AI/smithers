@@ -142,6 +142,7 @@ var migrationRegistry = []migrationSpec{
 	{104, "migrations/0104_install_settings.sql"},
 	{105, "migrations/0105_github_app.sql"},
 	{106, "migrations/0106_drop_repository_registration_reports.sql"},
+	{107, "migrations/0107_workflow_versions.sql"},
 }
 
 type migration struct {

@@ -13,6 +13,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activateWorkflowVersion = `-- name: ActivateWorkflowVersion :exec
+UPDATE workflow_definitions SET is_active = TRUE, updated_at = NOW()
+WHERE repository_id = $1 AND id = $2 AND status = 'loaded'
+`
+
+type ActivateWorkflowVersionParams struct {
+	RepositoryID int64 `json:"repository_id"`
+	ID           int64 `json:"id"`
+}
+
+func (q *Queries) ActivateWorkflowVersion(ctx context.Context, arg ActivateWorkflowVersionParams) error {
+	_, err := q.db.Exec(ctx, activateWorkflowVersion, arg.RepositoryID, arg.ID)
+	return err
+}
+
 const cancelWorkflowRun = `-- name: CancelWorkflowRun :exec
 UPDATE workflow_runs
 SET status = 'cancelled',
@@ -138,7 +153,7 @@ const createWorkflowDefinition = `-- name: CreateWorkflowDefinition :one
 
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES ($1, $2, $3, $4)
-RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 `
 
 type CreateWorkflowDefinitionParams struct {
@@ -166,6 +181,10 @@ func (q *Queries) CreateWorkflowDefinition(ctx context.Context, arg CreateWorkfl
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
@@ -351,6 +370,7 @@ SET is_active = FALSE,
     updated_at = NOW()
 WHERE repository_id = $1
   AND path = $2
+  AND digest IS NULL
 `
 
 type DeactivateWorkflowDefinitionByPathParams struct {
@@ -363,13 +383,28 @@ func (q *Queries) DeactivateWorkflowDefinitionByPath(ctx context.Context, arg De
 	return err
 }
 
+const deactivateWorkflowVersionsByName = `-- name: DeactivateWorkflowVersionsByName :exec
+UPDATE workflow_definitions SET is_active = FALSE, updated_at = NOW()
+WHERE repository_id = $1 AND name = $2 AND digest IS NOT NULL AND is_active
+`
+
+type DeactivateWorkflowVersionsByNameParams struct {
+	RepositoryID int64  `json:"repository_id"`
+	Name         string `json:"name"`
+}
+
+func (q *Queries) DeactivateWorkflowVersionsByName(ctx context.Context, arg DeactivateWorkflowVersionsByNameParams) error {
+	_, err := q.db.Exec(ctx, deactivateWorkflowVersionsByName, arg.RepositoryID, arg.Name)
+	return err
+}
+
 const ensureWorkflowDefinitionReference = `-- name: EnsureWorkflowDefinitionReference :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, FALSE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   updated_at = NOW()
-RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 `
 
 type EnsureWorkflowDefinitionReferenceParams struct {
@@ -396,6 +431,10 @@ func (q *Queries) EnsureWorkflowDefinitionReference(ctx context.Context, arg Ens
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
@@ -502,7 +541,7 @@ func (q *Queries) GetLatestCommitStatusesByChangeIDsAndContexts(ctx context.Cont
 }
 
 const getWorkflowDefinition = `-- name: GetWorkflowDefinition :one
-SELECT id, repository_id, name, path, config, is_active, created_at, updated_at
+SELECT id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 FROM workflow_definitions
 WHERE id = $1
   AND repository_id = $2
@@ -525,15 +564,20 @@ func (q *Queries) GetWorkflowDefinition(ctx context.Context, arg GetWorkflowDefi
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
 
 const getWorkflowDefinitionByPath = `-- name: GetWorkflowDefinitionByPath :one
-SELECT id, repository_id, name, path, config, is_active, created_at, updated_at
+SELECT id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 FROM workflow_definitions
 WHERE repository_id = $1
   AND path = $2
+  AND digest IS NULL
 `
 
 type GetWorkflowDefinitionByPathParams struct {
@@ -553,6 +597,10 @@ func (q *Queries) GetWorkflowDefinitionByPath(ctx context.Context, arg GetWorkfl
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
@@ -699,6 +747,53 @@ func (q *Queries) GetWorkflowTaskByRunID(ctx context.Context, workflowRunID int6
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertWorkflowVersion = `-- name: InsertWorkflowVersion :one
+INSERT INTO workflow_definitions(repository_id, name, path, config, is_active, source_commit, digest, status, load_error)
+VALUES ($1, $2, $3, $4, FALSE, $5, $6, $7, $8)
+ON CONFLICT (repository_id, name, digest) WHERE digest IS NOT NULL DO NOTHING
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
+`
+
+type InsertWorkflowVersionParams struct {
+	RepositoryID int64           `json:"repository_id"`
+	Name         string          `json:"name"`
+	Path         string          `json:"path"`
+	Config       json.RawMessage `json:"config"`
+	SourceCommit pgtype.Text     `json:"source_commit"`
+	Digest       pgtype.Text     `json:"digest"`
+	Status       pgtype.Text     `json:"status"`
+	LoadError    pgtype.Text     `json:"load_error"`
+}
+
+func (q *Queries) InsertWorkflowVersion(ctx context.Context, arg InsertWorkflowVersionParams) (WorkflowDefinition, error) {
+	row := q.db.QueryRow(ctx, insertWorkflowVersion,
+		arg.RepositoryID,
+		arg.Name,
+		arg.Path,
+		arg.Config,
+		arg.SourceCommit,
+		arg.Digest,
+		arg.Status,
+		arg.LoadError,
+	)
+	var i WorkflowDefinition
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.Name,
+		&i.Path,
+		&i.Config,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
@@ -996,7 +1091,7 @@ func (q *Queries) ListTaskStepInfoForRun(ctx context.Context, workflowRunID int6
 }
 
 const listWorkflowDefinitionsByRepo = `-- name: ListWorkflowDefinitionsByRepo :many
-SELECT id, repository_id, name, path, config, is_active, created_at, updated_at
+SELECT id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 FROM workflow_definitions
 WHERE repository_id = $1
 ORDER BY id DESC
@@ -1028,6 +1123,10 @@ func (q *Queries) ListWorkflowDefinitionsByRepo(ctx context.Context, arg ListWor
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SourceCommit,
+			&i.Digest,
+			&i.Status,
+			&i.LoadError,
 		); err != nil {
 			return nil, err
 		}
@@ -1149,6 +1248,45 @@ func (q *Queries) ListWorkflowRunsByRepo(ctx context.Context, arg ListWorkflowRu
 			&i.LogBytes,
 			&i.LogEntryCount,
 			&i.CancelReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkflowVersions = `-- name: ListWorkflowVersions :many
+SELECT id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error FROM workflow_definitions
+WHERE repository_id = $1 AND digest IS NOT NULL
+ORDER BY id DESC
+`
+
+func (q *Queries) ListWorkflowVersions(ctx context.Context, repositoryID int64) ([]WorkflowDefinition, error) {
+	rows, err := q.db.Query(ctx, listWorkflowVersions, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowDefinition{}
+	for rows.Next() {
+		var i WorkflowDefinition
+		if err := rows.Scan(
+			&i.ID,
+			&i.RepositoryID,
+			&i.Name,
+			&i.Path,
+			&i.Config,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SourceCommit,
+			&i.Digest,
+			&i.Status,
+			&i.LoadError,
 		); err != nil {
 			return nil, err
 		}
@@ -1515,8 +1653,8 @@ func (q *Queries) UpdateWorkflowStepStatusTerminal(ctx context.Context, arg Upda
 const upsertAgentWorkflowDefinition = `-- name: UpsertAgentWorkflowDefinition :one
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES ($1, 'Agent', '.smithers/agent', '{"agent": true}'::jsonb)
-ON CONFLICT (repository_id, path) DO UPDATE SET updated_at = NOW()
-RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at
+ON CONFLICT (repository_id, path) WHERE digest IS NULL DO UPDATE SET updated_at = NOW()
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 `
 
 // Creates or returns the per-repo agent workflow definition.
@@ -1534,6 +1672,10 @@ func (q *Queries) UpsertAgentWorkflowDefinition(ctx context.Context, repositoryI
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }
@@ -1541,13 +1683,13 @@ func (q *Queries) UpsertAgentWorkflowDefinition(ctx context.Context, repositoryI
 const upsertWorkflowDefinition = `-- name: UpsertWorkflowDefinition :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, TRUE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   name = EXCLUDED.name,
   config = EXCLUDED.config,
   is_active = TRUE,
   updated_at = NOW()
-RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 `
 
 type UpsertWorkflowDefinitionParams struct {
@@ -1574,6 +1716,10 @@ func (q *Queries) UpsertWorkflowDefinition(ctx context.Context, arg UpsertWorkfl
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }

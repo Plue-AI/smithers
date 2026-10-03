@@ -2767,6 +2767,10 @@ type WorkflowDefinition struct {
 	IsActive     bool            `json:"is_active"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	SourceCommit pgtype.Text     `json:"source_commit"`
+	Digest       pgtype.Text     `json:"digest"`
+	Status       pgtype.Text     `json:"status"`
+	LoadError    pgtype.Text     `json:"load_error"`
 }
 
 type WorkflowLog struct {

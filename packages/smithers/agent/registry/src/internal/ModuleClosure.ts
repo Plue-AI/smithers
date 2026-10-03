@@ -42,6 +42,7 @@
 import * as Digest from "@smthrs/core/Digest"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import type * as Path from "effect/Path"
 import type { ModuleImport } from "../Descriptor.ts"
 import * as Prompt from "../Prompt.ts"
@@ -396,6 +397,7 @@ const packageName = (specifier: string): string => {
 
 /** The files, and the refusals, one bare specifier comes to from one directory. */
 interface BareTargets {
+  readonly workspace?: true
   readonly files: ReadonlyArray<string>
   readonly unpinnable: ReadonlyArray<string>
 }
@@ -461,6 +463,53 @@ const bareTargets = (
       }
       if (!matched) unpinnable.push(`"${specifier}" names no package.json "imports" entry the pin can follow`)
       return { files, unpinnable }
+    }
+
+    // spec §11.3.0: repository workspace packages are source, not host imports.
+    // Follow only a linked package within this repository with one static export.
+    // Installed @smthrs packages belong to the install-shipped coding host.
+    if (!specifier.startsWith("@smthrs/")) {
+      let workspaceRoot: string | undefined
+      for (const candidate of ancestors) {
+        const marker = yield* Effect.result(fs.exists(path.join(candidate, "pnpm-workspace.yaml")))
+        if (marker._tag === "Failure") {
+          return { files: [], unpinnable: [`"${specifier}" workspace authority is unavailable`] }
+        }
+        if (marker.success) {
+          workspaceRoot = candidate
+          break
+        }
+      }
+      if (workspaceRoot !== undefined) {
+        for (const candidate of ancestors) {
+          const linked = path.join(candidate, "node_modules", packageName(specifier))
+          const target = yield* fs.realPath(linked).pipe(Effect.option)
+          if (Option.isNone(target)) {
+            continue
+          }
+          const realRoot = yield* Effect.result(fs.realPath(workspaceRoot))
+          if (realRoot._tag === "Failure") {
+            return { files: [], unpinnable: [`"${specifier}" workspace authority is unavailable`] }
+          }
+          const relative = path.relative(realRoot.success, target.value)
+          if (
+            relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("node_modules")
+          ) {
+            break
+          }
+          const packageDirectory = path.resolve(workspaceRoot, relative)
+          const json = yield* readConfig(path.join(packageDirectory, "package.json"))
+          const subpath = specifier.slice(packageName(specifier).length)
+          const exports = json?.["exports"]
+          const exported = typeof exports === "string" && subpath === "" ?
+            exports
+            : objectField(json, "exports")?.[subpath === "" ? "." : `.${subpath}`]
+          if (typeof exported === "string" && exported.startsWith("./") && !exported.split("/").includes("..")) {
+            return { files: [path.resolve(packageDirectory, exported)], unpinnable: [], workspace: true }
+          }
+          return { files: [], unpinnable: [`"${specifier}" has no single static workspace export`] }
+        }
+      }
     }
 
     const name = nearestPackage?.json["name"]
@@ -715,7 +764,11 @@ const walk = (
               } else pending.push({ from, directory, specifier: file })
             }
           }
-          if (!mapped) hostImports.add(specifier)
+          if (!mapped && targets.workspace === true) {
+            const description =
+              `${importer} imports "${specifier}", whose workspace export resolves to no readable file`
+            found.set(description, unpinnable(description))
+          } else if (!mapped) hostImports.add(specifier)
         }
       })
     const { absolute, bare, builtins, opaque, relative } = specifiersOf(entrySource)
@@ -890,7 +943,7 @@ export const snapshot = (
       for (const site of specifiers.statics) {
         const target = site.literal.startsWith("./") || site.literal.startsWith("../")
           ? yield* resolve(fs, path, directory, site.literal, memo)
-          : site.literal.startsWith("#")
+          : site.literal.startsWith("#") || memo.bare.get(`${directory}\0${site.literal}`)?.workspace === true
           ? yield* soleImportsTarget(fs, path, directory, site.literal, memo)
           : undefined
         if (target !== undefined && reads.has(target)) links.push({ start: site.start, end: site.end, target })

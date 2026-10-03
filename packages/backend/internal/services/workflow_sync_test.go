@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -799,4 +802,175 @@ func TestWorkflowSyncBookmarkLookupErrors(t *testing.T) {
 			require.Empty(t, h.listBookmarkCursors)
 		})
 	}
+}
+
+// spec §11.3.2 / §4.3: literal activation outcomes, real transactional storage.
+func TestWorkflowSyncFlowVersionActivation(t *testing.T) {
+	pool := servicesSuite.Pool(t)
+	_, repoID := setupTestUserAndRepo(t, pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// Head reads must use the activation transaction, never acquire a second connection.
+	config := pool.Config()
+	config.MaxConns = 1
+	single, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	defer single.Close()
+	head := strings.Repeat("a", 40)
+	s := NewWorkflowSyncService(db.New(single), &mockWorkflowSyncRepoHost{
+		getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+			return repohost.Bookmark{TargetCommitID: head}, nil
+		},
+	}, nil)
+	published := 0
+	s.flowPublish = func(context.Context, int64) { published++ }
+	result := func(commit, digest, status, failure string) WorkflowLoadResult {
+		return WorkflowLoadResult{repositoryID: repoID, commitSHA: commit, versions: []FlowLoadedVersion{{
+			Name: "todo", Digest: digest, Status: status, Error: failure, Steps: []string{"plan", "review"},
+		}}, versioned: true}
+	}
+	active := func() string {
+		var digest string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT digest FROM workflow_definitions WHERE repository_id=$1 AND is_active`, repoID).Scan(&digest))
+		return digest
+	}
+	first := result(head, strings.Repeat("1", 64), "loaded", "")
+	require.NoError(t, s.PersistDefinitions(ctx, repoID, first))
+	assert.Equal(t, strings.Repeat("1", 64), active())
+	head = strings.Repeat("b", 40)
+	require.NoError(t, s.PersistDefinitions(ctx, repoID, result(head, strings.Repeat("2", 64), "failed", "flows/todo/flow.ts:4: type error")))
+	assert.Equal(t, strings.Repeat("1", 64), active())
+	head = strings.Repeat("c", 40)
+	require.NoError(t, s.PersistDefinitions(ctx, repoID, result(head, strings.Repeat("3", 64), "loaded", "")))
+	assert.Equal(t, strings.Repeat("3", 64), active())
+	// A late result from a previously admitted commit is recorded, never activated.
+	require.NoError(t, s.PersistDefinitions(ctx, repoID, result(strings.Repeat("a", 40), strings.Repeat("4", 64), "loaded", "")))
+	assert.Equal(t, strings.Repeat("3", 64), active())
+	require.NoError(t, s.PersistDefinitions(ctx, repoID, first))
+	assert.Equal(t, strings.Repeat("3", 64), active())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_definitions WHERE repository_id=$1`, repoID).Scan(&count))
+	assert.Equal(t, 4, count)
+	assert.Equal(t, 4, published, "duplicate digest emits no publication")
+	var failure string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT load_error FROM workflow_definitions WHERE repository_id=$1 AND status='failed'`, repoID).Scan(&failure))
+	assert.Equal(t, "flows/todo/flow.ts:4: type error", failure)
+}
+
+type testFlowLoadGuest func(context.Context, int64, string) ([]FlowLoadedVersion, error)
+
+func (f testFlowLoadGuest) Load(ctx context.Context, repoID int64, commit string) ([]FlowLoadedVersion, error) {
+	return f(ctx, repoID, commit)
+}
+
+func TestWorkflowSyncFlowLoadCoalescesEveryMainMove(t *testing.T) {
+	// Guest execution is deliberately substituted here: bundled microVM production
+	// acceptance waits on T-INS-02 / T-SEC-01. Persistence uses real PostgreSQL.
+	pool := servicesSuite.Pool(t)
+	_, repoID := setupTestUserAndRepo(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var head atomic.Value
+	head.Store(strings.Repeat("a", 40))
+	s := NewWorkflowSyncService(db.New(pool), &mockWorkflowSyncRepoHost{getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
+		return repohost.Bookmark{TargetCommitID: head.Load().(string)}, nil
+	}}, nil)
+	started := make(chan string, 4)
+	finish := make(chan struct{}, 4)
+	published := make(chan struct{}, 4)
+	s.flowPublish = func(context.Context, int64) { published <- struct{}{} }
+	s.flowGuest = testFlowLoadGuest(func(ctx context.Context, id int64, commit string) ([]FlowLoadedVersion, error) {
+		started <- commit
+		select {
+		case <-finish:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return []FlowLoadedVersion{{Name: "todo", Digest: strings.Repeat(commit[:1], 64), Status: "loaded", Steps: []string{"review"}}}, nil
+	})
+	receive := func(ch <-chan string) string {
+		select {
+		case value := <-ch:
+			return value
+		case <-time.After(5 * time.Second):
+			t.Fatal("load did not start")
+			return ""
+		}
+	}
+	// spec §11.3.1 / C-J5-02 step 9: M1 and M4, never M2 or M3.
+	require.NoError(t, s.RequestFlowLoad(ctx, repoID, strings.Repeat("a", 40)))
+	require.Equal(t, strings.Repeat("a", 40), receive(started))
+	require.NoError(t, s.RequestFlowLoad(ctx, repoID, strings.Repeat("a", 40)))
+	for _, letter := range []string{"b", "c", "d"} {
+		head.Store(strings.Repeat(letter, 40))
+		require.NoError(t, s.RequestFlowLoad(ctx, repoID, strings.Repeat(letter, 40)))
+	}
+	assert.Empty(t, started, "at most one load in flight")
+	finish <- struct{}{}
+	require.Equal(t, strings.Repeat("d", 40), receive(started))
+	finish <- struct{}{}
+	for range 2 {
+		select {
+		case <-published:
+		case <-time.After(5 * time.Second):
+			t.Fatal("version not committed")
+		}
+	}
+	require.Eventually(t, func() bool { s.flowMu.Lock(); defer s.flowMu.Unlock(); return s.flowLoads[repoID].running == "" }, time.Second, time.Millisecond)
+	require.NoError(t, s.RequestFlowLoad(ctx, repoID, strings.Repeat("d", 40)))
+	assert.Empty(t, started)
+	var active string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT source_commit FROM workflow_definitions WHERE repository_id=$1 AND is_active`, repoID).Scan(&active))
+	assert.Equal(t, strings.Repeat("d", 40), active)
+}
+
+func TestWorkflowSyncFlowLoadMissingProvidersRefuse(t *testing.T) {
+	s := NewWorkflowSyncService(nil, nil, nil)
+	require.ErrorContains(t, s.RequestFlowLoad(context.Background(), 1, strings.Repeat("a", 40)), "providers are unavailable")
+	s.flowGuest = testFlowLoadGuest(func(context.Context, int64, string) ([]FlowLoadedVersion, error) {
+		t.Fatal("must not execute")
+		return nil, nil
+	})
+	require.ErrorContains(t, s.RequestFlowLoad(context.Background(), 1, strings.Repeat("a", 40)), "providers are unavailable")
+	s.flowPublish = func(context.Context, int64) { t.Fatal("must not publish") }
+	require.ErrorContains(t, s.RequestFlowLoad(context.Background(), 1, strings.Repeat("a", 40)), "providers are unavailable")
+}
+
+func TestWorkflowSyncFlowVersionProjection(t *testing.T) {
+	// spec §4.3, §11.3.3: literal versions and candidate diff paths, never working-copy paths.
+	text := func(s string) pgtype.Text { return pgtype.Text{String: s, Valid: true} }
+	versions := []db.WorkflowDefinition{
+		{Name: "todo", Digest: text(strings.Repeat("1", 64)), SourceCommit: text(strings.Repeat("a", 40)), Status: text("loaded"), IsActive: false, Config: json.RawMessage(`{"steps":["plan","review"]}`)},
+		{Name: "todo", Digest: text(strings.Repeat("2", 64)), SourceCommit: text(strings.Repeat("b", 40)), Status: text("loaded"), IsActive: true, Config: json.RawMessage(`{"steps":["check","review"]}`)},
+		{Name: "todo", Digest: text(strings.Repeat("3", 64)), SourceCommit: text(strings.Repeat("c", 40)), Status: text("failed"), LoadError: text("flow.ts:4: type error"), Config: json.RawMessage(`{"steps":[]}`)},
+	}
+	result, err := projectWorkflowVersions(versions, strings.Repeat("d", 40), []FlowVersionProposal{{TODO: 7, Paths: []string{"flows/todo/flow.ts", "src/ignored.ts"}}, {TODO: 8, Paths: []string{"flows/todo-other/helper.ts"}}})
+	require.NoError(t, err)
+	require.Len(t, result, 5)
+	assert.Equal(t, []string{"previous", "active", "merged-failed", "merged-syncing", "proposed"}, []string{result[0].State, result[1].State, result[2].State, result[3].State, result[4].State})
+	assert.Equal(t, "flow.ts:4: type error", result[2].Error)
+	assert.Equal(t, []string{"check", "review"}, result[1].Steps)
+	assert.Equal(t, int64(7), result[4].TODO)
+	assert.Equal(t, strings.Repeat("d", 40), result[3].SourceCommit)
+}
+
+func TestWorkflowSyncFlowVersionMetadataRefusesWithoutWrites(t *testing.T) {
+	pool := servicesSuite.Pool(t)
+	_, repoID := setupTestUserAndRepo(t, pool)
+	ctx := context.Background()
+	s := NewWorkflowSyncService(db.New(pool), nil, nil)
+	s.flowPublish = func(context.Context, int64) { t.Fatal("must not publish") }
+	for _, version := range []FlowLoadedVersion{
+		{Name: "merge", Digest: strings.Repeat("1", 64), Status: "loaded"},
+		{Name: "../todo", Digest: strings.Repeat("1", 64), Status: "loaded"},
+		{Name: "todo", Digest: "invalid", Status: "loaded"},
+		{Name: "todo", Digest: strings.Repeat("1", 64), Status: "failed"},
+		{Name: "todo", Digest: strings.Repeat("1", 64), Status: "loaded", Error: "error"},
+		{Name: "todo", Digest: strings.Repeat("1", 64), Status: "active"},
+	} {
+		require.Error(t, s.PersistDefinitions(ctx, repoID, WorkflowLoadResult{repositoryID: repoID, commitSHA: strings.Repeat("a", 40), versioned: true, versions: []FlowLoadedVersion{version}}))
+	}
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_definitions WHERE repository_id=$1`, repoID).Scan(&count))
+	assert.Zero(t, count)
 }

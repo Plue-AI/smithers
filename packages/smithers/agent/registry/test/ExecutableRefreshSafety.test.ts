@@ -197,6 +197,7 @@ describe("a load reserves its own module file", () => {
         const catalog = yield* Executable.Catalog
         const refresh = yield* Executable.Refresh
         const first = sites.at(-1)!
+        const previous = catalog.executables[0]!
         const taken = Array.from({ length: 8 }, (_, index) => sibling(first, index + 1))
         yield* Effect.forEach(taken, (path) => Effect.promise(() => writeFile(path, "held by somebody else")))
 
@@ -205,7 +206,9 @@ describe("a load reserves its own module file", () => {
         if (outcome._tag !== "Refused") return
         expect(outcome.error.code).toBe("body_unavailable")
         expect(sites.at(-1)).toBe(first)
-        expect(catalog.executables).toEqual([])
+        // spec §11.3.2: refusal preserves the previously verified body.
+        expect(catalog.executables).toEqual([previous])
+        expect(catalog.refused.map((entry) => entry.flow)).toEqual(["early"])
         for (const path of taken) {
           expect(yield* Effect.promise(() => readFile(path, "utf8"))).toBe("held by somebody else")
         }

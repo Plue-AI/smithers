@@ -4,7 +4,7 @@ import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Effect, FileSystem, Layer, Path, PlatformError, Schema } from "effect"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Descriptor from "../src/Descriptor.ts"
@@ -54,6 +54,101 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   ) as Effect.Effect<A, E>)
 
 describe("durable execution snapshots", () => {
+  it.each(["relative", "workspace"] as const)("pins review and lib helpers through %s imports", async (mode) => {
+    await run(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-version-" })
+      yield* fs.makeDirectory(`${root}/flows/todo`, { recursive: true })
+      yield* fs.makeDirectory(`${root}/flows/review`, { recursive: true })
+      yield* fs.makeDirectory(`${root}/lib`, { recursive: true })
+      yield* fs.writeFileString(`${root}/pnpm-workspace.yaml`, "packages: []")
+      yield* fs.writeFileString(`${root}/package.json`, "{\"private\":true}")
+      yield* fs.writeFileString(`${root}/lib/package.json`, "{\"name\":\"@fixture/steps\",\"exports\":\"./steps.ts\"}")
+      yield* fs.makeDirectory(`${root}/node_modules/@fixture`, { recursive: true })
+      yield* fs.symlink(`${root}/lib`, `${root}/node_modules/@fixture/steps`)
+      const helper = mode === "relative" ? "../../lib/steps.ts" : "@fixture/steps"
+      yield* fs.writeFileString(
+        `${root}/flows/todo/flow.ts`,
+        source
+          .replace("\"snapshot\"", "\"todo\"").replace(
+            "import { value } from \"./helper.ts\"",
+            `import { value } from "${helper}"\nimport review from "../review/flow.ts"`
+          )
+      )
+      yield* fs.writeFileString(
+        `${root}/flows/review/flow.ts`,
+        source
+          .replace("\"snapshot\"", "\"review\"").replace("\"./helper.ts\"", "\"../../lib/steps.ts\"")
+      )
+      yield* fs.writeFileString(`${root}/lib/steps.ts`, "export const value = \"one\"")
+      const discovery = yield* Discovery.Discovery
+      const measure = Effect.gen(function*() {
+        const descriptor = (yield* discovery.scan({ source: "project", root: `${root}/flows`, naming: "path" }))
+          .entries.find((entry) => entry.name === "todo")!
+        // Isolate identity measurement from evaluation; real import coverage lives in ExecutableRefresh.
+        const executable = yield* Executable.fromDescriptor(descriptor, {
+          delegates: [],
+          load: () => Effect.succeed({ default: flow })
+        })
+        if (mode === "workspace") {
+          expect(executable.source!.modules.get(`${root}/flows/todo/flow.ts`)!.links
+            .some((link) => link.target === `${root}/lib/steps.ts`)).toBe(true)
+        }
+        return yield* Snapshot.version(root, executable)
+      })
+      // Oracles: spec §11.3.0 and C-J5-02 steps 7–8; literal fixture paths and edits.
+      const first = yield* measure
+      expect(first.modules).toEqual(["flows/review/flow.ts", "flows/todo/flow.ts", "lib/steps.ts"])
+      yield* fs.writeFileString(
+        `${root}/flows/review/flow.ts`,
+        (yield* fs.readFileString(`${root}/flows/review/flow.ts`)) + "\n// edit review"
+      )
+      const review = yield* measure
+      expect(review.digest).not.toBe(first.digest)
+      expect(review.executionDigest).not.toBe(first.executionDigest)
+      yield* fs.writeFileString(`${root}/lib/steps.ts`, "export const value = \"two\"")
+      const helperEdit = yield* measure
+      expect(helperEdit.digest).not.toBe(review.digest)
+      expect(helperEdit.executionDigest).not.toBe(review.executionDigest)
+      yield* fs.writeFileString(`${root}/pnpm-lock.yaml`, "lockfileVersion: '9.0'")
+      const lock = yield* measure
+      expect(lock.digest).not.toBe(helperEdit.digest)
+      expect(lock.executionDigest).toBe(helperEdit.executionDigest)
+      expect(lock.lockfileDigest).not.toBe(helperEdit.lockfileDigest)
+      expect(yield* fs.exists(`${root}/.flows`)).toBe(false)
+      yield* fs.makeDirectory(`${root}/src`)
+      yield* fs.writeFileString(`${root}/src/unrelated.ts`, "export const ignored = true")
+      expect(yield* measure).toEqual(lock)
+    }))
+  })
+
+  it("refuses version metadata without measured source or readable lockfiles", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, executable } = yield* fixture
+      const { source: _source, ...withoutSource } = executable
+      expect(yield* Snapshot.version(root, withoutSource).pipe(Effect.flip)).toMatchObject({ code: "unavailable" })
+      const { contentDigest: _digest, ...body } = executable.descriptor.body
+      expect(
+        yield* Snapshot.version(root, { ...executable, descriptor: { ...executable.descriptor, body } })
+          .pipe(Effect.flip)
+      ).toMatchObject({ code: "unavailable" })
+      const cause = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "readFile",
+        pathOrDescriptor: `${root}/pnpm-lock.yaml`,
+        description: "Injected lockfile denial"
+      })
+      // Syscall denial is injected; real file bytes drive all successful identity controls.
+      expect(
+        yield* Snapshot.version(root, executable).pipe(
+          Effect.provideService(FileSystem.FileSystem, { ...fs, readFile: () => Effect.fail(cause) }),
+          Effect.flip
+        )
+      ).toMatchObject({ code: "unavailable", cause })
+    }))
+  })
+
   it("verifies the production issue-sweep closure before evaluating any module", async () => {
     await run(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

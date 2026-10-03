@@ -8610,8 +8610,8 @@
         "Descriptor.d.ts": "affc8833c06553c921431b39e27961c9ef89e20502b56c8d5c6ac99984c6c992",
         "Disclosure.d.ts": "d98dd149b6c0109635f3c0b6859c7f3bfd0874163e760a809ae8fea7463f8a2c",
         "Discovery.d.ts": "dbb1d251831b7ed50cd65ee45c7749229c10b0ceea556cb23b6f144b133e769b",
-        "Executable.d.ts": "3de2e09d1e0ff79d8daa83bcd3f56b81f6600b002a24063bcfbecddf93d56a45",
-        "ExecutionSnapshot.d.ts": "416c9ebc326158667d67f45d62ee2d7af9dc94d5ac1db97cb6292db6b9ff36f7",
+        "Executable.d.ts": "3383c845e2d3542c37aefae3f72ab940f894fa7d67a7e6da96b7d0448c4ae417",
+        "ExecutionSnapshot.d.ts": "f608f2b91120fbece49293d3a2fb0c379e51a815ea696d2a4a8bfe092672718f",
         "MarkdownFlow.d.ts": "8528795b71675a61c84ba392cfdc18155e614f0342b3d43dc5c4e2616cfcc319",
         "Pack.d.ts": "4c34430737c9942dfc2d786450e1b289e4803f5644bb434fd6c4944cc49d35cc",
         "Prompt.d.ts": "2e6f184c1f38d22f43cb74d8282f4ce9228d1f3284f94b0962ef3efce91d3e0c",
@@ -8624,7 +8624,7 @@
         "internal/Declared.d.ts": "44e018abda7625a7638a126a65a3bc95345f885571e234e4cee641f083a01d34",
         "internal/Frontmatter.d.ts": "2b1fcaaea6876717b496766396bf099a22e7fc3e63a9dae434e5f51749c7d30a",
         "internal/LegacyModule.d.ts": "3ab7b3a40694e1e6c3941e573bbfdee923d8f1516b3401d1b762c019b93dccd8",
-        "internal/ModuleClosure.d.ts": "119f60779a94c68ba55da22a0f76987d48e9e693518cd39d6afafc8334e31f5d",
+        "internal/ModuleClosure.d.ts": "d3b08f54a429b0c39f8dc4c321642f7ba68cccefcb638112afa5ebd1d633e18a",
         "internal/ModuleMetadata.d.ts": "0d8bca3dcf1a2f04d88f0f2c41083c189889d3f2828e4e346a7df5aa56979a95",
         "internal/Names.d.ts": "494cebeead34279e668e159507d71cf7037ad88a402cccc41191a2374c418e9f"
       }

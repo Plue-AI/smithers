@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
+import * as PlatformError from "effect/PlatformError"
 import { fileURLToPath } from "node:url"
 import * as ModuleClosure from "../src/internal/ModuleClosure.ts"
 import { tokenize } from "../src/internal/ModuleMetadata.ts"
@@ -966,5 +967,116 @@ describe("the measured closure a loader evaluates", () => {
       expect(measured.imports.map((item) => item.path)).toEqual(["helper.ts", "middle.ts"])
       expect(measured.imports.every((item) => item.contentDigest !== undefined)).toBe(true)
       expect(linksOf(root, measured.modules, "flow.ts")).toEqual([[`"./middle.ts"`, "middle.ts"]])
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+})
+
+describe("repository workspace package exports", () => {
+  const fixture = (exports: unknown, specifier = "@fixture/steps") =>
+    tree({
+      "pnpm-workspace.yaml": "packages: [lib]",
+      "package.json": "{\"private\":true}",
+      "flow.ts": `import { value } from "${specifier}"`,
+      "lib/package.json": JSON.stringify({ name: "@fixture/steps", exports }),
+      "lib/steps.ts": "export const value = \"pinned\""
+    })
+  const linked = (root: string) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory(`${root}/node_modules/@fixture`, { recursive: true })
+      yield* fs.symlink(`${root}/lib`, `${root}/node_modules/@fixture/steps`)
+    })
+  it.effect("pins literal root and subpath exports as static closure links", () =>
+    Effect.gen(function*() {
+      for (
+        const [exports, specifier] of [
+          [{ ".": "./steps.ts" }, "@fixture/steps"],
+          [{ "./part": "./steps.ts" }, "@fixture/steps/part"]
+        ] as const
+      ) {
+        const root = yield* fixture(exports, specifier)
+        yield* linked(root)
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const closure = yield* ModuleClosure.snapshot(
+          fs,
+          path,
+          `${root}/flow.ts`,
+          yield* fs.readFile(`${root}/flow.ts`)
+        )
+        // spec §11.3.0: literal repository module paths, never a production digest oracle.
+        expect(closure.imports.map((entry) => entry.path)).toEqual(["lib/steps.ts"])
+        expect(closure.modules.get(`${root}/flow.ts`)!.links.map((link) => link.target)).toEqual([
+          `${root}/lib/steps.ts`
+        ])
+        expect(closure.unsupported).toEqual([])
+      }
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+  it.effect("refuses conditional, escaping, missing and unmatched workspace exports", () =>
+    Effect.gen(function*() {
+      for (
+        const [exports, specifier] of [
+          [{ ".": { default: "./steps.ts" } }, "@fixture/steps"],
+          ["./../outside.ts", "@fixture/steps"],
+          [undefined, "@fixture/steps"],
+          ["./steps.ts", "@fixture/steps/missing"]
+        ] as const
+      ) {
+        const root = yield* fixture(exports, specifier)
+        yield* linked(root)
+        const found = yield* walk(root, "flow.ts")
+        expect(found).toHaveLength(1)
+        expect(found[0]!.contentDigest).toBeUndefined()
+        expect(found[0]!.path).toContain("no single static workspace export")
+      }
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+  it.effect("refuses a missing workspace export instead of treating it as host code", () =>
+    Effect.gen(function*() {
+      const root = yield* fixture("./missing.ts")
+      yield* linked(root)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const measured = yield* ModuleClosure.analyze(
+        fs,
+        path,
+        `${root}/flow.ts`,
+        yield* fs.readFileString(`${root}/flow.ts`)
+      )
+      // spec §11.3.0: a known repository import without bytes cannot acquire host trust.
+      expect(measured.imports).toHaveLength(1)
+      expect(measured.imports[0]!.contentDigest).toBeUndefined()
+      expect(measured.imports[0]!.path).toContain("workspace export resolves to no readable file")
+      expect(measured.hostImports).not.toContain("@fixture/steps")
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses unavailable workspace authority before accepting host trust", () =>
+    Effect.gen(function*() {
+      const root = yield* fixture("./steps.ts")
+      yield* linked(root)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const deny = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "readFile",
+        pathOrDescriptor: root,
+        description: "Injected workspace authority denial"
+      })
+      // Inject only syscall denial; linked package files remain real.
+      for (
+        const denied of [
+          { ...fs, exists: () => Effect.fail(deny) },
+          { ...fs, realPath: (file: string) => file === root ? Effect.fail(deny) : fs.realPath(file) }
+        ]
+      ) {
+        const found = yield* ModuleClosure.collect(
+          denied,
+          path,
+          `${root}/flow.ts`,
+          yield* fs.readFileString(`${root}/flow.ts`)
+        )
+        expect(found).toHaveLength(1)
+        expect(found[0]!.contentDigest).toBeUndefined()
+        expect(found[0]!.path).toContain("workspace authority is unavailable")
+      }
     }).pipe(Effect.scoped, Effect.provide(platform)))
 })

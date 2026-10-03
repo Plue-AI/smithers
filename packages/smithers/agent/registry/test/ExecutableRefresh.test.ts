@@ -304,16 +304,18 @@ describe("rebuilding one catalog entry without restarting the host", () => {
           expect((yield* refresh.flow("other"))._tag).toBe("Registered")
           const other = catalog.executables.find((entry) => entry.descriptor.name === "other")!
 
-          // A refusal takes the entry out and records why.
+          // spec §11.3.2: a failed edit retains the loaded executable and records why.
+          const previous = catalog.executables.find((entry) => entry.descriptor.name === "early")!
           yield* fs.writeFileString(`${root}/flows/early/flow.ts`, halfWritten("early"))
           const refusal = yield* refresh.flow("early")
           expect(refusal._tag).toBe("Refused")
           if (refusal._tag !== "Refused") return
           expect(refusal.error.code).toBe("body_unavailable")
-          expect(catalog.executables.map((entry) => entry.descriptor.name)).toEqual(["other"])
+          expect(catalog.executables.map((entry) => entry.descriptor.name).sort()).toEqual(["early", "other"])
+          expect(catalog.executables.find((entry) => entry.descriptor.name === "early")).toBe(previous)
           expect(catalog.refused.map((failure) => failure.flow)).toEqual(["early"])
 
-          // Repairing the file puts it back and drops the refusal with it.
+          // Repairing the file replaces it and drops the refusal with it.
           yield* fs.writeFileString(`${root}/flows/early/flow.ts`, declaration("early", chained))
           expect((yield* refresh.flow("early"))._tag).toBe("Registered")
           expect(catalog.refused).toEqual([])
@@ -329,6 +331,44 @@ describe("rebuilding one catalog entry without restarting the host", () => {
         })),
     60_000
   )
+
+  it.effect("edit breaks an existing flow", () => {
+    const events: Array<string> = []
+    const key = `smithers-refresh-${Math.random()}`
+    const globals = globalThis as unknown as Record<string, unknown>
+    globals[key] = events
+    const managed = (version: string) =>
+      declaration("early", single) + `
+import { Effect, Layer } from "effect"
+export const layer = Layer.effectDiscard(Effect.addFinalizer(() => Effect.sync(() => {
+  (globalThis as unknown as Record<string, Array<string>>)[${JSON.stringify(key)}]!.push(${JSON.stringify(version)})
+})))`
+    return withProject([], (root) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        yield* fs.writeFileString(`${root}/flows/early/flow.ts`, managed("first"))
+        expect((yield* refresh.flow("early"))._tag).toBe("Registered")
+        const first = catalog.executables[0]!
+        // spec §11.3.2: failed edits hold both the previous digest and its resource scope.
+        yield* fs.writeFileString(`${root}/flows/early/flow.ts`, halfWritten("early"))
+        expect((yield* refresh.flow("early"))._tag).toBe("Refused")
+        expect(catalog.executables[0]).toBe(first)
+        expect(catalog.refused.map((entry) => entry.flow)).toEqual(["early"])
+        expect(events).toEqual([])
+        yield* fs.writeFileString(`${root}/flows/early/flow.ts`, managed("second"))
+        expect((yield* refresh.flow("early"))._tag).toBe("Registered")
+        expect(catalog.refused).toEqual([])
+        expect(events).toEqual(["first"])
+        yield* fs.remove(`${root}/flows/early`, { recursive: true })
+        expect((yield* refresh.flow("early"))._tag).toBe("Removed")
+        expect(catalog.executables).toEqual([])
+        expect(events).toEqual(["first", "second"])
+      })).pipe(Effect.ensuring(Effect.sync(() => {
+        delete globals[key]
+      })))
+  }, 60_000)
 
   it.effect("drops the entry when the flow it names is gone from disk", () => {
     const registered: Array<string> = []

@@ -40,6 +40,16 @@ export class ExecutionSnapshotError extends Schema.TaggedError<ExecutionSnapshot
 export interface Restored extends VerifiedSource {
   readonly descriptor: Descriptor.FlowDescriptor
 }
+/** Source and dependency identities for one loaded flow version.
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface Version {
+  readonly digest: string
+  readonly executionDigest: string
+  readonly lockfileDigest: string
+  readonly modules: ReadonlyArray<string>
+}
 /** Admission persistence and approved source restoration.
  * @category services
  * @since 1.0.0-rc.1
@@ -71,6 +81,48 @@ const fail = (code: ExecutionSnapshotError["code"], message: string, cause?: unk
   new ExecutionSnapshotError({ code, message, cause, ...(indexMissing ? { indexMissing } : {}) })
 const address = (value: string) => /^[a-f0-9]{64}$/.test(value)
 const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb"]
+const measureLockfiles = (fs: FileSystem.FileSystem, path: Path.Path, root: string) =>
+  Effect.gen(function*() {
+    const measured: Array<readonly [string, string]> = []
+    for (const name of lockfiles) {
+      const filename = path.join(root, name)
+      const bytes = yield* fs.readFile(filename).pipe(
+        Effect.map(Option.some),
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
+      )
+      if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
+    }
+    return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
+  })
+/** Measures a flow version without importing modules or writing a snapshot.
+ * The version combines the execution closure and the repository lockfiles.
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const version = (
+  root: string,
+  executable: Executable
+): Effect.Effect<Version, ExecutionSnapshotError, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    root = path.resolve(root)
+    const executionDigest = Descriptor.executionDigest(executable.descriptor)
+    if (executionDigest === undefined || executable.source === undefined) {
+      return yield* Effect.fail(fail("unavailable", "Executable has no verified source closure"))
+    }
+    const lock = yield* measureLockfiles(fs, path, root)
+    // spec §11.3.0; C-J5-02 distinguishes version and execution identities.
+    return {
+      digest: Digest.digest(new TextEncoder().encode(JSON.stringify([executionDigest, lock]))),
+      executionDigest,
+      lockfileDigest: lock,
+      modules: [...executable.source.modules.keys()].map((file) => path.relative(root, file)).sort()
+    }
+  }).pipe(Effect.mapError((cause) =>
+    cause instanceof ExecutionSnapshotError ? cause : fail("unavailable", "Cannot measure flow version", cause)
+  ))
+
 const verifiedCompilation = (filename: string, module: ClosureModule, descriptor: Descriptor.FlowDescriptor) =>
   Effect.gen(function*() {
     const raw = new TextDecoder().decode(module.bytes)
@@ -114,18 +166,7 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
         yield* Effect.scoped(Effect.flatMap(fs.open(parent, { flag: "r" }), (file) => file.sync))
       }
     })
-    const lockfileDigest = Effect.gen(function*() {
-      const measured: Array<readonly [string, string]> = []
-      for (const name of lockfiles) {
-        const filename = path.join(root, name)
-        const bytes = yield* fs.readFile(filename).pipe(
-          Effect.map(Option.some),
-          Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
-        )
-        if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
-      }
-      return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
-    })
+    const lockfileDigest = measureLockfiles(fs, path, root)
     const readManifest = (digest: string, checkLockfiles = true) =>
       Effect.gen(function*() {
         if (!address(digest)) return yield* Effect.fail(fail("corrupt", "Invalid execution digest"))

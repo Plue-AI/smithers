@@ -1218,7 +1218,9 @@ serialized, so two rebuilds of one name cannot interleave.
 say anything honest about the flow afterwards: `Registered` (runnable now),
 `Refused` (this host will not run it, with the code and the delegate it
 wanted), `Removed` (discovery no longer finds it), and `Fixed` (this host
-holds that entry and left the catalog alone).
+holds that entry and left the catalog alone). A refusal retains the previous
+executable and its resource scope beside the error in `catalog.refused`. A
+successful replacement transfers the scope; removal retires it.
 
 `refreshable` is what answers `Fixed`. A host serving part of its catalog out
 of its own measured bundle answers `false` for those entries: their bytes are
@@ -1618,6 +1620,12 @@ whether a caller prints the message or branches on the fields. `module`
 defaults to `Discovery` and `Registry` respectively.
 
 ## ExecutionSnapshot
+
+`version(root, executable)` measures metadata for a loaded flow: `digest`,
+`executionDigest`, `lockfileDigest`, and repository-relative `modules`. It
+requires `FileSystem` and `Path` and writes nothing. Editing a pinned helper or
+imported flow changes the execution and version identities; changing only a
+lockfile changes the version identity.
 
 `makeFileSystem({ root, store? })` and `layerFileSystem({ root, store? })` require
 `FileSystem`, `Path`, and `Crypto`. The service captures those dependencies. By

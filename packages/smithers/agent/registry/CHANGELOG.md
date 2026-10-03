@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Refused refreshes retain the previous executable and its resource scope (#3511).
+
 - Snapshot lockfile reads measure concurrent removal as absence (#3602). Index
   read failures retain their platform cause as `unavailable` (#3603).
 
@@ -25,6 +27,8 @@
   ([#2763](https://github.com/smithersai/smithers/issues/2763)).
 
 ### Added
+
+- `ExecutionSnapshot.version` measures closure and lockfile version metadata without writing artifacts; linked repository workspace imports with a static export are pinned (#3511).
 
 - Typed MDX prompt imports compile through a text JSX runtime. Discovery pins
   prompt and component bytes; the verified module loader refuses stale content

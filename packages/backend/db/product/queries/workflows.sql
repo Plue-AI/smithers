@@ -34,7 +34,7 @@ WHERE id = $1
 -- name: UpsertWorkflowDefinition :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, TRUE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   name = EXCLUDED.name,
   config = EXCLUDED.config,
@@ -48,13 +48,14 @@ UPDATE workflow_definitions
 SET is_active = FALSE,
     updated_at = NOW()
 WHERE repository_id = $1
-  AND path = $2;
+  AND path = $2
+  AND digest IS NULL;
 
 
 -- name: EnsureWorkflowDefinitionReference :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, FALSE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   updated_at = NOW()
 RETURNING *;
@@ -66,7 +67,7 @@ RETURNING *;
 -- The sentinel path '.smithers/agent' identifies agent workflow definitions.
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES (sqlc.arg(repository_id), 'Agent', '.smithers/agent', '{"agent": true}'::jsonb)
-ON CONFLICT (repository_id, path) DO UPDATE SET updated_at = NOW()
+ON CONFLICT (repository_id, path) WHERE digest IS NULL DO UPDATE SET updated_at = NOW()
 RETURNING *;
 
 
@@ -81,7 +82,8 @@ WHERE id = $1
 SELECT *
 FROM workflow_definitions
 WHERE repository_id = $1
-  AND path = $2;
+  AND path = $2
+  AND digest IS NULL;
 
 
 -- name: GetWorkflowRun :one
@@ -503,3 +505,22 @@ GROUP BY requested.context
 HAVING NOT bool_and(COALESCE(latest.status = 'success', false))
 ORDER BY requested.context;
 
+
+-- name: InsertWorkflowVersion :one
+INSERT INTO workflow_definitions(repository_id, name, path, config, is_active, source_commit, digest, status, load_error)
+VALUES ($1, $2, $3, $4, FALSE, $5, $6, $7, $8)
+ON CONFLICT (repository_id, name, digest) WHERE digest IS NOT NULL DO NOTHING
+RETURNING *;
+
+-- name: DeactivateWorkflowVersionsByName :exec
+UPDATE workflow_definitions SET is_active = FALSE, updated_at = NOW()
+WHERE repository_id = $1 AND name = $2 AND digest IS NOT NULL AND is_active;
+
+-- name: ActivateWorkflowVersion :exec
+UPDATE workflow_definitions SET is_active = TRUE, updated_at = NOW()
+WHERE repository_id = $1 AND id = $2 AND status = 'loaded';
+
+-- name: ListWorkflowVersions :many
+SELECT * FROM workflow_definitions
+WHERE repository_id = $1 AND digest IS NOT NULL
+ORDER BY id DESC;

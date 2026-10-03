@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -66,6 +67,8 @@ type WorkflowLoadFileError struct {
 
 // WorkflowLoadResult captures the valid definitions and per-file failures found in a commit snapshot.
 type WorkflowLoadResult struct {
+	versions    []FlowLoadedVersion
+	versioned   bool
 	Definitions []LoadedWorkflowDefinition
 	FileErrors  []WorkflowLoadFileError
 	// Only a snapshot loaded by this service may change repository-wide state.
@@ -82,6 +85,11 @@ type WorkflowSyncService struct {
 	// Recheck the head under the lock so an old writer cannot finish after the
 	// writer that deactivated a removed definition. Idle keys are evicted.
 	persistLocks userLockRegistry
+	// Dark until the bundled guest and after-commit publication providers are integrated.
+	flowGuest   FlowLoadGuest
+	flowPublish func(context.Context, int64)
+	flowMu      sync.Mutex
+	flowLoads   map[int64]*flowLoadState
 }
 
 // NewWorkflowSyncService constructs a workflow sync service.
@@ -156,6 +164,9 @@ func (s *WorkflowSyncService) LoadDefinitionsFromCommit(ctx context.Context, rep
 	}
 	if strings.TrimSpace(commitSHA) == "" {
 		return WorkflowLoadResult{}, fmt.Errorf("commit sha is required")
+	}
+	if s.flowGuest != nil {
+		return s.loadFlowVersions(ctx, repoID, commitSHA)
 	}
 	if s.queries == nil || s.repoHost == nil || s.parser == nil {
 		return WorkflowLoadResult{}, fmt.Errorf("workflow sync dependencies are not configured")
@@ -274,6 +285,9 @@ func (s *WorkflowSyncService) PersistDefinitions(ctx context.Context, repoID int
 	// an ancestor of the event's new value.
 	// Loading/parsing may take minutes. Re-read the head here so a snapshot
 	// overtaken during discovery cannot re-arm definitions deleted by a push.
+	if result.versioned {
+		return s.persistFlowVersions(ctx, repoID, result)
+	}
 	current, err := s.isDefaultHeadCommit(ctx, repoID, result.commitSHA, pushRef...)
 	if err != nil || !current {
 		return err

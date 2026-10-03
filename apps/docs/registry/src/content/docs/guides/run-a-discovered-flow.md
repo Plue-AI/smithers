@@ -71,7 +71,7 @@ because one broken file must not take every unrelated flow down with it. The cod
 statement about this host, the second is a defect in the flow.
 
 For measured project helpers, use relative static imports or package `imports`
-keys with one static file target. Transitive static imports and cycles share the
+keys or linked repository workspace packages with one static file target. Transitive static imports and cycles share the
 measured closure. Refresh after an edit; an old descriptor is refused before
 any module is evaluated.
 
@@ -185,7 +185,9 @@ const rebuild = Effect.gen(function*() {
 It rescans discovery, loads that flow's body from the bytes now on disk,
 registers it, and swaps it into the catalog. The `Catalog` service object does
 not change, so readers that took it at startup see the new entry. The previous
-body stays registered until the new one is, and refreshes are serialized.
+body stays registered until the new one is, and refreshes are serialized. A
+refused edit keeps that executable and its scope, recording the error beside
+it. Removal retires it.
 
 A host that serves part of its catalog out of its own measured bundle passes
 `refreshable` to hold those entries fixed:
