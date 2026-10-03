@@ -137,6 +137,7 @@ import { createSearchSeam } from "./seams/SearchSeam"
 import type { SecretsSeam } from "./seams/SecretsSeam"
 import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
+import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
 import { createTriggersSeam } from "./seams/TriggersSeam"
@@ -528,6 +529,14 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly landStackItem: StackSeam["landStackItem"]
   readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
+  readonly installSnapshots: InstallSeam["snapshots"]
+  readonly showSetup: InstallSeam["showSetup"]
+  readonly showSettings: InstallSeam["showSettings"]
+  readonly setupStep: InstallSeam["setupStep"]
+  readonly setInstallAddress: InstallSeam["setInstallAddress"]
+  readonly setInstallCapacity: InstallSeam["setInstallCapacity"]
+  readonly setInstallParallel: InstallSeam["setInstallParallel"]
+  readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
   readonly stackSnapshots: StackSeam["snapshots"]
   readonly importRepository: RepoImportSeam["importRepository"]
   readonly retryImport: RepoImportSeam["retryImport"]
@@ -640,6 +649,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
  * bind honest doubles instead of a network; production uses same-origin fetch.
  */
 export interface AppServices {
+  readonly installTopic?: InstallTopic
+  readonly presentInstallCard?: (kind: "setup" | "settings") => void
   readonly clientErrors?: ClientErrorReporter
   /**
    * The decision model's command selection (state/CommandSelection.ts). The
@@ -838,6 +849,8 @@ export const createAppController = (
     report: (subject, error) => ctx.failures.report("seam.failure", error, subject),
     checkout: services.bootstrap?.capabilities.includes("billing.checkout") ?? true
   }
+  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: services.presentInstallCard }))
+  ctx.onDispose(installSeam.dispose)
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1557,6 +1570,9 @@ export const createAppController = (
    * embedded cards and record via:"agent", never user chrome.
    */
   const commandActions: CommandActions = {
+    showSetup: installSeam.showSetup, showSettings: installSeam.showSettings, setupStep: installSeam.setupStep,
+    setInstallAddress: installSeam.setInstallAddress, setInstallCapacity: installSeam.setInstallCapacity,
+    setInstallParallel: installSeam.setInstallParallel, saveInstallModelKey: installSeam.saveInstallModelKey,
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -2057,6 +2073,7 @@ export const createAppController = (
     nativeAgentAvailable: agent.available,
     tappedFetch: http,
     localAuth,
+    installSnapshots: installSeam.snapshots,
     stackSnapshots: stackSeam.snapshots,
     wikiIndexes,
     wikiAttachments,

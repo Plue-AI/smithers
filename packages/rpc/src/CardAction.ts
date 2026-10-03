@@ -85,6 +85,12 @@ export const SettingsModelSetInputSchema = z.object({ role: ModelRoleIdSchema, m
  * @category models
  */
 export interface CardCommandInput {
+  readonly "settings.address": { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
+  readonly "settings.capacity": { readonly capacity: number }
+  readonly "settings.parallel": { readonly parallel: number }
+  readonly "settings.model-key": { readonly role: "fast" | "coding" | "jev"; readonly provider: string }
+  readonly "settings.setup": { readonly step: "address" | "app" | "sign_in" | "repository" | "models" | "source" | "machine"; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
+
   readonly "chat.send": { readonly text: string }
   readonly "help": undefined
   readonly "stop": undefined

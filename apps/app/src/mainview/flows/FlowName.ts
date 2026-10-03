@@ -15,6 +15,12 @@
 
 /** Every flow name declared under flows/entries, in sorted order. */
 export const FLOW_NAMES = [
+  "settings",
+  "settings.address",
+  "settings.capacity",
+  "settings.parallel",
+  "settings.model-key",
+  "settings.setup",
   "account.show",
   "admin.devtools",
   "admin.grant",

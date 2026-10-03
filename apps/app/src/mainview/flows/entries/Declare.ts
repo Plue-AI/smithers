@@ -52,6 +52,7 @@ export type CommandActions =
     // Owner credential presentation is a composition-owned panel, never a command action.
     | "localAuth"
     // Live stack snapshots are what the Stack views read, never an act.
+    | "installSnapshots"
     | "stackSnapshots"
     // Live wiki navigation indexes and attachments are what the Wiki views read, never an act.
     | "wikiIndexes"

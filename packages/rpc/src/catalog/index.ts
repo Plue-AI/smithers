@@ -81,6 +81,11 @@ export const APPENDIX_A_TAGS = [
 // MVP Appendix B.4 controls, B.1 Members/Secrets row actions and card gestures; T-CAT-01
 // replaces this placeholder at the same import path with catalog inference.
 export const IN_CARD_TAGS = [
+  "settings.address",
+  "settings.capacity",
+  "settings.parallel",
+  "settings.model-key",
+  "settings.setup",
   "todo.return-to-item",
   "todo.keep-moved",
   "branch.bring-in",
