@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { SETUP_STEP_IDS } from "@smthrs/rpc/SetupCard"
 import { flow, NoPayload } from "./Declare"
 import type { CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
@@ -42,7 +43,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     } },
     handler: ({ role, provider }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider }, gesture) }),
   flow({ name: "settings.setup", summary: "Continue setup", hidden: true, discloseToAgent: true,
-    grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(["address", "app", "sign_in", "repository", "models", "source", "machine"]),
+    grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
-    handler: input => actions.setupStep(input) })
+    handler: input => actions.setupStep({ ...input, step: input.step === "app_manifest" ? "app" : input.step }) })
 ]

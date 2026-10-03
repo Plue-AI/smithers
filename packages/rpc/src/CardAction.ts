@@ -9,6 +9,7 @@ import { type ModelRoleId, ModelRoleIdSchema } from "./CardPrimitives.ts"
 import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
+import type { SetupStepId } from "./SetupCard.ts"
 export type { CatalogTag } from "./catalog/index.ts"
 
 /**
@@ -89,7 +90,7 @@ export interface CardCommandInput {
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.parallel": { readonly parallel: number }
   readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string }
-  readonly "settings.setup": { readonly step: "address" | "app" | "sign_in" | "repository" | "models" | "source" | "machine"; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
+  readonly "settings.setup": { readonly step: SetupStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
 
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   readonly "card.dismiss": { readonly cardId: string }

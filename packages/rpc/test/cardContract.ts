@@ -113,8 +113,7 @@ const strings = (value: unknown): string[] => {
 export const cardContract = (
   name: string,
   schema: z.ZodType,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each card's View and Gesture parameters differ
-  stories: Readonly<Record<string, Story<unknown, any, any>>>
+  stories: Readonly<Record<string, Story<unknown, object, string>>>
 ): void => {
   const json = inventory(schema)
   const contract = z.fromJSONSchema(closeObjects(json))

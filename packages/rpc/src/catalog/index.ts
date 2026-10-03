@@ -114,7 +114,6 @@ export const IN_CARD_TAGS = [
   "secrets.delete",
   "secrets.scope",
   "main.reset-to-github",
-  "form.set",
   "code.hover",
   "code.definition",
   "draft.discard",

@@ -26,8 +26,8 @@ export const SetupContainer = ({ View, install, dispatch, allowed, view, onView 
   if (allowed && model && step) {
     definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
       disabled: step.state === "running" ? { reason: "Running" } : undefined,
-      command_input: { step: step.id },
-      resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
+      command_input: { step: step.id === "app" ? "app_manifest" : step.id },
+      resolve_input: input => ({ step: step.id === "app" ? "app_manifest" : step.id, ...(input.owner ? { owner: input.owner } : {}),
         ...(input.repository ? { repository: input.repository } : {}), ...(input.bind ? { bind: input.bind } : {}),
         ...(input.origins ? { origins: input.origins.split("\n").filter(Boolean) } : {}) }) })
     if (step.id === "models" && model.github.signed_in && key) definitions.push(key.definition)

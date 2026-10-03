@@ -67,7 +67,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     const h = harness({ model }); h.renderSetup(); const props = h.setup()!
     expect(SetupCardSchema.safeParse(props.model).success).toBe(true)
     expect(props.actions).toHaveLength(1); expect(props.actions[0]!.disabled !== undefined).toBe(state === "running")
-    props.onAction("settings.setup", { step: "app", bind: "127.0.0.1:4000" })
+    props.onAction("settings.setup", { step: "app_manifest", bind: "127.0.0.1:4000" })
     expect(h.commands).toEqual(state === "running" ? [] : [{ tag: "settings.setup", input: { step: "address", bind: "127.0.0.1:4000" } }])
     if (state === "failed" || state === "blocked") expect(props.actions[0]!.label).toBe("Retry")
   })
