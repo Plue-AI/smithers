@@ -185,7 +185,8 @@ export const runSiteChecks = async (fetch: Fetcher, input: SiteProbeInput): Prom
     expectIcon(fetch, origin, "/favicon.ico"),
     expectIcon(fetch, origin, "/apple-touch-icon.png"),
     expectStatus(fetch, origin, "/", 200),
-    expectStatus(fetch, origin, "/docs/", 200),
+    // /docs/ redirects to the docs entry page since #3458; any on-site chain to a 200 passes.
+    expectAlias(fetch, origin, "/docs/"),
     expectStatus(fetch, origin, "/nope", 404),
     expectStatus(fetch, origin, "/docs/nope/", 404),
     expectStatus(fetch, origin, "/nope/nope/", 200),
