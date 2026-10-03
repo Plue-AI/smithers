@@ -597,7 +597,7 @@ The MVP ships when:
 3. Every §8 cut is gone from the product surface.
 4. The docs are one quickstart for this user, plus the reference for flows.
 5. The macOS install is public and needs no Smithers account.
-6. An install made on launch day upgrades in place to the maintainer release with `smthrs host upgrade`, keeping its data (M-26, #3444).
+6. Upgrade in place is rehearsed: a launch candidate upgrades to a later candidate with `smthrs host upgrade`, keeping its data, and a backup restores cleanly (M-26, #3444). The real receipt, an install made on launch day upgrading to the maintainer release, gates the maintainer release (§14).
 
 ## 13. Unresolved, with owners
 

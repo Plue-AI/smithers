@@ -199,10 +199,10 @@ Docs and visible UI copy use product words, not internal modeling terms such as 
 - Retain reproducible fuzz counterexamples and benchmark methods, artifacts,
   correctness checks, and limitations. Distinguish executed coverage from
   configured thresholds, skipped cases, and platform-specific evidence.
-- Delegate test work to GPT-6.1 Sol agents, up to thirty-two when the session permits.
-  The orchestrator reviews test quality and results. Every discovered product
-  bug is fixed by a GPT-6.1 Sol agent; retain its regression test and validation
-  receipts. The orchestrator reviews the changes.
+- Sonnet agents author pepper tests that probe weak classes (Will, 2026-10-02);
+  GPT-6.1 Sol agents, up to thirty-two when the session permits, implement
+  durable suites and fix every discovered product bug, retaining its regression
+  test and validation receipts. The orchestrator reviews both.
 - Track the campaign and outstanding evidence in
   [#2290](https://github.com/smithersai/smithers/issues/2290).
 
