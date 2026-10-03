@@ -396,6 +396,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
       clients,
       preparations,
       paneRead: 0,
+      indexReads: new Map<string, number>(),
       branch,
       space,
       login,
@@ -423,8 +424,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
    * The space's navigation index, read into the collection (`wikiIndexes`).
    * A read the person asked for shows its notice; the background read the
    * pane makes on opening a space is quiet, so only a refusal is stated.
+   * Both actors of a pair count reads of a space together, so an older
+   * actor's answer never replaces a newer one.
    */
-  const indexReads = new Map<string, number>()
   const loadWikiIndex = async (repoArg?: string, spaceArg?: WikiSpace, quiet = true): Promise<string | { value: string }> => {
     const repo = targetRepo(repoArg)
     if (typeof repo !== "string") return repo.error
@@ -434,9 +436,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const originBranch = shared.branch()
     const at = spaceArg ?? shared.space()
     const key = wikiIndexRowId(repo, at)
-    const generation = (indexReads.get(key) ?? 0) + 1
-    indexReads.set(key, generation)
-    const current = () => indexReads.get(key) === generation && !ctx.disposed && !shared.disposed() && ctx.accountEpoch === accountEpoch &&
+    const generation = (shared.indexReads.get(key) ?? 0) + 1
+    shared.indexReads.set(key, generation)
+    const current = () => shared.indexReads.get(key) === generation && !ctx.disposed && !shared.disposed() && ctx.accountEpoch === accountEpoch &&
       shared.login() === owner && shared.branch() === originBranch
     const outcome = await ctx.withToast(`wiki.index.${repo}.${at}`, `Reading the ${at} ${WIKI_DISPLAY_NAME}…`, `${WIKI_DISPLAY_NAME} read`, async () => {
       const answer = await shared.run(Effect.gen(function*() {

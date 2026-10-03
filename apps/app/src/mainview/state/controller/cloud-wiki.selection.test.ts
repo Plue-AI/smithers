@@ -302,3 +302,121 @@ test("an explicit paired agent Wiki open embeds without retiring the held automa
     expect(t.store.session().selectedWorldDocumentId).toBe(homeId)
   } finally { await t.close() }
 })
+
+/** The production actor pair; the first public index read is held and answers with an older payload. */
+const indexHarness = async (older: "stale" | "error" = "stale") => {
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+  const home = document(1, "home", "public"), start = document(2, "start", "public"), privateHome = document(9, "home", "private")
+  let holdNext = false
+  const requests: string[] = []
+  const index = (rows: ReturnType<typeof document>[], tag: string): CloudWikiIndex => ({
+    pages: rows.map(({ page }) => ({ ...page, metadata: { tags: [], aliases: [], headings: [], links: [] }, backlinks: [] })),
+    folders: ["Guides"], tags: [tag]
+  })
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const url = new URL(request.url)
+    requests.push(url.pathname + url.search)
+    const space = url.searchParams.get("visibility")
+    if (url.pathname.endsWith("/navigation/index")) {
+      if (space === "private") return Response.json(index([privateHome], "private"))
+      if (holdNext) {
+        holdNext = false
+        entered.resolve()
+        await release.promise
+        return older === "error" ? Response.json({ message: "Index unavailable" }, { status: 503 }) : Response.json(index([start], "stale"))
+      }
+      return Response.json(index([home, start], "fresh"))
+    }
+    if (url.pathname.endsWith("/stream")) return new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(": connected\n\n")) }
+    }), { headers: { "content-type": "text/event-stream" } })
+    const page = [home, start, privateHome].find(row => row.page.visibility === space && url.pathname.endsWith(`/wiki/${row.page.slug}/document`))
+    return page === undefined ? Response.json({ message: "No page" }, { status: 404 }) : Response.json(page)
+  } })
+  let controller: ReturnType<typeof createAppController> | undefined
+  let ownedStore: Awaited<ReturnType<typeof createAppStore>> | undefined
+  try {
+    const store = ownedStore = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "alice", name: "project", ownerKind: "user", head: null }] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    await store.dispatch({ type: "surface.changed", actor: "user", surface: "world" }).isPersisted.promise
+    const app = controller = createAppController(store, silentAgent, { baseUrl: server.url.toString().replace(/\/$/, ""), fetchImpl: Bun.fetch })
+    /** Every public index publication the pane could have rendered: its tag, or its error. */
+    const published: string[] = []
+    app.wikiIndexes.subscribe(() => { const row = app.wikiIndexes.get(repo, "public"); if (row !== undefined) published.push(row.error ?? row.tags[0] ?? "") })
+    return { store, controller: app, entered, release, published, requests,
+      hold() { holdNext = true },
+      publicIndex: () => app.wikiIndexes.get(repo, "public"),
+      documentReads: (slug: string) => requests.filter(path => path.includes(`/wiki/${slug}/document?`)).length,
+      async close() { release.resolve(); try { await app.dispose() } finally { await server.stop(true) } }
+    }
+  } catch (error) {
+    release.resolve()
+    try { if (controller === undefined) await ownedStore?.dispose?.(); else await controller.dispose() }
+    finally { await server.stop(true) }
+    throw error
+  }
+}
+
+for (const older of ["stale", "error"] as const) {
+  test(`a paired agent's held older real HTTP index (${older}) cannot replace the user's newer index`, async () => {
+    const t = await indexHarness(older)
+    try {
+      const homeReads = t.documentReads("home")
+      t.hold()
+      await t.controller.commands.runForAgent("wiki.space", "public")
+      await t.entered.promise
+      expect(await t.controller.loadWikiIndex(repo, "public")).toEqual({ value: expect.stringContaining("2 public") })
+      expect(t.publicIndex()?.tags).toEqual(["fresh"])
+      t.release.resolve()
+      // The pane continuation reads a page only after the held index read has returned.
+      await waitFor(() => t.documentReads("home") > homeReads || t.documentReads("start") > 0)
+      await waitFor(() => t.store.session().selectedWorldDocumentId === homeId)
+      expect(t.publicIndex()?.pages.map(page => page.id)).toEqual([1, 2])
+      expect(t.publicIndex()?.tags).toEqual(["fresh"])
+      expect(t.publicIndex()?.error).toBeUndefined()
+      expect(t.published).not.toHaveLength(0)
+      expect(t.published.every(tag => tag === "fresh")).toBe(true)
+    } finally { await t.close() }
+  })
+}
+
+test("a paired agent's newer real HTTP index survives the user's held older index read", async () => {
+  const t = await indexHarness()
+  try {
+    t.hold()
+    const older = t.controller.loadWikiIndex(repo, "public")
+    await t.entered.promise
+    await t.controller.commands.runForAgent("wiki.space", "public")
+    await waitFor(() => t.store.session().selectedWorldDocumentId === homeId)
+    expect(t.publicIndex()?.tags).toEqual(["fresh"])
+    t.release.resolve()
+    expect(typeof await older).toBe("string")
+    expect(t.publicIndex()?.pages.map(page => page.id)).toEqual([1, 2])
+    expect(t.publicIndex()?.tags).toEqual(["fresh"])
+    expect(t.published.every(tag => tag === "fresh")).toBe(true)
+  } finally { await t.close() }
+})
+
+test("a held public index read stays current across a newer private read and an independent store", async () => {
+  const t = await indexHarness()
+  let other: Awaited<ReturnType<typeof indexHarness>> | undefined
+  try {
+    t.hold()
+    const older = t.controller.loadWikiIndex(repo, "public")
+    await t.entered.promise
+    expect(await t.controller.loadWikiIndex(repo, "private")).toEqual({ value: expect.stringContaining("1 private") })
+    other = await indexHarness()
+    other.hold()
+    const otherRead = other.controller.loadWikiIndex(repo, "public")
+    await other.entered.promise
+    other.release.resolve()
+    expect(await otherRead).toEqual({ value: expect.stringContaining("1 public") })
+    t.release.resolve()
+    expect(await older).toEqual({ value: expect.stringContaining("1 public") })
+    expect(t.publicIndex()?.tags).toEqual(["stale"])
+    expect(t.controller.wikiIndexes.get(repo, "private")?.tags).toEqual(["private"])
+    expect(other.publicIndex()?.tags).toEqual(["stale"])
+  } finally { try { await other?.close() } finally { await t.close() } }
+})
