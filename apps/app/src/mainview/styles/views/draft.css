@@ -1,5 +1,5 @@
 /* PORT: mock field, placement and receipt anatomy, scoped to Draft. */
-.draft-view { min-width: 0; color: var(--text); font-family: var(--font-ui); }
+.draft-view { box-sizing: border-box; min-width: 0; color: var(--text); font-family: var(--font-ui); }
 .draft-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .draft-private { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .draft-field { display: flex; flex-direction: column; gap: 4px; margin-top: var(--sp-2); }

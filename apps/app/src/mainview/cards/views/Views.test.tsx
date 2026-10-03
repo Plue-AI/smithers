@@ -122,7 +122,7 @@ for (const path of paths) {
           return
         }
         const interactions = story.interactions ?? []
-        const gestureControls = new Set(interactions.map(item => host.querySelector(item.selector)))
+        const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
         const controls = [...host.querySelectorAll<HTMLButtonElement>("button[data-flow]")].filter(control => !gestureControls.has(control))
         const actions = story.actions ?? []
         expect(controls.map(control => control.dataset.flow)).toEqual(actions.map(action => action.tag))
@@ -175,7 +175,7 @@ for (const path of paths) {
       } finally { await mountedStory.close() }
       if (story.actions?.length) {
         const removed = await mounted(story, true)
-        try { expect([...removed.host.querySelectorAll<HTMLElement>("button[data-flow]")].filter(control => !(story.interactions ?? []).some(item => control.matches(item.selector))).map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
+        try { expect([...removed.host.querySelectorAll<HTMLElement>("button[data-flow]")].filter(control => !(story.interactions ?? []).some(item => item.gesture && control.matches(item.selector))).map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
         finally { await removed.close() }
       }
     })
@@ -530,14 +530,14 @@ afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.in
 
 for (const [id, story] of Object.entries(setup)) test(`Setup ${id}`, () => {
   const host = render(<SetupView {...story} onAction={() => {}} onView={() => {}} />)
-  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password]),textarea")].map(input => input.value)].join("\n")).toContain(text)
+  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
   expect([...host.querySelectorAll("[data-step]")].map(row => row.getAttribute("data-step"))).toEqual(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
   expect(host.textContent).toContain("Decisions")
   expect(host.querySelector('input[aria-label="AI Gateway key"]')?.getAttribute("type")).toBe("password")
 })
 for (const [id, story] of Object.entries(settings)) test(`Settings ${id}`, () => {
   const host = render(<SettingsView {...story} onAction={() => {}} onView={() => {}} />)
-  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password]),textarea")].map(input => input.value)].join("\n")).toContain(text)
+  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
   expect(host.textContent).toContain("700 MB")
 })
 test("Address submits literal bound step and edited fields once", () => {
@@ -1409,7 +1409,7 @@ test("DraftView submits fields and renders private and committed drafts", () => 
     ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"amend","n":12}' }],
     ["form.set", { entry: "entry-draft-1", field: "fixes", value: "false" }]
   ])
-  act(() => root.render(<DraftView {...fixtures.committed} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  act(() => draftRoot.render(<DraftView {...fixtures.committed} onAction={(...args) => calls.push(args)} onView={() => {}} />))
   expect(host.textContent).toContain("Committed as T12")
   expect(host.querySelector(".draft-private")).toBeNull()
 })
@@ -1500,10 +1500,10 @@ test("committed receipt has no unsupported link hint", () => {
 })
 
 test("agent model updates resync every field and unchanged blur never dispatches", () => {
-  const host = render(fixtures.issue_fixes)
+  const host = renderDraft(fixtures.issue_fixes)
   change(host.querySelector("input")!, "Unsent title")
   const model = { ...fixtures.issue_fixes.model, title: "Agent title", prompt: "Agent prompt", acceptance: ["Agent acceptance"], place: { mode: "before" as const, n: 9, options: fixtures.issue_fixes.model.place.options }, issue: { ...fixtures.issue_fixes.model.issue!, fixes: false } }
-  act(() => root.render(<DraftView {...fixtures.issue_fixes} model={model} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} model={model} onAction={(...args) => calls.push(args)} onView={() => {}} />))
   const title = host.querySelector("input")!
   expect(title.value).toBe("Agent title"); blur(title)
   const areas = host.querySelectorAll("textarea")
@@ -1515,19 +1515,19 @@ test("agent model updates resync every field and unchanged blur never dispatches
   expect(calls).toEqual([])
 })
 test("issue arrow requires the model GitHub href", () => {
-  const host = render(fixtures.issue_fixes)
+  const host = renderDraft(fixtures.issue_fixes)
   const issue = host.querySelector(".draft-issue")!
   expect(issue.getAttribute("href")).toBe(fixtures.issue_fixes.model.issue!.url!)
   expect(issue.textContent).toContain("↗")
-  act(() => root.render(<DraftView {...fixtures.issue_fixes} model={{ ...fixtures.issue_fixes.model, issue: { ...fixtures.issue_fixes.model.issue!, url: undefined as unknown as string } }} onAction={() => {}} onView={() => {}} />))
+  act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} model={{ ...fixtures.issue_fixes.model, issue: { ...fixtures.issue_fixes.model.issue!, url: undefined as unknown as string } }} onAction={() => {}} onView={() => {}} />))
   expect(host.querySelector(".draft-issue")!.textContent).not.toContain("↗")
 })
 
 test("one model field update preserves other unsubmitted edits", () => {
-  const host = render(fixtures.append)
+  const host = renderDraft(fixtures.append)
   const prompt = host.querySelector("textarea")!
   change(prompt, "Human prompt")
-  act(() => root.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, title: "Agent title" }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, title: "Agent title" }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
   expect(host.querySelector("input")!.value).toBe("Agent title")
   expect(prompt.value).toBe("Human prompt")
   blur(host.querySelector("input")!); blur(prompt)
@@ -1535,9 +1535,9 @@ test("one model field update preserves other unsubmitted edits", () => {
 })
 
 test("unchanged acceptance is silent for empty entries and embedded newlines", () => {
-  const host = render()
+  const host = renderDraft()
   for (const acceptance of [[], [""], ["First\nSecond"]]) {
-    act(() => root.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+    act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
     const field = host.querySelectorAll("textarea")[1]!
     expect(field.value).toBe(acceptance.join("\n")); blur(field)
     expect(calls).toEqual([])

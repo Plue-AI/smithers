@@ -66,8 +66,8 @@ export const fixtures = {
   ),
   empty_stack: draft(
     "Append to an empty stack",
-    { ...base, title: "", prompt: "", acceptance: [], place: { mode: "append", options: [] } },
-    [],
+    { ...base, title: "", prompt: "Publish typed card models", acceptance: [], place: { mode: "append", options: [] } },
+    ["Publish typed card models"],
     [{ ...commit(), disabled: { reason: "Add a title" } }]
   )
 } satisfies Record<string, DraftStory>
