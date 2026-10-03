@@ -16,8 +16,9 @@ decided one at a time.
   repository.
 - TODOs replace the five maintenance jobs. Each TODO is one item on the
   repository's stack, worked on its own branch by the customizable TODO flow,
-  and reaches `main` as one squash-merged GitHub pull request. People merge;
-  agents never merge or move `main`.
+  and reaches `main` as one squash-merged GitHub pull request. People merge,
+  by hand or by pre-approving a TODO so its PR merges when ready (M-39);
+  agents never approve, merge or move `main`.
 - Build in the order of mvp.md §11 (walking skeleton first). Maintainers with
   outside contributors get their release one week after launch (§14); items in
   §16 are deferred with no promised release. Don't build either early.
@@ -142,7 +143,7 @@ A repository's history is one linear `mythical` stack of logical changes that
 only the stack service writes (`packages/backend/internal/services/mythical*.go`).
 Work is planned onto it (append, insert or amend) and reaches append-only `main`
 only as one commit per item: a squash-merged GitHub PR that a maintainer
-merges (mvp.md M-05). Never rewrite `main`; never write `mythical` by hand.
+merges or pre-approved (mvp.md M-05, M-39). Never rewrite `main`; never write `mythical` by hand.
 
 ## Instant chat; slow work runs in the background (Will, 2026-09-15)
 
