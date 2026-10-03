@@ -8,7 +8,6 @@ import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
 import * as Budget from "./budget.ts"
 import * as Keys from "./keys.ts"
-import { labelOf, type Model } from "./models.ts"
 import { color } from "./theme.ts"
 import type { Tab } from "./workspace.ts"
 
@@ -55,10 +54,6 @@ export const styleOf = (
     : { glyph: "⇄", tone: tab.status === "waiting" ? color.needs : color.info }
 
 export const live = WorkerControls.live
-
-/** Who runs a worker: its wrapped harness (`claude`, `codex`), else the model answering, as the picker names it. */
-export const seatName = (tab: Pick<Tab, "seat" | "activeSeat" | "harness">, models: ReadonlyArray<Model>): string =>
-  tab.harness?.vendor ?? labelOf(tab.activeSeat ?? tab.seat, models)
 
 /** From the request until settlement; a settled tab's clock stops. */
 export const elapsed = (tab: Pick<Tab, "startedAt" | "endedAt">, now: number): number =>

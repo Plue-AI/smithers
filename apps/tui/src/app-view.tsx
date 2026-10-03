@@ -15,8 +15,7 @@ import type * as Extension from "./extension.ts"
 import * as Inbox from "./inbox.ts"
 import type { FlowForm } from "./key-dispatch.ts"
 import type * as Keys from "./keys.ts"
-import type * as Models from "./models.ts"
-import * as Tabs from "./tabs.ts"
+import * as Models from "./models.ts"
 import { color } from "./theme.ts"
 import type * as Transcript from "./transcript.ts"
 import * as View from "./view.tsx"
@@ -28,7 +27,7 @@ export function ComposerModel(props: {
   readonly models: ReadonlyArray<Models.Model>
   readonly worker?: Pick<Tab, "seat" | "activeSeat" | "harness">
 }) {
-  if (props.worker !== undefined) return <span fg={color.text}>{Tabs.seatName(props.worker, props.models)}</span>
+  if (props.worker !== undefined) return <span fg={color.text}>{Models.seatName(props.worker, props.models)}</span>
   const model = props.models.find((each) => each.seat === props.seat)
   const label = model?.label ?? (props.seat.startsWith("replay:") ? `replay ${basename(props.seat)}` : props.seat)
   return (

@@ -48,9 +48,9 @@ Another model on the route, or the same model on another route, stays eligible.
 A provider-wide HTTP 529 or `quota_exceeded` refusal defaults to the whole
 route. A protocol classifier can state `ModelError.quotaScope` as `"model"` or
 `"account"`; this field survives HTTP normalization, redaction, and journal
-replay. A `quota_exceeded` refusal with no reset has no window to wait for:
-the run skips that route (or model, for a `"model"` scope) on every later
-frame instead of asking it again.
+replay. A `quota_exceeded` refusal with no reset and no `"model"` scope has
+no window to wait for: the run skips that route on every later frame instead
+of asking it again. A `"model"`-scoped one cools only that model.
 
 This changes the earlier behavior that treated every rate limit as shared.
 An unknown scope is not evidence that a sibling model is exhausted: it may be

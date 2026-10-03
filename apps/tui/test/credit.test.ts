@@ -377,7 +377,7 @@ describe("a worker whose model has no credit", () => {
       expect(f.calls).toEqual(["opus", sol, "opus"])
       expect(done).toMatchObject({ status: "done", activeSeat: "opus", answer: "answered on opus" })
       expect(f.switches("recover")).toEqual(["↪ switched to GPT-6.1 Sol"])
-      expect(Tabs.seatName(done, [])).toBe("Claude Opus 5.5")
+      expect(Models.seatName(done, [])).toBe("Claude Opus 5.5")
       expect(Subagents.subagent(done, f.workspace.transcript("recover"), []).model).toBe("Claude Opus 5.5")
       expect(f.host.credit!.spent("opus")).toBe(false)
       expect(f.host.credit!.spent("sonnet")).toBe(false)
@@ -536,7 +536,7 @@ describe("a worker whose model has no credit", () => {
           item.kind === "note" && item.text === notice
         )
       ).toBe(true)
-      expect(Tabs.seatName(done, [])).toBe("Qwen 3.8")
+      expect(Models.seatName(done, [])).toBe("Qwen 3.8")
       // The host recorded Qwen's answer: it is now the known-working model.
       expect(f.host.credit!.instead(sol, "anthropic:claude-opus-5-5")).toEqual({ from: sol, to: qwen })
 
@@ -625,7 +625,7 @@ describe("a worker whose model has no credit", () => {
       expect(f.calls).toEqual(["opus", sol])
       expect(f.switches("first")).toEqual(["↪ Claude Opus 5.5 has no credit · using GPT-6.1 Sol"])
       expect(failed).toMatchObject({ activeSeat: sol, failure: { headline: "OpenAI quota exhausted" } })
-      expect(Tabs.seatName(failed, [])).toBe("GPT-6.1 Sol")
+      expect(Models.seatName(failed, [])).toBe("GPT-6.1 Sol")
       for (const seat of ["opus", "sonnet", sol]) expect(f.host.credit!.spent(seat)).toBe(true)
       // Pinned to Opus, it runs there, and its Sol backup, spent too, is never tried.
       f.workspace.request({ id: "mine", title: "Ask", prompt: "On Opus.", model: "opus", pinned: true })

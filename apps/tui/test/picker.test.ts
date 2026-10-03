@@ -135,7 +135,7 @@ test.each(["model", "worker-model"] as const)(
       [],
       noFiles,
       [],
-      flows,
+      catalog,
       [],
       [],
       credit.spent
@@ -148,10 +148,10 @@ test.each(["model", "worker-model"] as const)(
     ])
     // A query keeps the split: what has credit, then what has none.
     expect(
-      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], flows, [], [], credit.spent)
+      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], catalog, [], [], credit.spent)
         .map((row) => row.detail === "no credit")
     ).toEqual(
-      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], flows, [], [], credit.spent)
+      Picker.rows({ ...picker, query: "o" }, listed, "x", Timeline.all, [], noFiles, [], catalog, [], [], credit.spent)
         .map((row) => row.detail === "no credit").toSorted()
     )
   }
@@ -185,7 +185,7 @@ test("palette actions and the credit filter retain their own arguments", () => {
     return credit.spent(seat)
   }
   const list = (picker: Picker.Picker) =>
-    Picker.rows(picker, models, sol, Timeline.all, [worker], () => [], [], flows, actions, acts, spent)
+    Picker.rows(picker, models, sol, Timeline.all, [worker], () => [], [], catalog, actions, acts, spent)
   const palette = list({ kind: "palette", query: "Credit merge", selected: 0 })
   expect(palette.map((row) => row.label).toSorted()).toEqual(["Credit merge result", "Resume", "Switch model"])
   expect(Object.fromEntries(palette.map((row) => [row.label, JSON.parse(row.value)]))).toEqual({
@@ -315,6 +315,7 @@ test("a flow's last run sits at the row's right end; a flow added after launch s
     entries,
     [],
     [],
+    undefined,
     now
   )
   expect(shown[0]).toEqual({ key: "build", label: "build", hint: "Restart to load", value: "build" })

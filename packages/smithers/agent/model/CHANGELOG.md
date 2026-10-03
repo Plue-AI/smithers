@@ -42,8 +42,9 @@
 
 - `FailureCopy.describe` names OpenAI limits `OpenAI` rather than `ChatGPT`,
   as the model picker does, and a `moonshot:` seat `Kimi`. `quota_exceeded`
-  and `out_of_credit` offer `switch-model` first and no longer offer `wait`:
-  an account with no credit left does not recover by waiting (#3043).
+  and `out_of_credit` offer `switch-model` first. Only a recoverable quota
+  refusal (`isTerminalRefusal` false) still offers `wait`: an account with no
+  credit left does not recover by waiting (#3043).
 
 ### Fixed
 

@@ -9,7 +9,7 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type RefObject, useEffect, useRef } from "react"
 import * as Editor from "./editor.ts"
-import type { Model } from "./models.ts"
+import { type Model, seatName } from "./models.ts"
 import { FailureCard } from "./panel-view.tsx"
 import * as Scrubber from "./scrubber.ts"
 import * as SubagentView from "./subagent-view.tsx"
@@ -97,7 +97,7 @@ export function TabStrip(props: {
 
 /** Reported model and elapsed time. */
 const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number): string =>
-  `${Tabs.seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
+  `${seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
 
 /** A worker's tab chip: glyph, title, model and clock. */
 export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number): Chip => {
@@ -243,7 +243,7 @@ export function WorkerView(props: {
   const facts = [
     ...(tab.driver === undefined ? [] : [`${tab.driver.by} since ${clock(tab.driver.from)}`]),
     tab.harness === undefined
-      ? Tabs.seatName(tab, props.models)
+      ? seatName(tab, props.models)
       : `${tab.harness.vendor}${
         tab.harness.session === undefined ? "" : ` · session ${tab.harness.session.slice(0, 8)}`
       }`,

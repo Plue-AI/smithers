@@ -1,7 +1,7 @@
 /** Live tab hierarchy: the Summary overview's worker tree, and a root's tree as a standard panel. */
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
+import { seatName } from "./models.ts"
 import type * as Panels from "./panels.ts"
-import * as Tabs from "./tabs.ts"
 import type * as Transcript from "./transcript.ts"
 import type { Tab } from "./workspace.ts"
 
@@ -51,7 +51,7 @@ export const panel = (
     const done = children.filter((child) => child.status === "done").length
     const caption = transcript(tab.id).items.filter((item) => item.kind === "cell").at(-1)
     const current = caption?.kind === "cell" ? caption.prose.replace(/\s+/g, " ").slice(0, 48) : ""
-    const seat = Tabs.seatName(tab, [])
+    const seat = seatName(tab, [])
     const clock = tab.launchedAt === undefined ? "—" : SubagentCard.duration((tab.endedAt ?? now) - tab.launchedAt)
     return {
       id: `tree:${tab.id}`,

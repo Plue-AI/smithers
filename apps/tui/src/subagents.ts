@@ -7,9 +7,8 @@
  */
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as WorkerControls from "@smthrs/rpc/WorkerControls"
-import type { Model } from "./models.ts"
+import { type Model, seatName } from "./models.ts"
 import { tabTitle } from "./surfaces.ts"
-import * as Tabs from "./tabs.ts"
 import * as Timeline from "./timeline.ts"
 import * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
@@ -54,10 +53,11 @@ export const subagent = (
     // A failed card names what failed: `review: Review · OpenAI quota exhausted`.
     title: tab.status === "failed" && tab.failure !== undefined
       ? `${tabTitle(tab)} · ${tab.failure.headline}`
-      : Undo.undone(cells) ? `${tabTitle(tab)} · undone`
+      : Undo.undone(cells) ?
+      `${tabTitle(tab)} · undone`
       : tabTitle(tab),
     status: tab.status,
-    model: Tabs.seatName(tab, models),
+    model: seatName(tab, models),
     startedAt: tab.startedAt,
     ...(tab.endedAt === undefined ? {} : { endedAt: tab.endedAt }),
     // A model change (`↪ GPT-6.1 Sol has no credit · using Qwen 3.8`) reads where it happened.

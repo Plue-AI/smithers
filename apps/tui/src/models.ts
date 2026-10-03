@@ -18,6 +18,7 @@ import { Effect, Layer } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { readFileSync } from "node:fs"
 import { homedir } from "node:os"
+import type { Tab } from "./workspace.ts"
 
 export interface Model {
   readonly seat: string
@@ -300,6 +301,10 @@ export const labelOf = (seat: string, available: ReadonlyArray<Model>): string =
     Providers.describeSeat(expanded)?.label ??
     (seat.startsWith("replay:") ? "replay" : seat.slice(seat.indexOf(":") + 1))
 }
+
+/** Who runs a worker: its wrapped harness (`claude`, `codex`), else the model answering, as the picker names it. */
+export const seatName = (tab: Pick<Tab, "seat" | "activeSeat" | "harness">, models: ReadonlyArray<Model>): string =>
+  tab.harness?.vendor ?? labelOf(tab.activeSeat ?? tab.seat, models)
 
 /**
  * The account a seat runs on: its provider, with a Claude alias on the
