@@ -35,11 +35,21 @@ for (const path of paths) {
       const { host, onAction, onView } = mountedStory
       try {
         if (story.name.startsWith("state-")) expect(host.textContent).toBe(story.expect[0])
+        // T-UI-10 / C-UI-12: fixture copy spans locally selected versions.
+        const displays = [host.textContent]
+        if (path.endsWith("FlowView.stories.tsx")) {
+          for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+            await act(async () => button.click())
+            displays.push(host.textContent)
+          }
+          expect(onAction).toHaveBeenCalledTimes(0)
+          expect(onView).toHaveBeenCalledTimes(0)
+        }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
             const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
             for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
-          } else expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
+          } else expect([...displays, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
         }
         if (story.interactionSuite === "TODO") {
           const fixture = todoStories[story.name as keyof typeof todoStories]
@@ -1194,3 +1204,92 @@ test("HomeView menu supports keyboard navigation and outside dismissal with opaq
   } finally { await view.close() }
 })
 
+
+// T-UI-10 / C-UI-12: literal state and action oracles, selection is local.
+import { fixtures as flows } from "@smthrs/rpc/fixtures/Flow"
+import { FlowView } from "./FlowView"
+for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
+  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  const displays = [host.textContent]
+  for (const button of host.querySelectorAll<HTMLButtonElement>(".mvp-version")) {
+    act(() => button.click())
+    displays.push(host.textContent)
+  }
+  for (const text of fixture.expect) expect(displays.join("\n")).toContain(text)
+})
+test("Flow version selection is local and marks only supplied added true", () => {
+  const calls = mock((..._args: unknown[]) => {})
+  const host = render(<FlowView {...flows.proposed} onAction={calls} onView={calls} />)
+  expect(host.querySelector('[aria-pressed="true"]')?.textContent).toContain("Active")
+  act(() => host.querySelector<HTMLButtonElement>('[data-state="proposed"]')!.click())
+  expect(host.textContent).toContain("Update docs")
+  expect(host.querySelectorAll('[data-added="true"]').length).toBe(1)
+  expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Update docs")
+  expect(calls).toHaveBeenCalledTimes(0)
+  act(() => root!.render(<FlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
+  expect(host.querySelectorAll("[data-added]").length).toBe(0)
+})
+test("Flow actions retain literal order and bindings; omitted and disabled controls", () => {
+  const calls = mock((..._args: unknown[]) => {})
+  const host = render(<FlowView {...flows.active} onAction={calls} onView={() => { throw new Error("Unexpected view patch") }} />)
+  expect([...host.querySelectorAll('[data-flow]')].map(button => button.textContent)).toEqual(["Source", "Plan", "Run", "Edit"])
+  for (const button of host.querySelectorAll<HTMLButtonElement>('[data-flow]')) act(() => button.click())
+  expect(calls.mock.calls).toEqual([["flow.source", { name: "todo" }], ["flow.plan", { name: "todo" }], ["flow.run", { name: "todo" }], ["flow.edit", { name: "todo" }]])
+  act(() => root!.render(<FlowView {...flows.active} actions={[{ tag: "flow.run", label: "Run", disabled: { reason: "No machine available" } }]} onAction={calls} onView={() => {}} />))
+  expect(host.querySelector('[data-flow="flow.source"]')).toBeNull()
+  expect(host.textContent).toContain("No machine available")
+  act(() => host.querySelector<HTMLButtonElement>('[data-flow="flow.run"]')!.click())
+  expect(calls).toHaveBeenCalledTimes(4)
+})
+test("Flow source is inert text and merge signals use supplied targets", () => {
+  const host = render(<FlowView {...flows.active} model={{ ...flows.active.model, source: { path: '<script>throw new Error("executed")</script>' } }} onAction={() => {}} onView={() => {}} />)
+  expect(host.querySelector("script")).toBeNull()
+  expect(host.textContent).toContain('<script>throw new Error("executed")</script>')
+  expect(host.textContent).toContain("Wait for merge")
+  expect(host.textContent).toContain("rebase ↺ check")
+  expect(host.textContent).toContain("steer ↺ implement")
+})
+// spec §11.3 / ui-components T-UI-10: state copy is literal, Active survives failed loading.
+for (const [fixture, labels] of [
+  [flows.proposed, ["Active", "ProposedT12"]],
+  [flows.merged_syncing, ["Merged · active after syncT12", "Active"]],
+  [flows.merged_failed, ["Merged · not activeT12", "Active"]],
+  [flows.previous, ["Active", "Previous"]],
+] as const) test(`Flow version words: ${labels.join(", ")}`, () => {
+  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  expect([...host.querySelectorAll(".mvp-version")].map(chip => chip.textContent)).toEqual([...labels])
+  expect(host.querySelector('.mvp-version[aria-pressed="true"]')?.textContent).toBe("Active")
+})
+
+// Mock Flow.tsx: the visible title and accessible name agree; signal arrows are decorative.
+test("Flow accessible title and decorative signal arrows", () => {
+  const host = render(<FlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
+  expect(host.querySelector("section")?.getAttribute("aria-label")).toBe("TODO flow")
+  expect([...host.querySelectorAll('.mvp-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
+})
+
+// Flow mock: only the selected failed version owns its error; Active remains usable.
+test("Flow load failure belongs to selected version", () => {
+  const host = render(<FlowView {...flows.merged_failed} onAction={() => {}} onView={() => {}} />)
+  expect(host.textContent).not.toContain("Load failed")
+  act(() => host.querySelector<HTMLButtonElement>('[data-state="merged-failed"]')!.click())
+  expect(host.textContent).toContain("Load failed")
+  const details = host.querySelector<HTMLDetailsElement>(".flow-failure details")!
+  expect(details).not.toBeNull()
+  expect(details.open).toBe(false)
+  expect(details.querySelector("summary")?.textContent).toBe("Details")
+  expect(details.querySelector("pre")?.textContent).toBe("Flow validation failed")
+  expect(host.querySelector(".flow-failure b")?.textContent).toBe("Load failed")
+  act(() => host.querySelector<HTMLButtonElement>('[data-state="active"]')!.click())
+  expect(host.textContent).not.toContain("Load failed")
+})
+
+// FlowCard error is optional: absent/blank diagnostics do not invent detail text.
+test("Flow failed version without diagnostics has no disclosure", () => {
+  for (const diagnostic of [undefined, "", "   "]) {
+    const host = render(<FlowView {...flows.merged_failed} model={{ ...flows.merged_failed.model, versions: [{ id: "failed", state: "merged-failed", steps: [], error: diagnostic }] }} onAction={() => {}} onView={() => {}} />)
+    expect(host.querySelector(".flow-failure b")?.textContent).toBe("Load failed")
+    expect(host.querySelector(".flow-failure details")).toBeNull()
+    expect(host.textContent).not.toContain("undefined")
+  }
+})

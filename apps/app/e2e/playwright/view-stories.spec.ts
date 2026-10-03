@@ -522,3 +522,18 @@ test("HomeView renders sync health, attention and background runs", async ({ pag
 })
 
 
+
+test("Flow versions stay local; keyboard actions dispatch once", async ({ page }) => {
+  await page.goto("/view-stories.html?story=FlowView/proposed")
+  await page.evaluate(() => {
+    Object.assign(window, { flowReceipts: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { flowReceipts: unknown[] }).flowReceipts.push((event as CustomEvent).detail))
+  })
+  await page.locator('.mvp-version[data-state="proposed"]').focus()
+  await page.keyboard.press("Enter")
+  await expect(page.locator('[data-added="true"]')).toContainText("Update docs")
+  expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([])
+  await page.locator('[data-flow="flow.run"]').focus()
+  await page.keyboard.press("Space")
+  expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([{ kind: "action", value: { tag: "flow.run", args: { name: "todo" } } }])
+})

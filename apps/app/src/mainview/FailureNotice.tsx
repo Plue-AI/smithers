@@ -1,3 +1,4 @@
+import { FailureDetails } from "./FailureDetails"
 import { Button } from "@smthrs/ui"
 import type { UserFailure, UserFailureAction, UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import type { ReactNode } from "react"
@@ -47,11 +48,7 @@ export interface FailureNoticeProps {
   readonly children?: ReactNode
 }
 
-/** A raw diagnostic stays behind one keyboard-operable disclosure. */
-export function FailureDetails({ detail }: { readonly detail: string }) {
-  return detail.trim() === "" ? null :
-    <details><summary>Details</summary><pre tabIndex={0} role="region" aria-label="Failure details">{detail}</pre></details>
-}
+export { FailureDetails } from "./FailureDetails"
 
 export function FailureNotice({ failure, actions = {}, role = "alert", className, children, ...rest }: FailureNoticeProps) {
   const offered = failure.actions.flatMap(action => {
