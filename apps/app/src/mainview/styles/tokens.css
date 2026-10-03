@@ -10,6 +10,12 @@
 	--lane-4: #387667;
 	--lane-5: #a24f6b;
 	--g-accent: #3a756b;
+	--lane-6: var(--brand);
+	--lane-7: var(--text-muted);
+	--avatar-ink: var(--surface);
+	--attention: var(--warning);
+	--attention-text: var(--warning);
+	--attention-wash: color-mix(in srgb, var(--attention) 10%, var(--surface));
 
 	/* ── Paper raw scale (the brand palette's source; still named directly by a few surfaces) ── */
 	--paper-0: #fffefa;
@@ -198,6 +204,7 @@
 	--lane-3: #d9be70;
 	--lane-4: #8acaba;
 	--lane-5: #e5a1b8;
+	--avatar-ink: var(--bg);
 	--g-accent: #9bd5c6;
 
 	/* ── Paper · dark ───── */

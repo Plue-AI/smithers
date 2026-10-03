@@ -699,3 +699,5 @@ export {
   type AutosaveState,
 } from "./vault/autosaveMachine";
 export { useAutosaveDoc, type UseAutosaveDocOptions, type UseAutosaveDocResult } from "./vault/useAutosaveDoc";
+
+export { copyText, type CopyResult, type CopyFailureCode } from "./internal/copyToClipboard";
