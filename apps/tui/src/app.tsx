@@ -2583,7 +2583,7 @@ export function App(props: AppProps) {
   const formHeight = Math.max(
     3,
     chatHeight - (short ? 2 : 4) - activityHeight -
-      Math.min(toastLimit, toastRows.length * (short ? 1 : 2)) -
+      Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
       (followUps.length === 0 ? 0 : (short ? 3 : followUps.length + 2))
   )
 

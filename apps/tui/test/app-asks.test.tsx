@@ -377,7 +377,7 @@ test("an 18-line question scrolls by keyboard while keeping the answer and foote
   expect(frame()).toContain("  other…")
   expect(frame()).toContain("enter Answer  esc Back")
   expect(frame()).not.toContain("Question line 18")
-  for (let page = 0; page < 3; page++) {
+  for (let page = 0; page < 6; page++) {
     await act(async () => {
       setup!.renderer.stdin.emit("data", Buffer.from("\x1b[6~"))
       await setImmediate()
@@ -389,7 +389,7 @@ test("an 18-line question scrolls by keyboard while keeping the answer and foote
   expect(frame()).toContain("  plus")
   expect(frame()).toContain("  other…")
   expect(frame()).toContain("enter Answer  esc Back")
-  for (let page = 0; page < 3; page++) {
+  for (let page = 0; page < 6; page++) {
     await act(async () => {
       setup!.renderer.stdin.emit("data", Buffer.from("\x1b[5~"))
       await setImmediate()

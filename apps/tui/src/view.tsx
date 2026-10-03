@@ -962,6 +962,26 @@ export function Approval(
 }
 
 /**
+ * The rows `ToastStack` takes in a column `columns` cells wide before its own
+ * cap: each toast's wrapped text, its actions beside it, and its margin.
+ */
+export const toastStackRows = (
+  rows: ReadonlyArray<Toasts.Row>,
+  columns: number,
+  compact: boolean
+): number =>
+  rows.reduce((total, row) => {
+    // The bar, the padding and each action leave this much for the text.
+    const text = Math.max(
+      1,
+      Math.min(60, columns) - 4 -
+        (row.worker?.actions ?? []).reduce((width, action) => width + 2 + stringWidth(action.label), 0)
+    )
+    return total + (compact ? 0 : 1) +
+      row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(stringWidth(line) / text)), 0)
+  }, 0)
+
+/**
  * Toasts stack right-aligned above the composer, like the app's toast stack,
  * and never cover content. A worker's toast carries its card's Stop and Steer.
  */

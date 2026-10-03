@@ -36,6 +36,32 @@ for (const [width, compact] of [[60, false], [40, true]] as const) {
   })
 }
 
+for (const [width, compact, expected] of [[80, false, 7], [80, true, 5], [40, false, 8], [40, true, 6]] as const) {
+  test(`the toast stack takes the ${expected} rows its reservation counts at ${width} columns`, async () => {
+    const rows = [
+      { id: "worker", text: "◐ Rename add() in math.js · 0s", tone: "info" as const },
+      {
+        id: "ask",
+        text: ["◆ Rename add() in math.js asks: Question line 1", "Question line 2", "x".repeat(70)].join("\n"),
+        tone: "info" as const
+      }
+    ]
+    setup = await testRender(
+      <box style={{ flexDirection: "column" }}>
+        <View.ToastStack rows={rows} height={12} compact={compact} />
+      </box>,
+      { width, height: 20 }
+    )
+    await setup.renderOnce()
+    const lines = setup.captureCharFrame().split("\n")
+    // Each toast's margin, then its lines, each wrapped in the cells the bar and padding leave.
+    expect(View.toastStackRows(rows, width, compact)).toBe(expected)
+    // The stack's last drawn row closes the count: every margin and wrapped line is in it.
+    expect(lines.findLastIndex((line) => line.includes("┃")) + 1).toBe(expected)
+    expect(View.toastStackRows([], width, compact)).toBe(0)
+  })
+}
+
 test("an expanded, clipped cell or call row keeps a space before its right-aligned duration", async () => {
   const item: Transcript.Item = {
     kind: "cell",
