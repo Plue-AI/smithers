@@ -580,66 +580,12 @@ func (s *GitHubAppManifestService) discoverInstallation(ctx context.Context, att
 	if err != nil {
 		return err
 	}
-	var installations []struct {
-		ID      int64 `json:"id"`
-		Account struct {
-			Login string `json:"login"`
-		} `json:"account"`
+	installation, found, err := fetchRepoInstallation(ctx, s.client, s.apiBaseURL, jwt, attempt.OwnerLogin, attempt.RepositoryName)
+	if err != nil {
+		return err
 	}
-	// Pagination is explicit: an installation beyond the first page can never
-	// be accepted just because its untrusted redirect carries an id.
-	for page := 1; ; page++ {
-		var batch []struct {
-			ID      int64 `json:"id"`
-			Account struct {
-				Login string `json:"login"`
-			} `json:"account"`
-		}
-		if err = s.request(ctx, http.MethodGet, fmt.Sprintf("/app/installations?per_page=100&page=%d", page), jwt, &batch); err != nil {
-			return err
-		}
-		installations = append(installations, batch...)
-		if len(batch) < 100 {
-			break
-		}
-		if page >= 100 {
-			return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "too many GitHub App installations")
-		}
-	}
-	for _, installation := range installations {
-		if !strings.EqualFold(installation.Account.Login, attempt.OwnerLogin) {
-			continue
-		}
-		var access struct {
-			Token string `json:"token"`
-		}
-		if err = s.request(ctx, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", installation.ID), jwt, &access); err != nil {
-			return err
-		}
-		if access.Token == "" {
-			return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "missing GitHub installation token")
-		}
-		for page := 1; ; page++ {
-			var repos struct {
-				Repositories []struct {
-					FullName string `json:"full_name"`
-				} `json:"repositories"`
-			}
-			if err = s.request(ctx, http.MethodGet, fmt.Sprintf("/installation/repositories?per_page=100&page=%d", page), access.Token, &repos); err != nil {
-				return err
-			}
-			for _, repo := range repos.Repositories {
-				if strings.EqualFold(repo.FullName, attempt.OwnerLogin+"/"+attempt.RepositoryName) {
-					return s.store.SetInstallation(ctx, installation.ID)
-				}
-			}
-			if len(repos.Repositories) < 100 {
-				break
-			}
-			if page >= 100 {
-				return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "too many GitHub installation repositories")
-			}
-		}
+	if found && strings.EqualFold(installation.Account.Login, attempt.OwnerLogin) {
+		return s.store.SetInstallation(ctx, installation.ID)
 	}
 	return pkgerrors.Forbidden("GitHub App is not installed on the repository")
 }

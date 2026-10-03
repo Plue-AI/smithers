@@ -18,7 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -29,29 +30,20 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-const getGitHubAppInstallationForUserRepoSQL = `
-SELECT gir.installation_id
+// connectedGitHubRepositorySQL reads the repository id a verified connect
+// persisted for owner/repo, by the connecting user ($1) or a member of the
+// owning org ($4), and the installation covering that id. Names only select
+// the connection; the persisted id decides what is authorized. A zero id is a
+// connection made before ids were recorded.
+const connectedGitHubRepositorySQL = `
+SELECT COALESCE(gir.installation_id, 0), COALESCE(rc.github_repository_id, 0)
 FROM repo_connections rc
-JOIN github_app_installation_repositories gir
-  ON gir.owner_login_lower = rc.repo_owner_lower
- AND gir.repo_name_lower = rc.repo_name_lower
-WHERE rc.user_id = $1
-  AND rc.repo_owner_lower = $2
-  AND rc.repo_name_lower = $3
-LIMIT 1;
-`
-
-const getGitHubAppInstallationForOrgRepoSQL = `
-SELECT gir.installation_id
-FROM repo_connections rc
-JOIN org_members om
-  ON om.user_id = rc.user_id
- AND om.organization_id = $1
-JOIN github_app_installation_repositories gir
-  ON gir.owner_login_lower = rc.repo_owner_lower
- AND gir.repo_name_lower = rc.repo_name_lower
+LEFT JOIN github_app_installation_repositories gir
+  ON gir.github_repository_id = rc.github_repository_id
 WHERE rc.repo_owner_lower = $2
   AND rc.repo_name_lower = $3
+  AND (rc.user_id = $1 OR rc.user_id IN (SELECT user_id FROM org_members WHERE organization_id = $4))
+ORDER BY rc.github_repository_id IS NULL, gir.installation_id IS NULL
 LIMIT 1;
 `
 
@@ -65,7 +57,7 @@ LIMIT 1;
 `
 
 const getPublicGitHubAppInstallationForRepoSQL = `
-SELECT installation_id
+SELECT installation_id, github_repository_id
 FROM github_app_installation_repositories
 WHERE owner_login_lower = $1
   AND repo_name_lower = $2
@@ -131,6 +123,9 @@ type GitHubAppStatus struct {
 	GitHubRateLimitLimit     int    `json:"github_rate_limit_limit,omitempty"`
 	GitHubRateLimitRemaining int    `json:"github_rate_limit_remaining,omitempty"`
 	GitHubRateLimitReset     string `json:"github_rate_limit_reset,omitempty"`
+	// ReconnectRequired marks a connection made before repository ids were
+	// recorded; connecting again repairs it.
+	ReconnectRequired bool `json:"reconnect_required,omitempty"`
 }
 
 type GitHubInstallationToken struct {
@@ -151,7 +146,7 @@ var errGitHubImportedSourceAppNotInstalled = stdErrors.New("github app is not in
 // scoped to the repository owner's repo_connections binding. Implemented by
 // *RepoConnectionService.
 type GitHubRepositoryInstallationResolver interface {
-	GetGitHubInstallationIDForRepositoryOwner(ctx context.Context, ownerUserID int64, ownerOrgID int64, owner string, repo string) (int64, error)
+	GetGitHubRepositoryForRepositoryOwner(ctx context.Context, ownerUserID int64, ownerOrgID int64, owner string, repo string) (installationID int64, repositoryID int64, err error)
 }
 
 func (s *RepoConnectionService) GetGitHubAppStatus(
@@ -191,33 +186,28 @@ func (s *RepoConnectionService) GetGitHubAppStatus(
 	// Authorized path: the caller has connected this repo (repo_connections row
 	// scoped to their user_id). Only this path may expose the installation_id
 	// and rate-limit budget.
-	var installationID int64
-	err = s.db.QueryRow(
-		ctx,
-		getGitHubAppInstallationForUserRepoSQL,
-		userID,
-		normalizedOwner,
-		normalizedRepo,
-	).Scan(&installationID)
-	if err == nil {
-		status.GitHubAppInstalled = installationID > 0
-		if installationID > 0 {
-			status.InstallationID = installationID
-			if s.gitHubBudgetTracker != nil {
-				rateLimit := s.gitHubBudgetTracker.Status(installationID)
-				status.GitHubRateLimitLimit = rateLimit.Limit
-				status.GitHubRateLimitRemaining = rateLimit.Remaining
-				status.GitHubRateLimitReset = rateLimit.ResetAt.Format(time.RFC3339)
-			} else {
-				status.GitHubRateLimitLimit = GitHubInstallationHourlyBudget
-				status.GitHubRateLimitRemaining = GitHubInstallationHourlyBudget
-				status.GitHubRateLimitReset = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
-			}
+	installationID, _, err := s.lookupGitHubRepository(ctx, userID, 0, normalizedOwner, normalizedRepo)
+	var apiErr *pkgerrors.APIError
+	if stdErrors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeGitHubReconnectRequired {
+		status.ReconnectRequired, err = true, nil
+	}
+	if err != nil {
+		return GitHubAppStatus{}, err
+	}
+	if installationID > 0 {
+		status.GitHubAppInstalled = true
+		status.InstallationID = installationID
+		if s.gitHubBudgetTracker != nil {
+			rateLimit := s.gitHubBudgetTracker.Status(installationID)
+			status.GitHubRateLimitLimit = rateLimit.Limit
+			status.GitHubRateLimitRemaining = rateLimit.Remaining
+			status.GitHubRateLimitReset = rateLimit.ResetAt.Format(time.RFC3339)
+		} else {
+			status.GitHubRateLimitLimit = GitHubInstallationHourlyBudget
+			status.GitHubRateLimitRemaining = GitHubInstallationHourlyBudget
+			status.GitHubRateLimitReset = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 		}
 		return status, nil
-	}
-	if !stdErrors.Is(err, pgx.ErrNoRows) {
-		return GitHubAppStatus{}, pkgerrors.Internal("failed to load github app installation")
 	}
 
 	// Unauthorized-to-repo fallback: needed only for the pre-connection connect
@@ -242,30 +232,24 @@ func (s *RepoConnectionService) GetGitHubAppStatus(
 	return status, nil
 }
 
-func (s *RepoConnectionService) CreateGitHubInstallationToken(
+// CreateGitHubInstallationTokenForUserRepo mints a token for one repository
+// the user has connected, holding only the given permissions.
+func (s *RepoConnectionService) CreateGitHubInstallationTokenForUserRepo(
 	ctx context.Context,
 	userID int64,
 	owner string,
 	repo string,
+	permissions map[string]string,
 ) (GitHubInstallationToken, error) {
 	if userID <= 0 {
 		return GitHubInstallationToken{}, pkgerrors.Unauthorized("authentication required")
 	}
-
 	normalizedOwner, normalizedRepo, err := normalizeRepoRef(owner, repo)
 	if err != nil {
 		return GitHubInstallationToken{}, err
 	}
-
-	installationID, err := s.lookupGitHubInstallationID(ctx, userID, normalizedOwner, normalizedRepo)
-	if err != nil {
-		return GitHubInstallationToken{}, err
-	}
-	if installationID <= 0 {
-		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
-	}
-
-	return s.createGitHubInstallationTokenForInstallationID(ctx, installationID)
+	installationID, repositoryID, err := s.lookupGitHubRepository(ctx, userID, 0, normalizedOwner, normalizedRepo)
+	return s.createRepositoryToken(ctx, installationID, repositoryID, err, permissions)
 }
 
 // CreateGitHubInstallationTokenForRepositoryOwner mints a token for internal
@@ -288,33 +272,17 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForRepositoryOwner(
 	repo string,
 	permissions map[string]string,
 ) (GitHubInstallationToken, error) {
-	if len(permissions) == 0 {
-		return GitHubInstallationToken{}, pkgerrors.Internal("scoped github installation token requires permissions")
-	}
-	installationID, err := s.GetGitHubInstallationIDForRepositoryOwner(ctx, ownerUserID, ownerOrgID, owner, repo)
-	if err != nil {
-		return GitHubInstallationToken{}, err
-	}
-	if installationID <= 0 {
-		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
-	}
-	_, normalizedRepo, err := normalizeRepoRef(owner, repo)
-	if err != nil {
-		return GitHubInstallationToken{}, err
-	}
-
-	return s.mintGitHubInstallationToken(ctx, installationID, &gitHubInstallationTokenScope{
-		Repositories: []string{normalizedRepo},
-		Permissions:  permissions,
-	})
+	installationID, repositoryID, err := s.GetGitHubRepositoryForRepositoryOwner(ctx, ownerUserID, ownerOrgID, owner, repo)
+	return s.createRepositoryToken(ctx, installationID, repositoryID, err, permissions)
 }
 
-// gitHubInstallationTokenScope is the body of a scoped access_tokens request.
-// GitHub refuses a token wider than the installation and refuses any request
-// the token's permissions do not cover.
-type gitHubInstallationTokenScope struct {
-	Repositories []string          `json:"repositories"`
-	Permissions  map[string]string `json:"permissions"`
+// createRepositoryToken mints a token for the one repository, by immutable
+// id, that a resolver authorized.
+func (s *RepoConnectionService) createRepositoryToken(ctx context.Context, installationID, repositoryID int64, err error, permissions map[string]string) (GitHubInstallationToken, error) {
+	if err != nil {
+		return GitHubInstallationToken{}, err
+	}
+	return s.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{RepositoryIDs: []int64{repositoryID}, Permissions: permissions})
 }
 
 // CreateGitHubInstallationTokenForImportedSource mints a token for a public
@@ -328,12 +296,19 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForImportedSource(
 	repositoryID int64,
 	owner string,
 	repo string,
+	permissions map[string]string,
 ) (GitHubInstallationToken, error) {
 	if userID <= 0 {
 		return GitHubInstallationToken{}, pkgerrors.Unauthorized("authentication required")
 	}
 	if repositoryID <= 0 {
 		return GitHubInstallationToken{}, pkgerrors.BadRequest("repository id must be positive")
+	}
+	// Import provenance proves read access only.
+	for _, access := range permissions {
+		if access != "read" {
+			return GitHubInstallationToken{}, pkgerrors.Forbidden("imported sources are read-only")
+		}
 	}
 
 	normalizedOwner, normalizedRepo, err := normalizeRepoRef(owner, repo)
@@ -349,7 +324,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForImportedSource(
 		return GitHubInstallationToken{}, errGitHubImportedSourceProvenanceNotFound
 	}
 
-	installationID, err := s.lookupPublicGitHubInstallationID(ctx, normalizedOwner, normalizedRepo)
+	installationID, githubRepositoryID, err := s.lookupPublicGitHubInstallationID(ctx, normalizedOwner, normalizedRepo)
 	if err != nil {
 		return GitHubInstallationToken{}, err
 	}
@@ -357,7 +332,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationTokenForImportedSource(
 		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository").WithCause(errGitHubImportedSourceAppNotInstalled)
 	}
 
-	token, err := s.createGitHubInstallationTokenForInstallationID(ctx, installationID)
+	token, err := s.createRepositoryToken(ctx, installationID, githubRepositoryID, nil, permissions)
 	if err != nil {
 		return GitHubInstallationToken{}, err
 	}
@@ -450,59 +425,86 @@ func (s *RepoConnectionService) fetchGitHubRepoPrivate(ctx context.Context, toke
 	return *payload.Private, nil
 }
 
-// CreateGitHubInstallationTokenForInternalInstallation mints a token when a
-// trusted workflow path already resolved the installation ID from Smithers DB.
-func (s *RepoConnectionService) CreateGitHubInstallationTokenForInternalInstallation(
-	ctx context.Context,
-	installationID int64,
-) (GitHubInstallationToken, error) {
-	if installationID <= 0 {
-		return GitHubInstallationToken{}, pkgerrors.BadRequest("installation id must be positive")
-	}
-
-	return s.createGitHubInstallationTokenForInstallationID(ctx, installationID)
+// GitHubTokenScope is everything one installation token may touch: its
+// repositories by immutable id (AllRepositories only for listing an
+// installation) and a permission subset. GitHub mints nothing wider.
+type GitHubTokenScope struct {
+	RepositoryIDs   []int64           `json:"repository_ids,omitempty"`
+	Permissions     map[string]string `json:"permissions"`
+	AllRepositories bool              `json:"-"`
 }
 
-func (s *RepoConnectionService) createGitHubInstallationTokenForInstallationID(
+// ErrGitHubTokenScopeRequired refuses a token request whose scope is empty or
+// malformed: no permissions, a permission that is not read or write, a
+// non-positive repository id, or not exactly one of RepositoryIDs and
+// AllRepositories.
+var ErrGitHubTokenScopeRequired = stdErrors.New("github installation token requires repositories and permissions")
+
+var gitHubPermissionName = regexp.MustCompile(`^[a-z_]+$`)
+
+func (scope GitHubTokenScope) valid() bool {
+	if len(scope.Permissions) == 0 || (len(scope.RepositoryIDs) == 0) != scope.AllRepositories {
+		return false
+	}
+	for _, id := range scope.RepositoryIDs {
+		if id <= 0 {
+			return false
+		}
+	}
+	for name, access := range scope.Permissions {
+		if !gitHubPermissionName.MatchString(name) || (access != "read" && access != "write") {
+			return false
+		}
+	}
+	return true
+}
+
+// gitHubListingPermissions lists an installation's repositories.
+var gitHubListingPermissions = map[string]string{"metadata": "read"}
+
+// cacheKey encodes the installation and the sorted scope as JSON, so no two
+// scopes share a token.
+func (scope GitHubTokenScope) cacheKey(installationID int64) string {
+	key, _ := json.Marshal(struct {
+		Installation int64
+		All          bool
+		Repositories []int64
+		Permissions  map[string]string
+	}{installationID, scope.AllRepositories, slices.Sorted(slices.Values(scope.RepositoryIDs)), scope.Permissions})
+	return string(key)
+}
+
+// GitHubInstallationTokenMinter is the one installation-token minter.
+// Implemented by *RepoConnectionService.
+type GitHubInstallationTokenMinter interface {
+	CreateGitHubInstallationToken(ctx context.Context, installationID int64, scope GitHubTokenScope) (GitHubInstallationToken, error)
+}
+
+// CreateGitHubInstallationToken is the one installation-token minter
+// (§12.1.3). The scope is required. Tokens are cached per installation and
+// scope until five minutes before expiry, and never logged.
+func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	ctx context.Context,
 	installationID int64,
+	scope GitHubTokenScope,
 ) (GitHubInstallationToken, error) {
 	if installationID <= 0 {
 		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
 	}
-
+	if !scope.valid() {
+		return GitHubInstallationToken{}, ErrGitHubTokenScopeRequired
+	}
 	if _, err := loadGitHubAppCredentials(ctx, s.githubAppCredentials); err != nil {
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
 	}
-
-	return s.mintGitHubInstallationToken(ctx, installationID, nil)
-}
-
-// mintGitHubInstallationToken asks GitHub for an installation token. A nil
-// scope mints the full-installation token. Repository and permission scopes
-// have separate cache entries; caller authorization still precedes this method.
-func (s *RepoConnectionService) mintGitHubInstallationToken(
-	ctx context.Context,
-	installationID int64,
-	scope *gitHubInstallationTokenScope,
-) (GitHubInstallationToken, error) {
-	requestBody := []byte("{}")
-	if scope != nil {
-		encoded, err := json.Marshal(scope)
-		if err != nil {
-			return GitHubInstallationToken{}, pkgerrors.Internal("failed to encode github token scope").WithCause(err)
-		}
-		requestBody = encoded
-	}
-
-	if _, err := loadGitHubAppCredentials(ctx, s.githubAppCredentials); err != nil {
-		return GitHubInstallationToken{}, pkgerrors.Internal("failed to load github app credentials").WithCause(err)
-	}
-
-	cacheKey := installationTokenKey(installationID, scope)
-	if cached, ok := getCachedInstallationTokenKey(cacheKey); ok {
+	key := scope.cacheKey(installationID)
+	if cached, ok := getCachedInstallationToken(key); ok {
 		s.gitHubBudgetTracker.registerToken(cached.token, installationID)
 		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
+	}
+	requestBody, err := json.Marshal(scope)
+	if err != nil {
+		return GitHubInstallationToken{}, pkgerrors.Internal("failed to encode github token scope").WithCause(err)
 	}
 
 	jwt, err := githubAppJWT(ctx, s.githubAppCredentials)
@@ -537,32 +539,24 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 	var payload struct {
 		Token     string `json:"token"`
 		ExpiresAt string `json:"expires_at"`
-		Message   string `json:"message"`
 	}
 	_ = json.Unmarshal(bodyBytes, &payload)
 
+	// Errors are fixed text: an upstream message or expiry never reaches a
+	// caller or a log.
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return GitHubInstallationToken{}, pkgerrors.Forbidden("github refused the installation token request")
+	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		message := strings.TrimSpace(payload.Message)
-		if message == "" {
-			message = "github installation token request was rejected"
-		}
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return GitHubInstallationToken{}, pkgerrors.Forbidden(message)
-		}
-		return GitHubInstallationToken{}, pkgerrors.Internal(message)
+		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token request was rejected")
 	}
-
 	token := strings.TrimSpace(payload.Token)
-	if token == "" {
-		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token response was missing token")
-	}
-
 	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.ExpiresAt))
-	if err != nil {
-		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token response had invalid expiry").WithCause(err)
+	if token == "" || err != nil || time.Until(expiresAt) < installationTokenEarlyExpiry {
+		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token response was invalid")
 	}
 
-	storeCachedInstallationTokenKey(cacheKey, token, expiresAt)
+	storeCachedInstallationToken(key, installationID, token, expiresAt)
 	s.gitHubBudgetTracker.registerToken(token, installationID)
 	return GitHubInstallationToken{
 		InstallationID: installationID,
@@ -577,91 +571,64 @@ func (s *RepoConnectionService) mintGitHubInstallationToken(
 const installationTokenEarlyExpiry = 5 * time.Minute
 
 type cachedInstallationToken struct {
-	token     string
-	expiresAt time.Time
+	installationID int64
+	token          string
+	expiresAt      time.Time
 }
 
 var (
 	installationTokenCacheMu sync.Mutex
-	installationTokenCache   = map[installationTokenCacheKey]cachedInstallationToken{}
+	installationTokenCache   = map[string]cachedInstallationToken{}
 )
 
-// installationTokenCacheKey replaces the installation-only key so a scoped
-// token cannot inherit another repository's or permission set's authority.
-type installationTokenCacheKey struct {
-	installationID int64
-	scope          string
-}
-
-func installationTokenKey(installationID int64, scope *gitHubInstallationTokenScope) installationTokenCacheKey {
-	key := installationTokenCacheKey{installationID: installationID}
-	if scope != nil {
-		repositories := append([]string(nil), scope.Repositories...)
-		sort.Strings(repositories)
-		normalized := gitHubInstallationTokenScope{Repositories: repositories, Permissions: scope.Permissions}
-		raw, _ := json.Marshal(normalized) // strings, slices and maps cannot fail encoding
-		key.scope = string(raw)
-	}
-	return key
-}
-
-func getCachedInstallationToken(installationID int64) (cachedInstallationToken, bool) {
-	return getCachedInstallationTokenKey(installationTokenKey(installationID, nil))
-}
-
-func getCachedInstallationTokenKey(key installationTokenCacheKey) (cachedInstallationToken, bool) {
+// getCachedInstallationToken returns the token cached for a scope key while it
+// has more than the early-expiry margin of life.
+func getCachedInstallationToken(key string) (cachedInstallationToken, bool) {
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
 	cached, ok := installationTokenCache[key]
-	if !ok || !time.Now().Add(installationTokenEarlyExpiry).Before(cached.expiresAt) {
-		delete(installationTokenCache, key)
+	if !ok || time.Until(cached.expiresAt) < installationTokenEarlyExpiry {
 		return cachedInstallationToken{}, false
 	}
 	return cached, true
 }
 
-func storeCachedInstallationToken(installationID int64, token string, expiresAt time.Time) {
-	storeCachedInstallationTokenKey(installationTokenKey(installationID, nil), token, expiresAt)
-}
-
-func storeCachedInstallationTokenKey(key installationTokenCacheKey, token string, expiresAt time.Time) {
+func storeCachedInstallationToken(key string, installationID int64, token string, expiresAt time.Time) {
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
-	installationTokenCache[key] = cachedInstallationToken{token: token, expiresAt: expiresAt}
+	installationTokenCache[key] = cachedInstallationToken{installationID: installationID, token: token, expiresAt: expiresAt}
 }
 
-// Invalidation removes every permission/repository scope for the installation.
+// invalidateCachedInstallationToken drops every token cached for an
+// installation: call when it is deleted or suspended, or a consumer sees a 401,
+// so the next call re-mints rather than re-serving a revoked token.
 func invalidateCachedInstallationToken(installationID int64) {
 	installationTokenCacheMu.Lock()
 	defer installationTokenCacheMu.Unlock()
-	for key := range installationTokenCache {
-		if key.installationID == installationID {
+	for key, cached := range installationTokenCache {
+		if cached.installationID == installationID {
 			delete(installationTokenCache, key)
 		}
 	}
 }
 
-func (s *RepoConnectionService) lookupGitHubInstallationID(
-	ctx context.Context,
-	userID int64,
-	normalizedOwner string,
-	normalizedRepo string,
-) (int64, error) {
-	var installationID int64
-	err := s.db.QueryRow(
-		ctx,
-		getGitHubAppInstallationForUserRepoSQL,
-		userID,
-		normalizedOwner,
-		normalizedRepo,
-	).Scan(&installationID)
-	if err == nil {
-		return installationID, nil
+// lookupGitHubRepository resolves the installation and the persisted
+// repository id a connection authorizes, for a user ($userID) or an org's
+// members ($orgID). Both are zero when no connection exists. A connection
+// without a recorded id must be reconnected; it never authorizes by name.
+func (s *RepoConnectionService) lookupGitHubRepository(ctx context.Context, userID, orgID int64, normalizedOwner, normalizedRepo string) (int64, int64, error) {
+	var installationID, repositoryID int64
+	err := s.db.QueryRow(ctx, connectedGitHubRepositorySQL, userID, normalizedOwner, normalizedRepo, orgID).Scan(&installationID, &repositoryID)
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return 0, 0, nil
 	}
-	if !stdErrors.Is(err, pgx.ErrNoRows) {
-		return 0, pkgerrors.Internal("failed to load github app installation")
+	if err != nil {
+		return 0, 0, pkgerrors.Internal("failed to load github app installation").WithCause(err)
 	}
-	return 0, nil
+	if repositoryID <= 0 {
+		return 0, 0, pkgerrors.GitHubReconnectRequired("reconnect this repository so Smithers records its GitHub id")
+	}
+	return installationID, repositoryID, nil
 }
 
 func (s *RepoConnectionService) readyImportedSourceProvenanceExists(
@@ -693,81 +660,56 @@ func (s *RepoConnectionService) lookupPublicGitHubInstallationID(
 	ctx context.Context,
 	normalizedOwner string,
 	normalizedRepo string,
-) (int64, error) {
-	var installationID int64
+) (int64, int64, error) {
+	var installationID, repositoryID int64
 	err := s.db.QueryRow(
 		ctx,
 		getPublicGitHubAppInstallationForRepoSQL,
 		normalizedOwner,
 		normalizedRepo,
-	).Scan(&installationID)
+	).Scan(&installationID, &repositoryID)
 	if err == nil {
-		return installationID, nil
+		return installationID, repositoryID, nil
 	}
 	if stdErrors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return 0, pkgerrors.Internal("failed to load github app installation")
+	return 0, 0, pkgerrors.Internal("failed to load github app installation")
 }
 
-// GetGitHubInstallationIDForUserRepo resolves the GitHub App installation for
-// a GitHub owner/repo only when the given user holds a repo_connections row
-// binding them to it. Returns 0 when no scoped binding exists.
-func (s *RepoConnectionService) GetGitHubInstallationIDForUserRepo(
-	ctx context.Context,
-	userID int64,
-	owner string,
-	repo string,
-) (int64, error) {
-	if userID <= 0 {
-		return 0, pkgerrors.Unauthorized("authentication required")
-	}
-	normalizedOwner, normalizedRepo, err := normalizeRepoRef(owner, repo)
-	if err != nil {
-		return 0, err
-	}
-	return s.lookupGitHubInstallationID(ctx, userID, normalizedOwner, normalizedRepo)
+// GetGitHubInstallationIDForRepositoryOwner is
+// GetGitHubRepositoryForRepositoryOwner for callers that need only the
+// installation (mythical publication, the install's repository step). It reads
+// the same persisted repository id, so a legacy row without one is refused
+// with github_reconnect_required rather than bound by name.
+func (s *RepoConnectionService) GetGitHubInstallationIDForRepositoryOwner(ctx context.Context, ownerUserID, ownerOrgID int64, owner, repo string) (int64, error) {
+	installationID, _, err := s.GetGitHubRepositoryForRepositoryOwner(ctx, ownerUserID, ownerOrgID, owner, repo)
+	return installationID, err
 }
 
-// GetGitHubInstallationIDForRepositoryOwner resolves the installation for a
-// Smithers repository's GitHub owner/repo on background paths that have no
-// acting user: the binding must come from the repository's owning user, or —
-// for org-owned repositories — from a member of the owning org. Returns 0 when
-// no scoped binding exists.
-func (s *RepoConnectionService) GetGitHubInstallationIDForRepositoryOwner(
+// GetGitHubRepositoryForRepositoryOwner resolves the installation and
+// repository id for a Smithers repository's GitHub owner/repo on background
+// paths that have no acting user: the binding must come from the repository's
+// owning user, or, for org-owned repositories, from a member of the owning
+// org. Both are zero when no scoped binding exists.
+func (s *RepoConnectionService) GetGitHubRepositoryForRepositoryOwner(
 	ctx context.Context,
 	ownerUserID int64,
 	ownerOrgID int64,
 	owner string,
 	repo string,
-) (int64, error) {
+) (int64, int64, error) {
 	normalizedOwner, normalizedRepo, err := normalizeRepoRef(owner, repo)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-
 	if ownerUserID > 0 {
-		return s.lookupGitHubInstallationID(ctx, ownerUserID, normalizedOwner, normalizedRepo)
+		return s.lookupGitHubRepository(ctx, ownerUserID, 0, normalizedOwner, normalizedRepo)
 	}
 	if ownerOrgID <= 0 {
-		return 0, pkgerrors.BadRequest("repository owner is required")
+		return 0, 0, pkgerrors.BadRequest("repository owner is required")
 	}
-
-	var installationID int64
-	err = s.db.QueryRow(
-		ctx,
-		getGitHubAppInstallationForOrgRepoSQL,
-		ownerOrgID,
-		normalizedOwner,
-		normalizedRepo,
-	).Scan(&installationID)
-	if err != nil {
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return 0, nil
-		}
-		return 0, pkgerrors.Internal("failed to load github app installation").WithCause(err)
-	}
-	return installationID, nil
+	return s.lookupGitHubRepository(ctx, 0, ownerOrgID, normalizedOwner, normalizedRepo)
 }
 
 // reconcileInstallation is one entry from GET /app/installations.
@@ -849,7 +791,7 @@ func (s *RepoConnectionService) ReconcileGitHubAppInstallations(ctx context.Cont
 		// A token or listing failure is scoped to one installation (a suspended
 		// install answers 403). Skip it and keep its last-known repository rows
 		// so one tenant cannot freeze mapping freshness for every other tenant.
-		token, err := s.createGitHubInstallationTokenForInstallationID(ctx, installation.ID)
+		token, err := s.CreateGitHubInstallationToken(ctx, installation.ID, GitHubTokenScope{AllRepositories: true, Permissions: gitHubListingPermissions})
 		if err != nil {
 			slog.Error("github_app.reconcile.token_failed", "installation_id", installation.ID, "error", err)
 			failedInstallations++

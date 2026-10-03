@@ -686,7 +686,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	stackOptions := []services.StackServiceOption{
 		services.WithStackGitHubInstallationResolver(repoConnectionService),
 		services.WithStackGitHubBudget(gitHubBudgetTracker),
-		services.WithStackGitHubAppCredentialStore(gitHubAppCredentials),
 	}
 	if cfg.FeatureFlags.Workflows {
 		stackOptions = append(stackOptions, services.WithStackWorkflowRunDispatcher(workflowRunService))

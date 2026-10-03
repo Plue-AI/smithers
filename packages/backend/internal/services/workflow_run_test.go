@@ -315,6 +315,7 @@ type mockWorkflowRunCheckRunService struct {
 func (m *mockWorkflowRunCheckRunService) PostCheckRun(
 	ctx context.Context,
 	installationID int64,
+	_ int64,
 	owner string,
 	repo string,
 	input GitHubCheckRunInput,
@@ -339,6 +340,7 @@ func (m *mockWorkflowRunCheckRunService) PostCheckRun(
 func (m *mockWorkflowRunCheckRunService) UpdateCheckRun(
 	ctx context.Context,
 	installationID int64,
+	_ int64,
 	owner string,
 	repo string,
 	checkRunID int64,

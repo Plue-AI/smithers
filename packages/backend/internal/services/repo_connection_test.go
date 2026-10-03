@@ -19,6 +19,12 @@ type mockRepoConnectionRow struct {
 }
 
 func (m mockRepoConnectionRow) Scan(dest ...any) error {
+	// A connection lookup also scans the bound repository id.
+	if len(dest) == 2 {
+		if repositoryID, ok := dest[1].(*int64); ok {
+			*repositoryID = testRepositoryID
+		}
+	}
 	if m.scanFn != nil {
 		return m.scanFn(dest...)
 	}
@@ -34,11 +40,11 @@ type mockGitHubRepoAccessVerifier struct {
 	verifyFn func(ctx context.Context, userID int64, owner string, repo string) error
 }
 
-func (m *mockGitHubRepoAccessVerifier) VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) error {
+func (m *mockGitHubRepoAccessVerifier) VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) (int64, error) {
 	if m.verifyFn != nil {
-		return m.verifyFn(ctx, userID, owner, repo)
+		return testRepositoryID, m.verifyFn(ctx, userID, owner, repo)
 	}
-	return nil
+	return testRepositoryID, nil
 }
 
 func (m *mockRepoConnectionDB) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
@@ -62,13 +68,14 @@ func TestRepoConnectionService_ConnectRepo_Success(t *testing.T) {
 	svc := NewRepoConnectionService(&mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			assert.True(t, strings.Contains(sql, "INSERT INTO repo_connections"))
-			require.Len(t, args, 6)
+			require.Len(t, args, 7)
 			assert.Equal(t, int64(44), args[0])
 			assert.Equal(t, "Acme", args[1])
 			assert.Equal(t, "Repo", args[2])
 			assert.Equal(t, "acme", args[3])
 			assert.Equal(t, "repo", args[4])
 			assert.Equal(t, "MIT", args[5])
+			assert.Equal(t, testRepositoryID, args[6], "connect persists the verified repository id")
 
 			return mockRepoConnectionRow{
 				scanFn: func(dest ...any) error {

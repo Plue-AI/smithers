@@ -729,7 +729,7 @@ func TestGitHubUserReposService_VerifyUserCanPushToGitHubRepo(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"permissions": permissions})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 777, "permissions": permissions})
 	}))
 	defer srv.Close()
 	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
@@ -737,13 +737,15 @@ func TestGitHubUserReposService_VerifyUserCanPushToGitHubRepo(t *testing.T) {
 	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "gho_test_token"})
 
 	// Push permission verifies.
-	require.NoError(t, service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "octo", "hello"))
+	repositoryID, err := service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "octo", "hello")
+	require.NoError(t, err)
+	assert.EqualValues(t, 777, repositoryID, "connect records the id GitHub verified")
 	assert.Equal(t, "/repos/octo/hello", seenPath)
 	assert.Equal(t, "Bearer gho_test_token", seenAuth)
 
 	// Read-only access is rejected.
 	permissions = map[string]any{"pull": true}
-	err := service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "octo", "hello")
+	_, err = service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "octo", "hello")
 	require.Error(t, err)
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
@@ -751,7 +753,7 @@ func TestGitHubUserReposService_VerifyUserCanPushToGitHubRepo(t *testing.T) {
 
 	// A repo the user cannot even see (404) is rejected, not an internal error.
 	status = http.StatusNotFound
-	err = service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "victim-org", "private-repo")
+	_, err = service.VerifyUserCanPushToGitHubRepo(context.Background(), 42, "victim-org", "private-repo")
 	require.Error(t, err)
 	apiErr, ok = err.(*pkgerrors.APIError)
 	require.True(t, ok)

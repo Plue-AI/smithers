@@ -85,7 +85,9 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 	svc = newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(context.Context, string, ...any) pgx.Row {
 			return mockRepoConnectionRow{scanFn: func(dest ...any) error {
-				*(dest[0].(*int64)) = 0
+				if installationID, ok := dest[0].(*int64); ok {
+					*installationID = 0
+				}
 				return nil
 			}}
 		},
@@ -160,7 +162,7 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, status.GitHubAppInstalled)
 
-	id, err := svc.lookupGitHubInstallationID(ctx, 1, "owner", "repo")
+	id, _, err := svc.lookupGitHubRepository(ctx, 1, 0, "owner", "repo")
 	require.NoError(t, err)
 	assert.Zero(t, id)
 
@@ -175,7 +177,7 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 			return mockRepoConnectionRow{}
 		},
 	})
-	id, err = svc.lookupGitHubInstallationID(ctx, 1, "owner", "repo")
+	id, _, err = svc.lookupGitHubRepository(ctx, 1, 0, "owner", "repo")
 	require.NoError(t, err)
 	assert.Equal(t, 1, queries)
 	assert.Zero(t, id)
@@ -188,7 +190,7 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 			}}
 		},
 	})
-	id, err = svc.GetGitHubInstallationIDForRepositoryOwner(ctx, 1, 0, "owner", "repo")
+	id, _, err = svc.GetGitHubRepositoryForRepositoryOwner(ctx, 1, 0, "owner", "repo")
 	require.NoError(t, err)
 	assert.Equal(t, int64(88), id)
 
@@ -197,7 +199,7 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 			return mockRepoConnectionRow{scanFn: func(...any) error { return errors.New("fallback failed") }}
 		},
 	})
-	_, err = svc.GetGitHubInstallationIDForRepositoryOwner(ctx, 1, 0, "owner", "repo")
+	_, _, err = svc.GetGitHubRepositoryForRepositoryOwner(ctx, 1, 0, "owner", "repo")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
@@ -206,7 +208,7 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 			return mockRepoConnectionRow{scanFn: func(...any) error { return errors.New("lookup failed") }}
 		},
 	})
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
@@ -214,11 +216,11 @@ func TestRepoConnectionGitHubApp_H_StatusAndLookupErrors(t *testing.T) {
 func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := newTestRepoConnectionService(t, &mockRepoConnectionDB{}).CreateGitHubInstallationToken(ctx, 0, "owner", "repo")
+	_, err := newTestRepoConnectionService(t, &mockRepoConnectionDB{}).CreateGitHubInstallationTokenForUserRepo(ctx, 0, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusUnauthorized, apiStatus(t, err))
 
-	_, err = newTestRepoConnectionService(t, &mockRepoConnectionDB{}).CreateGitHubInstallationToken(ctx, 1, "", "repo")
+	_, err = newTestRepoConnectionService(t, &mockRepoConnectionDB{}).CreateGitHubInstallationTokenForUserRepo(ctx, 1, "", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
 
@@ -227,13 +229,13 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 			return mockRepoConnectionRow{scanFn: func(...any) error { return pgx.ErrNoRows }}
 		},
 	})
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, apiStatus(t, err))
 
 	setTestCallerCredentials(t, "ID", "42")
 	setTestCallerCredentials(t, "PEM", testGitHubAppPrivateKeyPEM(t))
-	storeCachedInstallationToken(8700, "cached-token", time.Now().Add(time.Hour))
+	storeCachedInstallationToken(testTokenKey(8700), 8700, "cached-token", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(8700) })
 	svc = newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(context.Context, string, ...any) pgx.Row {
@@ -243,7 +245,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 			}}
 		},
 	})
-	token, err := svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	token, err := svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, "cached-token", token.Token)
 
@@ -257,7 +259,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	})
 	setTestCallerCredentials(t, "ID", "")
 	setTestCallerCredentials(t, "PEM", "")
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
@@ -265,7 +267,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	setTestCallerCredentials(t, "PEM", repoConnectionGitHubAppHPrivateKeyPEM(t))
 	oldReader := rand.Reader
 	rand.Reader = repoConnectionGitHubAppHFailReader{}
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	rand.Reader = oldReader
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
@@ -276,7 +278,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	}))
 	defer serverOK.Close()
 	svc = repoConnectionGitHubAppHTokenService(t, 8702, serverOK.URL)
-	token, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	token, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, "ghs_ok", token.Token)
 
@@ -287,10 +289,10 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 		wantStatus   int
 		wantContains string
 	}{
-		{"forbidden message", http.StatusForbidden, `{"message":"denied"}`, http.StatusForbidden, "denied"},
+		{"forbidden message", http.StatusForbidden, `{"message":"denied"}`, http.StatusForbidden, "github refused the installation token request"},
 		{"server fallback", http.StatusInternalServerError, `{}`, http.StatusInternalServerError, "github installation token request was rejected"},
-		{"missing token", http.StatusCreated, `{"expires_at":"2026-07-07T15:00:00Z"}`, http.StatusInternalServerError, "missing token"},
-		{"invalid expiry", http.StatusCreated, `{"token":"ghs_bad","expires_at":"not-time"}`, http.StatusInternalServerError, "invalid expiry"},
+		{"missing token", http.StatusCreated, `{"expires_at":"2026-07-07T15:00:00Z"}`, http.StatusInternalServerError, "github installation token response was invalid"},
+		{"invalid expiry", http.StatusCreated, `{"token":"ghs_bad","expires_at":"not-time"}`, http.StatusInternalServerError, "github installation token response was invalid"},
 	}
 	for i, tc := range cases {
 		tc := tc
@@ -302,7 +304,7 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 			defer server.Close()
 
 			svc := repoConnectionGitHubAppHTokenService(t, int64(8800+i), server.URL)
-			_, err := svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+			_, err := svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 			require.Error(t, err)
 			assert.Equal(t, tc.wantStatus, apiStatus(t, err))
 			assert.Contains(t, err.Error(), tc.wantContains)
@@ -313,12 +315,12 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 	closedURL := closed.URL
 	closed.Close()
 	svc = repoConnectionGitHubAppHTokenService(t, 8899, closedURL)
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = repoConnectionGitHubAppHTokenService(t, 8900, "%")
-	_, err = svc.CreateGitHubInstallationToken(ctx, 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(ctx, 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
@@ -344,8 +346,8 @@ func TestRepoConnectionGitHubApp_H_CredentialAndEncodingBranches(t *testing.T) {
 	t.Setenv(envGitHubAppAPIBaseURL, "https://api.example///")
 	assert.Equal(t, "https://api.example", githubAPIBaseURL())
 
-	storeCachedInstallationToken(9991, "too-old", time.Now().Add(time.Minute))
-	_, ok := getCachedInstallationToken(9991)
+	storeCachedInstallationToken(testTokenKey(9991), 9991, "too-old", time.Now().Add(time.Minute))
+	_, ok := getCachedInstallationToken(testTokenKey(9991))
 	assert.False(t, ok)
 	invalidateCachedInstallationToken(9991)
 }

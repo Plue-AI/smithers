@@ -90,10 +90,10 @@ func (s *GitHubUserReposService) GitHubRepoPushAuthorized(ctx context.Context, u
 	if err != nil {
 		return fail(GitHubPushProofNoCredential)
 	}
-	canPush, err := s.requestGitHubRepoPushPermission(ctx, accessToken, owner, repo)
+	canPush, _, err := s.requestGitHubRepoPushPermission(ctx, accessToken, owner, repo)
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
-			canPush, err = s.requestGitHubRepoPushPermission(ctx, newToken, owner, repo)
+			canPush, _, err = s.requestGitHubRepoPushPermission(ctx, newToken, owner, repo)
 		}
 	}
 	if err != nil {

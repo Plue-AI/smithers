@@ -45,8 +45,25 @@ type mockStackQuerier struct {
 
 type stackInstallationResolverStub func(ctx context.Context, userID int64, owner, repo string) (int64, error)
 
-func (f stackInstallationResolverStub) GetGitHubInstallationIDForUserRepo(ctx context.Context, userID int64, owner, repo string) (int64, error) {
-	return f(ctx, userID, owner, repo)
+// CreateGitHubInstallationTokenForUserRepo is replaced by newTestStackService,
+// which mints with the test's App credentials.
+func (f stackInstallationResolverStub) CreateGitHubInstallationTokenForUserRepo(context.Context, int64, string, string, map[string]string) (GitHubInstallationToken, error) {
+	return GitHubInstallationToken{}, ErrGitHubAppNotConfigured
+}
+
+// stackTestResolver pairs a lookup stub with a real minter, as compose wires
+// one RepoConnectionService for both.
+type stackTestResolver struct {
+	lookup stackInstallationResolverStub
+	minter *RepoConnectionService
+}
+
+func (r stackTestResolver) CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner, repo string, permissions map[string]string) (GitHubInstallationToken, error) {
+	installationID, err := r.lookup(ctx, userID, owner, repo)
+	if err != nil {
+		return GitHubInstallationToken{}, err
+	}
+	return r.minter.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{RepositoryIDs: []int64{testRepositoryID}, Permissions: permissions})
 }
 
 type mockStackWorkflowDispatcher struct {
@@ -553,7 +570,7 @@ func TestStackService_GetActiveStack_EnrichesGitHubState(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/app/installations/777/access_tokens":
-			_, _ = w.Write([]byte(`{"token":"ghs_stack_token","expires_at":"2026-04-27T00:00:00Z"}`))
+			_, _ = w.Write([]byte(`{"token":"ghs_stack_token","expires_at":"2099-01-01T00:00:00Z"}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/alice/demo/pulls/41":
 			_, _ = w.Write([]byte(`{"state":"open","html_url":"https://github.com/alice/demo/pull/41","head":{"sha":"sha-41"}}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/repos/alice/demo/pulls/41/reviews":

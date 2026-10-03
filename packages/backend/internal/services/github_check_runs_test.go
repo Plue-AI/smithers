@@ -20,7 +20,7 @@ type mockGitHubCheckRunTokenIssuer struct {
 	}
 }
 
-func (m *mockGitHubCheckRunTokenIssuer) CreateGitHubInstallationTokenForInternalInstallation(ctx context.Context, installationID int64) (GitHubInstallationToken, error) {
+func (m *mockGitHubCheckRunTokenIssuer) CreateGitHubInstallationToken(ctx context.Context, installationID int64, _ GitHubTokenScope) (GitHubInstallationToken, error) {
 	m.calls = append(m.calls, struct {
 		installationID int64
 	}{
@@ -85,7 +85,7 @@ func TestGitHubCheckRunService_PostCheckRun_BatchesAnnotations(t *testing.T) {
 		})
 	}
 
-	result, err := svc.PostCheckRun(context.Background(), 11, "acme", "demo", GitHubCheckRunInput{
+	result, err := svc.PostCheckRun(context.Background(), 11, 100, "acme", "demo", GitHubCheckRunInput{
 		Name:    "smithers / CI",
 		HeadSHA: "abc123",
 		Status:  "in_progress",
@@ -139,7 +139,7 @@ func TestGitHubCheckRunService_UpdateCheckRun_BatchesAnnotations(t *testing.T) {
 		})
 	}
 
-	result, err := svc.UpdateCheckRun(context.Background(), 11, "acme", "demo", 999, GitHubCheckRunUpdate{
+	result, err := svc.UpdateCheckRun(context.Background(), 11, 100, "acme", "demo", 999, GitHubCheckRunUpdate{
 		Status:     "completed",
 		Conclusion: "failure",
 		Output: &GitHubCheckRunOutput{
@@ -199,7 +199,7 @@ func TestGitHubCheckRunService_PostCheckRun_RejectsMissingNameOrSHA(t *testing.T
 
 	svc := NewGitHubCheckRunService(&mockGitHubCheckRunTokenIssuer{})
 
-	_, err := svc.PostCheckRun(context.Background(), 1, "acme", "demo", GitHubCheckRunInput{
+	_, err := svc.PostCheckRun(context.Background(), 1, 100, "acme", "demo", GitHubCheckRunInput{
 		Name:    "",
 		HeadSHA: "abc",
 	})

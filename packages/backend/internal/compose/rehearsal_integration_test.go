@@ -885,7 +885,7 @@ func (r *rehearsal) readFakePull(number int64) (githubfake.Pull, error) {
 	}
 	credentials := services.NewGitHubAppCredentialStore(r.pool, codec)
 	tokens := services.NewRepoConnectionService(r.pool, credentials)
-	access, err := tokens.CreateGitHubInstallationTokenForInternalInstallation(r.ctx, 91)
+	access, err := tokens.CreateGitHubInstallationToken(r.ctx, 91, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "read"}})
 	if err != nil {
 		return githubfake.Pull{}, err
 	}

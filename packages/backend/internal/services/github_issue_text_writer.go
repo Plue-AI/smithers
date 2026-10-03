@@ -366,10 +366,8 @@ func (g *gitHubIssueTextAPI) TextByMaintainer(ctx context.Context, token, owner,
 	return true, nil
 }
 
-// gitHubIssueTextTokens mints the installation token that reads writers.
-type gitHubIssueTextTokens interface {
-	CreateGitHubInstallationTokenForInternalInstallation(ctx context.Context, installationID int64) (GitHubInstallationToken, error)
-}
+// gitHubIssueTextPermissions reads issue and pull request writers.
+var gitHubIssueTextPermissions = map[string]string{"issues": "read", "pull_requests": "read"}
 
 // GitHubTextStamper sets issueTextByMaintainerField on every issue, pull
 // request, comment and review object of a signed event, and
@@ -377,11 +375,11 @@ type gitHubIssueTextTokens interface {
 // any consumer reads it. Without one, both are false.
 type GitHubTextStamper struct {
 	api    *gitHubIssueTextAPI
-	tokens gitHubIssueTextTokens
+	tokens GitHubInstallationTokenMinter
 }
 
 // NewGitHubTextStamper reads writers through the GitHub App.
-func NewGitHubTextStamper(tokens gitHubIssueTextTokens) *GitHubTextStamper {
+func NewGitHubTextStamper(tokens GitHubInstallationTokenMinter) *GitHubTextStamper {
 	return &GitHubTextStamper{tokens: tokens, api: &gitHubIssueTextAPI{
 		api: &landingGitHubAPI{client: gitHubProviderClient(tokens, 30*time.Second), baseURL: githubAPIBaseURL}}}
 }
@@ -398,6 +396,7 @@ type gitHubTextEvent struct {
 	Changes    map[string]json.RawMessage `json:"changes"`
 	Sender     *gitHubActor               `json:"sender"`
 	Repository struct {
+		ID    int64  `json:"id"`
 		Name  string `json:"name"`
 		Owner struct {
 			Login string `json:"login"`
@@ -584,7 +583,7 @@ func (r *gitHubTextStamp) installationToken() (string, error) {
 	if r.token != "" {
 		return r.token, nil
 	}
-	token, err := r.stamper.tokens.CreateGitHubInstallationTokenForInternalInstallation(r.ctx, r.event.Installation.ID)
+	token, err := r.stamper.tokens.CreateGitHubInstallationToken(r.ctx, r.event.Installation.ID, GitHubTokenScope{RepositoryIDs: []int64{r.event.Repository.ID}, Permissions: gitHubIssueTextPermissions})
 	if err != nil || strings.TrimSpace(token.Token) == "" {
 		return "", errGitHubIssueTextUnavailable
 	}

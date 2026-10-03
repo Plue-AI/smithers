@@ -2119,15 +2119,16 @@ type ReleaseDeletionTagTombstone struct {
 }
 
 type RepoConnection struct {
-	ID             int64     `json:"id"`
-	UserID         int64     `json:"user_id"`
-	RepoOwner      string    `json:"repo_owner"`
-	RepoName       string    `json:"repo_name"`
-	RepoOwnerLower string    `json:"repo_owner_lower"`
-	RepoNameLower  string    `json:"repo_name_lower"`
-	LicenseSpdxID  string    `json:"license_spdx_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID                 int64       `json:"id"`
+	UserID             int64       `json:"user_id"`
+	RepoOwner          string      `json:"repo_owner"`
+	RepoName           string      `json:"repo_name"`
+	RepoOwnerLower     string      `json:"repo_owner_lower"`
+	RepoNameLower      string      `json:"repo_name_lower"`
+	LicenseSpdxID      string      `json:"license_spdx_id"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+	GithubRepositoryID pgtype.Int8 `json:"github_repository_id"`
 }
 
 type RepoPushEvent struct {

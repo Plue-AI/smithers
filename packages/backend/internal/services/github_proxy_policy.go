@@ -111,13 +111,6 @@ func EvaluateGitHubProxyPolicy(input GitHubProxyPolicyInput) GitHubProxyPolicyDe
 		return allowGitHubProxyPolicy("contents read allowed")
 	}
 
-	if method == "POST" && subpath == "/check-runs" {
-		return allowGitHubProxyPolicy("check run creation allowed")
-	}
-	if method == "PATCH" && strings.HasPrefix(subpath, "/check-runs/") {
-		return allowGitHubProxyPolicy("check run update allowed")
-	}
-
 	if method == "POST" && (isIssueCommentPath(subpath) || isPullCommentPath(subpath)) {
 		return allowGitHubProxyPolicy("comment creation allowed")
 	}

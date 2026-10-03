@@ -30,7 +30,7 @@ func TestRepoConnectionService_GetGitHubAppStatus_InstalledViaUserRepoMapping(t 
 	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			assert.Contains(t, sql, "FROM repo_connections rc")
-			require.Len(t, args, 3)
+			require.Len(t, args, 4)
 			assert.Equal(t, int64(7), args[0])
 			assert.Equal(t, "acme", args[1])
 			assert.Equal(t, "repo", args[2])
@@ -103,7 +103,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_Success(t *testing.
 	require.NoError(t, err)
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
 
-	expiresAt := time.Date(2026, 4, 26, 20, 0, 0, 0, time.UTC)
+	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/app/installations/9001/access_tokens", r.URL.Path)
@@ -130,7 +130,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_Success(t *testing.
 		},
 	})
 
-	token, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "acme", "repo")
+	token, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "acme", "repo", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, int64(9001), token.InstallationID)
 	assert.Equal(t, "ghs_test_token", token.Token)
@@ -176,11 +176,11 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_CachesWithinWindow(
 		},
 	})
 
-	first, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "acme", "repo")
+	first, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "acme", "repo", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, "ghs_cached_token", first.Token)
 
-	second, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "acme", "repo")
+	second, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "acme", "repo", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, "ghs_cached_token", second.Token)
 
@@ -194,7 +194,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresInstallatio
 		},
 	})
 
-	_, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "acme", "repo")
+	_, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "acme", "repo", testTokenPermissions)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -208,7 +208,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_DoesNotUseUnscopedR
 		queryRowFn: func(ctx context.Context, sql string, args ...any) pgx.Row {
 			queryCount++
 			require.Contains(t, sql, "FROM repo_connections rc")
-			require.Len(t, args, 3)
+			require.Len(t, args, 4)
 			assert.Equal(t, int64(11), args[0])
 			assert.Equal(t, "victim", args[1])
 			assert.Equal(t, "repo", args[2])
@@ -216,7 +216,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_DoesNotUseUnscopedR
 		},
 	})
 
-	_, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "Victim", "Repo")
+	_, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "Victim", "Repo", testTokenPermissions)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -230,7 +230,7 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForImportedSource_Us
 	invalidateCachedInstallationToken(installationID)
 	defer invalidateCachedInstallationToken(installationID)
 
-	expiresAt := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet && r.URL.Path == "/repos/smithersai/smithers" {
@@ -281,7 +281,7 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForImportedSource_Us
 		},
 	})
 
-	token, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), 8, 333, "SmithersAI", "Smithers")
+	token, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), 8, 333, "SmithersAI", "Smithers", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, installationID, token.InstallationID)
 	assert.Equal(t, "ghs_imported_public", token.Token)
@@ -302,7 +302,7 @@ func TestRepoConnectionService_CreateGitHubInstallationToken_RequiresCredentials
 		},
 	})
 
-	_, err := svc.CreateGitHubInstallationToken(context.Background(), 11, "acme", "repo")
+	_, err := svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 11, "acme", "repo", testTokenPermissions)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -372,13 +372,11 @@ func assertGitHubAppJWTIsValid(t *testing.T, token string, publicKey *rsa.Public
 // A landing push must not carry the App's full installation authority: the
 // production App holds workflows:write, and a full token lets an agent-written
 // .github/workflows file reach the customer's CI and secrets before any merge.
-// The owner-path mint names one repository and the operation's permissions,
-// and never serves or fills the full-installation cache.
+// The owner-path mint names one repository and the operation's permissions.
 func TestRepoConnectionService_CreateGitHubInstallationTokenForRepositoryOwner_ScopesRepositoryAndPermissions(t *testing.T) {
 	const installationID = int64(9003)
 	invalidateCachedInstallationToken(installationID)
 	defer invalidateCachedInstallationToken(installationID)
-	storeCachedInstallationToken(installationID, "ghs_full_installation", time.Now().Add(time.Hour))
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -414,64 +412,38 @@ func TestRepoConnectionService_CreateGitHubInstallationTokenForRepositoryOwner_S
 		require.NoError(t, err)
 		assert.Equal(t, "ghs_scoped", token.Token)
 	}
-	require.Len(t, bodies, 1, "identical scopes reuse their own cached token")
+	require.Len(t, bodies, 1, "one scope reuses its cached token")
 	for _, body := range bodies {
-		assert.Equal(t, []any{"app"}, body["repositories"])
+		assert.Equal(t, []any{float64(testRepositoryID)}, body["repository_ids"])
 		assert.Equal(t, map[string]any{"contents": "write"}, body["permissions"])
 	}
-	cached, ok := getCachedInstallationToken(installationID)
-	require.True(t, ok)
-	assert.Equal(t, "ghs_full_installation", cached.token, "a scoped token never replaces the cached full token")
-
-	// Changing repository or permission never borrows the first scoped token.
-	for _, request := range []struct{ repo, permission string }{
-		{"other", "write"}, {"app", "read"},
-	} {
-		_, err := svc.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), 11, 0, "acme", request.repo,
-			map[string]string{"contents": request.permission})
-		require.NoError(t, err)
-	}
-	require.Len(t, bodies, 3)
-	// A token at the early-expiry boundary must be minted again.
-	key := installationTokenKey(installationID, &gitHubInstallationTokenScope{
-		Repositories: []string{"app"}, Permissions: map[string]string{"contents": "write"},
-	})
-	storeCachedInstallationTokenKey(key, "expiring", time.Now().Add(5*time.Minute))
-	_, err = svc.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), 11, 0, "acme", "app",
-		map[string]string{"contents": "write"})
-	require.NoError(t, err)
-	require.Len(t, bodies, 4)
-	invalidateCachedInstallationToken(installationID)
-	_, ok = getCachedInstallationTokenKey(key)
-	require.False(t, ok, "revocation invalidates scoped tokens too")
-
 	_, err = svc.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), 11, 0, "acme", "app", nil)
-	require.Error(t, err, "an unscoped owner-path mint is refused")
-	assert.Len(t, bodies, 4)
+	require.ErrorIs(t, err, ErrGitHubTokenScopeRequired, "an unscoped owner-path mint is refused")
+	assert.Len(t, bodies, 1)
 }
 
 func TestInstallationTokenCacheScopeIsolation(t *testing.T) {
 	const installationID = int64(9515)
 	defer invalidateCachedInstallationToken(installationID)
-	scope := &gitHubInstallationTokenScope{Repositories: []string{"b", "a"}, Permissions: map[string]string{"contents": "read", "issues": "write"}}
-	key := installationTokenKey(installationID, scope)
-	storeCachedInstallationTokenKey(key, "scoped", time.Now().Add(time.Hour))
-	reversed := &gitHubInstallationTokenScope{Repositories: []string{"a", "b"}, Permissions: map[string]string{"issues": "write", "contents": "read"}}
-	cached, ok := getCachedInstallationTokenKey(installationTokenKey(installationID, reversed))
+	scope := GitHubTokenScope{RepositoryIDs: []int64{2, 1}, Permissions: map[string]string{"contents": "read", "issues": "write"}}
+	key := scope.cacheKey(installationID)
+	storeCachedInstallationToken(key, installationID, "scoped", time.Now().Add(time.Hour))
+	reversed := GitHubTokenScope{RepositoryIDs: []int64{1, 2}, Permissions: map[string]string{"issues": "write", "contents": "read"}}
+	cached, ok := getCachedInstallationToken(reversed.cacheKey(installationID))
 	require.True(t, ok)
 	assert.Equal(t, "scoped", cached.token)
-	assert.Equal(t, []string{"b", "a"}, scope.Repositories, "key creation must not mutate caller inputs")
-	for _, other := range []installationTokenCacheKey{
-		installationTokenKey(installationID+1, scope),
-		installationTokenKey(installationID, nil),
-		installationTokenKey(installationID, &gitHubInstallationTokenScope{Repositories: []string{"a"}, Permissions: scope.Permissions}),
-		installationTokenKey(installationID, &gitHubInstallationTokenScope{Repositories: scope.Repositories, Permissions: map[string]string{"contents": "write", "issues": "write"}}),
+	assert.Equal(t, []int64{2, 1}, scope.RepositoryIDs, "key creation must not mutate caller inputs")
+	for _, other := range []string{
+		scope.cacheKey(installationID + 1),
+		GitHubTokenScope{AllRepositories: true, Permissions: scope.Permissions}.cacheKey(installationID),
+		GitHubTokenScope{RepositoryIDs: []int64{1}, Permissions: scope.Permissions}.cacheKey(installationID),
+		GitHubTokenScope{RepositoryIDs: scope.RepositoryIDs, Permissions: map[string]string{"contents": "write", "issues": "write"}}.cacheKey(installationID),
 	} {
-		_, ok := getCachedInstallationTokenKey(other)
+		_, ok := getCachedInstallationToken(other)
 		assert.False(t, ok)
 	}
-	storeCachedInstallationTokenKey(key, "expired", time.Now().Add(-time.Minute))
-	_, ok = getCachedInstallationTokenKey(key)
+	storeCachedInstallationToken(key, installationID, "expired", time.Now().Add(-time.Minute))
+	_, ok = getCachedInstallationToken(key)
 	assert.False(t, ok)
 }
 
@@ -497,7 +469,11 @@ func TestRepoConnectionService_InstallationMintSharesResponseBudget(t *testing.T
 	authorizations := 0
 	svc := newTestRepoConnectionService(t, &mockRepoConnectionDB{queryRowFn: func(context.Context, string, ...any) pgx.Row {
 		authorizations++
-		return mockRepoConnectionRow{scanFn: func(dest ...any) error { *(dest[0].(*int64)) = installationID; return nil }}
+		return mockRepoConnectionRow{scanFn: func(dest ...any) error {
+			*(dest[0].(*int64)) = installationID
+			*(dest[1].(*int64)) = testRepositoryID
+			return nil
+		}}
 	}})
 	tracker := NewGitHubResponseBudgetTracker()
 	tracker.now = func() time.Time { return time.Unix(1000, 0).UTC() }

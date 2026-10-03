@@ -19,8 +19,9 @@ import (
 )
 
 type fakeGitHubProxyTokenIssuer struct {
-	createFn func(ctx context.Context, userID int64, owner string, repo string) (GitHubInstallationToken, error)
-	calls    []fakeGitHubProxyTokenIssuerCall
+	createFn    func(ctx context.Context, userID int64, owner string, repo string) (GitHubInstallationToken, error)
+	calls       []fakeGitHubProxyTokenIssuerCall
+	permissions []map[string]string
 }
 
 type fakeGitHubProxyTokenIssuerCall struct {
@@ -33,6 +34,7 @@ type fakeGitHubProxyImportedSourceTokenIssuer struct {
 	fakeGitHubProxyTokenIssuer
 	createImportedFn func(ctx context.Context, userID int64, repositoryID int64, owner string, repo string) (GitHubInstallationToken, error)
 	importedCalls    []fakeGitHubProxyImportedSourceTokenIssuerCall
+	importedScopes   []map[string]string
 }
 
 type fakeGitHubProxyImportedSourceTokenIssuerCall struct {
@@ -42,7 +44,8 @@ type fakeGitHubProxyImportedSourceTokenIssuerCall struct {
 	repo         string
 }
 
-func (f *fakeGitHubProxyImportedSourceTokenIssuer) CreateGitHubInstallationTokenForImportedSource(ctx context.Context, userID int64, repositoryID int64, owner string, repo string) (GitHubInstallationToken, error) {
+func (f *fakeGitHubProxyImportedSourceTokenIssuer) CreateGitHubInstallationTokenForImportedSource(ctx context.Context, userID int64, repositoryID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error) {
+	f.importedScopes = append(f.importedScopes, permissions)
 	f.importedCalls = append(f.importedCalls, fakeGitHubProxyImportedSourceTokenIssuerCall{
 		userID:       userID,
 		repositoryID: repositoryID,
@@ -55,7 +58,8 @@ func (f *fakeGitHubProxyImportedSourceTokenIssuer) CreateGitHubInstallationToken
 	return GitHubInstallationToken{InstallationID: 1888, Token: "imported-source-install-token"}, nil
 }
 
-func (f *fakeGitHubProxyTokenIssuer) CreateGitHubInstallationToken(ctx context.Context, userID int64, owner string, repo string) (GitHubInstallationToken, error) {
+func (f *fakeGitHubProxyTokenIssuer) CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error) {
+	f.permissions = append(f.permissions, permissions)
 	f.calls = append(f.calls, fakeGitHubProxyTokenIssuerCall{
 		userID: userID,
 		owner:  owner,
@@ -99,7 +103,7 @@ func TestGitHubProxyService_ProxyRepoRequest_RewritesHeadersWithServerInstallati
 
 	resp, err := service.ProxyRepoRequest(context.Background(), &db.User{ID: 77}, "acme", "demo", GitHubProxyRequest{
 		Method: "POST",
-		Path:   "/repos/acme/demo/check-runs?per_page=1",
+		Path:   "/repos/acme/demo/issues/1/comments?per_page=1",
 		Headers: map[string]string{
 			"Accept":               "application/vnd.github+json",
 			"Authorization":        "Bearer user-token",
@@ -126,7 +130,7 @@ func TestGitHubProxyService_ProxyRepoRequest_RewritesHeadersWithServerInstallati
 	assert.JSONEq(t, `{"queued":true}`, string(body))
 
 	assert.Equal(t, http.MethodPost, gotMethod)
-	assert.Equal(t, "/repos/acme/demo/check-runs?per_page=1", gotPath)
+	assert.Equal(t, "/repos/acme/demo/issues/1/comments?per_page=1", gotPath)
 	assert.Equal(t, "smithers/checks", gotBody["name"])
 	assert.Equal(t, "deadbeef", gotBody["head_sha"])
 	assert.Equal(t, "Bearer server-install-token", gotHeaders.Get("Authorization"))
@@ -156,7 +160,7 @@ func TestGitHubProxyService_Proxy_Evicts401ButNot403(t *testing.T) {
 		{name: "403 survives", status: http.StatusForbidden, instID: 5502, evicted: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			storeCachedInstallationToken(tc.instID, "ghs_cached", time.Now().Add(time.Hour))
+			storeCachedInstallationToken(testTokenKey(tc.instID), tc.instID, "ghs_cached", time.Now().Add(time.Hour))
 			t.Cleanup(func() { invalidateCachedInstallationToken(tc.instID) })
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -182,7 +186,7 @@ func TestGitHubProxyService_Proxy_Evicts401ButNot403(t *testing.T) {
 			resp.Body.Close()
 			require.Equal(t, tc.status, resp.StatusCode)
 
-			_, ok := getCachedInstallationToken(tc.instID)
+			_, ok := getCachedInstallationToken(testTokenKey(tc.instID))
 			assert.Equal(t, !tc.evicted, ok, "cache eviction on %d mismatch", tc.status)
 		})
 	}

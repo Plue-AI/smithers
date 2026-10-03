@@ -16,20 +16,17 @@ import (
 
 const maxCheckRunAnnotationsPerRequest = 50
 
-// GitHubCheckRunTokenIssuer creates GitHub installation tokens.
-// RepoConnectionService implements this interface.
-type GitHubCheckRunTokenIssuer interface {
-	CreateGitHubInstallationTokenForInternalInstallation(ctx context.Context, installationID int64) (GitHubInstallationToken, error)
-}
+// gitHubCheckRunPermissions posts and updates check runs.
+var gitHubCheckRunPermissions = map[string]string{"checks": "write"}
 
 // GitHubCheckRunService posts and updates GitHub Check Runs.
 type GitHubCheckRunService interface {
-	PostCheckRun(ctx context.Context, installationID int64, owner string, repo string, input GitHubCheckRunInput) (GitHubCheckRunResult, error)
-	UpdateCheckRun(ctx context.Context, installationID int64, owner string, repo string, checkRunID int64, update GitHubCheckRunUpdate) (GitHubCheckRunResult, error)
+	PostCheckRun(ctx context.Context, installationID int64, repositoryID int64, owner string, repo string, input GitHubCheckRunInput) (GitHubCheckRunResult, error)
+	UpdateCheckRun(ctx context.Context, installationID int64, repositoryID int64, owner string, repo string, checkRunID int64, update GitHubCheckRunUpdate) (GitHubCheckRunResult, error)
 }
 
 type githubCheckRunService struct {
-	tokenIssuer GitHubCheckRunTokenIssuer
+	tokenIssuer GitHubInstallationTokenMinter
 	httpClient  *http.Client
 }
 
@@ -85,7 +82,7 @@ type GitHubCheckRunResult struct {
 }
 
 // NewGitHubCheckRunService builds a GitHubCheckRunService.
-func NewGitHubCheckRunService(tokenIssuer GitHubCheckRunTokenIssuer) GitHubCheckRunService {
+func NewGitHubCheckRunService(tokenIssuer GitHubInstallationTokenMinter) GitHubCheckRunService {
 	return &githubCheckRunService{
 		tokenIssuer: tokenIssuer,
 		httpClient:  gitHubProviderClient(tokenIssuer, 10*time.Second),
@@ -95,6 +92,7 @@ func NewGitHubCheckRunService(tokenIssuer GitHubCheckRunTokenIssuer) GitHubCheck
 func (s *githubCheckRunService) PostCheckRun(
 	ctx context.Context,
 	installationID int64,
+	repositoryID int64,
 	owner string,
 	repo string,
 	input GitHubCheckRunInput,
@@ -114,7 +112,7 @@ func (s *githubCheckRunService) PostCheckRun(
 		return GitHubCheckRunResult{}, pkgerrors.BadRequest("check run name and head sha are required")
 	}
 
-	token, err := s.issueInstallationToken(ctx, installationID)
+	token, err := s.issueInstallationToken(ctx, installationID, repositoryID)
 	if err != nil {
 		return GitHubCheckRunResult{}, err
 	}
@@ -160,6 +158,7 @@ func (s *githubCheckRunService) PostCheckRun(
 func (s *githubCheckRunService) UpdateCheckRun(
 	ctx context.Context,
 	installationID int64,
+	repositoryID int64,
 	owner string,
 	repo string,
 	checkRunID int64,
@@ -181,7 +180,7 @@ func (s *githubCheckRunService) UpdateCheckRun(
 		return GitHubCheckRunResult{}, pkgerrors.BadRequest("owner and repo are required")
 	}
 
-	token, err := s.issueInstallationToken(ctx, installationID)
+	token, err := s.issueInstallationToken(ctx, installationID, repositoryID)
 	if err != nil {
 		return GitHubCheckRunResult{}, err
 	}
@@ -220,8 +219,8 @@ func (s *githubCheckRunService) UpdateCheckRun(
 	return result, nil
 }
 
-func (s *githubCheckRunService) issueInstallationToken(ctx context.Context, installationID int64) (string, error) {
-	token, err := s.tokenIssuer.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
+func (s *githubCheckRunService) issueInstallationToken(ctx context.Context, installationID, repositoryID int64) (string, error) {
+	token, err := s.tokenIssuer.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{RepositoryIDs: []int64{repositoryID}, Permissions: gitHubCheckRunPermissions})
 	if err != nil {
 		return "", err
 	}

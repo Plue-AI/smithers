@@ -41,7 +41,7 @@ const permissionConnectionFails = -1
 
 type fakeIssueTextTokens struct{}
 
-func (fakeIssueTextTokens) CreateGitHubInstallationTokenForInternalInstallation(context.Context, int64) (GitHubInstallationToken, error) {
+func (fakeIssueTextTokens) CreateGitHubInstallationToken(context.Context, int64, GitHubTokenScope) (GitHubInstallationToken, error) {
 	return GitHubInstallationToken{Token: "installation-token"}, nil
 }
 

@@ -41,6 +41,7 @@ type GitHubAppStatusResponse struct {
 	GitHubRateLimitLimit     int    `json:"github_rate_limit_limit,omitempty"`
 	GitHubRateLimitRemaining int    `json:"github_rate_limit_remaining,omitempty"`
 	GitHubRateLimitReset     string `json:"github_rate_limit_reset,omitempty"`
+	ReconnectRequired        bool   `json:"reconnect_required,omitempty"`
 }
 
 func (h *RepoHandler) ConnectRepo(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +183,7 @@ func (h *RepoHandler) GitHubAppStatus(w http.ResponseWriter, r *http.Request) {
 		GitHubRateLimitLimit:     status.GitHubRateLimitLimit,
 		GitHubRateLimitRemaining: status.GitHubRateLimitRemaining,
 		GitHubRateLimitReset:     status.GitHubRateLimitReset,
+		ReconnectRequired:        status.ReconnectRequired,
 	})
 }
 

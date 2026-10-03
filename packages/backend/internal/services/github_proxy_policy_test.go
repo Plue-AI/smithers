@@ -28,28 +28,6 @@ func TestEvaluateGitHubProxyPolicy(t *testing.T) {
 			wantReason:  "contents read allowed",
 		},
 		{
-			name: "allows POST check-runs",
-			input: GitHubProxyPolicyInput{
-				Method:    "POST",
-				Path:      "/repos/acme/demo/check-runs",
-				RepoOwner: "acme",
-				RepoName:  "demo",
-			},
-			wantAllowed: true,
-			wantReason:  "check run creation allowed",
-		},
-		{
-			name: "allows PATCH check-runs",
-			input: GitHubProxyPolicyInput{
-				Method:    "PATCH",
-				Path:      "/repos/acme/demo/check-runs/123",
-				RepoOwner: "acme",
-				RepoName:  "demo",
-			},
-			wantAllowed: true,
-			wantReason:  "check run update allowed",
-		},
-		{
 			name: "allows POST issue comments",
 			input: GitHubProxyPolicyInput{
 				Method:    "POST",

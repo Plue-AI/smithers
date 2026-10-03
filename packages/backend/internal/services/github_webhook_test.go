@@ -242,9 +242,9 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationDeletedCleansUp(t 
 // its ~1h lifetime. (Not parallel: the token cache is a package global.)
 func TestGitHubWebhookService_HandleGitHubWebhook_InstallationSuspendEvictsTokenCache(t *testing.T) {
 	const instID = int64(919191)
-	storeCachedInstallationToken(instID, "ghs_cached", time.Now().Add(time.Hour))
+	storeCachedInstallationToken(testTokenKey(instID), instID, "ghs_cached", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(instID) })
-	if _, ok := getCachedInstallationToken(instID); !ok {
+	if _, ok := getCachedInstallationToken(testTokenKey(instID)); !ok {
 		t.Fatal("precondition: token should be cached")
 	}
 
@@ -266,13 +266,13 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationSuspendEvictsToken
 		payload,
 	)
 	require.NoError(t, err)
-	_, ok := getCachedInstallationToken(instID)
+	_, ok := getCachedInstallationToken(testTokenKey(instID))
 	assert.False(t, ok, "a suspend event must evict the cached installation token")
 }
 
 func TestGitHubWebhookService_HandleGitHubWebhook_InstallationRepositoriesEvictsCachedToken(t *testing.T) {
 	const instID = int64(929292)
-	storeCachedInstallationToken(instID, "ghs_stale_grant_set", time.Now().Add(time.Hour))
+	storeCachedInstallationToken(testTokenKey(instID), instID, "ghs_stale_grant_set", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(instID) })
 
 	payload := []byte(`{
@@ -294,7 +294,7 @@ func TestGitHubWebhookService_HandleGitHubWebhook_InstallationRepositoriesEvicts
 		payload,
 	)
 	require.NoError(t, err)
-	_, ok := getCachedInstallationToken(instID)
+	_, ok := getCachedInstallationToken(testTokenKey(instID))
 	assert.False(t, ok, "a repository grant change must evict the cached installation token")
 }
 

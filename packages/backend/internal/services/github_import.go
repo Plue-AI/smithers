@@ -289,8 +289,11 @@ type GitHubImportMetrics interface {
 // GitHubImportInstallationTokenIssuer mints a GitHub App installation token
 // scoped to a repository the importing user has connected.
 type GitHubImportInstallationTokenIssuer interface {
-	CreateGitHubInstallationToken(ctx context.Context, userID int64, owner string, repo string) (GitHubInstallationToken, error)
+	CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error)
 }
+
+// gitHubImportPermissions reads repository metadata and clones the source.
+var gitHubImportPermissions = map[string]string{"contents": "read"}
 
 type GitHubImportService struct {
 	db         GitHubImportDB
@@ -2481,7 +2484,7 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 // user's own access.
 func (s *GitHubImportService) githubImportSourceToken(ctx context.Context, userID int64, owner, repo string) (string, db.OauthAccount, bool, error) {
 	if s.appTokens != nil {
-		installation, err := s.appTokens.CreateGitHubInstallationToken(ctx, userID, owner, repo)
+		installation, err := s.appTokens.CreateGitHubInstallationTokenForUserRepo(ctx, userID, owner, repo, gitHubImportPermissions)
 		if err == nil && strings.TrimSpace(installation.Token) != "" {
 			return strings.TrimSpace(installation.Token), db.OauthAccount{}, true, nil
 		}

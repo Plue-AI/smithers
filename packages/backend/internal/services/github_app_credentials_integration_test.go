@@ -363,39 +363,6 @@ func TestGitHubAppManifestConcurrentConversionsExchangeOnlyOncePostgres(t *testi
 	require.Len(t, server.Writes(), 1, "only one GitHub App may be created across concurrent backend calls")
 }
 
-func TestGitHubAppManifestInstallationPaginationPostgres(t *testing.T) {
-	t.Parallel()
-	pool := newGitHubAppTestPool(t)
-	ctx := WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")
-	_, credentials := manifestFixture(t)
-	installations := make([]githubfake.Installation, 101)
-	for i := range installations {
-		installations[i] = githubfake.Installation{ID: int64(i + 1), Account: githubfake.Account{Login: "another-owner"}}
-	}
-	repos := make([]githubfake.Repository, 101)
-	for i := range repos {
-		repos[i] = githubfake.Repository{ID: int64(i + 1), FullName: "acme/other"}
-	}
-	repos[100].FullName = "acme/app"
-	installations[100] = githubfake.Installation{ID: 101, Account: githubfake.Account{Login: "acme"}, Repositories: repos}
-	server, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, WebhookSecret: credentials.WebhookSecret, ConversionCode: "code", Installations: installations})
-	require.NoError(t, err)
-	t.Cleanup(server.Close)
-	codec, err := webhook.NewSecretCodec("pagination-key")
-	require.NoError(t, err)
-	store := NewGitHubAppCredentialStore(pool, codec)
-	service := NewGitHubAppManifestService(pool, store, server.URL, nil)
-	start, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
-	require.NoError(t, err)
-	_, err = service.Convert(ctx, "code", start.State, start.State)
-	require.NoError(t, err)
-	require.NoError(t, service.ResumeInstallation(ctx))
-	loaded, err := store.Load(ctx)
-	require.NoError(t, err)
-	require.Equal(t, int64(101), loaded.InstallationID)
-	require.Len(t, server.Writes(), 2, "installation and repository on second pages must be reached")
-}
-
 func TestGitHubAppManifestHTTPFailuresNeverLeakCredentialsOrFollowRedirects(t *testing.T) {
 	var redirected atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected.Add(1); w.WriteHeader(200) }))
@@ -846,10 +813,10 @@ func TestGitHubAppManifestInstallationHTTPFailuresPostgres(t *testing.T) {
 		status     int
 		body       string
 	}{
-		{"installations", "/app/installations", 500, `{}`},
-		{"token", "/app/installations/91/access_tokens", 500, `{}`},
-		{"empty-token", "/app/installations/91/access_tokens", 201, `{"token":""}`},
-		{"repositories", "/installation/repositories", 500, `{}`},
+		{"unavailable", "/repos/acme/app/installation", 500, `{}`},
+		{"not-installed", "/repos/acme/app/installation", 404, `{}`},
+		{"foreign-account", "/repos/acme/app/installation", 200, `{"id":91,"account":{"login":"intruder"}}`},
+		{"no-installation", "/repos/acme/app/installation", 200, `{"account":{"login":"acme"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newAppManifestFixture(t)
@@ -871,40 +838,6 @@ func TestGitHubAppManifestInstallationHTTPFailuresPostgres(t *testing.T) {
 			defer server.Close()
 			f.service.apiBaseURL = server.URL
 			require.Error(t, f.service.ResumeInstallation(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")))
-			loaded, err := f.store.Load(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"))
-			require.NoError(t, err)
-			require.Zero(t, loaded.InstallationID)
-		})
-	}
-}
-
-func TestGitHubAppManifestInstallationPaginationBudgetsPostgres(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{"installations", "repositories"} {
-		t.Run(kind, func(t *testing.T) {
-			f := newAppManifestFixture(t)
-			f.confirm(t)
-			installations := []githubfake.Installation{{ID: 91}}
-			if kind == "installations" {
-				installations = make([]githubfake.Installation, 10000)
-				for i := range installations {
-					installations[i] = githubfake.Installation{ID: int64(i + 1)}
-				}
-			} else {
-				installations[0].Repositories = make([]githubfake.Repository, 10000)
-				for i := range installations[0].Repositories {
-					installations[0].Repositories[i] = githubfake.Repository{ID: int64(i + 1), FullName: "acme/other"}
-				}
-			}
-			server, err := githubfake.New(githubfake.Config{AppID: f.credentials.ID, PrivateKeyPEM: f.credentials.PEM, OwnerLogin: "acme", Installations: installations})
-			require.NoError(t, err)
-			defer server.Close()
-			f.service.apiBaseURL = server.URL
-			err = f.service.ResumeInstallation(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"))
-			require.Error(t, err)
-			var failure *pkgerrors.APIError
-			require.ErrorAs(t, err, &failure)
-			require.Equal(t, pkgerrors.CodeGitHubUnavailable, failure.Code)
 			loaded, err := f.store.Load(WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000"))
 			require.NoError(t, err)
 			require.Zero(t, loaded.InstallationID)

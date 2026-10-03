@@ -202,7 +202,7 @@ func TestRepoConnectionService_ImportedSourceWithoutAppNamesItsCause(t *testing.
 			return mockRepoConnectionRow{scanFn: func(...any) error { return pgx.ErrNoRows }}
 		},
 	})
-	_, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), 8, 333, "acme", "widgets")
+	_, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), 8, 333, "acme", "widgets", testTokenPermissions)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusBadRequest, apiErr.Status)

@@ -286,26 +286,22 @@ func (s *GitHubUserReposService) syncedRepoBackfillFetcher(userID int64, owner, 
 	}
 }
 
-// GitHubSyncedInstallationTokenIssuer mints a cached (~1h) App installation
-// token from an installation id the registry already trusts. Implemented by
-// *RepoConnectionService.
-type GitHubSyncedInstallationTokenIssuer interface {
-	CreateGitHubInstallationTokenForInternalInstallation(ctx context.Context, installationID int64) (GitHubInstallationToken, error)
-}
+// gitHubRepoMetadataPermissions reads a synced repository's issues and pulls.
+var gitHubRepoMetadataPermissions = map[string]string{"issues": "read", "pull_requests": "read"}
 
 // SyncedRepoInstallationFetcherFactory builds the R2-conformant page fetcher
 // for the synced store: pages are fetched with the repo's App installation
 // token (cached ~1h by the issuer), never a user's OAuth token. It resolves
 // the token per call so mid-sweep expiry just re-mints.
-func (s *GitHubUserReposService) SyncedRepoInstallationFetcherFactory(issuer GitHubSyncedInstallationTokenIssuer) func(row db.GithubSyncedRepo) GitHubSyncedRepoPageFetcher {
+func (s *GitHubUserReposService) SyncedRepoInstallationFetcherFactory(issuer GitHubInstallationTokenMinter) func(row db.GithubSyncedRepo) GitHubSyncedRepoPageFetcher {
 	return func(row db.GithubSyncedRepo) GitHubSyncedRepoPageFetcher {
-		if s == nil || issuer == nil || !row.InstallationID.Valid {
+		if s == nil || issuer == nil || !row.InstallationID.Valid || !row.GithubRepositoryID.Valid {
 			return nil
 		}
 		installationID := row.InstallationID.Int64
 		owner, repo := row.OwnerLogin, row.RepoName
 		return func(ctx context.Context, resource string, query url.Values) (json.RawMessage, error) {
-			token, err := issuer.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
+			token, err := issuer.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{RepositoryIDs: []int64{row.GithubRepositoryID.Int64}, Permissions: gitHubRepoMetadataPermissions})
 			if err != nil {
 				return nil, err
 			}

@@ -37,7 +37,7 @@ type githubImportHInstallationTokens struct {
 	err   error
 }
 
-func (i githubImportHInstallationTokens) CreateGitHubInstallationToken(context.Context, int64, string, string) (GitHubInstallationToken, error) {
+func (i githubImportHInstallationTokens) CreateGitHubInstallationTokenForUserRepo(context.Context, int64, string, string, map[string]string) (GitHubInstallationToken, error) {
 	return GitHubInstallationToken{Token: i.token}, i.err
 }
 

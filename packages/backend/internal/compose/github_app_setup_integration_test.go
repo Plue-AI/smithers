@@ -269,7 +269,10 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, _, _ = request(local, "GET", callback, live, false)
 	require.Equal(t, 401, status)
-	require.Len(t, fake.Writes(), 2)
+	require.Len(t, fake.Writes(), 2, "discovery mints no installation token")
+	for _, write := range fake.Writes() {
+		require.NotContains(t, write.Path, "access_tokens", "discovery mints no installation token")
+	}
 	require.NotContains(t, logs.String(), attempt.State)
 	require.NotContains(t, logs.String(), "manifest-code")
 	require.NotContains(t, logs.String(), "setup-token")
@@ -374,7 +377,7 @@ func TestGitHubAppLegacyEnvironmentIgnoredByCompositionPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, status.GitHubAppConfigured)
 	require.Equal(t, "https://github.com/apps/stored-team/installations/new", status.InstallURL)
-	token, err := caller.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
+	token, err := caller.CreateGitHubInstallationToken(ctx, installationID, services.GitHubTokenScope{RepositoryIDs: []int64{1001}, Permissions: map[string]string{"contents": "read"}})
 	require.NoError(t, err, "fake verifies JWT App ID and signature against the stored App")
 	require.NotEmpty(t, token.Token)
 	require.Len(t, fake.Writes(), 1)

@@ -184,7 +184,7 @@ func (s *workflowRunService) completeGitHubCheckRun(ctx context.Context, run db.
 	if err != nil {
 		return nil
 	}
-	owner, repoName, installationID, ok := s.gitHubCheckRunTarget(ctx, repository, s.resolveRepoOwner(ctx, repository))
+	owner, repoName, installationID, repositoryID, ok := s.gitHubCheckRunTarget(ctx, repository, s.resolveRepoOwner(ctx, repository))
 	if !ok {
 		return nil
 	}
@@ -204,7 +204,7 @@ func (s *workflowRunService) completeGitHubCheckRun(ctx context.Context, run db.
 			run.ID, run.Status, len(annotations),
 		)
 	}
-	_, err = s.checkRunService.UpdateCheckRun(ctx, installationID, owner, repoName, run.CheckRunID.Int64, GitHubCheckRunUpdate{
+	_, err = s.checkRunService.UpdateCheckRun(ctx, installationID, repositoryID, owner, repoName, run.CheckRunID.Int64, GitHubCheckRunUpdate{
 		Status:     "completed",
 		Conclusion: workflowRunStatusToCheckRunConclusion(run.Status),
 		Output:     output,

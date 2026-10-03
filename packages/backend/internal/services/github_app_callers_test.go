@@ -84,7 +84,14 @@ func newTestGitHubUserReposService(t *testing.T, queries GitHubUserReposDB, decr
 	return NewGitHubUserReposService(queries, decrypter, append(opts, WithGitHubUserReposCredentialStore(testCallerCredentials(t)))...)
 }
 func newTestStackService(t *testing.T, queries StackQuerier, opts ...StackServiceOption) *StackService {
-	return NewStackService(queries, append(opts, WithStackGitHubAppCredentialStore(testCallerCredentials(t)))...)
+	svc := NewStackService(queries, opts...)
+	if stub, ok := svc.githubInstallations.(stackInstallationResolverStub); ok {
+		// Compose gives the minter the stack service's budget tracker.
+		minter := newTestRepoConnectionService(t, nil)
+		minter.SetGitHubBudgetTracker(svc.githubBudget)
+		svc.githubInstallations = stackTestResolver{lookup: stub, minter: minter}
+	}
+	return svc
 }
 func TestStoredGitHubAppPermissionsURLUsesAppOwner(t *testing.T) {
 	for _, test := range []struct{ kind, owner, want string }{
@@ -109,10 +116,10 @@ func TestLegacyAppEnvironmentCannotConfigureStatus(t *testing.T) {
 
 func TestStoredCredentialsGateCachedInstallationTokens(t *testing.T) {
 	const id = int64(991239)
-	storeCachedInstallationToken(id, "cached-token", time.Now().Add(time.Hour))
+	storeCachedInstallationToken(testTokenKey(id), id, "cached-token", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(id) })
 	fixture := &callerCredentialFixture{err: errors.New("cannot unseal credentials")}
 	repoService := NewRepoConnectionService(notConfiguredStatusDB(), fixture)
-	_, err := repoService.CreateGitHubInstallationTokenForInternalInstallation(context.Background(), id)
+	_, err := repoService.CreateGitHubInstallationToken(context.Background(), id, GitHubTokenScope{RepositoryIDs: []int64{testRepositoryID}, Permissions: testTokenPermissions})
 	require.Error(t, err, "cached tokens must not bypass a broken credential store")
 }

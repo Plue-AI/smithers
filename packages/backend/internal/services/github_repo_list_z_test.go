@@ -16,7 +16,7 @@ type repoListZTokenIssuer struct {
 	err error
 }
 
-func (i repoListZTokenIssuer) CreateGitHubInstallationToken(context.Context, int64, string, string) (GitHubInstallationToken, error) {
+func (i repoListZTokenIssuer) CreateGitHubInstallationToken(context.Context, int64, GitHubTokenScope) (GitHubInstallationToken, error) {
 	if i.err != nil {
 		return GitHubInstallationToken{}, i.err
 	}

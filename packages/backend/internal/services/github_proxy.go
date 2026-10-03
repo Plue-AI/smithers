@@ -22,11 +22,31 @@ import (
 const GitHubProxyForbiddenActionCode = pkgerrors.CodeGitHubForbiddenAction
 
 type GitHubProxyInstallationTokenIssuer interface {
-	CreateGitHubInstallationToken(ctx context.Context, userID int64, owner string, repo string) (GitHubInstallationToken, error)
+	CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error)
 }
 
 type gitHubProxyImportedSourceTokenIssuer interface {
-	CreateGitHubInstallationTokenForImportedSource(ctx context.Context, userID int64, repositoryID int64, owner string, repo string) (GitHubInstallationToken, error)
+	CreateGitHubInstallationTokenForImportedSource(ctx context.Context, userID int64, repositoryID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error)
+}
+
+// gitHubProxyReadPermissions covers every read EvaluateGitHubProxyPolicy
+// allows. Never workflows or administration.
+var gitHubProxyReadPermissions = map[string]string{"contents": "read", "issues": "read", "pull_requests": "read"}
+
+// gitHubProxyMutationPermissions grants an allowed mutation only what its
+// endpoint needs; a mutation it does not know gets no token.
+func gitHubProxyMutationPermissions(requestPath string) (map[string]string, error) {
+	_, _, subpath, _ := parseGitHubRepoPath(normalizeGitHubProxyPath(requestPath))
+	switch {
+	case isIssueCommentPath(subpath):
+		return map[string]string{"issues": "write"}, nil
+	case isPullMergePath(subpath) || strings.HasPrefix(subpath, "/git/refs"):
+		return map[string]string{"contents": "write"}, nil
+	case subpath == "/pulls" || isPullItemPath(subpath) || isPullCommentPath(subpath):
+		return map[string]string{"pull_requests": "write"}, nil
+	default:
+		return nil, pkgerrors.Forbidden("no token scope covers this mutation")
+	}
 }
 
 // GitHubProxyUserTokens resolves the acting user's own GitHub credential and
@@ -184,7 +204,7 @@ func (s *GitHubProxyService) proxyRequest(ctx context.Context, resolved gitHubPr
 		}
 	}
 
-	installationToken, err := s.createInstallationToken(ctx, resolved)
+	installationToken, err := s.createInstallationToken(ctx, resolved, method, requestPath)
 	if err != nil && s.canReadWithUserToken(method, requestPath, err) {
 		return s.proxyWithUserToken(ctx, resolved.ActorUserID, method, requestPath, input.Headers, policyDecision.Reason)
 	}
@@ -292,7 +312,19 @@ func (s *GitHubProxyService) proxyWithUserToken(ctx context.Context, userID int6
 	}, nil
 }
 
-func (s *GitHubProxyService) createInstallationToken(ctx context.Context, resolved gitHubProxyResolvedContext) (GitHubInstallationToken, error) {
+func (s *GitHubProxyService) createInstallationToken(ctx context.Context, resolved gitHubProxyResolvedContext, method, requestPath string) (GitHubInstallationToken, error) {
+	if method != http.MethodGet {
+		// Import provenance proves read access only. A write needs the actor's
+		// own repo connection.
+		if resolved.UseImportedSourceInstallationID {
+			return GitHubInstallationToken{}, pkgerrors.Forbidden("imported sources are read-only")
+		}
+		permissions, err := gitHubProxyMutationPermissions(requestPath)
+		if err != nil {
+			return GitHubInstallationToken{}, err
+		}
+		return s.tokenIssuer.CreateGitHubInstallationTokenForUserRepo(ctx, resolved.ActorUserID, resolved.Owner, resolved.Repo, permissions)
+	}
 	if resolved.UseImportedSourceInstallationID || resolved.TryImportedSourceInstallationID {
 		importedIssuer, ok := s.tokenIssuer.(gitHubProxyImportedSourceTokenIssuer)
 		if !ok {
@@ -300,7 +332,7 @@ func (s *GitHubProxyService) createInstallationToken(ctx context.Context, resolv
 				return GitHubInstallationToken{}, pkgerrors.Internal("github proxy service unavailable")
 			}
 		} else {
-			token, err := importedIssuer.CreateGitHubInstallationTokenForImportedSource(ctx, resolved.ActorUserID, resolved.RepositoryID, resolved.Owner, resolved.Repo)
+			token, err := importedIssuer.CreateGitHubInstallationTokenForImportedSource(ctx, resolved.ActorUserID, resolved.RepositoryID, resolved.Owner, resolved.Repo, gitHubProxyReadPermissions)
 			if err == nil {
 				return token, nil
 			}
@@ -312,7 +344,7 @@ func (s *GitHubProxyService) createInstallationToken(ctx context.Context, resolv
 			}
 		}
 	}
-	return s.tokenIssuer.CreateGitHubInstallationToken(ctx, resolved.ActorUserID, resolved.Owner, resolved.Repo)
+	return s.tokenIssuer.CreateGitHubInstallationTokenForUserRepo(ctx, resolved.ActorUserID, resolved.Owner, resolved.Repo, gitHubProxyReadPermissions)
 }
 
 func (s *GitHubProxyService) buildUpstreamRequest(

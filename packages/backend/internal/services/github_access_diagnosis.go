@@ -261,8 +261,13 @@ func (s *GitHubUserReposService) lookupRepoInstallation(
 	if err != nil {
 		return githubRepoInstallation{}, false, pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}
+	return fetchRepoInstallation(ctx, s.httpClient, githubAPIBaseURL(), jwt, owner, repo)
+}
 
-	endpoint := strings.TrimRight(githubAPIBaseURL(), "/") +
+// fetchRepoInstallation asks GitHub, with an App JWT, which installation
+// covers owner/repo. It mints no installation token.
+func fetchRepoInstallation(ctx context.Context, client *http.Client, baseURL, jwt, owner, repo string) (githubRepoInstallation, bool, error) {
+	endpoint := strings.TrimRight(baseURL, "/") +
 		"/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/installation"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -273,7 +278,7 @@ func (s *GitHubUserReposService) lookupRepoInstallation(
 	req.Header.Set("User-Agent", "smithers-server")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return githubRepoInstallation{}, false, badGateway("github installation lookup failed")
 	}

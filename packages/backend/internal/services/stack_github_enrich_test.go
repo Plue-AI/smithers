@@ -40,7 +40,7 @@ func TestStackGitHubEnrich_ParallelWithDeadline(t *testing.T) {
 	const installationID = int64(987654322)
 	setTestCallerCredentials(t, "ID", "123")
 	setTestCallerCredentials(t, "PEM", generateStackTestRSAPrivateKeyPEM(t))
-	storeCachedInstallationToken(installationID, "cached-token", time.Now().Add(time.Hour))
+	storeCachedInstallationToken(GitHubTokenScope{RepositoryIDs: []int64{testRepositoryID}, Permissions: stackGitHubPermissions}.cacheKey(installationID), installationID, "cached-token", time.Now().Add(time.Hour))
 	t.Cleanup(func() { invalidateCachedInstallationToken(installationID) })
 
 	var inFlight, maxInFlight atomic.Int32

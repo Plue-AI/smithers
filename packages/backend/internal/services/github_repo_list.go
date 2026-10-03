@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,21 +16,22 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+// firstGitHubInstalledRepoForUserSQL finds an installation covering one of the
+// user's connected repositories, by persisted repository id.
 const firstGitHubInstalledRepoForUserSQL = `
-SELECT gir.owner_login, gir.repo_name
+SELECT gir.installation_id
 FROM repo_connections rc
 JOIN github_app_installation_repositories gir
-  ON gir.owner_login_lower = rc.repo_owner_lower
- AND gir.repo_name_lower = rc.repo_name_lower
+  ON gir.github_repository_id = rc.github_repository_id
 WHERE rc.user_id = $1
 ORDER BY gir.updated_at DESC, gir.created_at DESC
 LIMIT 1;
 `
 
-const userConnectedRepoKeysSQL = `
-SELECT COALESCE(array_agg(repo_owner_lower || '/' || repo_name_lower), '{}'::text[])
+const userConnectedRepositoryIDsSQL = `
+SELECT COALESCE(array_agg(github_repository_id), '{}'::bigint[])
 FROM repo_connections
-WHERE user_id = $1;
+WHERE user_id = $1 AND github_repository_id IS NOT NULL;
 `
 
 type GitHubRepoListDB interface {
@@ -38,7 +40,7 @@ type GitHubRepoListDB interface {
 
 type GitHubRepoListService struct {
 	db          GitHubRepoListDB
-	tokenIssuer GitHubProxyInstallationTokenIssuer
+	tokenIssuer GitHubInstallationTokenMinter
 	httpClient  *http.Client
 }
 
@@ -52,7 +54,7 @@ func WithGitHubRepoListHTTPClient(client *http.Client) GitHubRepoListOption {
 	}
 }
 
-func NewGitHubRepoListService(db GitHubRepoListDB, tokenIssuer GitHubProxyInstallationTokenIssuer, opts ...GitHubRepoListOption) *GitHubRepoListService {
+func NewGitHubRepoListService(db GitHubRepoListDB, tokenIssuer GitHubInstallationTokenMinter, opts ...GitHubRepoListOption) *GitHubRepoListService {
 	s := &GitHubRepoListService{
 		db:          db,
 		tokenIssuer: tokenIssuer,
@@ -105,8 +107,8 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 		return GitHubRepoListResult{}, pkgerrors.Unauthorized("authentication required")
 	}
 
-	var owner, repo string
-	err := s.db.QueryRow(ctx, firstGitHubInstalledRepoForUserSQL, userID).Scan(&owner, &repo)
+	var installationID int64
+	err := s.db.QueryRow(ctx, firstGitHubInstalledRepoForUserSQL, userID).Scan(&installationID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return GitHubRepoListResult{}, pkgerrors.Unauthorized("github app is not installed for this user")
@@ -114,7 +116,7 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 		return GitHubRepoListResult{}, pkgerrors.Internal("failed to resolve github installation").WithCause(err)
 	}
 
-	token, err := s.tokenIssuer.CreateGitHubInstallationToken(ctx, userID, owner, repo)
+	token, err := s.tokenIssuer.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{AllRepositories: true, Permissions: gitHubListingPermissions})
 	if err != nil {
 		return GitHubRepoListResult{}, err
 	}
@@ -172,21 +174,13 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 	// they explicitly connected: intersect the upstream listing with the
 	// caller's repo_connections so one connection cannot enumerate other
 	// (private) repos sharing the installation.
-	var connectedKeys []string
-	if err := s.db.QueryRow(ctx, userConnectedRepoKeysSQL, userID).Scan(&connectedKeys); err != nil {
+	var connectedIDs []int64
+	if err := s.db.QueryRow(ctx, userConnectedRepositoryIDsSQL, userID).Scan(&connectedIDs); err != nil {
 		return GitHubRepoListResult{}, pkgerrors.Internal("failed to load repo connections").WithCause(err)
-	}
-	connected := make(map[string]struct{}, len(connectedKeys))
-	for _, key := range connectedKeys {
-		connected[key] = struct{}{}
 	}
 	repos := make([]GitHubRepoListItem, 0, len(payload.Repositories))
 	for _, item := range payload.Repositories {
-		key := strings.ToLower(strings.TrimSpace(item.Owner.Login)) + "/" + strings.ToLower(strings.TrimSpace(item.Name))
-		if key == "/" {
-			key = strings.ToLower(strings.TrimSpace(item.FullName))
-		}
-		if _, ok := connected[key]; ok {
+		if id, ok := item.ID.(float64); ok && slices.Contains(connectedIDs, int64(id)) {
 			repos = append(repos, item)
 		}
 	}

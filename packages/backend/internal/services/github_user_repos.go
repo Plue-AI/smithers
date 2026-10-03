@@ -595,53 +595,59 @@ func (s *GitHubUserReposService) refreshUserGitHubToken(ctx context.Context, acc
 // identity has push access to owner/repo. It backs ConnectRepo's trust
 // boundary: repo_connections rows gate GitHub App installation-token
 // issuance, so a row must never be created from unverified owner/repo
-// strings. Returns nil only when GitHub reports push (or higher) permission
-// for the user's token.
-func (s *GitHubUserReposService) VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) error {
-	_, err := s.GitHubPushToken(ctx, userID, owner, repo)
-	return err
+// strings. It returns the repository's immutable id only when GitHub reports
+// push (or higher) permission for the user's token.
+func (s *GitHubUserReposService) VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) (int64, error) {
+	_, repositoryID, err := s.verifyGitHubPush(ctx, userID, owner, repo)
+	return repositoryID, err
 }
 
 // GitHubPushToken returns only the caller's own credential after GitHub verifies write access.
 // Keep it server-side; mirror jobs must never substitute an installation-wide credential.
 func (s *GitHubUserReposService) GitHubPushToken(ctx context.Context, userID int64, owner string, repo string) (string, error) {
+	token, _, err := s.verifyGitHubPush(ctx, userID, owner, repo)
+	return token, err
+}
+
+func (s *GitHubUserReposService) verifyGitHubPush(ctx context.Context, userID int64, owner string, repo string) (string, int64, error) {
 	trimmedOwner := strings.TrimSpace(owner)
 	trimmedRepo := strings.TrimSpace(repo)
 	if trimmedOwner == "" || trimmedRepo == "" {
-		return "", pkgerrors.BadRequest("owner and repository name are required")
+		return "", 0, pkgerrors.BadRequest("owner and repository name are required")
 	}
 
 	accessToken, account, err := s.resolveUserGitHubAccessToken(ctx, userID)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	canPush, err := s.requestGitHubRepoPushPermission(ctx, accessToken, trimmedOwner, trimmedRepo)
+	canPush, repositoryID, err := s.requestGitHubRepoPushPermission(ctx, accessToken, trimmedOwner, trimmedRepo)
 	if err != nil && isGitHubTokenExpired(err) {
 		// Reactive refresh-on-401: renew the expired token once and retry.
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			accessToken = newToken
-			canPush, err = s.requestGitHubRepoPushPermission(ctx, accessToken, trimmedOwner, trimmedRepo)
+			canPush, repositoryID, err = s.requestGitHubRepoPushPermission(ctx, accessToken, trimmedOwner, trimmedRepo)
 		}
 	}
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if !canPush {
-		return "", pkgerrors.Forbidden("your github account does not have push access to this repository")
+		return "", 0, pkgerrors.Forbidden("your github account does not have push access to this repository")
 	}
-	return accessToken, nil
+	return accessToken, repositoryID, nil
 }
 
 // requestGitHubRepoPushPermission performs one GET /repos/{owner}/{repo} call
 // with the user's token and reports whether the authenticated user holds push
-// (or higher) permission. A 404 means the repo does not exist or the user
-// cannot see it — both are "no access", not errors.
-func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Context, accessToken string, owner string, repo string) (bool, error) {
+// (or higher) permission, with the repository's immutable id. A 404 means
+// the repo does not exist or the user cannot see it — both are "no access",
+// not errors.
+func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Context, accessToken string, owner string, repo string) (bool, int64, error) {
 	endpoint := strings.TrimRight(githubAPIBaseURL(), "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return false, pkgerrors.Internal("failed to build github repository request").WithCause(err)
+		return false, 0, pkgerrors.Internal("failed to build github repository request").WithCause(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -650,25 +656,26 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return false, pkgerrors.Internal("github repository request failed").WithCause(err)
+		return false, 0, pkgerrors.Internal("github repository request failed").WithCause(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		return false, pkgerrors.Unauthorized("github oauth token was rejected")
+		return false, 0, pkgerrors.Unauthorized("github oauth token was rejected")
 	case resp.StatusCode == http.StatusNotFound:
-		return false, nil
+		return false, 0, nil
 	case resp.StatusCode == http.StatusForbidden:
 		// Rate limit / SAML-SSO / access denial — fail closed without
 		// consuming a single-use refresh token (see requestGitHubUserRepos).
-		return false, pkgerrors.Forbidden("github denied the repository access check")
+		return false, 0, pkgerrors.Forbidden("github denied the repository access check")
 	case resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices:
-		return false, pkgerrors.Internal("github repository request was rejected")
+		return false, 0, pkgerrors.Internal("github repository request was rejected")
 	}
 
 	var payload struct {
+		ID          int64 `json:"id"`
 		Permissions struct {
 			Admin    bool `json:"admin"`
 			Maintain bool `json:"maintain"`
@@ -676,9 +683,9 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return false, pkgerrors.Internal("failed to decode github repository response").WithCause(err)
+		return false, 0, pkgerrors.Internal("failed to decode github repository response").WithCause(err)
 	}
-	return payload.Permissions.Push || payload.Permissions.Maintain || payload.Permissions.Admin, nil
+	return payload.Permissions.Push || payload.Permissions.Maintain || payload.Permissions.Admin, payload.ID, nil
 }
 
 // requestGitHubUserRepos performs one GET /user/repos call and returns the

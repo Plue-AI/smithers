@@ -76,14 +76,14 @@ func TestRepoConnectionGitHubApp_Cov_CreateTokenHTTPErrorBranches(t *testing.T) 
 		},
 	})
 
-	_, err = svc.CreateGitHubInstallationToken(context.Background(), 7, "acme", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 7, "acme", "repo", testTokenPermissions)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.Status)
-	assert.Equal(t, "installation suspended", apiErr.Message)
+	assert.Equal(t, "github refused the installation token request", apiErr.Message, "upstream text never reaches a caller")
 
-	storeCachedInstallationToken(installationID, "cached", time.Now().Add(installationTokenEarlyExpiry-time.Second))
-	_, ok := getCachedInstallationToken(installationID)
+	storeCachedInstallationToken(testTokenKey(installationID), installationID, "cached", time.Now().Add(installationTokenEarlyExpiry-time.Second))
+	_, ok := getCachedInstallationToken(testTokenKey(installationID))
 	assert.False(t, ok, "tokens inside the early-expiry window must not be served")
 }

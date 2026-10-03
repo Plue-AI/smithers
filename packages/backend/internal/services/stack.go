@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -76,22 +77,17 @@ type StackQuerier interface {
 }
 
 type StackService struct {
-	githubAppCredentials GitHubAppCredentialReader
-	queries              StackQuerier
-	submitTxManager      stackSubmitTxManager
-	workflowRunner       StackWorkflowRunDispatcher
-	githubInstallations  StackGitHubInstallationResolver
-	githubBudget         *BudgetTracker
+	queries             StackQuerier
+	submitTxManager     stackSubmitTxManager
+	workflowRunner      StackWorkflowRunDispatcher
+	githubInstallations StackGitHubInstallationResolver
+	githubBudget        *BudgetTracker
 }
 
-// WithStackGitHubBudget keeps stack decoration and its existing token issuer
-// on the install's shared admission path instead of constructing a bypass.
+// WithStackGitHubBudget keeps stack decoration on the install's shared
+// admission path; the token itself comes from the one minter.
 func WithStackGitHubBudget(budget *BudgetTracker) StackServiceOption {
 	return func(s *StackService) { s.githubBudget = budget }
-}
-
-func WithStackGitHubAppCredentialStore(store GitHubAppCredentialReader) StackServiceOption {
-	return func(s *StackService) { s.githubAppCredentials = store }
 }
 
 type StackServiceOption func(*StackService)
@@ -159,8 +155,11 @@ func (t *pgxStackSubmitTx) Rollback(ctx context.Context) error {
 // lookup would let a name-colliding Smithers repo read a victim installation's
 // private PR/review/check metadata.
 type StackGitHubInstallationResolver interface {
-	GetGitHubInstallationIDForUserRepo(ctx context.Context, userID int64, owner string, repo string) (int64, error)
+	CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner string, repo string, permissions map[string]string) (GitHubInstallationToken, error)
 }
+
+// stackGitHubPermissions reads pull request state, reviews and check runs.
+var stackGitHubPermissions = map[string]string{"pull_requests": "read", "checks": "read"}
 
 // WithStackGitHubInstallationResolver enables GitHub PR/CI enrichment of stack
 // responses. Without it, stack responses use local defaults only.
@@ -700,24 +699,11 @@ func (s *StackService) enrichStackResponseWithGitHub(
 		return nil
 	}
 
-	installationID, err := s.githubInstallations.GetGitHubInstallationIDForUserRepo(ctx, viewerID, normalizedOwner, normalizedRepo)
+	// GitHub state is decoration on a readable local stack: any failure
+	// degrades to defaults instead of failing the whole read.
+	installation, err := s.githubInstallations.CreateGitHubInstallationTokenForUserRepo(ctx, viewerID, normalizedOwner, normalizedRepo, stackGitHubPermissions)
 	if err != nil {
-		// GitHub state is decoration on a readable local stack; degrade to
-		// defaults instead of failing the whole read.
 		slog.Warn("stack: failed to load github app installation", "owner", normalizedOwner, "repo", normalizedRepo, "error", err)
-		installationID = 0
-	}
-	if installationID <= 0 {
-		for index := range response.Changes {
-			applyStackChangeDefaults(&response.Changes[index], owner, repo)
-		}
-		return nil
-	}
-
-	issuer := NewRepoConnectionService(nil, s.githubAppCredentials)
-	issuer.SetGitHubBudgetTracker(s.githubBudget)
-	installation, err := issuer.CreateGitHubInstallationTokenForInternalInstallation(ctx, installationID)
-	if err != nil {
 		for index := range response.Changes {
 			applyStackChangeDefaults(&response.Changes[index], owner, repo)
 		}
@@ -742,7 +728,7 @@ func (s *StackService) enrichStackResponseWithGitHub(
 				return
 			}
 			defer func() { <-sem }()
-			state, err := loadStackGitHubState(enrichCtx, gitHubProviderClient(issuer, 10*time.Second), installation.Token, owner, repo, prNumber)
+			state, err := loadStackGitHubState(enrichCtx, s.githubBudget.WrapClient(observability.NewHTTPClient(10*time.Second)), installation.Token, owner, repo, prNumber)
 			if err == nil {
 				states[index] = &state
 			}

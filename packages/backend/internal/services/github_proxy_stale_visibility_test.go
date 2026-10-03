@@ -83,7 +83,7 @@ func TestImportedSourceToken_StalePublicFlagDoesNotOpenAPrivateRepo(t *testing.T
 	const stranger, collaborator int64 = 8, 9
 	svc.SetGitHubRepoAccessVerifier(&readProvingVerifier{readers: map[int64]bool{collaborator: true}})
 
-	token, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), stranger, 333, "victimcorp", "tool")
+	token, err := svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), stranger, 333, "victimcorp", "tool", testTokenPermissions)
 	require.Error(t, err, "a stale public flag must not mint a token for a now-private repo")
 	assert.Empty(t, token.Token)
 	var apiErr *pkgerrors.APIError
@@ -93,7 +93,7 @@ func TestImportedSourceToken_StalePublicFlagDoesNotOpenAPrivateRepo(t *testing.T
 	assert.Equal(t, []string{"victimcorp/tool"}, corrected, "the stale flag is corrected")
 
 	// Someone whose own GitHub credential reads the private repo still can.
-	token, err = svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), collaborator, 334, "victimcorp", "tool")
+	token, err = svc.CreateGitHubInstallationTokenForImportedSource(context.Background(), collaborator, 334, "victimcorp", "tool", testTokenPermissions)
 	require.NoError(t, err)
 	assert.Equal(t, "ghs_full_installation", token.Token)
 }

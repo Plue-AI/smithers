@@ -37,7 +37,7 @@ func TestRepoConnectionGitHubApp_Z_JWTCreationError(t *testing.T) {
 			}}
 		},
 	})
-	_, err = svc.CreateGitHubInstallationToken(context.Background(), 1, "owner", "repo")
+	_, err = svc.CreateGitHubInstallationTokenForUserRepo(context.Background(), 1, "owner", "repo", testTokenPermissions)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }

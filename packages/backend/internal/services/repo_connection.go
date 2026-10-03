@@ -21,14 +21,16 @@ INSERT INTO repo_connections (
 	repo_name,
 	repo_owner_lower,
 	repo_name_lower,
-	license_spdx_id
+	license_spdx_id,
+	github_repository_id
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (user_id, repo_owner_lower, repo_name_lower)
 DO UPDATE SET
 	repo_owner = EXCLUDED.repo_owner,
 	repo_name = EXCLUDED.repo_name,
 	license_spdx_id = EXCLUDED.license_spdx_id,
+	github_repository_id = EXCLUDED.github_repository_id,
 	updated_at = NOW()
 RETURNING user_id, repo_owner, repo_name, license_spdx_id, created_at, updated_at;
 `
@@ -70,9 +72,10 @@ type RepoConnectionStatus struct {
 }
 
 // GitHubRepoAccessVerifier proves the caller's own GitHub identity can push to
-// the GitHub repository being connected. Implemented by *GitHubUserReposService.
+// the GitHub repository being connected and returns that repository's
+// immutable id. Implemented by *GitHubUserReposService.
 type GitHubRepoAccessVerifier interface {
-	VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) error
+	VerifyUserCanPushToGitHubRepo(ctx context.Context, userID int64, owner string, repo string) (int64, error)
 }
 
 type RepoConnectionService struct {
@@ -138,8 +141,12 @@ func (s *RepoConnectionService) ConnectRepo(
 	if s.githubAccessVerifier == nil {
 		return RepoConnection{}, pkgerrors.Internal("github repository access verification is not configured")
 	}
-	if err := s.githubAccessVerifier.VerifyUserCanPushToGitHubRepo(ctx, userID, normalizedOwner, normalizedRepo); err != nil {
+	repositoryID, err := s.githubAccessVerifier.VerifyUserCanPushToGitHubRepo(ctx, userID, normalizedOwner, normalizedRepo)
+	if err != nil {
 		return RepoConnection{}, err
+	}
+	if repositoryID <= 0 {
+		return RepoConnection{}, pkgerrors.Internal("github did not identify the repository")
 	}
 
 	var connection RepoConnection
@@ -152,6 +159,7 @@ func (s *RepoConnectionService) ConnectRepo(
 		normalizedOwner,
 		normalizedRepo,
 		trimmedLicense,
+		repositoryID,
 	).Scan(
 		&connection.UserID,
 		&connection.Owner,

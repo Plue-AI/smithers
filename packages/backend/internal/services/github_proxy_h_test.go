@@ -28,7 +28,7 @@ func TestGitHubProxy_H_ProxyRequestDenialsAndUpstreamFailures(t *testing.T) {
 		ActorUserID: 1,
 		Owner:       "acme",
 		Repo:        "demo",
-	}, GitHubProxyRequest{Method: "POST", Path: "/repos/acme/demo/check-runs", Body: json.RawMessage(`{"bad"`)}, GitHubProxyPolicyInput{})
+	}, GitHubProxyRequest{Method: "POST", Path: "/repos/acme/demo/issues/1/comments", Body: json.RawMessage(`{"bad"`)}, GitHubProxyPolicyInput{})
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, statusCodeFromError(err))
 

@@ -26,7 +26,7 @@ type mockGitHubProxyTokenIssuer struct {
 	}
 }
 
-func (m *mockGitHubProxyTokenIssuer) CreateGitHubInstallationToken(ctx context.Context, userID int64, owner string, repo string) (services.GitHubInstallationToken, error) {
+func (m *mockGitHubProxyTokenIssuer) CreateGitHubInstallationTokenForUserRepo(ctx context.Context, userID int64, owner string, repo string, _ map[string]string) (services.GitHubInstallationToken, error) {
 	m.calls = append(m.calls, struct {
 		userID int64
 		owner  string
@@ -83,7 +83,7 @@ func TestGitHubProxyHandler_PostRepoGitHubProxy_RoundTrip(t *testing.T) {
 
 	payload := map[string]any{
 		"method": "POST",
-		"path":   "/repos/acme/demo/check-runs",
+		"path":   "/repos/acme/demo/issues/1/comments",
 		"headers": map[string]string{
 			"X-GitHub-Api-Version": "2022-11-28",
 		},
@@ -110,7 +110,7 @@ func TestGitHubProxyHandler_PostRepoGitHubProxy_RoundTrip(t *testing.T) {
 
 	assert.Equal(t, "Bearer install-token-xyz", gotGitHubAuth)
 	assert.Equal(t, http.MethodPost, gotGitHubMethod)
-	assert.Equal(t, "/repos/acme/demo/check-runs", gotGitHubPath)
+	assert.Equal(t, "/repos/acme/demo/issues/1/comments", gotGitHubPath)
 	assert.Equal(t, "smithers-server", gotGitHubUserAgent)
 	assert.Equal(t, "smithers/checks", gotGitHubBody["name"])
 	assert.Equal(t, "deadbeef", gotGitHubBody["head_sha"])

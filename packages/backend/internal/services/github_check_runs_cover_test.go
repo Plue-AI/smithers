@@ -22,7 +22,7 @@ func (rt githubCheckRunsCovRoundTripper) RoundTrip(*http.Request) (*http.Respons
 func TestGithubCheckRuns_Cov_ValidationAndTokenErrors(t *testing.T) {
 	ctx := context.Background()
 	var nilSvc *githubCheckRunService
-	_, err := nilSvc.PostCheckRun(ctx, 1, "acme", "demo", GitHubCheckRunInput{Name: "ci", HeadSHA: "abc"})
+	_, err := nilSvc.PostCheckRun(ctx, 1, 100, "acme", "demo", GitHubCheckRunInput{Name: "ci", HeadSHA: "abc"})
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -41,18 +41,18 @@ func TestGithubCheckRuns_Cov_ValidationAndTokenErrors(t *testing.T) {
 		{installationID: 1, owner: "acme", repo: "demo", name: " ", sha: "abc", status: 400},
 		{installationID: 1, owner: "acme", repo: "demo", name: "ci", sha: " ", status: 400},
 	} {
-		_, err := svc.PostCheckRun(ctx, input.installationID, input.owner, input.repo, GitHubCheckRunInput{Name: input.name, HeadSHA: input.sha})
+		_, err := svc.PostCheckRun(ctx, input.installationID, 100, input.owner, input.repo, GitHubCheckRunInput{Name: input.name, HeadSHA: input.sha})
 		require.Error(t, err)
 		assert.Equal(t, input.status, apiStatus(t, err))
 	}
 
-	_, err = svc.UpdateCheckRun(ctx, 0, "acme", "demo", 1, GitHubCheckRunUpdate{})
+	_, err = svc.UpdateCheckRun(ctx, 0, 100, "acme", "demo", 1, GitHubCheckRunUpdate{})
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
-	_, err = svc.UpdateCheckRun(ctx, 1, "acme", "demo", 0, GitHubCheckRunUpdate{})
+	_, err = svc.UpdateCheckRun(ctx, 1, 100, "acme", "demo", 0, GitHubCheckRunUpdate{})
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
-	_, err = svc.UpdateCheckRun(ctx, 1, "", "demo", 1, GitHubCheckRunUpdate{})
+	_, err = svc.UpdateCheckRun(ctx, 1, 100, "", "demo", 1, GitHubCheckRunUpdate{})
 	require.Error(t, err)
 	assert.Equal(t, 400, apiStatus(t, err))
 
@@ -61,7 +61,7 @@ func TestGithubCheckRuns_Cov_ValidationAndTokenErrors(t *testing.T) {
 			return GitHubInstallationToken{}, assert.AnError
 		},
 	}}
-	_, err = tokenSvc.issueInstallationToken(ctx, 1)
+	_, err = tokenSvc.issueInstallationToken(ctx, 1, 100)
 	require.ErrorIs(t, err, assert.AnError)
 
 	tokenSvc.tokenIssuer = &mockGitHubCheckRunTokenIssuer{
@@ -69,7 +69,7 @@ func TestGithubCheckRuns_Cov_ValidationAndTokenErrors(t *testing.T) {
 			return GitHubInstallationToken{InstallationID: 2, Token: "tok"}, nil
 		},
 	}
-	_, err = tokenSvc.issueInstallationToken(ctx, 1)
+	_, err = tokenSvc.issueInstallationToken(ctx, 1, 100)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 
@@ -78,7 +78,7 @@ func TestGithubCheckRuns_Cov_ValidationAndTokenErrors(t *testing.T) {
 			return GitHubInstallationToken{InstallationID: 1, Token: " "}, nil
 		},
 	}
-	_, err = tokenSvc.issueInstallationToken(ctx, 1)
+	_, err = tokenSvc.issueInstallationToken(ctx, 1, 100)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 }
