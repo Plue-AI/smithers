@@ -98,14 +98,6 @@ const fmt = Smithers.Dprint({
   cwd
 })
 
-/** Colocated source documentation consumed by the dedicated Astro site. */
-const docsFiles = Smithers.Filegroup({ srcs: [Smithers.glob("docs/**/*.md")], cwd })
-/** The real renderer and replay fixture used to execute documentation scripts. */
-const recordingSources = Smithers.Filegroup({
-  srcs: [...sources, Smithers.file("package.json"), cli.nativeSources],
-  cwd
-})
-
 /**
  * Security review of the terminal host: the approval gate, the person's own
  * shell, credential redaction on every sink, owner-only session files, undo
@@ -279,5 +271,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { check, unitTests, e2eTests, lint, fmt, docsFiles, recordingSources, ...securityReview }
+  targets: { check, unitTests, e2eTests, lint, fmt, ...securityReview }
 })

@@ -1,6 +1,0 @@
-.astro/
-dist/
-.cache/
-public/recordings/*
-!public/recordings/.gitkeep
-__pycache__/

@@ -158,18 +158,6 @@ describe("the Cloud machine pins what the repository declares", () => {
       only(rootPackage, /CiToolchain\.Foundry\(\{ release: "([^"]+)" \}\)/, "Foundry in PACKAGE.ts"))
   })
 
-  test("the docs gate's recording tools are on the machine", () => {
-    // apps/tui-docs/scripts/record.mjs refuses to record without FFmpeg,
-    // Python 3 (the base module ships it), Git and Bun. A target run passes
-    // only PATH through, so the browser is the `chromium` found there
-    // (apps/tui-docs/scripts/browser.mjs).
-    const record = read("apps/tui-docs/scripts/record.mjs")
-    expect(record).toContain('process.env.FFMPEG || "ffmpeg"')
-    expect(environment).toMatch(/^\s*pkgs\.ffmpeg-headless$/m)
-    expect(read("apps/tui-docs/scripts/browser.mjs")).toContain('join(dir, "chromium")')
-    expect(environment).toMatch(/^\s*pkgs\.chromium$/m)
-  })
-
   test("every download is content-addressed, so a build cannot drift", () => {
     // Each `fetchurl` either carries its own digest or inherits one the caller
     // passes; the Rust components use the second form, one call per tarball.

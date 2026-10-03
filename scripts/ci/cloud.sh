@@ -392,7 +392,7 @@ gate_tools() {
     bug-worker) echo 'js' ;;
     project-copy) echo 'js' ;;
     site) echo 'js' ;;
-    docs) echo 'js jj rust' ;;
+    docs) echo 'js' ;;
     review-eval) echo 'js' ;;
     review-check) echo 'js' ;;
     recommend-eval) echo 'js' ;;
@@ -555,14 +555,6 @@ run_gate() {
       ;;
     docs)
       pnpm exec smthrs ci '//apps/docs/...' --known-red '.github/ci-known-red.json' --verbose
-      # The TUI recordings run flow examples through the native workspace
-      # helper, as the tui gate's tests do.
-      native_jj_export
-      pnpm exec smthrs run '//apps/tui-docs:check' --verbose
-      pnpm exec smthrs test '//apps/tui-docs:test' --verbose
-      # browserTests depends on build, which depends on recordings, so this
-      # executes every TUI recording and verifies its published receipts.
-      pnpm exec smthrs test '//apps/tui-docs:browserTests' --verbose
       ;;
     review-eval)
       pnpm exec smthrs test '//evals/review-seeded-bugs/...' --known-red '.github/ci-known-red.json' --verbose

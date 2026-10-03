@@ -2,9 +2,8 @@
 /**
  * Re-captures every tutorial image under public/images/learn/ in one command.
  *
- *   node scripts/journeys/capture.mjs            # app, tui
+ *   node scripts/journeys/capture.mjs            # app, wiki, surfaces
  *   node scripts/journeys/capture.mjs app        # only the app GIFs
- *   node scripts/journeys/capture.mjs tui        # only the TUI GIFs
  *   node scripts/journeys/capture.mjs wiki       # only the Wiki pane
  *   node scripts/journeys/capture.mjs surfaces   # issues, a conversation, Connect, a run's Steps
  *   node scripts/journeys/capture.mjs previews <dir>
@@ -14,9 +13,6 @@
  * behind the chat boundary (app-host.mjs). Playwright records each journey;
  * ffmpeg turns the video into a GIF. A journey that returns a locator is a
  * still: that element is saved as a PNG instead.
- *
- * tui: the TUI docs recorder (apps/tui-docs/scripts/record.mjs) drives the
- * production TUI in a PTY with deterministic model replies; its GIFs are copied here.
  *
  * wiki: runs the app's wiki-spaces Playwright spec (apps/app) with
  * SMITHERS_WIKI_CAPTURE set; it captures the Wiki pane in the public space (a
@@ -32,8 +28,7 @@
  * ui-surfaces probe (`UI_EVIDENCE_DIR=<dir> bun test e2e/probes/ui-surfaces.test.ts`).
  * They illustrate a Planned screen only (the Inbox's guard incidents, #2114).
  *
- * Needs Node, Bun >= 1.4, ffmpeg, and apps/app's Playwright Chromium. The TUI
- * recorder also needs Python 3, Chrome, and SMITHERS_WORKSPACE_JJ_EXPORT_BINARY.
+ * Needs Node, Bun >= 1.4, ffmpeg, and apps/app's Playwright Chromium.
  * Every capture is recorded in public/images/learn/captures.json.
  */
 import { spawn, spawnSync } from "node:child_process"
@@ -41,7 +36,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { appJourneys, previews, surfaces, tuiRecordings } from "./journeys.mjs"
+import { appJourneys, previews, surfaces } from "./journeys.mjs"
 
 const here = fileURLToPath(new URL(".", import.meta.url))
 const site = resolve(here, "../..")
@@ -116,16 +111,6 @@ async function captureApp() {
   }
 }
 
-function captureTui() {
-  const docs = join(root, "apps/tui-docs")
-  run("node", ["scripts/record.mjs", "--only", tuiRecordings.map((entry) => entry.id).join(",")], { cwd: docs })
-  for (const entry of tuiRecordings) {
-    copyFileSync(join(docs, "public/recordings", `${entry.id}.gif`), join(out, `tui-${entry.id}.gif`))
-    note(`tui-${entry.id}.gif`, "tui", entry.detail)
-    console.log(`copied tui-${entry.id}`)
-  }
-}
-
 function captureWiki() {
   const detail = "The app's Wiki pane, driven by apps/app/e2e/playwright/wiki-spaces.spec.ts against its fixture repository."
   run("pnpm", ["exec", "playwright", "test", "e2e/playwright/wiki-spaces.spec.ts"], {
@@ -160,7 +145,6 @@ function copyPreviews(dir) {
 
 const [mode, arg] = process.argv.slice(2)
 if (mode === undefined || mode === "app") await captureApp()
-if (mode === undefined || mode === "tui") captureTui()
 if (mode === undefined || mode === "wiki") captureWiki()
 if (mode === undefined || mode === "surfaces") captureSurfaces()
 if (mode === "previews") copyPreviews(arg)

@@ -428,37 +428,6 @@
       ]
     },
     {
-      "id": "tui-docs",
-      "title": "Executable terminal documentation",
-      "purpose": "Record the TUI GIFs for smithers.sh and verify the browser playground's checkpoint recovery and sponsored model boundary.",
-      "kind": "current",
-      "document": "factory/wiki/pages/tui-docs.md",
-      "inputs": [
-        "apps/tui-docs/README.md",
-        "apps/tui/docs/README.md",
-        "apps/tui-docs/PACKAGE.ts",
-        "apps/tui-docs/scripts/targets.ts",
-        "apps/tui-docs/package.json"
-      ],
-      "excerpts": {
-        "apps/tui-docs/PACKAGE.ts": [
-          {
-            "start": 1,
-            "end": 6
-          },
-          {
-            "start": 82,
-            "end": 92
-          }
-        ]
-      },
-      "related": [
-        "agent",
-        "runtime",
-        "build-graph"
-      ]
-    },
-    {
       "id": "packages",
       "title": "Smithers runtime packages",
       "purpose": "Explain packages/smithers: the CLI host, durable flow runtime, agent composition, and build targets.",

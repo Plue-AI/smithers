@@ -37,15 +37,7 @@ describe("Local CI gate runner", () => {
         const repair = name === "target-index" ? "pnpm exec smthrs target '//:targetIndex' --write --verbose" : undefined
         const all = Array.from(body.matchAll(/^ {6,8}(pnpm exec .+)$/gm), ([, command]) => command!)
         if (repair) expect(all).toContain(repair)
-        // Dedicated TUI docs add Cloud-only checks; the existing GitHub docs
-        // fleet command stays pinned without creating another Actions lane.
-        const cloudOnly = name === "docs" ? [
-          "pnpm exec smthrs run '//apps/tui-docs:check' --verbose",
-          "pnpm exec smthrs test '//apps/tui-docs:test' --verbose",
-          "pnpm exec smthrs test '//apps/tui-docs:browserTests' --verbose"
-        ] : []
-        for (const command of cloudOnly) expect(all).toContain(command)
-        const commands = all.filter(command => command !== repair && !cloudOnly.includes(command))
+        const commands = all.filter(command => command !== repair)
         expect(commands.length).toBe(1)
         expect([...runs(github), ...runs(drift)]).toContain(commands[0])
       }
@@ -468,59 +460,9 @@ describe("Local CI gate runner", () => {
         expect(single.status).not.toBe(0)
         expect(single.stdout).not.toContain("GATE-OK")
       }
-      // The first failure stops the gate; nothing after it runs.
-      expect(run("docs").stdout).not.toContain("tui-docs")
+      // The first failure stops the multi-command TUI gate.
       expect(run("tui").stdout).not.toContain("RAN install")
       expect(shell).not.toMatch(/run_gate "[^"]*"\)?\s*(\|\||&&)/)
-    })
-
-    test("docs invokes the recording-dependent browser target and propagates failure", () => {
-      const browserProbe = new URL("cloud.browser-probe.tmp.sh", import.meta.url)
-      const failing = stubs.replace(
-        /^pnpm\(\) \{.*$/m,
-        "pnpm() { echo \"RAN $*\"; case \"$*\" in *//apps/tui-docs:browserTests*) return 23 ;; esac; }"
-      ).replace(/^cargo\(\) \{.*$/m, "cargo() { echo \"RAN cargo $*\"; }")
-      writeFileSync(browserProbe, shell.replace(marker, `${failing}${marker}`))
-      try {
-        const invoke = (...args: string[]) =>
-          spawnSync("bash", ["scripts/ci/cloud.browser-probe.tmp.sh", ...args], { cwd: root, encoding: "utf8" })
-        const single = invoke("docs")
-        expect(single.error).toBeUndefined()
-        expect(single.stdout).toContain("RAN exec smthrs test //apps/tui-docs:test --verbose")
-        expect(single.stdout).toContain("RAN exec smthrs test //apps/tui-docs:browserTests --verbose")
-        expect(single.status).toBe(23)
-        expect(single.stdout).not.toContain("GATE-OK")
-        const grouped = invoke("group", "docs", "script-lint")
-        expect(grouped.status).toBe(1)
-        expect(grouped.stdout).toContain("::gate docs fail")
-        expect(grouped.stdout).toContain("::gate script-lint ok")
-        expect(grouped.stderr).toContain("GATE-FAIL docs")
-      } finally {
-        rmSync(browserProbe, { force: true })
-      }
-    })
-
-    test("docs builds the native workspace helper before the TUI recordings run", () => {
-      expect(tools.get("docs")).toEqual(["js", "jj", "rust"])
-      const helperProbe = new URL("cloud.helper-probe.tmp.sh", import.meta.url)
-      const passing = stubs
-        .replace(/^pnpm\(\) \{.*$/m, "pnpm() { echo \"RAN $* helper=${SMITHERS_WORKSPACE_JJ_EXPORT_BINARY:-none}\"; }")
-        .replace(/^cargo\(\) \{.*$/m, "cargo() { echo \"RAN cargo $*\"; }")
-      writeFileSync(helperProbe, shell.replace(marker, `${passing}${marker}`))
-      try {
-        const result = spawnSync("bash", ["scripts/ci/cloud.helper-probe.tmp.sh", "group", "docs"], { cwd: root, encoding: "utf8" })
-        expect(result.error).toBeUndefined()
-        expect(result.status).toBe(0)
-        expect(result.stdout).toContain("BOOTSTRAP-rust")
-        const build = result.stdout.indexOf("RAN cargo build --locked -p smithers-ffi --bin smithers-jj-export")
-        const recordings = result.stdout.indexOf("RAN exec smthrs test //apps/tui-docs:browserTests --verbose helper=")
-        expect(build).toBeGreaterThan(-1)
-        expect(recordings).toBeGreaterThan(build)
-        expect(result.stdout).toMatch(/\/apps\/tui-docs:browserTests --verbose helper=\S+\/native\/smithers-jj-export$/m)
-        expect(result.stdout).toContain("::gate docs ok")
-      } finally {
-        rmSync(helperProbe, { force: true })
-      }
     })
 
     test("local index repair precedes checking, while inherited CI only checks", () => {

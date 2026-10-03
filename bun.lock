@@ -935,30 +935,6 @@
         "typescript-eslint": "8.69.0",
       },
     },
-    "apps/tui-docs": {
-      "name": "@smithers/tui-docs",
-      "version": "0.0.1",
-      "dependencies": {
-        "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
-        "@smthrs/agent": "workspace:*",
-        "@smthrs/engine": "workspace:*",
-        "@smthrs/flow": "workspace:*",
-        "@smthrs/harness": "workspace:*",
-        "@smthrs/model": "workspace:*",
-        "@smthrs/plan": "workspace:*",
-        "@smthrs/registry": "workspace:*",
-        "astro": "^7.3.1",
-        "effect": "4.0.0-rc.115",
-        "quickjs-emscripten-core": "0.32.0",
-      },
-      "devDependencies": {
-        "@astrojs/check": "^0.9.10",
-        "@types/node": "26.4.1",
-        "@xterm/headless": "6.0.0",
-        "playwright": "1.62.1",
-        "typescript": "~5.9.3",
-      },
-    },
     "evals/agent": {
       "name": "@smthrs/eval-agent",
       "version": "0.0.0",
@@ -4497,7 +4473,6 @@
 
     "@smithers/site": ["@smithers/site@workspace:apps/site"],
 
-    "@smithers/tui-docs": ["@smithers/tui-docs@workspace:apps/tui-docs"],
 
     "@smithy/core": ["@smithy/core@3.35.0", "", { "dependencies": { "@smithy/types": "^4.19.0", "tslib": "^2.6.2" } }, "sha512-zRMhfkByhT2snNdr1si24vJitU6Cr9ix2MikUfWmkAgp4jrNP0GcKSP5YvwQ+TlI8AZXER5QOGJn3JsVtSD9/A=="],
 

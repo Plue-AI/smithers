@@ -1,8 +1,0 @@
-<section class="playground" aria-label="Agent playground">
-<div class="terminal-bar"><span><i></i><i></i><i></i></span><span>~/sandbox</span><button id="settings-open">Settings</button></div>
-<div class="sandbox-grid"><div id="transcript" role="log" aria-live="polite"><p class="empty">Fix a bug. See every step.</p></div><div class="files"><div class="file-label">math.js</div><pre id="file-content"></pre></div></div>
-<div class="history"><select id="branch-select" aria-label="Branch"></select><input id="checkpoint" type="range" min="0" max="0" value="0" aria-label="Checkpoint"/><output id="position">0</output><button id="branch">Branch</button></div>
-<form id="prompt-form"><label class="sr-only" for="prompt">Task</label><textarea id="prompt" rows="2">Fix math.js so the addition checks pass.</textarea><button type="submit" id="run">Run</button><button type="button" id="stop" hidden>Stop</button><button type="button" id="resume" hidden>Resume</button></form>
-<p id="run-status" role="status"></p>
-<dialog id="settings"><form id="settings-form"><div class="dialog-heading"><h2>Provider settings</h2><button type="button" id="settings-close" aria-label="Close settings">×</button></div><label>Base URL<input id="base-url" type="url" placeholder="https://openrouter.ai/api/v1"/></label><label>Model<input id="model" placeholder="provider/model"/></label><label>API key<input id="api-key" type="password" autocomplete="off"/></label><p>Keys stay in this tab's memory. Leave the fields empty to use sponsored access.</p><button type="submit">Save</button></form></dialog>
-</section>

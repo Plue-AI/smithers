@@ -119,28 +119,3 @@ host; other platforms were not rerun in this audit. Product fixes received a
 The authored wiki source is updated; its verified refresh failed at the citation
 service and remains tracked in
 [#1923](https://github.com/smithersai/smithers/issues/1923#issuecomment-5859581609).
-
-## Documentation checks
-
-Author guides in `apps/site/src/content/docs/docs/tui/` and the TUI tabs of
-`docs/learn/`. The Commands and Keys pages are generated from the runtime
-registries. From the repository root:
-
-```bash
-pnpm --filter @smithers/tui-docs sync:reference
-pnpm --filter @smithers/tui-docs test
-pnpm --filter @smithers/tui-docs check
-pnpm --filter @smithers/tui-docs record
-pnpm --filter @smithers/tui-docs build
-pnpm --filter @smithers/tui-docs test:browser
-pnpm --filter @smithers/site run capture:learn tui
-node apps/site/scripts/generate-llms.mjs
-pnpm --filter @smithers/site run check:docs
-```
-
-Recordings use the separate Python PTY driver, execute the Markdown scripts,
-and retain transcripts, artifact hashes, and receipts only after their assertions
-pass. The browser suite exercises the playground with a controlled HTTP provider.
-See [recordings](README.md) for the additional toolchain. Documentation generation
-and a local site build do not publish the repository wiki; its existing Cloud
-workflow retains separate source and review receipts.
