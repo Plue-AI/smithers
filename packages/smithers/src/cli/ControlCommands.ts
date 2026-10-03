@@ -419,12 +419,18 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
                     executionIds: executionIds.slice(offset, offset + 200)
                   })
                   if (page._tag !== "executions") {
-                    return yield* new CliError.UsageError({
+                    return yield* new CliError.Refused({
+                      fault: "bug",
+                      code: "unexpected_listing",
                       message: "runs show: execution observation is unavailable"
                     })
                   }
                   if (batches.length > 0 && page.source !== batches[0]!.source) {
-                    return yield* new CliError.UsageError({ message: "runs show: execution source changed; retry" })
+                    return yield* new CliError.Refused({
+                      fault: "wait",
+                      code: "conflict",
+                      message: "runs show: execution source changed; retry"
+                    })
                   }
                   batches.push({ source: page.source, revision: page.revision, snapshots: page.items })
                 }

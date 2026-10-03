@@ -199,8 +199,8 @@ it(
           running: null,
           finishedAtMs: exactChild.observation.finishedAtMs
         })
-      expect(shown.executionSnapshots.flatMap((batch: ControlSchema.ExecutionBatch) => batch.snapshots)).toEqual(
-        settled.batch.snapshots
+      expect(shown.executionSnapshots).toEqual(
+        RunActivity.publicExecutionSnapshots([settled.batch])
       )
       expect(readFileSync(marker, "utf8")).toBe(entered)
       expect(() => process.kill(runner!.child.pid!, 0)).toThrow()

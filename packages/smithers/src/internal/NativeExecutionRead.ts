@@ -38,19 +38,6 @@ export const make = (snapshots: Pick<Snapshot.Service, "read">) =>
 ): Effect.Effect<ExecutionBatch, PersistenceError> =>
   Effect.gen(function*() {
     const batch = yield* snapshots.read(input.executionIds)
-    const coherent = (value: Snapshot.Batch, ids: ReadonlyArray<string>) =>
-      /^[0-9a-f]{32}$/.test(value.source) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
-      value.snapshots.length === ids.length && value.snapshots.every((row, index) =>
-        row.runId === ids[index] && row.source === value.source &&
-        Number.isSafeInteger(row.revision) && row.revision >= 0 && row.revision <= value.revision
-      )
-    if (!coherent(batch, input.executionIds)) {
-      return yield* new PersistenceError({
-        operation: "NativeExecutionRead",
-        message: "Native execution batch is malformed",
-        cause: undefined
-      })
-    }
     const known = new Map(batch.snapshots.map((row) => [row.runId, row]))
     const read = (id: string) =>
       Effect.gen(function*() {
@@ -61,13 +48,6 @@ export const make = (snapshots: Pick<Snapshot.Service, "read">) =>
           return yield* new PersistenceError({
             operation: "NativeExecutionRead",
             message: "Native execution source changed during ancestry observation",
-            cause: undefined
-          })
-        }
-        if (!coherent(ancestor, [id])) {
-          return yield* new PersistenceError({
-            operation: "NativeExecutionRead",
-            message: "Native execution ancestor is malformed",
             cause: undefined
           })
         }

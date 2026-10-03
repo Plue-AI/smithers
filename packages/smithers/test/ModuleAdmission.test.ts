@@ -171,6 +171,23 @@ describe("cancellation-only admission", () => {
       }))
   }
 
+  it.effect("reuses the native row already read by admission", () =>
+    Effect.gen(function*() {
+      const forbidden = () => Effect.die("Admission read the native row twice")
+      const cleanup = ModuleAdmission.make({
+        runs: { get: forbidden } as never,
+        control: { getRun: forbidden, getPlan: forbidden } as never,
+        registry: { get: forbidden, loadBody: forbidden } as never,
+        catalog: undefined
+      })
+      for (
+        const row of [
+          { cancelRequestedAtMs: 0, stateJson: "unavailable legacy state" },
+          { cancelRequestedAtMs: null, stateJson: JSON.stringify({ version: 1, flowName: "work", payload: {} }) }
+        ]
+      ) expect(yield* cleanup(runId, row as never)).toBe(true)
+    }))
+
   it.effect("refuses normal execution when the approved module is missing from the host catalog", () =>
     Effect.gen(function*() {
       expect(yield* admit({ registered: approved })).toBe(false)

@@ -151,7 +151,7 @@ describe("RunActivity.fold", () => {
       30,
       snapshots
     )
-    expect(shown.executionSnapshots).toEqual(snapshots)
+    expect(shown.executionSnapshots).toEqual(RunActivity.publicExecutionSnapshots(snapshots))
     expect(shown.executions).toEqual(activity.executions)
     expect(shown.updatedAt).toBe(activity.lastProgressAt)
   })

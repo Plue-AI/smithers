@@ -368,50 +368,6 @@ describe("native execution read confinement", () => {
     ])
   })
 
-  it.each([
-    { source: "bad", revision: 1, snapshots: [] },
-    { source, revision: -1, snapshots: [] },
-    { source, revision: 0.5, snapshots: [] },
-    { source, revision: 1, snapshots: [] },
-    { source, revision: 1, snapshots: [observed("wrong-id")] },
-    { source, revision: 1, snapshots: [{ ...observed("root"), source: "b".repeat(32) }] },
-    { source, revision: 1, snapshots: [{ ...observed("root"), revision: 2 }] },
-    { source, revision: 1, snapshots: [{ ...observed("root"), revision: -1 }] },
-    { source, revision: 1, snapshots: [{ ...observed("root"), revision: 0.5 }] }
-  ])("refuses malformed native batch evidence: %j", async (batch) => {
-    const error = await Effect.runPromise(
-      NativeExecutionRead.make({ read: () => Effect.succeed(batch) })({
-        runId: "root",
-        executionIds: ["root"]
-      }).pipe(Effect.flip)
-    )
-    expect(error).toBeInstanceOf(PersistenceError)
-    expect(error.message).toContain("batch is malformed")
-  })
-
-  it.each([
-    { snapshots: [] },
-    { snapshots: [observed("wrong")] },
-    { snapshots: [{ ...observed("root"), revision: 2 }] }
-  ])(
-    "refuses malformed ancestor evidence: %j",
-    async ({ snapshots }) => {
-      let reads = 0
-      const error = await Effect.runPromise(
-        NativeExecutionRead.make({
-          read: () =>
-            Effect.succeed({
-              source,
-              revision: 1,
-              snapshots: ++reads === 1 ? [observed("child", "root")] : snapshots
-            })
-        })({ runId: "root", executionIds: ["child"] }).pipe(Effect.flip)
-      )
-      expect(error).toBeInstanceOf(PersistenceError)
-      expect(error.message).toContain("ancestor is malformed")
-    }
-  )
-
   it("keeps an empty coherent read and an existing boundary refusal intact", async () => {
     const native = port([])
     expect(await Effect.runPromise(NativeExecutionRead.make(native)({ runId: "root", executionIds: [] })))

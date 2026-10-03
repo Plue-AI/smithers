@@ -534,12 +534,17 @@ describe("unified control dispatch", () => {
     expect(requests).toEqual([ids.slice(0, 200), ids.slice(200, 400), ids.slice(400)])
     expect(order).toEqual(["start:0", "end:0", "start:1", "end:1", "start:2", "end:2"])
     const output = JSON.parse(result.stdout)
-    expect(output.executionSnapshots.map((batch: ControlSchema.ExecutionBatch) => batch.revision)).toEqual([10, 11, 12])
-    expect(
-      output.executionSnapshots.flatMap((batch: ControlSchema.ExecutionBatch) =>
-        batch.snapshots.map((row) => row.executionId)
-      )
-    ).toEqual(ids)
+    expect(output.executionSnapshots.map((row: { revision: number }) => row.revision))
+      .toEqual(ids.map((_, index) => 10 + Math.floor(index / 200)))
+    expect(output.executionSnapshots.map((row: { executionId: string }) => row.executionId)).toEqual(ids)
+    expect(output.executionSnapshots[0]).toEqual({
+      executionId: ids[0],
+      state: "cancelled",
+      revision: 10,
+      createdAtMs: 1,
+      startedAtMs: 2,
+      finishedAtMs: 3
+    })
     expect(output.executions).toHaveLength(20)
     expect(output.executionsOmitted).toBe(385)
     expect(
@@ -576,9 +581,10 @@ describe("unified control dispatch", () => {
         })
       })
       const result = await invoke(["runs", "show", "run-1", "--remote", "https://control.invalid", "--json"])
-      expect(result.codes).toEqual([mode === "read-failed" ? 1 : 2])
+      expect(result.codes).toEqual([1])
       expect(batches).toBe(2)
       const output = JSON.parse(result.stdout)
+      if (mode !== "read-failed") expect(output.code).toBe(mode === "wrong-tag" ? "unexpected_listing" : "conflict")
       expect(output).not.toHaveProperty("executions")
       expect(output).not.toHaveProperty("executionSnapshots")
       expect(result.stdout).toContain(

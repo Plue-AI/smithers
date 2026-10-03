@@ -370,6 +370,43 @@ const warningsOf = (events: ReadonlyArray<ControlSchema.ControlEvent>): Readonly
     return [{ code: "lease-reconfirmed", executionId, unconfirmedMs, occurredAt: event.occurredAt }]
   })
 
+/** Stable exact execution evidence for CLI readers.
+ * @since 1.0.0
+ */
+export type PublicExecutionSnapshot = {
+  readonly executionId: string
+  readonly state: string
+  readonly revision?: number
+  readonly createdAtMs?: number
+  readonly startedAtMs?: number | null
+  readonly finishedAtMs?: number | null
+  readonly reason?: string
+  readonly deleted?: boolean
+}
+
+/** Project storage observations to the public CLI contract.
+ * @since 1.0.0
+ */
+export const publicExecutionSnapshots = (
+  batches: ReadonlyArray<ControlSchema.ExecutionBatch>
+): ReadonlyArray<PublicExecutionSnapshot> =>
+  batches.flatMap((batch) =>
+    batch.snapshots.map((row): PublicExecutionSnapshot => {
+      if (row._tag === "Unavailable") return { executionId: row.executionId, state: "unavailable", reason: row.reason }
+      if (row._tag === "Missing") {
+        return { executionId: row.executionId, state: "missing", revision: row.revision, deleted: row.deleted }
+      }
+      return {
+        executionId: row.executionId,
+        state: row.observation.status,
+        revision: row.revision,
+        createdAtMs: row.observation.createdAtMs,
+        startedAtMs: row.observation.startedAtMs,
+        finishedAtMs: row.observation.finishedAtMs
+      }
+    })
+  )
+
 /**
  * A run as `runs show` prints it.
  *
@@ -377,7 +414,7 @@ const warningsOf = (events: ReadonlyArray<ControlSchema.ControlEvent>): Readonly
  * @since 1.0.0
  */
 export type Shown = Omit<ControlSchema.RunSummary, "codeDrift"> & {
-  readonly executionSnapshots?: ReadonlyArray<ControlSchema.ExecutionBatch>
+  readonly executionSnapshots?: ReadonlyArray<PublicExecutionSnapshot>
   readonly codeDrift?: NonNullable<ControlSchema.RunSummary["codeDrift"]> & { readonly verdict: string }
   readonly executions: ReadonlyArray<Execution>
   readonly executionsOmitted?: number
@@ -435,7 +472,7 @@ export const show = (
     updatedAt: Math.max(run.updatedAt, activity.lastProgressAt ?? run.updatedAt),
     ...(codeDrift === undefined ? {} : { codeDrift: { ...codeDrift, verdict: driftVerdict(codeDrift) } }),
     executions: activity.executions,
-    ...(snapshots === undefined ? {} : { executionSnapshots: snapshots }),
+    ...(snapshots === undefined ? {} : { executionSnapshots: publicExecutionSnapshots(snapshots) }),
     ...(activity.omitted === 0 ? {} : { executionsOmitted: activity.omitted }),
     // The fold's span ends at the last event it reads, which is not an end
     // while the run is live.
