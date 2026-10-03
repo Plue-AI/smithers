@@ -60,34 +60,7 @@ export function FlowFormView(props: {
 }) {
   const { form } = props
   if (form.ask !== undefined) return <AskFormView {...props} ask={form.ask} />
-  const renderer = useRenderer()
-  const question = form.id.startsWith("ask:")
-  const available = props.height - (props.compact ? 0 : 3) - (form.error === undefined ? 0 : 1)
-  const measure = (title: string) => {
-    if (!question) return 1
-    // Use the renderer's wrapping and cell widths, including wide glyphs and tabs.
-    const buffer = TextBuffer.create(renderer.widthMethod)
-    const view = TextBufferView.create(buffer)
-    try {
-      buffer.setText(title)
-      view.setWrapMode("word")
-      return Math.max(
-        1,
-        Math.min(
-          available - 1,
-          view.measureForDimensions(Math.max(1, (props.width ?? renderer.width) - 5), props.height)?.lineCount ?? 1
-        )
-      )
-    } finally {
-      view.destroy()
-      buffer.destroy()
-    }
-  }
-  let titleRows = measure(form.flow)
-  let rows = Math.max(1, available - titleRows)
-  const title = `${form.flow}${form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}`
-  titleRows = measure(title)
-  rows = Math.max(1, available - titleRows)
+  const rows = Math.max(1, props.height - (props.compact ? 1 : 4) - (form.error === undefined ? 0 : 1))
   const start = Math.min(Math.max(0, form.focus - Math.floor(rows / 2)), Math.max(0, form.fields.length - rows))
   const labelWidth = Math.min(16, Math.max(0, ...form.fields.map((field) => stringWidth(field.label))) + 2)
   // The bar, the padding and the label leave this much for a value.
@@ -107,8 +80,9 @@ export function FlowFormView(props: {
         }}
         backgroundColor={color.element}
       >
-        <text fg={color.text} wrapMode={question ? "word" : "none"} style={{ height: titleRows, flexShrink: 0 }}>
-          {title}
+        <text fg={color.text} wrapMode="none">
+          {form.flow}
+          {form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}
         </text>
         {form.fields.slice(start, start + rows).map((field, offset) => {
           const index = start + offset
@@ -186,6 +160,7 @@ function AskFormView(props: {
   readonly onField: (name: string, text: string) => void
 }) {
   const { ask } = props
+  const renderer = useRenderer()
   const question = useRef<ScrollBoxRenderable>(null)
   const lines = Dispatch.choices(ask)
   const typing = Dispatch.typed(ask)
@@ -218,11 +193,19 @@ function AskFormView(props: {
   const available = Math.max(2, props.height - (props.compact ? 0 : 4))
   const rows = Math.min(Math.max(1, lines.length), available - 1)
   const questionHeight = Math.max(1, available - rows)
-  const questionColumns = Math.max(1, (props.width ?? 80) - 5)
-  const questionRows = `◆ ${ask.question}`.split("\n").reduce(
-    (count, line) => count + Math.max(1, Math.ceil(stringWidth(line) / questionColumns)),
-    0
-  )
+  // The renderer's own wrapping and cell widths, wide glyphs and tabs included; the bar and padding take 5 cells.
+  const buffer = TextBuffer.create(renderer.widthMethod)
+  const view = TextBufferView.create(buffer)
+  let questionRows = 1
+  try {
+    buffer.setText(`◆ ${ask.question}`)
+    view.setWrapMode("word")
+    questionRows = view.measureForDimensions(Math.max(1, (props.width ?? renderer.width) - 5), props.height)
+      ?.lineCount ?? 1
+  } finally {
+    view.destroy()
+    buffer.destroy()
+  }
   const start = Math.min(Math.max(0, ask.choice - Math.floor(rows / 2)), Math.max(0, lines.length - rows))
   return (
     <box

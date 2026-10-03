@@ -229,43 +229,70 @@ const form: FlowForm = {
   ],
   draft: { project: "smithers", count: 2, enabled: false }
 }
-test("an ask at 80x24 reserves its wrapped question before the focused answer and composer", async () => {
-  const question =
-    "◆ implement/api asks: Before implementing authentication, should the request carry the existing session cookie, or should it carry a bearer header for the remote workspace?"
-  const frame = await draw(
-    <box style={{ width: 80, height: 24 }}>
-      <box style={{ flexGrow: 1 }} />
-      <AppView.FlowFormView
-        form={{ ...form, id: "ask:wrapped", flow: question, focus: 2 }}
-        width={80}
-        height={8}
-        compact={false}
-        onField={() => {}}
-      />
-      <text wrapMode="none">Composer</text>
-      <text wrapMode="none">Status</text>
-    </box>
-  )
-  expect(frame).toContain("implement/api asks:")
-  expect(frame).toContain("remote workspace?")
-  expect(frame).toContain("Enabled")
-  expect(frame).toContain("3/3")
-  expect(frame).not.toContain("Project")
-  expect(frame).toContain("Composer")
-  expect(frame).toContain("Status")
-})
 test.each([
   {
     terminal: 24,
-    height: 8,
+    height: 10,
     compact: false,
     question:
-      "Before implementing authentication, should the request carry the existing session cookie, or should it carry a bearer header for the remote workspace?"
+      "Before implementing authentication, should the request carry the existing session cookie, or should it carry a bearer header for the remote workspace?",
+    last: "workspace?"
   },
+  // Word wrap needs a row per word here, more than the question's cells divided by the width.
+  {
+    terminal: 24,
+    height: 10,
+    compact: false,
+    question: ["a", "b", "c"].map((letter) => letter.repeat(40)).join(" "),
+    last: "c".repeat(40)
+  },
+  {
+    terminal: 12,
+    height: 8,
+    compact: true,
+    question: "First line\nSecond line with 界界 and 👩‍💻\nWhich workspace?",
+    last: "Which workspace?"
+  }
+])(
+  "an answer form at terminal height $terminal shows its whole wrapped question above its choices",
+  async ({ terminal, height, compact, question, last }) => {
+    const frame = await draw(
+      <box style={{ width: 80, height: terminal }}>
+        <box style={{ flexGrow: 1 }} />
+        <AppView.FlowFormView
+          form={{
+            ...form,
+            id: "ask:wrapped",
+            fields: [],
+            draft: {},
+            ask: { question, options: ["Session cookie", "Bearer header"], choice: 0, armedAt: 0 }
+          }}
+          width={80}
+          height={height}
+          compact={compact}
+          onField={() => {}}
+        />
+        <text wrapMode="none">Composer</text>
+        <text wrapMode="none">Status</text>
+      </box>,
+      terminal
+    )
+    // The renderer's own wrapping sizes the question, so its last line is not cut off.
+    expect(frame).toContain(question.slice(0, 10))
+    expect(frame).toContain(last)
+    expect(frame).toContain("> Session cookie")
+    expect(frame).toContain("  Bearer header")
+    expect(frame).toContain("  other…")
+    expect(frame).toContain("Composer")
+    expect(frame).toContain("Status")
+  }
+)
+test.each([
+  { terminal: 24, height: 8, compact: false, question: "Which workspace should the request carry? ".repeat(3) },
   { terminal: 12, height: 6, compact: true, question: "First line\nSecond line with 界界 and 👩‍💻\nWhich workspace?" },
   { terminal: 12, height: 6, compact: true, question: "Which workspace? ".repeat(80) }
 ])(
-  "wrapped ask keeps its text cursor and error at terminal height $terminal",
+  "a typed answer keeps its text cursor under a question at terminal height $terminal",
   async ({ terminal, height, compact, question }) => {
     const changes: Array<[string, string]> = []
     const frame = await draw(
@@ -274,11 +301,11 @@ test.each([
         <AppView.FlowFormView
           form={{
             id: "ask:text",
-            flow: question,
+            flow: "implement/api",
             focus: 0,
-            fields: [{ name: "answer", label: "Answer", kind: "text", required: true }],
+            fields: [],
             draft: { answer: "east" },
-            error: "Choose a workspace"
+            ask: { question, options: [], choice: 0, armedAt: 0 }
           }}
           width={80}
           height={height}
@@ -290,9 +317,8 @@ test.each([
       </box>,
       terminal
     )
-    expect(frame).toContain("Answer")
-    expect(frame).toContain("east")
-    expect(frame).toContain("Choose a workspace")
+    expect(frame).toContain("◆ ")
+    expect(frame).toContain("> east")
     expect(frame).toContain("Composer")
     expect(frame).toContain("Status")
     await act(async () => {
