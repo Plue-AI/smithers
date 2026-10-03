@@ -101,7 +101,7 @@ const locations = (root: JsonSchema, fixture: unknown): { objects: ObjectLocatio
 }
 
 // Every string and number a story carries, as the View could print it; matching ignores case so a View may
-// capitalize a carried word ("Smithers" for the system actor's id `smithers`).
+// capitalize a carried word. The system actor is labeled "Install event".
 const strings = (value: unknown): string[] => {
   if (typeof value === "string") return [value.toLowerCase()]
   if (typeof value === "number") return [String(value)]

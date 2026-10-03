@@ -2,6 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
+import { fixtures } from "@smthrs/rpc/fixtures/ActorChip"
 import { ActorChip, type Actor } from "./ActorChip"
 
 GlobalRegistrator.register()
@@ -27,6 +28,9 @@ for (let color_index = 0; color_index < 6; color_index++) test(`person color ${c
 })
 for (const agent of ["smithers", "coding", "reviewer", "claude-code", "codex", "external"] as const) for (const delegated of [false, true]) test(`${agent} ${delegated ? "delegated" : "independent"}`, async () => {
   await withActor({ kind: "agent", id: agent, agent, avatar_url: "", color_index: delegated ? 1 : 6, ...(delegated ? { for_member: ben } : {}) }, node => {
+    expect(node.querySelector("img")).toBeNull()
+    if (agent === "coding") expect(node.querySelector("svg.lucide-bot")).not.toBeNull()
+    else expect(node.textContent).toBe({ smithers: "S", reviewer: "R", "claude-code": "C", codex: "C", external: "E" }[agent])
     expect(node.hasAttribute("data-agent")).toBe(true)
     expect(node.hasAttribute("data-live")).toBe(true)
     expect(node.hasAttribute("data-for")).toBe(delegated)
@@ -57,3 +61,15 @@ test("failed avatar reveals initials and a replacement URL renders an image", as
     expect(host.querySelector("img")!.getAttribute("src")).toBe(actor.avatar_url!)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+for (const [name, { model }] of Object.entries(fixtures)) {
+  const actor = model.actor
+  if (actor.kind !== "agent") continue
+  test(`agent fixture ${name} draws its glyph without an avatar image`, async () => {
+    await withActor(actor, node => {
+      expect(node.querySelector("img")).toBeNull()
+      if (actor.agent === "coding") expect(node.querySelector("svg.lucide-bot")).not.toBeNull()
+      else expect(node.textContent).toBe(actor.agent === "smithers" ? "S" : actor.agent === "reviewer" ? "R" : (actor.name || { "claude-code": "Claude Code", codex: "Codex", external: "External agent" }[actor.agent])[0])
+    })
+  })
+}

@@ -1,4 +1,5 @@
 import { test, expect } from "./browserTest"
+import { fixtures as actorFixtures } from "@smthrs/rpc/fixtures/ActorChip"
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve, join } from "node:path"
 import { createRequire } from "node:module"
@@ -14,12 +15,27 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
   await mkdir(shots, { recursive: true })
   await page.goto("/view-stories.html")
   const stories = await page.locator("nav a").evaluateAll(links => links.map(link => ({ name: link.textContent!, href: (link as HTMLAnchorElement).getAttribute("href")! })))
-  expect(stories.length).toBeGreaterThan(0)
+  const selectedStories = process.env.SMITHERS_VIEW_STORY_FILTER
+    ? stories.filter(story => story.name.includes(process.env.SMITHERS_VIEW_STORY_FILTER!))
+    : stories
+  expect(selectedStories.length).toBeGreaterThan(0)
   const receipts = []
-  for (const story of stories) for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
+  for (const story of selectedStories) for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
     await page.goto(`/view-stories.html${story.href}&theme=${theme}`)
     await expect(page.locator("[data-story]")).toBeVisible()
+    if (story.name.includes("/actor-")) {
+      const agents = page.locator(".mvp-avatar[data-agent]")
+      await expect(agents.locator("img")).toHaveCount(0)
+      for (const chip of await agents.all()) {
+        const label = await chip.getAttribute("aria-label")
+        const fixtureKey = story.name.split("/actor-fixture-")[1] as keyof typeof actorFixtures | undefined
+        const fixtureActor = fixtureKey ? actorFixtures[fixtureKey]?.model.actor : undefined
+        const agent = fixtureActor?.kind === "agent" ? fixtureActor.agent : story.name.split("/actor-")[1]?.replace(/-for-ben$/, "")
+        if (agent === "coding") await expect(chip.locator("svg.lucide-bot")).toHaveCount(1)
+        else await expect(chip).toHaveText(agent === "smithers" ? "S" : agent === "reviewer" ? "R" : label![0]!)
+      }
+    }
     await page.evaluate(() => document.fonts.ready)
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.addScriptTag({ path: axePath })

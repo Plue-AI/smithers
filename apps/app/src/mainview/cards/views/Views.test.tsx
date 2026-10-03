@@ -124,6 +124,7 @@ for (const theme of ["light", "dark"]) test(`Paper tone mappings ${theme}`, () =
 for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`primitive style ${styleCase}`, () => {
   const css = document.createElement("style")
   css.textContent = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../styles/views/primitives.css", import.meta.url), "utf8")
+  if (styleCase === "harness") css.textContent += readFileSync(new URL("./view-stories.css", import.meta.url), "utf8")
   document.head.append(css)
   const state = document.createElement("span")
   state.className = "mvp-state"
@@ -135,7 +136,12 @@ for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`pr
     node.className = styleCase === "starting" ? "mvp-dot" : styleCase === "harness" ? "view-story" : "mvp-glyph"
     node.dataset.state = styleCase
     if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("mvp-blink")
-    else if (styleCase === "harness") expect(getComputedStyle(node).maxWidth).not.toBe("900px")
+    else if (styleCase === "harness") {
+      expect(getComputedStyle(node).maxWidth).toBe("900px")
+      expect(getComputedStyle(node).boxSizing).toBe("border-box")
+      expect(getComputedStyle(node).padding).toBe("24px")
+      expect(getComputedStyle(node).margin).toBe("24px auto")
+    }
     else expect(getComputedStyle(node).color).toBe(getComputedStyle(document.documentElement).getPropertyValue(styleCase === "merged" ? "--text-faint" : "--text-muted").trim())
   } finally { state.remove(); css.remove() }
 })
