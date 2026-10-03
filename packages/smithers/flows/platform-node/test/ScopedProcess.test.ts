@@ -4,7 +4,7 @@ import * as PlatformError from "effect/PlatformError"
 import { ExitCode, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { vi } from "vitest"
@@ -66,6 +66,51 @@ const fakeHandle = (exitCode: Effect.Effect<ExitCode, PlatformError.PlatformErro
   })
 
 describe("scoped transient processes", () => {
+  it.live.skipIf(process.platform === "win32")(
+    "preserves default group ownership",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const handle = yield* ScopedProcess.spawn({
+          command: process.execPath,
+          args: ["-e", "setInterval(()=>{},1000)"],
+          forceKillAfter: 80
+        })
+        const group = (pid: number) =>
+          Number(
+            execFileSync("/bin/ps", ["-o", "pgid=", "-p", String(pid)], {
+              encoding: "utf8",
+              timeout: 1000,
+              env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }
+            }).trim()
+          )
+        const ownerGroup = group(handle.pid)
+        expect(group(handle.targetPid)).toBe(ownerGroup)
+        expect(ownerGroup).toBe(handle.pid)
+        yield* handle.kill({ forceKillAfter: 80 })
+        expect(gone(identity(handle.targetPid))).toBe(true)
+      }))
+  )
+
+  it.live("preserves the caller's default target cwd and an explicitly configured cwd", () =>
+    Effect.gen(function*() {
+      const directory = mkdtempSync(join(tmpdir(), "scoped-cwd-"))
+      try {
+        for (const cwd of [undefined, directory]) {
+          const actual = yield* Effect.scoped(Effect.gen(function*() {
+            const handle = yield* ScopedProcess.spawn({
+              command: process.execPath,
+              args: ["-e", "process.stdout.write(process.cwd())"],
+              cwd
+            })
+            return yield* text(handle.stdout)
+          }))
+          expect(actual).toBe(realpathSync(cwd ?? process.cwd()))
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }))
+
   it.live("applies verbatim argument quoting to the target without corrupting the owner program", () =>
     Effect.gen(function*() {
       const script = "process.stdout.write(process.argv[1])"

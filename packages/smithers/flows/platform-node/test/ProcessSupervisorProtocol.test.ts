@@ -2,8 +2,10 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { once } from "node:events"
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
 import type { Socket } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as Tls from "node:tls"
 import * as PipedProcess from "../src/internal/PipedProcess.ts"
 import { policy } from "../src/internal/ProcessCleanup.ts"
@@ -62,6 +64,80 @@ const sessionWith = async (
 const ready = { type: "ready", version: 1, pid: 4242 }
 const spawned = { type: "spawned", pid: 4243 }
 const exited = { type: "exit", code: 0, signal: null }
+
+describe.skipIf(process.platform === "win32")("native process control temporary directory", () => {
+  it("creates private control sockets in the selected TMPDIR", async () => {
+    const previous = process.env.TMPDIR
+    const directory = mkdtempSync(join(tmpdir(), "owner-temp-"))
+    let control: Control | undefined
+    try {
+      process.env.TMPDIR = directory
+      control = new Control()
+      await bounded(control.listening)
+      expect(control.directory.startsWith(directory + "/")).toBe(true)
+      expect(statSync(control.directory).mode & 0o777).toBe(0o700)
+      expect(existsSync(control.path)).toBe(true)
+    } finally {
+      control?.dispose()
+      if (previous === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = previous
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["darwin", "linux"])(
+    "refuses an overlong %s private socket path without creating state elsewhere",
+    (platform) => {
+      const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!
+      const previous = process.env.TMPDIR
+      const directory = mkdtempSync(join(tmpdir(), "owner-long-"))
+      const long = join(directory, "private-".repeat(16))
+      mkdirSync(long)
+      let control: Control | undefined
+      try {
+        process.env.TMPDIR = long
+        Object.defineProperty(process, "platform", { value: platform, configurable: true })
+        expect(() => {
+          control = new Control()
+        }).toThrow(/private TMPDIR.*Unix socket/)
+        expect(readdirSync(long)).toEqual([])
+      } finally {
+        control?.dispose()
+        if (previous === undefined) delete process.env.TMPDIR
+        else process.env.TMPDIR = previous
+        rmSync(directory, { recursive: true, force: true })
+        Object.defineProperty(process, "platform", originalPlatform)
+      }
+    }
+  )
+
+  it("connects through the same Unix transport in a deep private workspace directory", async () => {
+    const previous = process.env.TMPDIR
+    const base = join(process.cwd(), ".artifacts")
+    mkdirSync(base, { recursive: true })
+    const directory = mkdtempSync(join(base, "native-control-"))
+    const deep = join(directory, "nested", "private", "tmp")
+    mkdirSync(deep, { recursive: true })
+    let control: Control | undefined
+    let socket: Socket | undefined
+    try {
+      process.env.TMPDIR = deep
+      control = new Control()
+      await bounded(control.listening)
+      expect(Buffer.byteLength(control.path)).toBeGreaterThan(103)
+      expect(control.directory.startsWith(deep + "/")).toBe(true)
+      socket = await connected(control)
+      expect(control.ownerLocation().cwd).toBe(control.directory)
+      expect(Buffer.byteLength(control.ownerLocation().path)).toBeLessThanOrEqual(103)
+    } finally {
+      socket?.destroy()
+      control?.dispose()
+      if (previous === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = previous
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
 
 describe.each(process.platform === "win32" ? ["native" as const] : ["native", "tls"] as const)(
   "private process lifetime protocol (%s)",

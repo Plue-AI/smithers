@@ -263,7 +263,7 @@ const securityReview = Smithers.SecurityReview({
         "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
         "The owned backend origin allowed to be non-loopback."
       ],
-      paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
+      paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/build-server-bundle.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
     },
     {
       id: "browser-fetch-ssrf",
@@ -333,6 +333,51 @@ const securityReview = Smithers.SecurityReview({
   ]
 })
 
+// Preserve explicit build controls and the Node override across the target runner's environment boundary.
+const serverBundleEnv = Object.fromEntries(Object.entries({
+  SMITHERS_BUILD_SHA: process.env.SMITHERS_BUILD_SHA ?? "",
+  SMITHERS_NODE_BINARY: process.env.SMITHERS_NODE_BINARY,
+  CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS,
+  GOMAXPROCS: process.env.GOMAXPROCS,
+  GOFLAGS: process.env.GOFLAGS,
+  GOCACHE: process.env.GOCACHE
+}).filter((entry): entry is [string, string] => entry[1] !== undefined))
+
+/** Apple Silicon server distribution; host tool identities are not cacheable yet. */
+const serverBundle = Smithers.ToolBuild({
+  tool: "bun",
+  command: "bun",
+  args: ["scripts/build-server-bundle.ts"],
+  inputs: [harnessSources, sources, componentSources, styleSources, ...buildConfigs,
+    Smithers.file("package.json"), Smithers.file("//package.json"), Smithers.file("//pnpm-lock.yaml"),
+    Smithers.file("//pnpm-workspace.yaml"), Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock"),
+    Smithers.file("//rust-toolchain.toml"), Smithers.file("//go.mod"), Smithers.file("//go.sum"),
+    Smithers.file("//scripts/build-backend.sh"),
+    Smithers.glob("//crates/**/*"), Smithers.glob("//apps/backend/**/*"),
+    Smithers.glob("//apps/model-host/**/*"), Smithers.glob("//packages/backend/**/*"),
+    Smithers.glob("//packages/**/src/**/*"), Smithers.glob("//packages/**/package.json"),
+    Smithers.file("//packages/smithers/flows/jj/wasm/flows_jj.wasm"),
+    Smithers.glob("//flows/**/*"), Smithers.glob("//distribution/**/*")],
+  outputs: [".server-bundle"],
+  deps: [],
+  env: serverBundleEnv,
+  cache: false,
+  timeout: "240m",
+  cwd
+})
+
+/** C-INS-05 includes a cold native build, install and VM checks; select explicitly on macOS arm64. */
+const serverBundleIntegration = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/server-bundle.integration.test.ts"), ["--run"]),
+  srcs: [harnessSources, Smithers.file("PACKAGE.ts")],
+  deps: [],
+  env: serverBundleEnv,
+  exclusive: true,
+  timeout: "360m",
+  cwd
+})
+
 export const Package = Smithers.Package({
-  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, webSources, ...securityReview }
+  targets: { solidCodegenInputs, check, unitTests, conformance, browserE2e, webSources, serverBundle, serverBundleIntegration, ...securityReview }
 })

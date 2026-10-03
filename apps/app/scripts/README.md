@@ -3,6 +3,20 @@
 E2E and live-check scripts. Unless a section says otherwise, run them from
 `apps/app`.
 
+## Server bundle
+
+From the repository root, after the frozen pnpm install:
+
+```sh
+SMITHERS_BUILD_SHA=<full-commit-id> pnpm exec smthrs build //apps/app:serverBundle
+bun test apps/app/scripts/build-server-bundle.test.ts
+SMITHERS_BUILD_SHA=<full-commit-id> pnpm exec smthrs test //apps/app:serverBundleIntegration
+```
+
+The assembler writes only `apps/app/.server-bundle/`. Its intermediate files are removed after a build; the shipped jj binary is reused only at the pinned revision. The exclusive integration gate builds an exact committed checkout, relocates the bundle, checks every manifest hash, starts with an empty state directory and an OS-only runtime PATH, verifies PostgreSQL persistence, and boots the bundled image with registry access blocked. See [distribution prerequisites](../../../distribution/README.md#mac-install).
+
+Build intermediates use `.server-bundle/.build/`, including the default Go cache. `CARGO_BUILD_JOBS` and `GOMAXPROCS` default to the host's available cores; operator values for either, `GOCACHE`, and `GOFLAGS` are inherited.
+
 ## Declared test runners
 
 | Command (from `apps/app`) | Files executed | Requirement |

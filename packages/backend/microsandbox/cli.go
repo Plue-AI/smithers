@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -27,8 +28,11 @@ var ErrUnavailable = errors.New("microVM isolation is unavailable")
 // profiles, API keys, or backend secrets cannot move work off this machine or
 // leak into guest configuration.
 type cli struct {
-	binary string
-	home   string
+	binary      string
+	home        string
+	imageOnce   sync.Once
+	imageGate   chan struct{}
+	loadedImage string
 }
 
 func newCLI(binary string) (*cli, error) {

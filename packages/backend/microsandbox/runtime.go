@@ -64,7 +64,9 @@ type Config struct {
 	// CodingHelper is the packaged Linux arm64 source-publication helper.
 	// The binding installer plants its verified bytes at the fixed guest path.
 	CodingHelper string
-	// Binary is the absolute path of the pinned msb executable.
+	// Binary is the absolute path of the pinned msb executable. A server
+	// bundle's ../share/microsandbox image archive is validated and imported
+	// before machines boot; bundled image creation never pulls a registry.
 	Binary string
 	// Root holds adapter metadata. It is host state, never a guest mount.
 	Root string
@@ -222,6 +224,12 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		if runtime.config.Image == "" || config.Environments.Image != "" {
 			runtime.config.Image = environmentConfig.Image
 		}
+	}
+	imageCtx, imageCancel := context.WithTimeout(ctx, 10*time.Minute)
+	_, err = client.imagePullPolicy(imageCtx, runtime.config.Image)
+	imageCancel()
+	if err != nil {
+		return nil, err
 	}
 	if err := runtime.load(); err != nil {
 		return nil, err
@@ -568,14 +576,18 @@ func (r *Runtime) machineFlags(workspaceID string) []string {
 
 func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 	ws.RelayPort = relayPort(r.config.EgressRelay)
+	createCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	var args []string
 	if ws.Snapshot != "" {
 		args = append([]string{"run", "--from-snapshot", ws.Snapshot, "-d"}, r.machineFlags(ws.ID)...)
 	} else {
-		args = append([]string{"create", r.config.Image, "--pull", "if-missing", "--root-disk", strconv.Itoa(r.config.DiskMiB) + "M"}, r.machineFlags(ws.ID)...)
+		var err error
+		args, err = r.cli.imageCreateArgs(createCtx, r.config.Image, r.config.DiskMiB, r.machineFlags(ws.ID))
+		if err != nil {
+			return err
+		}
 	}
-	createCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
 	if _, err := r.cli.run(createCtx, nil, args...); err != nil {
 		return fmt.Errorf("%w: boot workspace microVM: %v", ErrUnavailable, err)
 	}

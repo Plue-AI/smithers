@@ -98,6 +98,10 @@ cleans up its owned group, including children holding output open. Use the
 handle's `kill` for signal delivery; cleanup failure retains the ledger record.
 `ScopedProcess` supplies this lifetime policy for transient commands without a
 durable ledger, and exposes the separate native `Handle.targetPid` for diagnostics.
+Its native control sockets use the private `TMPDIR` and short relative Unix
+addresses in deep workspaces. The owner starts in its owned socket directory,
+so removing the caller's working directory does not prevent owner startup. An address exceeding the platform limit is
+refused without falling back to another directory.
 
 Complete host bundles require jj 0.39.0 or newer. Construction probes the binary through its selected runner; a contained host records and retires this probe in its process ledger and can fail with `JjError` (`not_installed` or `unsupported_version`). Repository commands use the selected process runner.
 

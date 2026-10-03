@@ -94,7 +94,23 @@ runs only on the user's own logged-in Claude Code.
 
 ## Mac install
 
-The native macOS package (`build:native`, `Smithers.app`) was deleted with Electrobun distribution. The MVP's Mac install is being rebuilt as a launchd service, from the assembler half of the deleted `apps/app/scripts/build-native.ts` (at `5b77095672`), without Electrobun ([MVP spec](../.specs/product/mvp.md) §6.1 and §11, stage 1). Until it ships, there is no supported Mac package.
+Build the Apple Silicon server bundle from the repository root:
+
+```sh
+SMITHERS_BUILD_SHA=<full-commit-id> pnpm exec smthrs build //apps/app:serverBundle
+```
+
+The builder needs macOS arm64, an official Node 26.4 or later within Node 26 runtime that links only macOS libraries, the root package's pinned pnpm, Bun, Rust, Go, Xcode command-line tools. Run `pnpm install --frozen-lockfile --offline` first. The assembler builds the Linux arm64 helper from the candidate source with the pinned Rust musl target and its bundled rust-lld cross linker; no GitHub login is required.
+
+`apps/app/.server-bundle/` contains `bin/smithers-server`, the backend and flow hosts, Node, Git and jj, PostgreSQL 18, `msb` 0.6.16 and its firmware library, the guest helper, the digest-pinned base image as an OCI archive, and the web assets. `manifest.json` records each payload file's SHA-256 and producing stage. Move the whole prefix together. Optional Postgres.app PL/Python plugins are omitted because they require a separately installed Python framework. The assembler verifies packaged Git/jj and host checksums, preserves the pinned jj binary for rebuilds, and removes intermediate build files.
+
+To run the real clean-checkout, relocation, PostgreSQL persistence and offline VM check on Apple Silicon:
+
+```sh
+SMITHERS_BUILD_SHA=<full-commit-id> pnpm exec smthrs test //apps/app:serverBundleIntegration
+```
+
+The formula, signing and service lifecycle are separate install work.
 
 ## MicroVM isolation
 

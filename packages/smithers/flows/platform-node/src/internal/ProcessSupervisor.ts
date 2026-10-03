@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto"
 import { chmodSync, mkdtempSync, rmdirSync, rmSync } from "node:fs"
 import { createConnection, createServer, type Socket } from "node:net"
 import { tmpdir } from "node:os"
-import { join, parse, resolve } from "node:path"
+import { basename, join, parse, relative, resolve } from "node:path"
 import * as Tls from "node:tls"
 import { standardFdsOf } from "./PipedProcess.ts"
 import type { Policy, Snapshot, System } from "./ProcessCleanup.ts"
@@ -237,7 +237,17 @@ export class Control {
 
   constructor(transport: "native" | "tls" = "native") {
     this.key = transport === "tls" || process.platform === "win32" ? randomBytes(32) : undefined
-    this.directory = mkdtempSync(this.key === undefined ? "/tmp/sm-p-" : join(tmpdir(), "sm-p-"))
+    const prefix = join(tmpdir(), "sm-p-")
+    // mkdtemp appends six bytes; the socket name adds another two. Refuse
+    // before creating state, never fall back outside the private writable root.
+    const pathLimit = process.platform === "darwin" ? 103 : 107
+    if (
+      this.key === undefined &&
+      Math.min(Buffer.byteLength(prefix), Buffer.byteLength(relative(process.cwd(), prefix))) + 8 > pathLimit
+    ) {
+      throw new RangeError(`Process supervision private TMPDIR exceeds the Unix socket path limit: ${tmpdir()}`)
+    }
+    this.directory = mkdtempSync(prefix)
     this.path = `${this.directory}/s`
     this.requestPath = `${this.directory}/r`
     const servers: Array<ReturnType<typeof createServer>> = []
@@ -250,12 +260,12 @@ export class Control {
       this.listening = Promise.all([
         new Promise<void>((resolve, reject) => {
           this.server.once("error", reject)
-          if (this.key === undefined) this.server.listen(this.path, resolve)
+          if (this.key === undefined) this.server.listen(this.address(this.path), resolve)
           else this.server.listen(0, "127.0.0.1", resolve)
         }),
         new Promise<void>((resolve, reject) => {
           this.requestServer.once("error", reject)
-          if (this.key === undefined) this.requestServer.listen(this.requestPath, resolve)
+          if (this.key === undefined) this.requestServer.listen(this.address(this.requestPath), resolve)
           else this.requestServer.listen(0, "127.0.0.1", resolve)
         })
       ]).then(() => {})
@@ -297,7 +307,20 @@ export class Control {
 
   /** The test peer uses the same authenticated transport as the isolated owner. */
   connect(requests = false): Socket {
-    return connectOwner(requests ? this.requestPath : this.path, this.environment())
+    const path = requests ? this.requestPath : this.path
+    return connectOwner(this.key === undefined ? this.address(path) : path, this.environment())
+  }
+
+  /** Native owners resolve the same short address as the listening caller. */
+  ownerLocation(): { readonly cwd: string; readonly path: string } {
+    return this.key === undefined
+      ? { cwd: this.directory, path: `./${basename(this.path)}` }
+      : { cwd: parse(process.execPath).root, path: this.path }
+  }
+
+  private address(path: string): string {
+    const local = relative(process.cwd(), path)
+    return Buffer.byteLength(local) < Buffer.byteLength(path) ? local : path
   }
 
   /** Validate the stored READY after the raw spawn effect has returned its pid. */
@@ -517,15 +540,16 @@ export const prepare = (
       (control) => Effect.sync(() => control.dispose())
     )
     yield* bounded(wait(control.listening, "spawn", command.command), startupMs, "spawn", command.command)
+    const ownerLocation = control.ownerLocation()
     const raw = yield* spawn(ChildProcess.make(process.execPath, [
       ...bootstrap,
       "-e",
       source,
-      control.path,
+      ownerLocation.path,
       grouped ? "group" : "direct"
     ], {
       ...command.options,
-      cwd: parse(process.execPath).root,
+      cwd: ownerLocation.cwd,
       env: {
         PATH: "/usr/bin:/bin",
         HOME: "/",

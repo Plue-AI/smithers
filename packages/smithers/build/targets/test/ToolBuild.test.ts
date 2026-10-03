@@ -14,6 +14,7 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import * as Exec from "../src/Exec.ts"
 import * as Input from "../src/Input.ts"
 import * as Target from "../src/Target.ts"
 import {
@@ -107,6 +108,39 @@ describe("ToolBuild", () => {
   it("refuses a declaration with no command", () => {
     expect(() => ToolBuild({ ...base, command: "", cache: true })).toThrow()
   })
+
+  it.each(
+    [
+      [undefined, 600_000],
+      ["90m", 5_400_000],
+      ["120m", 7_200_000],
+      ["1ms", 1],
+      ["24h", Exec.maximumTimeoutMs]
+    ] as const
+  )("plans a bounded build deadline %s without changing output capture", (timeout, milliseconds) => {
+    const target = ToolBuild({
+      ...base,
+      cache: false,
+      ...(timeout === undefined ? {} : { timeout })
+    })
+    const calls = plannedCalls(target)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.action).toBe("smithers-build/exec")
+    expect(Exec.Payload.make(calls[0]!.payload as never).timeoutMs).toBe(milliseconds)
+    expect(calls[0]?.payload["argv"]).toEqual(["cargo", "build", "--release"])
+    expect(calls[1]).toEqual({
+      action: "smithers-build/capture-outputs",
+      payload: { cwd: ".", paths: ["target/release/libnative.a"] }
+    })
+    expect(Target.metadata(target).cacheable).toBe(false)
+  })
+
+  it.each(["unbounded", "0ms", "-1s", "1.5m", "25h", "86400001ms", `${"9".repeat(400)}s`])(
+    "refuses an invalid build deadline %s at declaration",
+    (timeout) => {
+      expect(() => ToolBuild({ ...base, cache: true, timeout })).toThrow()
+    }
+  )
 })
 
 describe("measureOutput", () => {

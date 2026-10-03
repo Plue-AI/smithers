@@ -14,6 +14,13 @@ workspace contract, so no caller can run agent work on the host: commands,
 services, managed Flow hosts, terminals (`msb exec -t` under a host PTY),
 previews and file operations all run in the guest.
 
+Server bundles include `share/microsandbox/base-image.oci.tar` and
+`base-image.json` beside `bin/msb`. Startup verifies the manifest's pinned
+image and archive SHA-256, then imports the archive into the local image store.
+Workspace and preparation VMs use `--pull never`. A partial or invalid bundle
+refuses startup. Source development without that directory retains the explicit
+`Config.Image` and `--pull if-missing` behavior.
+
 Machines and snapshots carry the ownership labels of `@smthrs/sandbox`'s
 `MicrosandboxSandbox` (`smithers.provider`, `smithers.owner`, `smithers.holder`);
 the owner is per installation (`<root>/owner`), so nothing of another

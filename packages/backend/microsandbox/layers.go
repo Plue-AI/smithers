@@ -529,7 +529,11 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		args = append(args, "--net-rule", "allow@"+domain)
 	}
 	if parent == "" {
-		args = append([]string{"create", e.config.Image, "--pull", "if-missing", "--root-disk", strconv.Itoa(e.config.PrepareDiskMiB) + "M"}, args...)
+		var err error
+		args, err = e.runtime.cli.imageCreateArgs(buildCtx, e.config.Image, e.config.PrepareDiskMiB, args)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		args = append([]string{"run", "--from-snapshot", parent, "-d"}, args...)
 	}

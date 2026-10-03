@@ -343,7 +343,7 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
       )
       expect(existsSync(marker)).toBe(false)
       expect(targetPidOf(prepared.handle)).toBeUndefined()
-      expect(helper!.options).toMatchObject({ cwd: "/", extendEnv: false, shell: false })
+      expect(helper!.options).toMatchObject({ cwd: expect.stringContaining("sm-p-"), extendEnv: false, shell: false })
       expect(helper!.options.env).not.toHaveProperty("NODE_OPTIONS")
       expect(helper!.options.env).not.toHaveProperty("BUN_OPTIONS")
       expect(existsSync(helper!.args.at(-2)!)).toBe(false)

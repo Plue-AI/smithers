@@ -7,7 +7,8 @@ import { ChildProcessSpawner, ExitCode, make, makeHandle, ProcessId } from "effe
 import { EventEmitter, once } from "node:events"
 import * as Fs from "node:fs"
 import * as Net from "node:net"
-import { parse } from "node:path"
+import { tmpdir } from "node:os"
+import { join, parse, resolve } from "node:path"
 import * as Tls from "node:tls"
 import { vi } from "vitest"
 import * as Cleanup from "../src/internal/ProcessCleanup.ts"
@@ -148,7 +149,7 @@ const fixture = (settings: Settings = {}) => {
   const spawn = (command: ChildProcess.StandardCommand) =>
     Effect.gen(function*() {
       commands.push(command)
-      const path = command.args.at(-2)!
+      const path = resolve(command.options.cwd ?? process.cwd(), command.args.at(-2)!)
       paths.push(path)
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
@@ -338,7 +339,7 @@ describe("failed process preparation", () => {
       Object.defineProperty(process, "platform", { value: "darwin", configurable: true })
       control = new Supervisor.Control()
       await control.listening
-      expect(Fs.mkdtempSync).toHaveBeenLastCalledWith("/tmp/sm-p-")
+      expect(Fs.mkdtempSync).toHaveBeenLastCalledWith(join(tmpdir(), "sm-p-"))
       expect(Fs.chmodSync).toHaveBeenLastCalledWith(control.directory, 0o700)
       expect(servers[0]!.listen).toHaveBeenCalledWith(control.path, expect.any(Function))
       expect(servers[1]!.listen).toHaveBeenCalledWith(control.requestPath, expect.any(Function))
@@ -464,7 +465,7 @@ describe("failed process preparation", () => {
       expect(host.commands).toHaveLength(1)
       expect(host.commands[0]!.args.slice(0, 3)).toEqual(["--no-env-file", "--config=/dev/null", "-e"])
       expect(host.commands[0]!.options).toMatchObject({
-        cwd: parse(process.execPath).root,
+        cwd: process.platform === "win32" ? parse(process.execPath).root : expect.stringContaining("sm-p-"),
         extendEnv: false,
         shell: false
       })

@@ -229,3 +229,7 @@ __pycache__/
 
 # Local review diffs
 .review-diff*.patch
+
+# Relocatable server build and isolated build/integration fixtures.
+/apps/app/.server-bundle/
+/apps/app/.server-bundle-unit-tests/

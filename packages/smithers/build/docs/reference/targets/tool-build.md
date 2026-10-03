@@ -32,6 +32,7 @@ export const Package = Smithers.Package({
 | --------- | ------------------------ | -------- | ------------------------------------------------------------------------------------------ |
 | `tool`    | `string`                 | required | A name for the toolchain. Key material only; it does not reach argv.                       |
 | `command` | `string`                 | required | The executable. Spawned directly, not through the package manager and not through a shell. |
+| `timeout` | `Shell.Duration`         | `"10m"`  | Build deadline, from `"1ms"` through `"24h"`; for example, `"120m"` for a native bundle.   |
 | `args`    | `Array<string>`          | required | Arguments passed after the executable.                                                     |
 | `inputs`  | `Array<Input.Declared>`  | required | Input declarations digested as key material.                                               |
 | `outputs` | `Array<string>`          | required | Output paths, relative to `cwd`, digested after the run.                                   |

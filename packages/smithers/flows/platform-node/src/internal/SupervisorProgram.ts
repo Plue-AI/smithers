@@ -88,7 +88,7 @@ const psSnapshot = () => {
     encoding: 'utf8', timeout: 500, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024,
     env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' }
   });
-  if (result.error || result.status !== 0) throw new SupervisorFault('descendant_observation_unavailable', 'Descendant observation unavailable');
+  if (result.error || result.status !== 0) throw new SupervisorFault('descendant_observation_unavailable', 'Descendant observation unavailable: ' + (result.error?.message ?? result.stderr.trim() ?? result.status));
   const rows = new Map();
   for (const line of result.stdout.trim().split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/.exec(line);

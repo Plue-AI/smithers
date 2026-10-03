@@ -19,6 +19,7 @@ import * as Exec from "./Exec.ts"
 import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
 import * as SafeFs from "./SafeFs.ts"
+import * as Shell from "./Shell.ts"
 import * as Target from "./Target.ts"
 
 /**
@@ -35,6 +36,8 @@ import * as Target from "./Target.ts"
 export const Attrs = Schema.Struct({
   tool: Schema.NonEmptyString,
   command: Schema.NonEmptyString,
+  /** Explicit deadline for a long-running build; omitted targets retain Exec's ten-minute default. */
+  timeout: Schema.optional(Shell.Duration),
   args: Schema.Array(Schema.String),
   inputs: Schema.Array(Input.Declared),
   /** Declared output paths, not input references. */
@@ -1142,7 +1145,8 @@ export const ToolBuild = Target.make("ToolBuild", {
       Exec.runTool({
         cwd: attrs.cwd,
         argv: [attrs.command, ...attrs.args],
-        env: attrs.env
+        env: attrs.env,
+        ...(attrs.timeout === undefined ? {} : { timeoutMs: Shell.durationMs(attrs.timeout) })
       }),
       attrs.cwd,
       attrs.outputs
