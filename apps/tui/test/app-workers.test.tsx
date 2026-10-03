@@ -900,3 +900,30 @@ test("expanded failure diagnostics expose their clipped ends through keyboard in
   for (let i = 0; i < 12; i++) await key("\x1b[5~")
   expect(frame()).toContain("diagnostic 0")
 })
+
+test("a draft keeps Home and End while failure details are expanded", async () => {
+  await act(async () => setup!.renderer.resize(80, 24))
+  await delegate(turns[0]!.input, request)
+  await finish(1, {
+    _tag: "failed",
+    message: "Review refused",
+    detail: Array.from({ length: 35 }, (_, i) => i === 34 ? "ROOT_CAUSE" : `diagnostic ${i}`).join("\n")
+  })
+  await key("s", { ctrl: true })
+  await key("ARROW_DOWN")
+  await key("RETURN")
+  await key("o", { ctrl: true })
+  await key("i")
+  await type("abc")
+  await key("HOME")
+  await type("Z")
+  expect(setup!.renderer.currentFocusedEditor?.plainText).toBe("Zabc")
+  await key("END")
+  await type("!")
+  expect(setup!.renderer.currentFocusedEditor?.plainText).toBe("Zabc!")
+  expect(frame()).not.toContain("ROOT_CAUSE")
+  // Page keys still reach the clipped details while a draft is open.
+  for (let i = 0; i < 12; i++) await key("\x1b[6~")
+  expect(frame()).toContain("ROOT_CAUSE")
+  expect(setup!.renderer.currentFocusedEditor?.plainText).toBe("Zabc!")
+})

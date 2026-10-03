@@ -2212,7 +2212,9 @@ export function App(props: AppProps) {
       expanded && workerTab?.status === "failed" && reviewTab === undefined &&
       open === undefined && liveForm.current === undefined && completing === undefined &&
       live.current.approvals.length === 0 && !key.ctrl && !key.meta && !key.option &&
-      (["pageup", "pagedown", "home", "end"].includes(key.name) ||
+      // Home and End stay with a draft; page and line scrolling act as they do in the chat.
+      (key.name === "pageup" || key.name === "pagedown" ||
+        ((key.name === "home" || key.name === "end") && text === "") ||
         (key.shift && (key.name === "up" || key.name === "down")))
     ) {
       key.preventDefault()
