@@ -1148,8 +1148,6 @@ describe("launch-law parity: every affordance is a command", () => {
        * onAnswer prop rather than runCommand.
        */
       "../cards/ApprovalAnswer.tsx": 4,
-      /* The admin grant confirm: Post the grant and Cancel, and the failed grant's Cancel beside its FailureNotice (Try again is the notice's retry action). */
-      "../cards/BillingCards.tsx": 5, // Includes FailureNotice actions.
       /* The access-request queue's Approve. */
       /*
        * The run card's lane-runs acts: the two secondary tabs under the trace

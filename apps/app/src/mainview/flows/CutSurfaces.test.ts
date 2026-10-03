@@ -165,7 +165,12 @@ describe("Cut app surfaces", () => {
     expect(cloud.kind).toBe("retired")
     const factory = CardSchema.parse({ ...base, kind: "agents", payload: { native: true, agents: [] } })
     expect(factory.kind).toBe("agents")
-    for (const kind of ["agents", "grant-confirm", "approval", "balance", "billing-plans", "branches", "commit-list",
+    for (const kind of ["agents", "approval", "branches", "commit-list",
       "environment-images", "trigger-list", "world"]) expect(Object.keys(CARD_RENDERERS)).toContain(kind)
+    for (const kind of ["grant-confirm", "balance", "billing-plans"]) {
+      expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
+      expect(cardAvailable(kind)).toBe(false)
+      expect(CardSchema.options.map(option => option.shape.kind.value)).toContain(kind)
+    }
   })
 })

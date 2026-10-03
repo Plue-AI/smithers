@@ -423,6 +423,41 @@ describe("command registry pure model", () => {
   })
 })
 
+describe("billing plans are available to every signed-in account", () => {
+  test("a non-admin session has plans, upgrade, and portal", async () => {
+    const { store, controller } = await freshController()
+    store.dispatch({
+      type: "identity.session.loaded",
+      actor: "system",
+      state: "signed-in",
+      login: "codeplanesmithers",
+      admin: false,
+      scopesPlain: null
+    })
+    const names = controller.commands.all().map((command) => command.name)
+    expect(names).toContain("billing.upgrade")
+    expect(names).toContain("billing.portal")
+    expect(names).toContain("billing.plans")
+    // The balance READ stays — knowing what you have is not a checkout.
+    expect(names).toContain("billing.balance")
+  })
+
+  test("an admin session still has them, so the seam stays testable", async () => {
+    const { store, controller } = await freshController()
+    store.dispatch({
+      type: "identity.session.loaded",
+      actor: "system",
+      state: "signed-in",
+      login: "will",
+      admin: true,
+      scopesPlain: null
+    })
+    const names = controller.commands.all().map((command) => command.name)
+    expect(names).toContain("billing.upgrade")
+    expect(names).toContain("billing.portal")
+  })
+})
+
 describe("command registry bindings", () => {
   test("bootstrap capabilities are the single registration gate", async () => {
     const local = await freshController({
