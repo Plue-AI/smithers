@@ -78,6 +78,7 @@ import * as Semaphore from "effect/Semaphore"
 import * as Descriptor from "./Descriptor.ts"
 import type * as ExecutionSnapshot from "./ExecutionSnapshot.ts"
 import { readVerifiedBody } from "./internal/Body.ts"
+import * as Declared from "./internal/Declared.ts"
 import { isLegacyObjectModule } from "./internal/LegacyModule.ts"
 import * as ModuleClosure from "./internal/ModuleClosure.ts"
 import * as MarkdownFlow from "./MarkdownFlow.ts"
@@ -179,15 +180,15 @@ export type Invocation = typeof Invocation.Type
 /**
  * A registered `@smthrs/flow` flow a descriptor may delegate to.
  *
- * Structural on purpose: a `Flow.make(...)` value satisfies it, and so does a
- * test double. The bridge needs the tag to resolve a name, and both ways of
+ * A `Flow.make(...)` value or a typed host delegate supplies this contract.
+ * The bridge needs the tag to resolve a name, and both ways of
  * reaching the flow, because the descriptor decides which one it uses: a
  * declared cache policy makes the delegation one dispatched step and a child
  * execution beneath it, and no policy leaves it a call in the caller's plan.
  * See {@link fromDescriptor} for the choice and {@link Lowered.cache} for why
  * it is a choice at all.
  *
- * Structural does not mean untyped. Both ways in take the {@link Invocation}
+ * Both ways in take the {@link Invocation}
  * envelope, because that is the only value the bridge ever supplies: a
  * delegate is resolved by TAG, so a flow whose payload is its own shape would
  * otherwise resolve, load, and fail at dispatch on an envelope missing every
@@ -1055,8 +1056,7 @@ const loadModule = (
         code: "invalid_module",
         flow: descriptor.name,
         path,
-        message:
-          "Retained Core object-form module cannot execute: migrate to @smthrs/flow Flow.make(tag, options) or explicitly resume with a compatible runtime"
+        message: "Retained Core object-form module cannot execute: migrate to @smthrs/flow Flow.make(tag, options)"
       }))
     }
     const loaded = yield* (options.load ?? importModule)(loadPath, {
@@ -1066,7 +1066,7 @@ const loadModule = (
     }).pipe(
       Effect.mapError((cause) =>
         refuse({
-          code: "body_unavailable",
+          code: cause instanceof TypeError && /\bmake\b/.test(cause.message) ? "invalid_module" : "body_unavailable",
           flow: descriptor.name,
           path,
           message: `the body of flow "${descriptor.name}" could not be loaded from "${path}"`,
@@ -1097,19 +1097,16 @@ const loadModule = (
         layer: implementation
       }
     }
-    if (
-      !CoreFlow.isFlow(exported) && !(typeof exported === "object" && exported !== null &&
-        "input" in exported && Schema.isSchema(exported.input) &&
-        "output" in exported && Schema.isSchema(exported.output))
-    ) {
-      return yield* Effect.fail(
+    if (!CoreFlow.isFlow(exported)) {
+      yield* Declared.decode(exported).pipe(Effect.mapError((cause) =>
         refuse({
           code: "invalid_module",
           flow: descriptor.name,
           path,
-          message: `"${path}" must default-export a Flow.make value; flow "${descriptor.name}" cannot be run`
+          message: `"${path}" must default-export a Flow.make value or a valid FlowBinding.Declared record`,
+          cause
         })
-      )
+      ))
     }
     if ((loaded as { readonly layer?: unknown }).layer !== undefined) {
       return yield* Effect.fail(refuse({

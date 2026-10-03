@@ -2,6 +2,7 @@
 
 import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 /**
@@ -29,4 +30,4 @@ export default ({
     ttlMs: 60_000,
     scope: "shared"
   })
-} as const)
+} satisfies FlowBinding.Declared)

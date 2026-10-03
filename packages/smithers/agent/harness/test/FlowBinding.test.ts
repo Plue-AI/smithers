@@ -167,6 +167,17 @@ describe("FlowBinding.descriptorOf", () => {
 })
 
 describe("FlowBinding.make", () => {
+  it("normalizes capabilities before journaling descriptor identity", () => {
+    const handler = (input: typeof Echo.Type) => Effect.succeed({ text: input.text, length: input.text.length })
+    const input = ["net:get", "fs:read", "net:get"]
+    const unsorted = FlowBinding.make({ flow: { ...echo, capabilities: input }, handler }).descriptor
+    const sorted = FlowBinding.make({ flow: { ...echo, capabilities: ["fs:read", "net:get"] }, handler }).descriptor
+    expect(unsorted.capabilities).toEqual(["fs:read", "net:get"])
+    expect(Descriptor.declarationDigest(unsorted)).toBe(Descriptor.declarationDigest(sorted))
+    expect(Descriptor.executionDigest(unsorted)).toBe(Descriptor.executionDigest(sorted))
+    expect(input).toEqual(["net:get", "fs:read", "net:get"])
+  })
+
   it("carries projectable input and output schemas by value", () => {
     const binding = FlowBinding.make({
       flow: echo,

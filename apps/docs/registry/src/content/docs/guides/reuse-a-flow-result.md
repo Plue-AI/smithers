@@ -14,14 +14,15 @@ honored takes two more things, and both are stated in the descriptor.
 
 The policy is `CacheEnvironment.CachePolicyAnnotation`, the annotation
 `@smthrs/patterns`' `withCache` writes. A module that delegates to an agent
-declares it on the `@smthrs/core` signature, which is the body-less form of a
-declaration. The `name` is the tag, and it is required: it is what the plan
+declares it on a schema/metadata record checked with `FlowBinding.Declared`. The `name` is the tag, and it is required: it is what the plan
 records and what a host binds to, so a file flow declares the name its path
 derives.
 
 ```ts
 "use server"
 
+import { Annotations } from "@smthrs/core"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 
@@ -38,8 +39,11 @@ export default ({
     mode: "hermetic",
     onConflict: "serialize",
     tier: "sealed"
-  }
-}).pipe(Flow.annotate(CacheEnvironment.CachePolicyAnnotation, { ttlMs: 60_000, scope: "shared" }))
+  },
+  annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, {
+    ttlMs: 60_000, scope: "shared"
+  })
+} satisfies FlowBinding.Declared)
 ```
 
 `ttlMs` bounds the age of the row the engine may serve. `scope` narrows the

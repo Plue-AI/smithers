@@ -2,6 +2,7 @@
 
 import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 /**
@@ -17,6 +18,7 @@ export default ({
   description: "Declares a run-scoped cache policy.",
   input: Schema.Struct({ name: Schema.String }),
   output: Schema.Struct({ greeting: Schema.String }),
+  capabilities: ["*"],
   flows: ["test/echo"],
   effects: {
     reads: [],
@@ -26,4 +28,4 @@ export default ({
     tier: "sealed"
   },
   annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, { scope: "run" })
-} as const)
+} satisfies FlowBinding.Declared)

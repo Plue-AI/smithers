@@ -426,6 +426,26 @@ describe("ModuleMetadata", () => {
     ).toBe("irreversible")
   })
 
+  it("warns on unknown record keys without executing source", () => {
+    const metadata = ModuleMetadata.parse(
+      "export default { description: \"Typo\", capabilties: [] } satisfies FlowBinding.Declared"
+    )
+    expect(metadata.warnings).toContainEqual({
+      message: expect.stringContaining("Invalid FlowBinding.Declared record")
+    })
+    expect(metadata.warnings[0]?.message).toContain("capabilties")
+  })
+
+  it.each(["{", "({"])("reads a record checked with satisfies: %s", (opening) => {
+    const source =
+      `export default ${opening} name: "checked", description: "Checked record", capabilities: ["fs:read"] } satisfies FlowBinding.Declared${
+        opening === "({" ? ")" : ""
+      }`
+    expect(ModuleMetadata.parse(source).description).toBe("Checked record")
+    expect(ModuleMetadata.parse(source).capabilities).toEqual(["fs:read"])
+    expect(ModuleMetadata.isComplete(source)).toBe(true)
+  })
+
   it("stops once the complete declaration is present", () => {
     expect(ModuleMetadata.isComplete("export default ({ description: \"Review\"")).toBe(false)
     expect(ModuleMetadata.isComplete("export default ({ description: \"Review\" })")).toBe(true)
@@ -704,7 +724,7 @@ describe("ModuleMetadata", () => {
       "const ratio = width / height",
       "export default ({",
       "  description: \"Survives every lexical form.\",",
-      "  retries: 30,",
+      "  deadline: 30,",
       "  capabilities: []",
       "})",
       "void /at-end/"
@@ -1120,6 +1140,7 @@ describe("ModuleMetadata effect envelope parity", () => {
     expect(flow.description).toEqual(core.description)
     expect([flow.hasInput, flow.hasOutput]).toEqual([core.hasInput, core.hasOutput])
     expect(flow.warnings).toEqual([])
-    expect(core.warnings).toEqual([])
+    expect(core.warnings).toContainEqual({ message: expect.stringContaining("Invalid FlowBinding.Declared record") })
+    expect(core.warnings[0]?.message).toContain("body")
   })
 })

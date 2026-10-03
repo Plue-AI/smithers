@@ -2,6 +2,7 @@
 
 import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 export default ({
@@ -9,6 +10,7 @@ export default ({
   description: "Carries a cache policy, a priority, and a placement directive.",
   input: Schema.Struct({ name: Schema.String }),
   output: Schema.Struct({ greeting: Schema.String }),
+  capabilities: ["*"],
   flows: ["test/echo"],
   effects: {
     reads: [],
@@ -22,4 +24,4 @@ export default ({
     CacheEnvironment.CachePolicyAnnotation,
     { ttlMs: 60_000, scope: "shared" }
   )
-} as const)
+} satisfies FlowBinding.Declared)

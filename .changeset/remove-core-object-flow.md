@@ -7,6 +7,7 @@
 "@smthrs/fs": major
 "@smthrs/evals": major
 "@smthrs/registry": major
+"@smthrs/harness": patch
 ---
 
 Remove `Flow.make(options)` and `Flow.MakeOptions`. Define executable flows with
@@ -21,3 +22,14 @@ targets consume those records; memory policy inheritance retains their schemas.
 
 This public removal follows RELEASE_SUPPORT.md (§21.1 item 8). The metadata
 `Flow.isFlow` and `Flow.TypeId` exports remain for Markdown lowering.
+
+```ts
+// Before
+import { Flow } from "@smthrs/core"
+export default Flow.make({ name: "hello", input, output, capabilities: [], effects })
+// After
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
+export default { name: "hello", input, output, capabilities: [], effects } satisfies FlowBinding.Declared
+```
+
+RC releases carry no stability commitment ([RELEASE_SUPPORT.md (MVP compatibility changes)](../RELEASE_SUPPORT.md#mvp-compatibility-changes)).

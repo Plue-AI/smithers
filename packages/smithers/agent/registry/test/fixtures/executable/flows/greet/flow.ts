@@ -1,5 +1,6 @@
 "use server"
 
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 export default ({
@@ -7,6 +8,7 @@ export default ({
   description: "Greets whoever the caller names.",
   input: Schema.Struct({ name: Schema.String }),
   output: Schema.Struct({ greeting: Schema.String }),
+  capabilities: ["*"],
   flows: ["test/echo"],
   effects: {
     reads: [],
@@ -15,4 +17,4 @@ export default ({
     onConflict: "serialize",
     tier: "sealed"
   }
-} as const)
+} satisfies FlowBinding.Declared)

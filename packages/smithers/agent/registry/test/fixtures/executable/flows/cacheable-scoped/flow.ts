@@ -2,6 +2,7 @@
 
 import { Annotations } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 /**
@@ -26,4 +27,4 @@ export default ({
     tier: "sealed"
   },
   annotations: Annotations.add(Annotations.empty, CacheEnvironment.CachePolicyAnnotation, { scope: "run" })
-} as const)
+} satisfies FlowBinding.Declared)

@@ -6,9 +6,11 @@
  */
 
 import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { type EffectDeclaration, ModelSelection, type Placement } from "../Descriptor.ts"
 import { conservativeEffects, narrowDelegation, projectEffects, unprojectableDelegation } from "./Authority.ts"
+import { keys as declaredKeys } from "./Declared.ts"
 
 /**
  * @since 0.1.0
@@ -49,6 +51,7 @@ export interface Metadata {
 }
 
 interface FlowObject {
+  readonly record: boolean
   readonly start: number
   readonly end: number
 }
@@ -459,13 +462,19 @@ const findFlowObject = (source: string): FlowObject | undefined => {
   const tokens = tokenize(source)
   for (let index = 0; index <= tokens.length - 6; index++) {
     if (tokens[index]?.value !== "export" || tokens[index + 1]?.value !== "default") continue
-    const record = tokens[index + 2]?.value === "(" && tokens[index + 3]?.value === "{"
+    const parenthesizedRecord = tokens[index + 2]?.value === "(" && tokens[index + 3]?.value === "{"
+    const bareRecord = tokens[index + 2]?.value === "{"
+    const record = parenthesizedRecord || bareRecord
     const constructor = tokens[index + 2]?.value === "Flow" && tokens[index + 3]?.value === "." &&
       tokens[index + 4]?.value === "make" && tokens[index + 5]?.value === "("
     if (!record && !constructor) continue
 
     let parentheses = 1
-    for (let argumentIndex = index + (record ? 3 : 6); argumentIndex < tokens.length; argumentIndex++) {
+    for (
+      let argumentIndex = index + (bareRecord ? 2 : record ? 3 : 6);
+      argumentIndex < tokens.length;
+      argumentIndex++
+    ) {
       const token = tokens[argumentIndex]
       if (token?.value === "(") {
         parentheses++
@@ -490,7 +499,7 @@ const findFlowObject = (source: string): FlowObject | undefined => {
         } else if (objectToken?.value === "}") {
           braces--
           if (braces === 0) {
-            return { start: token.start, end: objectToken.start }
+            return { start: token.start, end: objectToken.start, record }
           }
         }
       }
@@ -1063,6 +1072,14 @@ export const parse = (source: string): Metadata => {
 
   const parsedProperties = propertiesFrom(source.slice(flowObject.start + 1, flowObject.end))
   const properties = parsedProperties.values
+  if (flowObject.record) {
+    const validated = Schema.decodeUnknownResult(declaredKeys, { onExcessProperty: "error" })(
+      Object.fromEntries(properties)
+    )
+    if (Result.isFailure(validated)) {
+      warnings.push({ message: `Invalid FlowBinding.Declared record: ${validated.failure.message}` })
+    }
+  }
   const lineAt = (offset: number): number =>
     source.slice(0, flowObject.start + 1 + offset).split(/\r\n|[\n\r\u2028\u2029]/).length
   const inputDocument = parsedProperties.hasUnprojectableMembers

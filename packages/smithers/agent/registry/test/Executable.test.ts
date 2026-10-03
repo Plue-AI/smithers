@@ -13,6 +13,7 @@ import * as NodePath from "@effect/platform-node/NodePath"
 import { describe, expect, it } from "@effect/vitest"
 import { Annotations, Placement as CorePlacement } from "@smthrs/core"
 import * as Digest from "@smthrs/core/Digest"
+import * as CoreMarkdown from "@smthrs/core/Markdown"
 import { Action, Flow, FlowRuntime, Graph } from "@smthrs/flow"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Node } from "@smthrs/plan"
@@ -525,6 +526,93 @@ describe("refusals", () => {
       expect(failure.message).toContain("could not be loaded")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
+  it.effect("preserves branded Markdown signatures for retained modules", () =>
+    Effect.gen(function*() {
+      const descriptor = yield* descriptorNamed("greet")
+      const retained = CoreMarkdown.lowerMarkdown({ name: "greet", description: "Retained signature" }, "Retained")
+      const executable = yield* Executable.fromDescriptor(
+        descriptor,
+        options({ load: () => Effect.succeed({ default: retained }) })
+      )
+      expect(executable.delegate).toBe("test/echo")
+      expect(executable.descriptor.name).toBe("greet")
+    }).pipe(Effect.provide(platform)))
+
+  it.effect("refuses retained Core constructor modules before import", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const directory = yield* fs.makeTempDirectoryScoped({ directory: modulesRoot, prefix: ".legacy-" })
+      const path = `${directory}/flow.ts`
+      const bytes = new TextEncoder().encode(
+        "import { Flow } from \"@smthrs/core\"; export default Flow.make({ name: \"old\" })"
+      )
+      yield* fs.writeFile(path, bytes)
+      const descriptor = new Descriptor.FlowDescriptor({
+        ...(yield* descriptorNamed("greet")),
+        body: new Descriptor.BodyRefModule({ path, contentDigest: Digest.digest(bytes) })
+      })
+      let loaded = false
+      const failure = yield* Effect.flip(Executable.fromDescriptor(
+        descriptor,
+        options({
+          load: () => {
+            loaded = true
+            return Effect.succeed({})
+          }
+        })
+      ))
+      expect(failure.code).toBe("invalid_module")
+      expect(failure.message).not.toContain("compatible runtime")
+      expect(loaded).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  for (
+    const extra of [
+      { capabilties: [] },
+      { capabilities: [42] },
+      { effects: { typo: true } },
+      { effects: { ...greetModule.effects, capabilties: [] } },
+      { budget: { tokens: 1, capabilties: [] } },
+      { input: {} },
+      { output: {} },
+      { annotations: {} },
+      { model: [] },
+      { unknown: true }
+    ]
+  ) {
+    it.effect(`refuses malformed record ${JSON.stringify(extra)}`, () =>
+      Effect.gen(function*() {
+        const descriptor = yield* descriptorNamed("greet")
+        const failure = yield* Effect.flip(Executable.fromDescriptor(
+          descriptor,
+          options({
+            load: () => Effect.succeed({ default: { ...greetModule, ...extra } })
+          })
+        ))
+        expect(failure.code).toBe("invalid_module")
+        expect(failure.cause).toBeDefined()
+      }).pipe(Effect.provide(platform)))
+  }
+
+  for (
+    const error of [
+      new TypeError("Flow.make is not a function"),
+      new TypeError("other failure"),
+      new Error("make failed")
+    ]
+  ) {
+    it.effect(`classifies import failure: ${error.message}`, () =>
+      Effect.gen(function*() {
+        const descriptor = yield* descriptorNamed("greet")
+        const failure = yield* Effect.flip(
+          Executable.fromDescriptor(descriptor, options({ load: () => Effect.fail(error) }))
+        )
+        expect(failure.code).toBe(
+          error instanceof TypeError && error.message.includes("make") ? "invalid_module" : "body_unavailable"
+        )
+      }).pipe(Effect.provide(platform)))
+  }
+
   it.effect("refuses a module with no default export at all", () =>
     Effect.gen(function*() {
       const descriptor = yield* descriptorNamed("greet")
@@ -537,7 +625,7 @@ describe("refusals", () => {
 
 describe("verified module revisions", () => {
   const source = (priority: number) => `
-import { Annotations, Flow, Placement } from "@smthrs/core"
+import { Annotations, Placement } from "@smthrs/core"
 import * as CacheEnvironment from "@smthrs/flow/CacheEnvironment"
 import { Schema } from "effect"
 import { identity } from "./helper.ts"
@@ -546,6 +634,8 @@ export default ({
   description: "Priority ${priority}",
   input: Schema.Unknown,
   output: Schema.Unknown,
+  capabilities: [],
+  effects: undefined,
   flows: ["test/echo"],
   annotations: Annotations.add(Annotations.add(Annotations.add(Annotations.empty,
     Annotations.Priority, identity(${priority})),

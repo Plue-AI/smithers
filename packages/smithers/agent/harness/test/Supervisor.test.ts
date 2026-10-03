@@ -1200,7 +1200,8 @@ describe("Supervisor", () => {
     const open = (
       evaluator: Layer.Layer<Evaluator.Evaluator>,
       memory: Supervisor.Memory = Supervisor.memoryNone,
-      monitors: ReadonlyArray<Monitor.Monitor> = Monitor.defaults()
+      monitors: ReadonlyArray<Monitor.Monitor> = Monitor.defaults(),
+      legacyReading = false
     ) =>
       Effect.gen(function*() {
         const model = ScriptedModel.make([])
@@ -1208,7 +1209,23 @@ describe("Supervisor", () => {
         const events: Array<AgentEvent.AgentEvent> = []
         const handle = yield* Supervision.open({
           session: "session-1",
-          engine: engine.engine,
+          engine: legacyReading ?
+            {
+              ...engine.engine,
+              record: (boundary) =>
+                boundary.execute.pipe(Effect.map((value) => {
+                  const record = value as { readonly settled?: Record<string, unknown> }
+                  return {
+                    ...value,
+                    settled: Object.fromEntries(
+                      Object.entries(record.settled!).filter(([key]) =>
+                        key !== "outdatedContext" && key !== "irrelevantContext"
+                      )
+                    )
+                  } as typeof value
+                }))
+            } :
+            engine.engine,
           emit: (event) => Effect.sync(() => void events.push(event)),
           monitors,
           deliver: true
@@ -1259,6 +1276,20 @@ describe("Supervisor", () => {
 
     const delivering = { ledger: {}, shown: [], deliver: true } as const
     const empty = { messages: [], memory: [], suppressed: [], marks: [], compact: [] }
+
+    it("replays a legacy reading without context scores as requiring no compaction", async () => {
+      const { layer } = scripted(() => calm())
+      await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const { events, handle } = yield* open(layer, Supervisor.memoryNone, Monitor.defaults(), true)
+        yield* handle.offer(offer(0))
+        yield* Effect.sleep("20 millis")
+        const settled = events.find((event) => event._tag === "supervisor-settled")
+        expect(settled).toBeDefined()
+        expect(settled).not.toHaveProperty("outdatedContext")
+        expect(settled).not.toHaveProperty("irrelevantContext")
+        expect((yield* handle.take(1, delivering)).compact).toEqual([])
+      })))
+    })
 
     it("keeps only the newest snapshot while a reading is in flight", async () => {
       const release = Effect.runSync(Deferred.make<void>())

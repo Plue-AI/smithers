@@ -1,6 +1,7 @@
 /** Bundled declarations are available before a repository has written any flows. */
 import * as Digest from "@smthrs/core/Digest"
 import type * as RuntimeFlow from "@smthrs/flow/Flow"
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
@@ -204,13 +205,13 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
       yield* fs.makeDirectory(directory, { recursive: true })
       const header = `// Bundled repository policy ${policy}.`
       const body = entry.flow === undefined
-        ? `import { Schema } from "effect"\n${header}\nexport default ({ name: ${
+        ? `import type * as FlowBinding from "@smthrs/harness/FlowBinding"\nimport { Schema } from "effect"\n${header}\nexport default ({ name: ${
           JSON.stringify(entry.name)
         }, description: ${JSON.stringify(entry.description)}, capabilities: ["*"], flows: [${
           JSON.stringify(entry.delegate)
         }], budget: { tokens: ${deploymentTokens}, milliseconds: ${
           deploymentMinutes * 60000
-        } }, input: Schema.Unknown, output: Schema.Unknown })\n`
+        } }, effects: undefined, input: Schema.Unknown, output: Schema.Unknown } satisfies FlowBinding.Declared)\n`
         : `import { Flow } from "@smthrs/flow"\nimport { Schema } from "effect"\n${header}\nexport default Flow.make(${
           JSON.stringify(entry.flow._tag)
         }, { description: ${
@@ -236,7 +237,7 @@ export const provisionBuiltins = (stateRoot: string, policy: string, routes: Rea
             flows: [entry.delegate],
             input: Schema.Unknown,
             output: Schema.Unknown
-          } as const)
+          } satisfies FlowBinding.Declared)
       })
     }
     /*

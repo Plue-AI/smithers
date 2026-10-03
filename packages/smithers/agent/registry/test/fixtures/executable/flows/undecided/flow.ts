@@ -1,5 +1,6 @@
 "use server"
 
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 export default ({
@@ -7,6 +8,7 @@ export default ({
   description: "Names two flows and no model, so nothing decides between them.",
   input: Schema.Struct({ name: Schema.String }),
   output: Schema.String,
+  capabilities: ["*"],
   flows: ["test/echo", "test/other"],
   effects: {
     reads: [],
@@ -15,4 +17,4 @@ export default ({
     onConflict: "serialize",
     tier: "sealed"
   }
-} as const)
+} satisfies FlowBinding.Declared)

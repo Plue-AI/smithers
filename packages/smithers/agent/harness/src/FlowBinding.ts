@@ -57,9 +57,7 @@ import { refusal, timedOut } from "./internal/refusal.ts"
 /**
  * The declaration half of a binding.
  *
- * Structural on purpose: a `Flow.Flow` from `@smthrs/core` satisfies it, and
- * so does any other value that declares the same four fields, which keeps this
- * module from depending on flow construction.
+ * Schema and metadata record accepted by bindings and registry admission.
  *
  * @category models
  * @since 0.1.0
@@ -68,6 +66,15 @@ import { refusal, timedOut } from "./internal/refusal.ts"
 export interface Declared {
   readonly name?: string | undefined
   readonly description?: string | undefined
+  readonly input?: SchemaTypes.Top | undefined
+  readonly output?: SchemaTypes.Top | undefined
+  readonly flows?: ReadonlyArray<string> | undefined
+  readonly model?: string | ReadonlyArray<string> | undefined
+  readonly annotations?: Context.Context<never> | undefined
+  readonly budget?: Descriptor.FlowBudget | undefined
+  readonly deadline?: number | undefined
+  readonly modelInvocable?: boolean | undefined
+  readonly disableModelInvocation?: boolean | undefined
   readonly capabilities: ReadonlyArray<string>
   readonly effects: Effects.Declaration | undefined
 }
@@ -334,7 +341,7 @@ export const make = <
   E,
   R = never
 >(options: Options<I, O, E, R>): Binding<R> => {
-  const descriptor = descriptorOf(options.flow, {
+  const descriptor = descriptorOf({ ...options.flow, capabilities: [...new Set(options.flow.capabilities)].sort() }, {
     ...options,
     bodyDigest: options.bodyDigest ?? Digest.digest(Function.prototype.toString.call(options.handler)),
     ...(options.inputDocument === undefined ? { inputDocument: document(options.flow.input) } : {}),

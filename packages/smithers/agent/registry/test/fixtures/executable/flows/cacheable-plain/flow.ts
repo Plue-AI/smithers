@@ -1,5 +1,6 @@
 "use server"
 
+import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Schema } from "effect"
 
 /**
@@ -26,4 +27,4 @@ export default ({
     onConflict: "serialize",
     tier: "sealed"
   }
-} as const)
+} satisfies FlowBinding.Declared)

@@ -4,7 +4,7 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Path } from "effect"
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -39,6 +39,9 @@ test("source repository policy fences an approved job after semantic judge code 
   assert.equal(await run(measuredPolicy()), original, "unchanged source keeps its identity")
 
   const builtins = await run(provisionBuiltins(root, original))
+  const generated = await readFile(join(root, "builtin-flows", original, "repository", "setup", "flow.ts"), "utf8")
+  assert.match(generated, /satisfies FlowBinding\.Declared/)
+  assert.match(generated, /effects: undefined/)
   const base = await Effect.runPromise(
     Registry.make({ sources: [] }).pipe(Effect.provide(Discovery.layer), Effect.provide(platform))
   )
