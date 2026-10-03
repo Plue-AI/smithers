@@ -7,7 +7,7 @@ sidebar:
 
 ## Install the package
 
-link the source packages using [Use the libraries](#use-the-libraries).
+`@smthrs/flow` is not on npm yet. Link the source packages as described in [Use the libraries](#use-the-libraries).
 
 `effect` is a runtime dependency of this package and installs with it. Add it to
 your own dependencies at the same version anyway: your declarations import
