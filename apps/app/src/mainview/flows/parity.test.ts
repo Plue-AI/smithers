@@ -244,7 +244,11 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       declarations.set(node.name.text, node.initializer)
     }
-    if (ts.isFunctionDeclaration(node) && node.name) declarations.set(node.name.text, node)
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      declarations.set(node.name.text, node)
+      // Collapsed child Views stay in this scan; only module-level declarations can receive forwarded seams.
+      if (ts.isSourceFile(node.parent)) viewChildren.add(node.name)
+    }
     if (
       ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
       /^@smthrs\/ui(?:\/.*)?$/.test(node.moduleSpecifier.text) && !node.importClause?.isTypeOnly
@@ -789,6 +793,11 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     for (const call of ["onAction(action.tag)", "onView({ open: true })", "setOpen(true)", "copyText(model.text)"]) {
       expect(viewSeamViolations(`import { copyText } from "@smthrs/ui/copy"; const [open, setOpen] = useState(false); const view = <button data-flow={action.tag} onClick={event => { event.preventDefault(); event.stopPropagation(); ${call} }} />`)).toEqual([])
     }
+    expect(viewSeamViolations('function Child({ action, onAction }) { return <button data-flow={action.tag} onClick={() => onAction(action.tag)} /> } function View({ onAction }) { return <Child onAction={onAction} /> }')).toEqual([])
+    for (const source of [
+      'function Child({ onAction }) { return <button onClick={() => localStorage.clear()} /> } function View({ onAction }) { return <Child onAction={onAction} /> }',
+      'function Child({ action, onAction }) { return <button data-flow={action.tag} onClick={() => onAction(action.tag)} /> } function View() { const onAction = () => localStorage.clear(); return <Child onAction={onAction} /> }',
+    ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, rows }) { return rows.map(row => <ActorChip onAction={onAction} onView={onView} />) }')).toEqual([])
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onView, rows }) { return rows.map(onView => <ActorChip onView={onView} />) }').length).toBeGreaterThan(0)
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, gestures }) { return <ActorChip onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
