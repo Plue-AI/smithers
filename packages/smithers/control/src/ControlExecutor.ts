@@ -451,8 +451,10 @@ export const makeObserving = (service: Service): Service => {
  * @since 1.0.0
  */
 export const makeReadOnly = (
-  readExecution?: Service["readExecution"],
-  readExecutions?: Service["readExecutions"]
+  { readExecution, readExecutions }: {
+    readonly readExecution?: Service["readExecution"]
+    readonly readExecutions?: Service["readExecutions"]
+  } = {}
 ): Service => {
   const refuse = (method: string) =>
     Effect.die(new Error(`This host only observes runs, so ControlExecutor.${method} is unreachable on it.`))

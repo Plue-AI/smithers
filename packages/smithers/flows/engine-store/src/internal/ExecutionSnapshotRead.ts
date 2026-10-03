@@ -9,6 +9,7 @@ import { OwnerId } from "@smthrs/journal/OwnerId"
 import { RunStatus, RunStoreError } from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Exit, Option, Schema } from "effect"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
+import type { Batch } from "../ExecutionSnapshot.ts"
 import { RunState } from "../RunState.ts"
 
 /**
@@ -270,3 +271,28 @@ export const observed = (input: unknown, at: Position) =>
  * @since 1.0.0
  */
 export type Observed = Effect.Success<ReturnType<typeof observed>>
+
+/**
+ * Validates source, identity, ordering and revision coherence at the batch boundary.
+ *
+ * @private
+ * @since 1.0.0
+ */
+export const coherentBatch = (runIds: ReadonlyArray<string>, batch: Batch): Effect.Effect<Batch, RunStoreError> => {
+  const validPosition = Schema.is(Position)
+  if (
+    !validPosition(batch) || batch.snapshots.length !== runIds.length ||
+    batch.snapshots.some((row, index) =>
+      !validPosition(row) || row.runId !== runIds[index] || row.source !== batch.source ||
+      row.revision > batch.revision
+    )
+  ) {
+    return Effect.fail(new RunStoreError({
+      method: "ExecutionSnapshot.read",
+      code: "persistence_failed",
+      message: "stored execution batch is incoherent: source, identity, order or revision mismatch",
+      cause: undefined
+    }))
+  }
+  return Effect.succeed(batch)
+}

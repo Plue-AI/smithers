@@ -2010,11 +2010,11 @@ export const make = (
         : undefined
       return ControlExecutor.makeReadOnly(
         engine === undefined
-          ? undefined
-          : (runId) => AgentSession.readExecution(runId).pipe(Effect.provideContext(engine)),
-        engine === undefined
-          ? undefined
-          : yield* NativeExecutionRead.makeFromSql().pipe(Effect.provideContext(engine))
+          ? {}
+          : {
+            readExecution: (runId) => AgentSession.readExecution(runId).pipe(Effect.provideContext(engine)),
+            readExecutions: yield* NativeExecutionRead.makeFromSql().pipe(Effect.provideContext(engine))
+          }
       )
     }))
     return Layer.unwrap(Effect.map(

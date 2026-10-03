@@ -525,6 +525,10 @@ mapping.
 
 The acceptance port from the control plane into a real run executor.
 
+`ControlExecutor.makeReadOnly({ readExecution, readExecutions })` accepts optional
+point and batch readers in one options object. Omit the object for a host without
+engine observations. Mutation methods remain refused.
+
 | Export            | Kind     | Signature                                                                                                                                                |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ControlExecutor` | class    | `Context.Service<ControlExecutor, Service>` at key `/control/ControlExecutor`                                                                            |

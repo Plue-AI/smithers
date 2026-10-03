@@ -80,7 +80,9 @@ describe("makeObserving", () => {
 
 describe("makeReadOnly", () => {
   it("reads the engine it was given and dies on everything else", async () => {
-    const reader = ControlExecutor.makeReadOnly(() => Effect.succeed({ _tag: "Observed", status: "parked" } as const))
+    const reader = ControlExecutor.makeReadOnly({
+      readExecution: () => Effect.succeed({ _tag: "Observed", status: "parked" } as const)
+    })
     expect(await Effect.runPromise(reader.readExecution!(runId))).toEqual({ _tag: "Observed", status: "parked" })
     const refused: Record<string, Effect.Effect<unknown, unknown>> = {
       launch: reader.launch({} as ControlExecutor.Launch),
@@ -98,7 +100,18 @@ describe("makeReadOnly", () => {
     }
   })
 
+  it("reads batches independently or alongside a point reader", async () => {
+    const batch = { source: null, revision: null, snapshots: [] }
+    const readExecutions: NonNullable<ControlExecutor.Service["readExecutions"]> = () => Effect.succeed(batch)
+    for (const options of [{ readExecutions }, { readExecutions, readExecution: spied().observing.readExecution }]) {
+      const reader = ControlExecutor.makeReadOnly(options)
+      expect(await Effect.runPromise(reader.readExecutions!({ runId, executionIds: [] }))).toEqual(batch)
+      expect(reader.readExecution).toBe(options.readExecution)
+    }
+  })
+
   it("has no engine reader without an engine", () => {
     expect(ControlExecutor.makeReadOnly().readExecution).toBeUndefined()
+    expect(ControlExecutor.makeReadOnly().readExecutions).toBeUndefined()
   })
 })

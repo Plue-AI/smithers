@@ -59,6 +59,7 @@ import type {
 import {
   ApprovalInputSchema,
   defaultPageSize,
+  ListRequest,
   maxPageSize,
   Principal,
   ReasonedMutationInputSchema,
@@ -1089,9 +1090,9 @@ export const layer: Layer.Layer<
             return yield* new RunNotFound({ runId: request.runId })
           }
           yield* runtime.getRun(request.runId)
-          if (request.executionIds.length > 200 || request.executionIds.some((id) => id.length === 0)) {
-            return yield* invalid("executionIds: at most 200 nonempty execution IDs are admitted")
-          }
+          yield* Schema.decodeUnknownEffect(ListRequest)(request).pipe(
+            Effect.mapError(() => invalid("executionIds: at most 200 nonempty execution IDs are admitted"))
+          )
           const batch = Option.isSome(executor) && executor.value.readExecutions !== undefined
             ? yield* executor.value.readExecutions(request)
             : {

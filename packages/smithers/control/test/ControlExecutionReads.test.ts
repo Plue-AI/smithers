@@ -120,6 +120,10 @@ describe("public execution read authorization", () => {
             Effect.flip
           )
           expect(error).toBeInstanceOf(InvalidInput)
+          expect(error).toMatchObject({
+            code: "invalid_input",
+            issue: "executionIds: at most 200 nonempty execution IDs are admitted"
+          })
         }
         expect(asked).toHaveLength(3)
       }).pipe(Effect.provide(live({ runtime: runtime(), executor })), Effect.scoped)

@@ -124,7 +124,7 @@ export const make = (): Effect.Effect<Service, never, SqlClient.SqlClient> =>
             Schema.Array(Read.Identifier).check(Schema.isMaxLength(maximumBatchSize)),
             runIds
           )
-          return yield* Read.transaction(
+          const batch = yield* Read.transaction(
             sql,
             Effect.gen(function*() {
               const at = yield* Read.position(sql)
@@ -171,6 +171,7 @@ export const make = (): Effect.Effect<Service, never, SqlClient.SqlClient> =>
               }
             })
           )
+          return yield* Read.coherentBatch(ids, batch)
         })
       )
     return { read, related: Relations.make(sql, read) }
