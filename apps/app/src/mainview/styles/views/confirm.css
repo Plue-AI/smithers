@@ -1,0 +1,31 @@
+.confirm-view { box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.confirm-view h2 { margin: 0; }
+.confirm-view .smithers-card-header { min-height: 32px; }
+.confirm-asker, .confirm-receipt { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-muted); font-size: var(--fs-caption); }
+.confirm-actor { display: inline-flex; align-items: center; gap: 6px; }
+.confirm-avatar { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--confirm-who); }
+.confirm-avatar[data-agent] { border-radius: 5px; }
+.confirm-text { margin: 8px 0 0; padding: 6px 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-size: var(--fs-small); line-height: 1.45; white-space: pre-wrap; }
+.confirm-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--text-muted); font-size: var(--fs-small); }
+.confirm-meta b { color: var(--text); font-weight: 500; }
+.confirm-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 12px; padding: 8px 12px; border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-small); }
+.confirm-view a { color: var(--action-primary); }
+.confirm-mono { font-family: var(--font-mono); }
+.confirm-check { display: inline-flex; align-items: center; gap: 4px; }
+.confirm-check[data-state="failed"] { color: var(--danger); }
+.confirm-check[data-state="running"], .confirm-check[data-state="pending"] { color: var(--brand); }
+.confirm-check-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.confirm-previous, .confirm-merge-reason { color: var(--text-muted); }
+.confirm-stale { color: var(--attention-text, var(--warning)); }
+.confirm-stale, .confirm-merge-reason { margin: 12px 0 0; font-size: var(--fs-small); }
+.confirm-merge-reason[data-state="merging"] { color: var(--brand); }
+.confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+.confirm-actions:empty { display: none; }
+.confirm-control { display: flex; flex-direction: column; max-width: 100%; gap: 4px; }
+.confirm-view button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; min-height: 28px; padding: 4px 10px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--text); font: 500 var(--fs-small) var(--font-ui); cursor: pointer; }
+.confirm-view button:hover { background: var(--hover); }
+.confirm-view button[data-primary] { background: var(--action-primary); color: var(--on-action-primary); }
+.confirm-view button:disabled { opacity: .6; cursor: default; }
+.confirm-disabled { color: var(--text-muted); font-size: var(--fs-caption); }
+.confirm-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+.confirm-view kbd { font: inherit; }
