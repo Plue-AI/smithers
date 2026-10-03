@@ -11,7 +11,7 @@ import { createAppController } from "../state/AppController"
 import type { AppController } from "../state/AppController"
 import type { Card, WorldDocument } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
-import { controllerCardActions as cardActions } from "../flows/cardActions"
+import { controllerCardActions as cardActions } from "./controllerCardActions"
 
 /*
  * The transcript re-renders on every streamed token: App reads thirteen

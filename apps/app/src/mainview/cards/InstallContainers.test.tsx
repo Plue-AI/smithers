@@ -9,7 +9,7 @@ import { SetupContainer } from "./SetupContainer"
 import { SettingsContainer } from "./SettingsContainer"
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
 import type { InstallSnapshot, InstallSnapshots } from "../state/seams/InstallSeam"
-import type { InstallCardDispatch } from "../flows/cardActions"
+import type { InstallCardDispatch } from "./installKeyAction"
 
 const harness = (snapshot: InstallSnapshot = { model: installFixture() }) => {
   const commands: Array<{ tag: string; input: unknown }> = []

@@ -3,7 +3,7 @@ import { patchToCodeViewItems, PierreDiffView } from "@smthrs/ui/adapters/pierre
 import type { DiffCard, DiffViewProps } from "@smthrs/rpc/DiffCard"
 import { DiffAction } from "./views/DiffAction"
 import { ActorChip, actorName } from "./views/ActorChip"
-import { fileSize } from "./views/CodeEditorView"
+import { formatBytes } from "./views/formatBytes"
 /*
  * The diff card's hunks (docs/code-intel/PLAN.md §7, L5): one file's patch on
  * `@pierre/diffs` CodeView through `@smthrs/ui/adapters/pierre-diff-view`,
@@ -68,7 +68,7 @@ export function DiffCardSurface({ model, actions, onAction }: DiffViewProps) {
     <header className="smithers-card-header"><h2 className="smithers-card-title">{model.renamed_to ?? model.path}</h2><span className="mvp-branch-chip">{model.branch}</span></header>
     <div className="smithers-card-body">
       <div className="code-diff-base" data-against={model.against.kind}>{model.against.kind === "burst" ? <><ActorChip actor={model.against.actor} size="s" /><span>{actorName(model.against.actor)}</span><time>{model.against.at}</time></> : <code>{model.against.rev}</code>}</div>
-      {model.binary ? <p className="code-file-size">Binary file · {fileSize(model.binary.before_bytes)} → {fileSize(model.binary.after_bytes)}</p> : model.hunks.length ? <DiffSurface path={model.renamed_to ?? model.path} patch={unifiedPatch(model)} unsafeCSS={paperDiffCss} /> : null}
+      {model.binary ? <p className="code-file-size">Binary file · {formatBytes(model.binary.before_bytes, "decimal")} → {formatBytes(model.binary.after_bytes, "decimal")}</p> : model.hunks.length ? <DiffSurface path={model.renamed_to ?? model.path} patch={unifiedPatch(model)} unsafeCSS={paperDiffCss} /> : null}
       {actions.length ? <div className="code-actions">{actions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)}</div> : null}
     </div>
   </section>

@@ -2,7 +2,7 @@ import { useSyncExternalStore, type ComponentType } from "react"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
-import { installKeyAction, type InstallCardDispatch } from "../flows/cardActions"
+import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
 import { settingsCardModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
 

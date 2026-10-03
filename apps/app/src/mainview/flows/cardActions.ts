@@ -1,11 +1,6 @@
 import type { Action, CardCommandInput, CatalogTag } from "@smthrs/rpc/CardAction"
 import { flowArgs, hasFlowArgs } from "./FlowArgs"
 import { flowAction, type FlowActionProps } from "./FlowAction"
-import type { CardViewProps } from "../ChatCards"
-import type { AppController } from "../state/AppController"
-import type { Card } from "../state/AppState"
-import { writeOnlyGesture, type CommandGesture } from "./CommandGesture"
-import type { InstallModel } from "../state/seams/InstallModel"
 
 /**
  * A Container owns command inputs and optional stable row scope. A definition with `gesture` is a named
@@ -135,95 +130,4 @@ export const cardActions = <Gesture extends string = never>(
     }
   }
   return bindScope(undefined)
-}
-
-/*
- * The CardView command bindings, built once per controller.
- *
- * Every act a card raises is a flow name, bound to the same controller.
- *
- * Bindings are cached by controller and card record. Unchanged cards keep
- * the same callbacks through unrelated transcript renders, and replaced
- * records can be collected. Their origin affects presentation, never permission.
- */
-
-/** The CardView callbacks that dispatch its flows. */
-type CardBindings = Omit<
-  CardViewProps,
-  "card" | "maximized" | "worldDocuments" | "debugVerbose" | "signedOut" | "workflowCatalogs" | "triggerCatalogs" | "fileCards"
->
-
-const bound = new WeakMap<AppController, CardBindings>()
-const cardBound = new WeakMap<AppController, WeakMap<Card, CardBindings>>()
-
-/** Stable bindings capture the originating card, never its mutable presentation. */
-export const controllerCardActions = (controller: AppController, card?: Card): CardBindings => {
-  const cards = cardBound.get(controller) ?? new WeakMap<Card, CardBindings>()
-  if (card !== undefined) cardBound.set(controller, cards)
-  const cached = card === undefined ? bound.get(controller) : cards.get(card)
-  if (cached !== undefined) return cached
-  const runCommand: AppController["runCommand"] = (name, args) => card === undefined
-    ? controller.runCommand(name, args)
-    : controller.runCommand(name, args, card.id)
-  const actions: CardBindings = {
-    projectionStore: controller.store,
-    // Saved confirmations retain their command door; removed commands report
-    // the controller's explicit refusal rather than silently doing nothing.
-    onGrantConfirm: (id) => runCommand("admin.grant.confirm", id),
-    onGrantCancel: (id) => runCommand("admin.grant.cancel", id),
-    onDecideApproval: (id, decision, answer, question) =>
-      // Structured human answers keep their value shape through the controller.
-      answer === undefined
-        ? runCommand(
-          decision === "approved" ? "approval.approve" : "approval.deny",
-          id
-        )
-        : controller.answerApproval(id, answer, question),
-    onMaximize: (id) => runCommand("card.maximize", id),
-    onMinimize: () => runCommand("card.minimize"),
-    onFrameBack: () => runCommand("frame.back"),
-    onFrameForward: () => runCommand("frame.forward"),
-    onConnectGitHub: () => runCommand("auth.sign-in"),
-    onRunWorkflow: (name) => runCommand("flow.run", name),
-    onStopRun: (id) => runCommand("flow.run.stop", id),
-    onRetryRun: (id) => runCommand("flow.run.retry", id),
-    onChooseWorkflowRepo: (name) => runCommand("flow.repo.choose", name),
-    onChangeWorldDocument: (id, body) =>
-      runCommand("wiki.edit", `${id} ${JSON.stringify(body)}`),
-    onAttachWorldEditor: controller.attachWorldEditor,
-    onRunCommand: (name, commandArgs) => runCommand(name, commandArgs)
-  }
-  if (card === undefined) bound.set(controller, actions)
-  else cards.set(card, actions)
-  return actions
-}
-
-
-/** The command host forwards this nonserializable gesture to commands.submit. */
-export type InstallCardDispatch = <Tag extends CatalogTag>(tag: Tag, input: CardCommandInput[Tag], gesture?: CommandGesture) => unknown
-
-// T-APP-03: direct key fields and slash-opened forms use the same write-only door.
-export const installKeyAction = (dispatch: InstallCardDispatch, model: InstallModel) => {
-  let reserved: CommandGesture | undefined
-  const coding = model.models.find(role => role.role === "coding")!
-  const definition: CardActionDefinition<"settings.model-key"> = {
-    tag: "settings.model-key", label: "Change model key", command_input: { role: "coding", provider: coding.provider },
-    resolve_input: input => {
-      reserved?.release()
-      reserved = input.value ? writeOnlyGesture("settings.model-key", { value: input.value }) : undefined
-      delete input.value
-      const role = input.role === "fast" || input.role === "jev" ? input.role : "coding"
-      return { role, provider: input.provider ?? model.models.find(model => model.role === role)!.provider }
-    }
-  }
-  const run: CardCommandDispatch = (tag, input) => {
-    const gesture = reserved
-    reserved = undefined
-    try {
-      const result = dispatch(tag, input, tag === "settings.model-key" ? gesture : undefined)
-      if (result instanceof Promise) void result.finally(() => gesture?.release()).catch(() => {})
-      return result
-    } catch (cause) { gesture?.release(); throw cause }
-  }
-  return { definition, dispatch: run }
 }
