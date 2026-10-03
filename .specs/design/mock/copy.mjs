@@ -19,7 +19,11 @@ const dist = resolve(HERE, args.find(arg => arg.startsWith("--dist="))?.slice(7)
 const only = args.filter(arg => !arg.startsWith("--"))
 const base = pathToFileURL(join(dist, "index.html")).href
 
-const BANNED = /\b(workflows?|threads?|tasks?|lanes?|box(es)?|workspaces?|mythical|sandbox(es)?|VMs?|microVMs?|seats?|profiles?|jev|forge)\b/i
+/*
+ * C-UI-02 R1, exactly spec §14.6b's terms: each one, its plural with s or es, or microVM, as a whole word in any
+ * case; a boundary is any character that isn't a letter or a digit. Jev and forge joined §14.6b (product, 2026-10-02).
+ */
+const BANNED = /(?<![A-Za-z0-9])(workflow|thread|task|lane|box|workspace|mythical|sandbox|microVM|VM|seat|profile|jev|forge)(e?s)?(?![A-Za-z0-9])/i
 const MAX_WORDS = 12
 
 /* Runs in the page: visible product text per block, minus what people, agents' files or GitHub wrote. */
@@ -42,6 +46,14 @@ const collect = () => {
       for (const data of copy.querySelectorAll(SKIP)) data.remove()
       const text = (copy.textContent ?? "").replace(/\s+/g, " ").trim()
       if (text !== "") out.push({ text, inCard: node.closest(".smithers-card-body") !== null })
+    }
+    /* R1 also reads the words assistive technology speaks: aria-label, title and placeholder. */
+    for (const node of screen.querySelectorAll("[aria-label], [title], [placeholder]")) {
+      if (node.closest(SKIP) !== null && node.tagName !== "INPUT" && node.tagName !== "TEXTAREA") continue
+      for (const name of ["aria-label", "title", "placeholder"]) {
+        const value = node.getAttribute(name)
+        if (value !== null && value.trim() !== "") out.push({ text: value.trim(), inCard: false, attribute: name })
+      }
     }
   }
   return out
