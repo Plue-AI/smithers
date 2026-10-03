@@ -56,9 +56,12 @@ export const fromModel = (model: Model.Model, modelId: string): Evaluator.Evalua
   })
 
 /**
- * Use the backup only when the primary is unavailable: unconfigured, unreachable, timed
- * out, or refusing with a server error or 429 after its own retries. A
- * refusal of the caller (4xx) or of the question never falls back, and
+ * Use the backup only when the primary is unavailable: unreachable, timed out,
+ * or refusing with a server error or 429 after its own retries. An
+ * unconfigured primary is a setup fault, not an outage: it fails with its own
+ * typed `unconfigured` error and setup message and never falls back, so a
+ * missing credential is reported instead of being answered by another model.
+ * A refusal of the caller (4xx) or of the question never falls back, and
  * neither does a failure that carries paid usage: that reading was taken and
  * metered, and asking again would pay twice for one judgment whose response
  * can carry only one reading's usage. If both fail, retain the backup's
@@ -74,7 +77,7 @@ export const withFallback = (primary: Evaluator.Evaluator, backup: Evaluator.Eva
       primary.evaluate(request).pipe(
         Effect.catch((error) =>
           error.usage === undefined &&
-            (error.code === "unconfigured" || error.code === "unreachable" || error.code === "timeout" ||
+            (error.code === "unreachable" || error.code === "timeout" ||
               (error.code === "refused" && error.status !== undefined && (error.status >= 500 || error.status === 429)))
             ? backup.evaluate(request).pipe(Effect.mapError((failure) =>
               (failure.code === "unreachable" || failure.code === "timeout" || failure.code === "unconfigured") &&

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `EvaluatorBackup.withFallback` no longer asks the backup when the primary is
+  `unconfigured` (for example, no `AI_GATEWAY_API_KEY`). A missing credential
+  now fails with the primary's typed `unconfigured` error and setup message
+  instead of being answered by another model. Transport faults (unreachable,
+  timeout, 5xx, 429) still use the backup.
+
 ### Added
 
 - `ModelCatalog` knows Cerebras's `qwen-3.8-27b`: a 128K context window (the

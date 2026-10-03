@@ -136,37 +136,21 @@ describe("EvaluatorBackup.withFallback", () => {
     expect(calls).toEqual([request])
   })
 
-  it("tries the subscription backup when Jev has no gateway key", async () => {
+  it("fails typed with the setup message when Jev has no gateway key, without asking the backup", async () => {
     const calls: Array<Evaluator.Request> = []
-    const primary = failed("unconfigured")
+    const primary = Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.fail(new Evaluator.EvaluatorError({ code: "unconfigured", message: Evaluator.unconfiguredMessage }))
+    })
     const result = await run(EvaluatorBackup.withFallback(primary, answered(calls)))
-    expect(Result.isSuccess(result)).toBe(true)
-    expect(calls).toEqual([request])
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ code: "unconfigured", message: Evaluator.unconfiguredMessage })
+    }
+    expect(calls).toHaveLength(0)
   })
 
   it.each(["unreachable", "timeout"] as const)(
-    "preserves the active backup's %s when the primary is unconfigured",
-    async (code) => {
-      const primary = Evaluator.Evaluator.of({
-        evaluate: () =>
-          Effect.fail(
-            new Evaluator.EvaluatorError({
-              code: "unconfigured",
-              message: "Set AI_GATEWAY_API_KEY to enable Jev."
-            })
-          )
-      })
-      const outage = new Evaluator.EvaluatorError({ code, message: `Active backup ${code}.` })
-      const result = await run(EvaluatorBackup.withFallback(primary, { evaluate: () => Effect.fail(outage) }))
-      expect(Result.isFailure(result)).toBe(true)
-      if (Result.isFailure(result)) {
-        expect(result.failure).toBe(outage)
-        expect(Evaluator.publicMessage(result.failure)).not.toContain("AI_GATEWAY_API_KEY")
-      }
-    }
-  )
-
-  it.each(["unreachable", "timeout", "unconfigured"] as const)(
     "keeps a genuine subscription setup fault after a primary %s",
     async (code) => {
       const backup = Evaluator.Evaluator.of({
@@ -294,11 +278,11 @@ describe("EvaluatorBackup.withFallback", () => {
     }
   )
 
-  it("preserves the active backup's timeout and actual paid usage when the primary is unconfigured", async () => {
+  it("preserves the active backup's timeout and actual paid usage when the primary is unreachable", async () => {
     const backup = Evaluator.Evaluator.of({
       evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
     })
-    const result = await run(EvaluatorBackup.withFallback(failed("unconfigured"), backup))
+    const result = await run(EvaluatorBackup.withFallback(failed("unreachable"), backup))
     expect(Result.isFailure(result)).toBe(true)
     if (Result.isFailure(result)) {
       expect(result.failure).toMatchObject({ code: "timeout", message: "late", usage: paid })
@@ -315,7 +299,7 @@ describe("EvaluatorBackup.withFallback", () => {
       resetAtEpochMillis: 1_800_000_000_001,
       usage: paid
     })
-    const result = await run(EvaluatorBackup.withFallback(failed("unconfigured"), {
+    const result = await run(EvaluatorBackup.withFallback(failed("timeout"), {
       evaluate: () => Effect.fail(outage)
     }))
     expect(Result.isFailure(result)).toBe(true)

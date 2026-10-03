@@ -211,7 +211,7 @@ for (const code of ["unreachable", "timeout"] as const) {
         : "code-change"
     )
     const fallback = EvaluatorBackup.withFallback(
-      Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unconfigured()) }),
+      Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unreachable()) }),
       Effect.runSync(Effect.service(Evaluator.Evaluator).pipe(Effect.provide(backup.layer)))
     )
     const round = recorded(t, judging(fallback))
@@ -258,7 +258,7 @@ test("SQLite replay retains a captured landing across an active backup outage an
     return "code-change"
   })
   const fallback = EvaluatorBackup.withFallback(
-    Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unconfigured()) }),
+    Evaluator.Evaluator.of({ evaluate: () => Effect.fail(unreachable()) }),
     Effect.runSync(Effect.service(Evaluator.Evaluator).pipe(Effect.provide(backup.layer)))
   )
   const round = recorded(t, judging(fallback))

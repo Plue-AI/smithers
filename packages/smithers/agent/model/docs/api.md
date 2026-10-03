@@ -661,9 +661,11 @@ with their existing subscription resolver and reject malformed verdicts.
 HTTP evaluation protocol. It reads no environment configuration and is never
 selected by a flow host or used as a subscription fallback.
 
-`EvaluatorBackup.withFallback(primary, backup)` retains the backup's failure
-when both evaluators fail. An active backup's timeout or transport outage
-remains transient even if the primary is unconfigured. A primary 429 still
+`EvaluatorBackup.withFallback(primary, backup)` asks the backup only when the
+primary is unreachable, times out, or refuses with a 5xx or 429. An
+unconfigured primary (for example, no `AI_GATEWAY_API_KEY`) fails with its own
+typed `unconfigured` error and never falls back. When both evaluators fail,
+the backup's failure is retained. A primary 429 still
 takes precedence over a backup transport or configuration failure, while
 retaining the backup's actual paid usage. A primary failure carrying paid
 usage never calls the backup, avoiding a second paid reading.
