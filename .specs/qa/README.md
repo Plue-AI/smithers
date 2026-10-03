@@ -6,7 +6,7 @@ Owner: lead QA (smithers-4c). Product: [../product/mvp.md](../product/mvp.md). E
 | --- | --- | --- |
 | [validation-plan.md](validation-plan.md) | Gate model: closed requirement manifest, status vocabulary, gates on one pinned candidate, harness order, release index, dogfood gate | Before claiming any ticket, stage or release is done |
 | [findings.md](findings.md) | Every QA finding with owner and status | To see what QA found and where it went |
-| [ahead/](ahead/) | Test plans written before a ticket's lane starts (oracle tables, layers, abuse cases, spec gaps) | When a lane starts that ticket |
+| [ahead/](ahead/) | Test plans written before a ticket's lane starts (oracle tables, layers, abuse cases, spec gaps): T-STK-04, T-FLW-11, T-STK-12, T-ACC-03 | When a lane starts that ticket |
 | [research/](research/) | Gap analysis (288 requirements traced), test-infra inventory, CI triage, pepper reports, Codex reviews of this plan | To verify a claim in the plan |
 
 Rules that override convenience:
