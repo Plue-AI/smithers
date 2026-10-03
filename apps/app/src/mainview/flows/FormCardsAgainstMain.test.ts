@@ -305,8 +305,12 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
   {
-    flow: "box.open", kind: "sentence", rows: 4,
-    because: "Structured button arguments preserve their explicit repository without inventory (#2082), so malformed JSON and unknown fields receive a grammar diagnostic (two rows). The MVP cut (#3385) removed the desktop kind, so the two `--kind` lines with an unknown kind read \"box.open's kind must be container or vm\"."
+    flow: "box.open", kind: "sentence", rows: 6,
+    because: "Structured button arguments preserve their explicit repository without inventory (#2082), so malformed JSON and unknown fields receive a grammar diagnostic (two rows). The MVP cut (#3385) removed the desktop kind, so the two `--kind` lines with an unknown kind read \"box.open's kind must be container or vm\". Malformed recovery rejection (099995ffa, #3318) rejects --nope and --summarize rather than treating them as bookmarks (two rows)."
+  },
+  {
+    flow: "box.open", kind: "card", rows: 2,
+    because: "Malformed recovery rejection (099995ffa, #3318) rejects --nope and --summarize rather than prefilling Bookmark with an unknown flag. The form now leaves Bookmark missing on those two lines."
   },
   ...(["issues", "issues.list"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 1,
@@ -480,7 +484,8 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1454: `/flow.create` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
     /* 1483: the 29 `/appearance.dark-mode` lines that name no mode read `dark-mode takes light or dark` (#3311). */
     /* 1359: the MVP cut (#3385) removed the desktop, forge, integration, model-lab and time-travel doors; their rows left with them. */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1359 })
+    /* 1361: malformed recovery rejection refuses two unknown box.open flags (099995ffa, #3318). */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1361 })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
   }, 1_800_000)
