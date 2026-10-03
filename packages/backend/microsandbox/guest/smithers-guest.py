@@ -138,7 +138,7 @@ def drop_to(user):
 
 
 def run_exec(request):
-    if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin"}:
+    if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin", "payload"}:
         fail(125, "invalid exec envelope")
     exec_id = request.get("id", "")
     if not valid_id(exec_id) or request.get("user") != "agent":
@@ -155,6 +155,10 @@ def run_exec(request):
                 handle.write(str(os.getpid()))
             os.close(group_fd)
             drop_to(user)
+            if "payload" in request:
+                request = read_request(request["payload"])
+                if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin"} or request.get("id") != exec_id or request.get("user") != user:
+                    fail(125, "invalid exec payload")
             if request.get("stdin") != "inherit":
                 null = os.open(os.devnull, os.O_RDONLY)
                 os.dup2(null, 0)
@@ -212,28 +216,42 @@ def run_exec(request):
 def run_root_recipe(digest, request):
     pins = globals().get("ROOT_RECIPE_DIGESTS", {})
     kind = pins.get(digest)
-    if kind not in ("apt", "marker") or not isinstance(request, dict):
+    if kind not in ("apt", "sync", "toolchain") or not isinstance(request, dict):
         fail(125, "unapproved root recipe digest")
     script = request.get("script")
     if not isinstance(script, str) or hashlib.sha256(script.encode()).hexdigest() != digest:
         fail(125, "root recipe digest mismatch")
     argv = ["/bin/bash", "-c", script, "root-recipe"]
-    if kind == "apt":
+    if kind in ("apt", "sync"):
         if set(request) != {"script"}:
-            fail(125, "invalid apt envelope")
-    else:
-        if set(request) != {"script", "marker"}:
-            fail(125, "invalid marker envelope")
-        marker = request["marker"]
-        if not isinstance(marker, dict) or set(marker) != {"kind", "key", "name"}:
-            fail(125, "invalid marker")
-        if marker["kind"] not in ("toolchain", "dependencies"):
-            fail(125, "invalid marker kind")
-        if not isinstance(marker["key"], str) or not re.fullmatch("[a-f0-9]{64}", marker["key"]):
-            fail(125, "invalid marker key")
-        if not valid_id(marker["name"]):
-            fail(125, "invalid marker name")
-        argv.extend([marker["kind"], json.dumps(marker)])
+            fail(125, "invalid system envelope")
+    elif kind == "toolchain":
+        if set(request) != {"script", "toolchain"}:
+            fail(125, "invalid toolchain envelope")
+        data = request["toolchain"]
+        if not isinstance(data, dict) or set(data) != {"packages", "postgres", "environment"}:
+            fail(125, "invalid toolchain inputs")
+        packages = data["packages"]
+        if packages is None:
+            packages = []
+        if not isinstance(packages, list) or len(packages) > 64 or any(
+                not isinstance(p, str) or not re.fullmatch(r"[a-z0-9][a-z0-9+.-]{0,127}", p) for p in packages):
+            fail(125, "invalid toolchain packages")
+        postgres = data["postgres"]
+        if not isinstance(postgres, str) or (postgres and not re.fullmatch(r"[0-9]{1,2}", postgres)):
+            fail(125, "invalid toolchain postgres")
+        environment = data["environment"]
+        allowed = {"PATH", "GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE",
+            "RUSTUP_HOME", "CARGO_HOME", "pnpm_config_store_dir", "pnpm_config_cache_dir",
+            "PLAYWRIGHT_BROWSERS_PATH", "npm_config_store_dir", "npm_config_cache", "YARN_CACHE_FOLDER",
+            "BUN_INSTALL_CACHE_DIR", "UV_CACHE_DIR", "UV_PYTHON_DOWNLOADS", "PIP_CACHE_DIR",
+            "PIP_FIND_LINKS", "PIP_TARGET", "PYTHONPATH", "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+            "CI", "LANG", "DPRINT_CACHE_DIR"}
+        if not isinstance(environment, dict) or set(environment) != allowed or any(
+                not isinstance(v, str) or len(v) > 4096 or any(ord(c) < 32 for c in v)
+                for v in environment.values()):
+            fail(125, "invalid toolchain environment")
+        argv.extend([postgres, json.dumps(environment), *packages])
     if os.geteuid() != 0:
         fail(125, "root recipe requires root")
     import subprocess
@@ -475,22 +493,8 @@ def setup(user, uid, directories):
     try:
         os.fchown(home_fd, entry.pw_uid, entry.pw_gid)
         os.fchmod(home_fd, 0o700)
-        try:
-            tool_fd = safe_directory(TOOL_HOME, create=False)
-        except FileNotFoundError:
-            tool_fd = None
-        if tool_fd is not None:
-            names = os.listdir(tool_fd)
-            os.close(tool_fd)
-            for name in names:
-                try:
-                    os.symlink(os.path.join(TOOL_HOME, name), name, dir_fd=home_fd)
-                    os.chown(name, entry.pw_uid, entry.pw_gid, dir_fd=home_fd, follow_symlinks=False)
-                except FileExistsError:
-                    pass
     finally:
         os.close(home_fd)
-    home_defaults(entry)
     for directory in directories:
         fd = safe_directory(directory)
         try:
@@ -651,6 +655,28 @@ GO_SETTINGS = ("GOTOOLCHAIN", "GOPROXY", "GOFLAGS", "GOMODCACHE", "GOCACHE")
 
 
 def home_defaults(entry):
+    if os.geteuid() != entry.pw_uid:
+        fail(125, "home defaults require agent identity")
+    # Called only in the command child after drop_to. Warm branch-produced
+    # home names and settings never enter privileged setup.
+    home_fd = safe_directory(entry.pw_dir)
+    try:
+        try:
+            tool_fd = safe_directory(TOOL_HOME, create=False)
+        except FileNotFoundError:
+            tool_fd = None
+        if tool_fd is not None:
+            try:
+                for name in os.listdir(tool_fd):
+                    try:
+                        os.symlink(os.path.join(TOOL_HOME, name), name, dir_fd=home_fd)
+                    except FileExistsError:
+                        pass
+            finally:
+                os.close(tool_fd)
+    finally:
+        os.close(home_fd)
+
     for relative in (".cache", ".config", ".config/go", ".local", ".local/share", ".local/share/pnpm"):
         try:
             fd = safe_directory(os.path.join(entry.pw_dir, relative), create=False)
@@ -775,30 +801,57 @@ def main(args):
         sys.exit(run_root_recipe(args[1], read_request(sys.stdin.buffer)))
     if command == "exec":
         if len(args) == 3 and args[1] == "--request" and valid_id(args[2]):
+            exec_id = args[2]
             parent = protected_requests()
             try:
-                fd = os.open(args[2] + ".json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                fd = os.open(exec_id + ".json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
                 with os.fdopen(fd, "rb") as handle:
                     info = os.fstat(handle.fileno())
                     if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
                         fail(3, "untrusted request")
-                    request = read_request(handle)
-                os.unlink(args[2] + ".json", dir_fd=parent)
+                    os.unlink(exec_id + ".json", dir_fd=parent)
+                    sys.exit(run_exec({"id":exec_id, "user":"agent", "payload":handle}))
             finally:
                 os.close(parent)
+        elif len(args) == 2 and valid_id(args[1]):
+            # Pass the stream without reading it. Only the agent child reads
+            # and decodes branch command/manifests after the credential drop.
+            sys.exit(run_exec({"id":args[1], "user":"agent", "payload":sys.stdin.buffer}))
         else:
-            request = read_request(sys.stdin.buffer)
-        sys.exit(run_exec(request))
+            fail(125, "invalid exec identity")
     if command == "put-request" and len(args) == 2 and valid_id(args[1]):
-        body = sys.stdin.buffer.read(1048577)
-        if len(body) > 1048576:
-            fail(125, "request exceeds limit")
         parent = protected_requests()
+        leaf = args[1] + ".json"
+        fd = None
+        created = False
         try:
-            fd = os.open(args[1] + ".json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(body)
+            fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            created = True
+            # Root creates the protected IPC descriptor; only the agent child
+            # consumes branch bytes. It cannot choose or reopen the destination.
+            child = os.fork()
+            if child == 0:
+                try:
+                    os.close(parent)
+                    drop_to("agent")
+                    body = sys.stdin.buffer.read(1048577)
+                    if len(body) > 1048576:
+                        fail(125, "request exceeds limit")
+                    with os.fdopen(fd, "wb") as handle:
+                        handle.write(body)
+                    os._exit(0)
+                except BaseException:
+                    os._exit(125)
+            os.close(fd); fd = None
+            _, status = os.waitpid(child, 0)
+            if os.waitstatus_to_exitcode(status) != 0:
+                fail(125, "request transfer failed")
+            created = False
         finally:
+            if fd is not None:
+                os.close(fd)
+            if created:
+                os.unlink(leaf, dir_fd=parent)
             os.close(parent)
         return
     if command == "probe" and len(args) == 2:
@@ -852,6 +905,8 @@ def main(args):
         return
     if command == "setup" and len(args) >= 3:
         setup(args[1], int(args[2]), args[3:])
+        entry = drop_to(args[1])
+        home_defaults(entry)
         return
     fail(125, "unknown subcommand %r" % command)
 

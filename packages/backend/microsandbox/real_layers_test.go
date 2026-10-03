@@ -315,3 +315,58 @@ func TestRealMicroVMDetectedRepositoryLayers(t *testing.T) {
 		})
 	}
 }
+
+// Security receipt for M-29 / #3439. Real VM builds use the reviewed main
+// toolchain row; the revision-aware repository fixture supplies hostile branch bytes.
+func TestRealMicroVMSecurityIndex(t *testing.T) {
+	runtime := detectedFixtureRuntime(t)
+	raw, err := os.ReadFile("../../../.smithers/target-index.json")
+	require.NoError(t, err)
+	rows := indexRows(t, string(raw))
+	var mainRows []indexTarget
+	for _, row := range rows {
+		if row.Rule == "Environment.Toolchain" {
+			mainRows = append(mainRows, row)
+		}
+	}
+	require.Len(t, mainRows, 1)
+	mainBytes, err := json.Marshal(mainRows)
+	require.NoError(t, err)
+	attacker := toolchainRow()
+	attacker["destinations"] = []string{"attacker.example"}
+	for _, pin := range attacker["toolchain"].(map[string]any)["downloads"].(map[string]any) {
+		p := pin.(map[string]string)
+		p["url"] = "https://attacker.example/root"
+		p["sha256"] = strings.Repeat("f", 64)
+		p["destination"] = "/usr/bin"
+	}
+	branchBytes, err := json.Marshal([]any{attacker})
+	require.NoError(t, err)
+	reader := &revisionLayerReader{files: map[string]string{targetIndexPath: string(mainBytes)}, branchFiles: map[string]string{targetIndexPath: string(branchBytes)}, reads: map[string][]string{}}
+	runtime.BindSourceFiles(reader)
+	ctx := operation("security-index")
+	source := &workspaceapi.WorkspaceSource{Repository: "fixtures/security-index", Revision: "branch"}
+	layer, err := runtime.ResolveWorkspaceLayer(ctx, workspaceapi.WorkspaceSpec{Source: source})
+	require.NoError(t, err)
+	require.Equal(t, []string{strings.Repeat("b", 40)}, reader.reads[targetIndexPath])
+	records, err := runtime.environments.records()
+	require.NoError(t, err)
+	found := false
+	for _, record := range records {
+		if record.Name == layer.Snapshot {
+			found = true
+			require.Equal(t, fmt.Sprint(guestUID), record.Inventory["toolchain-uid"])
+			require.NotContains(t, string(record.Recipe), "attacker.example")
+			t.Logf("prepared toolchain inventory uid=%s; main index read=%v; branch URL absent", record.Inventory["toolchain-uid"], reader.reads[targetIndexPath])
+		}
+	}
+	require.True(t, found)
+	id := "security-index"
+	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id, Source: source})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete-security-index"), id)) }()
+	result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-ec", fmt.Sprintf(`test "$(id -u)" = %d; find %s -type f ! -uid %d -print > /var/tmp/wrong-owner; test ! -s /var/tmp/wrong-owner; printf 'uid='; id -u; stat -c 'owner=%%u %%n' %s/node/bin/node; node --version`, guestUID, toolchainRoot, guestUID, toolchainRoot)}})
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode, result.Stdout+result.Stderr)
+	t.Logf("ownership and execution receipt:\n%s", result.Stdout)
+}

@@ -5,7 +5,7 @@ description: "Detected toolchains, reviewed image packages, and Source ready and
 
 ## Repositories without declarations
 
-The machine layer builder uses a committed `.smithers/target-index.json` when
+The machine layer builder uses main’s committed `.smithers/target-index.json` when
 present. An invalid index fails; it never silently switches to detection.
 Without an index, `microsandbox.DetectRecipe` reads only:
 
@@ -56,6 +56,9 @@ join the toolchain identity. Branch commands run as the unprivileged `agent`.
 Dependency preparation also runs as `agent`, with Node lifecycle scripts
 disabled until workspace linking. Python console scripts installed beneath
 `python-site/bin` are on the machine PATH.
+Download destinations govern the actual file write beneath the toolchain prefix.
+Held directory descriptors and no-follow opens refuse parent and symlink escapes
+with `invalid_download_destination`, including existing aliased leaves.
 The current apt repositories supply packages; package versions are not pinned
 to a Debian snapshot.
 
@@ -63,8 +66,10 @@ to a Debian snapshot.
 
 | Preparation step                                     | Runs as               | Execution and shared-layer effects                                                                                       |
 | ---------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Shipped Playwright apt script                        | `root`                | Runs before repository commands, with PATH pinned to system directories and PYTHONPATH empty.                            |
-| Shipped layer marker script                          | `root`                | Records completion after preparation, with the same pinned PATH and empty PYTHONPATH. Executes no repository content.    |
+| Toolchain download, SHA-256 verification, extraction and inventory | `guestUser` (`agent`) | Index pins come only from main. Artifacts run at `guestUID` under the agent-owned `/opt/smithers/toolchain` prefix. |
+| Shipped toolchain system setup | `root` | Installs reviewed apt packages and creates agent-owned toolchain directories. Executes no toolchain artifacts. |
+| Shipped browser system packages | `root` | Installed unconditionally in toolchain setup from shipped package pins, never selected by branch lockfiles. |
+| Input planting, warm home defaults and layer markers | `guestUser` (`agent`) | Branch manifests and output are consumed only after the UID drop. Root only flushes the disk with the shipped `sync` command. |
 | Dependency script                                    | `guestUser` (`agent`) | Runs repository-selected dependency commands at a nonzero uid.                                                           |
 | npm, pnpm, yarn and bun installs                     | `guestUser` (`agent`) | Use `--ignore-scripts` during preparation. Lifecycle scripts run only at workspace link time, at a nonzero uid.          |
 | pip wheel builds (`setup.py`) and `toolNode` entries | `guestUser` (`agent`) | Run repository code during preparation. Their effects are baked into a shared layer keyed by the digests of every input. |

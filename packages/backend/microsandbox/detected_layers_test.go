@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"archive/zip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +26,7 @@ import (
 // M-29: every detected dependency path must request the unprivileged identity.
 func TestDetectedDependencyPreparationRequestsAgentIdentity(t *testing.T) {
 	for _, command := range [][]string{
+		{"toolchain"},
 		{"npm", "ci"}, {"pnpm", "install"}, {"yarn", "install"}, {"bun", "install"},
 		{"python", "-m", "pip", "install", "-r", "requirements.txt"},
 		{"uv", "sync", "--frozen"}, {"go", "mod", "download"}, {"cargo", "fetch"},
@@ -37,13 +38,16 @@ func TestDetectedDependencyPreparationRequestsAgentIdentity(t *testing.T) {
 			script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
   *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
-  *run\ exec) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
 esac
 `, shellQuote(log), shellQuote(log))
 			require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
 			runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
 			env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
-			layer := dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: command}}}
+			var layer recipe = dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: command}}}
+			if command[0] == "toolchain" {
+				layer = toolchainLayer{Downloads: map[string]download{"node": {Version: "22.14.0", URL: "https://nodejs.org/main", SHA256: strings.Repeat("a", 64)}}, Packages: []string{"libssl-dev"}}
+			}
 			_, err := env.buildLayer(t.Context(), layerRecord{Kind: layerDependency, Key: strings.Repeat("a", 64), Name: "layer-fixture"}, layer, "", nil)
 			require.NoError(t, err)
 			requests, err := os.ReadFile(log)
@@ -52,7 +56,7 @@ esac
 			for _, line := range strings.Split(strings.TrimSpace(string(requests)), "\n") {
 				var request execRequest
 				require.NoError(t, json.Unmarshal([]byte(line), &request))
-				if strings.Contains(request.Argv[2], "set -eEuo pipefail") {
+				if strings.Contains(request.Argv[2], "set -eEuo pipefail") || strings.Contains(request.Argv[2], "fetch()") {
 					found = true
 					require.Equal(t, guestUser, request.User)
 					require.Equal(t, guestHome, request.Env["HOME"])
@@ -84,8 +88,8 @@ case "$*" in
   "snapshot list --format json") if [ -e %s ]; then printf '%%s' %s; else echo '[]'; fi ;;
   "snapshot create "*) touch %s ;;
   "snapshot remove "*) rm %s ;;
-  *run\ exec|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
-  *"-- cat "*) printf '%%s' %s ;;
+  *smthrs-vfy-*run\ exec\ *) cat >/dev/null; printf '%%s' %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ exec\ *|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
 esac
 `, shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
@@ -195,7 +199,8 @@ func TestLayerVerificationRetainsSnapshotAndParentWhenDiskFloorRefuses(t *testin
 	binary := filepath.Join(root, "msb")
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
-  "snapshot list --format json") echo '[]' ;;
+  *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ "snapshot list --format json") echo '[]' ;;
   "snapshot remove "*) printf '%%s\n' "$*" >> %s ;;
 esac
 `, shellQuote(log))
@@ -233,7 +238,8 @@ func TestLayerPinCannotRegisterDuringSnapshotDeletion(t *testing.T) {
 	binary := filepath.Join(root, "msb")
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
-  "snapshot list --format json") echo '[]' ;;
+  *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ "snapshot list --format json") echo '[]' ;;
   "snapshot remove "*) touch %s; while [ ! -e %s ]; do sleep 0.01; done ;;
 esac
 `, shellQuote(started), shellQuote(gate))
@@ -402,11 +408,7 @@ func TestDetectedNpmLifecycleHooksRunOnlyAtOfflineLink(t *testing.T) {
 
 func detectedTestEnvironment(t *testing.T, root string) map[string]string {
 	t.Helper()
-	script := (toolchainLayer{}).script()
-	match := regexp.MustCompile(`printf '%s' '([^']+)' > /opt/smithers/env.json`).FindStringSubmatch(script)
-	require.Len(t, match, 2)
-	var env map[string]string
-	require.NoError(t, json.Unmarshal([]byte(match[1]), &env))
+	env := (toolchainLayer{}).environment()
 	for key, value := range env {
 		env[key] = strings.ReplaceAll(value, cacheRoot, root)
 	}
@@ -573,7 +575,8 @@ func TestDetectedLayersSelectOnlyRecipeToolsAndKeyEveryInput(t *testing.T) {
 	for _, tool := range []string{"go", "bun", "rust", "python", "jj"} {
 		require.NotContains(t, tc.script(), "/var/tmp/dl/"+tool+".")
 	}
-	require.Contains(t, tc.script(), "apt-get install -y -qq --no-install-recommends 'libssl-dev'")
+	require.Contains(t, tc.systemScript(), `apt-get install -y -qq --no-install-recommends "$@"`)
+	require.Equal(t, []string{"libssl-dev"}, tc.Packages)
 	require.Contains(t, tc.allowlist(), "deb.debian.org")
 	key, _, err := recipeKey("", tc)
 	require.NoError(t, err)
@@ -656,9 +659,10 @@ func TestDetectedDependencyRefusesUnsafeInputsAndPreservesReadErrors(t *testing.
 }
 
 type revisionLayerReader struct {
-	files   map[string]string
-	reads   map[string][]string
-	mainErr error
+	branchFiles map[string]string
+	files       map[string]string
+	reads       map[string][]string
+	mainErr     error
 }
 
 func (r *revisionLayerReader) ResolveSourceRevision(_ context.Context, _ string, rev string) (string, error) {
@@ -670,6 +674,9 @@ func (r *revisionLayerReader) ResolveSourceRevision(_ context.Context, _ string,
 func (r *revisionLayerReader) ReadSourceFile(_ context.Context, source workspaceapi.WorkspaceSource, name string) ([]byte, error) {
 	r.reads[name] = append(r.reads[name], source.Revision)
 	content, ok := r.files[name]
+	if source.Revision == strings.Repeat("a", 40) && r.branchFiles != nil {
+		content, ok = r.branchFiles[name]
+	}
 	if !ok {
 		return nil, fs.ErrNotExist
 	}
@@ -752,9 +759,9 @@ func TestDetectedToolScriptsInstallPinnedLanguagesAndExternalCaches(t *testing.T
 				require.NotContains(t, layer.script(), "rustup-init")
 			}
 
-			require.Contains(t, layer.script(), `"npm_config_cache":"/var/cache/smithers/npm"`)
-			require.Contains(t, layer.script(), `"npm_config_store_dir":"/var/cache/smithers/pnpm-store"`)
-			require.Contains(t, layer.script(), `"PIP_TARGET":"/var/cache/smithers/python-site"`)
+			require.Contains(t, layer.environment()["npm_config_cache"], "/var/cache/smithers/npm")
+			require.Contains(t, layer.environment()["npm_config_store_dir"], "/var/cache/smithers/pnpm-store")
+			require.Contains(t, layer.environment()["PIP_TARGET"], "/var/cache/smithers/python-site")
 		})
 	}
 	layer := dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: []string{"python", "-m", "pip", "install", "-r", "requirements.txt"}, Offline: []string{"python", "-m", "pip", "install", "--no-index", "-r", "requirements.txt"}}, {Command: []string{"uv", "sync", "--frozen"}, Offline: []string{"uv", "sync", "--offline", "--frozen"}}}}
@@ -803,4 +810,119 @@ printf '%s' "$*" > "$PIP_TARGET/installed"
 		require.NoError(t, err)
 		require.Equal(t, "retained", string(cached))
 	}
+}
+
+// M-29 and security fix #3439: unreviewed index bytes must never reach preparation.
+func TestToolchainIndexIgnoresAttackerBranch(t *testing.T) {
+	mainRow := toolchainRow()
+	mainBytes, err := json.Marshal([]any{mainRow})
+	require.NoError(t, err)
+	attacker := toolchainRow()
+	attacker["destinations"] = []string{"attacker.example"}
+	for _, pin := range attacker["toolchain"].(map[string]any)["downloads"].(map[string]any) {
+		p := pin.(map[string]string)
+		p["url"] = "https://attacker.example/root"
+		p["sha256"] = strings.Repeat("f", 64)
+		p["destination"] = "/usr/bin"
+	}
+	branchBytes, err := json.Marshal([]any{attacker})
+	require.NoError(t, err)
+	reader := &revisionLayerReader{files: map[string]string{targetIndexPath: string(mainBytes)}, branchFiles: map[string]string{targetIndexPath: string(branchBytes)}, reads: map[string][]string{}}
+	root := t.TempDir()
+	log := filepath.Join(root, "requests")
+	binary := filepath.Join(root, "msb")
+	// Unit transport records requests; real VM authority is checked separately.
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
+case "$*" in
+ *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ *run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ "snapshot list --format json") echo '[]' ;;
+esac
+`, shellQuote(log), shellQuote(log))), 0755))
+	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
+	runtime.environments = &environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
+	require.NoError(t, os.MkdirAll(runtime.microsandboxHome(), 0o700))
+	runtime.BindSourceFiles(reader)
+	_, resolveErr := runtime.ResolveWorkspaceLayer(t.Context(), workspaceapi.WorkspaceSpec{Source: &workspaceapi.WorkspaceSource{Repository: "fixture", Revision: "branch"}})
+	require.ErrorContains(t, resolveErr, "does not hold what was prepared", "fake intentionally supplies no snapshot; preparation must have completed")
+	require.Equal(t, []string{strings.Repeat("b", 40)}, reader.reads[targetIndexPath])
+	requests, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(requests), "https://nodejs.org/26.5.0")
+	require.NotContains(t, string(requests), "attacker.example")
+}
+
+// Dispatch security gate: branch bytes cross only the agent boundary. The CLI
+// fake observes transport, while a real npm process tests lifecycle suppression.
+func TestBranchDependencyInputsOnlyReachAgentWithScriptsDisabled(t *testing.T) {
+	root := t.TempDir()
+	log := filepath.Join(root, "calls")
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+case "$*" in
+ *run\ exec\ *) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ *run\ root-recipe*) cat >> %s; printf '\n' >> %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+ *) cat >/dev/null ;;
+esac
+`, shellQuote(log), shellQuote(log), shellQuote(log), shellQuote(log), shellQuote(log))), 0755))
+	manifest := []byte(`{"name":"hostile","version":"1.0.0","scripts":{"install":"touch ROOT-INSTALL","postinstall":"touch ROOT-POSTINSTALL"}}`)
+	runtime := &Runtime{root: root, owner: "smithers-backend-0123456789abcdef", cli: &cli{binary: binary, home: root}}
+	env := environments{runtime: runtime, config: EnvironmentConfig{PrepareTimeout: time.Minute}}
+	layer := dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: []string{"npm", "install", "--package-lock=false"}}}}
+	_, err := env.buildLayer(t.Context(), layerRecord{Kind: layerDependency, Key: strings.Repeat("a", 64), Name: "fixture"}, layer, "warm", map[string][]byte{"package.json": manifest})
+	require.NoError(t, err)
+	body, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "-- sh -c", "raw root planting is forbidden")
+	found := false
+	for _, line := range strings.Split(string(body), "\n") {
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var request execRequest
+		require.NoError(t, json.Unmarshal([]byte(line), &request))
+		if len(request.Argv) < 3 {
+			var rootRequest map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &rootRequest))
+			require.Equal(t, rootSyncScript, rootRequest["script"])
+			require.NotContains(t, rootRequest, "marker")
+			continue
+		}
+		if strings.Contains(request.Argv[2], base64.StdEncoding.EncodeToString(manifest)) {
+			found = true
+			require.Equal(t, guestUser, request.User)
+		}
+		if strings.Contains(request.Argv[2], "'npm' 'install'") {
+			require.Equal(t, guestUser, request.User)
+			require.Contains(t, request.Argv[2], "--ignore-scripts")
+		}
+	}
+	require.True(t, found, "manifest must be planted inside agent exec")
+	npm, err := exec.LookPath("npm")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), manifest, 0600))
+	cmd := exec.Command(npm, "install", "--package-lock=false", "--ignore-scripts", "--offline", "--no-audit", "--no-fund")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "npm_config_cache="+filepath.Join(root, "npm-cache"))
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	for _, name := range []string{"ROOT-INSTALL", "ROOT-POSTINSTALL"} {
+		_, err = os.Stat(filepath.Join(root, name))
+		require.True(t, os.IsNotExist(err), name)
+	}
+}
+
+func TestToolchainWriteTimeDestinationRefusalIsTyped(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	// Mock only the unavailable VM transport; the real write boundary is tested
+	// by TestToolchainDestinationConfinesActualWrite using real filesystem calls.
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncat >/dev/null\necho invalid_download_destination >&2\nprintf '\\000SMITHERS-EXIT 3\\000' >&2\n"), 0700))
+	env := environments{runtime: &Runtime{cli: &cli{binary: binary, home: root}}}
+	_, err := env.runRecipe(t.Context(), "machine", "branch-independent-toolchain-script", guestUser, guestHome)
+	var refusal *RecipeError
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "invalid_download_destination", refusal.Code)
+	require.Equal(t, "user", refusal.Class)
 }

@@ -1,12 +1,12 @@
 package microsandbox
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,7 +78,11 @@ func TestMicrosandboxUnitLayerAdmissionPinsResolvedCommitAndPreservesReaderError
 			layer, err := runtime.ResolveWorkspaceLayer(t.Context(), workspaceapi.WorkspaceSpec{Source: &workspaceapi.WorkspaceSource{Repository: "repo", Revision: "main"}})
 			require.Error(t, err)
 			require.Equal(t, Layer{}, layer)
-			require.Equal(t, 1, reader.resolves)
+			if row.reads == 0 {
+				require.Equal(t, 1, reader.resolves)
+			} else {
+				require.Equal(t, 2, reader.resolves)
+			} // branch and immutable main resolve separately (dispatch source rule).
 			require.Equal(t, row.reads, reader.reads)
 			if row.resolveErr != nil || row.readErr != nil {
 				require.ErrorIs(t, err, failure)
@@ -214,26 +218,31 @@ func TestMicrosandboxUnitToolNodesRequireLockfileAndPackageLocalEntry(t *testing
 	require.Equal(t, []string{"plugins.dprint.dev"}, layer.allowlist())
 }
 
-func TestMicrosandboxUnitLayerArchivePreservesDeterministicFilesAndModes(t *testing.T) {
-	files := map[string][]byte{"z/binary": {0, 255, 1}, "a.txt": []byte("héllo\n"), "empty": {}}
-	archive, err := tarFiles(files)
+func TestMicrosandboxUnitLayerInputsPreserveDeterministicRegularFiles(t *testing.T) {
+	files := map[string][]byte{"z/binary": {0, 255, 1}, "a.txt": []byte("héllo\n"), "empty": {}, "large": []byte(strings.Repeat("lockfile\n", 200000))}
+	script, err := dependencyInputScript(files)
 	require.NoError(t, err)
-	again, err := tarFiles(map[string][]byte{"empty": {}, "a.txt": []byte("héllo\n"), "z/binary": {0, 255, 1}})
+	again, err := dependencyInputScript(map[string][]byte{"empty": {}, "a.txt": []byte("héllo\n"), "z/binary": {0, 255, 1}, "large": []byte(strings.Repeat("lockfile\n", 200000))})
 	require.NoError(t, err)
-	require.Equal(t, archive, again, "map insertion order cannot invalidate an identical layer archive")
-	reader := tar.NewReader(bytes.NewReader(archive))
-	for _, name := range []string{"a.txt", "empty", "z/binary"} {
-		header, err := reader.Next()
+	require.Equal(t, script, again, "map insertion order cannot invalidate identical inputs")
+	root := t.TempDir()
+	command := exec.Command("/bin/bash")
+	command.Stdin = strings.NewReader(strings.ReplaceAll(script, cacheRoot, root))
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	for name, content := range files {
+		destination := filepath.Join(root, "prepare/src", name)
+		body, err := os.ReadFile(destination)
 		require.NoError(t, err)
-		require.Equal(t, name, header.Name)
-		require.Equal(t, int64(0o644), header.Mode)
-		require.Equal(t, byte(tar.TypeReg), header.Typeflag)
-		contents, err := io.ReadAll(reader)
+		require.Equal(t, content, body)
+		info, err := os.Lstat(destination)
 		require.NoError(t, err)
-		require.Equal(t, files[name], contents)
+		require.True(t, info.Mode().IsRegular())
 	}
-	_, err = reader.Next()
-	require.ErrorIs(t, err, io.EOF)
+	for _, name := range []string{"../escape", "/escape", "a/../b", ".", "a\\b"} {
+		_, err := dependencyInputScript(map[string][]byte{name: {}})
+		require.Error(t, err)
+	}
 	require.Equal(t, map[string]string{"node": "26.5.0", "rustc": "1.89.0 (build details)"},
 		parseInventory("noise\n inventory node 26.5.0 \ninventory rustc 1.89.0 (build details)\ninventory missing\n"))
 }

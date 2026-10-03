@@ -1,9 +1,9 @@
 package microsandbox
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +44,7 @@ const (
 	layerSchema     = "smithers.microvm.layer/v1"
 	layerToolchain  = "toolchain"
 	layerDependency = "dependencies"
-	layerMarkerDir  = "/opt/smithers/layers"
+	layerMarkerDir  = "/var/cache/smithers/layers"
 	cacheRoot       = "/var/cache/smithers"
 	toolchainRoot   = "/opt/smithers/toolchain"
 	// toolHome holds what tool nodes download into $HOME (for example
@@ -269,10 +269,6 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 		}
 		return contents, true, nil
 	}
-	targets, err := readTargetIndex(read)
-	if err != nil {
-		return Layer{}, err
-	}
 	mainCommit, err := sources.ResolveSourceRevision(ctx, source.Repository, "main")
 	if err != nil {
 		return Layer{}, fmt.Errorf("resolve machine additions from main: %w", err)
@@ -282,13 +278,22 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	}
 	mainSource := source
 	mainSource.Revision = mainCommit
-	machine, err := ReadMachineJSON(func(name string) ([]byte, bool, error) {
+	mainRead := func(name string) ([]byte, bool, error) {
 		contents, err := sources.ReadSourceFile(ctx, mainSource, name)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, false, nil
 		}
-		return contents, err == nil, err
-	})
+		if err != nil {
+			return nil, false, fmt.Errorf("read %s at %s: %w", name, mainSource.Revision[:12], err)
+		}
+		return contents, true, nil
+	}
+	// M-29: executable artifact pins are reviewed on main, never branch input.
+	targets, err := readTargetIndex(mainRead)
+	if err != nil {
+		return Layer{}, err
+	}
+	machine, err := ReadMachineJSON(mainRead)
 	if err != nil {
 		return Layer{}, err
 	}
@@ -305,9 +310,6 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	} else {
 		toolchain, err = toolchainRecipe(e.config.Image, targets)
 		toolchain.Packages = machine.Packages
-		if len(machine.Packages) > 0 {
-			toolchain.Destinations = withAptDestinations(toolchain.Destinations)
-		}
 	}
 	if err != nil {
 		return Layer{}, err
@@ -386,11 +388,8 @@ func recipeKey(parent string, value recipe) (string, []byte, error) {
 }
 
 func recipePreparation(value recipe) (user, systemScript string) {
-	if value.kind() != layerDependency {
-		return "root", ""
-	}
-	if dependencies, ok := value.(dependencyLayer); ok && len(dependencies.Playwright) > 0 {
-		return guestUser, playwrightSystemPackages
+	if toolchain, ok := value.(toolchainLayer); ok {
+		return guestUser, toolchain.systemScript()
 	}
 	return guestUser, ""
 }
@@ -535,13 +534,30 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		return nil, err
 	}
 	if len(inputs) > 0 {
-		archive, err := tarFiles(inputs)
+		// No branch bytes reach a raw root shell. Plant regular files only
+		// after the pinned helper has dropped to the agent identity.
+		plant, err := dependencyInputScript(inputs)
 		if err != nil {
 			return nil, err
 		}
-		plant := "set -e; rm -rf " + cacheRoot + "/prepare; mkdir -p " + cacheRoot + "/prepare/src; tar -x -C " + cacheRoot + "/prepare/src; chown -R " + strconv.Itoa(guestUID) + ":" + strconv.Itoa(guestUID) + " " + cacheRoot + "/prepare"
-		if _, err := e.runtime.cli.run(buildCtx, archive, "exec", machine, "--", "sh", "-c", plant); err != nil {
-			return nil, fmt.Errorf("%w: plant layer inputs: %v", ErrUnavailable, err)
+		// Keep each envelope below the helper's 1 MiB transport bound even
+		// for a multi-megabyte lockfile. Each line is a complete absolute write.
+		batch := "set -e\n"
+		flush := func() error {
+			_, err := e.runRecipe(buildCtx, machine, batch, guestUser, guestHome)
+			batch = "set -e\n"
+			return err
+		}
+		for _, line := range strings.Split(plant, "\n") {
+			if len(batch)+len(line) > 512<<10 {
+				if err := flush(); err != nil {
+					return nil, fmt.Errorf("plant layer inputs: %w", err)
+				}
+			}
+			batch += line + "\n"
+		}
+		if err := flush(); err != nil {
+			return nil, fmt.Errorf("plant layer inputs: %w", err)
 		}
 	}
 	user, systemScript := recipePreparation(value)
@@ -552,7 +568,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 	if systemScript != "" {
 		// Only shipped apt argv has root authority. Browser installers and
 		// repository-selected JavaScript execute below as agent.
-		if _, err := e.runRoot(buildCtx, machine, systemScript); err != nil {
+		if _, err := e.runSystemRecipe(buildCtx, machine, value, systemScript); err != nil {
 			return nil, err
 		}
 	}
@@ -561,7 +577,12 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		return nil, fmt.Errorf("build %s layer %s: %w", record.Kind, record.Key[:12], err)
 	}
 	inventory := parseInventory(output)
-	if _, err := e.runRoot(buildCtx, machine, rootMarkerScript, record); err != nil {
+	marker, _ := json.Marshal(map[string]string{"kind": record.Kind, "key": record.Key, "name": record.Name})
+	markerScript := "set -e; mkdir -p " + layerMarkerDir + "; printf '%s' " + shellQuote(string(marker)) + " > " + shellQuote(layerMarkerDir+"/"+record.Kind+".json")
+	if _, err := e.runRecipe(buildCtx, machine, markerScript, guestUser, guestHome); err != nil {
+		return nil, err
+	}
+	if _, err := e.runRoot(buildCtx, machine, rootSyncScript); err != nil {
 		return nil, err
 	}
 	if err := e.runtime.stopMachine(buildCtx, machine); err != nil {
@@ -578,20 +599,11 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 
 // runRoot runs only a binary-pinned script through the root-recipe helper and returns
 // its stdout, failing with the tail of its output when it exits nonzero.
-func (e *environments) runRoot(ctx context.Context, machine, script string, records ...layerRecord) (string, error) {
-	if script != playwrightSystemPackages && script != rootMarkerScript {
+func (e *environments) runRoot(ctx context.Context, machine, script string) (string, error) {
+	if script != playwrightSystemPackages && script != rootSyncScript {
 		return "", fmt.Errorf("unapproved root recipe digest")
 	}
-	request := map[string]any{"script": script}
-	if script == rootMarkerScript {
-		if len(records) != 1 {
-			return "", fmt.Errorf("marker requires one record")
-		}
-		request["marker"] = map[string]string{"kind": records[0].Kind, "key": records[0].Key, "name": records[0].Name}
-	} else if len(records) != 0 {
-		return "", fmt.Errorf("apt accepts no record")
-	}
-	body, _ := json.Marshal(request)
+	body, _ := json.Marshal(map[string]any{"script": script})
 	return e.runPreparation(ctx, machine, body, "root-recipe", scriptDigest(script))
 }
 
@@ -610,9 +622,10 @@ func preparationEnvironment(user, home string) map[string]string {
 func (e *environments) runRecipe(ctx context.Context, machine, script, user, home string) (string, error) {
 	// execRequest contains only strings, []string and map[string]string, with
 	// no custom marshalers or cyclic values, so JSON encoding cannot fail.
-	request, _ := json.Marshal(execRequest{ID: newExecID(), Argv: []string{"/bin/bash", "-c", script}, Cwd: "/", User: user,
+	id := newExecID()
+	request, _ := json.Marshal(execRequest{ID: id, Argv: []string{"/bin/bash", "-c", script}, Cwd: "/", User: user,
 		Env: preparationEnvironment(user, home)})
-	return e.runPreparation(ctx, machine, request, "exec")
+	return e.runPreparation(ctx, machine, request, "exec", id)
 }
 
 func (e *environments) runPreparation(ctx context.Context, machine string, request []byte, subcommand ...string) (string, error) {
@@ -635,6 +648,9 @@ func (e *environments) runPreparation(ctx context.Context, machine string, reque
 		return "", fmt.Errorf("%w: prepare command lost (%v): %s", ErrUnavailable, waitErr, tail(errText))
 	}
 	if snapshot.exitCode != 0 {
+		if strings.Contains(out+errText, "invalid_download_destination") {
+			return "", &RecipeError{Code: "invalid_download_destination", Class: "user", Message: "Toolchain download destination escapes or aliases its root", Fix: "Use a regular file under " + toolchainRoot}
+		}
 		return "", fmt.Errorf("exited %d: %s", snapshot.exitCode, tail(out+errText))
 	}
 	return out, nil
@@ -648,8 +664,8 @@ func tail(text string) string {
 	return text
 }
 
-// Only data parameters vary; the executable bytes have one binary-pinned digest.
-const rootMarkerScript = `set -e; mkdir -p /opt/smithers/layers; printf '%s' "$2" > "/opt/smithers/layers/$1.json"; sync`
+// Flush only: branch-derived recipe markers are written and read as agent.
+const rootSyncScript = `sync`
 
 // verify boots a fresh offline VM from the layer and checks its marker: the
 // quarry's rule that a captured base must still hold what was prepared.
@@ -671,12 +687,15 @@ func (e *environments) verify(ctx context.Context, record layerRecord) error {
 		return fmt.Errorf("%w: boot layer %s for verification: %v", ErrUnavailable, record.Name, err)
 	}
 	defer func() { _ = e.runtime.removeMachine(context.Background(), machine) }()
-	output, err := e.runtime.cli.run(verifyCtx, nil, "exec", machine, "--", "cat", layerMarkerDir+"/"+record.Kind+".json")
+	if err := e.runtime.installGuest(verifyCtx, machine); err != nil {
+		return err
+	}
+	output, err := e.runRecipe(verifyCtx, machine, "cat "+shellQuote(layerMarkerDir+"/"+record.Kind+".json"), guestUser, guestHome)
 	if err != nil {
 		return fmt.Errorf("layer %s holds no marker: %w", record.Name, err)
 	}
 	var marker map[string]string
-	if json.Unmarshal(output, &marker) != nil || marker["key"] != record.Key {
+	if json.Unmarshal([]byte(output), &marker) != nil || marker["key"] != record.Key {
 		return fmt.Errorf("layer %s does not hold what was prepared", record.Name)
 	}
 	e.mu.Lock()
@@ -688,26 +707,28 @@ func (e *environments) verify(ctx context.Context, record layerRecord) error {
 	return nil
 }
 
-func tarFiles(files map[string][]byte) ([]byte, error) {
-	var buffer bytes.Buffer
-	writer := tar.NewWriter(&buffer)
+func dependencyInputScript(files map[string][]byte) (string, error) {
+	var script strings.Builder
+	fmt.Fprintf(&script, "set -e; rm -rf %s/prepare; mkdir -p %s/prepare/src\n", cacheRoot, cacheRoot)
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(files[name])), Typeflag: tar.TypeReg}); err != nil {
-			return nil, err
+		if name == "." || path.IsAbs(name) || path.Clean(name) != name || hasParentComponent(name) || strings.ContainsAny(name, "\\\x00") {
+			return "", &RecipeError{Code: "invalid_dependency_input", Class: "user", Message: "Invalid dependency input: " + name}
 		}
-		if _, err := writer.Write(files[name]); err != nil {
-			return nil, err
+		destination := cacheRoot + "/prepare/src/" + name
+		fmt.Fprintf(&script, "mkdir -p %s; : > %s\n", shellQuote(path.Dir(destination)), shellQuote(destination))
+		body := files[name]
+		for len(body) > 0 {
+			size := min(len(body), 48<<10)
+			fmt.Fprintf(&script, "printf '%%s' %s | base64 -d >> %s\n", shellQuote(base64.StdEncoding.EncodeToString(body[:size])), shellQuote(destination))
+			body = body[size:]
 		}
 	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	return buffer.Bytes(), nil
+	return script.String(), nil
 }
 
 // parseInventory reads `inventory <tool> <version>` lines a recipe prints.
@@ -775,9 +796,10 @@ func readTargetIndex(read func(string) ([]byte, bool, error)) ([]indexTarget, er
 
 // download is one pinned artifact and its reviewed SHA-256 (linux/arm64).
 type download struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
-	SHA256  string `json:"sha256"`
+	Destination string `json:"destination,omitempty"`
+	Version     string `json:"version"`
+	URL         string `json:"url"`
+	SHA256      string `json:"sha256"`
 }
 
 // requiredTools are the tools the toolchain script installs.
@@ -842,6 +864,11 @@ func toolchainRecipe(image string, targets []indexTarget) (toolchainLayer, error
 	if layer.Postgres != "" && !postgresPattern.MatchString(layer.Postgres) {
 		return toolchainLayer{}, fmt.Errorf("%s declares PostgreSQL %q, not a major version", row.Label, layer.Postgres)
 	}
+	for _, pinned := range row.Toolchain.Downloads {
+		if pinned.Destination != "" && (filepath.IsAbs(pinned.Destination) || filepath.Clean(pinned.Destination) != pinned.Destination || pinned.Destination == "." || strings.Contains(pinned.Destination, "\\") || strings.ContainsRune(pinned.Destination, 0) || hasParentComponent(pinned.Destination)) {
+			return toolchainLayer{}, &RecipeError{Code: "invalid_download_destination", Class: "user", Message: "Invalid toolchain download destination: " + pinned.Destination, Fix: "Use a clean relative path under " + toolchainRoot}
+		}
+	}
 	for _, tool := range required {
 		pinned, ok := row.Toolchain.Downloads[tool]
 		if !ok {
@@ -876,6 +903,15 @@ func toolchainRecipe(image string, targets []indexTarget) (toolchainLayer, error
 	}
 	layer.Destinations = sortedKeys(destinations)
 	return layer, nil
+}
+
+func hasParentComponent(destination string) bool {
+	for _, part := range strings.Split(destination, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // destinationSet validates a node's declared hosts.
@@ -925,16 +961,106 @@ func sortedKeys(set map[string]bool) []string {
 func (t toolchainLayer) kind() string   { return layerToolchain }
 func (t toolchainLayer) link() []string { return nil }
 
-// allowlist is the toolchain row's declared destinations. Domain rules match
+// allowlist combines declared artifacts with shipped system-package destinations. Domain rules match
 // the DNS name a connection resolved through, so the declaration lists CDN
 // CNAME targets beside the names that alias them.
-func (t toolchainLayer) allowlist() []string { return t.Destinations }
+func (t toolchainLayer) allowlist() []string { return withAptDestinations(t.Destinations) }
+
+// toolchainSystemScript is binary-pinned. Variable inputs are validated data,
+// passed as positional arguments, never interpolated into privileged code.
+const toolchainSystemScript = `set -euo pipefail
+` + playwrightSystemPackages + `
+postgres="$1"; environment="$2"; shift 2
+if [ "$#" -gt 0 ]; then
+ apt-get update -qq; apt-get install -y -qq --no-install-recommends "$@" >/dev/null
+ rm -rf /var/lib/apt/lists/*
+fi
+if [ -n "$postgres" ]; then
+ pgdir=$(mktemp -d /root/smithers-pgdg.XXXXXXXX)
+ trap 'rm -rf "$pgdir"' EXIT
+ curl -fsSL --retry 4 -o "$pgdir/key.asc" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+ gpg --batch --quiet --show-keys --with-colons "$pgdir/key.asc" | grep -q '^fpr:::::::::` + pgdgKeyFingerprint + `:$'
+ gpg --batch --quiet --dearmor < "$pgdir/key.asc" > /usr/share/keyrings/pgdg.gpg
+ echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+ apt-get update -qq; apt-get install -y -qq --no-install-recommends "postgresql-$postgres" >/dev/null
+ rm -rf /var/lib/apt/lists/*
+fi
+mkdir -p /opt/smithers/toolchain /opt/smithers/rust
+chown -R 1500:1500 /opt/smithers/toolchain /opt/smithers/rust
+printf '%s' "$environment" > /opt/smithers/env.json
+chmod 0644 /opt/smithers/env.json
+`
+
+func (t toolchainLayer) systemScript() string { return toolchainSystemScript }
+
+func (e *environments) runSystemRecipe(ctx context.Context, machine string, value recipe, script string) (string, error) {
+	if t, ok := value.(toolchainLayer); ok {
+		body, err := json.Marshal(map[string]any{"script": toolchainSystemScript, "toolchain": map[string]any{"packages": t.Packages, "postgres": t.Postgres, "environment": t.environment()}})
+		if err != nil {
+			return "", err
+		}
+		return e.runPreparation(ctx, machine, body, "root-recipe", scriptDigest(toolchainSystemScript))
+	}
+	return e.runRoot(ctx, machine, script)
+}
+
+func (t toolchainLayer) environment() map[string]string {
+	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", toolchainRoot + "/rust/bin", toolchainRoot + "/python/bin", cacheRoot + "/python-site/bin", "/opt/smithers/rust/cargo/bin"}
+	if t.Postgres != "" {
+		pathEntries = append(pathEntries, "/usr/lib/postgresql/"+t.Postgres+"/bin")
+	}
+
+	pathEntries = append(pathEntries, "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+	return map[string]string{
+		"PATH": strings.Join(pathEntries, ":"), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly",
+		"GOMODCACHE": cacheRoot + "/gomod", "GOCACHE": cacheRoot + "/gocache", "RUSTUP_HOME": "/opt/smithers/rust/rustup",
+		"CARGO_HOME": cacheRoot + "/cargo", "pnpm_config_store_dir": cacheRoot + "/pnpm-store", "pnpm_config_cache_dir": cacheRoot + "/pnpm-cache", "PLAYWRIGHT_BROWSERS_PATH": cacheRoot + "/ms-playwright",
+		"npm_config_store_dir": cacheRoot + "/pnpm-store", "npm_config_cache": cacheRoot + "/npm", "YARN_CACHE_FOLDER": cacheRoot + "/yarn", "BUN_INSTALL_CACHE_DIR": cacheRoot + "/bun", "UV_CACHE_DIR": cacheRoot + "/uv", "UV_PYTHON_DOWNLOADS": "never", "PIP_CACHE_DIR": cacheRoot + "/pip", "PIP_FIND_LINKS": cacheRoot + "/wheels", "PIP_TARGET": cacheRoot + "/python-site", "PYTHONPATH": cacheRoot + "/python-site",
+		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "CI": "1", "LANG": "C.UTF-8", "DPRINT_CACHE_DIR": cacheRoot + "/dprint",
+	}
+}
 
 func (t toolchainLayer) script() string {
 	var s strings.Builder
 	fmt.Fprintf(&s, `set -euo pipefail
 T=%[1]s; mkdir -p "$T/bin" /var/tmp/dl %[2]s
-fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | sha256sum -c - >/dev/null; }
+fetch() {
+ /usr/bin/python3 -I - "$T" "$3" "$1" "$2" <<'SMITHERS_FETCH'
+import hashlib, os, stat, subprocess, sys
+root, destination, url, checksum = sys.argv[1:]
+try:
+ if not destination.startswith(root + "/"):
+  raise ValueError("outside root")
+ relative = destination[len(root)+1:]
+ parts = relative.split("/")
+ if any(p in ("", ".", "..") or "\\" in p or "\x00" in p for p in parts):
+  raise ValueError("invalid path")
+ # Resolve every ancestor and the leaf through held no-follow descriptors.
+ # No path check followed by a pathname-based curl write (TOCTOU).
+ fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+ for part in root.strip("/").split("/") + parts[:-1]:
+  try: os.mkdir(part, 0o755, dir_fd=fd)
+  except FileExistsError: pass
+  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+  os.close(fd); fd = child
+ out = os.open(parts[-1], os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=fd)
+ info = os.fstat(out)
+ if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+  os.close(out); raise ValueError("not a private regular file")
+except (OSError, ValueError) as error:
+ sys.exit("invalid_download_destination: " + str(error))
+os.close(fd)
+with os.fdopen(out, "w+b") as handle:
+ handle.truncate(0)
+ subprocess.run(["curl", "-fsSL", "--retry", "4", "--retry-all-errors", url], stdout=handle, check=True)
+ handle.flush(); handle.seek(0)
+ digest = hashlib.sha256()
+ for chunk in iter(lambda: handle.read(1048576), b""): digest.update(chunk)
+ if digest.hexdigest() != checksum:
+  sys.exit("toolchain checksum mismatch")
+SMITHERS_FETCH
+}
+
 `, toolchainRoot, cacheRoot)
 	d := t.Downloads
 	if _, ok := d["node"]; ok {
@@ -981,9 +1107,6 @@ fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | 
 		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/uv.tar.gz; tar -xzf /var/tmp/dl/uv.tar.gz -C $T/bin --strip-components=1 --wildcards '*/uv'\n", shellQuote(pinned.URL), pinned.SHA256)
 	}
 
-	if len(t.Packages) > 0 {
-		s.WriteString("apt-get update -qq; apt-get install -y -qq --no-install-recommends " + shellArgv(t.Packages) + " >/dev/null\nrm -rf /var/lib/apt/lists/*\n")
-	}
 	if t.Rust != "" {
 		components := strings.Join(t.RustParts, ",")
 		fmt.Fprintf(&s, "fetch %s %s /var/tmp/dl/rustup-init; chmod +x /var/tmp/dl/rustup-init\n", shellQuote(d["rustup"].URL), d["rustup"].SHA256)
@@ -996,32 +1119,13 @@ fetch() { curl -fsSL --retry 4 --retry-all-errors -o "$3" "$1"; echo "$2  $3" | 
 		}
 		s.WriteString(" >/dev/null\n")
 	}
-	pathEntries := []string{toolchainRoot + "/bin", toolchainRoot + "/node/bin", toolchainRoot + "/go/bin", toolchainRoot + "/rust/bin", toolchainRoot + "/python/bin", cacheRoot + "/python-site/bin", "/opt/smithers/rust/cargo/bin"}
-	if t.Postgres != "" {
-		fmt.Fprintf(&s, `curl -fsSL --retry 4 -o /var/tmp/dl/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-gpg --batch --quiet --show-keys --with-colons /var/tmp/dl/pgdg.asc | grep -q '^fpr:::::::::%[1]s:$'
-gpg --batch --quiet --dearmor < /var/tmp/dl/pgdg.asc > /usr/share/keyrings/pgdg.gpg
-echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release; echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-%[2]s >/dev/null
-rm -rf /var/lib/apt/lists/*
-`, pgdgKeyFingerprint, t.Postgres)
-		pathEntries = append(pathEntries, "/usr/lib/postgresql/"+t.Postgres+"/bin")
-	}
 	s.WriteString("rm -rf /var/tmp/dl\n")
-	pathEntries = append(pathEntries, "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
-	env := map[string]string{
-		"PATH": strings.Join(pathEntries, ":"), "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly",
-		"GOMODCACHE": cacheRoot + "/gomod", "GOCACHE": cacheRoot + "/gocache", "RUSTUP_HOME": "/opt/smithers/rust/rustup",
-		"CARGO_HOME": cacheRoot + "/cargo", "pnpm_config_store_dir": cacheRoot + "/pnpm-store", "pnpm_config_cache_dir": cacheRoot + "/pnpm-cache", "PLAYWRIGHT_BROWSERS_PATH": cacheRoot + "/ms-playwright",
-		"npm_config_store_dir": cacheRoot + "/pnpm-store", "npm_config_cache": cacheRoot + "/npm", "YARN_CACHE_FOLDER": cacheRoot + "/yarn", "BUN_INSTALL_CACHE_DIR": cacheRoot + "/bun", "UV_CACHE_DIR": cacheRoot + "/uv", "UV_PYTHON_DOWNLOADS": "never", "PIP_CACHE_DIR": cacheRoot + "/pip", "PIP_FIND_LINKS": cacheRoot + "/wheels", "PIP_TARGET": cacheRoot + "/python-site", "PYTHONPATH": cacheRoot + "/python-site",
-		"COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "CI": "1", "LANG": "C.UTF-8", "DPRINT_CACHE_DIR": cacheRoot + "/dprint",
-	}
-	encoded, _ := json.Marshal(env)
-	fmt.Fprintf(&s, "printf '%%s' %s > /opt/smithers/env.json\n", shellQuote(string(encoded)))
 	// The toolchain's cargo binaries are shared read-only; each build's
 	// registry cache lives in the writable dependency cache.
-	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home %[1]s/dprint %[1]s/npm %[1]s/yarn %[1]s/bun %[1]s/uv %[1]s/pip %[1]s/wheels %[1]s/python-site; chown -R %[2]d:%[2]d %[1]s\n", cacheRoot, guestUID)
-	s.WriteString("export PATH=" + shellQuote(strings.Join(pathEntries, ":")) + "\n")
+	fmt.Fprintf(&s, "mkdir -p %[1]s/gomod %[1]s/gocache %[1]s/cargo %[1]s/pnpm-store %[1]s/pnpm-cache %[1]s/ms-playwright %[1]s/home %[1]s/dprint %[1]s/npm %[1]s/yarn %[1]s/bun %[1]s/uv %[1]s/pip %[1]s/wheels %[1]s/python-site\n", cacheRoot)
+	s.WriteString("export PATH=" + shellQuote(t.environment()["PATH"]) + "\n")
+	s.WriteString(`echo "inventory toolchain-uid $(id -u)"
+`)
 	commands := map[string]string{"node": "node --version", "pnpm": "pnpm --version", "npm": "npm --version", "yarn": "yarn --version", "bun": "bun --version", "go": "go version", "jj": "jj --version", "rg": "rg --version | head -1", "fd": "fd --version", "jq": "jq --version", "rust": "rustc --version", "python": "python3 --version", "uv": "uv --version"}
 	for _, tool := range sortedDownloadKeys(d) {
 		if command, ok := commands[tool]; ok {
@@ -1037,7 +1141,26 @@ rm -rf /var/lib/apt/lists/*
 echo "inventory cargo $(RUSTUP_HOME=/opt/smithers/rust/rustup /opt/smithers/rust/cargo/bin/cargo --version)"
 `)
 	}
-	return s.String()
+	script := strings.ReplaceAll(s.String(), "/var/tmp/dl", toolchainRoot+"/.downloads")
+	defaults := map[string]string{"node": "/var/tmp/dl/node.tar.xz", "pnpm": "/var/tmp/dl/pnpm.tgz", "bun": "/var/tmp/dl/bun.zip", "go": "/var/tmp/dl/go.tgz", "jj": "/var/tmp/dl/jj.tgz", "rg": "/var/tmp/dl/rg.tgz", "fd": "/var/tmp/dl/fd.tgz", "jq": "$T/bin/jq", "npm": "/var/tmp/dl/npm.tgz", "yarn": "/var/tmp/dl/yarn.tgz", "rust": "/var/tmp/dl/rust.tar.xz", "python": "/var/tmp/dl/python.tar.gz", "uv": "/var/tmp/dl/uv.tar.gz", "rustup": "/var/tmp/dl/rustup-init"}
+	var destinations strings.Builder
+	for _, tool := range sortedDownloadKeys(d) {
+		defaultPath, ok := defaults[tool]
+		if !ok {
+			continue
+		}
+		defaultPath = strings.ReplaceAll(defaultPath, "/var/tmp/dl", toolchainRoot+"/.downloads")
+		destination := strings.ReplaceAll(defaultPath, "$T", toolchainRoot)
+		if d[tool].Destination != "" {
+			destination = toolchainRoot + "/" + d[tool].Destination
+		}
+		variable := "SMITHERS_DOWNLOAD_" + tool
+		// Substitute only shipped placeholders, before inserting any declared
+		// path. A declaration cannot rewrite another artifact's destination.
+		script = strings.ReplaceAll(script, defaultPath, "\"$"+variable+"\"")
+		fmt.Fprintf(&destinations, "%s=%s\n", variable, shellQuote(destination))
+	}
+	return destinations.String() + script
 }
 
 // ---- L2: dependencies ----
@@ -1506,9 +1629,6 @@ func detectedToolchainRecipe(image string, detected Recipe, packages []string) (
 		layer.Downloads[tool] = pinned
 	}
 	layer.Destinations = sortedKeys(hosts)
-	if len(packages) > 0 {
-		layer.Destinations = withAptDestinations(layer.Destinations)
-	}
 	return layer, nil
 }
 

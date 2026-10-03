@@ -64,7 +64,7 @@ A workspace with a `Source` boots from content-addressed snapshots
 
 | Layer        | Key                                                                                                                                                                               |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| toolchain    | pinned image + the committed index's `Environment.Toolchain` row or the detected tool versions, pinned artifact URLs and SHA-256, plus `main`'s `.smithers/machine.json` packages |
+| toolchain    | pinned image + main's committed index's `Environment.Toolchain` row or the detected tool versions, pinned artifact URLs and SHA-256, plus `main`'s `.smithers/machine.json` packages |
 | dependencies | toolchain key + the index's install nodes or the detected install commands and their input contents, including lockfiles and member manifests                                     |
 
 The committed `.smithers/target-index.json` takes precedence. Without an index,
@@ -85,7 +85,13 @@ Reviewed image additions come from `main`:
 ```
 
 `.smithers/machine.json` accepts at most 64 Debian package names. The prepare
-VM installs them with `apt-get` as root; commands on a branch run as `agent`.
+VM installs them with `apt-get` as root. Toolchain downloads, checksum verification,
+extraction and inventory run as `agent` in the agent-owned `/opt/smithers/toolchain`.
+Input planting, warm-home initialization and completion markers run as agent.
+Execution payloads are decoded after the UID drop. Download destinations control
+the real no-follow file write beneath the toolchain prefix; escapes produce a
+typed `invalid_download_destination` refusal.
+The index comes only from main; branch index edits require a human merge.
 Package names use Debian's current repositories; the declaration does not pin
 an apt snapshot. See [machine images](../docs/machine-images.md) for detection
 and setup readiness contracts.
@@ -97,7 +103,8 @@ browsers, the Cargo and rustup homes, the pnpm store and cache, and dprint's
 cache), so a process that keeps only `PATH` and `HOME`, such as a coding host's
 least-authority tool, works offline too. Each key also covers the build script and network allowlist. Layers are built
 in prepare VMs whose domain allowlists are exactly the `destinations` the
-layer's index rows or detected recipe declare (CDN CNAME targets included:
+layer's index rows or detected recipe declare, plus the shipped apt destinations
+for fixed toolchain system packages (CDN CNAME targets included:
 domain rules match the name a connection resolved through). A declared download
 node without destinations is refused by name. Detected installs support public
 registries; credential-bound private registries need the secrets integration.

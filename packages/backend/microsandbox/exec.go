@@ -221,7 +221,7 @@ func (r *Runtime) start(ws *workspace, request execRequest) (*guestCommand, erro
 	if err != nil {
 		return nil, err
 	}
-	cmd := r.cli.command(guestArgs(ws.Machine, nil, false, "exec")...)
+	cmd := r.cli.command(guestArgs(ws.Machine, nil, false, "exec", request.ID)...)
 	cmd.Stdin = bytes.NewReader(encoded)
 	command := &guestCommand{runtime: r, machine: ws.Machine, id: request.ID, cmd: cmd, done: make(chan struct{}),
 		stdout: &limitedBuffer{limit: r.config.OutputLimit}, stderr: &limitedBuffer{limit: r.config.OutputLimit}}

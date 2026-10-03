@@ -1,6 +1,7 @@
 package microsandbox
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -67,12 +68,8 @@ func TestOwnerRootRecipeTransport(t *testing.T) {
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuote(log)+"\ncat >/dev/null\nprintf '\\000SMITHERS-EXIT 0\\000' >&2\n"), 0700))
 	e := environments{runtime: &Runtime{cli: &cli{binary: binary, home: dir}}}
 
-	for _, script := range []string{playwrightSystemPackages, rootMarkerScript} {
-		var records []layerRecord
-		if script == rootMarkerScript {
-			records = []layerRecord{{Kind: layerDependency, Key: strings.Repeat("a", 64), Name: "layer-fixture"}}
-		}
-		_, err := e.runRoot(t.Context(), "machine", script, records...)
+	for _, script := range []string{playwrightSystemPackages, rootSyncScript} {
+		_, err := e.runRoot(t.Context(), "machine", script)
 		require.NoError(t, err)
 		args, err := os.ReadFile(log)
 		require.NoError(t, err)
@@ -86,10 +83,10 @@ func TestOwnerRootRecipeTransport(t *testing.T) {
 // Root credential and process boundaries are instrumented; these tests never
 // execute privileged commands on the host.
 func TestOwnerRootRecipeGuestPins(t *testing.T) {
-	for _, script := range []string{playwrightSystemPackages, rootMarkerScript} {
+	for _, script := range []string{playwrightSystemPackages, rootSyncScript} {
 		kind := "apt"
-		if script == rootMarkerScript {
-			kind = "marker"
+		if script == rootSyncScript {
+			kind = "sync"
 		}
 		boundaryPython(t, fmt.Sprintf(`
 import subprocess
@@ -111,15 +108,14 @@ def run(argv,**kwargs):
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
 request={'script':script}
-if g.ROOT_RECIPE_DIGESTS[digest]=='marker':
- request['marker']={'kind':'dependencies','key':'a'*64,'name':'layer-fixture'}
 assert g.run_root_recipe(digest,request)==0
 assert len(calls)==2
 for d,r in [(g.hashlib.sha256(b'id').hexdigest(),{'script':'id'}),(digest,{'script':'id'}),(digest,dict(request,argv=['id']))]:
  try: g.run_root_recipe(d,r)
  except SystemExit: pass
  else: raise AssertionError('unapproved recipe accepted')
-if 'marker' in request:
+if g.ROOT_RECIPE_DIGESTS[digest]=='sync':
+ request['marker']={'kind':'dependencies','key':'a'*64,'name':'layer-fixture'}
  for key,value in [('kind','../../etc'),('key','bad'),('name','../bad')]:
   bad={'script':script,'marker':dict(request['marker'],**{key:value})}
   try: g.run_root_recipe(digest,bad)
@@ -134,11 +130,11 @@ for user in ('root','other'):
 }
 
 func TestOwnerRootRecipeRejectsAlteredPinnedBytesBeforeExecution(t *testing.T) {
-	for _, pinned := range []string{playwrightSystemPackages, rootMarkerScript} {
+	for _, pinned := range []string{playwrightSystemPackages, rootSyncScript} {
 		name := "apt"
 		digest := scriptDigest(pinned)
-		if pinned == rootMarkerScript {
-			name = "marker"
+		if pinned == rootSyncScript {
+			name = "sync"
 		}
 		t.Run(name, func(t *testing.T) {
 			sentinel := filepath.Join(t.TempDir(), "executed")
@@ -155,8 +151,6 @@ def run(argv,**kwargs):
  return types.SimpleNamespace(returncode=0)
 subprocess.run=run
 request={'script':%s}
-if ROOT_RECIPE_DIGESTS[%s]=='marker':
- request['marker']={'kind':'dependencies','key':'a'*64,'name':'layer-fixture'}
 g.sys.stdin=io.TextIOWrapper(io.BytesIO(json.dumps(request).encode()))
 stderr=io.StringIO()
 try:
@@ -177,7 +171,52 @@ except SystemExit as error:
 else: raise AssertionError('unapproved digest accepted')
 assert 'unapproved root recipe digest' in stderr.getvalue(),stderr.getvalue()
 assert not os.path.exists(%s),'unapproved recipe executed'
-		`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(sentinel), strconv.Quote(sentinel), strconv.Quote(altered), strconv.Quote(digest), strconv.Quote(digest), strconv.Quote(sentinel), strconv.Quote(pinned), strconv.Quote(strings.Repeat("f", 64)), strconv.Quote(sentinel)))
+		`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(sentinel), strconv.Quote(sentinel), strconv.Quote(altered), strconv.Quote(digest), strconv.Quote(sentinel), strconv.Quote(pinned), strconv.Quote(strings.Repeat("f", 64)), strconv.Quote(sentinel)))
 		})
 	}
+}
+
+// T-MCH-10 + T-SEC-01: privileged code is pinned; main's package rows are
+// positional data. Reject hostile envelopes before any root subprocess starts.
+func TestOwnerToolchainRootRecipeValidatedData(t *testing.T) {
+	layer := toolchainLayer{Packages: []string{"libssl-dev"}, Postgres: "17"}
+	body, err := json.Marshal(map[string]any{"script": toolchainSystemScript, "toolchain": map[string]any{"packages": layer.Packages, "postgres": layer.Postgres, "environment": layer.environment()}})
+	require.NoError(t, err)
+	boundaryPython(t, fmt.Sprintf(`
+import copy, json, subprocess
+exec(%s,globals())
+g.ROOT_RECIPE_DIGESTS=ROOT_RECIPE_DIGESTS
+g.os.geteuid=lambda: 0
+g.os.write=lambda fd,body: len(body)
+request=json.loads(%s)
+digest=%s
+calls=[]
+def run(argv,**kwargs):
+ assert argv[:4]==['/bin/bash','-c',request['script'],'root-recipe']
+ assert argv[4]=='17' and argv[6:]==['libssl-dev']
+ assert json.loads(argv[5])==request['toolchain']['environment']
+ assert kwargs['env']['PATH']=='/usr/sbin:/usr/bin:/sbin:/bin'
+ assert kwargs['env']['PYTHONPATH']==''
+ assert 'BASH_ENV' not in kwargs['env']
+ calls.append(argv)
+ return types.SimpleNamespace(returncode=0)
+subprocess.run=run
+assert g.run_root_recipe(digest,request)==0
+assert len(calls)==1
+bad=[]
+for packages in [['-oRoot::Cmd=id'],['x;id'],['../etc'],['x']*65,'libssl-dev',[1]]:
+ r=copy.deepcopy(request); r['toolchain']['packages']=packages; bad.append(r)
+for postgres in ['17;id','../etc',17,'123']:
+ r=copy.deepcopy(request); r['toolchain']['postgres']=postgres; bad.append(r)
+r=copy.deepcopy(request); r['toolchain']['environment']['BASH_ENV']='/workspace/evil'; bad.append(r)
+r=copy.deepcopy(request); r['toolchain']['environment']['PATH']='x\n'; bad.append(r)
+r=copy.deepcopy(request); r['toolchain']['extra']='id'; bad.append(r)
+r=copy.deepcopy(request); r['argv']=['id']; bad.append(r)
+r=copy.deepcopy(request); r['script']+='; id'; bad.append(r)
+for r in bad:
+ try: g.run_root_recipe(digest,r)
+ except SystemExit as error: assert error.code==125
+ else: raise AssertionError('hostile toolchain accepted')
+assert len(calls)==1,'rejected request executed'
+`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(string(body)), strconv.Quote(scriptDigest(toolchainSystemScript))))
 }

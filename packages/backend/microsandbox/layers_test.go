@@ -2,7 +2,11 @@ package microsandbox
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,8 +72,8 @@ func TestToolchainRecipeReadsTheIndexToolchainRow(t *testing.T) {
 	require.Equal(t, []string{"clippy", "rustfmt"}, recipe.RustParts)
 	require.Equal(t, []string{"wasm32-wasip1"}, recipe.RustTargs)
 	require.Equal(t, "18", recipe.Postgres)
-	require.Equal(t, []string{"apt.postgresql.org", "github.com", "go.dev", "nodejs.org", "registry.npmjs.org", "static.rust-lang.org", "www.postgresql.org"}, recipe.allowlist())
-	require.Contains(t, recipe.script(), "postgresql-18")
+	require.Equal(t, []string{"apt.postgresql.org", "cdn-fastly.deb.debian.org", "deb.debian.org", "debian.map.fastly.net", "debian.map.fastlydns.net", "dualstack.k.sni.global.fastly.net", "github.com", "go.dev", "nodejs.org", "registry.npmjs.org", "security.debian.org", "static.rust-lang.org", "www.postgresql.org"}, recipe.allowlist())
+	require.Contains(t, recipe.systemScript(), `"postgresql-$postgres"`)
 	require.Contains(t, recipe.script(), "--default-toolchain '1.98.0'")
 
 	// Without Rust or PostgreSQL the script installs neither, and rustup is not required.
@@ -276,4 +280,96 @@ func TestUnixMode(t *testing.T) {
 	require.Equal(t, fs.ModeDir|0o755, unixMode(0o040755))
 	require.Equal(t, fs.ModeSymlink|0o777, unixMode(0o120777))
 	require.Equal(t, fs.FileMode(0o644), unixMode(0o100644))
+}
+
+// #3439: destinations must be clean relative paths within the toolchain prefix.
+func TestToolchainRecipeRefusesEscapingDownloadDestination(t *testing.T) {
+	for _, destination := range []string{"../../usr/bin/x", "/usr/bin", "a/../b", "a//b", "."} {
+		t.Run(destination, func(t *testing.T) {
+			row := toolchainRow()
+			row["toolchain"].(map[string]any)["downloads"].(map[string]any)["node"].(map[string]string)["destination"] = destination
+			_, err := toolchainRecipe("image", encodeRows(t, row))
+			var refusal *RecipeError
+			require.ErrorAs(t, err, &refusal)
+			require.Equal(t, "invalid_download_destination", refusal.Code)
+		})
+	}
+}
+
+func TestToolchainRecipeAcceptsContainedDestinationAndSeparatesPrivilege(t *testing.T) {
+	row := toolchainRow()
+	row["toolchain"].(map[string]any)["downloads"].(map[string]any)["node"].(map[string]string)["destination"] = "node/bin"
+	layer, err := toolchainRecipe("image", encodeRows(t, row))
+	require.NoError(t, err)
+	user, system := recipePreparation(layer)
+	require.Equal(t, guestUser, user) // M-29 / #3439: no artifact gets root authority.
+	require.Contains(t, system, fmt.Sprintf("chown -R %d:%d %s", guestUID, guestUID, toolchainRoot))
+	require.NotContains(t, system, "fetch()")
+	require.NotContains(t, system, "--version")
+	require.NotContains(t, layer.script(), "apt-get")
+	require.NotContains(t, layer.script(), "chown")
+	require.NotContains(t, layer.script(), "env.json")
+	require.Contains(t, system, "chmod 0644 /opt/smithers/env.json")
+	require.NotContains(t, system, fmt.Sprintf("chown %d:%d /opt/smithers/env.json", guestUID, guestUID))
+	require.Contains(t, layer.script(), "inventory toolchain-uid $(id -u)")
+	layer.Packages = []string{"libssl-dev"}
+	require.Contains(t, layer.systemScript(), `"$@"`)
+	require.Equal(t, []string{"libssl-dev"}, layer.Packages)
+	before, _, err := recipeKey("", layer)
+	require.NoError(t, err)
+	layer.Packages = []string{"libyaml-dev"}
+	after, _, err := recipeKey("", layer)
+	require.NoError(t, err)
+	require.NotEqual(t, before, after, "shipped system script remains in the cache identity")
+}
+
+// Dispatch oracle: the actual output write must refuse .. and symlink escapes,
+// independently of the host recipe's lexical validation.
+func TestToolchainDestinationConfinesActualWrite(t *testing.T) {
+	for _, destination := range []string{"../outside", "bin/jq", "escaped/jq", "hardlink", "bin", "a/../outside", "custom/jq"} {
+		t.Run(destination, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			require.NoError(t, err)
+			prefix := filepath.Join(root, "toolchain")
+			require.NoError(t, os.MkdirAll(filepath.Join(prefix, "bin"), 0755))
+			sentinel := filepath.Join(root, "outside")
+			require.NoError(t, os.WriteFile(sentinel, []byte("untouched"), 0600))
+			require.NoError(t, os.Symlink(sentinel, filepath.Join(prefix, "bin/jq")))
+			require.NoError(t, os.Symlink(root, filepath.Join(prefix, "escaped")))
+			require.NoError(t, os.Link(sentinel, filepath.Join(prefix, "hardlink")))
+			mock := filepath.Join(root, "mock")
+			require.NoError(t, os.Mkdir(mock, 0755))
+			// Real shell/Python, fake network only: no download in this confinement test.
+			require.NoError(t, os.WriteFile(filepath.Join(mock, "curl"), []byte("#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = -o ]; then printf payload > \"$2\"; exit; fi; shift; done\nprintf payload\n"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(mock, "sha256sum"), []byte("#!/bin/sh\ncat >/dev/null\n"), 0755))
+			layer := toolchainLayer{Downloads: map[string]download{"jq": {URL: "https://example.com/jq", SHA256: digest("payload"), Destination: destination}}}
+			script := strings.ReplaceAll(layer.script(), toolchainRoot, prefix)
+			script = strings.ReplaceAll(script, cacheRoot, filepath.Join(root, "cache"))
+			script = strings.ReplaceAll(script, "/var/tmp/dl", filepath.Join(root, "dl"))
+			script = strings.ReplaceAll(script, `echo "inventory jq $(jq --version)"`, ":")
+			cmd := exec.Command("/bin/bash", "-c", script)
+			cmd.Env = append(os.Environ(), "PATH="+mock+":/usr/bin:/bin")
+			output, err := cmd.CombinedOutput()
+			if destination == "custom/jq" {
+				require.NoError(t, err, string(output))
+				body, err := os.ReadFile(filepath.Join(prefix, destination))
+				require.NoError(t, err)
+				require.Equal(t, "payload", string(body))
+			} else {
+				require.Error(t, err, string(output))
+				require.Contains(t, string(output), "invalid_download_destination")
+			}
+			body, err := os.ReadFile(sentinel)
+			require.NoError(t, err)
+			require.Equal(t, "untouched", string(body))
+		})
+	}
+}
+
+func TestDependencyPreparationCannotSelectRootInputs(t *testing.T) {
+	// Dispatch gate: branch lockfiles cannot select even a shipped root script.
+	user, system := recipePreparation(dependencyLayer{Playwright: []string{"1.52.0"}})
+	require.Equal(t, guestUser, user)
+	require.Empty(t, system)
+	require.Contains(t, toolchainSystemScript, playwrightSystemPackages)
 }

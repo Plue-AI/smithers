@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as directory:
  home=directory+'/home'; os.mkdir(home)
  me=pwd.getpwuid(os.getuid())
  entry=types.SimpleNamespace(pw_dir=home,pw_uid=me.pw_uid,pw_gid=me.pw_gid)
- env=directory+'/env.json'; g.ENV_FILE=env
+ env=directory+'/env.json'; g.ENV_FILE=env; g.TOOL_HOME=directory+'/absent-tool-home'
  with open(env,'w') as f: f.write('{"GOTOOLCHAIN":"local"}')
  for target in ('/etc','/root'):
   os.symlink(target,home+'/.config')
@@ -180,4 +180,92 @@ func rootBoundaryLifecycle(t *testing.T, hostileHome bool) {
 		require.NoError(t, err)
 		check()
 	}
+}
+
+// The setup fixture supplies OS identity/syscalls because this unit evidence
+// must never run privileged code on the host. All branch disk reads are trapped.
+func TestWarmSetupDoesNotReadBranchOutputAsRoot(t *testing.T) {
+	boundaryPython(t, `
+entry=types.SimpleNamespace(pw_dir='/home/agent',pw_uid=1500,pw_gid=1500)
+g.pwd.getpwnam=lambda user: entry
+g.safe_directory=lambda *args,**kwargs: os.open('/',os.O_RDONLY)
+g.os.fchown=lambda *args: None
+g.os.fchmod=lambda *args: None
+g.os.listdir=lambda *args: (_ for _ in ()).throw(AssertionError('root enumerated branch output'))
+g.home_defaults=lambda *args: (_ for _ in ()).throw(AssertionError('root consumed home output'))
+g.setup('agent',1500,['/var/cache/smithers'])
+`)
+}
+
+func TestWarmHomeInitializationDropsIdentityBeforeReadingOutput(t *testing.T) {
+	boundaryPython(t, `
+with tempfile.TemporaryDirectory() as directory:
+ home=os.path.realpath(directory)+'/home'; tools=os.path.realpath(directory)+'/tools'
+ os.mkdir(home); os.mkdir(tools); open(tools+'/branch-created','w').close()
+ g.TOOL_HOME=tools; g.ENV_FILE=directory+'/absent-env'
+ entry=types.SimpleNamespace(pw_dir=home,pw_uid=1500,pw_gid=1500)
+ state=[0]; calls=[]
+ g.os.geteuid=lambda: state[0]
+ def setup(*args):
+  assert state[0]==0; calls.append('root-fixed-setup')
+ g.setup=setup
+ def drop(user):
+  assert user=='agent'; state[0]=1500; calls.append('drop'); return entry
+ g.drop_to=drop
+ listdir=os.listdir
+ def read(fd):
+  assert state[0]==1500, 'branch output read as root'
+  calls.append('branch-read'); return listdir(fd)
+ g.os.listdir=read
+ g.main(['setup','agent','1500'])
+ assert calls==['root-fixed-setup','drop','branch-read'],calls
+ assert os.readlink(home+'/branch-created')==tools+'/branch-created'
+`)
+}
+
+func TestRootExecNeverParsesBranchPayload(t *testing.T) {
+	boundaryPython(t, `
+import io
+body=b'{"id":"host-id","user":"agent","argv":["branch-script"]}'
+g.sys.stdin=io.TextIOWrapper(io.BytesIO(body))
+# A root transport test must not interpret even valid JSON branch payloads.
+g.json.loads=lambda *args: (_ for _ in ()).throw(AssertionError('root parsed branch payload'))
+class Untouched(io.BytesIO):
+ def read(self,*args): raise AssertionError('root read branch bytes')
+g.sys.stdin=types.SimpleNamespace(buffer=Untouched(body))
+seen=[]
+def supervise(request):
+ assert request=={'id':'host-id','user':'agent','payload':g.sys.stdin.buffer}
+ seen.append(request['id']); return 0
+g.run_exec=supervise
+try: g.main(['exec','host-id'])
+except SystemExit as exit: assert exit.code==0
+assert seen==['host-id']
+`)
+}
+
+func TestRootRequestTransferReadsBranchBytesOnlyAfterDrop(t *testing.T) {
+	boundaryPython(t, `
+import io
+with tempfile.TemporaryDirectory() as directory:
+ g.protected_requests=lambda: os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+ identity=[0]
+ def drop(user):
+  assert user=='agent'; identity[0]=1500
+ g.drop_to=drop
+ class Branch(io.BytesIO):
+  def read(self,*args):
+   assert identity[0]==1500, 'root read branch IPC bytes'
+   return super().read(*args)
+ g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'branch payload'))
+ g.main(['put-request','host-id'])
+ assert identity==[0],identity
+ assert open(directory+'/host-id.json','rb').read()==b'branch payload'
+ assert os.stat(directory+'/host-id.json').st_mode & 0o777 == 0o600
+ g.sys.stdin=types.SimpleNamespace(buffer=Branch(b'x'*1048577))
+ try: g.main(['put-request','oversized'])
+ except SystemExit as error: assert error.code==125
+ else: raise AssertionError('oversized input accepted')
+ assert not os.path.exists(directory+'/oversized.json')
+`)
 }

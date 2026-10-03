@@ -131,6 +131,7 @@ func TestGuestSetupLeavesLayerEnvironmentAtHomeDefaults(t *testing.T) {
 spec = importlib.util.spec_from_file_location("guest", sys.argv[1])
 guest = importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
 guest.ENV_FILE = sys.argv[2]
+guest.TOOL_HOME = os.path.dirname(os.path.realpath(sys.argv[3])) + "/absent-tool-home"
 me = pwd.getpwuid(os.getuid())
 entry = pwd.struct_passwd((me.pw_name, "x", me.pw_uid, me.pw_gid, "", os.path.realpath(sys.argv[3]), "/bin/sh"))
 guest.home_defaults(entry)
