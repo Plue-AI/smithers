@@ -132,3 +132,52 @@ for user in ('root','other'):
 `, strconv.Quote(script), strconv.Quote(scriptDigest(script)), strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(kind)))
 	}
 }
+
+func TestOwnerRootRecipeRejectsAlteredPinnedBytesBeforeExecution(t *testing.T) {
+	for _, pinned := range []string{playwrightSystemPackages, rootMarkerScript} {
+		name := "apt"
+		digest := scriptDigest(pinned)
+		if pinned == rootMarkerScript {
+			name = "marker"
+		}
+		t.Run(name, func(t *testing.T) {
+			sentinel := filepath.Join(t.TempDir(), "executed")
+			altered := pinned + "; touch " + shellQuote(sentinel)
+			boundaryPython(t, fmt.Sprintf(`
+import contextlib,io,json
+import subprocess
+exec(%s,globals())
+g.ROOT_RECIPE_DIGESTS=ROOT_RECIPE_DIGESTS
+g.os.geteuid=lambda: 0
+g.os.write=lambda fd,body: len(body)
+def run(argv,**kwargs):
+ if %s in argv[2]: open(%s,'w').close()
+ return types.SimpleNamespace(returncode=0)
+subprocess.run=run
+request={'script':%s}
+if ROOT_RECIPE_DIGESTS[%s]=='marker':
+ request['marker']={'kind':'dependencies','key':'a'*64,'name':'layer-fixture'}
+g.sys.stdin=io.TextIOWrapper(io.BytesIO(json.dumps(request).encode()))
+stderr=io.StringIO()
+try:
+ with contextlib.redirect_stderr(stderr): g.main(['root-recipe',%s])
+except SystemExit as error:
+ assert error.code==125,error.code
+else: raise AssertionError('altered pinned recipe accepted')
+assert 'root recipe digest mismatch' in stderr.getvalue(),stderr.getvalue()
+assert not os.path.exists(%s),'altered recipe executed'
+
+# Matching bytes with an unpinned digest must fail before execution too.
+g.sys.stdin=io.TextIOWrapper(io.BytesIO(json.dumps({'script':%s}).encode()))
+stderr=io.StringIO()
+try:
+ with contextlib.redirect_stderr(stderr): g.main(['root-recipe',%s])
+except SystemExit as error:
+ assert error.code==125,error.code
+else: raise AssertionError('unapproved digest accepted')
+assert 'unapproved root recipe digest' in stderr.getvalue(),stderr.getvalue()
+assert not os.path.exists(%s),'unapproved recipe executed'
+		`, strconv.Quote(strings.Split(pinnedGuestBootstrap(), "import os,stat,sys,hashlib,secrets")[0]), strconv.Quote(sentinel), strconv.Quote(sentinel), strconv.Quote(altered), strconv.Quote(digest), strconv.Quote(digest), strconv.Quote(sentinel), strconv.Quote(pinned), strconv.Quote(strings.Repeat("f", 64)), strconv.Quote(sentinel)))
+		})
+	}
+}
