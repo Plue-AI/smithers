@@ -2738,7 +2738,9 @@ export function App(props: AppProps) {
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
-  const activityVisible = showActivity && monitored !== undefined && (!short || activeInspection !== undefined) &&
+  // The activity dock stays down to 20 rows; the rest of the chat compacts from 24.
+  const activityVisible = showActivity && monitored !== undefined &&
+    (chatHeight >= 20 || activeInspection !== undefined) &&
     reviewTab === undefined
   const activityModel = activityVisible ? Activity.model(monitored.activity) : undefined
   const activityHeight =

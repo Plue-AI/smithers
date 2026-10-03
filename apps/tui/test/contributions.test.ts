@@ -90,7 +90,7 @@ describe("contributions store", () => {
   })
 
   it.each([
-    { chord: "alt+y", label: "Allow" },
+    { chord: "alt+y", label: "Allow once" },
     { chord: "alt+n", label: "Deny" },
     { chord: "alt+a", label: "Action" }
   ])("refuses a global extension shadowing worker approval $chord", ({ chord, label }) => {
