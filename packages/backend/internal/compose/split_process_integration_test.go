@@ -44,7 +44,6 @@ func splitProcessDatabase(t *testing.T) (repositoryURL string, repositoryHealthC
 	t.Cleanup(repoHost.Close)
 	for name, value := range map[string]string{
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "split-process-bootstrap",
 		"SMITHERS_DATABASE_URL":                  databaseURL,
 		"SMITHERS_PUBLIC_URL":                    "http://127.0.0.1:4000",
 		"SMITHERS_SERVER_ADDR":                   "127.0.0.1:0",

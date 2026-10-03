@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +50,7 @@ func (log *optionalServicesLog) String() string {
 // This acceptance test proves public startup, native repository initialization,
 // and durable chat without optional services. It does not execute an agent Flow.
 func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
-	_, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	require.NotEmpty(t, ffi, "real native repository engine is required")
 	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "optional-repo-token", FFILibraryPath: ffi})
@@ -66,7 +67,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	require.NoError(t, os.WriteFile(configFile, []byte(`{"email":{"smtp_host":"","smtp_user":"","smtp_pass":""},"auth":{"github_client_id":"","github_client_secret":""},"wiki_sync":{"obsidian":[]}}`), 0600))
 	for key, value := range map[string]string{
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": t.TempDir(), "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
+		"SMITHERS_AUTH_MODE":           "selfhost",
 		"SMITHERS_AUTH_SESSION_SECRET": "optional-session", "SMITHERS_LFS_SIGNING_SECRET": "optional-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "optional-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "optional-repo-token",
 		"SMITHERS_REPO_HOST_URL": "", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "optional-push-callback",
@@ -221,9 +222,6 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 		if token != "" {
 			req.Header.Set("Authorization", "token "+token)
 		}
-		if path == "/api/auth/local/bootstrap" {
-			req.Header.Set("X-Smithers-Bootstrap-Token", "optional-bootstrap")
-		}
 		res, err := client.Do(req)
 		require.NoError(t, err)
 		defer res.Body.Close()
@@ -243,12 +241,9 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	ready := request("GET", "/readyz", "", nil, 200)
 	require.Contains(t, string(ready), `"database":"ok"`)
-	request("POST", "/api/auth/local/bootstrap", "", map[string]string{"username": "optionalowner", "password": "optional owner password", "email": "optional@example.test"}, 200)
-	var auth struct {
-		Token string `json:"token"`
-	}
-	require.NoError(t, json.Unmarshal(request("POST", "/api/auth/local/token", "", map[string]string{"username": "optionalowner", "password": "optional owner password", "name": "optional-acceptance"}, 200), &auth))
-	require.NotEmpty(t, auth.Token)
+	ownerToken, err := seed.InstallOwner(ctx, pool, "optionalowner", 1001)
+	require.NoError(t, err)
+	auth := struct{ Token string }{Token: ownerToken}
 	var owner struct {
 		ID int64 `json:"id"`
 	}

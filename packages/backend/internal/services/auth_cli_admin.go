@@ -85,7 +85,7 @@ func (s *AuthService) StartAdminCLILogin(ctx context.Context, verifier, rawTTL s
 	if err != nil {
 		return "", err
 	}
-	return s.startGitHubOAuthDirect(ctx, verifier, []string{adminCLIRequestPrefix + string(payload)})
+	return s.startGitHubOAuthDirect(ctx, verifier, []string{adminCLIRequestPrefix + string(payload)}, "")
 }
 
 func decodeAdminCLIRequest(scopes []string) (*AdminCLIRequest, error) {
@@ -140,7 +140,8 @@ func (s *AuthService) ApproveAdminCLILogin(ctx context.Context, state, verifier,
 	if !ok {
 		return AdminCLILoginResult{}, pkgerrors.Internal("admin CLI audit unavailable")
 	}
-	scopes, err := s.queries.ConsumeOAuthStateWithScopes(ctx, db.ConsumeOAuthStateWithScopesParams{State: state, ContextHash: hashOAuthStateVerifier(verifier + ":" + csrf)})
+	consumed, err := s.queries.ConsumeOAuthStateWithScopes(ctx, db.ConsumeOAuthStateWithScopesParams{State: state, ContextHash: hashOAuthStateVerifier(verifier + ":" + csrf)})
+	scopes := consumed.RequestedScopes
 	if err != nil {
 		return AdminCLILoginResult{}, pkgerrors.Forbidden("invalid or expired admin CLI consent")
 	}

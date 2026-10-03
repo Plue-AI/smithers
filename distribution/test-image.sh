@@ -21,9 +21,7 @@ keys_volume="${prefix}-keys"
 database_user=smithers
 database_name=smithers
 database_password="issue12-${suffix}"
-bootstrap_token="issue12-bootstrap-${suffix}-0123456789abcdef0123456789abcdef"
 owner_username=issue12owner
-owner_password="Issue12 acceptance password ${suffix}"
 repository_name="distribution-${suffix}"
 
 container_exists() { docker container inspect "$1" >/dev/null 2>&1; }
@@ -142,7 +140,6 @@ start_app() {
     --cap-drop ALL --security-opt no-new-privileges \
     -p 127.0.0.1::4000 \
     -e DATABASE_URL="$(database_url "$database_host")" \
-    -e SMITHERS_AUTH_BOOTSTRAP_TOKEN="$bootstrap_token" \
     -e SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL=cerebras:gpt-oss-120b \
     -e SMITHERS_PLATFORM_MODEL_KEYS_FILE=/etc/smithers-keys/platform-model-keys.json \
     -v "$keys_volume:/etc/smithers-keys:ro" \
@@ -241,17 +238,20 @@ const meta = (html.match(/<meta\b[^>]*>/gi) ?? []).find(tag => /\bname=["']smith
 assert.equal(meta?.match(/\bcontent=["']([^"']*)["']/i)?.[1], stamp.gitSha, 'HTML and build asset revisions must agree');
 console.log(`BUILD_STAMP_OK revision=${stamp.gitSha}`);
 NODE
-curl -fsS "$origin/api/auth/local/status" | grep '"initialized":false' >/dev/null
-curl -fsS -X POST "$origin/api/auth/local/bootstrap" \
-  -H 'Content-Type: application/json' \
-  -H "X-Smithers-Bootstrap-Token: $bootstrap_token" \
-  --data "{\"username\":\"$owner_username\",\"email\":\"$owner_username@example.test\",\"password\":\"$owner_password\"}" \
-  | grep "\"username\":\"$owner_username\"" >/dev/null
-token_response=$(curl -fsS -X POST "$origin/api/auth/local/token" \
-  -H 'Content-Type: application/json' \
-  --data "{\"username\":\"$owner_username\",\"password\":\"$owner_password\",\"name\":\"distribution-acceptance\"}")
-api_token=$(printf '%s' "$token_response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-test -n "$api_token"
+# An install without an owner prints its one-time setup URL. GitHub sign-in
+# cannot run here, so seed the rows that claim leaves: the user, the owner
+# member, and an access token stored as its SHA-256.
+docker logs "$app" 2>&1 | grep -E 'Setup URL: http://[^ ]+/setup\?token=[A-Za-z0-9_-]+$' >/dev/null
+api_token="smithers_$(docker exec "$app" /opt/smithers/bin/node -e 'process.stdout.write(require("crypto").randomBytes(20).toString("hex"))')"
+api_token_hash=$(docker exec "$app" /opt/smithers/bin/node -e 'process.stdout.write(require("crypto").createHash("sha256").update(process.argv[1]).digest("hex"))' "$api_token")
+docker exec "$postgres" psql -U "$database_user" -d "$database_name" -v ON_ERROR_STOP=1 -Atqc "
+WITH owner_user AS (INSERT INTO users (username, lower_username, display_name, is_admin)
+  VALUES ('$owner_username', '$owner_username', '$owner_username', TRUE) RETURNING id),
+owner_member AS (INSERT INTO members (user_id, github_user_id, login, role)
+  SELECT id, 9000000012, '$owner_username', 'owner' FROM owner_user)
+INSERT INTO access_tokens (user_id, name, token_hash, token_last_eight, scopes)
+SELECT id, 'distribution-acceptance', '$api_token_hash', '${api_token_hash: -8}',
+  'write:user,write:repository,write:workspace,write:approval,write:agent' FROM owner_user;" >/dev/null
 docker exec "$app" /opt/smithers/bin/smithers-backend credits grant -owner "user:$owner_username" -usd 5 -key distribution-acceptance \
   -actor distribution-acceptance -reason "Image acceptance" >/dev/null
 created_repository=$(curl -fsS -X POST "$origin/api/user/repos" \
@@ -344,7 +344,6 @@ docker run --rm -v "$restored_data_volume:/var/lib/smithers" --entrypoint /bin/s
   "sed -i 's/^SMITHERS_DISTRIBUTION_VERSION=.*/SMITHERS_DISTRIBUTION_VERSION=0.0.0/' /var/lib/smithers/version.env"
 if docker run --name "$refusal_app" --network "$network" \
   -e DATABASE_URL="$(database_url "$restored_postgres")" \
-  -e SMITHERS_AUTH_BOOTSTRAP_TOKEN="$bootstrap_token" \
   -v "$restored_data_volume:/var/lib/smithers" \
   "$image"; then
   printf 'container accepted a mismatched persisted distribution version\n' >&2

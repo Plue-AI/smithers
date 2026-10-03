@@ -43,7 +43,6 @@ func TestLocalBlobTransferComposed(t *testing.T) {
 	blobRoot := t.TempDir()
 	for name, value := range map[string]string{
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "local-transfer-owner-bootstrap",
 		"SMITHERS_DATABASE_URL":                  dbURL,
 		"SMITHERS_PUBLIC_URL":                    "http://127.0.0.1:4000",
 		"SMITHERS_SERVER_ADDR":                   "127.0.0.1:0",

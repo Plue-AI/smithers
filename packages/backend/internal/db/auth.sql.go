@@ -127,7 +127,7 @@ WHERE state_key = $1
   AND context_hash = $2
   AND used_at IS NULL
   AND expires_at > NOW()
-RETURNING requested_scopes
+RETURNING requested_scopes, setup_token_digest
 `
 
 type ConsumeOAuthStateWithScopesParams struct {
@@ -135,11 +135,16 @@ type ConsumeOAuthStateWithScopesParams struct {
 	ContextHash string `json:"context_hash"`
 }
 
-func (q *Queries) ConsumeOAuthStateWithScopes(ctx context.Context, arg ConsumeOAuthStateWithScopesParams) ([]string, error) {
+type ConsumeOAuthStateWithScopesRow struct {
+	RequestedScopes  []string    `json:"requested_scopes"`
+	SetupTokenDigest pgtype.Text `json:"setup_token_digest"`
+}
+
+func (q *Queries) ConsumeOAuthStateWithScopes(ctx context.Context, arg ConsumeOAuthStateWithScopesParams) (ConsumeOAuthStateWithScopesRow, error) {
 	row := q.db.QueryRow(ctx, consumeOAuthStateWithScopes, arg.State, arg.ContextHash)
-	var requested_scopes []string
-	err := row.Scan(&requested_scopes)
-	return requested_scopes, err
+	var i ConsumeOAuthStateWithScopesRow
+	err := row.Scan(&i.RequestedScopes, &i.SetupTokenDigest)
+	return i, err
 }
 
 const createAccessToken = `-- name: CreateAccessToken :one
@@ -420,16 +425,17 @@ func (q *Queries) CreateOAuthAccount(ctx context.Context, arg CreateOAuthAccount
 }
 
 const createOAuthState = `-- name: CreateOAuthState :one
-INSERT INTO oauth_states (state_key, context_hash, requested_scopes, expires_at)
-VALUES ($1, $2, $3, $4)
-RETURNING state_key, context_hash, requested_scopes, created_at, expires_at, used_at
+INSERT INTO oauth_states (state_key, context_hash, requested_scopes, expires_at, setup_token_digest)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING state_key, context_hash, requested_scopes, created_at, expires_at, used_at, setup_token_digest
 `
 
 type CreateOAuthStateParams struct {
-	State           string    `json:"state"`
-	ContextHash     string    `json:"context_hash"`
-	RequestedScopes []string  `json:"requested_scopes"`
-	ExpiresAt       time.Time `json:"expires_at"`
+	State            string      `json:"state"`
+	ContextHash      string      `json:"context_hash"`
+	RequestedScopes  []string    `json:"requested_scopes"`
+	ExpiresAt        time.Time   `json:"expires_at"`
+	SetupTokenDigest pgtype.Text `json:"setup_token_digest"`
 }
 
 func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (OauthState, error) {
@@ -438,6 +444,7 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 		arg.ContextHash,
 		arg.RequestedScopes,
 		arg.ExpiresAt,
+		arg.SetupTokenDigest,
 	)
 	var i OauthState
 	err := row.Scan(
@@ -447,6 +454,7 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.UsedAt,
+		&i.SetupTokenDigest,
 	)
 	return i, err
 }

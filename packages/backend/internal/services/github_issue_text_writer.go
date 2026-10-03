@@ -139,9 +139,9 @@ func gitHubTransient(status int) bool {
 }
 
 // Maintainer reports whether login may write the repository: GitHub's
-// permission is admin or write (maintain reads as write, triage as read, and
-// a custom role as its base). An answer is reused for gitHubMaintainerTTL; a
-// failure is not remembered and fails the caller closed.
+// permission is admin, maintain or write (triage reads as read, and a custom
+// role as its base). An answer is reused for gitHubMaintainerTTL; a failure
+// is not remembered and fails the caller closed.
 func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo, login string) (bool, error) {
 	key := strings.ToLower(owner + "/" + repo + "/" + login)
 	now := time.Now
@@ -154,15 +154,11 @@ func (g *gitHubIssueTextAPI) Maintainer(ctx context.Context, token, owner, repo,
 	if ok && now().Sub(cached.at) < gitHubMaintainerTTL {
 		return cached.maintainer, nil
 	}
-	var out struct {
-		Permission string `json:"permission"`
-	}
-	status, err := g.api.request(ctx, token, http.MethodGet,
-		landingGitHubRepoPath(owner, repo)+"/collaborators/"+url.PathEscape(login)+"/permission", nil, &out)
-	if err != nil || gitHubTransient(status) {
+	permission, err := readGitHubRepoPermission(ctx, g.api, token, owner, repo, login)
+	if err != nil {
 		return false, errGitHubIssueTextUnavailable
 	}
-	maintainer := status == http.StatusOK && (out.Permission == "admin" || out.Permission == "write")
+	maintainer := permission.CanPush()
 	g.mu.Lock()
 	if g.maintainers == nil {
 		g.maintainers = map[string]gitHubMaintainerAnswer{}

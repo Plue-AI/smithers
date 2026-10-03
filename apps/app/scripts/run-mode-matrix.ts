@@ -98,7 +98,6 @@ for (const mode of selectedModes) {
   if (command !== "run" || state.status !== "passed" || modeConfig === undefined || !deterministicPassed) continue
 
   const childEvidence = resolve(outputDirectory, mode, "child.real-e2e.json")
-  const ownerProfile = resolve(outputDirectory, mode, "owner-profile")
   const selectedScenarios = applicableScenarioIds(state.capabilities)
   if (selectedScenarios.length === 0) continue
   const invocation = ["bun", "scripts/run-real-e2e.ts"]
@@ -127,7 +126,6 @@ for (const mode of selectedModes) {
       SMITHERS_REAL_MATRIX_SCENARIOS: JSON.stringify(selectedScenarios),
       SMITHERS_REAL_AUTH_KIND: modeConfig.auth.kind,
       SMITHERS_REAL_AUTH_ENVIRONMENT: modeConfig.auth.environment,
-      ...(modeConfig.auth.kind === "owner-session" ? { SMITHERS_REAL_OWNER_PROFILE_DIR: ownerProfile } : {}),
       ...(modeConfig.auth.kind === "browser-profile" ? { SMITHERS_E2E_PROFILE: process.env[modeConfig.auth.environment] } : {})
     },
     stdin: "inherit",

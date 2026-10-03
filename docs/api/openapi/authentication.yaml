@@ -61,7 +61,19 @@ paths:
       operationId: get_api_auth_github
       tags:
         - Authentication
-      parameters: []
+      parameters:
+        - name: setup_token
+          in: query
+          required: false
+          description: One-time setup token from the setup URL printed when the install started. Before the install has an owner, only a sign-in carrying it may claim the install; afterwards it is ignored.
+          schema:
+            type: string
+        - name: return_to
+          in: query
+          required: false
+          description: Local path to open after sign-in.
+          schema:
+            type: string
       x-smithers-client-contract: multi-v1
       responses:
         '200':
@@ -408,174 +420,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MultiSSETicketResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/auth/local/status:
-    get:
-      summary: GET /api/auth/local/status
-      operationId: get_api_auth_local_status
-      tags:
-        - Authentication
-      parameters: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/auth/local/bootstrap:
-    post:
-      summary: POST /api/auth/local/bootstrap
-      operationId: post_api_auth_local_bootstrap
-      tags:
-        - Authentication
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/auth/local/login:
-    post:
-      summary: POST /api/auth/local/login
-      operationId: post_api_auth_local_login
-      tags:
-        - Authentication
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/auth/local/password:
-    post:
-      summary: POST /api/auth/local/password
-      operationId: post_api_auth_local_password
-      tags:
-        - Authentication
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      security:
-        - tokenAuth: []
-        - bearerAuth: []
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/ValidationError'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/auth/local/token:
-    post:
-      summary: POST /api/auth/local/token
-      operationId: post_api_auth_local_token
-      tags:
-        - Authentication
-      parameters: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnyJSON'
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AnyJSON'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

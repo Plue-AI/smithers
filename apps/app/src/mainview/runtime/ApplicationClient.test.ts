@@ -272,46 +272,6 @@ describe("application client", () => {
     expect(headers.get("x-csrf-token")).toBe(csrf)
   })
 
-  test("owner bootstrap and login use one client and never expose credentials to Plue", async () => {
-    const calls: Array<{ readonly path: string; readonly body: unknown; readonly bootstrap: string | null }> = []
-    const owner = createApplicationClient(target("web-selfhost"), {
-      pageOrigin,
-      fetchImpl: async (input, init) => {
-        const url = new URL(String(input), pageOrigin)
-        calls.push({
-          path: url.pathname,
-          body: init?.body === undefined ? null : JSON.parse(String(init.body)),
-          bootstrap: new Headers(init?.headers).get("x-smithers-bootstrap-token")
-        })
-        if (url.pathname.endsWith("/status")) return Response.json({ enabled: true, initialized: false })
-        return Response.json({ user: { id: 1, username: "owner" } })
-      }
-    })
-    await expect(owner.localIdentity.status()).resolves.toEqual({ enabled: true, initialized: false })
-    await expect(owner.localIdentity.bootstrap({ username: "owner", password: "password", bootstrapToken: "setup" }))
-      .resolves.toMatchObject({ user: { username: "owner" } })
-    await expect(owner.localIdentity.login({ username: "owner", password: "password" }))
-      .resolves.toMatchObject({ user: { username: "owner" } })
-    expect(calls).toEqual([
-      { path: "/api/auth/local/status", body: null, bootstrap: null },
-      { path: "/api/auth/local/bootstrap", body: { username: "owner", password: "password" }, bootstrap: "setup" },
-      { path: "/api/auth/local/login", body: { username: "owner", password: "password" }, bootstrap: null }
-    ])
-
-    let leaked = false
-    const plue = createApplicationClient(target("native-plue"), {
-      pageOrigin,
-      token: () => "secret",
-      fetchImpl: async () => {
-        leaked = true
-        return Response.json({})
-      }
-    })
-    await expect(plue.localIdentity.login({ username: "owner", password: "password" }))
-      .rejects.toMatchObject({ code: "invalid-target" })
-    expect(leaked).toBe(false)
-  })
-
   test("the selected backend user is the identity and token-scope authority", async () => {
     const session = createApplicationClient(target("web-selfhost"), {
       fetchImpl: async () => Response.json({ username: "owner", is_admin: true })
@@ -332,33 +292,6 @@ describe("application client", () => {
       fetchImpl: async () => Response.json({ code: "authentication_required" }, { status: 401 })
     })
     await expect(signedOut.identity.current()).resolves.toBeNull()
-  })
-
-  test("browser owner login is observed through the shared user route", async () => {
-    let authenticated = false
-    const paths: string[] = []
-    const client = createApplicationClient(target("web-selfhost"), {
-      fetchImpl: async (input, init) => {
-        const path = new URL(String(input), pageOrigin).pathname
-        paths.push(path)
-        if (path === "/api/auth/local/login") {
-          expect(init?.credentials).toBe("include")
-          authenticated = true
-          return Response.json({ user: { id: 1, username: "owner" } })
-        }
-        if (path === "/api/user") {
-          return authenticated
-            ? Response.json({ username: "owner", is_admin: true })
-            : Response.json({ code: "authentication_required" }, { status: 401 })
-        }
-        throw new Error(`unexpected path ${path}`)
-      }
-    })
-    await expect(client.identity.current()).resolves.toBeNull()
-    await expect(client.localIdentity.login({ username: "owner", password: "password" }))
-      .resolves.toMatchObject({ user: { username: "owner" } })
-    await expect(client.identity.current()).resolves.toEqual({ username: "owner", admin: true, scopes: null })
-    expect(paths).toEqual(["/api/user", "/api/auth/local/login", "/api/user"])
   })
 
   test.each([...modes])("$mode mints a socket ticket with the literal HTTP auth policy", async ({ mode, socket, ticketPath, auth, csrf, credentials }) => {
@@ -718,68 +651,6 @@ describe("application identity and owner contract units", () => {
   test.each([{ status: 403, code: "forbidden" }, { status: 500, code: "api" }])("identity HTTP $status rejects instead of erasing the failure as signed out", async ({ status, code }) => {
     const client = createApplicationClient(target("web-selfhost"), { pageOrigin, fetchImpl: async () => Response.json({ message: "Unavailable" }, { status }) })
     expect(await clientError(client.identity.current())).toMatchObject({ code, message: "Unavailable", status })
-  })
-
-  test.each(["status", "login", "bootstrap"] as const)("Plue owner %s is refused before validation, token lookup, or fetch", async operation => {
-    let reads = 0, calls = 0
-    const client = createApplicationClient(target("native-plue"), {
-      token: () => { reads++; return "secret" }, fetchImpl: async () => { calls++; return Response.json({}) }
-    })
-    const pending = operation === "status" ? client.localIdentity.status()
-      : operation === "login" ? client.localIdentity.login({ username: "", password: "" })
-      : client.localIdentity.bootstrap({ username: "", password: "", bootstrapToken: "" })
-    expect(await clientError(pending)).toMatchObject({ code: "invalid-target", message: "Local owner credentials cannot be sent to a Plue backend." })
-    expect([reads, calls]).toEqual([0, 0])
-  })
-
-  test.each([
-    { name: "username", credentials: { username: "", password: "password" } },
-    { name: "password", credentials: { username: "owner", password: "" } }
-  ])("owner login rejects empty $name before fetch", async ({ credentials }) => {
-    let calls = 0
-    const client = createApplicationClient(target("web-selfhost"), { pageOrigin, fetchImpl: async () => { calls++; return Response.json({}) } })
-    await expect(client.localIdentity.login(credentials)).rejects.toHaveProperty("name", "ZodError")
-    expect(calls).toBe(0)
-  })
-
-  test.each([
-    { name: "bootstrap token", bootstrap: { username: "owner", password: "password", bootstrapToken: "" } },
-    { name: "email", bootstrap: { username: "owner", password: "password", bootstrapToken: "setup", email: "invalid" } }
-  ])("owner bootstrap rejects invalid $name before fetch", async ({ bootstrap }) => {
-    let calls = 0
-    const client = createApplicationClient(target("web-selfhost"), { pageOrigin, fetchImpl: async () => { calls++; return Response.json({}) } })
-    await expect(client.localIdentity.bootstrap(bootstrap)).rejects.toHaveProperty("name", "ZodError")
-    expect(calls).toBe(0)
-  })
-
-  test("bootstrap sends email in JSON and its token only in the bootstrap header", async () => {
-    const signal = new AbortController().signal
-    const seen: Array<{ path: string; body: unknown; headers: [string, string][]; signal: AbortSignal | null | undefined; method: string | undefined }> = []
-    const client = createApplicationClient(target("web-selfhost"), {
-      pageOrigin, csrfToken: () => "csrf", fetchImpl: async (input, init) => {
-        seen.push({ path: String(input), body: JSON.parse(String(init?.body)), headers: [...new Headers(init?.headers)], signal: init?.signal, method: init?.method })
-        return Response.json({ user: { id: 7, username: "owner" } })
-      }
-    })
-    await expect(client.localIdentity.bootstrap({ username: "owner", password: "password", bootstrapToken: "setup-token", email: "owner@example.test" }, signal)).resolves.toEqual({ user: { id: 7, username: "owner" } })
-    expect(seen).toEqual([{
-      path: "/api/auth/local/bootstrap", body: { username: "owner", password: "password", email: "owner@example.test" }, signal, method: "POST",
-      headers: [["content-type", "application/json"], ["x-csrf-token", "csrf"], ["x-smithers-bootstrap-token", "setup-token"]]
-    }])
-  })
-
-  test.each([
-    { operation: "status", body: { enabled: true, initialized: false, unexpected: true }, message: "Backend returned an invalid local identity status." },
-    { operation: "login", body: { user: { id: 1.5, username: "owner" } }, message: "Backend returned an invalid local login response." },
-    { operation: "bootstrap", body: { user: { id: 1, username: "" } }, message: "Backend returned an invalid local bootstrap response." }
-  ] as const)("owner $operation rejects malformed successful wire data", async ({ operation, body, message }) => {
-    const client = createApplicationClient(target("web-selfhost"), { pageOrigin, fetchImpl: async () => Response.json(body) })
-    const pending = operation === "status" ? client.localIdentity.status() : operation === "login"
-      ? client.localIdentity.login({ username: "owner", password: "password" })
-      : client.localIdentity.bootstrap({ username: "owner", password: "password", bootstrapToken: "setup" })
-    const error = await clientError(pending)
-    expect(error).toMatchObject({ code: "invalid-response", message, status: null })
-    expect(error.cause).toHaveProperty("name", "ZodError")
   })
 })
 

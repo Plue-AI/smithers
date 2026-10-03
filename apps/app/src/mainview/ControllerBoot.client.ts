@@ -71,7 +71,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           clientErrors: options.clientErrors,
           baseUrl: client.baseUrl,
           applicationTarget: client.target,
-          localIdentity: client.localIdentity,
           applicationIdentity: client.identity,
           authorizeSocket: client.authorizeWebSocket,
           bootstrap: runtime.bootstrap,

@@ -27,8 +27,12 @@ var secretNames = []string{
 	"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY",
 	"SMITHERS_REPO_HOST_AUTH_TOKEN",
 	"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN",
-	"SMITHERS_AUTH_BOOTSTRAP_TOKEN",
 }
+
+// retiredSecretName is the password owner's bootstrap token. GitHub sign-in
+// with the one-time setup token replaced it; a secrets file written before
+// that still holds it, and loading the file drops it.
+const retiredSecretName = "SMITHERS_AUTH_BOOTSTRAP_TOKEN"
 
 const (
 	operatorKeyName          = "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY"
@@ -194,6 +198,9 @@ func loadOrCreateSecrets(configDir string) (map[string]string, error) {
 		return nil, err
 	}
 	path := filepath.Join(configDir, "secrets.json")
+	if err := dropRetiredSecret(configDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	if values, err := readSecrets(path); err == nil {
 		return values, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -224,6 +231,24 @@ func loadOrCreateSecrets(configDir string) (map[string]string, error) {
 		return nil, err
 	}
 	return readSecrets(path)
+}
+
+// dropRetiredSecret rewrites a secrets file that still holds the retired
+// bootstrap token without it.
+func dropRetiredSecret(configDir, path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var data secretFile
+	if json.Unmarshal(raw, &data) != nil {
+		return nil // readSecrets reports the malformed file.
+	}
+	if _, ok := data.Values[retiredSecretName]; !ok {
+		return nil
+	}
+	delete(data.Values, retiredSecretName)
+	return publishSecrets(configDir, data.Values, func(staged string) error { return os.Rename(staged, path) })
 }
 
 // publishSecrets writes values to a private synced file in configDir, hands

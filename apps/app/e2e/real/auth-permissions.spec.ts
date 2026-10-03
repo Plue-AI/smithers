@@ -32,14 +32,14 @@ authenticatedTest("the selected mode retains its authenticated session through d
     "dimension:mode-auth-session", "dimension:document-bootstrap-cookie-persistence",
     "evidence:session-readback-and-cookie-names"
   ],
-  description: "Use the mode-selected browser profile or single-owner credential envelope, then require the same authenticated identity and browser cookies after product document, bootstrap, and reload reads."
+  description: "Use the mode-selected browser profile or token, then require the same authenticated identity and browser cookies after product document, bootstrap, and reload reads."
 }), async ({ page, context, request }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL)
   const origin = new URL(baseURL).origin
   const expected = await readAuthenticatedSession(page)
   expect(expected).toBeDefined()
   const beforeCookies = (await context.cookies(origin)).map(({ name }) => name).sort()
-  if (process.env.SMITHERS_REAL_AUTH_KIND !== "application-token") expect(beforeCookies.length).toBeGreaterThan(0)
+  if (!["application-token", "owner-token"].includes(process.env.SMITHERS_REAL_AUTH_KIND ?? "")) expect(beforeCookies.length).toBeGreaterThan(0)
 
   const document = await request.get(new URL(appEntryPath(), origin).toString(), { headers: { Accept: "text/html" } })
   expect(document.status()).toBe(200)

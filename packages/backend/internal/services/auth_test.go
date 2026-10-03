@@ -60,18 +60,19 @@ func (m *mockAuthQuerier) ConsumeOAuthState(ctx context.Context, arg db.ConsumeO
 	return m.consumeOAuthStateFn(ctx, arg)
 }
 
-func (m *mockAuthQuerier) ConsumeOAuthStateWithScopes(ctx context.Context, arg db.ConsumeOAuthStateWithScopesParams) ([]string, error) {
+func (m *mockAuthQuerier) ConsumeOAuthStateWithScopes(ctx context.Context, arg db.ConsumeOAuthStateWithScopesParams) (db.ConsumeOAuthStateWithScopesRow, error) {
 	if m.consumeOAuthStateWithScopesFn != nil {
-		return m.consumeOAuthStateWithScopesFn(ctx, arg)
+		scopes, err := m.consumeOAuthStateWithScopesFn(ctx, arg)
+		return db.ConsumeOAuthStateWithScopesRow{RequestedScopes: scopes}, err
 	}
 	rows, err := m.consumeOAuthStateFn(ctx, db.ConsumeOAuthStateParams(arg))
 	if err != nil {
-		return nil, err
+		return db.ConsumeOAuthStateWithScopesRow{}, err
 	}
 	if rows == 0 {
-		return nil, pgx.ErrNoRows
+		return db.ConsumeOAuthStateWithScopesRow{}, pgx.ErrNoRows
 	}
-	return nil, nil
+	return db.ConsumeOAuthStateWithScopesRow{}, nil
 }
 
 func (m *mockAuthQuerier) ConsumeAuthNonce(ctx context.Context, arg db.ConsumeAuthNonceParams) (int64, error) {
@@ -429,7 +430,7 @@ func TestAuthService_StartGitHubOAuth_ReturnsRedirect(t *testing.T) {
 		},
 	}, defaultAuthConfig(), mockKeyAuthVerifier{}, mockGitHubClient{})
 
-	url, err := svc.StartGitHubOAuth(context.Background(), "verifier-redirect")
+	url, err := svc.StartGitHubOAuth(context.Background(), "verifier-redirect", "")
 	require.NoError(t, err)
 	// GitHub sign-in goes DIRECT to the GitHub App authorize endpoint.
 	assert.Contains(t, url, "github.test/login/oauth/authorize")
@@ -457,7 +458,7 @@ func TestAuthService_StartGitHubOAuth_Direct(t *testing.T) {
 	})
 	svc.generateState = func() string { return "direct-state" }
 
-	url, err := svc.StartGitHubOAuth(context.Background(), "verifier-direct")
+	url, err := svc.StartGitHubOAuth(context.Background(), "verifier-direct", "")
 	require.NoError(t, err)
 	assert.Equal(t, "direct-state", createdState)
 	assert.Equal(t, "direct-state", authorizationState)
@@ -1732,7 +1733,7 @@ func TestAuthService_StartGitHubOAuth_EmptyRedirectURLStillStarts(t *testing.T) 
 		fetchEmailsFn: func(ctx context.Context, accessToken string) ([]GitHubEmail, error) { return nil, nil },
 	})
 
-	redirectURL, err := svc.StartGitHubOAuth(context.Background(), "test-verifier")
+	redirectURL, err := svc.StartGitHubOAuth(context.Background(), "test-verifier", "")
 	require.NoError(t, err)
 	// GitHub sign-in goes DIRECT to the GitHub App authorize endpoint.
 	assert.Contains(t, redirectURL, "github.test/login/oauth/authorize")

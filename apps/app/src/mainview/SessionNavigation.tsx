@@ -2,7 +2,6 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback,type CSSProperties } from "react"
 import { useController } from "./ControllerContext"
 import { KeyboardNavigation } from "./KeyboardNavigation"
-import { LocalAuthPanel } from "./LocalAuthPanel"
 import { RegistrationStatus } from "./RegistrationStatus"
 import { WORDMARK } from "./Wordmark"
 import { flowAction, flowSelector } from "./flows/FlowAction"
@@ -61,10 +60,9 @@ export function SessionNavigation() {
       {/* Signed in, the header carries no account chrome; Account is /account.show. */}
       {identity?.state !== "signed-in" && controller.commands.find("auth.sign-in") !== undefined && <div className="session-identity">
         <button type="button" className="chrome-action" data-testid="chrome-sign-in" {...flowAction(controller.runCommand, "auth.sign-in")}>
-          {controller.localAuth === undefined ? "Sign in with GitHub" : "Sign in"}
+          Sign in with GitHub
         </button>
       </div>}
-      {controller.localAuth !== undefined && <LocalAuthPanel auth={controller.localAuth} />}
       <RegistrationStatus />
     </header>
   </>

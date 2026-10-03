@@ -110,9 +110,6 @@ func walkServedRoutes(t *testing.T, router chi.Routes, into map[string]servedRou
 func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 	queries := db.New(nil)
 	authHandler := &routes.AuthHandler{}
-	if config.IsSingleOwner(cfg.Auth) {
-		authHandler.LocalService = (*services.AuthService)(nil)
-	}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}

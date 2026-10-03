@@ -113,7 +113,6 @@ func TestRunRefusesE2ETestRoutesInProduction(t *testing.T) {
 			t.Setenv("SMITHERS_ENABLE_E2E_TEST_ROUTES", tc.flag)
 			t.Setenv("SMITHERS_DATABASE_URL", "postgres://x@127.0.0.1:1/x?sslmode=disable&connect_timeout=1")
 			t.Setenv("SMITHERS_AUTH_MODE", "selfhost")
-			t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "test-bootstrap-token")
 			t.Setenv("SMITHERS_AUTH_SESSION_SECRET", "test-session-secret")
 			t.Setenv("SMITHERS_LFS_SIGNING_SECRET", "test-lfs-signing-secret")
 			t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "test-webhook-key")
@@ -140,7 +139,6 @@ func TestRunRefusesAnInvalidModelDailySpendCap(t *testing.T) {
 	preserveSlog(t)
 	t.Setenv("SMITHERS_DATABASE_URL", "postgres://x@127.0.0.1:1/x?sslmode=disable&connect_timeout=1")
 	t.Setenv("SMITHERS_AUTH_MODE", "selfhost")
-	t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "test-bootstrap-token")
 	t.Setenv("SMITHERS_AUTH_SESSION_SECRET", "test-session-secret")
 	t.Setenv("SMITHERS_LFS_SIGNING_SECRET", "test-lfs-signing-secret")
 	t.Setenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY", "test-webhook-key")
@@ -255,7 +253,7 @@ func TestBuildServer_WiresGitHTTPProxyWebhookDependencies(t *testing.T) {
 		if pkgIdent.Name != "services" {
 			return true
 		}
-		if sel.Sel.Name == "WithGitHTTPSingleOwnerBoundary" {
+		if sel.Sel.Name == "WithGitHTTPMemberBoundary" {
 			singleOwnerOption = true
 			return true
 		}

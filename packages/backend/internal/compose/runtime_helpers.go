@@ -415,6 +415,20 @@ func buildRateLimitRejectObserver(metrics *routes.SmithersMetrics) middleware.Ra
 	}
 }
 
+// githubOAuthClientCredentials is the one reader of the GitHub OAuth client
+// id and secret that sign people in. Today they come from configuration
+// (auth.github_client_id and auth.github_client_secret); the install's
+// sealed GitHub App credentials (T-GH-01) replace this body.
+func githubOAuthClientCredentials(cfg config.AuthConfig) (clientID, clientSecret string) {
+	return strings.TrimSpace(cfg.GitHubClientID), strings.TrimSpace(cfg.GitHubClientSecret)
+}
+
+// githubOAuthConfigured reports whether GitHub sign-in has a client.
+func githubOAuthConfigured(cfg config.AuthConfig) bool {
+	clientID, clientSecret := githubOAuthClientCredentials(cfg)
+	return clientID != "" && clientSecret != ""
+}
+
 func buildAuthProviders(cfg config.AuthConfig) (services.KeyAuthVerifier, services.GitHubClient, error) {
 	if err := validateGitHubOAuthConfig(cfg); err != nil {
 		return nil, nil, err
@@ -422,10 +436,11 @@ func buildAuthProviders(cfg config.AuthConfig) (services.KeyAuthVerifier, servic
 
 	keyAuthVerifier := auth.NewKeyAuthVerifier()
 	var githubClient services.GitHubClient
-	if strings.TrimSpace(cfg.GitHubClientID) != "" && strings.TrimSpace(cfg.GitHubClientSecret) != "" {
+	if githubOAuthConfigured(cfg) {
+		clientID, clientSecret := githubOAuthClientCredentials(cfg)
 		githubClient = auth.NewGitHubClient(
-			cfg.GitHubClientID,
-			cfg.GitHubClientSecret,
+			clientID,
+			clientSecret,
 			cfg.GitHubRedirectURL,
 			cfg.GitHubOAuthBaseURL,
 			cfg.GitHubAPIBaseURL,
@@ -491,9 +506,8 @@ func serverShutdownTimeout(cfg config.ServerConfig) (time.Duration, error) {
 }
 
 func validateGitHubOAuthConfig(cfg config.AuthConfig) error {
-	hasClientID := strings.TrimSpace(cfg.GitHubClientID) != ""
-	hasClientSecret := strings.TrimSpace(cfg.GitHubClientSecret) != ""
-	if hasClientID != hasClientSecret {
+	clientID, clientSecret := githubOAuthClientCredentials(cfg)
+	if (clientID != "") != (clientSecret != "") {
 		return fmt.Errorf("github oauth requires both SMITHERS_AUTH_GITHUB_CLIENT_ID and SMITHERS_AUTH_GITHUB_CLIENT_SECRET to be set together")
 	}
 	return nil
@@ -560,7 +574,7 @@ func apiCORSOptions(cfg *config.Config) cors.Options {
 			return false
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Smithers-Bootstrap-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link", "Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"},
 		AllowCredentials: true,
 		MaxAge:           300,

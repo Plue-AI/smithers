@@ -132,7 +132,6 @@ func serveFixture(t *testing.T) (string, string) {
 		"SMITHERS_FLOW_HOST_MANIFEST":            manifestPath,
 		"SMITHERS_MODEL_HOST_BUNDLE":             bundle,
 		"SMITHERS_NODE_BINARY":                   executable("node"),
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "operator-chosen-setup-token",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "shutdown-test-encryption-key",
 	} {
 		t.Setenv(name, value)

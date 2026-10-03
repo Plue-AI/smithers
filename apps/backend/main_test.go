@@ -30,29 +30,6 @@ func TestExternalDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestExternalFirstSetupRequiresOperatorToken(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "")
-	if err := requireExternalBootstrapToken(root); err == nil || !strings.Contains(err.Error(), "SMITHERS_AUTH_BOOTSTRAP_TOKEN") {
-		t.Fatalf("missing first-setup token = %v", err)
-	}
-	t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "operator-chosen-setup-token")
-	if err := requireExternalBootstrapToken(root); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SMITHERS_AUTH_BOOTSTRAP_TOKEN", "")
-	configDir := filepath.Join(root, "config")
-	if err := os.Mkdir(configDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "secrets.json"), []byte("existing installation"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := requireExternalBootstrapToken(root); err != nil {
-		t.Fatalf("existing installation should defer to protected secret validation: %v", err)
-	}
-}
-
 func TestMigrationWithoutDatabaseDoesNotPrepareLocalState(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("SMITHERS_DATA_ROOT", root)

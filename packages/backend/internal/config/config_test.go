@@ -81,7 +81,6 @@ var allEnvKeys = []string{
 	"SMITHERS_SSH_MAX_SESSIONS_PER_CONN",
 	// Auth
 	"SMITHERS_AUTH_MODE",
-	"SMITHERS_AUTH_BOOTSTRAP_TOKEN",
 	"SMITHERS_AUTH_SESSION_DURATION",
 	"SMITHERS_AUTH_SESSION_REFRESH_WINDOW",
 	"SMITHERS_AUTH_SESSION_COOKIE_NAME",
@@ -567,7 +566,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 			name: "env overrides",
 			env: map[string]string{
 				"SMITHERS_AUTH_MODE":                   AuthModeMultitenant,
-				"SMITHERS_AUTH_BOOTSTRAP_TOKEN":        "bootstrap-secret",
 				"SMITHERS_AUTH_SESSION_DURATION":       "24h",
 				"SMITHERS_AUTH_SESSION_REFRESH_WINDOW": "6h",
 				"SMITHERS_AUTH_SESSION_COOKIE_NAME":    "smithers_custom",
@@ -583,7 +581,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 			},
 			want: AuthConfig{
 				Mode:                 AuthModeMultitenant,
-				BootstrapToken:       "bootstrap-secret",
 				SessionDuration:      "24h",
 				SessionRefreshWindow: "6h",
 				SessionCookieName:    "smithers_custom",

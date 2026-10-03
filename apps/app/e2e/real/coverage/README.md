@@ -129,16 +129,18 @@ one exact source revision and an array of mode records:
     "mode": "local-own",
     "origin": "http://127.0.0.1:47321",
     "endpoint": "http://127.0.0.1:47321",
-    "auth": { "kind": "owner-session", "environment": "SMITHERS_OWNER_SESSION" },
+    "auth": { "kind": "owner-token", "environment": "SMITHERS_OWNER_TOKEN" },
     "executionReceipt": "/absolute/path/to/local-own.json"
   }]
 }
 ```
 
 The auth field names an environment variable; its value is never copied into
-the report. `browser-profile` is wired to the current real fixture;
-`owner-session` remains explicitly unavailable until issue 05 supplies its
-real injection seam. The launcher receipt binds mode, origin, backend endpoint, revision, readiness, and
+the report. `browser-profile` is wired to the current real fixture.
+`owner-token` holds an owner access token: the own-mode launchers seed the
+owner (a `users` row, the `members` owner row and the token's SHA-256) into
+the PostgreSQL they start, because a matrix run has no GitHub account to claim
+the install with. `application-token` holds a Plue token. The launcher receipt binds mode, origin, backend endpoint, revision, readiness, and
 started process roles. Own modes must prove fresh launch and data-preserving
 restart. `local-own` must prove its app and PostgreSQL;
 Plue-backed local modes fail if they started either process.

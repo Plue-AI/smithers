@@ -17,7 +17,6 @@ docker build -f distribution/Dockerfile -t smithers .
 umask 077
 cat >smithers.env <<EOF
 DATABASE_URL=postgres://smithers:replace-me@postgres:5432/smithers?sslmode=require
-SMITHERS_AUTH_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
 EOF
 docker run --name smithers --restart unless-stopped -p 4000:4000 \
   --network smithers \
@@ -26,7 +25,17 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
   smithers
 ```
 
-`--network` must reach PostgreSQL. The app listens on port 4000 (set `PORT` to change it). The bootstrap token is needed only until the first owner account exists; then remove it from `smithers.env`.
+`--network` must reach PostgreSQL. The app listens on port 4000 (set `PORT` to change it).
+
+## Claim it
+
+Until it has an owner, the app prints a setup URL to its output:
+
+```text
+Setup URL: http://localhost:4000/setup?token=…
+```
+
+Read it with `docker logs smithers`. Open that URL and sign in with GitHub; that account becomes the owner. The token works once. Anyone who signs in later must be on the install's roster.
 
 ## Give it model keys
 

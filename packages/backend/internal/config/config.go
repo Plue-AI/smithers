@@ -346,7 +346,6 @@ type AuthConfig struct {
 	// Mode selects identity topology, not product features. It is required:
 	// SMITHERS_ENV cannot distinguish a production selfhost from Plue dev/test.
 	Mode                 string `mapstructure:"mode"`
-	BootstrapToken       string `mapstructure:"bootstrap_token"`
 	SessionDuration      string `mapstructure:"session_duration"`
 	SessionRefreshWindow string `mapstructure:"session_refresh_window"`
 	SessionCookieName    string `mapstructure:"session_cookie_name"`
@@ -517,7 +516,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("ssh.max_timeout", "")             // empty means use package default (2h)
 	v.SetDefault("ssh.max_sessions_per_conn", 0)    // 0 means use package default (10)
 	v.SetDefault("auth.mode", "")
-	v.SetDefault("auth.bootstrap_token", "")
 	v.SetDefault("auth.session_duration", "720h")
 	v.SetDefault("auth.session_refresh_window", "168h")
 	v.SetDefault("auth.session_cookie_name", "smithers_session")
@@ -688,7 +686,6 @@ func Load(configFile string) (*Config, error) {
 		{"auth.github_oauth_base_url", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL"},
 		{"auth.github_api_base_url", "SMITHERS_AUTH_GITHUB_API_BASE_URL"},
 		{"auth.mode", "SMITHERS_AUTH_MODE"},
-		{"auth.bootstrap_token", "SMITHERS_AUTH_BOOTSTRAP_TOKEN"},
 		{"auth.auth0_domain", "SMITHERS_AUTH_AUTH0_DOMAIN"},
 		{"auth.auth0_client_id", "SMITHERS_AUTH_AUTH0_CLIENT_ID"},
 		{"auth.auth0_client_secret", "SMITHERS_AUTH_AUTH0_CLIENT_SECRET"},

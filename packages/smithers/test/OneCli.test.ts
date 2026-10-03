@@ -252,8 +252,12 @@ describe("migrated command dispatch", () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
     // The original 211 commands include history land and workspace children
-    // (b80b439db473); the reviewed forge-only removals below account for six.
+    // (b80b439db473); the reviewed forge-only removals and the deleted local
+    // password owner path (GitHub sign-in creates the owner) account for nine.
     const retired = [
+      "auth local bootstrap",
+      "auth local login",
+      "auth local status",
       "changeset create",
       "changeset get",
       "changeset land",
@@ -283,7 +287,10 @@ describe("migrated command dispatch", () => {
     ["changeset", "create", "--title", "legacy", "--org", "owner"],
     ["changeset", "get", "1", "--org", "owner"],
     ["changeset", "land", "1", "--org", "owner"],
-    ["changeset", "list", "--org", "owner"]
+    ["changeset", "list", "--org", "owner"],
+    ["auth", "local", "bootstrap", "--username", "owner"],
+    ["auth", "local", "login", "--username", "owner"],
+    ["auth", "local", "status"]
   ])("refuses retired %s %s without contacting the backend", async (...argv) => {
     const requests: string[] = []
     const f = await fixture((req, res) => {
@@ -311,6 +318,8 @@ describe("migrated command dispatch", () => {
     }
     visit(Cli.toCommands.get(makeCli({ environment: {} }) as never)!, [])
     expect(placeholders).toEqual([])
+    expect(summaries.has("auth")).toBe(true)
+    expect(summaries.has("auth local")).toBe(false)
     // Every summary is used by a group the backend commands create.
     for (const [path, summary] of Object.entries(groups)) expect(summaries.get(path), path).toBe(summary)
   })

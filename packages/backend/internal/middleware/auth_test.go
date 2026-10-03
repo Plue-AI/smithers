@@ -137,14 +137,13 @@ type mockAuthLoaderQuerier struct {
 	getUserByIDHit                int
 }
 
-type mockSingleOwnerAuthLoaderQuerier struct {
+type mockMemberAuthLoaderQuerier struct {
 	*mockAuthLoaderQuerier
-	owner db.User
-	err   error
+	member int64
 }
 
-func (m *mockSingleOwnerAuthLoaderQuerier) GetSelfHostOwner(context.Context) (db.User, error) {
-	return m.owner, m.err
+func (m *mockMemberAuthLoaderQuerier) AuthorizeMemberUser(_ context.Context, userID int64) (bool, error) {
+	return userID == m.member, nil
 }
 
 func (m *mockAuthLoaderQuerier) GetAuthSessionBySessionKey(ctx context.Context, sessionKey string) (db.AuthSession, error) {
@@ -217,7 +216,7 @@ func TestAuthLoader_AllowsAnonymousRequest(t *testing.T) {
 	assert.Equal(t, 0, q.getAuthInfoByTokenHashHit)
 }
 
-func TestAuthLoader_SelfhostOwnerBoundaryAppliesOutsideAPIRoutes(t *testing.T) {
+func TestAuthLoader_SelfhostMemberBoundaryAppliesOutsideAPIRoutes(t *testing.T) {
 	t.Parallel()
 	const token = "smithers_0123456789abcdef0123456789abcdef01234567"
 
@@ -227,17 +226,17 @@ func TestAuthLoader_SelfhostOwnerBoundaryAppliesOutsideAPIRoutes(t *testing.T) {
 		wantStatus int
 		wantNext   bool
 	}{
-		{name: "owner", principal: 7, wantStatus: http.StatusNoContent, wantNext: true},
-		{name: "foreign principal", principal: 8, wantStatus: http.StatusForbidden},
+		{name: "member", principal: 7, wantStatus: http.StatusNoContent, wantNext: true},
+		{name: "non-member", principal: 8, wantStatus: http.StatusForbidden},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			q := &mockSingleOwnerAuthLoaderQuerier{
+			q := &mockMemberAuthLoaderQuerier{
 				mockAuthLoaderQuerier: &mockAuthLoaderQuerier{getAuthInfoByTokenHashFn: func(context.Context, string) (db.GetAuthInfoByTokenHashRow, error) {
 					return db.GetAuthInfoByTokenHashRow{ID: tc.principal, Username: "principal", TokenID: 9, TokenScopes: "read:user"}, nil
 				}},
-				owner: db.User{ID: 7, Username: "owner"},
+				member: 7,
 			}
 			nextCalled := false
 			handler := AuthLoader(q, config.AuthConfig{Mode: config.AuthModeSelfHosted})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -254,17 +253,17 @@ func TestAuthLoader_SelfhostOwnerBoundaryAppliesOutsideAPIRoutes(t *testing.T) {
 			if tc.wantNext {
 				assert.Equal(t, 1, q.updateAccessTokenLastUsedHit)
 			} else {
-				assert.Zero(t, q.updateAccessTokenLastUsedHit, "rejected foreign credentials must not record authenticated use")
+				assert.Zero(t, q.updateAccessTokenLastUsedHit, "rejected non-member credentials must not record authenticated use")
 			}
 		})
 	}
 }
 
-func TestAuthLoader_SelfhostOwnerBoundaryRejectsForeignSessionOnLFS(t *testing.T) {
+func TestAuthLoader_SelfhostMemberBoundaryRejectsNonMemberSessionOnLFS(t *testing.T) {
 	t.Parallel()
 	const sessionKey = "8b2f8357-9165-4e72-b154-f1d871f420e6"
 
-	q := &mockSingleOwnerAuthLoaderQuerier{
+	q := &mockMemberAuthLoaderQuerier{
 		mockAuthLoaderQuerier: &mockAuthLoaderQuerier{
 			getAuthSessionBySessionKeyFn: func(_ context.Context, key string) (db.AuthSession, error) {
 				if key != sessionKey {
@@ -276,7 +275,7 @@ func TestAuthLoader_SelfhostOwnerBoundaryRejectsForeignSessionOnLFS(t *testing.T
 				return db.User{ID: 8, Username: "foreign", IsActive: true}, nil
 			},
 		},
-		owner: db.User{ID: 7, Username: "owner"},
+		member: 7,
 	}
 	nextCalled := false
 	handler := AuthLoader(q, config.AuthConfig{
@@ -290,7 +289,7 @@ func TestAuthLoader_SelfhostOwnerBoundaryRejectsForeignSessionOnLFS(t *testing.T
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	assert.False(t, nextCalled)
-	assert.Zero(t, q.refreshAuthSessionHit, "rejected foreign sessions must not be extended")
+	assert.Zero(t, q.refreshAuthSessionHit, "rejected non-member sessions must not be extended")
 }
 
 func TestRequireAuth_RejectsAnonymous(t *testing.T) {

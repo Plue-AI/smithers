@@ -54,9 +54,8 @@ then `smithers auth login`. One saved login serves backend commands and remote
 control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved login
 for automation. Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
 and legacy config token; a new login removes the legacy token. Login and token
-status never print credentials. Local owner installations use `auth local bootstrap`
-and `auth local login`; `auth connect claude --api-key` connects an Anthropic
-API key. Vendor subscriptions stay with their own CLIs. Sign into Codex on the
+status never print credentials. `auth connect claude --api-key` connects an
+Anthropic API key. Vendor subscriptions stay with their own CLIs. Sign into Codex on the
 workspace with `codex login --device-auth`; `auth connect codex` refuses token
 transfer.
 

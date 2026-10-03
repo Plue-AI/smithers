@@ -188,7 +188,6 @@ docker build -f distribution/Dockerfile -t smithers .
 umask 077
 cat >smithers.env <<EOF
 DATABASE_URL=postgres://smithers:replace-me@postgres:5432/smithers?sslmode=require
-SMITHERS_AUTH_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
 EOF
 docker run --name smithers --restart unless-stopped -p 4000:4000 \
   --network smithers \
@@ -197,7 +196,17 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
   smithers
 ```
 
-`--network` must reach PostgreSQL. The app listens on port 4000 (set `PORT` to change it). The bootstrap token is needed only until the first owner account exists; then remove it from `smithers.env`.
+`--network` must reach PostgreSQL. The app listens on port 4000 (set `PORT` to change it).
+
+## Claim it
+
+Until it has an owner, the app prints one line per listener to its output:
+
+```text
+Setup URL: http://localhost:4000/setup?token=…
+```
+
+Read it with `docker logs smithers`. Open that URL and sign in with GitHub; that account becomes the owner. The token works once. Anyone who signs in later must be on the install's roster.
 
 ## Give it model keys
 
@@ -20659,18 +20668,18 @@ and authentication failures.
 
 ### Service
 
-| Operation | Signature                                                                                                                                                                                                                                     | Returns                                                                                              |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `plan`    | `(input: PlanInput) => Effect<PlanCard, FlowNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                                   | The reviewable card, whether or not this call created it.                                            |
-| `run`     | `(input: RunInput) => Effect<Receipt, RunNotFound \| PlanNotFound \| PlanDenied \| PlanDigestMismatch \| EnvelopeMismatch \| ClaimLost \| InvalidInput \| LaunchFailed \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>` | `Accepted`, `AlreadyApplied`, `Conflict`, or `Parked` for a plan; a resume answers as `resume` does. |
-| `approve` | `(input: ApprovalInput) => Effect<Receipt, PlanDigestMismatch \| EnvelopeMismatch \| AlreadyResolved \| PlanNotFound \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                    | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `deny`    | same as `approve`                                                                                                                                                                                                                             | same as `approve`.                                                                                   |
-| `steer`   | `(input: SteerInput) => Effect<Receipt, NotificationError \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                               | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `signal`  | `(input: SignalInput) => Effect<Receipt, RunNotFound \| NoMatchingWait \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `cancel`  | `(input: RunMutationInput) => Effect<Receipt, RunNotFound \| ClaimLost \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted` or `Terminal`. Never replays its recorded receipt.                                        |
-| `resume`  | same as `cancel`                                                                                                                                                                                                                              | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                             |
-| `list`    | `(input: ListRequest) => Effect<ListResponse, ControlError>`                                                                                                                                                                                  | A bounded page of flows, runs, triggers, or trigger fires.                                           |
-| `watch`   | `(filter: WatchFilter) => Stream<ControlEvent, ControlError>`                                                                                                                                                                                 | Committed journal entries, plus the deltas the plane derives.                                        |
+| Operation | Signature                                                                                                                                                                                                                                     | Returns                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `plan`    | `(input: PlanInput) => Effect<PlanCard, FlowNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                                   | The reviewable card, whether or not this call created it.                                                     |
+| `run`     | `(input: RunInput) => Effect<Receipt, RunNotFound \| PlanNotFound \| PlanDenied \| PlanDigestMismatch \| EnvelopeMismatch \| ClaimLost \| InvalidInput \| LaunchFailed \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>` | `Accepted`, `AlreadyApplied`, `Conflict`, or `Parked` for a plan; a resume answers as `resume` does.          |
+| `approve` | `(input: ApprovalInput) => Effect<Receipt, PlanDigestMismatch \| EnvelopeMismatch \| AlreadyResolved \| PlanNotFound \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                    | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `deny`    | same as `approve`                                                                                                                                                                                                                             | same as `approve`.                                                                                            |
+| `steer`   | `(input: SteerInput) => Effect<Receipt, NotificationError \| RunNotFound \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                               | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `signal`  | `(input: SignalInput) => Effect<Receipt, RunNotFound \| NoMatchingWait \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `cancel`  | `(input: RunMutationInput) => Effect<Receipt, RunNotFound \| ClaimLost \| InvalidInput \| PersistenceError \| Unavailable \| TransportError \| Unauthorized>`                                                                                 | `Accepted` or `Terminal`. Never replays its recorded receipt.                                                 |
+| `resume`  | same as `cancel`                                                                                                                                                                                                                              | `Accepted`, `AlreadyApplied`, `Conflict`, or `Terminal`.                                                      |
+| `list`    | `(input: ListRequest) => Effect<ListResponse, ControlError>`                                                                                                                                                                                  | A bounded page of flows, runs, triggers, or trigger fires, or exact run-scoped native execution observations. |
+| `watch`   | `(filter: WatchFilter) => Stream<ControlEvent, ControlError>`                                                                                                                                                                                 | Committed journal entries, plus the deltas the plane derives.                                                 |
 
 There is no `pause`. An operator park is written through
 `ControlRuntime.writeStatus(runId, fence, "parked")`.
@@ -20693,6 +20702,8 @@ RPC schemas that exclude it do so on purpose: an authenticated server names the
 identity, and a remote client cannot claim another.
 
 ## ControlSchema
+
+`Control.list({ _tag: "executions", runId, executionIds })` reads at most 200 exact native executions under an authorized control run. It returns `{ _tag: "executions", source, revision, items }`. Each snapshot is `Observed` with a native observation, `Missing`, or `Unavailable`. Unrelated IDs and incomplete ancestry never expose another run. Hosts without this observer return `Unavailable`; historical journal statuses remain historical. A batch and its ancestry checks share one engine transaction and source revision. `runs show` reads every known ID in bounded batches and applies only matching observed rows. Its `executionSnapshots` array retains each batch's source and revision; batches may observe different revisions while a run progresses. A changed source refuses the show until retried.
 
 The serializable values both halves of the wire decode. Every entry has a
 schema constant and a type of the same name unless noted.
@@ -23278,13 +23289,15 @@ handoffs; explicit cancellation still cascades to linked children.
 
 ### EngineStore.Options
 
-| Field                  | Type                                               | Meaning                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `owner.hostId`         | `string`                                           | This engine's stable host identity. Which host a store speaks for is a composition decision, not a host fact.                                                                                                                                                                                                                                                                           |
-| `journalSource`        | `string`                                           | The source id every record this engine writes carries.                                                                                                                                                                                                                                                                                                                                  |
-| `isAlive`              | `Ownership.LivenessCheck` (optional)               | Liveness arbitration consulted before stealing a run whose lease expired. Answering `true` refuses the takeover. Defaults to `Ownership.leaseLiveness(Ownership.heartbeatStaleAfter)`.                                                                                                                                                                                                  |
-| `clockFireRetryPolicy` | `Schedule<unknown, unknown>` (optional)            | Redispatch policy for a durable clock whose fire failed. Defaults to exponential from 100ms capped at 30s, forever, the same option shape as the engine's `suspendedRetryPolicy`.                                                                                                                                                                                                       |
-| `requestResume`        | `(executionId, reason) => Effect<void>` (optional) | Called for every wake this engine initiates against a PARKED execution: `"deferred"` (a durable deferred completed), `"clock"` (a durable clock fired), `"parent"` (a child settled under a parent parked on it). An operator's own resume is not reported. A host that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep. |
+| Field                  | Type                                                   | Meaning                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner.hostId`         | `string`                                               | This engine's stable host identity. Which host a store speaks for is a composition decision, not a host fact.                                                                                                                                                                                                                                                                           |
+| `journalSource`        | `string`                                               | The source id every record this engine writes carries.                                                                                                                                                                                                                                                                                                                                  |
+| `isAlive`              | `Ownership.LivenessCheck` (optional)                   | Liveness arbitration consulted before stealing a run whose lease expired. Answering `true` refuses the takeover. Defaults to `Ownership.leaseLiveness(Ownership.heartbeatStaleAfter)`.                                                                                                                                                                                                  |
+| `canExecute`           | `(row: RunStore.RunRow) => Effect<boolean>` (optional) | Host admission before claiming, including automatic wakes.                                                                                                                                                                                                                                                                                                                              |
+| `canActivate`          | `(row: RunStore.RunRow) => Effect<boolean>` (optional) | Read-only admission fence rechecked inside the native activation transaction. Use the same consent and ownership policy as preflight; keep module loading and external I/O in `canExecute`. A refusal abandons the claim without dispatching the body.                                                                                                                                  |
+| `clockFireRetryPolicy` | `Schedule<unknown, unknown>` (optional)                | Redispatch policy for a durable clock whose fire failed. Defaults to exponential from 100ms capped at 30s, forever, the same option shape as the engine's `suspendedRetryPolicy`.                                                                                                                                                                                                       |
+| `requestResume`        | `(executionId, reason) => Effect<void>` (optional)     | Called for every wake this engine initiates against a PARKED execution: `"deferred"` (a durable deferred completed), `"clock"` (a durable clock fired), `"parent"` (a child settled under a parent parked on it). An operator's own resume is not reported. A host that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep. |
 
 ### Required services
 
@@ -23351,6 +23364,11 @@ Full model: [Ownership and fencing](https://engine-store.smithers.sh/concepts/ow
 queries return rows after `after` and at or before `through`, ordered by those
 fields. An optional `eligibleBeforeMs` limits results to older admissions.
 `pendingRunTail` captures the upper bound of a recovery scan cycle.
+`pendingCancellationRuns` and `pendingCancellationTail` use the same cursors
+for explicitly requested cancellations, independent of registered handlers.
+Their partial index excludes settled and unrequested admissions; cleanup has
+no admission grace and still requires workspace admission and ownership fencing.
+`limit` must be zero or a positive safe integer; other values defect with `RangeError`.
 
 [src/DurableEngineState.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/DurableEngineState.ts)
 
@@ -23377,32 +23395,34 @@ permit deadlocks against a fiber doing the opposite.
 
 ### Service members
 
-| Member                   | Signature                                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
-| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
-| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
-| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
-| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
-| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
-| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
-| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
-| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
-| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
-| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
-| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
-| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
-| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
-| `waitingTree`            | `(runId: string, options?: WaitingTreeOptions) => Effect<ReadonlyArray<WaitingRow>>`                                                                             |
-| `pendingRuns`            | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
-| `pendingRunTail`         | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
-| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
-| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
-| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
-| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                                                                                                |
-| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
-| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
-| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
+| Member                    | Signature                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deferred`                | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
+| `consumeDeferred`         | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
+| `completeDeferred`        | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
+| `clock`                   | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
+| `scheduleClock`           | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
+| `completeClock`           | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
+| `dueClocks`               | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
+| `completeRunClocks`       | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
+| `pendingClocks`           | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
+| `completedDeferreds`      | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
+| `park`                    | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
+| `wake`                    | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
+| `waiting`                 | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
+| `waitingRuns`             | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
+| `waitingTree`             | `(runId: string, options?: WaitingTreeOptions) => Effect<ReadonlyArray<WaitingRow>>`                                                                             |
+| `pendingRuns`             | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
+| `pendingRunTail`          | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
+| `pendingCancellationRuns` | `(limit: number, after?: PendingRunCursor, through?: PendingRunCursor) => Effect<ReadonlyArray<PendingRunCursor>>`                                               |
+| `pendingCancellationTail` | `() => Effect<Option<PendingRunCursor>>`                                                                                                                         |
+| `staleRunningRuns`        | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
+| `attemptSurvivors`        | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
+| `recordRunParent`         | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
+| `removeRunParentsForRun`  | `(runId: string) => Effect<void>`                                                                                                                                |
+| `runParents`              | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
+| `runChildren`             | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
+| `transaction`             | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
 
 `scheduleClock` requires the execution's ownership token. Creation succeeds
 only while the run is running under that owner. An existing clock wins unchanged,
@@ -24213,7 +24233,7 @@ Explicit deletion of finished run state. Nothing schedules any of it.
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RetainOptions`           | `olderThanMs` (a duration: how long a run must have been finished), `limit?`, `dryRun?`. A negative `olderThanMs` is read as zero; a `limit` that is not a non-negative safe integer is read as zero.                                                      |
 | `RetainReport`            | `cutoffMs`, `runIds`, `retainedForLiveDescendants`, `retainedForLiveAncestors`, `runs`, `attempts`, `clockDeadlines`, `deferredCompletions`, `journalEntries`, `journalCheckpoints`, `journalIdentities`, `archiveEntries`, `timeTravelReceipts`, `dryRun` |
-| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`, `pins?`                                                                                                                                                                  |
+| `Options` (for `collect`) | `olderThanMs` (an absolute epoch millisecond threshold), `dryRun?`, `database?`, `limit?`, `pins?`                                                                                                                                                         |
 | `Report` (from `collect`) | `database`, `olderThanMs`, `runs`, `deleted` (empty under a dry run), `dryRun`                                                                                                                                                                             |
 
 A run is a candidate only when its status is terminal and it finished before the
@@ -24241,20 +24261,22 @@ The engine-owned read port, exported from the root and
 `@smthrs/engine-store/ExecutionSnapshot`. Its `make()` and `layer` require
 `SqlClient` with the engine migrations applied.
 
-| Export                                   | Contract                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                              |
-| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates. |
-| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.    |
-| `Position`                               | Durable database `source` and monotonic `revision`.                                               |
-| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                              |
-| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`. |
-| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                   |
-| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                            |
+| Export                                   | Contract                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutionSnapshot`, `Service`           | Service tag and its `read` and `related` operations.                                                                                                                                  |
+| `Service.read(runIds)`                   | Coherent `Batch` for up to `maximumBatchSize` (200) IDs, preserving request order and duplicates.                                                                                     |
+| `withReadTransaction(sql, effect)`       | Reserves a read transaction without writer admission: deferred on SQLite and repeatable-read, read-only on PostgreSQL. An existing transaction retains its caller-selected isolation. |
+| `Service.related(options)`               | Bounded `RelatedPage` of direct durable children or lineage rounds, with the requested anchor.                                                                                        |
+| `Position`                               | Durable database `source` and monotonic `revision`.                                                                                                                                   |
+| `Snapshot`, `Observed`, `Missing`        | Explicit observed execution or absence, including deletion evidence.                                                                                                                  |
+| `Waiting`                                | Timer, signal, approval, quota, human, or other reason, with wake time and SHA-256 `tokenDigest`.                                                                                     |
+| `Batch`, `RelatedOptions`, `RelatedPage` | Source watermark, scoped results, relation selector, and optional continuation.                                                                                                       |
+| `isNewer(incoming, stored)`              | True only for the same source with a greater revision.                                                                                                                                |
 
 The requested run's lifecycle remains round scoped. Intent and the first owner's
-cancellation acknowledgement are separate fields. Failures use `RunStoreError`
-with causes preserved; interruption releases the read transaction.
+cancellation acknowledgement are separate fields. Observation failures use
+`RunStoreError` with causes preserved. `withReadTransaction` also preserves SQL
+transaction admission errors; interruption releases the read transaction.
 
 ## RunChangeFeed
 
@@ -25677,6 +25699,7 @@ flow file actions; the database path is trusted host configuration.
 | `owner`            | `{ hostId: string }`                               | Stable identity of this engine host.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `isAlive`          | `Ownership.LivenessCheck`                          | Whether a previously recorded owner is still alive. Required, and a stub is not an answer: a check that returns `false` without asking makes the engine steal runs out of live processes. Receives the claim context as well as the owner.                                                                                                                                                                                            |
 | `canExecute`       | `(row) => Effect<boolean>` (optional)              | Routes shared-store runs to the host configured for their workspace. Checked before claiming a run, including automatic wakes.                                                                                                                                                                                                                                                                                                        |
+| `canActivate` | `(row) => Effect<boolean>` (optional) | Read-only admission rechecked inside the native activation transaction. Use captured store reads and synchronous local probes; keep module loading and external I/O in `canExecute`. |
 | `requestResume`    | `(executionId, reason) => Effect<void>` (optional) | Records that the engine has asked a PARKED execution to resume: `"deferred"`, `"clock"`, or `"parent"`. A control plane that refuses to re-enter a parked run nobody asked for reads it to tell an engine wake from its own heartbeat sweep.                                                                                                                                                                                          |
 | `cacheEnvironment` | `Action.CacheEnvironment`                          | Optional. The complete runtime environment a sealed step's recorded result may be reused under. Absent by default, which keeps every sealed key scoped to its own run.                                                                                                                                                                                                                                                                |
 | `sourceRevision`   | `string \| (() => string \| undefined)`            | Optional. The revision of the tree this host read its flows out of, which every recorded graph page carries beside the declaration sites, so a reader opens the declared file at that revision and not at whatever is on disk. A host that only learns the answer after this call declares a reader instead of a string; it is asked once per recorded page, and an answer that is not a revision records nothing. Absent by default. |
@@ -25814,6 +25837,7 @@ required.
 | `shutdownTimeoutMs` | `number`                                           | `defaultShutdownTimeoutMs`         | How long a graceful shutdown may take before the host leaves with the signal's own exit code.                                                                                                        |
 | `containment`       | `ContainedSpawner.Options & ProcessReaper.Options` | none                               | Process containment and reaping options for the host spawner.                                                                                                                                        |
 | `canExecute`        | `(row) => Effect<boolean>`                         | none                               | The same shared-store routing check as the runtime `Options` field.                                                                                                                                  |
+| `canActivate` | `(row) => Effect<boolean>` | none | The same read-only native activation fence as the runtime `Options` field. |
 | `cacheEnvironment`  | `Action.CacheEnvironment`                          | none                               | The same cross-run cache environment as the runtime `Options` field, provided under the engine.                                                                                                      |
 | `sourceRevision`    | `string \| (() => string \| undefined)`            | none                               | The same source revision declaration as the runtime `Options` field, recorded on every graph page.                                                                                                   |
 
@@ -35506,12 +35530,12 @@ route; every other route sends it.
 
 Replay-safe policy for native deferred provider tool loading.
 
-| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6 Astra, and GPT-6 Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. GPT-6.1 Sol answers `true` on the API-key protocol only, from the guide; it has not been probed on the ChatGPT backend. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
-| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                              |
+| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Without native support, deferred tools arrive as ordinary definitions once
 activated or once used before their activation. With native support, lazy
@@ -35629,6 +35653,13 @@ with their existing subscription resolver and reject malformed verdicts.
 `layerVercelGateway` remains an explicit library adapter for consumers of Jev's
 HTTP evaluation protocol. It reads no environment configuration and is never
 selected by a flow host or used as a subscription fallback.
+
+`EvaluatorBackup.withFallback(primary, backup)` retains the backup's failure
+when both evaluators fail. An active backup's timeout or transport outage
+remains transient even if the primary is unconfigured. A primary 429 still
+takes precedence over a backup transport or configuration failure, while
+retaining the backup's actual paid usage. A primary failure carrying paid
+usage never calls the backup, avoiding a second paid reading.
 
 | Export                                                                                                                                                   | Kind                      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -52294,7 +52325,6 @@ Usage: smthrs auth <command>
 Commands:
   connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
-  local        Set up and log in to an owner backend
   login        Log in to Smithers
   logout       Log out of Smithers
   revoke       Revoke a connected subscription
@@ -52360,124 +52390,6 @@ Usage: smthrs auth connections [options]
 Options:
   --org <string>
   --verbose       Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local
-
-```text
-smthrs auth local — Set up and log in to an owner backend
-
-Usage: smthrs auth local <command>
-
-Commands:
-  bootstrap  Create and log in as the installation owner
-  login      Log in to an owner backend
-  status     Show owner setup status
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local bootstrap
-
-```text
-smthrs auth local bootstrap — Create and log in as the installation owner
-
-Usage: smthrs auth local bootstrap [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local login
-
-```text
-smthrs auth local login — Log in to an owner backend
-
-Usage: smthrs auth local login [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --username <string>
-  --verbose            Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## auth local status
-
-```text
-smthrs auth local status — Show owner setup status
-
-Usage: smthrs auth local status [options]
-
-Options:
-  --host <string>
-  --hostname <string>
-  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

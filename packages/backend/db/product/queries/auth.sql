@@ -25,8 +25,8 @@ WHERE nonce_key = sqlc.arg(nonce)
   AND expires_at > NOW();
 
 -- name: CreateOAuthState :one
-INSERT INTO oauth_states (state_key, context_hash, requested_scopes, expires_at)
-VALUES (sqlc.arg(state), sqlc.arg(context_hash), sqlc.arg(requested_scopes), sqlc.arg(expires_at))
+INSERT INTO oauth_states (state_key, context_hash, requested_scopes, expires_at, setup_token_digest)
+VALUES (sqlc.arg(state), sqlc.arg(context_hash), sqlc.arg(requested_scopes), sqlc.arg(expires_at), sqlc.narg(setup_token_digest))
 RETURNING *;
 
 -- name: ConsumeOAuthState :execrows
@@ -44,7 +44,7 @@ WHERE state_key = sqlc.arg(state)
   AND context_hash = sqlc.arg(context_hash)
   AND used_at IS NULL
   AND expires_at > NOW()
-RETURNING requested_scopes;
+RETURNING requested_scopes, setup_token_digest;
 
 -- name: DeleteExpiredOAuthStates :exec
 DELETE FROM oauth_states

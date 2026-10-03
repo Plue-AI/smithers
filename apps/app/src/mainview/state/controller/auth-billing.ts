@@ -15,6 +15,7 @@ AUTH_SIGNED_IN_PARAM,
 BILLING_BALANCE_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
 import { signInReturnTo } from "../../RepoLink"
+import { SETUP_TOKEN_PARAM } from "@smthrs/rpc/ApplicationAuth"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import type { FailureController } from "./failures"
@@ -69,8 +70,7 @@ export interface SelectedBackendIdentity extends ApplicationIdentityClient {
 export const createAuthBillingController = (
   ctx: ControllerContext,
   nextTranscriptOrdinal: () => number,
-  selectedIdentity?: SelectedBackendIdentity,
-  openLocalAuth?: () => boolean
+  selectedIdentity?: SelectedBackendIdentity
 ): AuthBillingController => {
   const { store, services, baseUrl, boundedFetch: http, errorMessageOf, unref } = ctx
   // Only already-approved writes reconnect, after a fresh same-account admin answer.
@@ -531,7 +531,6 @@ export const createAuthBillingController = (
         action: { flow: "auth.sign-out", label: "Sign out" } })
       return
     }
-    if (openLocalAuth?.() === true) return
     if (identity === undefined || identity.state === "unavailable") {
       toast(
         "auth.sign-in.unavailable",
@@ -565,9 +564,16 @@ export const createAuthBillingController = (
     if (typeof window === "undefined") return
     // A repository page returns to itself; the landing needs a success marker
     // so its entrance resumes onboarding without a second Get started click.
-    // The server validates either path against its own origin.
-    const returnTo = window.location.pathname === "/" ? `/?${AUTH_SIGNED_IN_PARAM}=github` : signInReturnTo(window.location)
-    const query = returnTo === null ? "" : `?${AUTH_RETURN_TO_PARAM}=${encodeURIComponent(returnTo)}`
+    // The server validates either path against its own origin. The printed
+    // setup URL (`/setup?token=`) carries its one-time token into the sign-in
+    // that claims the install, then lands on the home page.
+    const setupToken = window.location.pathname === "/setup" ? new URLSearchParams(window.location.search).get("token") || null : null
+    const returnTo = window.location.pathname === "/" || setupToken !== null ? `/?${AUTH_SIGNED_IN_PARAM}=github` : signInReturnTo(window.location)
+    const params = [
+      ...(setupToken === null ? [] : [`${SETUP_TOKEN_PARAM}=${encodeURIComponent(setupToken)}`]),
+      ...(returnTo === null ? [] : [`${AUTH_RETURN_TO_PARAM}=${encodeURIComponent(returnTo)}`])
+    ]
+    const query = params.length === 0 ? "" : `?${params.join("&")}`
     // The hop leaves the page: let the durable queue settle, or the state this click just changed is lost.
     return Promise.resolve(store.settled?.()).then(() => {
       if (!ctx.disposed) window.location.assign(`${baseUrl}${selectedIdentity?.signInPath ?? AUTH_SIGN_IN_PATH}${query}`)

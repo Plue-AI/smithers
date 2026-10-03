@@ -212,8 +212,6 @@ repository_job_trials,product,product baseline
 repository_job_comments,product,product baseline
 repository_job_approvals,product,product baseline
 repository_ci_check_receipts,product,product baseline
-self_host_owners,product,product migration 0004
-local_credentials,product,product migration 0004
 product_job_streams,product,product migration 0005
 product_job_requests,product,product migration 0005
 product_job_dispatches,product,product migration 0005
@@ -282,3 +280,5 @@ repository_egress_policies,product,product migration 0092
 repository_git_usage,product,product migration 0097
 factory_issue_claims,product,durable shared implementation ownership
 repository_registration_reports,product,product migration 0096
+install_settings,product,product migration 0104
+members,product,product migration 0104

@@ -220,16 +220,6 @@ describe("subscription storage and owner input", () => {
     await auth["auth connect"]!(c, { provider: "codex" }, { "config-dir": "/nonexistent" }).catch(() => undefined)
     expect(keyring.mock.calls.filter(([, host]) => host === "claude.subscription-token")).toHaveLength(1)
   })
-  it("validates owner identity and incomplete token receipts", async () => {
-    const { c } = await fixture()
-    const stdin = vi.spyOn(c, "stdin").mockResolvedValue("password"),
-      request = vi.spyOn(c, "request").mockResolvedValue({})
-    await expect(auth["auth local login"]!(c, {}, {})).rejects.toThrow("username")
-    await expect(auth["auth local login"]!(c, {}, { username: "owner" })).rejects.toThrow("incomplete")
-    expect(stdin).toHaveBeenCalledWith("Password")
-    await expect(auth["auth local bootstrap"]!(c, {}, { username: "owner" })).rejects.toThrow("BOOTSTRAP_TOKEN")
-    expect(request).toHaveBeenCalledTimes(1)
-  })
   it.each(["hello", "", " ", "x".repeat(4 * 1024 * 1024 + 1)].map((value) => ({ value, size: value.length })))(
     "bounds stdin input ($size bytes)",
     async ({ value }) => {

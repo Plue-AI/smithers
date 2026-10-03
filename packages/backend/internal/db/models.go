@@ -920,6 +920,14 @@ type ImportJob struct {
 	PublishReady             bool               `json:"publish_ready"`
 }
 
+type InstallSetting struct {
+	Key       string          `json:"key"`
+	Value     json.RawMessage `json:"value"`
+	Sealed    bool            `json:"sealed"`
+	UpdatedBy pgtype.Int8     `json:"updated_by"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 type Issue struct {
 	ID                       int64              `json:"id"`
 	RepositoryID             int64              `json:"repository_id"`
@@ -1384,12 +1392,19 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
-type LocalCredential struct {
-	UserID            int64     `json:"user_id"`
-	PasswordHash      string    `json:"password_hash"`
-	PasswordChangedAt time.Time `json:"password_changed_at"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+type Member struct {
+	ID                int64              `json:"id"`
+	UserID            int64              `json:"user_id"`
+	GithubUserID      pgtype.Int8        `json:"github_user_id"`
+	Login             string             `json:"login"`
+	Role              string             `json:"role"`
+	UnixUid           int32              `json:"unix_uid"`
+	AddedBy           pgtype.Int8        `json:"added_by"`
+	AddedAt           time.Time          `json:"added_at"`
+	SuspendedAt       pgtype.Timestamptz `json:"suspended_at"`
+	SuspendedReason   pgtype.Text        `json:"suspended_reason"`
+	RemovedAt         pgtype.Timestamptz `json:"removed_at"`
+	LastAccessCheckAt pgtype.Timestamptz `json:"last_access_check_at"`
 }
 
 type Mention struct {
@@ -1661,12 +1676,13 @@ type OauthAccount struct {
 }
 
 type OauthState struct {
-	StateKey        string             `json:"state_key"`
-	ContextHash     string             `json:"context_hash"`
-	RequestedScopes []string           `json:"requested_scopes"`
-	CreatedAt       time.Time          `json:"created_at"`
-	ExpiresAt       time.Time          `json:"expires_at"`
-	UsedAt          pgtype.Timestamptz `json:"used_at"`
+	StateKey         string             `json:"state_key"`
+	ContextHash      string             `json:"context_hash"`
+	RequestedScopes  []string           `json:"requested_scopes"`
+	CreatedAt        time.Time          `json:"created_at"`
+	ExpiresAt        time.Time          `json:"expires_at"`
+	UsedAt           pgtype.Timestamptz `json:"used_at"`
+	SetupTokenDigest pgtype.Text        `json:"setup_token_digest"`
 }
 
 type OnboardingAnswer struct {
@@ -2432,12 +2448,6 @@ type SearchRateLimit struct {
 	LastRefillAt time.Time `json:"last_refill_at"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-type SelfHostOwner struct {
-	Singleton bool      `json:"singleton"`
-	UserID    int64     `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 type ShareListing struct {

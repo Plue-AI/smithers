@@ -137,37 +137,9 @@ test("an OAuth reload answers legacy persisted prompts; the answer survives the 
   expect(again.store.collections.messages.get(prompt.id)).toEqual(answered)
 })
 
-test("an owner backend names its credential door without promising GitHub", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const controller = createAppController(store, unavailableAgent, {
-    applicationTarget: resolveApplicationTarget({
-      apiVersion: 1,
-      mode: "web-selfhost",
-      apiOrigin: "",
-      auth: { kind: "session" },
-      cors: "same-origin",
-      developerExternal: false
-    }, "https://owner.test"),
-    localIdentity: {
-      status: async () => ({ enabled: true, initialized: true }),
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    }
-  })
-  await controller.adoptSession(signedOut)
-
-  controller.promptSignIn()
-
-  expect([...store.collections.messages.values()].at(-1)).toMatchObject({
-    text: "Sign in to continue.",
-    action: { flow: "auth.sign-in", label: "Sign in" }
-  })
-})
-
 test("the web-Plue session uses the selected backend identity and canonical OAuth route", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const assigned: string[] = []
-  let localStatusReads = 0
   let applicationIdentityReads = 0
   const globals = globalThis as unknown as { window?: unknown }
   const hadWindow = "window" in globals
@@ -189,11 +161,6 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
       cors: "same-origin",
       developerExternal: false
     }, "https://smithers.sh"),
-    localIdentity: {
-      status: async () => { localStatusReads += 1; return { enabled: true, initialized: true } },
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    },
     applicationIdentity: {
       current: async () => { applicationIdentityReads += 1; return null }
     }
@@ -204,7 +171,6 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
     await settle()
 
     expect(assigned).toEqual(["/api/auth/github?return_to=%2F%3Fsigned-in%3Dgithub"])
-    expect(localStatusReads).toBe(0)
     expect(applicationIdentityReads).toBe(1)
   } finally {
     await controller.dispose()
@@ -213,10 +179,33 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
   }
 })
 
-for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow} browser door bypasses owner credentials and claims the selected backend identity`, async () => {
+test("the printed setup URL carries its one-time token into the GitHub sign-in", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const assigned: string[] = []
+  const globals = globalThis as unknown as { window?: unknown }
+  const hadWindow = "window" in globals
+  const previousWindow = globals.window
+  globals.window = { location: { pathname: "/setup", search: "?token=a-b_c", assign: (url: string) => void assigned.push(url) } }
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: WEB,
+    applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://mac-mini.local"),
+    applicationIdentity: { current: async () => null }
+  })
+  try {
+    await controller.loadSession()
+    await controller.commands.run("auth.sign-in")
+    await settle()
+    expect(assigned).toEqual(["/api/auth/github?setup_token=a-b_c&return_to=%2F%3Fsigned-in%3Dgithub"])
+  } finally {
+    await controller.dispose()
+    if (hadWindow) globals.window = previousWindow
+    else delete globals.window
+  }
+})
+
+for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow} browser door claims the selected backend identity`, async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: string[] = []
-  let localStatusReads = 0
   let claimed = false
   let popupCount = 0
   const popup = { closed: false, opener: null, location: { href: "about:blank" }, close: () => { popup.closed = true } }
@@ -228,11 +217,6 @@ for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow
     baseUrl: "https://smithers.sh",
     bootstrap: { ...WEB, authFlow },
     applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, "https://smithers.sh"),
-    localIdentity: {
-      status: async () => { localStatusReads++; return { enabled: true, initialized: true } },
-      login: async ({ username }) => ({ user: { id: 1, username } }),
-      bootstrap: async ({ username }) => ({ user: { id: 1, username } })
-    },
     applicationIdentity: { current: async () => claimed ? { username: "handoff-owner", admin: false, scopes: null } : null },
     handoffPollMs: 1,
     fetchImpl: async (input, init) => {
@@ -247,7 +231,6 @@ for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow
     await controller.adoptSession(signedOut)
     await controller.commands.run("auth.sign-in")
     for (let i = 0; i < 100 && store.collections.identitySessions.get("identity")?.state !== "signed-in"; i++) await settle()
-    expect(localStatusReads).toBe(0)
     expect(controller.identityProvider).toBe("github")
     expect(popupCount).toBe(1)
     expect(popup.location.href).toBe("https://smithers.sh/api/auth/github/start?handoff=owned-handoff")

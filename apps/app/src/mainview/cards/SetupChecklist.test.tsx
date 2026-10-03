@@ -29,7 +29,6 @@ const empty = { signedIn: false, hasRepo: false, hasSetup: false, talked: false 
 const done = { signedIn: true, hasRepo: true, hasSetup: true, talked: true }
 /** The talk step's button text: its label, then the aria-hidden ⌘K chip. */
 const TALK = "Talk to Smithers ⌘ K"
-const step = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLLIElement>("ol > li")].find(item => item.textContent?.includes(label))
 
 const observation = (payload: RepositorySetup): RepositoryJobObservation => ({
   id: payload.job, owner: payload.owner ?? "", repo: payload.repo, job: payload.job,
@@ -37,27 +36,6 @@ const observation = (payload: RepositorySetup): RepositoryJobObservation => ({
     ...(payload.active === undefined ? {} : { active: { ...payload.active,
       owned: payload.active.owned ?? true, workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a",
       draft: payload.active.draft ?? payload.draft } }) }
-})
-
-test("local owner setup names sign-in before and after authentication", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const host = document.createElement("div")
-  const root = createRoot(host)
-  const calls: string[] = []
-  const render = () => flushSync(() => root.render(<ControllerContext value={{ store, localAuth: {}, commands: { all: () => commands }, runCommand: (name: string) => { calls.push(name) } } as unknown as AppController}><SetupChecklist /></ControllerContext>))
-  try {
-    render()
-    await new Promise(resolve => setTimeout(resolve, 20))
-    const button = host.querySelector<HTMLButtonElement>('[data-flow="auth.sign-in"]')!
-    expect(button.textContent).toBe("Sign in")
-    button.click()
-    expect(calls).toEqual(["auth.sign-in"])
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(step(host, "Sign in")?.textContent).toBe("✓Sign in")
-    expect(step(host, "Sign in")?.getAttribute("data-complete")).toBe("true")
-    expect(host.textContent).not.toContain("Connect GitHub")
-  } finally { flushSync(() => root.unmount()); await store.dispose?.() }
 })
 
 test("only a current account's selected repository registration completes setup", () => {
@@ -103,9 +81,8 @@ test("on the cloud web app the GitHub step belongs to the signup: three steps re
     ["set-up-job", "issues.setup", false],
   ])
   expect(resolveSteps(commands, { ...done, cloud: true }).map(step => step.complete)).toEqual([true, true, true])
-  // Every other host keeps the step, local credentials included.
+  // Every other host keeps the step.
   expect(resolveSteps(commands, { ...empty, cloud: false }).map(step => step.id)).toEqual(["talk", "connect-github", "add-repository", "set-up-job"])
-  expect(resolveSteps(commands, { ...empty, localAuth: true }).map(step => step.label)).toEqual(["Talk to Smithers", "Sign in", "Add a repository", "Set up a job"])
 })
 
 for (const [host, count, talked] of [

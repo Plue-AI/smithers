@@ -22,7 +22,7 @@ import (
 type AuthService interface {
 	CreateKeyAuthNonce(ctx context.Context) (string, error)
 	VerifyKeyAuth(ctx context.Context, message, signature string) (services.VerifyKeyAuthResult, error)
-	StartGitHubOAuth(ctx context.Context, stateVerifier string) (string, error)
+	StartGitHubOAuth(ctx context.Context, stateVerifier, setupToken string) (string, error)
 	StartGitHubOAuthWithScopes(ctx context.Context, stateVerifier, rawScopes string) (string, error)
 	CompleteGitHubOAuth(ctx context.Context, code, state, stateVerifier string) (services.OAuthCallbackResult, error)
 	StartAuth0OAuth(ctx context.Context, stateVerifier string) (string, error)
@@ -41,7 +41,6 @@ type GitHubRepoListingWarmer interface {
 
 type AuthHandler struct {
 	Service        AuthService
-	LocalService   LocalIdentityService
 	AuthConfig     config.AuthConfig
 	PublicOrigin   string
 	AllowedOrigins []string
@@ -204,7 +203,9 @@ func consumeOAuth2PendingAuthorizeCookie(w http.ResponseWriter, r *http.Request,
 
 // GetGitHubOAuthStart begins the browser GitHub App OAuth flow (the direct
 // GitHub sign-in path). It generates an oauth state verifier, stashes it in a
-// cookie, and redirects to GitHub's authorize endpoint.
+// cookie, and redirects to GitHub's authorize endpoint. On an install without
+// an owner, setup_token (from the printed setup URL) lets this sign-in claim
+// the owner.
 func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request) {
 	returnTo := r.URL.Query().Get("return_to")
 	if returnTo != "" && !validBrowserReturn(returnTo) {
@@ -216,7 +217,7 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 		writeRouteError(w, r, errors.Internal("failed to generate oauth state").WithCause(err))
 		return
 	}
-	redirectURL, err := h.Service.StartGitHubOAuth(r.Context(), stateVerifier)
+	redirectURL, err := h.Service.StartGitHubOAuth(r.Context(), stateVerifier, r.URL.Query().Get("setup_token"))
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/app"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	for key, value := range map[string]string{
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
+		"SMITHERS_AUTH_MODE":           "selfhost",
 		"SMITHERS_AUTH_SESSION_SECRET": "release-audit-session", "SMITHERS_LFS_SIGNING_SECRET": "release-audit-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "release-audit-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "release-audit-repo",
 		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "release-audit-push", "SMITHERS_SERVER_ADDR": "127.0.0.1:0",
@@ -78,9 +79,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		}
 		return result, res.Header
 	}
-	request("POST", "/api/auth/local/bootstrap", `{"username":"releaseowner","password":"release-owner-password"}`, 200, map[string]string{"X-Smithers-Bootstrap-Token": "release-audit-bootstrap"})
-	auth, _ := request("POST", "/api/auth/local/token", `{"username":"releaseowner","password":"release-owner-password","name":"audit"}`, 200, nil)
-	token = auth["token"].(string)
+	token, err = seed.InstallOwner(t.Context(), pool, "releaseowner", 1001)
+	require.NoError(t, err)
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
 	require.Equal(t, true, repo["can_write"], "creator must retain editing access")
 	path := "/api/repos/releaseowner/audit"

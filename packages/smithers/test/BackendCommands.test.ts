@@ -699,26 +699,6 @@ describe("one-login authentication", () => {
     )
     if (code !== 503) expect(exit).toHaveBeenCalledWith(1)
   })
-  it.each(["login", "bootstrap"])("obtains one owner session through local %s", async (action) => {
-    const { c, request } = await fixture({
-      SMITHERS_AUTH_USERNAME: "owner",
-      SMITHERS_AUTH_PASSWORD: "password",
-      SMITHERS_AUTH_BOOTSTRAP_TOKEN: "bootstrap",
-      SMITHERS_TOKEN: ""
-    })
-    request.mockResolvedValue({ token: "owner-token", user: { username: "owner" }, token_id: 7 })
-    expect(await auth[`auth local ${action}`]!(c, {}, {})).toMatchObject({ user: "owner", token_id: 7 })
-    expect((await c.session.require())?.token).toBe("owner-token")
-    expect(request).toHaveBeenCalledWith(
-      "POST",
-      "/api/auth/local/token",
-      expect.objectContaining({ username: "owner", password: "password" }),
-      expect.objectContaining({ anonymous: true })
-    )
-    if (action === "bootstrap") {
-      expect(request.mock.calls[0]![3]).toMatchObject({ headers: { "X-Smithers-Bootstrap-Token": "bootstrap" } })
-    }
-  })
   it.each([
     {
       tokens: {

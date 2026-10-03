@@ -5,7 +5,6 @@ Usage: smthrs auth <command>
 Commands:
   connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
-  local        Set up and log in to an owner backend
   login        Log in to Smithers
   logout       Log out of Smithers
   revoke       Revoke a connected subscription

@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
@@ -93,7 +95,6 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		"SMITHERS_DATA_ROOT":                     state,
 		"SMITHERS_BLOB_DATA_DIR":                 filepath.Join(state, "blobs"),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "owner-bootstrap-token",
 		"SMITHERS_AUTH_SESSION_SECRET":           "owner-session-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "owner-lfs-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "owner-model-encryption-secret",
@@ -150,9 +151,6 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		if token != "" {
 			request.Header.Set("Authorization", "token "+token)
 		}
-		if path == "/api/auth/local/bootstrap" {
-			request.Header.Set("X-Smithers-Bootstrap-Token", "owner-bootstrap-token")
-		}
 		response, sendErr := client.Do(request)
 		require.NoError(t, sendErr)
 		defer response.Body.Close()
@@ -167,12 +165,12 @@ func TestOwnerChatHTTPIntegration(t *testing.T) {
 		require.Equal(t, wantStatus, response.StatusCode, string(result))
 		return result
 	}
-	post("/api/auth/local/bootstrap", "", map[string]string{"username": "l3bowner", "email": "l3b@example.test", "password": "owner password for integration"})
-	var tokenResult struct {
-		Token string `json:"token"`
-	}
-	require.NoError(t, json.Unmarshal(post("/api/auth/local/token", "", map[string]string{"username": "l3bowner", "password": "owner password for integration", "name": "chat-integration"}), &tokenResult))
-	require.NotEmpty(t, tokenResult.Token)
+	ownerPool, err := pgxpool.New(t.Context(), databaseURL)
+	require.NoError(t, err)
+	defer ownerPool.Close()
+	ownerToken, err := seed.InstallOwner(t.Context(), ownerPool, "l3bowner", 1001)
+	require.NoError(t, err)
+	tokenResult := struct{ Token string }{Token: ownerToken}
 	{
 		post("/api/user/repos", tokenResult.Token, map[string]any{
 			"name": "flow-http-integration", "private": true, "auto_init": true, "default_bookmark": "main",

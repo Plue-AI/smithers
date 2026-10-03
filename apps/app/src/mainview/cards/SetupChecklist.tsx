@@ -21,7 +21,6 @@ import { GuideKey } from "../onboarding/GuideButton"
  */
 export interface SetupProgress {
   readonly signedIn: boolean
-  readonly localAuth?: boolean
   /** The hosted web app: the signup is the GitHub sign-in, so its step is never listed. */
   readonly cloud?: boolean
   readonly hasRepo: boolean
@@ -59,7 +58,7 @@ export function resolveSteps(commands: readonly CatalogItem[], state: SetupProgr
   const catalog = visible(commands)
   return SETUP_STEPS.filter(step => !(state.cloud && step.id === "connect-github")).map(step => {
     const flow = step.flows.find(name => catalog.some(item => item.name === name))
-    return { id: step.id, label: step.id === "connect-github" && state.localAuth ? "Sign in" : step.label, complete: step.done(state), flow, args: flow === "issues.setup" ? repo : undefined }
+    return { id: step.id, label: step.label, complete: step.done(state), flow, args: flow === "issues.setup" ? repo : undefined }
   })
 }
 
@@ -200,7 +199,6 @@ export function useFirstRun(commands?: readonly CatalogItem[]) {
   const completedJobs = readable ? registeredRepositoryJobs(observations, repo, owner, selectedWorkspaceId) : new Set<RepositoryJob>()
   const steps = resolveSteps(catalog, {
     signedIn: identity?.state === "signed-in",
-    localAuth: controller.localAuth !== undefined,
     cloud: cloudWebHost(controller.bootstrap),
     hasRepo: repositories.some(row => row.catalog !== true),
     hasSetup: completedJobs.size > 0,
