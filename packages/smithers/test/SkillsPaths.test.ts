@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test"
-import { existsSync, readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { expect, test } from "vitest"
 
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 
@@ -11,11 +11,19 @@ const referencedPaths = (markdown: string): Array<string> =>
     (value) => /^[\w.-]+\/(?:[\w./-]*\.[\w-]+|[\w./-]*\/)?$/.test(value)
   )
 
-test("skill repository paths exist", async () => {
+/** Every SKILL.md under a directory, as paths relative to it. */
+const skillFiles = (directory: string, prefix = ""): Array<string> =>
+  readdirSync(join(directory, prefix), { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? skillFiles(directory, join(prefix, entry.name))
+      : entry.name === "SKILL.md" ? [join(prefix, entry.name)] : []
+  )
+
+test("skill repository paths exist", () => {
   const missing: Array<string> = []
   let scanned = 0
   for (const directory of [".agents/skills", "packages/smithers/skills"]) {
-    for await (const file of new Bun.Glob("**/SKILL.md").scan({ cwd: resolve(root, directory) })) {
+    for (const file of skillFiles(resolve(root, directory))) {
       scanned++
       const skill = `${directory}/${file}`
       for (const path of referencedPaths(readFileSync(resolve(root, skill), "utf8"))) {
