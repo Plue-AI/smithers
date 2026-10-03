@@ -1,5 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, expect, mock, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test"
 import { Glob } from "bun"
 import { createRoot } from "react-dom/client"
 import { act } from "react"
@@ -9,6 +9,13 @@ import type { StoryModule, ViewStory } from "./stories"
 GlobalRegistrator.register()
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 afterAll(() => GlobalRegistrator.unregister())
+let consoleError: ReturnType<typeof spyOn>
+beforeEach(() => { consoleError = spyOn(console, "error").mockImplementation(() => {}) })
+afterEach(() => {
+  const calls = [...consoleError.mock.calls]
+  consoleError.mockRestore()
+  expect(calls).toEqual([])
+})
 const paths = [...new Glob("*View.stories.tsx").scanSync({ cwd: import.meta.dir })].sort()
 if (!paths.length) throw new Error("No View stories discovered")
 
