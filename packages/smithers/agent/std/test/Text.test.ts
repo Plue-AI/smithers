@@ -99,4 +99,34 @@ describe("Text", () => {
       expect(slice(text, { offset: 1, limit: 2_000 }).totalLines, text).toBe(Grouping.sourceLines(text).length)
     }
   })
+
+  it.each(["head", "tail"] as const)("drops a whole four-byte scalar from a three-byte %s budget", (keep) => {
+    expect(truncateBytes("😀", 3, { keep })).toEqual({
+      text: "",
+      truncated: true,
+      keptBytes: 0,
+      droppedBytes: 4
+    })
+  })
+
+  it("retains empty source bytes and exposes pages beyond the end of a file", () => {
+    expect(truncateBytes("", 0, { keep: "tail" })).toEqual({
+      text: "",
+      truncated: false,
+      keptBytes: 0,
+      droppedBytes: 0
+    })
+    expect(slice("one\ntwo\n", { offset: 5, limit: 2 })).toEqual({
+      lines: [],
+      startLine: 5,
+      endLine: 2,
+      totalLines: 2
+    })
+    expect(slice("", { offset: -5, limit: -1 })).toEqual({
+      lines: [],
+      startLine: 1,
+      endLine: 0,
+      totalLines: 0
+    })
+  })
 })

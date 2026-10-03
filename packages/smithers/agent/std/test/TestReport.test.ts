@@ -336,4 +336,52 @@ describe("TestReport", () => {
     expect(TestReport.attribute(complete, incomplete)).toBeUndefined()
     expect(TestReport.attribute(incomplete, complete)).toBeUndefined()
   })
+
+  it("rejects duplicate unittest tally fields rather than overwriting an earlier count", () => {
+    expect(TestReport.parse("Ran 2 tests in 0.001s\nOK (skipped=1, skipped=1)")).toEqual({
+      passed: 0,
+      failed: [],
+      reportedFailed: undefined,
+      parsed: false
+    })
+  })
+
+  it("retains identified unittest failures from a capture without its Ran line", () => {
+    expect(TestReport.parse("ERROR: test_x (tests.Case)\nFAILED (errors=1)")).toEqual({
+      passed: 0,
+      failed: ["tests.Case.test_x"],
+      reportedFailed: 1,
+      parsed: false
+    })
+  })
+
+  it("requires failure summaries to agree with unittest run totals and completion status", () => {
+    expect(TestReport.parse("Ran 1 test in 0.001s\nFAILED")).toEqual({
+      passed: 1,
+      failed: [],
+      reportedFailed: 0,
+      parsed: false
+    })
+    expect(TestReport.parse("FAIL: test_x (tests.Case)\nRan 0 tests in 0.001s\nFAILED (failures=1)")).toEqual({
+      passed: 0,
+      failed: ["tests.Case.test_x"],
+      reportedFailed: 1,
+      parsed: false
+    })
+  })
+
+  it("accepts a complete empty TAP plan and refuses a skip-only pytest summary without pass or failure counts", () => {
+    expect(TestReport.parse("TAP version 13\n1..0")).toEqual({
+      passed: 0,
+      failed: [],
+      reportedFailed: 0,
+      parsed: true
+    })
+    expect(TestReport.parse("=== 1 skipped in 0.01s ===")).toEqual({
+      passed: 0,
+      failed: [],
+      reportedFailed: undefined,
+      parsed: false
+    })
+  })
 })

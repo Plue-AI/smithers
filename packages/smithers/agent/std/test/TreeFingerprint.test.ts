@@ -84,6 +84,16 @@ describe("TreeFingerprint.parse", () => {
     })
   })
 
+  it("accepts the exact path bound and ignores surrounding whitespace", () => {
+    expect(TreeFingerprint.parse(`  1 2  \n  ${TreeFingerprint.maxPaths}  \n`)).toEqual({
+      digest: "1:2",
+      paths: TreeFingerprint.maxPaths,
+      complete: true
+    })
+    expect(TreeFingerprint.parse("bad checksum\n3")).toBeUndefined()
+    expect(TreeFingerprint.parse("1 2\n3\nextra")).toBeUndefined()
+  })
+
   it("reads anything else as unmeasured", () => {
     expect(TreeFingerprint.parse("")).toBeUndefined()
     expect(TreeFingerprint.parse("sh: find: not found\n")).toBeUndefined()

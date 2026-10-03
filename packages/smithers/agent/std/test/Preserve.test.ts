@@ -34,6 +34,21 @@ const failure = (method: string, path: string) =>
   }))
 
 describe("atomic replacement", () => {
+  it.each(["text", "bytes"] as const)("creates an absent file from %s and removes its staged sibling", async (kind) => {
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* fs.makeTempDirectoryScoped()
+        const path = `${dir}/new.txt`
+        expect(yield* fs.exists(path)).toBe(false)
+        if (kind === "text") yield* Preserve.writeFileString(fs, path, replacement)
+        else yield* Preserve.writeFile(fs, path, new TextEncoder().encode(replacement))
+        expect(new Uint8Array(yield* fs.readFile(path))).toEqual(new TextEncoder().encode(replacement))
+        expect(yield* fs.readDirectory(dir)).toEqual(["new.txt"])
+      })).pipe(Effect.provide(NodeFileSystem.layer))
+    )
+  })
+
   for (const handler of handlers) {
     it(`${handler.name} publishes exact bytes and preserves metadata`, async () => {
       await Effect.runPromise(
@@ -214,6 +229,72 @@ describe("atomic replacement", () => {
         expect(yield* fs.readFileString(path)).toBe(replacement)
         expect(after.ino).toEqual(before.ino)
         expect(after.mode & 0o7777).toBe(before.mode & 0o7777)
+        expect(yield* fs.readDirectory(dir)).toEqual(["target.txt"])
+      })).pipe(Effect.provide(NodeFileSystem.layer))
+    )
+  })
+
+  it.each(["uid", "gid"] as const)("keeps an unspecified %s when assigning the other owner field", async (missing) => {
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* fs.makeTempDirectoryScoped()
+        const path = `${dir}/target.txt`
+        yield* fs.writeFileString(path, original)
+        yield* fs.chmod(path, 0o4750)
+        const before = yield* fs.stat(path)
+        const uid = missing === "uid" ? Option.none<number>() : Option.map(before.uid, (value) => value + 1)
+        const gid = missing === "gid" ? Option.none<number>() : Option.map(before.gid, (value) => value + 1)
+        const assignments: Array<ReadonlyArray<number>> = []
+        const modes: Array<number> = []
+        // The host's optional ownership metadata is a boundary condition;
+        // files and their staged bytes still use the real filesystem.
+        const boundary = {
+          ...fs,
+          stat: (target: string) =>
+            target === path
+              ? fs.stat(target).pipe(Effect.map((info) => ({ ...info, uid, gid })))
+              : fs.stat(target),
+          chown: (_target: string, owner: number, group: number) =>
+            Effect.sync(() => {
+              assignments.push([owner, group])
+            }),
+          chmod: (target: string, mode: number) => {
+            modes.push(mode)
+            return fs.chmod(target, mode)
+          }
+        }
+        yield* Preserve.writeFile(boundary, path, new TextEncoder().encode(replacement))
+        expect(assignments).toEqual([[Option.getOrElse(uid, () => -1), Option.getOrElse(gid, () => -1)]])
+        expect(modes).toEqual([before.mode & 0o7777])
+        expect(yield* fs.readFileString(path)).toBe(replacement)
+        expect((yield* fs.stat(path)).mode & 0o7777).toBe(before.mode & 0o7777)
+        expect(yield* fs.readDirectory(dir)).toEqual(["target.txt"])
+      })).pipe(Effect.provide(NodeFileSystem.layer))
+    )
+  })
+
+  it("propagates an unexpected ownership failure and cleans the staged bytes", async () => {
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* fs.makeTempDirectoryScoped()
+        const path = `${dir}/target.txt`
+        yield* fs.writeFileString(path, original)
+        const faulty = {
+          ...fs,
+          stat: (target: string) =>
+            target === path
+              ? fs.stat(target).pipe(Effect.map((info) => ({
+                ...info,
+                uid: Option.map(info.uid, (uid) => uid + 1)
+              })))
+              : fs.stat(target),
+          chown: (target: string) => failure("chown", target)
+        }
+        const error = yield* Effect.flip(Preserve.writeFileString(faulty, path, replacement))
+        expect(error.reason._tag).toBe("Unknown")
+        expect(yield* fs.readFileString(path)).toBe(original)
         expect(yield* fs.readDirectory(dir)).toEqual(["target.txt"])
       })).pipe(Effect.provide(NodeFileSystem.layer))
     )

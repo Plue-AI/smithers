@@ -77,4 +77,68 @@ describe("Walk.files", () => {
     expect(TreeFingerprint.defaultPrune).toContain(Checkpoints.scratchDirectory)
     expect(TreeFingerprint.defaultPrune).toContain(TestRun.scratchDirectory)
   })
+
+  it("narrows ignore diagnostics without changing the visited files", async () => {
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const root = yield* fs.makeTempDirectoryScoped()
+        yield* fs.writeFileString(path.join(root, ".gitignore"), "ignored.txt\n")
+        yield* fs.writeFileString(path.join(root, "ignored.txt"), "ignored")
+        yield* fs.writeFileString(path.join(root, "keep.js"), "kept")
+        expect(yield* Walk.files(fs, path, root, false)).toEqual({
+          explicitFile: false,
+          files: [path.join(root, "keep.js")],
+          ignored: true
+        })
+        expect(yield* Walk.files(fs, path, root, false, false, (_relative, basename) => basename.endsWith(".js")))
+          .toEqual({ explicitFile: false, files: [path.join(root, "keep.js")], ignored: false })
+        expect(yield* Walk.files(fs, path, root, false, true)).toEqual({
+          explicitFile: false,
+          files: [path.join(root, "ignored.txt"), path.join(root, "keep.js")],
+          ignored: false
+        })
+        expect(yield* Walk.files(fs, path, path.join(root, "ignored.txt"), false)).toEqual({
+          explicitFile: true,
+          files: [path.join(root, "ignored.txt")],
+          ignored: false
+        })
+      })).pipe(Effect.provide(NodeServices.layer))
+    )
+  })
+
+  it("reports an unreadable root directory but skips an unreadable descendant", async () => {
+    await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const root = yield* fs.makeTempDirectoryScoped()
+        const child = path.join(root, "denied")
+        yield* fs.makeDirectory(child)
+        yield* fs.writeFileString(path.join(root, "keep.txt"), "kept")
+        yield* fs.writeFileString(path.join(child, "hidden.txt"), "unreadable")
+        const deny = (directory: string) => ({
+          ...fs,
+          readDirectory: (target: string) =>
+            target === directory
+              ? Effect.fail(PlatformError.systemError({
+                _tag: "PermissionDenied",
+                module: "FileSystem",
+                method: "readDirectory",
+                pathOrDescriptor: target
+              }))
+              : fs.readDirectory(target)
+        })
+        const error = failure(yield* Effect.exit(Walk.files(deny(root), path, root, false)))
+        expect(error?.code).toBe("permission_denied")
+        expect(error?.path).toBe(root)
+        expect(yield* Walk.files(deny(child), path, root, false)).toEqual({
+          explicitFile: false,
+          files: [path.join(root, "keep.txt")],
+          ignored: false
+        })
+      })).pipe(Effect.provide(NodeServices.layer))
+    )
+  })
 })

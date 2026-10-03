@@ -4,7 +4,11 @@ import { Cause, Deferred, Effect, Exit, Fiber, PlatformError, Queue, Schema, Sin
 import { TestClock } from "effect/testing"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ExitCode, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
+import * as NodeFs from "node:fs"
+import * as NodeOs from "node:os"
+import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
+import * as LanguageServer from "../src/LanguageServer.ts"
 import * as NodeLanguageServer from "../src/NodeLanguageServer.ts"
 import { hostScript } from "./hostScript.ts"
 
@@ -69,11 +73,139 @@ const peer = (onRequest: (request: Request, output: Queue.Queue<Uint8Array>) => 
         })
       })
   })
-const make = (spawner: ReturnType<typeof ChildProcessSpawner.makeNoop>, timeoutMs = 10_000) =>
-  NodeLanguageServer.make({ command: "controlled-peer", cwd: "/workspace", timeoutMs })
+const make = (
+  spawner: ReturnType<typeof ChildProcessSpawner.makeNoop>,
+  timeoutMs = 10_000,
+  config: Partial<NodeLanguageServer.Config> = {}
+) =>
+  NodeLanguageServer.make({ command: "controlled-peer", cwd: "/workspace", timeoutMs, ...config })
     .pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
 
 describe("NodeLanguageServer transport and request ownership", () => {
+  it("recovers after a malformed header with a repeated delimiter prefix", async () => {
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      let calls = 0
+      const spawner = peer((request, output) =>
+        Effect.gen(function*() {
+          if (request.id === undefined) return
+          if (++calls === 1) yield* Queue.offer(output, new TextEncoder().encode("bad\r\r\n\r\n"))
+          yield* answer(output, request.id, "recovered")
+        })
+      )
+      const server = yield* make(spawner)
+      return { error: yield* Effect.flip(server.hover(position)), next: yield* server.definition(position) }
+    })))
+    expect(result.error).toMatchObject({
+      code: "request_failed",
+      method: "textDocument/hover",
+      message: "Language server frame omitted Content-Length"
+    })
+    expect(result.next).toBe("recovered")
+  })
+
+  it.each([
+    { command: "./invalid\0program", args: ["invalid\0argument", ""] },
+    { command: "bun" }
+  ])("allows the process adapter to handle configuration %j without crashing the path checks", async (config) => {
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const spawner = peer((request, output) =>
+        request.id === undefined ? Effect.void : answer(output, request.id, "adapter response")
+      )
+      const server = yield* make(spawner, 10_000, config)
+      return yield* server.workspaceSymbols("still usable")
+    })))
+    expect(result).toBe("adapter response")
+  })
+
+  it("passes a non-executable PATH candidate to the adapter after searching the rest of PATH", async () => {
+    const directory = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "std-lsp-path-"))
+    NodeFs.writeFileSync(NodePath.join(directory, "controlled-peer"), "host program", { mode: 0o644 })
+    try {
+      const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const spawner = peer((request, output) =>
+          request.id === undefined ? Effect.void : answer(output, request.id, "adapter response")
+        )
+        const server = yield* make(spawner, 10_000, { environment: { PATH: directory } })
+        return yield* server.workspaceSymbols("query")
+      })))
+      expect(result).toBe("adapter response")
+    } finally {
+      NodeFs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("constructs the public lazy layer without starting its server until a request", async () => {
+    let calls = 0
+    const spawner = peer((request, output) => {
+      if (request.id === undefined) return Effect.void
+      calls++
+      return answer(output, request.id, "lazy response")
+    })
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const server = yield* LanguageServer.LanguageServer
+        yield* server.refresh
+        yield* server.close(position.path)
+        expect(calls).toBe(0)
+        return yield* server.workspaceSymbols("query")
+      }).pipe(
+        Effect.provide(NodeLanguageServer.layerLazy({ command: "controlled-peer", cwd: "/workspace" })),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)
+      )
+    )
+    expect(result).toBe("lazy response")
+    expect(calls).toBe(1)
+  })
+
+  it("searches from cwd when the host has no PATH environment entry", async () => {
+    const saved = process.env.PATH
+    delete process.env.PATH
+    try {
+      const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+        const spawner = peer((request, output) =>
+          request.id === undefined ? Effect.void : answer(output, request.id, "adapter response")
+        )
+        const server = yield* make(spawner)
+        return yield* server.workspaceSymbols("query")
+      })))
+      expect(result).toBe("adapter response")
+    } finally {
+      if (saved === undefined) delete process.env.PATH
+      else process.env.PATH = saved
+    }
+  })
+
+  it("returns an already published report at a zero settle budget", async () => {
+    const result = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const spawner = peer((request, output) => {
+        if (request.method === "textDocument/didOpen") {
+          return Queue.offer(
+            output,
+            frame(JSON.stringify({
+              method: "textDocument/publishDiagnostics",
+              params: { uri: "file:///workspace/a.ts", version: 1, diagnostics: [{ message: "published" }] }
+            }))
+          ).pipe(Effect.asVoid)
+        }
+        if (request.id === undefined) return Effect.void
+        if (request.method === "textDocument/diagnostic") {
+          return Queue.offer(
+            output,
+            frame(JSON.stringify({
+              id: request.id,
+              error: { code: -32601, message: "Unsupported method" }
+            }))
+          ).pipe(Effect.asVoid)
+        }
+        return answer(output, request.id, null)
+      })
+      const server = yield* make(spawner, 10_000, { settleMs: 0 })
+      yield* server.sync(position.path, "text")
+      return yield* server.diagnostics(position.path)
+    })))
+    expect(result).toEqual({ kind: "full", items: [{ message: "published" }] })
+  })
+
   it.each([0, 1, 2])(
     "ignores empty stdout chunks around response fragment %i without losing bytes",
     async (emptyAt) => {
@@ -189,7 +321,8 @@ describe("NodeLanguageServer transport and request ownership", () => {
           Effect.flip(server.definition(position))
         ], { concurrency: 2 })
         const future = yield* Effect.flip(server.workspaceSymbols("after-close"))
-        return { errors, future, methods }
+        const sync = yield* Effect.flip(server.sync(position.path, "after close"))
+        return { errors, future, sync, methods }
       })))
       const message = phase === "stdout" ? "Language server output stream failed" : "Language server process exited"
       expect(result.errors).toMatchObject([
@@ -197,6 +330,7 @@ describe("NodeLanguageServer transport and request ownership", () => {
         { code: "request_failed", method: "textDocument/definition", message }
       ])
       expect(result.future).toMatchObject({ code: "request_failed", method: "workspace/symbol", message })
+      expect(result.sync).toMatchObject({ code: "request_failed", message })
       expect(result.methods).toEqual(["textDocument/hover", "textDocument/definition"])
     }
   )

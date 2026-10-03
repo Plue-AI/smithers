@@ -158,6 +158,40 @@ describe("outsideEnvelope", () => {
 })
 
 describe("commandReferences", () => {
+  it.each(
+    [
+      ["", []],
+      ["# /outside/ignored", []],
+      ["env NAME=value --verbose", []],
+      ["sudo -u builder cat ./input", [{ access: "read", value: "./input" }]],
+      ["sudo -u builder touch ../output", [{ access: "write", value: "../output" }]],
+      ["cat . .. ./a ../b nested/file C:\\work\\input", [
+        { access: "read", value: "." },
+        { access: "read", value: ".." },
+        { access: "read", value: "./a" },
+        { access: "read", value: "../b" },
+        { access: "read", value: "nested/file" },
+        { access: "read", value: "C:\\work\\input" }
+      ]],
+      ["cat '' '/work/a b' >> /work/output", [
+        { access: "read", value: "/work/a b" },
+        { access: "write", value: "/work/output" }
+      ]],
+      ["cp", []],
+      ["cat < /work/input", [{ access: "read", value: "/work/input" }]],
+      ["cat /work/a && touch /work/b || cat /work/c; rm /work/d | tee /work/e & cat /work/f", [
+        { access: "read", value: "/work/a" },
+        { access: "write", value: "/work/b" },
+        { access: "read", value: "/work/c" },
+        { access: "write", value: "/work/d" },
+        { access: "write", value: "/work/e" },
+        { access: "read", value: "/work/f" }
+      ]]
+    ] as const
+  )("classifies boundary command %s", (command, expected) => {
+    expect(commandReferences(path, command)).toEqual(expected)
+  })
+
   it.each([
     {
       name: "classifies a delete on the second line as a write",
@@ -192,4 +226,10 @@ describe("commandReferences", () => {
   ])("$name", ({ command, expected }) => {
     expect(commandReferences(path, command)).toEqual(expected)
   })
+})
+
+it("resolves relative declarations against a declared nondefault working directory", () => {
+  expect(outsideEnvelope({ cwd: "/work", reads: ["."], writes: ["./out"] }, "cat ./in >> ./out", path))
+    .toBeUndefined()
+  expect(outsideEnvelope({ cwd: ".", reads: [], writes: [] }, "echo ready", path)).toBeUndefined()
 })

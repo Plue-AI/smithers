@@ -18,14 +18,26 @@ export default defineConfig({
       reportsDirectory: join(tmpdir(), `flows-std-coverage-${process.pid}`),
       include: ["src/**"],
       // Aggregate floors apply across the supported host lanes, which differ
-      // in native-process and filesystem tests. Completed portable modules
-      // get stricter per-file gates without narrowing the source inventory.
+      // in native-process and filesystem tests. Per-file completion gates
+      // enforce the coverage campaign without narrowing the source inventory.
       thresholds: {
-        branches: 84,
-        functions: 88,
-        lines: 94,
-        statements: 93,
-        "src/Container.ts": { branches: 100, functions: 100, lines: 100, statements: 100 }
+        // macOS executed 99.45 / 97.90 / 99.45 / 99.72 on 2026-10-02 (#3480).
+        // Floors keep a margin for the Linux lane, which skips different
+        // platform tests. Per-file gates cover files that reached 100% on
+        // macOS; the rest are listed in #3480 with their dead branches.
+        branches: 96,
+        functions: 99,
+        lines: 99,
+        statements: 98,
+        "src/Container.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/Glob.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/Grep.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/EnvelopePrecheck.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/Grouping.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/Http.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/Ignore.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/Match.ts": { branches: 100, functions: 100, lines: 100, statements: 100 },
+        "src/internal/SearchContract.ts": { branches: 100, functions: 100, lines: 100, statements: 100 }
       }
     }
   }
