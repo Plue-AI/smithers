@@ -3,6 +3,8 @@
  * declaration with its handler, the shared payload schemas, and the controller
  * surface a handler acts on. Flows.ts re-exports the public half.
  */
+import type { Refusal } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Schema } from "effect"
@@ -15,13 +17,13 @@ import { lostActRefusal } from "../../state/BrowserWriteFailure"
 import type { CommandState, FlowEntry, FlowMetadata } from "../registry"
 
 /**
- * What a flow handler resolves: nothing, an honest error string, or a success
- * VALUE (`{ value }`) — the payload an invocation hands back to its caller
+ * What a flow handler resolves: nothing, an honest error string, a typed refusal
+ * (`{ refusal }`), or a success VALUE (`{ value }`) — the payload an invocation hands back to its caller
  * (e.g. the browser flow's extracted text). Agent tool payloads never render
  * raw in the transcript (DESIGN.md §3, trigger axis); the controller may
  * surface a HUMAN caller's value as that command's embedded answer.
  */
-export type CommandResult = void | string | { readonly value: string }
+export type CommandResult = void | string | { readonly value: string } | { readonly refusal: Refusal }
 
 /**
  * The controller actions flows bind to. This is the AppController surface minus
@@ -84,7 +86,7 @@ export const Ack = Schema.Struct({ value: Schema.optional(Schema.String) })
  */
 const act = (
   run: (signal: AbortSignal) => CommandResult | Promise<CommandResult>
-): Effect.Effect<{ readonly value?: string }, string | { readonly cause: unknown }> =>
+): Effect.Effect<{ readonly value?: string }, string | { readonly refusal: Refusal } | { readonly cause: unknown }> =>
   Effect.suspend(() => {
     let pending: Promise<CommandResult> | undefined
     return Effect.tryPromise({
@@ -98,8 +100,10 @@ const act = (
       // Abort is cooperative. A controller that cannot abort must finish before
       // its binding exits, so no abandoned promise can mutate after Stop returns.
       Effect.onInterrupt(() => Effect.promise(async () => { await pending?.catch(() => {}) })),
-      Effect.flatMap((result) =>
+      Effect.flatMap((result): Effect.Effect<{ readonly value?: string }, string | { readonly refusal: Refusal }> =>
         typeof result === "string"
+          ? Effect.fail(result)
+          : typeof result === "object" && result !== null && "refusal" in result
           ? Effect.fail(result)
           : Effect.succeed(
             typeof result === "object" && result !== null ? { value: result.value } : {}
@@ -164,7 +168,7 @@ export const flow = <I extends OperationPayload>(declaration: Declaration<I>): F
          * this app's bug and says so. Host-authored text over a closed set,
          * never a thrown message; `cause` still rides to the error taps.
          */
-        publicError: (failure: string | { readonly cause: unknown }) => typeof failure === "string" ? failure : lostActRefusal(failure.cause),
+        publicError: (failure: string | { readonly refusal: Refusal } | { readonly cause: unknown }) => typeof failure === "string" ? failure : "refusal" in failure ? refusalLine(failure.refusal, "") : lostActRefusal(failure.cause),
         handler: (payload, call) => Effect.flatMap(FlowCancellation, (cancellation) =>
           Effect.flatMap(FlowGesture, gesture => act((signal) => handler(payload, cancellation ?? signal, call, gesture))))
       })

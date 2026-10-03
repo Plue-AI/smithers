@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, test } from "vitest"
-import { type ConfirmCard, ConfirmCardSchema } from "../../src/ConfirmCard.ts"
+import { confirmCancelRefusal, type ConfirmCard, ConfirmCardSchema } from "../../src/ConfirmCard.ts"
 import { cardContract } from "../cardContract.ts"
 import { fixtures } from "../fixtures/Confirm.ts"
 
@@ -92,4 +92,23 @@ describe("Confirm variants", () => {
       ).toBe(false)
     }
   )
+})
+
+describe("confirmation cancellation", () => {
+  test.each([
+    { revision: "new" },
+    { revision: "old", answered: true },
+    {},
+    undefined
+  ])("refuses a stale or answered confirmation: %j", (confirmation) => {
+    expect(confirmCancelRefusal("old", confirmation)).toMatchObject({
+      code: "native_confirm_stale",
+      status: 409,
+      fault: "user",
+      retryAfter: null
+    })
+  })
+  test("permits the pending revision", () => {
+    expect(confirmCancelRefusal("old", { revision: "old" })).toBeUndefined()
+  })
 })

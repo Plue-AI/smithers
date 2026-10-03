@@ -65,8 +65,8 @@ export type Action = z.infer<typeof ActionSchema>
 export const DraftDiscardInputSchema = z.object({ draft: DraftIdSchema })
 
 /**
- * `confirm.cancel` input: cancel a pending confirmation at its revision. A stale revision is refused with the typed
- * `stale` refusal, which the server enforces. People only; there is no agent path (catalog policy).
+ * `confirm.cancel` input: cancel a pending confirmation at its revision. A stale revision or answered confirmation uses the typed
+ * `native_confirm_stale` refusal. People only; there is no agent path (catalog policy).
  * @since 1.0.0
  * @category schemas
  */

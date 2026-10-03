@@ -3,6 +3,7 @@
  * flow here touches no other flow module, and Flows.ts registers each block in
  * the aggregator order.
  */
+import { Schema } from "effect"
 import { flow, NoPayload, CardTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -12,6 +13,14 @@ export const namespace: Namespace = { id: "card", label: "Cards", summary: "Maxi
 
 /** The `card` flows registered as one aggregator block. */
 export const cardFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  flow({ name: "confirm.cancel", summary: "Cancel a confirmation", hidden: true, userOnly: true,
+    userOnlyReason: "a confirmation answer belongs to the person",
+    input: Schema.Struct({ confirmation: Schema.String.pipe(Schema.check(Schema.isMinLength(1))), revision: Schema.String }),
+    grammar: args => {
+      try { return { payload: JSON.parse(args ?? "{}") } }
+      catch { return { error: "Invalid confirmation input" } }
+    },
+    handler: ({ confirmation, revision }) => actions.cancelConfirmation(confirmation, revision) }),
   flow({ name: "card.history.back", summary: "Go back inside an embedded frame", args: "<cardId>", input: CardTarget,
     handler: ({ cardId }) => actions.moveCardHistory(cardId, -1) }),
   flow({ name: "card.history.forward", summary: "Go forward inside an embedded frame", args: "<cardId>", input: CardTarget,

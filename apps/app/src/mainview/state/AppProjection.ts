@@ -275,6 +275,7 @@ export const APP_TRANSITION_TYPES = {
   "message.claim.substituted": true,
   "message.commands.disclosed": true,
   "message.appended": true,
+  "confirmation.cancelled": true,
   "tab.opened": true,
   "tab.selected": true,
   "tab.closed": true,
@@ -2964,6 +2965,16 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               draft.text = transition.text
             })
           }
+          break
+        }
+
+        case "confirmation.cancelled": {
+          const message = collections.messages.get(transition.id)
+          if (!message?.action || message.answeredAction || message.action.revision !== transition.revision) break
+          collections.messages.update(message.id, draft => {
+            draft.answeredAction = { ...message.action!, answer: "Cancelled", answeredAt: createdAt }
+            draft.action = undefined
+          })
           break
         }
 

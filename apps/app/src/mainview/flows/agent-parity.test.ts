@@ -50,6 +50,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "frame.back": "frame navigation is the human's browser gesture",
   "frame.forward": "frame navigation is the human's browser gesture",
   "wiki.delete.confirm": "a confirm-dialog answer is the human's",
+  "confirm.cancel": "a confirmation answer belongs to the person",
   "wiki.delete.cancel": "a confirm-dialog answer is the human's",
   "wiki.heading": WIKI_HEADING_USER_ONLY_REASON,
   "history.retry": HISTORY_RETRY_USER_ONLY_REASON,

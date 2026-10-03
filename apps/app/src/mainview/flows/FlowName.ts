@@ -214,6 +214,7 @@ export const FLOW_NAMES = [
   "sync.ops.show-more",
   "todo",
   "draft.discard",
+  "confirm.cancel",
   "todo.new",
   "todo.answer",
   "todo.steer",

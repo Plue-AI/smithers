@@ -526,6 +526,8 @@ export const ActorSchema = z.enum(["user", "smithers", "system"])
 export type Actor = z.infer<typeof ActorSchema>
 
 const MessageActionSchema = z.object({
+  /** Revision of a pending flow confirmation; absent in older history and ordinary message actions. */
+  revision: z.string().optional(),
   flow: z.string(), args: z.string().optional(), label: z.string(),
   /** Web Cloud login uses auth.sign-in too; its requirement is still Cloud access. */
   signInRequirement: z.enum(["identity", "cloud"]).optional()
@@ -1652,6 +1654,7 @@ export type AppTransition =
     /** The door is saying this refusal here, so its form card must not repeat it ({@link Message.spoken}). */
     spoken?: true
   }
+  | { type: "confirmation.cancelled"; actor: "user"; id: string; revision: string }
   /* The card tabs (docs/LOCAL-APP.md "Cards"). */
   | { type: "tab.opened"; actor: Actor; tab: Tab }
   | { type: "tab.selected"; actor: Actor; id: string }

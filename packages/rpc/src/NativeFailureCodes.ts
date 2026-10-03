@@ -71,6 +71,7 @@ export const NATIVE_ROUTE_CODES = [
   "capacity_reached",
   "cloud_auth_unavailable",
   "cloud_sign_in_required",
+  "confirm_stale",
   "file_too_large",
   "harness_no_model_flag",
   "harness_unavailable",
@@ -173,6 +174,8 @@ export const NATIVE_FAILURES = {
   "bad_cwd": { fault: "user", status: 400, retryAfter: 0 },
   /** A body past the route's byte ceiling, measured in bytes received, so a chunked body is refused too. */
   "body_too_large": { fault: "user", status: 413, retryAfter: 0 },
+  /** The confirmation revision changed or the confirmation has already been answered. */
+  "confirm_stale": { fault: "user", status: 409, retryAfter: 0 },
   /** A built-in agent cannot be removed; its model and purpose can still be edited. */
   "builtin_agent": { fault: "user", status: 409, retryAfter: 0 },
   /** A built-in agent keeps the harness it ships with. */

@@ -7,10 +7,12 @@ import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import { ActorSchema, EvidenceSchema, MergeSchema, PersonRefSchema } from "./CardPrimitives.ts"
 import { CatalogTagSchema } from "./catalog/index.ts"
+import { type Refusal, refusalOf } from "./Refusal.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
- * The revision a confirmation is bound to; `confirm.cancel` sends it back, and a stale one is refused as `stale`.
+ * The revision a confirmation is bound to; `confirm.cancel` sends it back. Stale or answered confirmations
+ * are refused as `native_confirm_stale`.
  * @since 1.0.0
  * @category schemas
  */
@@ -81,3 +83,21 @@ export type ConfirmCardCallbacks = CardCallbacks<
   | "wiki.save"
   | "confirm.cancel"
 >
+
+/**
+ * Refuse cancellation unless the confirmation is still pending at the supplied revision.
+ * Older persisted confirmations without a revision cannot authorize a cancellation.
+ * @since 1.0.0
+ * @category constructors
+ */
+export const confirmCancelRefusal = (
+  revision: string,
+  confirmation: { readonly revision?: string; readonly answered?: boolean } | undefined
+): Refusal | undefined =>
+  confirmation?.revision !== undefined && confirmation.revision === revision && !confirmation.answered
+    ? undefined
+    : refusalOf({
+      status: 409,
+      message: "Confirmation changed or was already answered",
+      body: { code: "native_confirm_stale", origin: "client" }
+    })

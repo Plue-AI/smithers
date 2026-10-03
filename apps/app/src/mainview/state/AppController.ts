@@ -1,3 +1,5 @@
+import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
+import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
 import { createRepositoryReadiness } from "./controller/repositoryReadiness"
 
@@ -414,6 +416,8 @@ export interface AppController extends IssueFlowsController {
    * the model's sentence when the act's own door did the asking.
    */
   readonly requestFlowConfirmation: (name: string, args: string | null, label: string, question?: string) => void
+  /** Cancel only the still-pending revision; retain a typed refusal for stale or answered confirmations. */
+  readonly cancelConfirmation: (confirmation: string, revision: string) => Promise<void | { readonly refusal: Refusal }>
   /** Render the full visible-flow catalog into the chat (the /chat.commands answer). */
   readonly showCommandCatalog: () => void
   /** Render the sign-in step into the chat (auth.prompt — the agent's door to login). */
@@ -1157,10 +1161,19 @@ export const createAppController = (
       action: {
         flow: name,
         ...(args === null ? {} : { args }),
+        revision: crypto.randomUUID(),
         label: `Confirm: ${label}`
       }
     })
   }
+
+  const cancelConfirmation: AppController["cancelConfirmation"] = async (confirmation, revision) => {
+    const message = store.collections.messages.get(confirmation)
+    const refusal = confirmCancelRefusal(revision, message?.action === undefined ? undefined : { revision: message.action.revision, answered: message.answeredAction !== undefined })
+    if (refusal !== undefined) return { refusal }
+    await store.dispatch({ type: "confirmation.cancelled", actor: "user", id: confirmation, revision }).isPersisted.promise
+  }
+
 
   /*
    * auth.prompt: the agent cannot navigate the user to OAuth (auth.sign-in
@@ -1549,6 +1562,7 @@ export const createAppController = (
     toggleVerbose,
     traceFlow,
     requestFlowConfirmation,
+    cancelConfirmation,
     showCommandCatalog,
     promptSignIn,
     promptCloudSignIn,
