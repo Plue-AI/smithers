@@ -2,6 +2,7 @@
 
 Stage M · Size M · Depends on T-MNT-01, T-FLW-01, T-FLW-04, T-FLW-11, T-FLW-13, T-FLW-07, T-MCH-06, T-SEC-01, T-STK-02, T-UI-19 · Unblocks T-MNT-05 · Issue: [#3596](https://github.com/smithersai/smithers/issues/3596)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: delta.md §6 (reuse TODO review and placement), §8 (machine-only pinned review closure), §10 (retain event admission and dispatch) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
+Ready: 2026-10-03 smithers-8a sha256:13f022f8fd75
 
 ## Goal
 

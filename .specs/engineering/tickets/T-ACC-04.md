@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-01, T-APP-04, T-APP-09, T-APP-16, T-GH-04, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Reshape existing PAT classification and actor attribution) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
+Ready: 2026-10-03 smithers-8a sha256:f6a141bb8388
 
 ## Goal
 `smthrs login <install origin>` (and `--agent claude-code`) yields a `delegated` credential that acts as the member under the `agent: run | confirm | never` rules. App-agent turns get the same kind of credential, minted on the host and never sent to a browser. Every write made with one is recorded as "Claude Code for Ben" or "Smithers for Ben".

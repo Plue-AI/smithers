@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-STK-12, T-ACC-03, T-CAT-01, T-APP-04, T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-APP-01, T-APP-02, T-FLW-05, T-FLW-08, T-GH-03, T-MCH-08, T-MNT-04, T-REL-02, T-STK-03, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3528](https://github.com/smithersai/smithers/issues/3528)
 Spec: spec.md §3, §6.3, §10.2.2, §10.2.3, §10.3.2, §10.4.2, §10.5.1, §10.7.3, §15.1.5 · Delta: delta.md §6 (Reshape placement through existing lane admission; reuse item events) · Product: mvp.md §4.2, §6.6, J4.2, J7.1, M-07, Appendix B.2
+Ready: 2026-10-03 smithers-8a sha256:548e81546943
 
 ## Goal
 A member appends a TODO, places it before Tn, or moves an item up or down. The engine works and merges items in that order.

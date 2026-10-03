@@ -2,6 +2,7 @@
 
 Stage M · Size M · Depends on T-MNT-01, T-FLW-03, T-FLW-04, T-MCH-06, T-MCH-11, T-UI-19, T-FLW-01, T-SEC-01 · Unblocks T-MNT-03 · Issue: [#3594](https://github.com/smithersai/smithers/issues/3594)
 Spec: spec.md §5.2, §6.1.2b, §8.3, §10.2.1, §12.4, §16.4, §17.1–§17.5 · Delta: none (maintainer extension) · Product: mvp.md §14, §8, M-05, M-26, M-29; actions.md C.8–C.12; AGENTS.md Superseded 2026-10-01 rulings
+Ready: 2026-10-03 smithers-8a sha256:4e33abac31fd
 
 ## Goal
 

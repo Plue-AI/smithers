@@ -33,14 +33,14 @@ Depends on uses `first merge: …; rest of S1: …`. Only first-merge edges gate
 A ticket closes only with passing machine-written receipts for every named check, bound to the landed commit with verified log digests. Reports list receipt paths. Missing or unwritten Automation blocks closure; prose PASS and --force do not waive evidence (T-PRC-03, C-PRC-03).
 
 <!-- ready-frontier:start (generated; tech lead) -->
-**Ready frontier** (2026-10-03 15:27 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
+**Ready frontier** (2026-10-03 15:31 PT). Stamped tickets may start; a dependency that hasn't landed means build against its contract and land dark, failing closed (parallel-build rule 3).
 
-- W0: 2 stamped, 4 pending. T-COL-01 `97d2f3b1853f`, T-COL-11 `640f6dcf1015`
-- S1: 11 stamped, 62 pending. T-INS-04 `78cb92746bf6`, T-ACC-02 `7a70c3c8b2cd`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
+- W0: 4 stamped, 2 pending. T-MCH-02 `4893ba410226`, T-COL-01 `97d2f3b1853f`, T-MCH-01 `aedc2e74b21f`, T-COL-11 `640f6dcf1015`
+- S1: 14 stamped, 59 pending. T-INS-04 `78cb92746bf6`, T-ACC-02 `0b777a1a8e00`, T-ACC-03 `74efdb200985`, T-ACC-04 `f6a141bb8388`, T-STK-02 `548e81546943`, T-APP-22 `b9518a983e52`, T-APP-01 `39d410c114f4`, T-APP-04 `fb2ddf35967e`, T-APP-05 `ac1b2f104f4f`, T-APP-06 `1f46952d97b7`, T-APP-07 `f68c24a167db`, T-APP-09 `0f0b0e3b97e0`, T-APP-15 `3a3b25e177fd`, T-SEC-01 `361c57d6c22b`
 - S2: 4 stamped, 36 pending. T-AGT-01 `29aa84c2e61e`, T-AGT-02 `0435c9e09b24`, T-AGT-03 `ee2088b0987c`, T-APP-18 `d93ce26dfe3d`
 - S3: 2 stamped, 8 pending. T-COL-08 `3141eb3f61a0`, T-COL-09 `396865c1ddf6`
-- R: 2 stamped, 5 pending. T-INS-03 `bae4217452ca`, T-INS-07 `72846defd558`
-- M: 2 stamped, 4 pending. T-MNT-01 `2747b5025504`, T-AGT-04 `ee5f585f9ed4`
+- R: 3 stamped, 4 pending. T-INS-03 `bae4217452ca`, T-INS-05 `237c8a6ecce9`, T-INS-07 `72846defd558`
+- M: 6 stamped, 0 pending. T-MNT-01 `2747b5025504`, T-MNT-02 `4e33abac31fd`, T-MNT-03 `29ed6d68adde`, T-MNT-04 `13f022f8fd75`, T-MNT-05 `15a4a9ef5945`, T-AGT-04 `ee5f585f9ed4`
 <!-- ready-frontier:end -->
 
 ## Index
@@ -74,8 +74,8 @@ Ready requires each new table’s `ownership.csv` row with `planned:<ticket>` an
 | **Access** | | | | | |
 | [T-ACC-01](T-ACC-01.md) | GitHub sign-in creates the owner; delete the single-owner password path | S1 | M | first merge: —; rest of S1: — | C-ACC-04, C-J1-04, C-SEC-04 |
 | [T-ACC-07](T-ACC-07.md) | Merged into T-INS-08 | — | — | — | — |
-| [T-ACC-02](T-ACC-02.md) | Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys | S1, S2 | M | S1 roster: T-ACC-01, T-ACC-03, T-GH-01 · S1 revocation: T-INS-02, T-SEC-01 · S1 takeover: T-STK-01 · S2 keys: — | S1: C-J1-04, C-ACC-03, C-ACC-04, C-J1-05, C-APP-01, C-SEC-02 · S2: C-J3-06 |
-| [T-ACC-03](T-ACC-03.md) | One authorizer over the permission matrix | S1 | M | T-ACC-01, T-CAT-01 | C-ACC-01, C-J1-04, C-J10-07 |
+| [T-ACC-02](T-ACC-02.md) | Members on `collaborators`: roster, hourly recheck, revocation within 5 s, GitHub SSH keys | S1, S2 | M | S1 roster: T-ACC-01 · S1 revocation: T-INS-02, T-SEC-01 · S2 keys: — | S1: C-J1-04, C-ACC-03, C-ACC-04, C-J1-05, C-APP-01, C-SEC-02 · S2: C-J3-06 |
+| [T-ACC-03](T-ACC-03.md) | One authorizer over the permission matrix | S1 | M | T-ACC-01, T-CAT-01, T-CUT-03 | C-ACC-01, C-J1-04, C-J10-07 |
 | [T-ACC-04](T-ACC-04.md) | Delegated credentials with `via`; `smthrs login --agent`; attribution | S1 | M | T-ACC-03, T-ACC-02 | C-ACC-01, C-ACC-02, C-J1-04, C-J6-02 |
 | [T-ACC-05](T-ACC-05.md) | Merged into T-APP-04 | — | — | — | — |
 | [T-ACC-06](T-ACC-06.md) | Merged into T-ACC-02 | — | — | — | — |
