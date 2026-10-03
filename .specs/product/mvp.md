@@ -106,7 +106,7 @@ Every actor works through flows, and every action renders with the same card who
 | Actor | Runs in | Acts as | Can | Cannot | Hands work to |
 | --- | --- | --- | --- | --- | --- |
 | **Member** | Browser, SSH, terminals | Themselves | Everything their role allows (§6.15) | What their role excludes | Any agent |
-| **App agent** ("Ben via Smithers") | The install's model host, outside every machine | Whoever wrote the prompt, with a delegated credential | UI-only flows on the prompter's own screen (theme, open/maximize cards, navigate, palette, filters, input mode). Install flows from Appendix A: create, place, steer and answer TODOs; read code, branches, runs and the wiki; open the monitor; propose flow and agent edits as TODOs. | Run anything on a machine (no terminal, no file writes, no commands). Approve, merge, manage people or secrets. Change anyone else's screen. | A branch's coding agent: "run the webhook tests on retry-webhooks" becomes a request to that branch's coding agent, shown as "Ben via Smithers asked". New work becomes a TODO. |
+| **App agent** ("Smithers for Ben") | The install's model host, outside every machine | Whoever wrote the prompt, with a delegated credential | UI-only flows on the prompter's own screen (theme, open/maximize cards, navigate, palette, filters, input mode). Install flows from Appendix A: create, place, steer and answer TODOs; read code, branches, runs and the wiki; open the monitor; propose flow and agent edits as TODOs. | Run anything on a machine (no terminal, no file writes, no commands). Approve, merge, manage people or secrets. Change anyone else's screen. | A branch's coding agent: "run the webhook tests on retry-webhooks" becomes a request to that branch's coding agent, shown as "Ben via Smithers asked". New work becomes a TODO. |
 | **Coding agent** (one per awake branch) | The branch's machine, through its coding host | The coding agent, for the TODO's owner | Read and write that branch's working copy (versioned writes). Run commands and terminals on that machine. Run tests and checks. Read web pages and the wiki. Ask a person (Needs you). Propose its change to the stack. | Merge or approve. Touch other branches or machines. Change settings, members or secrets. Edit system flows. `sudo`. Read people's home directories. | People (Needs you). The stack service (propose). |
 | **External agent** (Claude Code, Codex, others) | A person's branch terminal or laptop | That person, with a delegated credential | On a machine: whatever that person's terminal can do. Through the Smithers skill and CLI: the same catalog the app agent has. | Approve or merge: the person gets a **Review & merge** confirmation. UI-only flows (it has no screen). | Same as the app agent |
 | **System** ("Smithers") | The install | The install | Stack service, the agent in charge of jj (M-32): fork, place, reorder, rebase, propose PRs, and merge after a person's approval, all attributed to it in branch activity. GitHub sync. The admission queue. Learning runs. Wiki refresh. Timeline summaries. Jev decisions. | Anything a person must decide | People (Needs you) |
@@ -212,7 +212,7 @@ Activation target: an unassisted first merge within 60 minutes of starting the i
 
 1. A member opens a terminal on a branch and runs `claude` or `codex`, signed in with their own subscription. The terminal comes signed in to Smithers as that member, and the Smithers skill is installed.
 2. Its edits land in the shared working copy. Teammates see them live, and the edits become part of that branch's change.
-3. Through the skill, Claude Code reads the wiki, answers the TODO's Needs you, and places a follow-up TODO. Each action shows as "Ben via Claude Code".
+3. Through the skill, Claude Code reads the wiki, answers the TODO's Needs you, and places a follow-up TODO. Each action shows as "Claude Code for Ben": Claude Code's own avatar in Ben's color (M-34).
 4. The same works from the member's laptop after `smthrs login` to the install.
 5. Teammates can watch the session but can't use the member's login.
 
@@ -741,7 +741,7 @@ This is what `/help`, the palette, the CLI and the Smithers skill list for a mem
 
 Every other existing command is cut, deferred or hidden under §8, and it leaves the palette, the agent's tools and the CLI's MVP docs.
 
-The app agent acts with the member's authority and appears as "Ben via Smithers": Ben's avatar with an agent badge, in the same pattern as "Ben via Claude Code". Like any agent, it cannot approve or merge. When asked to merge, it opens the person's own **Review & merge** confirmation.
+The app agent acts with the member's authority and appears as "Smithers for Ben": Smithers' own avatar in Ben's color, in the same pattern as "Claude Code for Ben" (M-34). Like any agent, it cannot approve or merge. When asked to merge, it opens the person's own **Review & merge** confirmation.
 
 ## Appendix B. Every flow and action, who runs it, and its card
 
