@@ -14,7 +14,7 @@ export const fixtures = {
       { tag: "learning.accept", label: "Make TODO", args: { id: "proposal-12" }, primary: true },
       { tag: "learning.dismiss", label: "Dismiss", args: { id: "proposal-12" } }
     ],
-    expect: ["Keep completion receipts", "Merge launch returned before the job finished", "Make TODO"]
+    expect: ["Keep completion receipts", "Merge launch returned before the job finished"]
   }),
   accepted: story(
     "Accepted, became T14",

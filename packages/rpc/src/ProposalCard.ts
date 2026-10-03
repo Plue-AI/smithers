@@ -33,7 +33,7 @@ export type ProposalCard = z.infer<typeof ProposalCardSchema>
  * @since 1.0.0
  * @category models
  */
-export type ProposalViewProps = CardProps<ProposalCard>
+export type ProposalViewProps = CardProps<ProposalCard, {}, "todo">
 
 /**
  * The lessons receipt on a merged TODO: the pages and proposals learning wrote (ui-components.md T-UI-20).
@@ -58,3 +58,6 @@ export type LessonsReceipt = z.infer<typeof LessonsReceiptSchema>
  * @category models
  */
 export type ProposalCardCallbacks = CardCallbacks<"learning.accept" | "learning.dismiss">
+
+/** Props for lesson page and proposal navigation supplied by the container. */
+export type LessonsReceiptViewProps = CardProps<LessonsReceipt, {}, string>

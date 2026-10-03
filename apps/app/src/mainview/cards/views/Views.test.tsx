@@ -1563,3 +1563,37 @@ test("File over-limit text uses the co-editing limit copy", async () => {
   expect(host.querySelector('[data-slot="code-view"]')).toBeNull()
   await close()
 })
+
+// T-UI-20: proposal evidence remains inspectable after acceptance.
+import { ProposalView, LessonsReceiptView } from "./ProposalView"
+import { fixtures as proposalFixtures, receipts as lessonFixtures } from "@smthrs/rpc/fixtures/Proposal"
+
+test("Proposal evidence starts open only before acceptance; refs retain destinations", async () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  const callbacks = { onAction: mock(() => {}), onView: mock(() => {}) }
+  try {
+    await act(async () => root.render(<ProposalView {...proposalFixtures.open} {...callbacks} />))
+    expect(host.querySelector("details")?.open).toBe(true)
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("https://github.com/smithersai/smithers/pull/3474")
+    await act(async () => root.render(<ProposalView {...proposalFixtures.accepted} {...callbacks} />))
+    expect(host.querySelector("details")?.open).toBe(false)
+    expect(host.textContent).toContain("T14 · Keep completion receipts in toasts")
+    expect(host.querySelectorAll("button")).toHaveLength(0)
+    await act(async () => root.render(<ProposalView {...proposalFixtures.dismissed} {...callbacks} />))
+    expect(host.textContent).toContain("Dismissed")
+    expect(host.querySelector("details")?.open).toBe(false)
+    expect(callbacks.onAction).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()) }
+})
+
+test("Lessons receipt names pages without inventing navigation", async () => {
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<LessonsReceiptView {...lessonFixtures.lessons} onAction={() => {}} onView={() => {}} />))
+    expect(host.textContent).toBe("2 lessonsRetry policyKeep completion receipts")
+    expect(host.querySelectorAll("button")).toHaveLength(0)
+    expect(host.querySelector("[data-state]")).toBeNull()
+  } finally { await act(async () => root.unmount()) }
+})
