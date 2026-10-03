@@ -2,15 +2,13 @@
 
 Version 0.4 · 2026-10-02 · Owner: engineering (contract), design (components) · Ruling: Will, 2026-10-02 (spec.md §14.2.1)
 
-Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui`. Engineering builds the containers that feed them data and turn callbacks into catalog commands. The props on this page express spec.md §14.3 in TypeScript. T-APP-19 landed the initial contracts. T-APP-19b reconciles every card schema and fixture in one `packages/rpc` change, reviewed by smithers-38 under §21.1. T-UI-02 through T-UI-14 go Ready together after that change lands. Local fixtures permit drafting only. Import schemas through `@smthrs/rpc/<Card>Card` and fixtures through `@smthrs/rpc/fixtures/<Card>`; rpc has no root export. Check: C-UI-08.
+Design builds Views and visual components. Engineering uses the existing card file as the container, mapping data to props and callbacks to catalog commands. `CardRenderers.tsx` is the only mount point. Each card ticket owns schema changes. No separate Container class, fixture layer or golden layer is required. Checks: C-UI-08, C-UI-13.
 
 ```
-  packages/rpc/src/<Card>Card.ts        zod schema + type   (engineering, T-APP-19b)
-            │                    │
-            ▼                    ▼
-  cards/views/<Card>View.tsx ◀── props ── <Card>Container.tsx ──▶ live topic (§7.2)
-  design: T-UI-nn               engineering: T-APP-nn     catalog command (§6.1)
-  fixtures + stories            subscribes, maps, binds
+  topic → existing card file → <Card>View
+               │
+               └→ flows/cardActions.ts → catalog command
+  CardRenderers.tsx mounts the card.
 ```
 
 ## Rules
@@ -21,27 +19,18 @@ Design (smithers-06) builds every visual component in `apps/app` and `@smthrs/ui
   1. It calls `onAction(action.tag, {...action.args, ...input})` with an action from `actions[]`, `gestures` or a row's own `actions`, and the control carries `data-flow={action.tag}`.
   2. It calls `onView(patch)` for per-member view state: maximize, tab, filter, scroll, selection, the cursor line, a timeline jump and hidden toasts. The container stores the patch in `member_conversation_state` (§14.1.2), where the UI-only flows (`card.maximize`, `toast.dismiss`, B.1) write the same fields.
   3. It touches only React local state, DOM focus or the clipboard: roving tabindex, `onKeyDown`, Escape to close, controlled form inputs whose value is later sent through (1), hover and disclosures that don't persist, and Copy through `copyText` from `@smthrs/ui`, which has the `execCommand` fallback for plain-HTTP origins (T-UI-01 exports it; smithers-38 approves it; C-UI-12).
-- Tags are opaque to the View. The lists below name the buttons by label.
-- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. `flows/parity.test.ts` leaves that directory out of its pinned handler table and applies the three-way rule above instead. Parity moves to the Container: every `*Container.tsx` builds `actions[]` and `gestures` through `cardActions`, which binds each tag to `flowAction`, so the three-door and agent-parity rules hold, because every flow launch goes through (1). The same seam and import rules cover `apps/app/src/mainview/BranchTree.tsx`, `EntryRow.tsx`, `ContextLine.tsx`, `EarlierArchive.tsx`, `ToastStackView.tsx`, `EdgeMap.tsx` and `Timeline.tsx`. Their UI tickets extend both scans and remove these files from legacy handler pins in the same change. No shell file is exempt. Check: C-UI-08.
-- Raise every field gap with the tech lead for the single T-APP-19b reconciliation of §14.3 and this page. UI lanes never raise piecemeal schema changes. smithers-38 reviews the public API under §21.1. Check: C-UI-08.
+- Tags are opaque to the View. The ticket touching card actions merges `CardActions.ts` and `InstallCardActions.ts` into `flows/cardActions.ts` and deletes both extra layers in the same change. Check: C-UI-08.
+- Views live in `apps/app/src/mainview/cards/views/*View.tsx`. The existing card file binds `actions[]` and `gestures` through `flows/cardActions.ts` to `flowAction`. The View-seam rules also cover the branch tree, entry rows, Context line, Earlier archive, toasts, edge map and timeline. Their tickets update parity scans in the same change. Check: C-UI-08.
+- Each card ticket updates §14.3, this page and its schema together; smithers-38 reviews the public API under §21.1. Check: C-UI-08.
 - Copy follows §14.6b: product words, body blocks of 12 words or fewer, one sentence at most, and no explanatory sentences. Visual wrapping does not count. Check: C-UI-02.
 
 ## Completion gates
 
-Four gates, each closable by its own ticket. No gate waits on a ticket that depends on it.
-
-| Gate | Check | Ticket | Needs | Done when |
-| --- | --- | --- | --- | --- |
-| Schemas and fixtures | [C-UI-08](checks/C-UI-08.md) | T-APP-19b | T-APP-19 (landed) | every §14.3 row has a schema whose fields match, every fixture parses, retained schemas match their snapshots, and the View-seam and Container rules reject seeded violations |
-| One View | [C-UI-12](checks/C-UI-12.md) | each T-UI ticket | T-APP-19b's reconciled fixtures | the View renders every fixture of its schema with the actions it is given, in light and dark, at 1280 and 390 px |
-| One Container | [C-UI-13](checks/C-UI-13.md) part A | each wiring ticket | its View and its backend | the Container's model from a real topic parses with the schema, and its actions come from `cardActions` |
-| Stage audit | [C-UI-13](checks/C-UI-13.md) part B | the lead engineer at each stage exit | every wiring ticket of the stage | every §14.3 row of that stage or earlier has a View, a Container and a schema, and no View lacks a row |
-
-A design ticket proves only its View. The journey checks (C-J*) belong to the wiring tickets, which prove the data and the behavior end to end.
+Each card ticket checks its schema and View with C-UI-08 and C-UI-12. C-UI-13 passes only when the card is mounted and its legacy duplicate is deleted in the same commit. The journey checks (C-J*) prove wiring end to end. No separate fixture or golden layer gates completion.
 
 ## Order of need
 
-Stage 1 is on the critical path. Within a stage, design builds in the order a fresh install meets components in J1 (mvp.md J1.2–J1.8), then J2, J4, J5 and J11. T-APP-19b reconciles every schema in one change before T-UI-02 through T-UI-14 go Ready together. Check: C-UI-08.
+Stage 1 is on the critical path. Within a stage, design builds in J1 order, then J2, J4, J5 and J11. Each card ticket changes its own schema. Check: C-UI-08.
 
 | # | Design ticket | Component | Wiring ticket | Stage | First need |
 | --- | --- | --- | --- | --- | --- |
@@ -51,7 +40,7 @@ Stage 1 is on the critical path. Within a stage, design builds in the order a fr
 | 4 | [T-UI-06](tickets/T-UI-06.md) | `HomeView` (with the `main` sync row and Retry) | T-APP-01, T-GH-08 | S1 | J1.5: `main`'s conversation opens on it |
 | 5 | [T-UI-11](tickets/T-UI-11.md) | `CodeEditorView` (File, read-only) and `DiffView` | T-APP-15 | S1 | J1.5: the answer's file cards |
 | 6 | [T-UI-03](tickets/T-UI-03.md) | `DraftView` | T-APP-02 | S1 | J1.6, J2.2 |
-| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: every state, question and approval forms, failure, evidence, PR line, merge control | T-APP-02 | S1 | J1.6–J1.7 |
+| 7 | [T-UI-04](tickets/T-UI-04.md) | `TodoView`: states, question and approval forms, failure, evidence, PR, merge and repair controls | T-APP-02, T-STK-08, T-MCH-08, T-GH-06 | S1 | J1.6–J1.7; repair: J7, J10.3 |
 | 8 | [T-UI-08](tickets/T-UI-08.md) | `ToastStack`, `EdgeMap`, `Timeline` (Allow notifications variant at S2) | T-APP-07, T-APP-18 | S1 | J1.6: background progress |
 | 9 | [T-UI-05](tickets/T-UI-05.md) | `ConfirmView` (`one_click`, `review_merge`) | T-APP-04 | S1 | J1.7 by an agent, J6 |
 | 10 | [T-UI-09](tickets/T-UI-09.md) | `MembersView` | T-APP-06 | S1 | J1.8 |
@@ -59,17 +48,18 @@ Stage 1 is on the critical path. Within a stage, design builds in the order a fr
 | 12 | [T-UI-10](tickets/T-UI-10.md) | `FlowView` | T-APP-05 | S1 | J5 |
 | 13 | [T-UI-12](tickets/T-UI-12.md) | `RunView` monitor and Inspect | T-FLW-07 | S1 | J11 |
 | 14 | [T-UI-13](tickets/T-UI-13.md) | `AgentView` and model roles | T-FLW-08 | S1 | J11 |
-| 15 | [T-UI-23](tickets/T-UI-23.md) | `TodoView` repair parts: conflict view, moved-off and outside-push forms, Fork and Add to stack | T-STK-08, T-MCH-08, T-GH-06 | S1 | J7, J10.3 (off the J1/J2 path) |
-| 16 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
-| 17 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
-| 18 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
-| 19 | [T-UI-18](tickets/T-UI-18.md) | `SecretsView` | T-APP-13 | S2 | J1.8 |
-| 20 | [T-UI-21](tickets/T-UI-21.md) | `DocsView` | T-APP-20 | S2 | any journey |
-| 21 | [T-UI-22](tickets/T-UI-22.md) | `DebugApiView` | T-APP-21 | S2 | J11 |
-| 22 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3.5, J8 |
-| 23 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
+| 15 | [T-UI-15](tickets/T-UI-15.md) | `BranchView` (with moved-off controls) | T-APP-10, T-COL-05 | S2 | J3, J7 |
+| 16 | [T-UI-16](tickets/T-UI-16.md) | File and Diff states: reload, gone, renamed, Restore, Compare | T-APP-11 | S2 | J3 |
+| 17 | [T-UI-17](tickets/T-UI-17.md) | `TerminalView` | T-APP-12 | S2 | J3, J6 |
+| 18 | [T-UI-18](tickets/T-UI-18.md) | `SecretsView` | T-APP-13 | S2 | J1.8 |
+| 19 | [T-UI-21](tickets/T-UI-21.md) | `DocsView` | T-APP-20 | S2 | any journey |
+| 20 | [T-UI-22](tickets/T-UI-22.md) | `DebugApiView` | T-APP-21 | S2 | J11 |
+| 21 | [T-UI-19](tickets/T-UI-19.md) | Co-editing visuals on `CodeEditorView` | T-APP-14 | S3 | J3.5, J8 |
+| 22 | [T-UI-20](tickets/T-UI-20.md) | `ProposalView` and the lessons receipt | T-FLW-06 | S3 | J5, J8 |
 
 Retained cards keep their existing schemas and renderers, outside `cards/views/` and the View-seam rule. Spec §14.3.0 lists them with the ticket that owns each one, and C-UI-08 pins their schemas. A field change to one of them is a spec change that first adds its §14.3 row.
+
+Design tickets delete the seven one-user sub-Views and the second stylesheet tree `styles/views/*.css` in the same change. Check: C-UI-08.
 
 ## Tone
 
@@ -125,7 +115,7 @@ type Merge = {                                  // §10.6.2a; one object on TODO
   on_github: boolean                            // the block is GitHub's (stale_head, checks, review_required, github): the control links to the PR
 }
 
-type EvidenceItem =                             // §10.4.3, T-STK-10
+type EvidenceItem =                             // §10.4.3, T-STK-01
   | { kind: "diff"; files: number; added: number; removed: number }
   | { kind: "check"; name: string; state: "running" | "passed" | "failed"; took_s?: number; log_url?: string }  // run on the machine
   | { kind: "github_check"; name: string; state: "pending" | "passed" | "failed"; required: boolean; url: string }
@@ -245,7 +235,7 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 // value is a string: title/prompt unchanged; acceptance JSON.stringify(string[]);
 // place JSON.stringify({ mode: "append" | "before" | "amend", n?: number }); fixes "true" or "false".
 // Emit place properties in mode, n order; omit n for append. C-UI-12 asserts literal strings.
-// Commit forwards the complete supplied Draft input; T-APP-19b reconciles typed input.
+// Commit forwards the complete supplied Draft input; the owning card ticket reconciles typed input.
 // Discard binds draft.discard {draft: DraftId}; person or app agent, author only. It deletes the author’s uncommitted private Draft, never a TODO. The runtime strict z.object accepts only draft; the server policy enforces authorship (C-CAT-01, C-UI-12).
 // It deletes the author's uncommitted private Draft and never drops a TODO (C-CAT-01, C-UI-12).
 // (`form.set` into the entry's card column, T-APP-02). buttons: Commit ("Commit puts it on the stack as T12"), Discard.
@@ -254,7 +244,7 @@ type DraftViewProps = CardProps<DraftModel, {}, "set">
 
 ### T-UI-04 TODO (`todo:<n>` topic)
 
-A question and moved_off can be open together. Render separate wait rows and actions, primary first; T-UI-23 supplies the repair form. Check: C-UI-12.
+A question and moved_off can be open together. Render separate wait rows and actions, primary first; T-UI-04 supplies the repair form. Check: C-UI-12.
 
 ```ts
 type TodoModel = {
@@ -278,7 +268,7 @@ type TodoModel = {
                                                   // "Thrashing: TestRetryBackoff failed 3×" (spec §11.6.4)
   waits: { id: string; kind: NeedsYouKind; prompt: string; since: string
            paths?: string[]                       // conflict
-           ssh_line?: string                      // conflict view, S1; supplied by the Container (§10.5.4)
+           ssh_line?: string                      // conflict view, S1; supplied by the card file (§10.5.4)
            by?: Actor; sha?: string               // foreign_push, moved_off
            actions: Action[] }[]                  // every open wait, primary first (§4.1.0a), each with its own action
   first_answer?: { by: Actor; text: string; at: string }   // "Ben answered" after the latest question settled
@@ -296,7 +286,7 @@ type TodoModel = {
 // buttons by state (T-UI-04): Answer, Send as steer, Steer, Stop, Resume, Retry, Retry with the current flow,
 // Drop, Amend, Edit (Queued: todo.amend with prefilled inputs), Take over, Add to machine image,
 // Merge, Review & merge, Rebase now, Open branch, Inspect. A late answer's 409 keeps the typed text
-// in local state behind Send as steer. T-UI-23 builds Resolve, Done (conflict), Bring in, Discard, Fork, Add to stack.
+// in local state behind Send as steer. T-UI-04 builds Resolve, Done (conflict), Bring in, Discard, Fork, Add to stack.
 ```
 
 ### T-UI-05 Confirm (`confirmations:<member>` topic)
@@ -353,9 +343,9 @@ type HomeModel = {
 }
 // buttons: Retry (main sync), Fix (refused sync, opens Settings), New TODO, each row's actions 
 // The 1 s clock uses useClock from @smthrs/ui/clock; no mainview useEffect import (C-UI-08).
-// T-APP-19b fixtures cover attention/background actions and owner/non-owner main.reset-to-github (C-UI-12).
+// Home tests cover attention/background actions and owner/non-owner main.reset-to-github (C-UI-12).
 // HomeView reports onView({on_screen: boolean}) through an IntersectionObserver in a ref callback.
-// Container advances last look after 2 s on screen (C-J4-01).
+// card file advances last look after 2 s on screen (C-J4-01).
 type HomeViewState = { on_screen?: boolean }
 type HomeViewProps = CardProps<HomeModel, HomeViewState>
 ```
@@ -385,7 +375,7 @@ type EarlierArchiveView = { selected_archive?: string }
 type EarlierArchiveProps = { model: EarlierArchiveModel; view: EarlierArchiveView
                              onView: (patch: Partial<EarlierArchiveView>) => void }
 // Earlier has no mutation action or onAction. Selection emits selected_archive (C-UI-12).
-// React nodes are rendered slots, not serialized rpc fields. T-APP-19b schemas cover the data only.
+// React nodes are rendered slots, not serialized rpc fields.
 type EntryRowProps = {
   kind: "prompt" | "answer" | "card" | "event"
   author: Actor; title: string; summary?: string; tone: Tone; state?: TodoState
@@ -450,6 +440,8 @@ type FlowModel = {
 
 ### T-UI-11 File (read-only) and Diff
 
+Render CodeEditorView through the existing CodeFileView; fold DiffView into DiffSurface. Revert the CodeMirror adapter and `@codemirror/*` pins from 4a36b0cfb. Check: C-UI-13.
+
 Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to show · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor. Check: C-UI-12.
 
 ```ts
@@ -498,7 +490,7 @@ type DiffModel = {
 ```ts
 type PhaseTone = "live" | "ok" | "fail" | "thrash" | "wait"
 // Run is the UI name; the schema is @smthrs/rpc/MonitorCard and fixtures are @smthrs/rpc/fixtures/Monitor.
-// T-APP-19b reconciles waits.settled, key/usage, engine, journal, replay and RunView (C-UI-08).
+// The Run ticket reconciles waits.settled, key/usage, engine, journal, replay and RunView (C-UI-08).
 type RunModel = {
   id: string; flow: string; version: string; title: string
   todo?: number; branch?: string
@@ -560,7 +552,7 @@ type AgentModel = {
 // buttons: Change model (owner only), Edit instructions (opens a Draft TODO)
 // Change model binds settings.model.set {role, model}; owner session only, agent: never (C-CAT-01, C-UI-12). Use the existing model-role enum (including jev) and model-catalog id schema. Strict z.object runtime parsing and producer tests validate all three inputs (C-CAT-01, C-UI-12).
 // Edit instructions uses the supplied Draft-opening tag with prefilled text, never a TODO-commit
-// todo.new binding. T-APP-19b includes smithers-b8's Agent fixture correction (#3601); C-UI-12 proves it.
+// todo.new binding is covered by C-UI-12.
 ```
 
 ### T-UI-14 Commands (`/help`)
@@ -703,10 +695,10 @@ type DebugApiView = { selected?: string }         // picking an operation: onVie
 // (a JSON body is a multiline field); then, for a mutation, Confirm <METHOD> <path> and Cancel.
 ```
 
-### T-UI-23 TODO repair forms
+### TODO repair props (T-UI-04)
 
 ```ts
-type TodoRepairSlots = { conflictTerminal?: React.ReactNode } // rendered by the Container for the selected conflict; never part of TodoCard or imported by packages/rpc
+type TodoRepairSlots = { conflictTerminal?: React.ReactNode } // rendered by the card file for the selected conflict; never part of TodoCard or imported by packages/rpc
 // No model of its own: TodoModel (§ T-UI-04). It renders the waits[] of kind conflict (paths; the S1 conflict
 // view with the terminal and SSH line), moved_off (by) and foreign_push (by, sha), and the card's Fork and
 // Add to stack actions (§8.5, §9.3.8, §10.5.4, §12.3).
