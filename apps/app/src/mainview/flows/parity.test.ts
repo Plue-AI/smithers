@@ -77,7 +77,7 @@ const surfaceFiles = (): Array<string> => {
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
     // Design-owned Views have their own AST seam rule below, not legacy pins.
-    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/") && !["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"].includes(entry))
+    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/") && !["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx", "ToastStackView.tsx", "EdgeMap.tsx", "Timeline.tsx"].includes(entry))
     .map((entry) => `../${entry.split("\\").join("/")}`)
     .sort()
 }
@@ -262,7 +262,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
       node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly) {
       const childUrl = new URL(node.moduleSpecifier.text, sourceUrl)
       const viewsUrl = new URL("../cards/views/", import.meta.url)
-      if (new URL(".", childUrl).href === viewsUrl.href && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
+      if ((new URL(".", childUrl).href === viewsUrl.href || ["ToastStackView", "EdgeMap", "Timeline"].some(name => childUrl.pathname.endsWith(`/mainview/${name}`))) && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
         ["", ".tsx", ".ts"].some(ext => /\.tsx?$/.test(childUrl.pathname + ext) && existsSync(fileURLToPath(new URL(childUrl.href + ext))))) {
         const bindings = node.importClause?.namedBindings
         if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
@@ -740,6 +740,14 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     const files = readdirSync(root, { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.split("\\").join("/").startsWith("views/") && /\.tsx?$/.test(entry) && !/\.(test|stories)\.tsx?$/.test(entry))
     for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(files).toContain(`views/${name}`)
+    for (const file of ["ToastStackView.tsx", "EdgeMap.tsx", "Timeline.tsx"]) {
+      expect(viewSeamViolations(read(`../${file}`), new URL(`../${file}`, import.meta.url))).toEqual([])
+      for (const seed of [
+        'function View({ onAction }) { return <button onClick={() => onAction(action.tag)} /> }',
+        'function View() { return <button onClick={() => localStorage.clear()} /> }',
+      ]) expect(viewSeamViolations(seed, new URL(`../${file}`, import.meta.url)).length).toBeGreaterThan(0)
+      expect(viewSeamViolations('function View({ onView }) { return <button onClick={() => onView({ jump_to: "entry-12", on_screen: ["entry-11", "entry-12"], timeline_visible: true })} /> }', new URL(`../${file}`, import.meta.url))).toEqual([])
+    }
     expect(
       files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`), new URL(`../cards/${file}`, import.meta.url)).map((violation) => `${file}: ${violation}`))
     ).toEqual([])
@@ -781,6 +789,8 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     for (const call of ["onAction(action.tag)", "onView({ open: true })", "setOpen(true)", "copyText(model.text)"]) {
       expect(viewSeamViolations(`import { copyText } from "@smthrs/ui/copy"; const [open, setOpen] = useState(false); const view = <button data-flow={action.tag} onClick={event => { event.preventDefault(); event.stopPropagation(); ${call} }} />`)).toEqual([])
     }
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, rows }) { return rows.map(row => <ActorChip onAction={onAction} onView={onView} />) }')).toEqual([])
+    expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onView, rows }) { return rows.map(onView => <ActorChip onView={onView} />) }').length).toBeGreaterThan(0)
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, gestures }) { return <ActorChip onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
     for (const source of [
       '<button onClick={event => { event.preventDefault(); runCommand("run") }} />',

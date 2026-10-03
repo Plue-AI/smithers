@@ -138,6 +138,15 @@ describe("props-only View imports (C-UI-08)", () => {
       expect(viewAuthorityViolations(path, file => file === path ? 'import "./presentation"' : 'import "./state/Store"', specifier => specifier === "./presentation" ? `${path}/presentation` : undefined).length).toBeGreaterThan(0)
       expect(viewAuthorityViolations(path, () => 'import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"', () => undefined)).toEqual([])
     }
+    for (const name of ["ToastStackView.tsx", "EdgeMap.tsx", "Timeline.tsx"]) {
+      const path = resolve(import.meta.dir, name)
+      selected.push(path)
+      violations.push(...viewAuthorityViolations(path, file => readFileSync(file, "utf8"), locate))
+      for (const seed of ['import { store } from "./state/AppStore"', 'fetch("/api")'])
+        expect(viewAuthorityViolations(path, () => seed, () => undefined).length).toBeGreaterThan(0)
+      const modules: Record<string, string> = { [path]: 'import { value } from "./helper"', helper: 'import { store } from "./state/AppStore"' }
+      expect(viewAuthorityViolations(path, file => modules[file]!, specifier => specifier === "./helper" ? "helper" : undefined).length).toBeGreaterThan(0)
+    }
     for (const name of ["ActorChip.tsx", "StateWord.tsx", "actorName.ts"]) expect(selected).toContain(resolve(import.meta.dir, "cards/views", name))
     for (const name of ["actor-chip.tsx", "state-word.tsx"]) {
       const path = resolve(repository, "packages/smithers/ui/src", name)

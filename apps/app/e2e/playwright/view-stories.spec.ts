@@ -369,3 +369,58 @@ test("Members keyboard Add and Role dispatch exactly once", async ({ page }) => 
   await page.goto('/view-stories.html?story=MembersView/member_view')
   await expect(page.locator('[data-story] button')).toHaveCount(0)
 })
+
+test("ToastStack, EdgeMap and Timeline render actions, band and breakpoint", async ({ page }) => {
+  const patches: unknown[] = []
+  await page.exposeFunction("recordShellPatch", (patch: unknown) => patches.push(patch))
+  await page.addInitScript(() => window.addEventListener("story-callback", event => {
+    const detail = (event as CustomEvent).detail
+    if (detail.kind === "view") (window as unknown as { recordShellPatch: (patch: unknown) => void }).recordShellPatch(detail.value)
+  }))
+  for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width: 1180, height: 800 })
+    await page.goto(`/view-stories.html?story=ShellView/timeline-timeline&theme=${theme}`)
+    await expect(page.locator(".mvp-timeline")).toBeVisible()
+    await expect(page.locator('[data-entry="entry-11"] .mvp-tl-node')).toHaveCSS("animation-name", "mvp-shell-live")
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await expect(page.locator('[data-entry="entry-11"] .mvp-tl-node')).toHaveCSS("animation-name", "none")
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await expect(page.locator("[data-in-view]")).toHaveCount(2)
+    // Literal tone oracles: ui-components Tone / spec §14.5.2.
+    for (const [entry, token] of [["entry-10", "--text-muted"], ["entry-11", "--brand"], ["entry-12", "--attention"], ["entry-14", "--danger"], ["entry-15", "--text-muted"]]) {
+      const colors = await page.locator(`[data-entry="${entry}"] .mvp-tl-node`).evaluate((node, token) => {
+        const probe = document.createElement("span")
+        probe.style.color = `var(${token})`
+        document.body.append(probe)
+        const expected = getComputedStyle(probe).color
+        probe.remove()
+        return { actual: getComputedStyle(node).color, expected }
+      }, token!)
+      expect(colors.actual).toBe(colors.expected)
+    }
+    await expect(page.locator('[data-entry="entry-13"] .mvp-tl-text span')).toHaveCount(0)
+    await expect.poll(() => patches.some(patch => JSON.stringify(patch) === '{"timeline_visible":true}')).toBe(true)
+    await page.locator('[data-entry="entry-12"] button').click()
+    await expect.poll(() => patches.some(patch => JSON.stringify(patch) === '{"jump_to":"entry-12"}')).toBe(true)
+    await page.setViewportSize({ width: 1179, height: 800 })
+    await expect(page.locator(".mvp-timeline")).toBeHidden()
+    await expect.poll(() => patches.some(patch => JSON.stringify(patch) === '{"timeline_visible":false}')).toBe(true)
+    await page.goto(`/view-stories.html?story=ShellView/edge-wide&theme=${theme}`)
+    await expect(page.locator(".mvp-edge-pill:visible")).toHaveCount(2)
+    await expect(page.locator(".mvp-tl-edge:visible")).toHaveCount(0)
+    await page.setViewportSize({ width: 1180, height: 800 })
+    await expect(page.locator('[data-edge="above"] .mvp-tl-row:visible')).toHaveCount(2)
+    await expect(page.locator(".mvp-tl-more")).toHaveText("+1 above")
+    for (const keyboard of [false, true]) {
+      await page.goto(`/view-stories.html?story=ShellView/toast-three-and-more&theme=${theme}`)
+      await expect(page.locator(".mvp-notice")).toHaveCount(3)
+      await expect(page.locator(".mvp-notice [data-flow]")).toHaveCount(3)
+      const more = page.getByRole("button", { name: "+2 more" })
+      if (keyboard) { await more.focus(); await page.keyboard.press("Enter") } else await more.click()
+      await expect(page.locator(".mvp-notice")).toHaveCount(5)
+      await expect(page.locator(".mvp-notice [data-flow]")).toHaveCount(5)
+    }
+    await page.goto(`/view-stories.html?story=ShellView/toast-no_action&theme=${theme}`)
+    await expect(page.locator("[data-flow]")).toHaveCount(0)
+  }
+})
