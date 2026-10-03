@@ -283,7 +283,7 @@
     },
     "C-J1-01": {
       "status": "manual",
-      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/j1-install.mjs"
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual"
     },
     "C-J1-02": {
       "status": "pending-owner",
@@ -297,7 +297,7 @@
     },
     "C-J1-04": {
       "status": "manual",
-      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/j1-activation.mjs"
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual"
     },
     "C-J1-05": {
       "status": "pending-owner",
@@ -662,11 +662,11 @@
     },
     "C-REL-02": {
       "status": "manual",
-      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/release-install.mjs"
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual"
     },
     "C-REL-03": {
       "status": "manual",
-      "reason": "Person/hardware required: reference host, recorded manual; Absent: scripts/journeys/upgrade.mjs"
+      "reason": "Person/hardware required: reference host, recorded manual"
     },
     "C-REL-04": {
       "status": "pending-owner",
@@ -1155,7 +1155,7 @@
     },
     "C-UI-13": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/src/mainview/cards/containers/<Card>Container.integration.test.ts, apps/app/src/mainview/Inventory.test.ts",
+      "reason": "Absent: apps/app/src/mainview/cards/containers/<Card>Container.integration.test.ts; card view reachability is covered by apps/app/src/mainview/cards/ViewReachability.test.ts",
       "ticket": "T-APP-01"
     }
   }

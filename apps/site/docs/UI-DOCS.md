@@ -96,13 +96,13 @@ pnpm --filter @smithers/site run capture:learn
 ```
 
 `app-*` images come from the real app server and built SPA, offline, with a
-scripted model reply (`scripts/journeys/app-host.mjs`). `tui-*` images come
+scripted model reply. `tui-*` images come
 from the TUI docs recorder, which drives the production TUI with deterministic
 replies. `preview-*` images are design previews of unreleased screens rendered
 from fixture data; use them only beside a Planned or Partly available marker,
 captioned as a preview, and replace them once the screen ships
 (`capture:learn previews <dir>`). `captures.json` records each image's source
-and revision. The journeys live in `scripts/journeys/journeys.mjs`. Where no
+and revision. Where no
 real capture exists yet, a page carries a `:::note[Capture needed]` naming the
 capture and what it waits on.
 

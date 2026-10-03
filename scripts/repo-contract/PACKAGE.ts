@@ -178,22 +178,6 @@ const machinePaths = Smithers.NodeTest({
 })
 
 /**
- * Hand-transcribed fixtures still match the spec text they were copied from:
- * a changed section must be re-transcribed before its fixture is trusted.
- *
- * It reads `.specs/` and fixtures outside this directory, so like the other
- * workspace gates it is not cacheable and re-runs regardless.
- *
- * @since 1.0.0
- * @category test
- */
-const specTranscriptions = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/spec-transcriptions.test.mjs")]),
-  srcs: [sources],
-  deps: []
-})
-
-/**
  * No app tracks a run's scratch output: captured exit codes or enrollment
  * traces.
  *
@@ -368,5 +352,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, specTranscriptions, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

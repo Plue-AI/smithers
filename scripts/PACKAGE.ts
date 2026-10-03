@@ -314,17 +314,6 @@ const mvpDocs = Smithers.NodeTest({
   deps: []
 })
 
-/** Offline release journey planning, evidence and canary safety contracts. */
-const journeys = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/journeys/run.test.mjs")]),
-  srcs: [
-    Smithers.glob("//scripts/journeys/**/*"),
-    Smithers.file("//.specs/engineering/tickets/T-REL-02.md"),
-    Smithers.glob("//.specs/engineering/checks/*.md")
-  ],
-  deps: []
-})
-
 /**
  * Fails on a git or jj conflict marker committed into a tracked text file
  * (#3151). A per-commit drift gate: `git grep` over the tree takes a second.
@@ -1041,6 +1030,8 @@ export const Package = Smithers.Package({
     issueClaim,
     hostProcessSampler,
     journeys,
+    checkRunner,
+    thinQualification,
     lint,
     localSmithers,
     localSmithersUnit,

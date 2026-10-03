@@ -20,8 +20,7 @@ Playwright or serial fault runner.
 Linux on Node 26.4.0 is the required release-candidate package platform.
 macOS and Windows package rows are advisory, so the generated root README
 explicitly makes no support guarantee for them. The required web UI scope is
-offline Chromium. Live hosted/provider journeys remain separate acceptance
-tiers. Node 26.10.0 is the additional local gateway baseline,
+offline Chromium. Node 26.10.0 is the additional local gateway baseline,
 not a claim that every package was re-certified here on every newer Node.
 
 ### Bun coverage exceptions
