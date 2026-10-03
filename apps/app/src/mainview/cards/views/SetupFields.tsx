@@ -8,9 +8,9 @@ export function ThisMac({ model, onAction }: { model: SetupCard; onAction: CardP
     {model.this_mac.capacity === 0 && <div className="setup-capacity">No machine fits · {model.this_mac.limit?.term} · {model.this_mac.limit && <SetupActions actions={[model.this_mac.limit.fix]} onAction={onAction} />}</div>}
   </div>
 }
-export function ModelAccess({ model }: { model: SetupCard }) {
+export function ModelAccess({ model, omitLabel = false }: { model: SetupCard; omitLabel?: boolean }) {
   return <div className="setup-models">{model.models.map(role => <div className="setup-model" key={role.role} data-state={role.key}>
-    <span>{roles[role.role]}</span><span className="setup-muted">{role.provider}</span>
+    {!omitLabel && <span>{roles[role.role]}</span>}<span className="setup-muted">{role.provider}</span>
     <input type="password" aria-label={role.role === "jev" ? "AI Gateway key" : `${roles[role.role]} key`} readOnly value={role.key === "saved" || role.key === "validating" ? "••••••••••••" : ""} aria-invalid={role.key === "failed" || undefined} />
     <span className="setup-key-state" data-tone={role.key === "validating" ? "live" : role.key === "failed" ? "failed" : "quiet"}>{role.key === "none" ? "" : role.key === "saved" ? "Saved" : role.key === "validating" ? "Validating" : "Failed"}</span>
     {role.error && <span className="setup-error" role="alert">{role.error}</span>}

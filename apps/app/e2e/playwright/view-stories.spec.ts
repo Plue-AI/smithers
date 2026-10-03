@@ -24,6 +24,10 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
     await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
     await page.goto(`/view-stories.html${story.href}&theme=${theme}`)
     await expect(page.locator("[data-story]")).toBeVisible()
+    if (story.name.startsWith("SettingsView/")) {
+      const copy = await page.locator('[data-kind="settings"]').evaluate(card => [card.textContent, ...[card, ...card.querySelectorAll("*")].flatMap(element => [...element.attributes].map(attribute => attribute.value))].join("\n"))
+      expect(copy).not.toMatch(/jev/i)
+    }
     if (story.name.includes("/actor-")) {
       const agents = page.locator(".mvp-avatar[data-agent]")
       await expect(agents.locator("img")).toHaveCount(0)

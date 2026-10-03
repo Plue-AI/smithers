@@ -42,3 +42,9 @@
 .setup-body > .setup-actions { margin-top: 0; width: 100%; }
 .setup-address-failed { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .setup-address-failed .setup-actions { margin-top: 0; }
+.setup-settings .setup-actions { margin-top: 0; }
+.settings-model-row .setup-model { grid-template-columns: 100px minmax(80px, 1fr) auto; }
+.settings-model-row > .setup-actions { width: 100%; align-items: center; }
+.settings-model-row .setup-action { width: 100%; }
+.settings-model-row .setup-field { flex: 1; }
+@media (max-width: 480px) { .settings-model-row .setup-model { grid-template-columns: minmax(0, 1fr) auto; } .settings-model-row .setup-model > span:first-child { grid-column: 1; } .settings-model-row .setup-model input { grid-area: 2 / 1 / auto / -1; } .settings-model-row .setup-key-state { grid-area: 1 / 2; } }

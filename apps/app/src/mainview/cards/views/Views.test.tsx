@@ -44,7 +44,7 @@ for (const path of paths) {
           if (story.name.startsWith("actor-")) {
             const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
             for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
-          } else expect(host.textContent).toContain(text)
+          } else expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
         }
         if (story.interactionSuite === "TODO") {
           const fixture = todoStories[story.name as keyof typeof todoStories]
@@ -77,7 +77,19 @@ for (const path of paths) {
         if (path === "SetupView.stories.tsx" || path === "SettingsView.stories.tsx") {
           // Form actions project one submit or two stepper controls, with draft fields.
           const fixture = Object.values(path.startsWith("Setup") ? { ...setup, ...personOnlyFixtures } : settings).find(item => item.name === story.name)!
-          const supplied: import("@smthrs/rpc/CardAction").Action[] = [...(fixture.model.this_mac.capacity === 0 && fixture.model.this_mac.limit ? [fixture.model.this_mac.limit.fix] : []), ...fixture.actions]
+          const supplied = ([...(fixture.model.this_mac.capacity === 0 && fixture.model.this_mac.limit ? [fixture.model.this_mac.limit.fix] : []), ...fixture.actions] as import("@smthrs/rpc/CardAction").Action[]).map(action => ({ ...action, input: action.input?.map(field => ({ ...field })) }))
+          if (path === "SettingsView.stories.tsx") {
+            const order = ["machine", "address", "fast", "coding", "jev", "capacity", "parallel", "todo_daily_admissions", "health", "notifications", "obsidian"]
+            const rank = (action: import("@smthrs/rpc/CardAction").Action) => order.indexOf(action.tag === "github" ? "health" : action.tag === "docs" ? "notifications" : action.args?.role ?? action.args?.field ?? action.args?.step ?? "")
+            supplied.sort((a, b) => rank(a) - rank(b))
+            for (const action of supplied) for (const field of action.input ?? []) {
+              const model = fixture.model as import("@smthrs/rpc/SettingsCard").SettingsCard
+              const value = action.args?.field === "capacity" ? model.capacity : action.args?.field === "parallel" ? model.parallel : action.args?.field === "todo_daily_admissions" ? model.todo_daily_admissions : action.args?.field === "obsidian" ? model.obsidian?.path : undefined
+              if (value !== undefined) field.value = String(value)
+            }
+            expect(host.textContent).not.toMatch(/jev/i)
+            for (const element of host.querySelectorAll("*")) for (const attribute of element.attributes) expect(attribute.value).not.toMatch(/jev/i)
+          }
           const forms = [...host.querySelectorAll<HTMLFormElement>("form[data-flow]")]
           expect(forms.map(form => form.dataset.flow)).toEqual(supplied.map(action => action.tag))
           for (const [index, form] of forms.entries()) {
@@ -506,14 +518,14 @@ afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = "" })
 
 for (const [id, story] of Object.entries(setup)) test(`Setup ${id}`, () => {
   const host = render(<SetupView {...story} onAction={() => {}} onView={() => {}} />)
-  for (const text of story.expect) expect(host.textContent).toContain(text)
+  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
   expect([...host.querySelectorAll("[data-step]")].map(row => row.getAttribute("data-step"))).toEqual(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
   expect(host.textContent).toContain("Decisions")
   expect(host.querySelector('input[aria-label="AI Gateway key"]')?.getAttribute("type")).toBe("password")
 })
 for (const [id, story] of Object.entries(settings)) test(`Settings ${id}`, () => {
   const host = render(<SettingsView {...story} onAction={() => {}} onView={() => {}} />)
-  for (const text of story.expect) expect(host.textContent).toContain(text)
+  for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
   expect(host.textContent).toContain("700 MB")
 })
 test("Address submits literal bound step and edited fields once", () => {
@@ -564,7 +576,7 @@ test("Settings shows literal sync health and Obsidian receipts", () => {
 test("Owner action forms retain literal order and model arguments", () => {
   const calls: unknown[] = []
   const host = render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />)
-  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings.model.set', 'settings.model.set', 'settings.model.set', 'github', 'settings', 'settings', 'settings'])
+  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings.model.set', 'settings.model.set', 'settings.model.set', 'settings', 'settings', 'github', 'settings'])
   for (const button of host.querySelectorAll<HTMLButtonElement>('.setup-action button[type="submit"]')) act(() => button.click())
   expect(calls).toEqual([
     ['settings.model.set', { role: 'fast', model: 'llama-4-scout' }],
@@ -610,4 +622,15 @@ test("No-capacity fix dispatches its supplied tag and arguments", () => {
   act(() => host.querySelector<HTMLButtonElement>(".setup-capacity button")!.click())
   const fix = setup.no_capacity.model.this_mac.limit!.fix
   expect(calls).toEqual([[fix.tag, fix.args ?? {}]])
+})
+
+test("Settings actions live in their rows and unassigned actions retain order", () => {
+  const host = render(<SettingsView {...settings.ready} actions={[...settings.ready.actions, { tag: "flows", label: "Add" }, { tag: "docs", label: "Docs" }]} onAction={() => {}} onView={() => {}} />)
+  const row = (label: string) => [...host.querySelectorAll("dt")].find(dt => dt.textContent === label)!.nextElementSibling!
+  expect(row("Machines").textContent).toBe("−2+")
+  expect(row("TODOs per day").textContent).toBe("−12+")
+  expect(row("Decisions").textContent).toBe("AI GatewaySavedChange")
+  expect(row("Health").querySelector('button[data-flow="github"]')!.textContent).toBe("Repair")
+  expect(row("Obsidian folder").querySelector("button")!.textContent).toBe("Change")
+  expect([...host.querySelectorAll(".setup-view > .setup-actions button")].map(button => button.textContent)).toEqual(["Add", "Docs"])
 })
