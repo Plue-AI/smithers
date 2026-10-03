@@ -12,6 +12,20 @@ export interface Result {
   readonly check?: { readonly command: string; readonly exit: number }
 }
 
+/**
+ * A whole command on one line, as the shell read it: a line break reads as `;`
+ * unless the line already continues (`&&`, `|`, `\`).
+ */
+export const oneLine = (command: string): string =>
+  command.split("\n").map((line) => line.trim()).filter((line) => line !== "").reduce((joined, line) =>
+    joined === ""
+      ? line
+      : joined.endsWith("\\")
+      ? `${joined.slice(0, -1).trimEnd()} ${line}`
+      : /(?:;|&&|\|\||\||\{|\(|\bthen|\bdo|\belse)$/.test(joined)
+      ? `${joined} ${line}`
+      : `${joined}; ${line}`, "")
+
 /** A command that shows version control's state (`git diff`, `jj st`) checks nothing about the work. */
 const inspects = (command: string): boolean => /^\s*(?:git|jj)\b/.test(command)
 
@@ -25,7 +39,7 @@ export const result = (transcript: Transcript.Transcript): Result => {
   for (const item of transcript.items) {
     if (item.kind !== "cell") continue
     for (const call of item.calls) {
-      const command = call.subject.split("\n")[0]!
+      const command = oneLine(call.subject)
       if (call.exit !== undefined && !inspects(command)) check = { command, exit: call.exit }
       for (const patch of call.patches ?? []) {
         if (patch.undone === true) continue

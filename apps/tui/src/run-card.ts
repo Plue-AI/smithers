@@ -72,7 +72,7 @@ const step = (call: Transcript.Call): string => {
     const each = SubagentCard.diffCounts(patch.patch)
     return { added: total.added + each.added, removed: total.removed + each.removed }
   }, { added: 0, removed: 0 })
-  return `${glyph} ${verb === "" ? "" : `${verb} `}${call.subject}${
+  return `${glyph} ${verb === "" ? "" : `${verb} `}${Subagents.oneLine(call.subject)}${
     patches.length > 0 ? ` ${Undo.counts(counts)}` : ""
   }${call.flow === "bash" && call.status !== "running" && call.exit !== undefined ? ` exit ${call.exit}` : ""}`
 }

@@ -91,6 +91,22 @@ test("a command failure reports its real exit and a refused call invents no exit
   expect(refused.receipts.join(" · ")).not.toContain("exit")
 })
 
+test("a multiline command is one step and one receipt", () => {
+  const script = "node -e \"process.exit(7)\"\nnode -e \"process.exit(0)\""
+  const live = RunCard.worker(
+    tab,
+    transcript([{ flow: "bash", subject: script, status: "running", startedAt: 3_000 }]),
+    5_000
+  )
+  expect(live.steps).toEqual(["◐ node -e \"process.exit(7)\"; node -e \"process.exit(0)\""])
+  const settled = RunCard.worker(
+    { ...tab, status: "done", endedAt: 6_000 },
+    transcript([{ flow: "bash", subject: script, status: "ok", exit: 0, startedAt: 3_000 }]),
+    9_000
+  )
+  expect(settled.receipts).toEqual(["node -e \"process.exit(7)\"; node -e \"process.exit(0)\" exit 0"])
+})
+
 test("an undone patch remains inspectable and cannot be undone twice", () => {
   const undone = RunCard.worker(
     { ...tab, status: "done", endedAt: 6_000 },

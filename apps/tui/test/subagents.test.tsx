@@ -70,7 +70,7 @@ describe("run receipts", () => {
     const worker = cell(Transcript.empty, 10, "", [
       { flow: "bash", input: { command: "npm test" }, value: { exitCode: 1 } },
       { flow: "edit", input: { path: "src/cart.js", oldString: "a", newString: "b" } },
-      { flow: "bash", input: { command: "npm test\n# again" }, value: { exitCode: 0 } },
+      { flow: "bash", input: { command: "npm test\nnpm run lint" }, value: { exitCode: 0 } },
       // Showing the work is not checking it.
       { flow: "bash", input: { command: "git status --porcelain; git diff" }, value: { exitCode: 0 } },
       { flow: "bash", input: { command: "jj st" }, value: { exitCode: 0 } }
@@ -86,11 +86,29 @@ describe("run receipts", () => {
     })
     expect(Subagents.result(patched)).toEqual({
       files: [{ path: "src/cart.js", added: 2, removed: 1 }],
-      check: { command: "npm test", exit: 0 }
+      check: { command: "npm test; npm run lint", exit: 0 }
     })
     const undone = Transcript.undone(patched, [edit!.identity!], ["src/cart.js"], 20)
     expect(Subagents.result(undone).files).toEqual([])
     expect(Subagents.result(Transcript.empty)).toEqual({ files: [] })
+  })
+
+  it("reports a multiline command whole, so its exit belongs to every line it ran", () => {
+    const check = (command: string, exitCode: number) =>
+      Subagents.result(cell(Transcript.empty, 10, "", [{ flow: "bash", input: { command }, exitCode }])).check
+    expect(check("node -e \"process.exit(7)\"\nnode -e \"process.exit(0)\"", 0)).toEqual({
+      command: "node -e \"process.exit(7)\"; node -e \"process.exit(0)\"",
+      exit: 0
+    })
+    expect(check("node -e \"process.exit(0)\"\nnode -e \"process.exit(7)\"", 7)).toEqual({
+      command: "node -e \"process.exit(0)\"; node -e \"process.exit(7)\"",
+      exit: 7
+    })
+    expect(check("bun test \\\n  ./test &&\n  bun run typecheck\n", 0)).toEqual({
+      command: "bun test ./test && bun run typecheck",
+      exit: 0
+    })
+    expect(check("if test -f a; then\n  echo a\nfi", 0)).toEqual({ command: "if test -f a; then echo a; fi", exit: 0 })
   })
 
   it("keeps result evidence for files retained after a partial undo of one call", () => {
