@@ -2415,7 +2415,7 @@ describe("approvals", () => {
     throw new Error(`too many approvals; screen:\n${tui.screen()}`)
   }
 
-  it("asks only for the edit, showing its lines; declared reads run unasked and y lets the edit run", async () => {
+  it("asks once per distinct command and for the edit, showing its lines; y is remembered for the run", async () => {
     const { tui, cwd } = await start({ cwd: repository({ git: true }), approve: "ask" })
     await tui.type(prompt)
     await tui.press(key.enter)
@@ -2426,8 +2426,11 @@ describe("approvals", () => {
       asked.push(screen.match(asking)![0].replace(/\s+/g, " "))
       return "y"
     })
+    // A script always asks, once: its second, identical run is remembered. A chained Git read asks.
     expect(asked).toEqual([
-      "? edit math.js +1 −1 - export const add = (a, b) => a - b + export const add = (a, b) => a + b y Allow once"
+      "? run cd . && node check.mjs y Allow once",
+      "? edit math.js +1 −1 - export const add = (a, b) => a - b + export const add = (a, b) => a + b y Allow once",
+      "? run cd . && git status --porcelain && git diff -- math.js y Allow once"
     ])
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
   }, 240_000)

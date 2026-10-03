@@ -21,7 +21,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--resume` | `-r` | Pick a conversation to continue. |
 | `--print "prompt"` | `-p` | Answer one prompt, print it, and exit. |
 | `--approve all` | | Run edits, commands, and network calls. The default. |
-| `--approve ask` | | Ask first; each run remembers its answers, and commands declared read-only run unasked. Interactive only. |
+| `--approve ask` | | Ask first; each run remembers its answers, and a few read-only commands run unasked. Interactive only. |
 | `--approve deny` | | Refuse them. |
 | `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
 | `--environment name` | | Run on a saved execution location. |

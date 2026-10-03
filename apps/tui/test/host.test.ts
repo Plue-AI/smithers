@@ -2334,18 +2334,17 @@ describe("Host.run memory", () => {
 })
 
 describe("Host.run approvals remember a run's answers", () => {
-  /** A git repository whose `write.mjs` writes a file while declaring it writes nothing. */
+  /** A git repository with a script. */
   const repository = () => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-declared-"))
     roots.push(cwd)
-    writeFileSync(join(cwd, "write.mjs"), "import { writeFileSync } from 'node:fs'\nwriteFileSync('made.txt', 'x')\n")
     writeFileSync(join(cwd, "check.mjs"), "console.log('ok')\n")
     Bun.spawnSync(["git", "init", "-q"], { cwd })
     Bun.spawnSync(["git", "add", "."], { cwd })
     return cwd
   }
-  const declared = (script: string) =>
-    `await ctx.call("bash", { mode: "hermetic", reads: [], writes: [], command: "node ${script}" })`
+  const declared = (command: string) =>
+    `await ctx.call("bash", { mode: "hermetic", reads: [], writes: [], command: "${command}" })`
   const pendingOf = async (host: Host.Host) => {
     for (let attempt = 0; attempt < 600; attempt++) {
       const pending = await host.approvals!.pending()
@@ -2355,12 +2354,14 @@ describe("Host.run approvals remember a run's answers", () => {
     throw new Error("nothing asked")
   }
 
-  test("a declared read-only command runs unasked until one is captured changing a file", async () => {
+  test("a listed read declared read-only runs unasked, and a script declared so still asks", async () => {
     const cwd = repository()
     const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "ask" })
     const settled: Array<string> = []
     try {
-      const cell = `${declared("check.mjs")}; ${declared("write.mjs")}; ${declared("check.mjs")}; ctx.done("ran")`
+      const cell = `${declared("git status --porcelain")}; ${declared("cat check.mjs")}; ${
+        declared("node check.mjs")
+      }; ctx.done("ran")`
       const turn = host.run({
         prompt: "check",
         role: "worker",
@@ -2372,9 +2373,8 @@ describe("Host.run approvals remember a run's answers", () => {
         }
       })
       const pending = await pendingOf(host)
-      // Both earlier commands ran without a row; the second wrote a file.
+      // Both reads ran without a row.
       expect(settled).toEqual(["success", "success"])
-      expect(existsSync(join(cwd, "made.txt"))).toBe(true)
       expect(pending).toHaveLength(1)
       expect(pending[0]).toMatchObject({ flow: "bash", subject: "node check.mjs", source: "t1" })
       await host.approvals!.reply(pending[0]!, "deny")

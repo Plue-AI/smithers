@@ -87,14 +87,14 @@ Each run remembers its answers: `y` allows that identical request again, `n`
 denies the change for the rest of the run through edit, write, apply_patch and
 any shell command that names the file or declares a write covering it, and `a`
 allows every edit (except to `.git` or `.jj`) or every command for the rest of
-the run. After a file denial, commands containing expansion or patterns ask
-again, even under a commands grant. A command that declares `mode: "hermetic"`
-with `writes: []` and reads
-as only reading runs unasked in a git or jj repository, until one such command
-is captured changing a file or the run denies anything. Only reading programs
-with their listed options, a script file inside the repository, or its tests
-qualify: no expansion, piped code or redirection. Scripts, tests and Git commands
-ask again once `a` allows edits. Every turn is told whether the repository uses jj or git.
+the run. After a file denial, every other command asks again, even under `a`.
+A command that declares `mode: "hermetic"` with `writes: []` runs unasked
+while the run has denied nothing when it is exactly `git status`, `git diff`,
+`git log`, `git show`, `ls`, `pwd`, `cat`, `head`, `tail`, `wc` or `grep`, with
+only plain paths inside the repository and a few listed options: no quotes,
+expansion, pipes, redirection or chaining. Git commands ask again once `a`
+allows anything. Interpreters and test runners always ask. Every turn is told
+whether the repository uses jj or git.
 
 `--box owner/repo/workspace-id` (or `SMITHERS_BOX`) runs every worker's
 filesystem and shell flows in that Smithers Cloud workspace, over its SSH

@@ -287,8 +287,7 @@ export const make = (options: {
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
   // What each run already answered. Only `ask` consults it: `deny` refuses everything.
-  // A declaration runs unasked only where a shell call's changes can be captured.
-  const decided = new Approvals.Memory(Context.vcs(options.cwd) !== undefined)
+  const decided = new Approvals.Memory()
   const remembered = approvalMode === "ask" ? decided : undefined
   const env = options.environment
   const available = options.available ?? detectWithoutClaude(env)
@@ -619,10 +618,7 @@ export const make = (options: {
               services,
               yield* Effect.context<Evaluator.Evaluator>(),
               options.cwd,
-              (receipt) => {
-                decided.changed(input.source ?? "chat", receipt)
-                input.onPatch?.(receipt)
-              },
+              input.onPatch ?? (() => {}),
               box !== undefined
             ),
             // A flows source named `memory` is pinned (`StandardFlows.coreSources`),
@@ -697,8 +693,8 @@ export const make = (options: {
               cwd: options.cwd,
               source: input.source ?? "chat",
               ...(remembered === undefined ? {} : { memory: remembered }),
-              // A placed worker's shell changes are not captured here.
-              captured: box === undefined
+              // A placed worker's commands run on the box.
+              local: box === undefined
             })
           }),
         // The same explicit cell budget `smithers run` uses; never unlimited.
@@ -747,9 +743,6 @@ export const make = (options: {
             }
             if (event._tag === "model-settled" && requested !== undefined) credit.answered(requested)
             if (event._tag === "suspended") suspension = event.reason
-            if (event._tag === "cell-call-settled") {
-              decided.settled(input.source ?? "chat", Changes.identity(event.identity))
-            }
             if (event._tag === "resolved") answer = text(event.message.content)
             if (event._tag === "model-requested" || event._tag === "model-retried") reply = ""
             if (event._tag === "model-delta" && event.delta.type === "text-delta") reply += event.delta.text
@@ -900,11 +893,11 @@ const boundedCalls = (source: FlowBinding.Source, callMs: number): FlowBinding.S
  * the grant the flow requires (`Memory.reads`).
  */
 /**
- * Told to a worker under `--approve ask`: a command declared read-only runs
+ * Told to a worker under `--approve ask`: a listed command declared read-only runs
  * unasked (`Approvals.Memory`), and a denial is final for the run.
  */
 export const approvalTeaching =
-  "The person approves each command and edit. A command that changes no file runs without asking when you pass mode:\"hermetic\", reads:[...] and writes:[]. A denied change stays denied for this run: never make it another way."
+  "The person approves each command and edit. git status, git diff, git log, git show, ls, pwd, cat, head, tail, wc and grep run without asking when you pass mode:\"hermetic\", reads:[...] and writes:[], with plain repository paths and no quotes, pipes, redirects or variables. A denied change stays denied for this run: never make it another way."
 
 export const turnOptions = (
   input: TurnInput,
