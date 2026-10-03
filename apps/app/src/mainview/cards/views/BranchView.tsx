@@ -1,5 +1,5 @@
 import { useId } from "react"
-import { copyText } from "@smthrs/ui"
+import { copyText } from "@smthrs/ui/copy"
 import { Copy, GitBranch, Moon, SquareTerminal } from "lucide-react"
 import type { BranchViewProps } from "@smthrs/rpc/BranchCard"
 import { ActorChip, actorName } from "./ActorChip"

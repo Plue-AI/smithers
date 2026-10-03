@@ -1330,3 +1330,21 @@ for (const [key, copy, label, tag, args] of branchStateOracles) test(`Branch ${k
     expect(host.querySelectorAll("button[data-flow]")).toHaveLength(0)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+test("Branch SSH copies the supplied host line without a flow", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard")
+  const writeText = mock(async (_text: string) => {})
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock(() => {}), onView = mock(() => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.awake} onAction={onAction} onView={onView} />))
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy SSH line"]')!.click())
+    expect(writeText.mock.calls).toEqual([["ssh -p 2222 todo-12@mac-mini.local"]])
+    expect(onAction).toHaveBeenCalledTimes(0); expect(onView).toHaveBeenCalledTimes(0)
+  } finally {
+    await act(async () => root.unmount()); host.remove()
+    if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor)
+    else Reflect.deleteProperty(navigator, "clipboard")
+  }
+})

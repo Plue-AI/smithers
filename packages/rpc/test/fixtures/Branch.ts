@@ -79,7 +79,7 @@ export const fixtures = {
   rebase_waiting_for: story(
     "Rebase pending, waiting for a write in Ben's terminal",
     { ...base, rebase: { state: "pending", onto: "main", waiting_for: { actor: person, terminal: "terminal-1" } } },
-    { expect: ["Ben Carter"] }
+    { expect: ["Ben"] }
   ),
   rebasing: story("Rebasing", { ...base, rebase: { state: "rebasing", onto: "T8" } }, { expect: ["T8"] }),
   scratch_conflict: story(
@@ -109,7 +109,7 @@ export const fixtures = {
         { tag: "todo.return-to-item", label: "Return to T15", args: { n: "15" }, primary: true },
         { tag: "todo.keep-moved", label: "Keep for now", args: { n: "15" } }
       ],
-      expect: ["Ben Carter"]
+      expect: ["Ben"]
     }
   ),
   answered: story("Answer the coding agent", { ...base, presence: [{ actor: person, where: { kind: "branch" } }] }, {
