@@ -340,7 +340,7 @@ describe("Host.run workspace observation", () => {
     }
   })
 
-  test("a coordinator turn measures no tree: it has no flow that can move one", async () => {
+  test("a coordinator turn measures no tree: it has no flow that writes", async () => {
     const { outcome, events } = await turn("coordinator")
 
     expect(outcome).toEqual({ _tag: "done", answer: "ok" })
@@ -1151,6 +1151,166 @@ describe("workerSources", () => {
     }
     const options = Host.turnOptions(input, "/repo", Host.workerSources(services, judge, "/repo", () => {}))
     expect(await names(options.flows)).toEqual(["read"])
+  })
+})
+
+describe("coordinatorSources", () => {
+  const services = Effect.runSync(
+    Effect.context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>().pipe(Effect.provide(NodeServices.layer))
+  )
+
+  test("binds read, grep and ls and nothing that writes or runs a command", async () => {
+    const bindings = (await Promise.all(
+      Host.coordinatorSources(services, "/repo").map((source) => Effect.runPromise(source.bindings()))
+    )).flat()
+    expect(bindings.map((binding) => binding.descriptor.name).sort()).toEqual(["grep", "ls", "read"])
+    expect(Host.coordinatorFlows).toEqual(["read", "grep", "ls"])
+    // Pinned with the standard catalog, so no relevance reading withholds them.
+    expect(Host.coordinatorSources(services, "/repo").map((source) => source.name)).toEqual(["std/filesystem"])
+  })
+})
+
+describe("Host.run coordinator reads", () => {
+  /** Runs one coordinator cell in `<base>/repo`; `<base>` holds a file outside the workspace. */
+  const ask = async (cell: (base: string) => string, setup: (cwd: string, base: string) => void = () => {}) => {
+    const base = mkdtempSync(join(tmpdir(), "tui-coordinator-reads-"))
+    roots.push(base)
+    const cwd = join(base, "repo")
+    mkdirSync(join(cwd, "src"), { recursive: true })
+    writeFileSync(join(base, "secret.txt"), "secret outside\n")
+    writeFileSync(join(cwd, "src", "math.js"), "export const formatPrice = (cents) => `$${(cents / 100).toFixed(2)}`\n")
+    setup(cwd, base)
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "What does formatPrice do?",
+        role: "coordinator",
+        seat: `replay:${doneReplay(base, cell(base))}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+      return { outcome, events, cwd }
+    } finally {
+      await host.dispose()
+    }
+  }
+  /** The JSON a cell answered with. */
+  const answered = (outcome: Host.Outcome): Record<string, any> => {
+    expect(outcome._tag).toBe("done")
+    return JSON.parse((outcome as { answer: string }).answer)
+  }
+  const each = (calls: Record<string, [string, unknown]>) =>
+    `const out = {}; for (const [key, [flow, input]] of Object.entries(${
+      JSON.stringify(calls)
+    })) out[key] = await ctx.call(flow, input); ctx.done(JSON.stringify(out))`
+
+  test("reads, lists and searches the workspace in its own turn, without a worker", async () => {
+    const { outcome, events } = await ask(() =>
+      each({
+        read: ["read", { path: "src/math.js" }],
+        ls: ["ls", { path: "." }],
+        grep: ["grep", { pattern: "formatPrice" }],
+        root: ["grep", { pattern: "formatPrice", root: "src" }]
+      })
+    )
+    const out = answered(outcome)
+    expect(out.read.content).toBe("export const formatPrice = (cents) => `$${(cents / 100).toFixed(2)}`")
+    expect(out.ls.entries).toEqual([{ name: "src/", kind: "directory" }])
+    expect(out.grep.matches.map((match: { file: string }) => match.file)).toEqual(["src/math.js"])
+    expect(out.root.matches).toHaveLength(1)
+    // Nothing it ran moves the tree, so the turn still measures none.
+    expect(basis(events)).toEqual(["declared"])
+  })
+
+  test("refuses a path outside the workspace, directly, by .. or through a symlink", async () => {
+    const { outcome } = await ask(
+      (base) =>
+        each({
+          absolute: ["read", { path: join(base, "secret.txt") }],
+          climb: ["read", { path: "../secret.txt" }],
+          link: ["read", { path: "src/link.txt" }],
+          list: ["ls", { path: ".." }],
+          linkedDirectory: ["ls", { path: "out" }],
+          search: ["grep", { pattern: "secret", root: ".." }],
+          linkedSearch: ["grep", { pattern: "secret", root: "out" }],
+          inside: ["read", { path: join(base, "repo", "src", "math.js") }],
+          walk: ["grep", { pattern: "secret outside" }]
+        }),
+      (cwd, base) => {
+        symlinkSync(join(base, "secret.txt"), join(cwd, "src", "link.txt"))
+        symlinkSync(base, join(cwd, "out"), "dir")
+      }
+    )
+    const out = answered(outcome)
+    const refused = (path: string) => ({
+      ok: false,
+      error: expect.objectContaining({ code: "flow_failed", message: `${path}: outside this repository` })
+    })
+    expect(out.climb).toEqual(refused("../secret.txt"))
+    expect(out.absolute.error.message).toEndWith("secret.txt: outside this repository")
+    expect(out.link).toEqual(refused("src/link.txt"))
+    expect(out.list).toEqual(refused(".."))
+    expect(out.linkedDirectory).toEqual(refused("out"))
+    expect(out.search).toEqual(refused(".."))
+    expect(out.linkedSearch).toEqual(refused("out"))
+    // An absolute path inside the workspace is the workspace's.
+    expect(out.inside.totalLines).toBe(1)
+    // A search of the workspace does not follow its links out of it.
+    expect(out.walk.matches).toEqual([])
+  })
+
+  test("a symlink loop fails its call, and the turn goes on", async () => {
+    const { outcome } = await ask(
+      () =>
+        each({
+          self: ["read", { path: "src/self" }],
+          pair: ["ls", { path: "src/a/inner" }],
+          search: ["grep", { pattern: "x", root: "src/b" }],
+          after: ["read", { path: "src/math.js" }]
+        }),
+      (cwd) => {
+        symlinkSync("self", join(cwd, "src", "self"))
+        symlinkSync("b", join(cwd, "src", "a"))
+        symlinkSync("a", join(cwd, "src", "b"))
+      }
+    )
+    const out = answered(outcome)
+    const looped = (path: string) => ({
+      ok: false,
+      error: expect.objectContaining({ code: "flow_failed", message: `${path}: too many symlinks` })
+    })
+    expect(out.self).toEqual(looped("src/self"))
+    expect(out.pair).toEqual(looped("src/a/inner"))
+    expect(out.search).toEqual(looped("src/b"))
+    expect(out.after.totalLines).toBe(1)
+  })
+
+  test("has no flow that writes or runs a command", async () => {
+    const { outcome, cwd } = await ask(() =>
+      each({
+        write: ["write", { path: "b.js", content: "x" }],
+        edit: ["edit", { path: "src/math.js", oldString: "cents", newString: "c" }],
+        patch: ["apply_patch", { patch: "" }],
+        bash: ["bash", { command: "touch made" }]
+      })
+    )
+    const out = answered(outcome)
+    for (const flow of ["write", "edit", "patch", "bash"]) expect(out[flow].error.code).toBe("unknown_flow")
+    expect(existsSync(join(cwd, "b.js"))).toBe(false)
+    expect(existsSync(join(cwd, "made"))).toBe(false)
+    expect(readFileSync(join(cwd, "src", "math.js"), "utf8")).toContain("cents")
+  })
+
+  test("a read stays bounded to one page however large the file", async () => {
+    const { outcome } = await ask(
+      () => each({ big: ["read", { path: "big.txt" }] }),
+      (cwd) => writeFileSync(join(cwd, "big.txt"), `${"x".repeat(100)}\n`.repeat(5_000))
+    )
+    const out = answered(outcome)
+    expect(out.big.truncated).toBe(true)
+    expect(out.big.endLine).toBeLessThan(5_000)
+    expect(Buffer.byteLength(out.big.content)).toBeLessThanOrEqual(60_000)
   })
 })
 

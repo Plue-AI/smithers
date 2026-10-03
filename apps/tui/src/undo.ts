@@ -8,8 +8,8 @@
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { applyPatch, reversePatch } from "diff"
 import { chmod, mkdir, stat, unlink, writeFile } from "node:fs/promises"
-import { dirname, isAbsolute, relative, resolve } from "node:path"
-import { real } from "./approvals.ts"
+import { dirname, resolve } from "node:path"
+import { within } from "./approvals.ts"
 import * as Changes from "./changes.ts"
 import * as Log from "./log.ts"
 import type * as Transcript from "./transcript.ts"
@@ -171,8 +171,8 @@ export const latest = (transcript: Transcript.Transcript): ReturnType<typeof tur
  * writes only where a path lands inside the workspace after following every symlink.
  */
 const outside = (cwd: string, path: string): boolean => {
-  const inside = relative(real(resolve(cwd)), real(resolve(cwd, path)))
-  return inside === "" || inside === ".." || inside.startsWith("../") || isAbsolute(inside)
+  const inside = within(cwd, path)
+  return inside === undefined || inside === ""
 }
 
 /**

@@ -67,6 +67,7 @@ import {
 } from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Panels from "./panels.ts"
+import * as Reads from "./reads.ts"
 import * as Replay from "./replay.ts"
 import * as Runtime from "./runtime.ts"
 import * as Session from "./session.ts"
@@ -612,7 +613,7 @@ export const make = (options: {
         // A placed worker's paths are the box's; this tree's jj rule and files say nothing about it.
         box?.workdir ?? options.cwd,
         input.role === "coordinator"
-          ? []
+          ? coordinatorSources(services, options.cwd)
           : [
             ...workerSources(
               services,
@@ -750,8 +751,8 @@ export const make = (options: {
             if (event._tag === "cell-produced") input.onCaption?.(Transcript.split(reply).prose)
           })
         ),
-        // The coordinator has no filesystem or shell flow, so nothing it runs
-        // moves the tree. Measuring anyway walked the checkout twice a turn:
+        // The coordinator only reads, so nothing it runs moves the tree.
+        // Measuring anyway walked the checkout twice a turn:
         // a one-line `ctx.done()` answer showed 8 s late in this repository.
         // A box's tree is not this one: measuring the local tree would call every placed edit a no-op.
         (effect) => (input.role === "coordinator" || box !== undefined ? unobserved(effect) : effect)
@@ -865,12 +866,39 @@ export const workerSources = (
     // `bash` instead: one command on the box.
     placed
       ? without(StandardFlows.filesystem(services), ["grep", "glob"])
-      : capture(StandardFlows.filesystem(
-        services,
-        Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
-      )),
+      : capture(StandardFlows.filesystem(services, search(services))),
     capture(StandardFlows.shell(services)),
     ...(judge === undefined ? [] : [StandardFlows.jev(judge)])
+  ]
+}
+
+/** `rg` when this host has it; the in-process walk otherwise. */
+const search = (services: ServiceContext.Context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>) =>
+  Subprocess.which("rg", process.env) === null ? undefined : NativeSearch.make(services)
+
+/** What the coordinator runs itself: it reads, and delegates anything that writes or runs a command. */
+export const coordinatorFlows: ReadonlyArray<string> = ["read", "grep", "ls"]
+
+/**
+ * The coordinator's catalog: `read`, `grep` and `ls`, refused outside `cwd`
+ * (`Reads`), so a one-hop question about the code answers in Chat without a
+ * worker. Each is already size-bounded: `read` returns at most a 60 kB page
+ * and `grep` and `ls` cap their rows.
+ */
+export const coordinatorSources = (
+  services: ServiceContext.Context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>,
+  cwd: string
+): ReadonlyArray<FlowBinding.Source> => {
+  const confined = Reads.confine(services, cwd)
+  const native = search(confined)
+  return [
+    Reads.inWorkspace(
+      only(
+        StandardFlows.filesystem(confined, native === undefined ? undefined : Reads.rechecked(native, cwd)),
+        new Set(coordinatorFlows)
+      ),
+      cwd
+    )
   ]
 }
 

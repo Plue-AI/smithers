@@ -330,7 +330,12 @@ it("teaches the coordinator honest receipts and the panel block contract", () =>
       "console.log does not end it",
       "Never wait, retry, or re-check tab.list",
       "If a request fails, end the turn saying it was not made and why",
-      "You have no filesystem or shell flows in this role",
+      "A request to change, fix, add, test or run anything goes to a worker at once: your first cell calls agent.delegate with the user's words and no read, grep or ls",
+      "Use read, grep and ls only to answer a question about the code",
+      "you cannot edit, write or run a command",
+      "Answer in a cell after the one that printed what you read, with ctx.done(answer): at most 3 plain sentences that say in your own words what the code does.",
+      "Never pass what a flow returned to ctx.done, never quote or paste code, and never say how you checked.",
+      "For questions that need a worker",
       "monitor.create",
       "A requested or queued receipt means only requested or queued",
       "This applies to panel details as well as replies",
@@ -339,6 +344,7 @@ it("teaches the coordinator honest receipts and the panel block contract", () =>
     ]
   ) expect(Runtime.coordinatorTeaching).toContain(rule)
   expect(Runtime.coordinatorTeaching).not.toContain("publish one ui.publish panel")
+  expect(Runtime.coordinatorTeaching).not.toContain("no filesystem or shell flows")
   for (const rule of ["kind:\"code\"", "kind:\"table\"", "Never invent actions the user did not request"]) {
     expect(Panels.teaching).toContain(rule)
   }

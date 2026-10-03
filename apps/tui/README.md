@@ -333,7 +333,9 @@ and persisted in the session. The host renders them; generated code is never
 loaded into the UI process.
 
 The chat coordinator has `ui.publish`, `agent.delegate`, `tab.read`,
-`tab.list`, and `tab.retry`. Workers also have `agent.delegate`, `agent.wait({ids})`,
+`tab.list`, and `tab.retry`, and answers one-hop questions about the code in
+Chat with `read`, `grep` and `ls`. They refuse paths outside the workspace;
+anything that writes or runs a command goes to a worker. Workers also have `agent.delegate`, `agent.wait({ids})`,
 `tab.read`, `tab.list`, `ask` and `agent.answer`.
 A worker's `ask({question, options?, to?})` (`ctx.help`) waits for an answer.
 `to: "parent"`, the default, sends it to the nearest running agent above the

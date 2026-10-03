@@ -49,6 +49,7 @@
   "src/panels.ts",
   "src/picker.ts",
   "src/print.ts",
+  "src/reads.ts",
   "src/registration-report.ts",
   "src/replay.ts",
   "src/review-view.tsx",

@@ -25,7 +25,7 @@ import { structuredPatch } from "diff"
 import { Effect, Layer, Option } from "effect"
 import { createHash } from "node:crypto"
 import { accessSync, constants, lstatSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs"
-import { basename, delimiter, dirname, isAbsolute, join, relative } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import * as Changes from "./changes.ts"
 import type * as Monitors from "./monitors.ts"
 
@@ -134,6 +134,15 @@ export const real = (path: string): string => {
     }
   }
   return cased(head)
+}
+
+/**
+ * `path`, resolved against `cwd` with every symlink followed, relative to the
+ * real workspace root: `""` for the root itself, `undefined` when it lands outside.
+ */
+export const within = (cwd: string, path: string): string | undefined => {
+  const inside = relative(real(resolve(cwd)), real(resolve(cwd, path)))
+  return inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) ? undefined : inside
 }
 
 /** `path` with its existing part spelled as on disk, which a case-insensitive volume need not match. */

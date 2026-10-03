@@ -96,6 +96,37 @@ const settledPending = (grants: GrantStore.Service, count: number) =>
     return yield* Effect.die(new Error(`never reached ${count} pending`))
   })
 
+describe("within", () => {
+  it("names a path inside the workspace relative to its real root, and nothing for one outside", () => {
+    const root = mkdtempSync(join(tmpdir(), "tui-approval-within-"))
+    try {
+      const cwd = join(root, "workspace")
+      mkdirSync(join(cwd, "src"), { recursive: true })
+      mkdirSync(join(root, "outside"))
+      writeFileSync(join(root, "outside", "secret.txt"), "secret")
+      symlinkSync(join(root, "outside"), join(cwd, "out"))
+      symlinkSync(join(cwd, "src"), join(root, "alias"))
+      expect(Approvals.within(cwd, ".")).toBe("")
+      expect(Approvals.within(cwd, "src/math.js")).toBe(join("src", "math.js"))
+      expect(Approvals.within(cwd, join(cwd, "src", "math.js"))).toBe(join("src", "math.js"))
+      // A file whose name starts with two dots is still inside.
+      expect(Approvals.within(cwd, "..hidden")).toBe("..hidden")
+      expect(Approvals.within(cwd, "src/../src/a.js")).toBe(join("src", "a.js"))
+      expect(Approvals.within(cwd, "..")).toBeUndefined()
+      expect(Approvals.within(cwd, "../outside/secret.txt")).toBeUndefined()
+      expect(Approvals.within(cwd, join(root, "outside"))).toBeUndefined()
+      expect(Approvals.within(cwd, "/")).toBeUndefined()
+      // Symlinks are followed both ways: out of the workspace, and into it from outside.
+      expect(Approvals.within(cwd, "out/secret.txt")).toBeUndefined()
+      expect(Approvals.within(cwd, join(root, "alias", "a.js"))).toBe(join("src", "a.js"))
+      // A workspace reached through a symlink is the same workspace.
+      expect(Approvals.within(join(root, "alias"), join(cwd, "src", "a.js"))).toBe("a.js")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("classification", () => {
   it("authorizes the destination reached by a symlink followed by dot-dot", async () => {
     const root = mkdtempSync(join(tmpdir(), "tui-approval-path-"))
