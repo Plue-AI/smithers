@@ -2,6 +2,7 @@
 
 Stage S3 · Size L · Depends on T-COL-03r, T-COL-08b · Unblocks T-COL-08 · Issue: [#3629](https://github.com/smithersai/smithers/issues/3629)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
+Ready: 2026-10-03 smithers-8a sha256:7561ec2d2269
 
 ## Goal
 
