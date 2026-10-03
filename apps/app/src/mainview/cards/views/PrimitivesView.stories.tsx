@@ -1,4 +1,5 @@
-import { ActorChip, type Actor } from "./ActorChip"
+import { fixtures as actorFixtures } from "@smthrs/rpc/fixtures/ActorChip"
+import { ActorChip, actorName, type Actor } from "./ActorChip"
 import { StateWord } from "./StateWord"
 import { toneTokens } from "./Tone"
 import type { ViewStory } from "./stories"
@@ -31,6 +32,10 @@ const actorLabels: Record<string, string> = {
 }
 const states: TodoState[] = ["queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"]
 export const stories: ViewStory[] = [
+  ...Object.entries(actorFixtures).map(([key, fixture]) => ({
+    name: `actor-fixture-${key}`, expect: key === "system" ? ["Smithers"] : key === "outside" ? ["Changed outside Smithers"] : fixture.expect,
+    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip {...fixture.model} /><span>{actorName(fixture.model.actor)}</span></div>,
+  })),
   ...actors.map(([name, actor]) => ({
     name: `actor-${name}`, expect: [actorLabels[name]!],
     render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip actor={actor} size="s" /><ActorChip actor={actor} size="m" live /><span>{actorLabels[name]}</span></div>

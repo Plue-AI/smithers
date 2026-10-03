@@ -1,15 +1,10 @@
 import type { CSSProperties } from "react"
 import { Bot, FolderSync, SquareTerminal } from "lucide-react"
 
-// ui-components v0.4 until engineering's #3601 exports this Actor contract.
-type Member = { login: string; name: string; avatar_url: string; color_index?: number }
-export type Actor = (
-  | ({ kind: "person"; via?: "ssh" | "terminal" | "cli" } & Member)
-  | { kind: "agent"; id: string; agent: "smithers" | "coding" | "reviewer" | "claude-code" | "codex" | "external";
-      avatar_url: string; session_id?: string; run_id?: string; for_member?: Member; name?: string; todo?: number }
-  | { kind: "system" } | { kind: "github"; login: string } | { kind: "outside" }
-) & { color_index: number }
-export type ActorChipProps = { actor: Actor; size: "s" | "m"; live?: boolean }
+import type { Actor } from "@smthrs/rpc/CardPrimitives"
+import type { ActorChipCard } from "@smthrs/rpc/ActorChipCard"
+export type { Actor } from "@smthrs/rpc/CardPrimitives"
+export type ActorChipProps = ActorChipCard
 const first = (name: string) => name.trim().split(/\s+/)[0]
 const agentNames = { smithers: "Smithers", coding: "Coding agent", reviewer: "Reviewer", "claude-code": "Claude Code", codex: "Codex", external: "External agent" }
 export function actorName(actor: Actor): string {
