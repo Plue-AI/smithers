@@ -2,7 +2,6 @@ import { test, expect } from "./browserTest"
 import { fixtures as actorFixtures } from "@smthrs/rpc/fixtures/ActorChip"
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve, join } from "node:path"
-import { cpus, totalmem, platform, arch } from "node:os"
 import { createRequire } from "node:module"
 const require = createRequire(resolve(process.cwd(), "package.json"))
 const axePath = require.resolve("axe-core/axe.min.js")
@@ -397,37 +396,6 @@ test("Flow versions stay local; keyboard actions dispatch once", async ({ page }
   expect(await page.evaluate(() => (window as unknown as { flowReceipts: unknown[] }).flowReceipts)).toEqual([{ kind: "action", value: { tag: "flow.run", args: { name: "todo" } } }])
 })
 
-test("T-UI-11 keyboard gestures preserve cursor, read-only input and hostile content", async ({ page }) => {
-  await page.addInitScript(() => {
-    const calls: unknown[] = []; Object.assign(window, { editorCalls: calls })
-    window.addEventListener('story-callback', event => calls.push((event as CustomEvent).detail))
-  })
-  await page.goto('/view-stories.html?story=CodeEditorView/text')
-  const editor = page.locator('.cm-content')
-  await editor.focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('Control+Space')
-  await page.keyboard.press('F12')
-  expect(await page.evaluate(() => (window as unknown as { editorCalls: unknown[] }).editorCalls)).toEqual([
-    { kind: 'view', value: { line: 1 } },
-    { kind: 'action', value: { tag: 'code.hover', args: { path: 'flows/todo/flow.ts', line: '1', col: '1' } } },
-    { kind: 'action', value: { tag: 'code.definition', args: { path: 'flows/todo/flow.ts', line: '1', col: '1' } } },
-  ])
-  const before = await editor.textContent()
-  await page.keyboard.type('cannot write')
-  await page.keyboard.press('Backspace')
-  expect(await editor.textContent()).toBe(before)
-  await expect(editor).toHaveAttribute('aria-readonly', 'true')
-  await page.goto('/view-stories.html?story=CodeEditorView/no_gestures')
-  await page.locator('.cm-content').focus(); await page.keyboard.press('F12'); await page.keyboard.press('Control+Space')
-  expect(await page.evaluate(() => (window as unknown as { editorCalls: unknown[] }).editorCalls)).toEqual([])
-  await page.goto('/view-stories.html?story=CodeEditorView/hostile')
-  await expect(page.locator('.cm-content')).toContainText('<script>alert("code")</script>')
-  await expect(page.getByRole('tooltip')).toHaveText('<img src=x onerror=alert("hover")>')
-  await expect(page.locator('.code-file-view script, .code-file-view img')).toHaveCount(0)
-  expect(await page.evaluate(() => (window as unknown as { editorCalls: unknown[] }).editorCalls)).toEqual([])
-})
-
 test("T-UI-11 Pierre renders supplied hunks with line numbers and burst Restore", async ({ page }) => {
   // T-UI-11 Tests: literal expectations from the committed Diff fixtures.
   for (const [story, text, numbers] of [
@@ -453,58 +421,6 @@ test("T-UI-11 Pierre renders supplied hunks with line numbers and burst Restore"
   await expect(page.locator('diffs-container script')).toHaveCount(0)
 })
 
-test("T-UI-11 one MiB first painted viewport", async ({ page, browser }) => {
-  await page.addInitScript(() => {
-    new MutationObserver((_, observer) => {
-      if (!document.querySelector('.cm-line')) return
-      observer.disconnect()
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const start = performance.getEntriesByName('view-story-mount')[0]!.startTime
-        document.body.dataset.editorPaintMs = String(performance.now() - start)
-      }))
-    }).observe(document, { childList: true, subtree: true })
-  })
-  await page.goto('/view-stories.html?story=CodeEditorView/one_mib')
-  await expect(page.locator('body')).toHaveAttribute('data-editor-paint-ms', /\d/)
-  const elapsed = Number(await page.locator('body').getAttribute('data-editor-paint-ms'))
-  const receipt = { browser: browser.version(), cpu: cpus()[0]?.model, memory_bytes: totalmem(), platform: platform(), arch: arch(), bytes: 1_048_576, elapsed_ms: elapsed }
-  await mkdir(shots, { recursive: true }); await writeFile(join(shots, 'editor-paint.json'), JSON.stringify(receipt, null, 2))
-  expect(elapsed).toBeLessThan(300)
-})
-
-// T-UI-11 Tests L46: committed language baselines; design approval is a separate receipt.
-test("T-UI-11 five language screenshot comparison", async ({ page }) => {
-  for (const language of ["typescript", "javascript", "go", "rust", "python"]) {
-    for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 800 })
-      await page.goto(`/view-stories.html?story=CodeEditorView/${language}&theme=${theme}`)
-      await page.evaluate(() => document.fonts.ready)
-      await expect(page.locator(".cm-line").first()).toBeVisible()
-      await expect(page.locator("[data-story]")).toHaveScreenshot(`${language}-${theme}-${width}.png`, { animations: "disabled" })
-    }
-  }
-})
-test("T-UI-11 pointer hover dispatches once per position and shows one tooltip", async ({ page }) => {
-  await page.addInitScript(() => {
-    const calls: unknown[] = []; Object.assign(window, { pointerCalls: calls })
-    window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
-  })
-  await page.goto("/view-stories.html?story=CodeEditorView/hover")
-  const line = page.locator(".cm-line").first()
-  const rect = (await line.boundingBox())!
-  await page.keyboard.down("Control")
-  await page.mouse.move(rect.x + 12, rect.y + rect.height / 2)
-  await page.mouse.move(rect.x + 12, rect.y + rect.height / 2)
-  await page.mouse.move(rect.x + 12, rect.y + rect.height / 2)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { pointerCalls: unknown[] }).pointerCalls.length)).toBe(1)
-  await page.keyboard.up("Control")
-  await page.waitForTimeout(500) // CodeMirror's native hover delay; duplicate tooltip regression.
-  await expect(page.getByRole("tooltip")).toHaveCount(1)
-  await page.keyboard.down("Control")
-  await page.mouse.move(rect.x + 30, rect.y + rect.height / 2)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { pointerCalls: unknown[] }).pointerCalls.length)).toBe(2)
-  await page.keyboard.up("Control")
-})
 // T-UI-03 named Draft cases share the same fixture harness and Chromium runner.
 import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"
 for (const [name, fixture] of Object.entries(draftFixtures)) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {

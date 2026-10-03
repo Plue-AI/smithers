@@ -985,8 +985,6 @@ test("Flow failed version without diagnostics has no disclosure", () => {
 })
 
 import { unifiedPatch } from "../DiffSurface"
-import { CodeEditorView } from "./CodeEditorView"
-import { fixtures as files } from "@smthrs/rpc/fixtures/File"
 import { fixtures as diffs } from "@smthrs/rpc/fixtures/Diff"
 // T-UI-11 Changes: literal file headers, context/removal/addition counts, zero ranges.
 test("Diff supplied hunks serialize exact modified, added, deleted and renamed patches", () => {
@@ -996,17 +994,6 @@ test("Diff supplied hunks serialize exact modified, added, deleted and renamed p
   expect(unifiedPatch(diffs.renamed.model)).toBe('diff --git a/flows/todo/flow.ts b/flows/todo-next/flow.ts\nrename from flows/todo/flow.ts\nrename to flows/todo-next/flow.ts\n--- a/flows/todo/flow.ts\n+++ b/flows/todo-next/flow.ts\n')
   expect(unifiedPatch({ ...diffs.item_base.model, path: 'x.ts', hunks: [{ old_start: 0, new_start: 1, lines: [{ op: '+', text: 'one' }] }, { old_start: 4, new_start: 5, lines: [{ op: ' ', text: 'same' }, { op: '-', text: 'old' }] }] })).toBe('diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -0,0 +1,1 @@\n+one\n@@ -4,2 +5,1 @@\n same\n-old\n')
 })
-test("File sizes and supplied GitHub links have no editor", () => {
-  for (const [fixture, bytes, literal] of [[files.binary, 1_200_000, "Binary file · 1.2 MB"], [files.too_large, 4_100_000, "Too large to show · 4.1 MB"]] as const) {
-    const host = render(<CodeEditorView {...fixture} model={{ ...fixture.model, content: fixture.model.content.kind === "binary" ? { kind: "binary", bytes } : { kind: "too_large", bytes, text: "hidden" } }} onAction={() => {}} onView={() => {}} />)
-    expect(host.getAttribute('data-digest') ?? host.querySelector('[data-digest]')!.getAttribute('data-digest')).toBe('sha256:9f2c41')
-    expect(host.querySelector('[data-mode]')!.getAttribute('data-mode')).toBe('read_only')
-    expect(host.querySelector('.code-file-size')!.textContent).toContain(literal)
-    expect(host.querySelector('a')!.getAttribute('href')).toBe(fixture.model.github_url!)
-    expect(host.querySelector('.cm-editor')).toBeNull()
-  }
-})
-
 import { DiffCardSurface } from "../DiffSurface"
 test("Diff Restore binds the supplied burst; removing it leaves no control", () => {
   const calls: unknown[] = []
@@ -1028,11 +1015,6 @@ test("Diff bases, binary sizes and disabled reason render without inventing cont
   act(() => host.querySelector<HTMLButtonElement>('button')!.click())
   expect(calls).toEqual([])
   expect(host.textContent).toContain('Revision changed')
-})
-
-import { fileStories } from "./CodeEditorView.stories"
-test("reference paint fixture is exactly one MiB of UTF-8", () => {
-  expect(new TextEncoder().encode(fileStories.one_mib.model.content.text).byteLength).toBe(1_048_576)
 })
 
 import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"

@@ -108,11 +108,6 @@
       "types": "./src/copy.ts",
       "import": "./src/copy.ts",
       "default": "./src/copy.ts"
-    },
-    "./adapters/code-editor": {
-      "types": "./src/adapters/code-editor/index.tsx",
-      "import": "./src/adapters/code-editor/index.tsx",
-      "default": "./src/adapters/code-editor/index.tsx"
     }
   },
   "files": [
@@ -123,16 +118,6 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@codemirror/autocomplete": "6.20.3",
-    "@codemirror/commands": "6.11.0",
-    "@codemirror/lang-go": "6.0.1",
-    "@codemirror/lang-javascript": "6.2.5",
-    "@codemirror/lang-python": "6.2.1",
-    "@codemirror/lang-rust": "6.0.2",
-    "@codemirror/language": "6.12.4",
-    "@codemirror/lint": "6.9.7",
-    "@codemirror/state": "6.7.2",
-    "@codemirror/view": "6.43.11",
     "@milkdown/crepe": "7.22.1",
     "@milkdown/kit": "7.22.1",
     "@milkdown/plugin-listener": "7.22.1",
@@ -145,10 +130,7 @@
     "d3-force": "3.0.0",
     "effect": "4.0.0-rc.115",
     "radix-ui": "^1.6.7",
-    "recharts": "^3.10.1",
-    "y-codemirror.next": "0.3.6",
-    "yjs": "13.6.32",
-    "@lezer/highlight": "1.2.3"
+    "recharts": "^3.10.1"
   },
   "peerDependencies": {
     "react": "^19.2.8",
