@@ -45,7 +45,7 @@ for (const vcs of ["git", "jj"]) {
       assert.equal(ok(directory, "git", ["ls-tree", "--name-only", "main", ".env"]), "")
       assert.equal(ok(remote, "git", ["for-each-ref", "refs/heads/main"]), "")
       const before = ok(directory, "git", ["rev-parse", "main"])
-      ok(directory, "node", [script, "--push"])
+      ok(directory, "node", [script, "--push", "--test", "true"])
       assert.equal(ok(remote, "git", ["rev-parse", "main"]), before)
       assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
       assert.equal(readFileSync(join(directory, ".env"), "utf8"), "ignored test data\n")
@@ -95,7 +95,7 @@ for (const vcs of ["git", "jj"]) {
         const before = ok(directory, "git", ["rev-parse", "main"])
         const stagedBefore = ok(directory, "git", ["diff", "--cached"])
         const parentBefore = vcs === "jj" ? ok(directory, "jj", ["log", "-r", "@-", "--no-graph", "-T", "commit_id"]) : null
-        const refused = command(directory, process.execPath, [script, "--message", "must not commit", "--push"])
+        const refused = command(directory, process.execPath, [script, "--message", "must not commit", "--push", "--test", "true"])
         assert.notEqual(refused.status, 0)
         assert.match(refused.stderr, finding === "deleted"
           ? /PACKAGE\.ts:1: dangling: paths names "source\.ts", which no tracked file matches/
@@ -115,6 +115,86 @@ for (const vcs of ["git", "jj"]) {
         if (finding === "untracked") rmSync(join(directory, "fresh.ts"))
         ok(directory, process.execPath, [script])
         assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+        rmSync(remote, { recursive: true, force: true })
+      }
+    })
+  }
+}
+
+for (const vcs of ["git", "jj"]) {
+  for (const scenario of ["failure", "pipeline", "missing", "success", "waiver", "rejected", "moved", "repeat"]) {
+    test(`${vcs}: landing gate ${scenario}`, () => {
+      const directory = mkdtempSync(join(tmpdir(), "smithers-landgate-"))
+      const remote = mkdtempSync(join(tmpdir(), "smithers-landgate-remote-"))
+      try {
+        copyHygiene(directory)
+        ok(directory, "git", ["init", "-b", "main"])
+        ok(directory, "git", ["config", "user.name", "Commit test"])
+        ok(directory, "git", ["config", "user.email", "test@example.com"])
+        ok(directory, "git", ["add", "."])
+        ok(directory, "git", ["commit", "-m", "initial"])
+        ok(remote, "git", ["init", "--bare", "-b", "main"])
+        ok(directory, "git", ["remote", "add", "origin", remote])
+        ok(directory, "git", ["push", "origin", "main"])
+        const before = ok(remote, "git", ["rev-parse", "main"])
+        if (vcs === "jj") {
+          ok(directory, "jj", ["git", "init", "--colocate"])
+          ok(directory, "jj", ["config", "set", "--repo", "user.name", "Commit test"])
+          ok(directory, "jj", ["config", "set", "--repo", "user.email", "test@example.com"])
+        }
+        if (vcs === "jj") ok(directory, "jj", ["bookmark", "track", "main", "--remote", "origin"])
+        writeFileSync(join(directory, "change.txt"), "candidate\n")
+        // Advance the actual remote from receive hooks, without a competing checkout.
+        // pre-receive rejects the stale candidate; post-receive removes a pushed
+        // candidate while returning success, exercising the fetched-main check.
+        if (scenario === "rejected" || scenario === "moved") {
+          const hook = scenario === "rejected" ? "pre-receive" : "post-receive"
+          const tree = ok(remote, "git", ["rev-parse", `${before}^{tree}`])
+          writeFileSync(join(remote, "hooks", hook), `#!/bin/sh
+export GIT_AUTHOR_NAME=Remote GIT_AUTHOR_EMAIL=remote@example.com
+export GIT_COMMITTER_NAME=Remote GIT_COMMITTER_EMAIL=remote@example.com
+unset GIT_QUARANTINE_PATH
+other=$(echo moved | git commit-tree ${tree} -p ${before})
+git update-ref refs/heads/main "$other"
+${scenario === "rejected" ? "exit 1" : ""}
+`, { mode: 0o755 })
+        }
+        const testArgs = scenario === "missing" ? [] :
+          scenario === "waiver" ? ["--no-test", "manual recovery"] :
+          scenario === "failure" ? ["--test", "exit 7"] :
+          scenario === "pipeline" ? ["--test", "false | cat"] :
+          scenario === "repeat" ? ["--test", "true", "--test", "exit 8"] :
+          ["--test", "true", "--test", "printf passed"]
+        const result = command(directory, process.execPath, [script, "--push", ...testArgs])
+        if (["success", "waiver"].includes(scenario)) {
+          assert.equal(result.status, 0, result.stderr)
+          const sha = ok(remote, "git", ["rev-parse", "main"])
+          assert.match(result.stdout, new RegExp(`LANDED ${sha}(?:\\n|$)`))
+          assert.equal(ok(directory, "git", ["rev-parse", "refs/remotes/origin/main"]), sha)
+          assert.match(ok(remote, "git", ["log", "-1", "--format=%B"]), scenario === "waiver"
+            ? /Landing-Tests: none \(manual recovery\)/
+            : /Landing-Tests: true; printf passed/)
+        } else {
+          assert.notEqual(result.status, 0)
+          assert.match(result.stderr, /NOT LANDED/)
+          assert.doesNotMatch(result.stdout, /^LANDED /m)
+          if (["failure", "pipeline", "repeat"].includes(scenario)) {
+            assert.match(result.stderr, /Test command failed:/)
+            assert.match(result.stderr, scenario === "pipeline" ? /false \| cat/ : scenario === "repeat" ? /exit 8/ : /exit 7/)
+          }
+          if (scenario === "missing") assert.match(result.stderr, /--test/)
+          if (["rejected", "moved"].includes(scenario)) {
+            assert.notEqual(ok(remote, "git", ["rev-parse", "main"]), before)
+            if (scenario === "moved") assert.equal(ok(directory, "git", ["rev-parse", "refs/remotes/origin/main"]), ok(remote, "git", ["rev-parse", "main"]))
+          } else {
+            assert.equal(ok(remote, "git", ["rev-parse", "main"]), before)
+            assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
+            assert.equal(ok(directory, "git", ["diff", "--cached"]), "")
+            if (vcs === "jj") assert.equal(ok(directory, "jj", ["log", "-r", "@-", "--no-graph", "-T", "commit_id"]), before)
+          }
+        }
       } finally {
         rmSync(directory, { recursive: true, force: true })
         rmSync(remote, { recursive: true, force: true })

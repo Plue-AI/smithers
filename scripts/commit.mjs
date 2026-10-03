@@ -9,14 +9,25 @@ import { dirname, join } from "node:path"
 const args = process.argv.slice(2)
 let message = "chore: checkpoint shared working tree"
 let push = false
+const tests = []
+let noTest
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--help") {
-    console.log("Usage: pnpm commit [--message <message>] [--push]\nCommits ALL nonignored edits, including other contributors' work, on main.\nUses jj when available in this checkout, otherwise Git. --push publishes main to origin.\nAfter validation and pushing, use pnpm deploy to publish production.")
+    console.log("Usage: pnpm commit [--message <message>] [--push] [--test <command> ... | --no-test <reason>]\nCommits ALL nonignored edits, including other contributors' work, on main.\nUses jj when available in this checkout, otherwise Git. --push publishes main to origin.\nAfter validation and pushing, use pnpm deploy to publish production.")
     process.exit(0)
   } else if (args[i] === "--push") push = true
+  else if (args[i] === "--test" && args[i + 1]?.trim()) tests.push(args[++i])
+  else if (args[i] === "--no-test" && args[i + 1]?.trim() && !/[\r\n]/.test(args[i + 1])) noTest = args[++i]
   else if ((args[i] === "--message" || args[i] === "-m") && args[i + 1]?.trim()) message = args[++i]
   else throw new Error(`Unknown or incomplete argument: ${args[i]}`)
 }
+
+if (tests.length && noTest) throw new Error("--test and --no-test are mutually exclusive.")
+if (push && !tests.length && !noTest) {
+  console.error("NOT LANDED: --push requires --test <command> or --no-test <reason>.")
+  process.exit(1)
+}
+if (tests.length || noTest) message += `\n\nLanding-Tests: ${noTest ? `none (${noTest})` : tests.join("; ")}`
 
 let root = realpathSync(process.cwd())
 while (!existsSync(join(root, ".jj")) && !existsSync(join(root, ".git"))) {
@@ -39,6 +50,10 @@ try { mkdirSync(lock) } catch (error) {
   throw error
 }
 try {
+  for (const command of tests) {
+    const result = spawnSync("bash", ["-o", "pipefail", "-c", command], { cwd: root, stdio: "inherit" })
+    if (result.error || result.status !== 0) throw new Error(`Test command failed: ${command} (${result.error?.message ?? result.status})`)
+  }
   run(process.execPath, ["scripts/check-tracked-hygiene.mjs", "--include-untracked"], true)
   if (existsSync(join(root, ".jj"))) {
     const eligible = run("jj", ["log", "-r", "main & (@ | @-)", "--no-graph", "-T", "commit_id"], true)
@@ -48,7 +63,13 @@ try {
       run("jj", ["commit", "-m", message])
       run("jj", ["bookmark", "set", "main", "-r", "@-"])
     } else console.log("No uncommitted changes.")
-    if (push) run("jj", ["git", "push", "--remote", "origin", "-b", "main"])
+    if (push) {
+      const sha = run("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"], true)
+      run("jj", ["git", "push", "--remote", "origin", "-b", "main"])
+      run("jj", ["git", "fetch", "--remote", "origin"])
+      if (!run("jj", ["log", "-r", `${sha} & ::main@origin`, "--no-graph", "-T", "commit_id"], true)) throw new Error("remote main moved; pushed commit is absent")
+      console.log(`LANDED ${sha}`)
+    }
     console.log(`main: ${run("jj", ["log", "-r", "main", "--no-graph", "-T", "commit_id"], true)}`)
   } else {
     if (run("git", ["branch", "--show-current"], true) !== "main") throw new Error("The shared checkout must be on main.")
@@ -57,7 +78,20 @@ try {
       run("git", ["add", "--all"])
       run("git", ["commit", "-m", message])
     } else console.log("No uncommitted changes.")
-    if (push) run("git", ["push", "origin", "main"])
+    if (push) {
+      const sha = run("git", ["rev-parse", "main"], true)
+      run("git", ["push", "origin", "main"])
+      run("git", ["fetch", "origin", "+refs/heads/main:refs/remotes/origin/main"])
+      try {
+        run("git", ["merge-base", "--is-ancestor", sha, "refs/remotes/origin/main"], true)
+      } catch (error) {
+        throw new Error(`remote main moved or ancestry verification failed: ${error.message}`)
+      }
+      console.log(`LANDED ${sha}`)
+    }
     console.log(`main: ${run("git", ["rev-parse", "main"], true)}`)
   }
+} catch (error) {
+  console.error(`${push ? "NOT LANDED: " : ""}${error.message}`)
+  process.exitCode = 1
 } finally { rmSync(lock, { recursive: true, force: true }) }

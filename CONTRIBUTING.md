@@ -332,7 +332,12 @@ PR onto append-only `main`. Preserve unrelated edits in a shared checkout.
 
 The legacy `pnpm commit` / `//:commit` helper still snapshots every nonignored
 edit and can push directly to `main`. It does not implement the current stack
-policy and is not the landing path for this repository.
+policy and is not the landing path for this repository. For authorized bootstrap use,
+pass `pnpm commit --push --test "<command>"` (repeat `--test` for each gate).
+The helper runs tests with pipefail before any VCS mutation and records
+`Landing-Tests` in the commit. An explicit `--no-test "<reason>"` exception
+records its reason instead. Require exit zero and `LANDED <sha>`: that receipt
+requires a post-push fetch and ancestry verification against remote main.
 
 Deployment is a separate Cloud operation against the landed revision. Retain
 the deployment receipt and compare `/__build.json` with that revision before
