@@ -35,7 +35,12 @@ recorded cards; view models do not replace that history decoder.
 | FlowCard           | FlowCardSchema, FlowCard                     | Source, versions, step agents and merge-wait signals                      |
 | MonitorCard        | MonitorCardSchema, MonitorCard               | Attempts, step instances, phases, cells, waits, journal and replay        |
 | AgentCard          | AgentCardSchema, AgentCard                   | Instructions, model role and choices, and runs it took part in            |
+| BranchCard         | BranchCardSchema, BranchCard                 | Machine, item or scratch, rebase, presence, terminals and activity        |
+| TerminalCard       | TerminalCardSchema, TerminalCard             | Owner, agents, watchers, command and frozen state                         |
 | SecretsCard        | SecretsCardSchema, SecretsCard               | Secret names, scopes, bound hosts and row actions; no values              |
+| DocsCard           | DocsCardSchema, DocsCard                     | Bundled table of contents, page, anchor and not-found state               |
+| DebugApiCard       | DebugApiCardSchema, DebugApiCard             | API operations, the selection, a pending mutation and the exchange        |
+| ProposalCard       | ProposalCardSchema, ProposalCard             | Evidence, references, state and the TODO it became                        |
 
 Each module also exports its View's props type, such as `TodoViewProps` or
 `CodeEditorViewProps`, and any card-specific view state, such as `FileView`,
