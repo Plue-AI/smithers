@@ -1,4 +1,3 @@
-import * as Flow from "@smthrs/core/Flow"
 import * as Binding from "@smthrs/scorers/Binding"
 import * as Scorer from "@smthrs/scorers/Scorer"
 import * as Effect from "effect/Effect"
@@ -11,7 +10,7 @@ import * as Suite from "../src/Suite.ts"
 const failure = (effect: Effect.Effect<unknown, EvalError>): Promise<EvalError> =>
   Effect.runPromise(Effect.flip(effect))
 
-const target = Flow.make({ name: "suite-target" })
+const target = { name: "suite-target" }
 const scorer = Scorer.make({
   id: "packages/smithers/agent/evals/test/Suite/exact",
   version: "1",

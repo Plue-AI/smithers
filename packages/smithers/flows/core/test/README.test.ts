@@ -39,7 +39,7 @@ describe("README public API table", () => {
     }
     expect(declarations).toBe(8)
     const source = readFileSync(new URL("../src/Flow.ts", import.meta.url), "utf8")
-    expect(source).toMatch(/@deprecated[\s\S]*?@smthrs\/flow[\s\S]*?export const make =/)
+    expect(source).not.toMatch(/export (?:const make|.*\bMakeOptions\b)/)
   })
 
   it("has one row per namespace and lists every runtime export", () => {

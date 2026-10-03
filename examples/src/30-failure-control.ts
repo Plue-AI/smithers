@@ -10,7 +10,8 @@
  * escalating fixer, a saga that unwinds a half-finished deploy, and a lock the
  * finalizer always releases.
  */
-import { Flow, Node } from "@smthrs/core"
+import { Node } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 import { Graph } from "@smthrs/flow"
 import { Bounded, Escalation, PatternError, Quarantine, Saga, TryCatchFinally } from "@smthrs/patterns"
 import * as Effect from "effect/Effect"
@@ -23,10 +24,9 @@ export class Rejected extends Schema.TaggedError<Rejected>()("examples/Rejected"
 
 /** A declared call that echoes its own name, so a built graph can name it. */
 const call = (name: string) =>
-  Flow.make({
-    name,
-    input: Schema.Unknown,
-    output: Schema.Unknown,
+  Flow.make(name, {
+    payload: { input: Schema.Unknown },
+    success: Schema.Unknown,
     body: Node.capture({ name }, () => Node.succeed({ from: name }))
   })
 

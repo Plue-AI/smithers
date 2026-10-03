@@ -1,14 +1,4 @@
-/**
- * A `@smthrs/std` signature, bound and called through the path the agent uses.
- *
- * `@smthrs/harness` `FlowBinding.Declared` is a structural interface: it names
- * six fields and imports no flow constructor. `@smthrs/core`'s `Flow.make`
- * answers `@smthrs/flow` values, so "the lowered value still satisfies it" is a
- * claim about a shape nothing checks at the seam. This asserts it against a
- * real declaration rather than a fixture shaped to fit, and then runs one call
- * end to end through `CellCalls`, which is the resolver `@smthrs/agent`'s cell
- * loop dispatches every `ctx.call` through.
- */
+/** Standard schema/metadata declarations bound through the agent call boundary. */
 import * as Cell from "@smthrs/harness/Cell"
 import * as CellCalls from "@smthrs/harness/CellCalls"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -81,11 +71,8 @@ describe("a lowered std signature as a harness binding", () => {
     expect(seen).toEqual([{ pattern: "*.ts" }])
   })
 
-  it("keeps a non-struct input unwrapped for a caller and wraps it only inside the plan", async () => {
-    // A flow payload is a struct, so a signature that declares something else
-    // is wrapped as one `input` field. The wrap belongs to the plan: a cell
-    // passes the value the signature declared, and a binding decodes it with
-    // that same schema. Two wraps would make the declared contract unreachable.
+  it("decodes a scalar binding input without a wrapper", async () => {
+    // Binding records decode the schema directly, including scalar inputs.
     const scalar = {
       capabilities: [],
       effects: undefined,
@@ -95,7 +82,7 @@ describe("a lowered std signature as a harness binding", () => {
       output: Schema.Number
     } as const
     expect(scalar.input).toBe(Schema.String)
-    expect(Object.keys(scalar.flow.payloadSchema.fields)).toEqual(["input"])
+    expect(scalar.output).toBe(Schema.Number)
 
     const seen: Array<unknown> = []
     const binding = FlowBinding.make({

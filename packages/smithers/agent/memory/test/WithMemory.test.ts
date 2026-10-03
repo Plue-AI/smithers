@@ -1,5 +1,7 @@
 import * as Annotations from "@smthrs/core/Annotations"
+import * as CoreFlow from "@smthrs/core/Flow"
 import * as Graph from "@smthrs/core/Graph"
+import * as Markdown from "@smthrs/core/Markdown"
 import * as Node from "@smthrs/core/Node"
 import * as Placement from "@smthrs/core/Placement"
 import { Action, Flow } from "@smthrs/flow"
@@ -56,6 +58,20 @@ const remembered = (bank: string, key: string, text: string) =>
     }))
 
 describe("WithMemory", () => {
+  it("inherits policy through retained Markdown signatures without dropping metadata", () => {
+    const child = Markdown.lowerMarkdown({ name: "child" }, "Child prompt")
+    const parent = CoreFlow.withFlows(Markdown.lowerMarkdown({ name: "parent" }, "Parent prompt"), [child, "named"])
+    const scoped = WithMemory.withMemory(parent, policy)
+    expect(scoped.input).toBe(parent.input)
+    expect(scoped.output).toBe(parent.output)
+    expect(scoped.prompt).toBe("Parent prompt")
+    expect(WithMemory.policyOf(scoped)).toEqual(policy)
+    expect(WithMemory.references(scoped)[1]).toBe("named")
+    expect(WithMemory.policyOf(WithMemory.children(scoped)[0]!)).toEqual(policy)
+    expect(WithMemory.policyOf(child)).toBeUndefined()
+    expect(WithMemory.policyOf(parent)).toBeUndefined()
+  })
+
   it("shares declared banks and refuses a mixed private-bank request before IO", async () => {
     const shared = { ...policy, banks: ["global-team", "project-demo"] }
     let reads = 0

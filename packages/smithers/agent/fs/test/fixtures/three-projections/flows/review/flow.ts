@@ -1,4 +1,5 @@
-import { Flow, Node } from "@smthrs/flow"
+import * as Node from "@smthrs/core/Node"
+import { Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
 export default Flow.make("review", {

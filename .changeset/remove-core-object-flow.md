@@ -6,6 +6,7 @@
 "@smthrs/scorers": major
 "@smthrs/fs": major
 "@smthrs/evals": major
+"@smthrs/registry": major
 ---
 
 Remove `Flow.make(options)` and `Flow.MakeOptions`. Define executable flows with

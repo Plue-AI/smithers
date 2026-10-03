@@ -12,6 +12,22 @@ const errorOf = async (effect: Effect.Effect<unknown, unknown>): Promise<any> =>
 }
 
 describe("Route boundary", () => {
+  it("loads a canonical tagged flow and projects its schemas", async () => {
+    const modulePath = new URL("./fixtures/three-projections/flows/review/flow.ts", import.meta.url).pathname
+    const loaded = await Effect.runPromise(Route.load(makeRoute("review", modulePath)))
+    expect(loaded.name).toBe("review")
+    expect(loaded.description).toBeUndefined()
+    const { Schema } = await import("effect")
+    const { default: canonical } = await import("./fixtures/three-projections/flows/review/flow.ts")
+    expect(loaded.input).toBe(canonical.payloadSchema)
+    expect(loaded.output).toBe(canonical.successSchema)
+    expect(Schema.decodeUnknownSync(canonical.payloadSchema)({ number: 7 })).toEqual({ number: 7 })
+    expect(Schema.decodeUnknownSync(canonical.successSchema)({ accepted: true, number: 7 })).toEqual({
+      accepted: true,
+      number: 7
+    })
+  })
+
   it("copies and freezes complete route metadata", async () => {
     const source = makeRoute("review", visibleModule, {
       capabilities: ["fs:read:**"],

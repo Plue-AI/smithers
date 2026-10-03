@@ -378,7 +378,7 @@ const exportMissing = (): FsError => loadFailed("The selected flow module has no
  */
 export const load = (
   input: Route
-): Effect.Effect<Pick<Flow.Any, "name" | "description" | "input" | "output">, FsError> =>
+): Effect.Effect<(Pick<Flow.Any, "name" | "input" | "output"> & Partial<Pick<Flow.Any, "description">>), FsError> =>
   Effect.gen(function*() {
     const route = yield* snapshot(input)
     if (route.kind !== "module") {
@@ -407,5 +407,5 @@ export const load = (
       !("input" in module.default) || !Schema.isSchema(module.default.input) ||
       !("output" in module.default) || !Schema.isSchema(module.default.output)
     ) return yield* Effect.fail(exportMissing())
-    return module.default as Pick<Flow.Any, "name" | "description" | "input" | "output">
+    return module.default as (Pick<Flow.Any, "name" | "input" | "output"> & Partial<Pick<Flow.Any, "description">>)
   })

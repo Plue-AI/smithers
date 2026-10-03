@@ -3,7 +3,6 @@
  * declaration with its handler, the shared payload schemas, and the controller
  * surface a handler acts on. Flows.ts re-exports the public half.
  */
-import * as Flow from "@smthrs/core/Flow"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Schema } from "effect"
@@ -147,7 +146,7 @@ export const flow = <I extends OperationPayload>(declaration: Declaration<I>): F
     // or agent catalog disclosure, not to paint the human's command names.
     get binding() {
       return binding ??= FlowBinding.make({
-        flow: Flow.make({
+        flow: ({ capabilities: [], effects: undefined,
           name,
           description: described,
           input,

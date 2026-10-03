@@ -1,4 +1,3 @@
-import * as Flow from "@smthrs/core/Flow"
 import * as Cell from "@smthrs/harness/Cell"
 import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { Effect, Schema } from "effect"
@@ -13,7 +12,7 @@ import {
 import type { FlowEntry } from "./registry"
 
 const input = Schema.Struct({})
-const declaration = Flow.make({
+const declaration = ({ capabilities: [], effects: undefined,
   name: STORAGE_RECOVERY_EXPORT,
   description: "Prepare a private local recovery download",
   input,
@@ -40,7 +39,7 @@ export const storageRecoveryExportFlow = (run: () => Promise<string | void>): Fl
   }
 })
 
-const resetDeclaration = Flow.make({
+const resetDeclaration = ({ capabilities: [], effects: undefined,
   name: STORAGE_RECOVERY_RESET,
   description: "Erase this browser's saved Smithers data and reload",
   input,

@@ -61,7 +61,7 @@ export interface CommandSurface {
 
 interface Prepared {
   readonly route: Route.Route
-  readonly flow: Pick<Flow.Any, "name" | "description" | "input" | "output">
+  readonly flow: Pick<Flow.Any, "name" | "input" | "output"> & Partial<Pick<Flow.Any, "description">>
   readonly argv: ReadonlyArray<string>
   readonly input: unknown
 }
@@ -135,7 +135,7 @@ export const make = (routes: ReadonlyArray<Route.Route>): Effect.Effect<CommandS
 
     const invoke = (
       route: Route.Route,
-      flow: Pick<Flow.Any, "name" | "description" | "input" | "output">,
+      flow: Pick<Flow.Any, "name" | "input" | "output"> & Partial<Pick<Flow.Any, "description">>,
       input: unknown
     ): Effect.Effect<unknown, FsError, FlowInvoker.FlowInvoker> =>
       Effect.gen(function*() {

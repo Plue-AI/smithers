@@ -260,7 +260,7 @@ The model lives in [`@smthrs/plan`](/api/plan#effects), the lowest package this
 one and the library that executes a flow both depend on. `@smthrs/core/Effects`
 re-exports it and adds nothing, so a declaration narrowed here and a declaration
 narrowed by `@smthrs/flow` are narrowed by the same rule. The plan reference
-documents `Declaration`, `make`, `covers`, `narrow`,
+documents `Declaration`, `MakeOptions`, `make`, `covers`, `narrow`,
 `NarrowResult`, `overlaps`, `sealed`, and the prepared matching API `Graph.build`
 uses.
 
