@@ -27,6 +27,59 @@ const harness = (project?: (topic: string, previous: unknown, delta: unknown) =>
 }
 
 describe("live channel", () => {
+  // T-COL-08 Scope In: unavailable real-stack providers must fail closed.
+  test("dark code documents refuse without opening a socket or sending a subscription", () => {
+    const { channel, sockets, timers } = harness()
+    let notified = 0
+    const release = channel.subscribe("doc:code:12:retry.ts", () => notified++)
+    expect(channel.getSnapshot("doc:code:12:retry.ts")).toEqual({ topic: "doc:code:12:retry.ts", error: "unsupported" })
+    expect(channel.collection.get("doc:code:12:retry.ts")?.error).toBe("unsupported")
+    expect(notified).toBe(1)
+    expect(sockets).toHaveLength(0)
+    expect(timers).toHaveLength(0)
+    release(); release()
+    expect(channel.getSnapshot("doc:code:12:retry.ts")).toBeUndefined()
+    expect(channel.collection.has("doc:code:12:retry.ts")).toBe(false)
+    channel.dispose()
+  })
+  test("dark documents never subscribe on a shared socket or reconnect and do not keep it alive", () => {
+    const { channel, sockets, timers } = harness()
+    const releaseDoc = channel.subscribe("doc:code:12:retry.ts", () => {})
+    const releaseHome = channel.subscribe("home", () => {})
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 1, data: "premature document" })
+    sockets[0]!.receive({ t: "gap", id: 1 })
+    expect(channel.getSnapshot("doc:code:12:retry.ts")?.error).toBe("unsupported")
+    expect(channel.getSnapshot("doc:code:12:retry.ts")?.data).toBeUndefined()
+    expect(sockets[0]!.frames).toEqual([{ t: "sub", id: 2, topic: "home" }])
+    sockets[0]!.drop(); timers[0]!.run(); sockets[1]!.open()
+    expect(sockets[1]!.frames).toEqual([{ t: "sub", id: 2, topic: "home" }])
+    releaseHome()
+    expect(sockets[1]!.closed).toBe(true)
+    releaseDoc()
+    expect(sockets[1]!.frames).toEqual([{ t: "sub", id: 2, topic: "home" }, { t: "unsub", id: 2 }])
+    channel.dispose()
+  })
+  test("a code document opened on an active connection stays refused for every reader", () => {
+    const { channel, sockets } = harness()
+    channel.subscribe("home", () => {})
+    sockets[0]!.open()
+    let notifications = 0
+    const listener = () => notifications++
+    const first = channel.subscribe("doc:code:12:retry.ts", listener)
+    const held = channel.getSnapshot("doc:code:12:retry.ts")
+    const second = channel.subscribe("doc:code:12:retry.ts", listener)
+    expect(channel.getSnapshot("doc:code:12:retry.ts")).toBe(held)
+    expect(notifications).toBe(1)
+    expect(sockets[0]!.frames).toEqual([{ t: "sub", id: 1, topic: "home" }])
+    first(); first()
+    expect(channel.getSnapshot("doc:code:12:retry.ts")?.error).toBe("unsupported")
+    second()
+    expect(channel.getSnapshot("doc:code:12:retry.ts")).toBeUndefined()
+    expect(sockets[0]!.closed).toBe(false)
+    channel.dispose()
+    expect(() => channel.subscribe("doc:code:12:retry.ts", listener)).toThrow("disposed")
+  })
   test("two Container subscriptions share one socket and one topic; last release unsubscribes", () => {
     const { channel, sockets } = harness()
     let first = 0, second = 0

@@ -23,6 +23,8 @@ export interface LiveChannelOptions {
   project?: (topic: string, previous: unknown, delta: unknown) => unknown
 }
 
+const isDarkTopic = (topic: string): boolean => topic.startsWith("doc:code:")
+
 /** One transport, reference-counted topics, and committed projection rows. */
 export class LiveChannel {
   readonly collection = createCollection(localOnlyCollectionOptions({
@@ -54,25 +56,31 @@ export class LiveChannel {
     // Each subscription owns a distinct token, even when callbacks are identical.
     const notify = () => listener()
     entry.listeners.add(notify)
-    this.connect()
+    // T-COL-08: no code-document transport until the real providers and checks
+    // are connected. This replaces speculative subscription with a refusal.
+    if (isDarkTopic(topic)) {
+      if (entry.snapshot.error !== "unsupported") this.publish(topic, entry, { topic, error: "unsupported" })
+    } else this.connect()
     let released = false
     return () => {
       if (released) return
       released = true
       entry.listeners.delete(notify)
       if (entry.listeners.size) return
-      if (this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
+      if (!isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
       this.topics.delete(topic)
       if (this.collection.has(topic)) this.collection.delete(topic)
-      if (!this.topics.size) this.disconnect()
+      if (!this.hasTransportTopics()) this.disconnect()
     }
   }
   private send(frame: unknown) { this.socket?.send(JSON.stringify(frame)) }
   private sub(topic: string, entry: { id: number; snapshot: TopicSnapshot; awaitingSnapshot: boolean }) {
+    if (isDarkTopic(topic)) return
     this.send({ t: "sub", id: entry.id, topic, ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
   }
+  private hasTransportTopics() { return [...this.topics.keys()].some(topic => !isDarkTopic(topic)) }
   private connect() {
-    if (this.socket || this.timer !== undefined || !this.topics.size || this.disposed) return
+    if (this.socket || this.timer !== undefined || !this.hasTransportTopics() || this.disposed) return
     try {
       const socket = this.options.socket?.() ?? new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`, "smithers.live.v1") as unknown as LiveSocket
       this.socket = socket
@@ -90,7 +98,7 @@ export class LiveChannel {
     } catch { this.retry() }
   }
   private retry() {
-    if (!this.topics.size || this.disposed) return
+    if (!this.hasTransportTopics() || this.disposed) return
     const cap = Math.min(5000, 250 * 2 ** Math.min(this.attempt++, 5))
     const delay = Math.max(250, Math.min(5000, cap * (0.5 + (this.options.random ?? Math.random)() / 2)))
     this.timer = (this.options.schedule ?? setTimeout)(() => { this.timer = undefined; this.connect() }, delay)
@@ -103,6 +111,7 @@ export class LiveChannel {
     const pair = [...this.topics].find(([, entry]) => entry.id === frame.id)
     if (!pair) return
     const [topic, entry] = pair
+    if (isDarkTopic(topic)) return
     if (frame.t === "gap") {
       entry.awaitingSnapshot = true
       this.send({ t: "sub", id: entry.id, topic })
