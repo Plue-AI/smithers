@@ -25,11 +25,6 @@ const testSupport = "published test support: its failure fails the caller's test
 /** Reviewed files, with the number of raw sites each keeps and why. */
 const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string]> = [
   ["database/src/test/TestDatabase.ts", 1, testSupport],
-  [
-    "engine-store/src/DurableEngineState.ts",
-    4,
-    "two invariant defects; two JSON codec failures made defects by Effect.orDie"
-  ],
   ["engine-store/src/PlanScheduler.ts", 1, invariantDefect],
   ["engine-store/src/StepBoundary.ts", 3, wrappedCause],
   ["engine-store/src/internal/ActionPersistence.ts", 1, invariantDefect],

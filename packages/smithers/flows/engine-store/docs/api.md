@@ -333,6 +333,16 @@ the memory twin holds for the SQL one. See
 
 Full model: [Durable waits](./concepts/durable-waits.md).
 
+### EngineStateFault
+
+`DurableEngineState.EngineStateFault` is a tagged defect with optional `field`
+and `cause`. JSON encoding and decoding failures use `value_not_serializable`
+and `value_not_decodable`; `field` identifies the value or column.
+`deferred_completion_missing` and `run_parent_edge_missing` identify missing
+first-writer transaction rows. The tag is
+`@smthrs/engine-store/EngineStateFault`; these remain defects, not recoverable
+failures in the service error channel.
+
 ## StepBoundary
 
 [src/StepBoundary.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/StepBoundary.ts)
@@ -1072,6 +1082,12 @@ are excluded before the bounded candidate window, so protected history cannot
 starve collection of unrelated terminal runs.
 
 ## ExecutionSnapshot
+
+Execution snapshot reads validate the batch source and safe non-negative revisions,
+return exactly one row per requested ID in request order (including duplicates),
+and require every row to share the batch source and have a revision no greater
+than the batch watermark. Incoherent batches fail with `RunStoreError` and
+`persistence_failed`; malformed stored fields retain `decode_failed`.
 
 The engine-owned read port, exported from the root and
 `@smthrs/engine-store/ExecutionSnapshot`. Its `make()` and `layer` require

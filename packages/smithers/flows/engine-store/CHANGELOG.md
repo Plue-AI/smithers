@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Durable engine-state JSON codec and missing first-writer row defects now
+  expose `EngineStateFault` with typed reasons, optional field, and cause.
+
 - Cache replay and workspace copy-back confine to a Windows drive root instead
   of failing with `host_unavailable`. Breaking: `StepBoundary.makeFileSystem`
   and `WorkspaceSandbox.makeFileSystem` take the host `Path` after `fs`, and

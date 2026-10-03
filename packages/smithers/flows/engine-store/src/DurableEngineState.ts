@@ -407,6 +407,45 @@ export class RunParentCycleError extends Schema.TaggedError<RunParentCycleError>
 ) {}
 
 /**
+ * A durable engine-state invariant broke: a defect (a bug), never a typed
+ * failure.
+ *
+ * `value_not_serializable` and `value_not_decodable` name the JSON column
+ * (`field`) whose value could not be written or read back.
+ * `deferred_completion_missing` and `run_parent_edge_missing` mean a row a
+ * first-writer transaction just lost to was gone when read.
+ *
+ * @since 1.0.0
+ * @category errors
+ */
+export class EngineStateFault extends Schema.TaggedError<EngineStateFault>()(
+  "@smthrs/engine-store/EngineStateFault",
+  {
+    reason: Schema.Literals([
+      "value_not_serializable",
+      "value_not_decodable",
+      "deferred_completion_missing",
+      "run_parent_edge_missing"
+    ]),
+    field: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect())
+  }
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "value_not_serializable":
+        return `${this.field} must be JSON-serializable`
+      case "value_not_decodable":
+        return `could not decode ${this.field}`
+      case "deferred_completion_missing":
+        return "deferred completion disappeared during first-writer transaction"
+      case "run_parent_edge_missing":
+        return "run parent edge disappeared during first-writer transaction"
+    }
+  }
+}
+
+/**
  * Result of recording a durable parent edge (idempotent).
  *
  * @since 0.1.0
@@ -844,13 +883,13 @@ const memoryDigest = (row: DeferredRow): Effect.Effect<DeferredDigest> =>
 
 const encodeJson = (value: unknown, field: string): Effect.Effect<string> =>
   Schema.encodeEffect(UnknownFromJsonString)(value).pipe(
-    Effect.mapError((cause) => new Error(`${field} must be JSON-serializable`, { cause })),
+    Effect.mapError((cause) => new EngineStateFault({ reason: "value_not_serializable", field, cause })),
     Effect.orDie
   )
 
 const decodeJson = (value: string, field: string): Effect.Effect<unknown> =>
   Schema.decodeUnknownEffect(UnknownFromJsonString)(value).pipe(
-    Effect.mapError((cause) => new Error(`could not decode ${field}`, { cause })),
+    Effect.mapError((cause) => new EngineStateFault({ reason: "value_not_decodable", field, cause })),
     Effect.orDie
   )
 
@@ -1165,9 +1204,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
           }
           const existing = yield* selectDeferred(row)
           if (existing[0] === undefined) {
-            return yield* Effect.die(
-              new Error("deferred completion disappeared during first-writer transaction")
-            )
+            return yield* Effect.die(new EngineStateFault({ reason: "deferred_completion_missing" }))
           }
           return {
             _tag: "Existing" as const,
@@ -1829,9 +1866,7 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
         }
         const existing = yield* selectRunParent(childId, parentId)
         if (existing[0] === undefined) {
-          return yield* Effect.die(
-            new Error("run parent edge disappeared during first-writer transaction")
-          )
+          return yield* Effect.die(new EngineStateFault({ reason: "run_parent_edge_missing" }))
         }
         return {
           _tag: "Existing" as const,
