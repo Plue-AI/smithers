@@ -29,10 +29,10 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
 
 ## Claim it
 
-Until it has an owner, the app prints a setup URL to its output:
+Until it has an owner, the app prints one JSON line with loopback and stored public-origin setup URLs:
 
 ```text
-Setup URL: http://localhost:4000/setup?token=…
+{"setup_urls":["http://localhost:4000/setup?token=…"]}
 ```
 
 Read it with `docker logs smithers`. Open that URL and sign in with GitHub; that account becomes the owner. The token works once. Anyone who signs in later must be on the install's roster.

@@ -9,8 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -19,45 +23,104 @@ import (
 // token's digest (spec §5.1.0). The raw token is never stored.
 const setupTokenKey = "setup_token"
 
+// InstallPublicOriginsKey holds the JSON array shared with address settings (T-INS-04).
+const InstallPublicOriginsKey = "public_origins"
+
 type setupTokenSetting struct {
 	Digest string `json:"digest"`
 }
 
-// SetupTokenQuerier stores the setup token's digest.
-type SetupTokenQuerier interface {
-	InstallHasOwner(ctx context.Context) (bool, error)
-	PutInstallSetting(ctx context.Context, arg db.PutInstallSettingParams) error
-	DeleteInstallSetting(ctx context.Context, key string) (int64, error)
+// installSetupOwnerLockID serializes token rotation, terminal emission and claim.
+const installSetupOwnerLockID int64 = 0x534d544853455455
+
+type setupTokenBeginner interface {
+	Begin(context.Context) (pgx.Tx, error)
 }
 
-// MintSetupToken gives an install without an owner a fresh one-time setup
-// token and stores only its digest, replacing any earlier one: the raw value
-// is shown once, so a restart before the claim issues a new token. Once an
-// owner exists no token exists, and MintSetupToken returns "".
-func MintSetupToken(ctx context.Context, queries SetupTokenQuerier) (string, error) {
-	hasOwner, err := queries.InstallHasOwner(ctx)
-	if err != nil {
-		return "", fmt.Errorf("read install owner: %w", err)
-	}
-	if hasOwner {
-		if _, err := queries.DeleteInstallSetting(ctx, setupTokenKey); err != nil {
-			return "", fmt.Errorf("delete setup token: %w", err)
+// MintSetupToken commits a fresh digest only while the install is unclaimed.
+func MintSetupToken(ctx context.Context, pool setupTokenBeginner) (string, error) {
+	var token string
+	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", installSetupOwnerLockID); err != nil {
+			return err
 		}
-		return "", nil
-	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate setup token: %w", err)
-	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
-	value, err := json.Marshal(setupTokenSetting{Digest: SetupTokenDigest(token)})
+		q := db.New(tx)
+		hasOwner, err := q.InstallHasOwner(ctx)
+		if err != nil {
+			return fmt.Errorf("read install owner: %w", err)
+		}
+		if hasOwner {
+			return nil
+		}
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			return fmt.Errorf("generate setup token: %w", err)
+		}
+		token = base64.RawURLEncoding.EncodeToString(raw)
+		value, err := json.Marshal(setupTokenSetting{Digest: SetupTokenDigest(token)})
+		if err != nil {
+			return err
+		}
+		return q.PutInstallSetting(ctx, db.PutInstallSettingParams{Key: setupTokenKey, Value: value})
+	})
 	if err != nil {
 		return "", err
 	}
-	if err := queries.PutInstallSetting(ctx, db.PutInstallSettingParams{Key: setupTokenKey, Value: value}); err != nil {
-		return "", fmt.Errorf("store setup token digest: %w", err)
-	}
 	return token, nil
+}
+
+// EmitSetupURLs holds the same lock through the post-commit write. A transaction
+// lock alone would leave a window for claim to commit before stdout emission.
+func EmitSetupURLs(ctx context.Context, pool *pgxpool.Pool, stdout io.Writer) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", installSetupOwnerLockID); err != nil {
+		_ = conn.Conn().Close(context.Background())
+		return err
+	}
+	defer func() {
+		// Never return a session-locked connection to the pool after cancellation.
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(cleanup, "SELECT pg_advisory_unlock($1)", installSetupOwnerLockID); err != nil {
+			_ = conn.Conn().Close(context.Background())
+		}
+	}()
+	origins := []string{}
+	value, err := db.New(conn).GetInstallSetting(ctx, InstallPublicOriginsKey)
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	if err == nil {
+		if err := json.Unmarshal(value, &origins); err != nil {
+			return fmt.Errorf("read public origins: %w", err)
+		}
+	}
+	token, err := MintSetupToken(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return nil
+	}
+	urls := []string{"http://localhost:4000/setup?token=" + token}
+	for _, origin := range origins {
+		urls = append(urls, strings.TrimRight(origin, "/")+"/setup?token="+token)
+	}
+	line, err := json.Marshal(struct {
+		URLs []string `json:"setup_urls"`
+	}{urls})
+	if err != nil {
+		return err
+	}
+	n, err := fmt.Fprintf(stdout, "%s\n", line)
+	if err == nil && n != len(line)+1 {
+		return io.ErrShortWrite
+	}
+	return err
 }
 
 // SetupTokenDigest is the stored and carried form of a setup token: the

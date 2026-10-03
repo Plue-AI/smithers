@@ -200,10 +200,10 @@ docker run --name smithers --restart unless-stopped -p 4000:4000 \
 
 ## Claim it
 
-Until it has an owner, the app prints one line per listener to its output:
+Until it has an owner, the app prints one JSON line with loopback and stored public-origin setup URLs:
 
 ```text
-Setup URL: http://localhost:4000/setup?token=…
+{"setup_urls":["http://localhost:4000/setup?token=…"]}
 ```
 
 Read it with `docker logs smithers`. Open that URL and sign in with GitHub; that account becomes the owner. The token works once. Anyone who signs in later must be on the install's roster.
@@ -29719,19 +29719,36 @@ compensable attempt leaves no change of its own in the log, and the message is
 not written to the repository. Browser snapshots preserve the current change
 and description too, and report the operation id through the WASM ABI.
 
-Repository state operations are fenced as a unit. `snapshot`, `restore`, and
-`diff` share one single-permit semaphore per repository inside a process and an
-exclusive `.jj/smithers.lock` owner directory across processes. The snapshot's
-CLI calls therefore cannot interleave with another state operation. A caller
+Repository operations are fenced as a unit, including `status`, which can
+snapshot. Each holds workspace and shared-store permits, with exclusive
+`.jj/smithers.lock` and store `smithers.lock` owner directories across
+processes. `root(from)` fences its actual directory, preserving its exemption
+from the layer's bound root. The default 120-second deadline includes permit
+waits and execution; cancellation releases both permits. A caller
 records lock owners as `hostname-pid-random` and reclaims only an owner on the
 same host whose process is dead. Permission-denied probes count as alive;
 foreign-host and legacy owner markers require operator cleanup.
 
-`workspaceAdd`, `workspaceForget`, and `opRestore` also hold one permit per
-repository store, shared by every workspace of the repository in a process and
-by an exclusive `smithers.lock` inside the store (`.jj/repo`) across processes.
+A store-pointer read failure during configuration inspection is refused
+before jj starts. Its `JjError` retains the original cause and releases both
+fences. An absent `.jj` directory remains the ordinary CLI's unsupported-root
+case; absence is distinct from an unreadable pointer.
+
+The store permit is shared by every workspace of the repository.
 A restore therefore either sees an added workspace and refuses with `conflict`,
 or completes before the add runs.
+
+`withRepositoryMutation(method, from, effect)` exposes this coordination to
+host adoption. `RepositoryMutationTimeoutMs` is a Context reference with a
+default of `120000`. The protected effect must not call another fenced
+operation on the same store; internal compound operations use their raw
+command runner while holding the outer permits.
+
+`retryGitIndexLock(effect)` retries only confirmed shared Git `index.lock`
+acquisition failures: at most 1,200 retries with 100 ms waits, independently
+for each execution. It preserves permanent errors, private-index errors and
+the final exhausted error, and never removes an active Git lock. Use it inside
+`withRepositoryMutation` to bound acquisition, execution and retry waits.
 
 Snapshot messages are opaque strings on both browser and CLI layers, including
 empty strings, leading `-`, quotes, and newlines. Node and Bun never pass them
@@ -42148,6 +42165,7 @@ none, with nothing in the failure to say why.
 class ExecutableError {
   readonly _tag: "flows/registry/ExecutableError"
   readonly code:
+    | "reserved_name"
     | "missing_delegate"
     | "ambiguous_delegate"
     | "load_timeout"
@@ -42166,7 +42184,9 @@ class ExecutableError {
 }
 ```
 
-A descriptor the bridge will not turn into a runnable flow. `delegate` is
+A descriptor the bridge will not turn into a runnable flow. Hosts may also
+report `reserved_name` for a repository entry that collides with a packaged
+system name, before importing its module. `delegate` is
 present whenever the refusal is about one named flow, and `available` lists the
 delegates the host registered. That is the whole point of the type: the
 engine's own unresolved-call defect names nothing, so an operator reading it
@@ -42496,6 +42516,10 @@ static import links. Both verify the manifest and project lockfile identity.
 executions. Lockfile drift does not remove these roots. Missing or corrupt
 snapshots remain typed failures. `ExecutionSnapshotError.code` is `missing`,
 `corrupt`, `lockfile_changed`, or `unavailable`.
+
+When the filesystem snapshot index is absent, `indexMissing` is `true`.
+Source loading retains its original typed refusal in this case. A missing blob
+behind an existing index retains the snapshot recovery diagnostic.
 
 The manifest pins project source, while installed workspace packages remain
 host code. Run the host from a pinned checkout.
@@ -43413,7 +43437,7 @@ https://smithers.sh/docs/reference/api/sandbox/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/flows/sandbox/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/sandbox/docs/api.md) · [package docs](https://sandbox.smithers.sh)
 
-> **Related APIs:** [`@smthrs/kernel`](/docs/reference/api/kernel/)
+> **Related APIs:** [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/kernel`](/docs/reference/api/kernel/)
 
 `@smthrs/sandbox` adapts a provider a caller hands it onto Effect's host
 services. The smallest composition adapts a spawn-only provider onto
@@ -43680,6 +43704,17 @@ const outcome = yield* SandboxMerge.apply(work, {
 `Outcome` is `Merged { change, commit, onto }`, `Conflicted { change, commit, onto, paths }`, or the work's own `Unchanged`, which applies as nothing. `change` is the jj change id; `commit` and `onto` are commit ids. A `Conflicted` change exists and records jj conflicts in `paths`, as `jj rebase` would.
 
 `apply` is idempotent per key: applying a key again answers the existing change's outcome. It never reads or writes a working copy (`jj --ignore-working-copy`). The commit is built with git plumbing through a private index in the repository's git store and imported through a temporary `smithers-sandbox/<change>` bookmark, deleted after the rebase. An apply interrupted between import and rebase finishes on the next call.
+
+Host import and rebase share the Node/Bun jj workspace and store fences. Their
+default 120-second deadline includes permit waits, commands and retries of
+confirmed shared Git `index.lock` acquisition failures. Cancellation and
+timeout preserve captured work and any pending imported change for the next
+call. An active Git lock is never removed; permanent VCS failures, private
+index errors and source conflicts retain their existing behavior.
+
+Conflict strategies run after the import/rebase fence is released, so a
+resolver can use ordinary fenced jj operations without nested acquisition.
+The core mutation deadline does not bound a custom resolver's effects.
 
 | `MergeError.reason`   | Cause                                                                     |
 | --------------------- | ------------------------------------------------------------------------- |

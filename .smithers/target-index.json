@@ -23,6 +23,14 @@
       },
       {
         "kind": "file",
+        "path": "scripts/build-backend.sh"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/package.json"
+      },
+      {
+        "kind": "file",
         "path": "scripts/test_check_go_boundaries.py"
       },
       {

@@ -30,7 +30,7 @@ People sign in to an install with GitHub only. There is no password and no
 local account route.
 
 - **Claim.** While the install has no owner, every start prints
-  `Setup URL: <origin>/setup?token=<token>` and stores only the token's
+  `{"setup_urls":["http://localhost:4000/setup?token=<token>","<stored-origin>/setup?token=<token>"]}` and stores only the token's
   SHA-256 digest. The first GitHub sign-in that carries the token
   (`GET /api/auth/github?setup_token=<token>`) becomes the owner, on any
   listener. Setup claims the owner before the owner picks the repository, so

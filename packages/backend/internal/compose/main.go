@@ -314,14 +314,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Until the owner claims the install, every start issues a one-time
 		// setup token and prints its URL for the launcher (spec §5.1.0).
 		// Only the digest is stored, and the token never reaches the log.
-		setupToken, err := services.MintSetupToken(ctx, queries)
-		if err != nil {
-			return fmt.Errorf("issue setup token: %w", err)
-		}
-		if setupToken != "" {
-			if _, err := fmt.Fprintf(stdout, "Setup URL: %s/setup?token=%s\n", strings.TrimRight(config.PublicOrigin(cfg), "/"), setupToken); err != nil {
-				return fmt.Errorf("print setup URL: %w", err)
-			}
+		if err := services.EmitSetupURLs(ctx, pool, stdout); err != nil {
+			return fmt.Errorf("issue setup URLs: %w", err)
 		}
 	}
 	// One shared broker multiplexes every SSE stream type (notifications,

@@ -371,6 +371,8 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//scripts/check-go-boundaries.py"),
     Smithers.file("//scripts/check-public-backend-boundary.sh"),
     Smithers.file("//scripts/test-backend-consumer.sh"),
+    Smithers.file("//scripts/build-backend.sh"),
+    Smithers.file("//packages/smithers/package.json"),
     Smithers.file("//scripts/test_check_go_boundaries.py"),
     nativeFfi,
     modelHostPackage.lib,

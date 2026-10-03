@@ -241,7 +241,7 @@ NODE
 # An install without an owner prints its one-time setup URL. GitHub sign-in
 # cannot run here, so seed the rows that claim leaves: the user, the owner
 # member, and an access token stored as its SHA-256.
-docker logs "$app" 2>&1 | grep -E 'Setup URL: http://[^ ]+/setup\?token=[A-Za-z0-9_-]+$' >/dev/null
+docker logs "$app" 2>&1 | grep -E '^\{"setup_urls":\["http://localhost:4000/setup\?token=[A-Za-z0-9_-]+"(,"[^"]+/setup\?token=[A-Za-z0-9_-]+")*\]\}$' >/dev/null
 api_token="smithers_$(docker exec "$app" /opt/smithers/bin/node -e 'process.stdout.write(require("crypto").randomBytes(20).toString("hex"))')"
 api_token_hash=$(docker exec "$app" /opt/smithers/bin/node -e 'process.stdout.write(require("crypto").createHash("sha256").update(process.argv[1]).digest("hex"))' "$api_token")
 docker exec "$postgres" psql -U "$database_user" -d "$database_name" -v ON_ERROR_STOP=1 -Atqc "

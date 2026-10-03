@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/operator"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/postgres"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 func main() {
@@ -161,11 +162,12 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		}
 	}
 
+	repositoryRuntime, repositoryHosts := installRepositoryPorts(workspaceRuntime, &registry, testFlowHostConfig)
 	appConfig := app.Config{
 		Args:             args,
 		Repository:       local.Client(),
-		Workspace:        workspaceRuntime,
-		FlowHostRegistry: &registry,
+		Workspace:        repositoryRuntime,
+		FlowHostRegistry: repositoryHosts,
 		FlowHostConfig:   testFlowHostConfig,
 		ChatHost:         chatHost,
 		Recommender:      recommender,
@@ -229,4 +231,14 @@ func platformModelKeys() (*modelproxy.FileKeys, error) {
 		return nil, fmt.Errorf("set the AI Gateway key as \"vercel\" in %s instead of AI_GATEWAY_API_KEY", modelproxy.KeysFileEnv)
 	}
 	return modelproxy.OpenKeysFile(path)
+}
+
+// The process runtime can run trusted model code during setup, but it cannot
+// execute repository code. Keep those ports absent at the real install door;
+// existing programmatic integration tests retain their explicit exception.
+func installRepositoryPorts(runtime ports.WorkspaceRuntime, registry *flowmanifest.Registry, tests flowhost.WorkspaceLauncherConfig) (ports.WorkspaceRuntime, *flowmanifest.Registry) {
+	if strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_ISOLATION")) == "process" && runtime.Isolation() == workspaceapi.IsolationTrustedProcess && !tests.AllowTrustedProcessForTests {
+		return nil, nil
+	}
+	return runtime, registry
 }

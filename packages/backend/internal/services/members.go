@@ -142,6 +142,9 @@ func (s *MemberService) claimOwner(ctx context.Context, signIn GitHubSignIn) (db
 	var owner db.User
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := db.New(tx)
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", installSetupOwnerLockID); err != nil {
+			return err
+		}
 		locked, err := q.LockInstallSetting(ctx, setupTokenKey)
 		if err != nil {
 			if stdErrors.Is(err, pgx.ErrNoRows) {

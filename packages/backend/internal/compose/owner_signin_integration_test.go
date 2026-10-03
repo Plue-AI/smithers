@@ -151,7 +151,7 @@ type signInInstall struct {
 	bodies     *lockedBuffer
 }
 
-var setupURLLine = regexp.MustCompile(`(?m)^Setup URL: (\S+)/setup\?token=([A-Za-z0-9_-]+)$`)
+var setupURLLine = regexp.MustCompile(`(?m)^\{"setup_urls":\["(http://localhost:4000)/setup\?token=([A-Za-z0-9_-]+)"\]\}$`)
 
 // startSignInInstall boots a fresh install whose HTTP listener binds host,
 // with the install's repository already recorded.
@@ -262,7 +262,7 @@ func startSignInInstallWithoutRepository(t *testing.T, host string) *signInInsta
 
 	match := setupURLLine.FindStringSubmatch(install.stdout.String())
 	require.NotNil(t, match, "the install printed no setup URL: %q", install.stdout.String())
-	require.Equal(t, origin, match[1])
+	require.Equal(t, "http://localhost:4000", match[1])
 	install.setupToken = match[2]
 	return install
 }

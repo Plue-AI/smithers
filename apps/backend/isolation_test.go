@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
@@ -199,5 +200,31 @@ func TestControlRuntimeCannotBindCodingFlowHost(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatal("refused coding host allocated an execution workspace")
+	}
+}
+
+// T-ACC-07 uses the real native entrypoint with process isolation for setup.
+// spec §5.1.0 / ticket Out: that must expose no repository execution runtime.
+func TestNativeProcessSetupExcludesRepositoryExecution(t *testing.T) {
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "process")
+	runtimes, err := openExecutionRuntimes(context.Background(), t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtimes.Close()
+	registry := flowmanifest.Registry{}
+	execution, hosts := installRepositoryPorts(runtimes.workspace, &registry, flowhost.WorkspaceLauncherConfig{})
+	if execution != nil || hosts != nil {
+		t.Fatal("trusted setup process acquired repository execution ports")
+	}
+	// Only explicit process setup drops ports; the default retains its isolation refusal.
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "")
+	execution, hosts = installRepositoryPorts(runtimes.workspace, &registry, flowhost.WorkspaceLauncherConfig{})
+	if execution != runtimes.workspace || hosts != &registry {
+		t.Fatal("default startup lost its isolation diagnostic")
+	}
+	execution, hosts = installRepositoryPorts(runtimes.workspace, &registry, flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true})
+	if execution != runtimes.workspace || hosts != &registry {
+		t.Fatal("explicit existing integration-test configuration lost its ports")
 	}
 }
