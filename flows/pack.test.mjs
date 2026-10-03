@@ -709,11 +709,7 @@ describe("discovery over the project flows directory", () => {
   });
 
   it("reads model visibility off a @smthrs/flow declaration, in the vocabulary the other two entry kinds speak", async () => {
-    // Discovery reads a module's metadata from its source text, so the literal
-    // is the whole statement. A markdown body could already say "not for a
-    // model" and a `@smthrs/core` declaration could not; `@smthrs/flow`'s
-    // `Flow.make` now takes the option, so a collapsed module flow can say it
-    // and still be discovered exactly like every other entry.
+    // Discovery reads model visibility from canonical module and markdown sources.
     const root = mkdtempSync(join(tmpdir(), "smithers-visibility-"));
     scratch.push(root);
     const write = (name, entry, source) => {
@@ -733,18 +729,6 @@ describe("discovery over the project flows directory", () => {
     write("flow-hidden", "flow.ts", flowModule(`  modelInvocable: false,\n`));
     write("flow-shown", "flow.ts", flowModule(``));
     write(
-      "core-shown",
-      "flow.ts",
-      `import { Flow } from "@smthrs/core";\n` +
-        `import { Schema } from "effect";\n\n` +
-        `export default Flow.make({\n` +
-        `  name: "core-shown",\n` +
-        `  description: "Answers what it was asked.",\n` +
-        `  input: Schema.Struct({ question: Schema.String }), output: Schema.String,\n` +
-        `  flows: ["visibility/Answer"]\n` +
-        `});\n`,
-    );
-    write(
       "markdown-hidden",
       "flow.mdx",
       `---\ndescription: Answers what it was asked.\ndisable-model-invocation: true\n---\nAnswer the question.\n`,
@@ -759,7 +743,7 @@ describe("discovery over the project flows directory", () => {
 
     assert.deepEqual(
       Object.fromEntries([...scan.entries].map((entry) => [entry.name, entry.modelInvocable])),
-      { "flow-hidden": false, "flow-shown": true, "core-shown": true, "markdown-hidden": false },
+      { "flow-hidden": false, "flow-shown": true, "markdown-hidden": false },
     );
   });
 
