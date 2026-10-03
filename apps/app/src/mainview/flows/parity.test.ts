@@ -239,41 +239,135 @@ const viewSeamViolations = (source: string): string[] => {
   const tree = ts.createSourceFile("CardView.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const violations: string[] = []
   const declarations = new Map<string, ts.Expression | ts.FunctionDeclaration>()
-  const localSetters = new Set<string>()
-  const reducers = new Map<string, ts.Expression>()
-  const localRefs = new Set<string>()
+  // `copyText` from @smthrs/ui is the one clipboard effect a View handler may call (ui-components.md Rules 3).
+  const clipboard = new Set<string>()
   const collect = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      declarations.set(node.name.text, node.initializer)
+    }
+    if (ts.isFunctionDeclaration(node) && node.name) declarations.set(node.name.text, node)
     if (
-      ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name) && node.initializer &&
-      ts.isCallExpression(node.initializer)
+      ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+      /^@smthrs\/ui(?:\/.*)?$/.test(node.moduleSpecifier.text) && !node.importClause?.isTypeOnly
     ) {
-      const callee = node.initializer.expression.getText(tree)
-      if (/^(?:React\.)?use(?:State|Reducer)$/.test(callee)) {
-        const setter = node.name.elements[1]
-        if (setter && ts.isBindingElement(setter) && ts.isIdentifier(setter.name)) {
-          localSetters.add(setter.name.text)
-          if (/useReducer$/.test(callee) && node.initializer.arguments[0]) {
-            reducers.set(setter.name.text, node.initializer.arguments[0])
+      const bindings = node.importClause?.namedBindings
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === "copyText") {
+            clipboard.add(element.name.text)
           }
         }
       }
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      declarations.set(node.name.text, node.initializer)
-      if (
-        ts.isCallExpression(node.initializer) && /^(?:React\.)?useRef$/.test(node.initializer.expression.getText(tree))
-      ) {
-        const initial = node.initializer.arguments[0]
-        if (
-          !initial || unwrap(initial).kind === ts.SyntaxKind.NullKeyword ||
-          (ts.isIdentifier(unwrap(initial)) && unwrap(initial).getText(tree) === "undefined")
-        ) localRefs.add(node.name.text)
-      }
-    }
-    if (ts.isFunctionDeclaration(node) && node.name) declarations.set(node.name.text, node)
     ts.forEachChild(node, collect)
   }
   collect(tree)
+  /** The identifier that declares `name` in the innermost scope enclosing `from`, the way JavaScript resolves it. */
+  const resolveName = (from: ts.Node, name: string): ts.Identifier | undefined => {
+    const inBinding = (binding: ts.BindingName): ts.Identifier | undefined => {
+      if (ts.isIdentifier(binding)) return binding.text === name ? binding : undefined
+      for (const element of binding.elements) {
+        if (ts.isOmittedExpression(element)) continue
+        const found = inBinding(element.name)
+        if (found) return found
+      }
+      return undefined
+    }
+    const inStatements = (statements: ts.NodeArray<ts.Statement>): ts.Identifier | undefined => {
+      for (const statement of statements) {
+        if (ts.isVariableStatement(statement)) {
+          for (const declaration of statement.declarationList.declarations) {
+            const found = inBinding(declaration.name)
+            if (found) return found
+          }
+        } else if (
+          (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name?.text === name
+        ) return statement.name
+        else if (ts.isImportDeclaration(statement)) {
+          const clause = statement.importClause
+          if (clause?.name?.text === name) return clause.name
+          const bindings = clause?.namedBindings
+          if (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === name) return bindings.name
+          if (bindings && ts.isNamedImports(bindings)) {
+            const element = bindings.elements.find((item) => item.name.text === name)
+            if (element) return element.name
+          }
+        }
+      }
+      return undefined
+    }
+    for (let scope: ts.Node | undefined = from.parent; scope; scope = scope.parent) {
+      let found: ts.Identifier | undefined
+      if (ts.isFunctionLike(scope)) {
+        for (const parameter of scope.parameters) found ??= inBinding(parameter.name)
+        if (!found && (ts.isFunctionExpression(scope) || ts.isFunctionDeclaration(scope)) && scope.name?.text === name) {
+          found = scope.name
+        }
+      } else if (ts.isSourceFile(scope) || ts.isBlock(scope) || ts.isModuleBlock(scope) || ts.isCaseClause(scope)) {
+        found = inStatements(scope.statements)
+      } else if (ts.isDefaultClause(scope)) found = inStatements(scope.statements)
+      else if (
+        (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) && scope.initializer &&
+        ts.isVariableDeclarationList(scope.initializer)
+      ) {
+        for (const declaration of scope.initializer.declarations) found ??= inBinding(declaration.name)
+      } else if (ts.isCatchClause(scope) && scope.variableDeclaration) {
+        found = inBinding(scope.variableDeclaration.name)
+      }
+      if (found) return found
+    }
+    return undefined
+  }
+  /** The `useState`/`useReducer` declaration whose setter `callee` lexically resolves to, if any. */
+  const setterOf = (callee: ts.Identifier): ts.VariableDeclaration | undefined => {
+    const element = resolveName(callee, callee.text)?.parent
+    if (!element || !ts.isBindingElement(element) || !ts.isArrayBindingPattern(element.parent)) return undefined
+    const declaration = element.parent.parent
+    if (
+      !ts.isVariableDeclaration(declaration) || !declaration.initializer ||
+      !ts.isCallExpression(declaration.initializer) ||
+      !/^(?:React\.)?use(?:State|Reducer)$/.test(declaration.initializer.expression.getText(tree)) ||
+      element.parent.elements.indexOf(element) !== 1
+    ) return undefined
+    return declaration
+  }
+  const reducerOf = (declaration: ts.VariableDeclaration): ts.Expression | undefined => {
+    const call = declaration.initializer as ts.CallExpression
+    return /useReducer$/.test(call.expression.getText(tree)) ? call.arguments[0] : undefined
+  }
+  /**
+   * True when `ref` lexically resolves to `useRef()`, `useRef(null)`, `useRef(undefined)` or `useRef([])`: a DOM ref,
+   * or the element list a roving tabindex fills through `ref` callbacks.
+   */
+  const isDomRef = (ref: ts.Identifier): boolean => {
+    const declaration = resolveName(ref, ref.text)?.parent
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer) return false
+    const initializer = declaration.initializer
+    if (!ts.isCallExpression(initializer) || !/^(?:React\.)?useRef$/.test(initializer.expression.getText(tree))) {
+      return false
+    }
+    const initial = initializer.arguments[0]
+    return !initial || unwrap(initial).kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isIdentifier(unwrap(initial)) && unwrap(initial).getText(tree) === "undefined") ||
+      (ts.isArrayLiteralExpression(unwrap(initial)) && (unwrap(initial) as ts.ArrayLiteralExpression).elements.length === 0)
+  }
+  /** `next = …` or `i++` on a variable the handler itself declares: no state outside the handler changes. */
+  const assignsOwnLocal = (node: ts.Node, handler: ts.Node): boolean => {
+    const target = ts.isBinaryExpression(node)
+      ? node.left
+      : ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)
+      ? node.operand
+      : undefined
+    if (!target || !ts.isIdentifier(target)) return false
+    const declaration = resolveName(target, target.text)
+    return declaration !== undefined && declaration.pos >= handler.pos && declaration.end <= handler.end
+  }
+  /** `copyText` imported from @smthrs/ui and not shadowed where it is called. */
+  const isClipboard = (callee: ts.Identifier): boolean => {
+    if (!clipboard.has(callee.text)) return false
+    const declaration = resolveName(callee, callee.text)
+    return declaration !== undefined && ts.isImportSpecifier(declaration.parent)
+  }
   const mutates = (node: ts.Node): boolean =>
     (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
       node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
@@ -365,30 +459,37 @@ const viewSeamViolations = (source: string): string[] => {
       !(ts.isArrowFunction(expression) || ts.isFunctionExpression(expression) ||
         ts.isFunctionDeclaration(expression)) || !expression.body
     ) return false
+    const handler = expression
     let valid = true
     let effects = 0
     const inspect = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         effects++
         const callee = node.expression
-        if (ts.isIdentifier(callee) && (callee.text === "onView" || localSetters.has(callee.text))) {
-          if (callee.text === "onView" && node.arguments.length !== 1) valid = false
-          if (localSetters.has(callee.text)) {
-            const reducer = reducers.get(callee.text)
-            if (reducer && !pureCallback(reducer)) valid = false
-            for (const argument of node.arguments) if (functionValue(argument) && !pureCallback(argument)) valid = false
-          }
+        const setter = ts.isIdentifier(callee) ? setterOf(callee) : undefined
+        if (ts.isIdentifier(callee) && callee.text === "onView") {
+          if (node.arguments.length !== 1) valid = false
+        } else if (setter) {
+          const reducer = reducerOf(setter)
+          if (reducer && !pureCallback(reducer)) valid = false
+          for (const argument of node.arguments) if (functionValue(argument) && !pureCallback(argument)) valid = false
+        } else if (ts.isIdentifier(callee) && isClipboard(callee)) {
+          // Copy: its arguments are inspected below like any other call's.
         } else if (ts.isIdentifier(callee) && presentationHandler(callee, new Set(seen))) {
           // A local helper must itself contain only presentation effects.
         } else if (
           ts.isPropertyAccessExpression(callee) && /^(?:focus|preventDefault|stopPropagation)$/.test(callee.name.text)
         ) {
           const receiver = callee.expression.getText(tree)
-          const ref = ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === "current" &&
-              ts.isIdentifier(callee.expression.expression)
-            ? callee.expression.expression.text
+          // `ref.current.focus()`, or `refs.current[i]?.focus()` for a roving tabindex.
+          const current = ts.isElementAccessExpression(callee.expression)
+            ? unwrap(callee.expression.expression)
+            : callee.expression
+          const ref = ts.isPropertyAccessExpression(current) && current.name.text === "current" &&
+              ts.isIdentifier(current.expression)
+            ? current.expression
             : undefined
-          const domRef = ref !== undefined && localRefs.has(ref)
+          const domRef = ref !== undefined && isDomRef(ref)
           if (!/^(?:event|e)(?:\.currentTarget|\.target)?$/.test(receiver) && !domRef) valid = false
         } else valid = false
       }
@@ -398,7 +499,7 @@ const viewSeamViolations = (source: string): string[] => {
           ts.isBinaryExpression(node) &&
           /^(?:event|e)\.(?:currentTarget|target)\.tabIndex$/.test(node.left.getText(tree))
         ) effects++
-        else valid = false
+        else if (!assignsOwnLocal(node, handler)) valid = false
       }
       ts.forEachChild(node, inspect)
     }
@@ -453,6 +554,7 @@ const containerSeamViolations = (source: string): string[] => {
   const helpers = new Set<string>()
   const declarations = new Map<string, ts.Expression>()
   const actionValues: ts.Expression[] = []
+  const gestureValues: ts.Expression[] = []
   const handlers: ts.Expression[] = []
   let mutations = 0
   let helperCalls = 0
@@ -474,12 +576,14 @@ const containerSeamViolations = (source: string): string[] => {
       if (ts.isIdentifier(node.name)) {
         declarations.set(node.name.text, node.initializer)
         if (node.name.text === "actions") actionValues.push(node.initializer)
+        if (node.name.text === "gestures") gestureValues.push(node.initializer)
       } else if (ts.isObjectBindingPattern(node.name)) {
         for (const element of node.name.elements) {
           const prop = element.propertyName?.getText(tree) ?? element.name.getText(tree)
-          if (ts.isIdentifier(element.name) && (prop === "actions" || prop === "onAction")) {
+          if (ts.isIdentifier(element.name) && (prop === "actions" || prop === "gestures" || prop === "onAction")) {
             declarations.set(element.name.text, ts.factory.createPropertyAccessExpression(node.initializer, prop))
             if (prop === "actions") actionValues.push(node.initializer)
+            if (prop === "gestures") gestureValues.push(node.initializer)
           }
         }
       }
@@ -487,11 +591,19 @@ const containerSeamViolations = (source: string): string[] => {
     if (ts.isPropertyAssignment(node) && node.name.getText(tree).replace(/["']/g, "") === "actions") {
       actionValues.push(node.initializer)
     }
+    if (ts.isPropertyAssignment(node) && node.name.getText(tree).replace(/["']/g, "") === "gestures") {
+      gestureValues.push(node.initializer)
+    }
     if (ts.isShorthandPropertyAssignment(node) && node.name.text === "actions") actionValues.push(node.name)
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === "gestures") gestureValues.push(node.name)
     if (
       ts.isJsxAttribute(node) && node.name.getText(tree) === "actions" && node.initializer &&
       ts.isJsxExpression(node.initializer) && node.initializer.expression
     ) actionValues.push(node.initializer.expression)
+    if (
+      ts.isJsxAttribute(node) && node.name.getText(tree) === "gestures" && node.initializer &&
+      ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) gestureValues.push(node.initializer.expression)
     if (
       ts.isJsxAttribute(node) && node.name.getText(tree) === "onAction" && node.initializer &&
       ts.isJsxExpression(node.initializer) && node.initializer.expression
@@ -505,6 +617,11 @@ const containerSeamViolations = (source: string): string[] => {
       ((ts.isIdentifier(node.left) && node.left.text === "actions") ||
         (ts.isPropertyAccessExpression(node.left) && node.left.name.text === "actions"))
     ) actionValues.push(node.right)
+    if (
+      ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ((ts.isIdentifier(node.left) && node.left.text === "gestures") ||
+        (ts.isPropertyAccessExpression(node.left) && node.left.name.text === "gestures"))
+    ) gestureValues.push(node.right)
     ts.forEachChild(node, collect)
   }
   collect(tree)
@@ -520,6 +637,18 @@ const containerSeamViolations = (source: string): string[] => {
       if (
         (ts.isIdentifier(receiver) && receiver.text === "actions") ||
         (ts.isPropertyAccessExpression(receiver) && receiver.name.text === "actions")
+      ) mutations++
+    }
+    // A named gesture written onto the helper's record: `gestures.hover = …`, `bindings.gestures["hover"] = …`.
+    if (
+      ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
+    ) {
+      const owner = node.left.expression
+      if (
+        (ts.isIdentifier(owner) && owner.text === "gestures") ||
+        (ts.isPropertyAccessExpression(owner) && owner.name.text === "gestures")
       ) mutations++
     }
     ts.forEachChild(node, count)
@@ -539,7 +668,7 @@ const containerSeamViolations = (source: string): string[] => {
     }
     if (
       ts.isPropertyAccessExpression(expression) &&
-      (expression.name.text === "actions" || expression.name.text === "onAction")
+      (expression.name.text === "actions" || expression.name.text === "gestures" || expression.name.text === "onAction")
     ) return fromHelper(expression.expression, seen)
     if (ts.isIdentifier(expression) && !seen.has(expression.text)) {
       seen.add(expression.text)
@@ -552,8 +681,22 @@ const containerSeamViolations = (source: string): string[] => {
     ...(helperCalls === 0 ? ["Container must build actions through flows/cardActions"] : []),
     ...(actionValues.length === 0 ? ["Container must expose actions from cardActions"] : []),
     ...actionValues.filter((value) => !fromHelper(value)).map(() => "actions must come from cardActions"),
+    ...gestureValues.filter((value) => !fromHelper(value)).map(() => "gestures must come from cardActions"),
     ...handlers.filter((value) => !fromHelper(value)).map(() => "onAction must come from cardActions"),
     ...(mutations > 0 ? ["Container must not mutate cardActions output"] : [])
+  ]
+}
+
+/*
+ * Shared UI Views that predate the View seam. They are library components with host callback props
+ * (`onHeadingClick`, row-attribute spreads), not card Views fed `CardProps`; each host binds their
+ * `data-flow` through the spread. Pinned exactly, so a new violation or a new non-compliant shared
+ * View fails, and a fixed one fails until it leaves this list.
+ */
+const SHARED_VIEW_VIOLATIONS: Record<string, string[]> = {
+  "vault/OutlineView.tsx": [
+    "onClick must call onAction(action.tag) or change presentation", // onHeadingClick?.(heading.line), a host callback
+    "spread attributes can hide a View handler" // {...headingProps?.(heading)}, the host's row binding
   ]
 }
 
@@ -565,6 +708,20 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     expect(
       files.flatMap((file) => viewSeamViolations(read(`../cards/${file}`)).map((violation) => `${file}: ${violation}`))
     ).toEqual([])
+  })
+
+  test("every shared UI View handler uses the action or presentation seam (C-UI-08 step 4)", () => {
+    const root = fileURLToPath(new URL("../../../../../packages/smithers/ui/src/", import.meta.url))
+    const files = readdirSync(root, { recursive: true, encoding: "utf8" })
+      .map((entry) => entry.split("\\").join("/"))
+      .filter((entry) => entry.endsWith("View.tsx"))
+      .sort()
+    expect(files.length).toBeGreaterThan(0)
+    const found = Object.fromEntries(
+      files.map((file) => [file, viewSeamViolations(readFileSync(`${root}${file}`, "utf8"))] as const)
+        .filter(([, violations]) => violations.length > 0)
+    )
+    expect(found).toEqual(SHARED_VIEW_VIOLATIONS)
   })
 
   test("onAction forwards the action's opaque tag and optional form input", () => {
@@ -632,6 +789,53 @@ describe("View and Container catalog seam (C-UI-08)", () => {
     ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
   })
 
+  test("Copy through copyText from @smthrs/ui is a clipboard handler; other copies and calls are not", () => {
+    for (
+      const source of [
+        "import { copyText } from \"@smthrs/ui\"; const view = <button onClick={() => copyText(model.text)} />",
+        "import { copyText as copy } from \"@smthrs/ui/clipboard\"; const view = <button onClick={() => copy(model.ssh_line)} />",
+        "import { copyText } from \"@smthrs/ui\"; const [copied, setCopied] = useState(false); const view = <button onClick={() => { copyText(model.text); setCopied(true) }} />"
+      ]
+    ) expect(viewSeamViolations(source)).toEqual([])
+    for (
+      const source of [
+        "const view = <button onClick={() => copyText(model.text)} />",
+        "import { copyText } from \"./clipboard\"; const view = <button onClick={() => copyText(model.text)} />",
+        "import type { copyText } from \"@smthrs/ui\"; const view = <button onClick={() => copyText(model.text)} />",
+        "import { copyText } from \"@smthrs/ui\"; const Row = ({ copyText }) => <button onClick={() => copyText(model.text)} />",
+        "import { copyText } from \"@smthrs/ui\"; const view = <button onClick={() => copyText(onRetry())} />",
+        "const view = <button onClick={() => navigator.clipboard.writeText(model.text)} />"
+      ]
+    ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("React setters, refs and handler locals resolve by lexical scope, not by name", () => {
+    expect(
+      viewSeamViolations(
+        "function Local() { const [open, setOpen] = useState(false); return <button onClick={() => setOpen(!open)} /> }\n" +
+          "function BadView({ setOpen }) { return <button onClick={() => setOpen(\"save\")} /> }"
+      )
+    ).toEqual(["onClick must call onAction(action.tag) or change presentation"])
+    for (
+      const source of [
+        "function Local() { const [open, setOpen] = useState(false); const close = () => setOpen(false); return <button onKeyDown={close} /> }",
+        "function Tree() { const [active, setActive] = useState(0); const refs = useRef([]); function onKeyDown(event) { let next = active; if (event.key === \"End\") next = 3; event.preventDefault(); setActive(next); refs.current[next]?.focus() } return <div onKeyDown={onKeyDown} /> }",
+        "const inputRef = useRef(); const view = <button onClick={() => inputRef.current.focus()} />"
+      ]
+    ) expect(viewSeamViolations(source)).toEqual([])
+    for (
+      const source of [
+        "const [open, setOpen] = useState(false); const view = rows.map((setOpen) => <button onClick={() => setOpen(1)} />)",
+        "function Local() { const [open, setOpen] = useState(false); return null } const view = <button onClick={() => setOpen(true)} />",
+        "const [open, setOpen] = useState(false); const view = <button onClick={() => open()} />",
+        "const refs = useRef([authority]); const view = <div onKeyDown={() => refs.current[0].focus()} />",
+        "function Local() { const refs = useRef([]); return null } const view = <div onKeyDown={() => refs.current[0].focus()} />",
+        "let count = 0; const view = <button onClick={() => { count++ }} />",
+        "let next = 0; const view = <button onKeyDown={e => { next = 1; e.currentTarget.focus() }} />"
+      ]
+    ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
   test("reducers and state updater callbacks cannot hide commands", () => {
     for (
       const source of [
@@ -690,7 +894,9 @@ describe("View and Container catalog seam (C-UI-08)", () => {
         "import { cardActions } from \"../flows/cardActions\"; const actions = cardActions(run, definitions).actions; const props = { actions: actions };",
         "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const view = <View model={model} {...bindings} />",
         "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const row = bindings.forScope(\"T12\"); const view = <View actions={row.actions} onAction={row.onAction} />",
-        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const { actions, onAction } = bindings.forScope(\"T13\"); const view = <View actions={actions} onAction={onAction} />"
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const { actions, onAction } = bindings.forScope(\"T13\"); const view = <View actions={actions} onAction={onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const { actions, gestures, onAction } = cardActions(run, definitions); const view = <View actions={actions} gestures={gestures} onAction={onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const row = bindings.forScope(\"T12\"); const view = <View actions={bindings.actions} gestures={row.gestures} onAction={row.onAction} />"
       ]
     ) expect(containerSeamViolations(source)).toEqual([])
   })
@@ -706,7 +912,11 @@ describe("View and Container catalog seam (C-UI-08)", () => {
         "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const view = <View actions={bindings.actions} onAction={() => directCommand()} />",
         "import { cardActions } from \"../flows/cardActions\"; const actions = []; const props = { actions }; cardActions(run, definitions);",
         "import type { cardActions } from \"../flows/cardActions\"; const actions = cardActions(run, definitions);",
-        "import { cardActions } from \"../flows/cardActions\"; cardActions(run, definitions); const view = <View />"
+        "import { cardActions } from \"../flows/cardActions\"; cardActions(run, definitions); const view = <View />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const view = <View actions={bindings.actions} gestures={{ hover: { tag: \"file\", label: \"Hover\" } }} onAction={bindings.onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); const gestures = { hover: { tag: \"file\", label: \"Hover\" } }; const view = <View actions={bindings.actions} gestures={gestures} onAction={bindings.onAction} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.gestures.hover = { tag: \"file\", label: \"Hover\" }; const view = <View {...bindings} />",
+        "import { cardActions } from \"../flows/cardActions\"; const bindings = cardActions(run, definitions); bindings.gestures = {}; const view = <View {...bindings} />"
       ]
     ) expect(containerSeamViolations(source).length).toBeGreaterThan(0)
   })

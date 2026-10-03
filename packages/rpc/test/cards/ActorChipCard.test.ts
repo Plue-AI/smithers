@@ -23,6 +23,16 @@ import { fixtures } from "../fixtures/ActorChip.ts"
 
 cardContract("ActorChip", ActorChipCardSchema, fixtures)
 
+describe("chip props", () => {
+  test("live is optional and size is s or m", () => {
+    expect(ActorChipCardSchema.parse({ actor: person, size: "s" })).toEqual({ actor: person, size: "s" })
+    for (const size of ["s", "m"]) expect(ActorChipCardSchema.safeParse({ actor: person, size }).success).toBe(true)
+    for (const size of ["l", "xs", "S", ""]) {
+      expect(ActorChipCardSchema.safeParse({ actor: person, size }).success).toBe(false)
+    }
+  })
+})
+
 // Literal oracles from M-34, spec §14.6a.1 and ui-components.md (origin/main); never read from the schema.
 const ACTOR_KINDS = ["person", "agent", "system", "github", "outside"] as const
 const AGENT_KINDS = ["smithers", "coding", "reviewer", "claude-code", "codex", "external"] as const
@@ -30,11 +40,11 @@ const VIAS = ["ssh", "terminal", "cli"] as const
 const accepts = (actor: unknown): boolean => ActorSchema.safeParse(actor).success
 
 describe("actor kinds", () => {
-  test("fixtures cover every actor kind and every agent kind but external", () => {
-    const actors = Object.values(fixtures).map(({ actor }) => actor)
+  test("fixtures cover every actor kind and every agent kind", () => {
+    const actors = Object.values(fixtures).map(({ model }) => model.actor)
     expect([...new Set(actors.map((actor) => actor.kind))].sort()).toEqual([...ACTOR_KINDS].sort())
     expect([...new Set(actors.flatMap((actor) => actor.kind === "agent" ? [actor.agent] : []))].sort()).toEqual(
-      AGENT_KINDS.filter((kind) => kind !== "external").sort()
+      [...AGENT_KINDS].sort()
     )
   })
   test.each(["bot", "member", "app", "smithers", ""])("rejects kind %j", (kind) => {
@@ -109,5 +119,38 @@ describe("identity colour 0–7", () => {
     expect([agent, claude_code, smithers_for_ben].map((actor) => actor.color_index)).toEqual([0, 0, 0])
     expect([undelegated_agent, smithers].map((actor) => actor.color_index)).toEqual([6, 6])
     expect([system, github_user, outside].map((actor) => actor.color_index)).toEqual([7, 7, 7])
+  })
+})
+
+// The one actor fixture set design builds against (@smthrs/rpc/fixtures/ActorChip), pinned by name (M-34 review).
+describe("the pinned actor story set", () => {
+  test("holds every actor variant design renders", () => {
+    expect(Object.keys(fixtures)).toEqual(expect.arrayContaining([
+      "person",
+      "ssh",
+      "smithers_for_ben",
+      "claude_code_for_ben",
+      "codex_for_ben",
+      "coding_agent_for_ben",
+      "reviewer_for_ben",
+      "external_for_ben",
+      "undelegated_agent",
+      "undelegated_smithers",
+      "github_user"
+    ]))
+  })
+  test("external agents act for Ben as agents with for_member, never as person.via", () => {
+    for (const key of ["claude_code_for_ben", "codex_for_ben", "external_for_ben"] as const) {
+      const actor = fixtures[key].model.actor
+      expect(actor).toMatchObject({ kind: "agent", for_member: { login: "ben" }, color_index: 0 })
+    }
+    const vias = Object.values(fixtures).flatMap(({ model }) => model.actor.kind === "person" ? [model.actor.via] : [])
+    expect(vias.filter((via) => via !== undefined).sort()).toEqual(["cli", "ssh", "terminal"])
+  })
+  test("colours 6 and 7 appear where the spec allows them", () => {
+    expect(fixtures.undelegated_agent.model.actor.color_index).toBe(6)
+    expect(fixtures.undelegated_smithers.model.actor.color_index).toBe(6)
+    expect(fixtures.github_user.model.actor.color_index).toBe(7)
+    expect(fixtures.outside.model.actor.color_index).toBe(7)
   })
 })

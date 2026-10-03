@@ -4,11 +4,13 @@
  */
 
 import { z } from "zod"
+import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks } from "./CardAction.ts"
 import { ActorSchema, TodoStateSchema } from "./CardPrimitives.ts"
 
 /**
- * BranchTreeNode projection fields from spec §14.3 and ui-components.md.
+ * One node of the branch tree (ui-components.md T-UI-07, spec §14.1.1): open branches only, plus the single
+ * read-only "earlier" node for legacy per-member conversations (§14.1.5). `present` holds people and agents (M-34).
  * @since 1.0.0
  * @category schemas
  */
@@ -19,6 +21,8 @@ export const BranchTreeNodeCardSchema = z.object({
   todo: z.number().int().positive().optional(),
   state: TodoStateSchema.optional(),
   present: z.array(ActorSchema),
+  archive_count: z.number().int().nonnegative().optional(),
+  action: ActionSchema.optional(),
   get children() {
     return z.array(BranchTreeNodeCardSchema)
   }

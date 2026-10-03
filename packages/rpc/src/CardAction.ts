@@ -4,7 +4,11 @@
  */
 
 import { z } from "zod"
+import { ModelIdSchema } from "./AgentRoles.ts"
+import { ModelRoleIdSchema } from "./CardPrimitives.ts"
 import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
+import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
+import { DraftIdSchema } from "./DraftCard.ts"
 export type { CatalogTag } from "./catalog/index.ts"
 
 /**
@@ -50,6 +54,30 @@ export const ActionSchema = z.object({
  * @category models
  */
 export type Action = z.infer<typeof ActionSchema>
+
+/**
+ * `draft.discard` input: delete the author's uncommitted private Draft; it never drops a TODO. Author-only is
+ * catalog policy (T-CAT-01), not an input field.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const DraftDiscardInputSchema = z.object({ draft: DraftIdSchema })
+
+/**
+ * `confirm.cancel` input: cancel a pending confirmation at its revision. A stale revision is refused with the typed
+ * `stale` refusal, which the server enforces. People only; there is no agent path (catalog policy).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ConfirmCancelInputSchema = z.object({ confirmation: z.string().min(1), revision: ConfirmRevisionSchema })
+
+/**
+ * `settings.model.set` input: set a role's model. `role` is the one model role enum (its `jev` id is shown as
+ * "Decisions"); `model` is a catalog model id. Owner session only and agents never (catalog policy).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const SettingsModelSetInputSchema = z.object({ role: ModelRoleIdSchema, model: ModelIdSchema })
 
 /**
  * Provisional typed inputs from Appendix A arguments and component form fields; T-CAT-01 replaces these with descriptor inference.
@@ -113,7 +141,7 @@ export interface CardCommandInput {
   readonly "sign-in": undefined
   readonly "sign-out": undefined
   readonly "theme": undefined
-  readonly "docs": undefined
+  readonly "docs": { readonly page?: string }
   readonly "debug-api": undefined
   readonly "todo.return-to-item": { readonly n: number }
   readonly "todo.keep-moved": { readonly n: number }
@@ -145,6 +173,15 @@ export interface CardCommandInput {
   }
   readonly "secrets.delete": { readonly name: string }
   readonly "secrets.scope": { readonly name: string; readonly scope: "all_branches" | "main_only" }
+  readonly "form.set": {
+    readonly field: "title" | "prompt" | "acceptance" | "place" | "fixes"
+    readonly value: string
+  }
+  readonly "code.hover": { readonly path: string; readonly line: number; readonly col: number }
+  readonly "code.definition": { readonly path: string; readonly line: number; readonly col: number }
+  readonly "draft.discard": z.infer<typeof DraftDiscardInputSchema>
+  readonly "confirm.cancel": z.infer<typeof ConfirmCancelInputSchema>
+  readonly "settings.model.set": z.infer<typeof SettingsModelSetInputSchema>
 }
 
 /**
@@ -157,14 +194,28 @@ export type CardCallbacks<Tag extends CatalogTag = CatalogTag> = {
 }
 
 /**
- * Props-only card data, action gestures, and per-member presentation.
+ * The per-member view state every card has (spec §14.1.2).
  * @since 1.0.0
  * @category models
  */
-export interface CardProps<Model> {
+export interface BaseView {
+  readonly maximized: boolean
+  readonly tab?: string
+  readonly filter?: string
+}
+
+/**
+ * Props-only card data, viewer-filtered buttons, named non-button gestures and per-member view state
+ * (ui-components.md Shared types). `View` adds the card's own view fields; `Gesture` names its gestures.
+ * A missing gesture does nothing.
+ * @since 1.0.0
+ * @category models
+ */
+export interface CardProps<Model, View extends object = {}, Gesture extends string = never> {
   readonly model: Model
   readonly actions: ReadonlyArray<Action>
+  readonly gestures: Partial<Readonly<Record<Gesture, Action>>>
   readonly onAction: (tag: CatalogTag, input?: Record<string, string>) => void
-  readonly view: { readonly maximized: boolean; readonly tab?: string; readonly filter?: string }
-  readonly onView: (patch: Partial<CardProps<Model>["view"]>) => void
+  readonly view: BaseView & View
+  readonly onView: (patch: Partial<BaseView & View>) => void
 }

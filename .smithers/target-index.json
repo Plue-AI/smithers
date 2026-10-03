@@ -27988,6 +27988,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "packages/smithers/migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "packages/smithers/agent/registry/vitest.config.ts"
       }

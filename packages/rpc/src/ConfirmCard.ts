@@ -4,41 +4,49 @@
  */
 
 import { z } from "zod"
-import type { CardCallbacks } from "./CardAction.ts"
+import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import { ActorSchema, EvidenceSchema, MergeSchema, PersonRefSchema } from "./CardPrimitives.ts"
 import { CatalogTagSchema } from "./catalog/index.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
- * Confirm projection fields from spec §14.3 and ui-components.md.
+ * The revision a confirmation is bound to; `confirm.cancel` sends it back, and a stale one is refused as `stale`.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ConfirmRevisionSchema = z.string()
+
+/**
+ * Confirm projection fields from spec §14.3 and ui-components.md T-UI-05. Members, secrets and settings are
+ * agent: never and have no confirmation, so the subject is a TODO, branch, flow, agent or wiki page.
  * @since 1.0.0
  * @category schemas
  */
 export const ConfirmCardSchema = z.object({
   kind: z.enum(["one_click", "review_merge"]),
   action: z.object({ tag: CatalogTagSchema, verb: z.string() }),
-  title: z.string().optional(),
-  text: z.string().optional(),
-  pr: z.object({ number: z.number().int().positive(), url: HttpUrlSchema }).optional(),
-  evidence: EvidenceSchema.optional(),
-  approved_revision: z.string().optional(),
-  merge: MergeSchema.optional(),
+  summary: z.string(),
   subject: z.object({
-    kind: z.enum(["todo", "branch", "flow", "secret", "member"]),
+    kind: z.enum(["todo", "branch", "flow", "agent", "wiki"]),
     ref: z.string(),
-    label: z.string(),
-    revision: z.string().optional()
+    revision: ConfirmRevisionSchema.optional()
   }),
-  place: z.number().int().positive().optional(),
+  text: z.string().optional(),
   asked_by: ActorSchema,
-  waiting_for: PersonRefSchema.optional(),
+  review: z.object({
+    title: z.string(),
+    place: z.number().int().positive(),
+    pr: z.object({ number: z.number().int().positive(), url: HttpUrlSchema }),
+    evidence: EvidenceSchema,
+    approved_revision: ConfirmRevisionSchema.optional(),
+    merge: MergeSchema
+  }).optional(),
   receipt: z.object({
     by: PersonRefSchema,
-    text: z.string(),
-    result: z.enum(["done", "cancelled", "stale"]),
-    at: z.string()
-  })
-    .optional()
+    result: z.enum(["done", "cancelled", "expired"]),
+    at: z.string(),
+    text: z.string().optional()
+  }).optional()
 })
 
 /**
@@ -49,10 +57,27 @@ export const ConfirmCardSchema = z.object({
 export type ConfirmCard = z.infer<typeof ConfirmCardSchema>
 
 /**
+ * The Confirm View's props (ui-components.md T-UI-05).
+ * @since 1.0.0
+ * @category models
+ */
+export type ConfirmViewProps = CardProps<ConfirmCard>
+
+/**
  * Typed catalog callbacks for Confirm.
  * @since 1.0.0
  * @category models
  */
 export type ConfirmCardCallbacks = CardCallbacks<
-  "merge" | "merge.confirm" | "todo.new" | "todo.drop" | "branch.add-to-stack" | "flow.edit"
+  | "merge"
+  | "merge.confirm"
+  | "pr"
+  | "todo.steer"
+  | "todo.drop"
+  | "todo.retry"
+  | "branch.add-to-stack"
+  | "flow.edit"
+  | "agent"
+  | "wiki.save"
+  | "confirm.cancel"
 >

@@ -12,7 +12,13 @@ describe("temporary catalog tags", () => {
     "background.retry",
     "notifications.allow",
     "members.role",
-    "secrets.scope"
+    "secrets.scope",
+    "form.set",
+    "code.hover",
+    "code.definition",
+    "draft.discard",
+    "confirm.cancel",
+    "settings.model.set"
   ])("accepts published %s", (tag) => {
     expect(CatalogTagSchema.parse(tag)).toBe(tag)
   })

@@ -72,11 +72,13 @@ export const APPENDIX_A_TAGS = [
 ] as const
 
 /**
- * In-card controls from MVP Appendix B.4 and Members/Secrets row actions.
+ * In-card controls from MVP Appendix B.4, Members/Secrets row actions and the B.1 gestures cards name
+ * (`form.set` for Draft fields, `code.hover` and `code.definition` for the File card), and the batch 2 controls
+ * `draft.discard`, `confirm.cancel` and `settings.model.set` (mvp.md Appendix B.4).
  * @since 1.0.0
  * @category constants
  */
-// MVP Appendix B.4 controls and B.1 Members/Secrets row actions; T-CAT-01
+// MVP Appendix B.4 controls, B.1 Members/Secrets row actions and card gestures; T-CAT-01
 // replaces this placeholder at the same import path with catalog inference.
 export const IN_CARD_TAGS = [
   "todo.return-to-item",
@@ -104,7 +106,13 @@ export const IN_CARD_TAGS = [
   "secrets.set",
   "secrets.delete",
   "secrets.scope",
-  "main.reset-to-github"
+  "main.reset-to-github",
+  "form.set",
+  "code.hover",
+  "code.definition",
+  "draft.discard",
+  "confirm.cancel",
+  "settings.model.set"
 ] as const
 
 /**

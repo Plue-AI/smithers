@@ -5,11 +5,11 @@
 
 import { z } from "zod"
 import { ActionSchema } from "./CardAction.ts"
-import type { CardCallbacks } from "./CardAction.ts"
+import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import {
   ActorSchema,
-  BranchRefSchema,
   EvidenceSchema,
+  MachineStateSchema,
   MergeSchema,
   NeedsYouKindSchema,
   PersonRefSchema,
@@ -31,6 +31,7 @@ export const TodoWaitSchema = z.object({
   prompt: z.string(),
   since: z.string(),
   paths: z.array(z.string()).optional(),
+  ssh_line: z.string().optional(),
   by: ActorSchema.optional(),
   sha: z.string().optional(),
   actions: z.array(ActionSchema)
@@ -44,7 +45,9 @@ export const TodoWaitSchema = z.object({
 export type TodoWait = z.infer<typeof TodoWaitSchema>
 
 /**
- * Todo projection fields from spec §14.3 and ui-components.md.
+ * Todo projection fields from spec §14.3 and ui-components.md. `owner_removed` offers Take over (§5.6);
+ * `failure.missing_tool` offers Add to machine image (§8.6.2). `pause` says why a paused TODO waits: a person's
+ * Stop, or the daily token budget with the install owner ("Paused · daily token budget · <owner>", §15.2.2).
  * @since 1.0.0
  * @category schemas
  */
@@ -53,13 +56,22 @@ export const TodoCardSchema = z.object({
   title: z.string(),
   state: TodoStateSchema,
   owner: PersonRefSchema,
+  owner_removed: z.boolean().optional(),
   place: z.number().int().positive().optional(),
   queue: QueueSchema.optional(),
+  pause: z.object({
+    reason: z.enum(["person", "daily_token_budget"]),
+    owner: PersonRefSchema.optional(),
+    since: z.string(),
+    resume_at: z.string().optional()
+  }).optional(),
   rebase_pending: RebasePendingSchema.optional(),
   step: z.string().optional(),
-  prompt_revisions: z.array(z.object({ text: z.string(), by: ActorSchema, at: z.string() })),
+  prompt_revisions: z.array(
+    z.object({ text: z.string(), acceptance: z.array(z.string()), by: ActorSchema, at: z.string() })
+  ),
   issue: z.object({ number: z.number().int().positive(), url: HttpUrlSchema, fixes: z.boolean() }).optional(),
-  branch: BranchRefSchema,
+  branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
   steps: z.array(
     z.union([
       z.object({
@@ -77,23 +89,27 @@ export const TodoCardSchema = z.object({
     ])
   ),
   run: z.object({
+    id: z.string(),
     attempt: z.number().int().positive(),
     indicators: z.array(z.object({ tone: z.enum(["wait", "thrash"]), text: z.string() }))
   }).optional(),
   waits: z.array(TodoWaitSchema),
   first_answer: z.object({ by: ActorSchema, text: z.string(), at: z.string() }).optional(),
   steers: z.array(z.object({ text: z.string(), by: ActorSchema, at: z.string() })),
-  failure: z.object({ step: z.string(), class: z.string(), message: z.string(), retryable: z.boolean() })
-    .optional(),
-  evidence: EvidenceSchema,
-  approved_revision: z.string().optional(),
+  failure: z.object({
+    step: z.string(),
+    class: z.string(),
+    message: z.string(),
+    retryable: z.boolean(),
+    missing_tool: z.object({ name: z.string(), file: z.string() }).optional()
+  }).optional(),
+  evidence: z.array(EvidenceSchema),
   pr: z.object({
     number: z.number().int().positive(),
     url: HttpUrlSchema,
     head: z.string(),
     draft: z.boolean(),
     draft_after: z.number().int().positive().optional(),
-    checks: z.enum(["pending", "passing", "failing"]),
     included_items: z.array(z.number().int().positive())
   }).optional(),
   merged_via: z.number().int().positive().optional(),
@@ -109,6 +125,13 @@ export const TodoCardSchema = z.object({
  * @category models
  */
 export type TodoCard = z.infer<typeof TodoCardSchema>
+
+/**
+ * The TODO View's props (ui-components.md T-UI-04).
+ * @since 1.0.0
+ * @category models
+ */
+export type TodoViewProps = CardProps<TodoCard>
 
 /**
  * Typed catalog callbacks for Todo.

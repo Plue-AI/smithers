@@ -99,6 +99,27 @@ export const AgentKindSchema = z.enum(["smithers", "coding", "reviewer", "claude
 export type AgentKind = z.infer<typeof AgentKindSchema>
 
 /**
+ * The three model role ids (mvp.md §6.5). The third, `jev`, is shown as "Decisions"; UI copy never shows its id.
+ * @since 1.0.0
+ * @category constants
+ */
+export const MODEL_ROLES = ["fast", "coding", "jev"] as const
+
+/**
+ * A model role id: the one role enum Setup, Settings, Agent and `settings.model.set` share.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const ModelRoleIdSchema = z.enum(MODEL_ROLES)
+
+/**
+ * The value decoded by {@link ModelRoleIdSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type ModelRoleId = z.infer<typeof ModelRoleIdSchema>
+
+/**
  * The actor rendering contract from spec §14.6a.1 and M-34. Every agent doing work, Smithers included, is a
  * participant with a stable `id` and its own avatar; `for_member` names the person it acts for, is absent when
  * nobody delegated the work, and confers no authorization. The system actor is an install event.
@@ -190,6 +211,52 @@ export const NeedsYouKindSchema = z.enum(["question", "approval", "conflict", "m
 export type NeedsYouKind = z.infer<typeof NeedsYouKindSchema>
 
 /**
+ * A typed failure as a card shows it (spec §6.2.3).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const CardErrorSchema = z.object({ class: z.string(), message: z.string() })
+
+/**
+ * The value decoded by {@link CardErrorSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type CardError = z.infer<typeof CardErrorSchema>
+
+/**
+ * GitHub sync health (spec §4.4).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const SyncHealthSchema = z.enum(["fresh", "stale", "limited", "refused"])
+
+/**
+ * The value decoded by {@link SyncHealthSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type SyncHealth = z.infer<typeof SyncHealthSchema>
+
+/**
+ * A branch machine's state (spec §4.2): "Waiting for a machine · #2", or failed with Retry.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MachineStateSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.enum(["awake", "asleep", "waking", "closed"]) }),
+  z.object({ state: z.literal("waiting"), position: z.number().int().positive() }),
+  z.object({ state: z.literal("failed"), error: CardErrorSchema })
+])
+
+/**
+ * The value decoded by {@link MachineStateSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type MachineState = z.infer<typeof MachineStateSchema>
+
+/**
  * The phase and cell indicator role.
  * @since 1.0.0
  * @category schemas
@@ -204,26 +271,13 @@ export const PhaseToneSchema = z.enum(["live", "ok", "fail", "thrash", "wait"])
 export type PhaseTone = z.infer<typeof PhaseToneSchema>
 
 /**
- * An install step state.
- * @since 1.0.0
- * @category schemas
- */
-export const StepStateSchema = z.enum(["next", "active", "done", "failed"])
-
-/**
- * The value decoded by {@link StepStateSchema}.
- * @since 1.0.0
- * @category models
- */
-export type StepState = z.infer<typeof StepStateSchema>
-
-/**
- * The admission queue reason and position.
+ * The admission queue reason and position (spec §4.1.1). `daily_limit` holds admission until the daily allowance
+ * replenishes (§10.4.1b); it never fails an attempt.
  * @since 1.0.0
  * @category schemas
  */
 export const QueueSchema = z.object({
-  reason: z.enum(["machine", "merge_order", "rebase"]),
+  reason: z.enum(["machine", "merge_order", "rebase", "daily_limit"]),
   after: z.number().int().positive().optional(),
   position: z.number().int().positive()
 })
@@ -262,20 +316,70 @@ export const ContextItemSchema = z.object({
 export type ContextItem = z.infer<typeof ContextItemSchema>
 
 /**
- * Revision-bound evidence recorded for one attempt.
+ * One evidence item from spec §10.4.3: the diff stat, a machine check, a required or optional GitHub check, the
+ * review summary, usage, the pinned flow version or the model access.
  * @since 1.0.0
  * @category schemas
  */
-export const EvidenceSchema = z.array(z.object({
+export const EvidenceItemSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("diff"),
+    files: z.number().int().nonnegative(),
+    added: z.number().int().nonnegative(),
+    removed: z.number().int().nonnegative()
+  }),
+  z.object({
+    kind: z.literal("check"),
+    name: z.string(),
+    state: z.enum(["running", "passed", "failed"]),
+    took_s: z.number().nonnegative().optional(),
+    log_url: HttpUrlSchema.optional()
+  }),
+  z.object({
+    kind: z.literal("github_check"),
+    name: z.string(),
+    state: z.enum(["pending", "passed", "failed"]),
+    required: z.boolean(),
+    url: HttpUrlSchema
+  }),
+  z.object({ kind: z.literal("review"), summary: z.string() }),
+  z.object({
+    kind: z.literal("usage"),
+    tokens: z.number().int().nonnegative(),
+    time_s: z.number().nonnegative()
+  }),
+  z.object({ kind: z.literal("flow"), name: z.string(), version: z.string() }),
+  z.object({ kind: z.literal("model_access"), label: z.string() })
+])
+
+/**
+ * The value decoded by {@link EvidenceItemSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type EvidenceItem = z.infer<typeof EvidenceItemSchema>
+
+/**
+ * Revision-bound evidence recorded for one attempt. `previous` is an earlier generation's review, shown when its
+ * patch-id equals this one's; `reviewing` means the review of `revision` is running (§10.4.3).
+ * @since 1.0.0
+ * @category schemas
+ */
+export const EvidenceSchema = z.object({
   attempt: z.number().int().positive(),
   revision: z.string(),
-  items: z.array(z.object({ kind: z.string(), label: z.string(), url: HttpUrlSchema.optional() })),
-  previous: z.object({
-    revision: z.string(),
-    items: z.array(z.object({ kind: z.string(), label: z.string(), url: HttpUrlSchema.optional() }))
-  }).optional(),
+  items: z.array(EvidenceItemSchema),
+  previous: z.object({ revision: z.string(), items: z.array(EvidenceItemSchema) }).optional(),
   reviewing: z.boolean().optional()
-}))
+})
+
+/**
+ * The value decoded by {@link EvidenceSchema}.
+ * @since 1.0.0
+ * @category models
+ */
+export type Evidence = z.infer<typeof EvidenceSchema>
+
 /**
  * The shared merge predicate result.
  * @since 1.0.0
@@ -292,18 +396,16 @@ export const MergeSchema = z.object({
     "pending_work",
     "stale_head",
     "checks",
+    "review_required",
     "github"
   ]).optional(),
   detail: z.string().optional(),
   on_github: z.boolean()
 })
+
 /**
- * A TODO branch and machine state.
+ * The value decoded by {@link MergeSchema}.
  * @since 1.0.0
- * @category schemas
+ * @category models
  */
-export const BranchRefSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  machine: z.enum(["waiting", "building", "ready", "sleeping", "closed", "failed"])
-})
+export type Merge = z.infer<typeof MergeSchema>

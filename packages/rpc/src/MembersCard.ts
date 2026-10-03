@@ -4,27 +4,29 @@
  */
 
 import { z } from "zod"
-import type { CardCallbacks } from "./CardAction.ts"
-import { PersonRefSchema } from "./CardPrimitives.ts"
+import { ActionSchema } from "./CardAction.ts"
+import type { CardCallbacks, CardProps } from "./CardAction.ts"
+import { MemberColorIndexSchema, PersonRefSchema } from "./CardPrimitives.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
- * Members projection fields from spec §14.3 and ui-components.md.
+ * Members projection fields from spec §14.3 and ui-components.md v0.4 (T-UI-09). `needs_access`: never had write
+ * access on GitHub; `suspended`: lost it, automatically (M-05, §5.1.3). Every Members command is person-only.
  * @since 1.0.0
  * @category schemas
  */
 export const MembersCardSchema = z.object({
-  access_url: HttpUrlSchema,
   members: z.array(
     z.object({
-      login: z.string(),
-      name: z.string(),
-      avatar_url: PersonRefSchema.shape.avatar_url,
+      ...PersonRefSchema.shape,
+      color_index: MemberColorIndexSchema,
       role: z.enum(["owner", "maintainer", "member"]),
       needs_access: z.boolean(),
-      suspended: z.boolean()
+      suspended: z.boolean(),
+      actions: z.array(ActionSchema)
     })
-  )
+  ),
+  access_url: HttpUrlSchema
 })
 
 /**
@@ -33,6 +35,13 @@ export const MembersCardSchema = z.object({
  * @category models
  */
 export type MembersCard = z.infer<typeof MembersCardSchema>
+
+/**
+ * The Members View's props (ui-components.md T-UI-09).
+ * @since 1.0.0
+ * @category models
+ */
+export type MembersViewProps = CardProps<MembersCard>
 
 /**
  * Typed catalog callbacks for Members.

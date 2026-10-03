@@ -7,11 +7,15 @@ import { z } from "zod"
 import { ActorSchema } from "./CardPrimitives.ts"
 
 /**
- * ActorChip projection fields from spec §14.3 and ui-components.md.
+ * ActorChip props from ui-components.md T-UI-01: the actor, the chip size, and `live` while the agent works now.
  * @since 1.0.0
  * @category schemas
  */
-export const ActorChipCardSchema = z.object({ actor: ActorSchema, size: z.enum(["s", "m"]), live: z.boolean() })
+export const ActorChipCardSchema = z.object({
+  actor: ActorSchema,
+  size: z.enum(["s", "m"]),
+  live: z.boolean().optional()
+})
 
 /**
  * The value decoded by {@link ActorChipCardSchema}.

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest"
 import { z } from "zod"
+import { ActionSchema } from "../src/CardAction.ts"
+import type { Story } from "./fixtures/_story.ts"
 
 type JsonSchema = z.core.JSONSchema.JSONSchema
 type Path = readonly (string | number)[]
@@ -98,16 +100,49 @@ const locations = (root: JsonSchema, fixture: unknown): { objects: ObjectLocatio
   return { objects, enums }
 }
 
-/** Exercises fixtures and mutations using the public JSON Schema inventory. */
-export const cardContract = (name: string, schema: z.ZodType, fixtures: Readonly<Record<string, unknown>>): void => {
+// Every string and number a story carries, as the View could print it; matching ignores case so a View may
+// capitalize a carried word ("Smithers" for the system actor's id `smithers`).
+const strings = (value: unknown): string[] => {
+  if (typeof value === "string") return [value.toLowerCase()]
+  if (typeof value === "number") return [String(value)]
+  if (value === null || typeof value !== "object") return []
+  return Object.values(value).flatMap(strings)
+}
+
+/** Exercises fixture stories and model mutations using the public JSON Schema inventory. */
+export const cardContract = (
+  name: string,
+  schema: z.ZodType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each card's View and Gesture parameters differ
+  stories: Readonly<Record<string, Story<unknown, any, any>>>
+): void => {
   const json = inventory(schema)
   const contract = z.fromJSONSchema(closeObjects(json))
   describe(`${name} card projection`, () => {
-    test("publishes fixtures by state", () => {
-      expect(Object.keys(fixtures).length).toBeGreaterThan(0)
+    test("publishes one named story per state", () => {
+      const names = Object.values(stories).map((story) => story.name)
+      expect(names.length).toBeGreaterThan(0)
+      expect(names.every((story) => story.trim().length > 0)).toBe(true)
+      expect(new Set(names).size).toBe(names.length)
     })
-    for (const [state, fixture] of Object.entries(fixtures)) {
+    for (const [state, story] of Object.entries(stories)) {
+      const fixture = story.model
       const { objects, enums } = locations(json, fixture)
+      test(`gives the ${state} story catalog actions, gestures and a view`, () => {
+        for (const action of story.actions) expect(ActionSchema.parse(action)).toEqual(action)
+        for (const action of Object.values(story.gestures)) expect(ActionSchema.parse(action)).toEqual(action)
+        expect(typeof story.view.maximized).toBe("boolean")
+      })
+      test(`expects only strings the ${state} story carries`, () => {
+        // The model, plus the labels, disabled reasons and form fields of the actions the story passes.
+        const carried = [...strings(fixture), ...strings(story.actions), ...strings(story.gestures)]
+        expect(story.expect.length).toBeGreaterThan(0)
+        // The third model role shows as "Decisions"; UI copy never shows its internal id (mvp.md §6.5).
+        expect(story.expect.filter((text) => /jev/i.test(text)), `${name}.${state}`).toEqual([])
+        for (const text of story.expect) {
+          expect(carried.some((value) => value.includes(text.toLowerCase())), `${name}.${state}: ${text}`).toBe(true)
+        }
+      })
       test(`parses the ${state} fixture without losing fields`, () => {
         expect(schema.parse(fixture)).toEqual(fixture)
         expect(contract.parse(fixture)).toEqual(fixture)

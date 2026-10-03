@@ -341,6 +341,9 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
 export const flowArgs = <N extends FlowWithInput>(name: N, input: FlowInput[N]): string =>
   ENCODERS[name]({ ...input } as Payload)
 
+/** True when `name` has a canonical line encoder here, so `flowArgs(name, …)` is defined. */
+export const hasFlowArgs = (name: string): name is FlowWithInput => Object.hasOwn(ENCODERS, name)
+
 export const graphSelectArgs = (doors: { readonly select: "runs.graph.select" | "flow.plan.select"; readonly target: string }, nodeId?: string): string =>
   doors.select === "runs.graph.select"
     ? flowArgs(doors.select, { runId: doors.target, ...(nodeId === undefined ? {} : { nodeId }) })
