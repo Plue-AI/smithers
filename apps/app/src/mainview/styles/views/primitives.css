@@ -18,7 +18,6 @@
 .mvp-avatar[data-smithers]:not([data-for]) { color: var(--surface); }
 .mvp-avatar[data-kind="outside"], .mvp-avatar[data-kind="github"] { background: var(--surface-2); color: var(--text-muted); box-shadow: inset 0 0 0 1px var(--border-strong); }
 .mvp-avatar img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: cover; border-radius: inherit; z-index: 1; }
-.mvp-avatar img[hidden] { display: none; }
 .mvp-avatar-badge { position: absolute; z-index: 2; right: -4px; bottom: -3px; display: inline-flex; width: calc(var(--size) * 0.52); height: calc(var(--size) * 0.52); min-width: 11px; min-height: 11px; align-items: center; justify-content: center; border-radius: 3px; background: var(--ink-700); box-shadow: 0 0 0 1.5px var(--surface); color: var(--paper-0); }
 .mvp-avatar[data-agent][data-live] { animation: mvp-breathe 2.4s ease-in-out infinite; }
 @keyframes mvp-breathe { 0%, 100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 2px var(--brand); } 50% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--brand); } }

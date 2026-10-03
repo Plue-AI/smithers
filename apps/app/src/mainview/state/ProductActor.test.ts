@@ -28,7 +28,7 @@ test("system stays system, including requester; no credential inference", () => 
 })
 test("neutral actors and removed members", () => {
   expect(actorName(toActor({ github: "octocat" }))).toBe("@octocat")
-  expect(actorName(toActor({ outside: true }))).toBe("changed outside Smithers")
+  expect(actorName(toActor({ outside: true }))).toBe("Changed outside Smithers")
   expect(toActor({ github: "octocat" }).color_index).toBe(7)
   expect(toActor({ outside: true }).color_index).toBe(7)
   expect(actorName(toActor({ person: "b" }, [{ ...ben, removed: true }]))).toBe("ben")
@@ -68,4 +68,12 @@ test("registered session and run avatars remain their own", () => {
   expect(toActor({ person: "b", via: "Aider", session: "s" }, roster, [], [{ id: "s", agent: "external", name: "Aider", avatar_url }])).toMatchObject({ avatar_url, name: "Aider", agent: "external" })
   expect(toActor({ agent: "coding", run: "r" }, roster, [{ id: "r", agent: "reviewer", avatar_url }])).toMatchObject({ avatar_url, agent: "reviewer", color_index: 6 })
   expect(actorName(toActor({ person: "b", via: "toString", session: "s" }, roster))).toBe("toString for Ben")
+})
+
+test("activity and chip share first-name labels for full roster names", async () => {
+  const chip = await import("../cards/views/actorName")
+  expect(actorName).toBe(chip.actorName)
+  const actor = toActor({ person: "b", via: "claude-code" }, [{ ...ben, name: "Ben Carter" }])
+  expect(actorName(actor)).toBe("Claude Code for Ben")
+  expect(actorName({ kind: "agent", id: "external", agent: "external", color_index: 6, avatar_url: PlaceholderAvatarUrl })).toBe("External agent")
 })

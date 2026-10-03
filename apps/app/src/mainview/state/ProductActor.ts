@@ -18,17 +18,7 @@ export interface ActorContext {
 const names: Record<AgentKind, string> = {
   smithers: "Smithers", coding: "Coding agent", reviewer: "Reviewer", "claude-code": "Claude Code", codex: "Codex", external: "Agent"
 }
-/** Labels for every consumer, with no comma before the acting-for member. */
-export const actorName = (actor: Actor): string => {
-  switch (actor.kind) {
-    case "person": return actor.via === "terminal" ? `${actor.name}'s terminal`
-      : actor.via ? `${actor.name} via ${actor.via.toUpperCase()}` : actor.name
-    case "agent": return `${actor.name ?? names[actor.agent]}${actor.for_member ? ` for ${actor.for_member.name}` : ""}`
-    case "system": return "Smithers"
-    case "github": return `@${actor.login}`
-    case "outside": return "changed outside Smithers"
-  }
-}
+export { actorName } from "../cards/views/actorName"
 /** Recorded attribution only; request headers and credential authority never enter this adapter. */
 export const toActor = (wire: ProductActor | Actor, roster: readonly ActorMember[] = [], runs: readonly ActorRun[] = [], sessions: readonly ActorSession[] = []): Actor => {
   if ("kind" in wire) return ActorSchema.parse(wire)

@@ -1,7 +1,6 @@
 import { fixtures as actorFixtures } from "@smthrs/rpc/fixtures/ActorChip"
-import { ActorChip, actorName, type Actor } from "./ActorChip"
+import { ActorChip, type Actor } from "./ActorChip"
 import { StateWord } from "./StateWord"
-import { toneTokens } from "./Tone"
 import type { ViewStory } from "./stories"
 import type { TodoState } from "@smthrs/rpc/CardPrimitives"
 
@@ -33,19 +32,17 @@ const actorLabels: Record<string, string> = {
 const states: TodoState[] = ["queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"]
 export const stories: ViewStory[] = [
   ...Object.entries(actorFixtures).map(([key, fixture]) => ({
-    name: `actor-fixture-${key}`, expect: key === "system" ? ["Smithers"] : key === "outside" ? ["Changed outside Smithers"] : fixture.expect,
-    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip {...fixture.model} /><span>{actorName(fixture.model.actor)}</span></div>,
+    name: `actor-fixture-${key}`, expect: fixture.expect,
+    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip {...fixture.model} /></div>,
   })),
   ...actors.map(([name, actor]) => ({
     name: `actor-${name}`, expect: [actorLabels[name]!],
-    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip actor={actor} size="s" /><ActorChip actor={actor} size="m" live /><span>{actorLabels[name]}</span></div>
+    render: () => <div style={{ display: "flex", gap: 12, alignItems: "center" }}><ActorChip actor={actor} size="s" /><ActorChip actor={actor} size="m" live /></div>
   })),
   ...states.flatMap(state => [false, true].map(withStep => ({
     name: `state-${state}${withStep ? "-step" : ""}`,
-    expect: [({ queued: "Queued", starting: "Starting", working: "Working", needs_you: "Needs you", paused: "Paused", failed: "Failed", in_review: "In review", merged: "Merged", dropped: "Dropped" })[state]],
-    render: () => <StateWord state={state} step={withStep ? state === "queued" ? "#2" : "Implement" : undefined} />,
+    expect: [state === "queued" && withStep ? "Waiting for a machine" : ({ queued: "Queued", starting: "Starting", working: "Working", needs_you: "Needs you", paused: "Paused", failed: "Failed", in_review: "In review", merged: "Merged", dropped: "Dropped" })[state]],
+    render: () => <StateWord state={state} step={withStep ? "Implement" : undefined} />,
   }))),
-  ...Object.keys(toneTokens).map(tone => ({ name: `tone-${tone}`, expect: [tone], render: () => <span data-tone={tone} style={{ color: "var(--tone)" }}>{tone}</span> })),
+  ...["live", "attention", "failed", "done", "quiet"].map(tone => ({ name: `tone-${tone}`, expect: [tone], render: () => <span data-tone={tone} style={{ color: "var(--tone)" }}>{tone}</span> })),
 ]
-// Queue detail has a different literal from the bare queued word.
-stories.find(story => story.name === "state-queued-step")!.expect = ["Waiting for a machine · #2"]

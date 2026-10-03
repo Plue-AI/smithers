@@ -40,12 +40,20 @@ for (const via of ["ssh", "terminal", "cli"] as const) test(`${via} retains pers
     expect(node.querySelector(".mvp-avatar-badge")).not.toBeNull()
   })
 })
-test("failed avatar reveals initials without changing identity", async () => {
-  await withActor({ kind: "person", ...ben, avatar_url: "https://example.com/avatar.png" }, node => {
-    const image = node.querySelector("img")!
-    image.dispatchEvent(new Event("error"))
-    expect(image.hidden).toBe(true)
-    expect(node.querySelector(".mvp-avatar-fallback")!.textContent).toBe("BP")
-    expect(node.getAttribute("aria-label")).toBe("Ben")
-  })
+test("failed avatar reveals initials and a replacement URL renders an image", async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  const actor: Actor = { kind: "person", ...ben, avatar_url: "https://example.com/broken.png" }
+  try {
+    await act(async () => root.render(<ActorChip actor={actor} size="m" />))
+    await act(async () => host.querySelector("img")!.dispatchEvent(new Event("error")))
+    expect(host.querySelector("img")).toBeNull()
+    expect(host.querySelector(".mvp-avatar")!.textContent).toBe("BP")
+    expect(host.firstElementChild!.getAttribute("aria-label")).toBe("Ben")
+    await act(async () => root.render(<ActorChip actor={{ ...actor, avatar_url: "https://example.com/working.png" }} size="m" />))
+    expect(host.querySelector("img")!.getAttribute("src")).toBe("https://example.com/working.png")
+    expect(host.querySelector("img")!.hidden).toBe(false)
+    await act(async () => root.render(<ActorChip actor={actor} size="m" />))
+    expect(host.querySelector("img")!.getAttribute("src")).toBe(actor.avatar_url!)
+  } finally { await act(async () => root.unmount()); host.remove() }
 })

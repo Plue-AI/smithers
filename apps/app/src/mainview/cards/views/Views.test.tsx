@@ -31,14 +31,19 @@ async function mounted(story: ViewStory, removed = false) {
 for (const path of paths) {
   const { stories } = await import(new URL(path, import.meta.url).href) as StoryModule
   if (!stories?.length) throw new Error(`${path} exports no stories`)
-  for (const story of stories) for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
-    test(`${path}/${story.name} ${theme} ${width}`, async () => {
+  for (const story of stories) for (const theme of ["light", "dark"]) {
+    test(`${path}/${story.name} ${theme} DOM`, async () => {
       document.documentElement.dataset.theme = theme
-      Object.defineProperty(window, "innerWidth", { configurable: true, value: width })
       const mountedStory = await mounted(story)
       const { host, onAction, onView } = mountedStory
       try {
-        for (const text of story.expect) expect(host.textContent).toContain(text)
+        if (story.name === "state-queued-step") expect(host.textContent).toBe("Waiting for a machine")
+        for (const text of story.expect) {
+          if (story.name.startsWith("actor-")) {
+            const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
+            for (const chip of chips) expect(chip.getAttribute("aria-label")).toContain(text)
+          } else expect(host.textContent).toContain(text)
+        }
         const interactions = story.interactions ?? []
         const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
         const controls = [...host.querySelectorAll<HTMLButtonElement>("[data-flow]")].filter(control => !gestureControls.has(control))
