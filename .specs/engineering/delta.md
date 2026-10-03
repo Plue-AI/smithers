@@ -214,3 +214,14 @@ Each row is a step in its owning ticket. Line counts are from the reviews in `~/
 | ADR 0001 single-owner, `trusted_process` | Superseded for the Mac install by `docs/architecture/0002-mac-install.md`. |
 | Public library packages | Kept, including those with no in-repo consumer (AGENTS.md "Still in force"). |
 | Will decides (product, unchanged) | Live code co-editing timing (M-02), API playground (M-36), in-app docs (M-35), transcript adapters (M-38), model-written summaries, admission-queue positions, the members roster. Rows keep current mvp.md scope until he rules. |
+
+### T-APP-22 app wiring (smithers-b8 lane app22)
+
+| Existing path | Delta and added-line justification |
+| --- | --- |
+| `MV/ChatCards.tsx`, `MV/state/useCardRows.ts` | Replace blanket tombstone hiding with the existing title-only EntryRow; keep empty titles hidden. No new renderer or decoder. |
+| `MV/cards/AgentCards.tsx`, its test, `MV/state/CardAvailability.ts` | Delete Explain rendering, failure copy and removed-behavior tests; add Explain to the existing unavailable set pending 38L's single-set decoder migration. |
+| `MV/ChatCards.test.tsx`, `MV/state/AppController.test.ts` | Existing tests do not restore titled tombstones through the transcript query or capture model requests; add those boundary assertions and a live-card control. |
+| `MV/cards/CardRenderers.test.tsx` | Existing registration coverage omits an explicit assertion that every unavailable kind has no renderer; add that assertion. |
+
+The rpc decoder, shared `LEGACY_CARD_KINDS` export and immutable historical fixtures remain a request to 38L under the lane's library ownership rule. App availability retains its existing fail-closed set until that migration lands.

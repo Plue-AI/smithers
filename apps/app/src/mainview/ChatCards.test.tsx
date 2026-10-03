@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client"
 import { act } from "react"
 import { CardView, type CardViewProps } from "./ChatCards"
 import { CardSchema } from "@smthrs/rpc/Cards"
+import { useCardRows } from "./state/useCardRows"
+import { memoryStorage } from "./state/TestFixtures"
 import { createAppStore } from "./state/AppStore"
 
 GlobalRegistrator.register()
@@ -138,6 +140,42 @@ test("a conversations list is headed Conversations; every other issue list is he
   for (const kind of [undefined, "issue"] as const) {
     render({ card: list(kind) })
     expect(host.querySelector(".smithers-card-title")?.textContent).toBe("Issues")
+  }
+})
+
+test("restored titled tombstones render literal text only through the transcript query", async () => {
+  const storage = memoryStorage()
+  const original = await createAppStore({ kind: "localStorage", storage })
+  const title = '<img src=x onerror="globalThis.savedAction()"> legacy title'
+  for (const [id, storedTitle] of [["legacy-title", title], ["legacy-empty", ""]]) {
+    await original.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: id!, kind: "retired", title: storedTitle!, status: "acted", createdAt: 1, ordinal: 1, payload: {}
+    } }).isPersisted.promise
+  }
+  await original.dispose?.()
+  const store = await createAppStore({ kind: "localStorage", storage })
+  const calls: unknown[] = []
+  const Transcript = () => <>{useCardRows(store.collections.cards).map(card =>
+    <CardView {...props} key={card.id} card={card} maximized onRunCommand={(...args) => { calls.push(args) }}
+      onMaximize={id => { calls.push(id) }} />)}</>
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    flushSync(() => root.render(<Transcript />))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(host.textContent).toBe(title)
+    expect(host.querySelectorAll(".mvp-tombstone")).toHaveLength(1)
+    expect(host.querySelector("img, button, [data-flow], .card-maximize-backdrop, .smithers-card-body")).toBeNull()
+    expect(calls).toEqual([])
+    const empty = store.collections.cards.get("legacy-empty")!
+    flushSync(() => root.render(<CardView {...props} card={empty} />))
+    expect(host.textContent).toBe("")
+    expect(host.children).toHaveLength(0)
+  } finally {
+    flushSync(() => root.unmount())
+    host.remove()
+    await store.dispose?.()
   }
 })
 

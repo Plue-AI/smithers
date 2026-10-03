@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { MAIN_TAB_ID } from "./AppState"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
@@ -184,4 +186,39 @@ describe("the controller's command surface", () => {
     ]
     expect(members.sort()).toEqual([...compositionRoot].sort())
   })
+})
+
+test("restored tombstones refuse maximize and tab activation and never enter a model request", async () => {
+  const storage = memoryStorage()
+  const original = await createAppStore({ kind: "localStorage", storage })
+  await original.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: "legacy", kind: "retired", title: "PRIVATE_LEGACY_TITLE", body: "PRIVATE_LEGACY_BODY",
+    status: "acted", createdAt: 1, ordinal: 1, payload: {}
+  } }).isPersisted.promise
+  await original.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: "live", kind: "file", title: "CURRENT_LIVE_TITLE", status: "active", createdAt: 1, ordinal: 2,
+    payload: { repo: "org/repo", path: "a.ts", content: "Live", truncated: false }
+  } }).isPersisted.promise
+  await original.dispatch({ type: "card.maximized", actor: "user", id: "legacy" }).isPersisted.promise
+  await original.dispatch({ type: "tab.opened", actor: "user", tab: {
+    id: "legacy-tab", kind: "card", cardId: "legacy", title: "PRIVATE_LEGACY_TAB"
+  } }).isPersisted.promise
+  await original.dispatch({ type: "tab.selected", actor: "user", id: "legacy-tab" }).isPersisted.promise
+  await original.dispose?.()
+  const store = await createAppStore({ kind: "localStorage", storage })
+  let request: StartAgentTurnRequest | undefined
+  const controller = createAppController(store, { ...webAgent(), available: true,
+    startTurn: async value => { request = value; return { status: "error", message: "Stopped after capture" } }
+  })
+  expect(store.session().maximizedCardId).toBeNull()
+  expect(store.session().activeTabId).toBe(MAIN_TAB_ID)
+  expect(controller.maximizeCard("legacy")).toBe("This feature is not enabled.")
+  const outcome = await controller.runCommandForResult("card.maximize", "legacy")
+  expect(outcome.status).toBe("failed")
+  expect(store.session().maximizedCardId).toBeNull()
+  controller.send("Read the current conversation")
+  await settled()
+  expect(request).toBeDefined()
+  expect(JSON.stringify(request)).not.toContain("PRIVATE_LEGACY")
+  expect(JSON.stringify(request)).toContain("CURRENT_LIVE_TITLE")
 })

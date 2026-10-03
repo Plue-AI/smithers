@@ -23,7 +23,7 @@ export const useCardRows = (cards: AppCollections["cards"]): ReadonlyArray<Card>
   const { data } = useLiveQuery<Card, string, Record<string, never>>(
     cards as unknown as Collection<Card, string, Record<string, never>> & NonSingleResult
   )
-  return data.filter(card => card.kind !== "retired")
+  return data.filter(card => card.kind !== "retired" || card.title !== "")
 }
 
 

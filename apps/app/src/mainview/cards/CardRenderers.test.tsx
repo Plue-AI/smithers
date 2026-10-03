@@ -57,6 +57,14 @@ describe("CardRenderers", () => {
     }
   })
 
+  test("retired kinds have no renderer or family registration", () => {
+    const registered = CARD_FAMILIES.flatMap(family => Object.keys(family))
+    for (const kind of RETIRED_CARD_KINDS) {
+      expect(CARD_RENDERERS).not.toHaveProperty(kind)
+      expect(registered).not.toContain(kind)
+    }
+  })
+
   test("an error card wears failed before its family is asked", () => {
     const completed: Card = {
       ...base,

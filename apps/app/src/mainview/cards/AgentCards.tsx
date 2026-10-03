@@ -1,6 +1,6 @@
 import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
-import { Button, Markdown } from "@smthrs/ui"
+import { Button } from "@smthrs/ui"
 import type { Card } from "../state/AppState"
 import { Monogram } from "../AgentMark"
 import type { CardFamily, RunCommand } from "./CardFamily"
@@ -14,13 +14,6 @@ type AgentsCard = Extract<Card, { kind: "agents" }>
 const AGENTS_FAILED: UserFailureCopy = {
   fault: "infra",
   sentence: "Smithers could not update your agents. Not your fault.",
-  actions: []
-}
-
-/* The explainer's failed answer. */
-const EXPLAIN_FAILED: UserFailureCopy = {
-  fault: "infra",
-  sentence: "Smithers could not answer this. Not your fault.",
   actions: []
 }
 
@@ -66,31 +59,7 @@ export const AgentsCardBody = ({ card, onRunCommand }: { readonly card: AgentsCa
   )
 }
 
-/* The explainer's answer (AgentRoles.ts): streams in place; says who was asked, never who answered. */
-const ExplainCardBody = ({ card }: { readonly card: Extract<Card, { kind: "explain" }> }) => {
-  const { question, answer, phase, answeredBy, error } = card.payload
-  return (
-    <div className="explain-card" data-phase={phase}>
-      <p className="smithers-card-note explain-card-question">{question}</p>
-      {answer !== "" ? <Markdown className="smithers-card-markdown" content={answer} /> : null}
-      {phase === "asking" ? <p className="sui-approval-pending">Explaining…</p> : null}
-      {phase === "failed" && error !== undefined ?
-        <FailureNotice className="sui-approval-error" data-testid="explain-failure" failure={describedFailure("ExplainFailed", EXPLAIN_FAILED, error)} /> :
-        null}
-      <p className="smithers-card-note explain-card-by">{answeredBy}</p>
-    </div>
-  )
-}
-
-
-export const agentCardFamily: CardFamily<"explain" | "agents"> = {
-  explain: {
-    render: (card) => <ExplainCardBody card={card} />,
-    pill: (card) => {
-      if (card.payload.phase === "asking") return "running"
-      return card.payload.phase === "answered" ? "done" : "failed"
-    }
-  },
+export const agentCardFamily: CardFamily<"agents"> = {
   /* Agents as data: the listings settle when they render. */
   agents: {
     render: (card, actions) => <AgentsCardBody card={card} onRunCommand={actions.onRunCommand} />,

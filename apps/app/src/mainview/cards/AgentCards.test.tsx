@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 import type { Card } from "../state/AppState"
-import { agentCardFamily, AgentsCardBody } from "./AgentCards"
+import { AgentsCardBody } from "./AgentCards"
 
 /*
  * Agents as data (custom-agents.md): the Agents card's rows and acts, and
@@ -100,30 +100,6 @@ describe("the Agents card", () => {
     expect(alert?.querySelector("details pre")?.textContent).toBe("The server answered 500")
     expect(alert?.querySelector("details")?.open).toBe(false)
     expect(alert?.querySelector("button")).toBeNull()
-  })
-})
-
-describe("the explain card's failure", () => {
-  type ExplainCard = Extract<Card, { kind: "explain" }>
-  const explain = (payload: ExplainCard["payload"]): HTMLElement => mount(<>{agentCardFamily.explain.render(
-    { ...base, id: "explain-1", kind: "explain", title: "Explain", payload }, { onRunCommand: () => {} } as never
-  )}</>)
-
-  test("a failed answer reads one sentence; the error message stays behind Details", () => {
-    const host = explain({ question: "What is a lane?", answer: "", phase: "failed", answeredBy: "Explainer", error: "TypeError: fetch failed (500)" })
-    const notice = host.querySelector<HTMLElement>("[data-testid=explain-failure]")
-    expect(notice?.getAttribute("role")).toBe("alert")
-    expect(notice?.dataset.fault).toBe("infra")
-    expect(notice?.dataset.failure).toBe("ExplainFailed")
-    expect(notice?.querySelector("p")?.textContent).toBe("Smithers could not answer this. Not your fault.")
-    expect(notice?.querySelector("p")?.textContent).not.toContain("500")
-    expect(notice?.querySelector("details pre")?.textContent).toBe("TypeError: fetch failed (500)")
-  })
-
-  test("an error on an answer that did not fail draws no notice", () => {
-    const host = explain({ question: "What is a lane?", answer: "A lane.", phase: "answered", answeredBy: "Explainer", error: "late frame" })
-    expect(host.querySelector("[data-testid=explain-failure]")).toBeNull()
-    expect(host.textContent).not.toContain("late frame")
   })
 })
 
