@@ -1,0 +1,152 @@
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
+
+export interface TopicSnapshot<T = unknown> {
+  readonly topic: string
+  readonly data?: T
+  readonly cursor?: number
+  readonly error?: string
+}
+export interface LiveSocket {
+  readyState: number
+  onopen: (() => void) | null
+  onclose: (() => void) | null
+  onmessage: ((event: { data: unknown }) => void) | null
+  send(data: string): void
+  close(): void
+}
+export interface LiveChannelOptions {
+  socket?: () => LiveSocket
+  random?: () => number
+  schedule?: (callback: () => void, ms: number) => unknown
+  cancel?: (timer: unknown) => void
+  /** Topic owners supply their delta reducer; an unknown delta never guesses state. */
+  project?: (topic: string, previous: unknown, delta: unknown) => unknown
+}
+
+/** One transport, reference-counted topics, and committed projection rows. */
+export class LiveChannel {
+  readonly collection = createCollection(localOnlyCollectionOptions({
+    id: "live-topics", getKey: (row: TopicSnapshot) => row.topic
+  }))
+  private readonly topics = new Map<string, { id: number; listeners: Set<() => void>; snapshot: TopicSnapshot; awaitingSnapshot: boolean }>()
+  private readonly projectors = new Map<string, (previous: unknown, delta: unknown) => unknown>()
+  /** Register the publishing topic's decoder before its consumers subscribe. */
+  registerProjection(topic: string, project: (previous: unknown, delta: unknown) => unknown): void {
+    const existing = this.projectors.get(topic)
+    if (existing && existing !== project) throw new Error(`Projection already registered: ${topic}`)
+    this.projectors.set(topic, project)
+  }
+  private socket?: LiveSocket
+  private timer?: unknown
+  private nextId = 1
+  private attempt = 0
+  private disposed = false
+  constructor(private readonly options: LiveChannelOptions = {}) {}
+  getSnapshot = (topic: string): TopicSnapshot | undefined => this.topics.get(topic)?.snapshot
+  subscribe = (topic: string, listener: () => void): (() => void) => {
+    if (this.disposed) throw new Error("Live channel disposed")
+    let entry = this.topics.get(topic)
+    if (!entry) {
+      entry = { id: this.nextId++, listeners: new Set(), snapshot: { topic }, awaitingSnapshot: true }
+      this.topics.set(topic, entry)
+      if (this.socket?.readyState === 1) this.sub(topic, entry)
+    }
+    // Each subscription owns a distinct token, even when callbacks are identical.
+    const notify = () => listener()
+    entry.listeners.add(notify)
+    this.connect()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      entry.listeners.delete(notify)
+      if (entry.listeners.size) return
+      if (this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
+      this.topics.delete(topic)
+      if (this.collection.has(topic)) this.collection.delete(topic)
+      if (!this.topics.size) this.disconnect()
+    }
+  }
+  private send(frame: unknown) { this.socket?.send(JSON.stringify(frame)) }
+  private sub(topic: string, entry: { id: number; snapshot: TopicSnapshot; awaitingSnapshot: boolean }) {
+    this.send({ t: "sub", id: entry.id, topic, ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
+  }
+  private connect() {
+    if (this.socket || this.timer !== undefined || !this.topics.size || this.disposed) return
+    try {
+      const socket = this.options.socket?.() ?? new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`, "smithers.live.v1") as unknown as LiveSocket
+      this.socket = socket
+      socket.onopen = () => {
+        if (this.socket !== socket) return
+        this.attempt = 0
+        for (const [topic, entry] of this.topics) this.sub(topic, entry)
+      }
+      socket.onmessage = event => { if (this.socket === socket) this.receive(event.data) }
+      socket.onclose = () => {
+        if (this.socket !== socket) return
+        this.socket = undefined
+        this.retry()
+      }
+    } catch { this.retry() }
+  }
+  private retry() {
+    if (!this.topics.size || this.disposed) return
+    const cap = Math.min(5000, 250 * 2 ** Math.min(this.attempt++, 5))
+    const delay = Math.max(250, Math.min(5000, cap * (0.5 + (this.options.random ?? Math.random)() / 2)))
+    this.timer = (this.options.schedule ?? setTimeout)(() => { this.timer = undefined; this.connect() }, delay)
+  }
+  private receive(raw: unknown) {
+    if (typeof raw !== "string") return
+    let frame: Record<string, unknown>
+    try { frame = JSON.parse(raw) } catch { return }
+    if (!frame || typeof frame !== "object") return
+    const pair = [...this.topics].find(([, entry]) => entry.id === frame.id)
+    if (!pair) return
+    const [topic, entry] = pair
+    if (frame.t === "gap") {
+      entry.awaitingSnapshot = true
+      this.send({ t: "sub", id: entry.id, topic })
+      return
+    }
+    if (frame.t === "err" && typeof frame.code === "string") {
+      this.publish(topic, entry, { ...entry.snapshot, error: frame.code })
+      return
+    }
+    if (frame.t !== "snap" && frame.t !== "delta") return
+    if (!("data" in frame)) return
+    if (!Number.isSafeInteger(frame.cursor) || (frame.cursor as number) < 0) return
+    const cursor = frame.cursor as number
+    if (entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor && !(frame.t === "snap" && entry.awaitingSnapshot && cursor === entry.snapshot.cursor)) return
+    if (frame.t === "delta" && entry.awaitingSnapshot) return
+    const project = this.projectors.get(topic) ?? (this.options.project ? (previous: unknown, delta: unknown) => this.options.project!(topic, previous, delta) : undefined)
+    if (frame.t === "delta" && !project) {
+      entry.awaitingSnapshot = true
+      this.send({ t: "sub", id: entry.id, topic })
+      return
+    }
+    let data: unknown
+    try { data = frame.t === "snap" ? frame.data : project!(entry.snapshot.data, frame.data) }
+    catch { entry.awaitingSnapshot = true; this.send({ t: "sub", id: entry.id, topic }); return }
+    entry.awaitingSnapshot = false
+    this.publish(topic, entry, { topic, cursor, data })
+  }
+  private publish(topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
+    entry.snapshot = snapshot
+    if (this.collection.has(topic)) this.collection.update(topic, row => { Object.assign(row, snapshot); if (!snapshot.error) delete row.error })
+    else this.collection.insert(snapshot)
+    for (const listener of entry.listeners) listener()
+  }
+  private disconnect() {
+    if (this.timer !== undefined) (this.options.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(this.timer)
+    this.timer = undefined
+    const socket = this.socket
+    this.socket = undefined
+    if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
+    this.attempt = 0
+  }
+  dispose() { this.disposed = true; this.disconnect(); this.topics.clear(); this.collection.cleanup() }
+}
+
+/** Lazy module singleton: exactly one channel for the browser tab. */
+let browserChannel: LiveChannel | undefined
+export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel()

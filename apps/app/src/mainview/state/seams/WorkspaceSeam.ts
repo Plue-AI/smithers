@@ -145,13 +145,6 @@ export interface WorkspaceSeam {
   readonly listEgress: (workspaceId?: string, cursor?: string) => Promise<string | void | { readonly value: string }>
   /** `box.images [owner/repo]`: the environment images a repository has built. */
   readonly listEnvironmentImages: (repo?: string) => Promise<string | void | { readonly value: string }>
-  /**
-   * One event off `GET …/workspaces/{id}/stream` (RFD-004). The stream now
-   * carries `{ status, head, ahead, behind }` when the guest reports a new
-   * head, and `{ status }` alone otherwise: a status-only event must leave the
-   * head exactly as it was rather than blanking it.
-   */
-  readonly applyStatusEvent: (workspaceId: string, event: unknown) => void
   /** Stop owned reads, polls and waits, and cancel pending reads. */
   readonly dispose: () => void
 }
@@ -1580,48 +1573,6 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
    * an empty catalogue would read as "this repository has built nothing",
    * which is a different fact.
    */
-  /*
-   * One workspace status-stream event (RFD-004). Only what the event NAMES is
-   * applied: a status-only event moves the status and leaves the head,
-   * ahead and behind exactly as the collection knows them, because a stream
-   * that stayed quiet about the head has said nothing about it. An event for
-   * a workspace nobody loaded, or one naming a status Smithers does not know,
-   * changes nothing at all.
-   */
-  const applyStatusEvent: WorkspaceSeam["applyStatusEvent"] = (workspaceId, event) => {
-    const known = ctx.store.collections.cloudWorkspaces.get(workspaceId)
-    if (known === undefined || !isRecord(event) || !currentOperation()()) return
-    const status = isWorkspaceStatus(event.status) ? event.status : null
-    const head = parseHead(event.head)
-    const ahead = countOrNull(event.ahead)
-    const behind = countOrNull(event.behind)
-    /* plue#482: a `failed` event carries the reason; only a failed one does, and only then is it applied. */
-    const failureCode = textOrNull(event.failure_code)
-    const failureMessage = textOrNull(event.failure_message)
-    if (status === null && head === null && ahead === null && behind === null) return
-    const workspace: CloudWorkspaceInput = {
-      id: known.id,
-      repoId: known.repoId,
-      name: known.name,
-      targetBookmark: known.targetBookmark,
-      status: status ?? known.status,
-      failureCode: failureCode ?? known.failureCode ?? null,
-      failureMessage: failureMessage ?? known.failureMessage ?? null,
-      provisioningStage: known.provisioningStage,
-      suspendedAt: known.suspendedAt,
-      createdAt: known.createdAt,
-      kind: known.kind ?? null,
-      agentSessionId: known.agentSessionId ?? null,
-      head: head ?? known.head ?? null,
-      ahead: ahead ?? known.ahead ?? null,
-      behind: behind ?? known.behind ?? null,
-      startedAt: known.startedAt ?? null,
-      environment: known.environment ?? null,
-      persistence: known.persistence ?? null,
-      sshHost: known.sshHost ?? null,
-    }
-    ctx.dispatch({ type: "workspace.updated", actor: "system", workspace })
-  }
 
   const listEnvironmentImages: WorkspaceSeam["listEnvironmentImages"] = async (repo) => {
     const refusal = gate()
@@ -1777,7 +1728,6 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     listServices,
     listEgress,
     listEnvironmentImages,
-    applyStatusEvent,
     dispose
   }
 }

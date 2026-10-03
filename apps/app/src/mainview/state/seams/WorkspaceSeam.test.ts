@@ -91,7 +91,6 @@ const WS_LIVE = {
   updated_at: "2026-09-02T09:30:00Z"
 }
 
-
 const USER_ROW = USER_WORKSPACE_ROW
 
 const wsRow: CloudWorkspaceInput = {
@@ -1503,8 +1502,7 @@ describe("workspace seam environment images", () => {
 /*
  * Lane L3b addendum (plue main 495e7269e604, RFD-004): an agent run executes
  * in a workspace of its own — `kind: "agent"` with the session that drove it —
- * and the status stream now carries the workspace's head as the guest reports
- * it.
+ * and workspace DTOs carry the guest-reported head.
  */
 describe("workspace seam agent workspaces", () => {
   const WS_AGENT = {
@@ -1545,41 +1543,6 @@ describe("workspace seam agent workspaces", () => {
     expect(payloadOf(store)?.agentSessionId ?? null).toBeNull()
   })
 
-  test("a stream event carrying a new head applies it to the row and the card", async () => {
-    const { store, seam } = await harness({})
-    await seedWorkspace(store, { ...wsRow, head: { changeId: "old", commitId: "old" }, ahead: 0, behind: 5 })
-    await seedCard(store)
-    seam.applyStatusEvent("ws-1", {
-      status: "running",
-      head: { change_id: "qupxosqwmnrt", commit_id: "c0ffee1234567890" },
-      ahead: 3,
-      behind: 0
-    })
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({
-        status: "running",
-        head: { changeId: "qupxosqwmnrt", commitId: "c0ffee1234567890" },
-        ahead: 3,
-        behind: 0
-      })
-    )
-    expect(payloadOf(store)?.head).toEqual({ changeId: "qupxosqwmnrt", commitId: "c0ffee1234567890" })
-    expect(payloadOf(store)?.ahead).toBe(3)
-  })
-
-  test("a status-only event moves the status and leaves the head exactly as it was", async () => {
-    const { store, seam } = await harness({})
-    await seedWorkspace(store, { ...wsRow, head: { changeId: "keepme", commitId: "keepme2" }, ahead: 4, behind: 1 })
-    seam.applyStatusEvent("ws-1", { status: "suspended" })
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({
-        status: "suspended",
-        head: { changeId: "keepme", commitId: "keepme2" },
-        ahead: 4,
-        behind: 1
-      })
-    )
-  })
 
   test("a failed DTO carries plue's failure code and message onto the row and the card (plue#482)", async () => {
     const { store, seam } = await harness({
@@ -1642,35 +1605,6 @@ describe("workspace seam agent workspaces", () => {
     )
   })
 
-  test("a failed status EVENT carries its reason; a later event that names none leaves the reason standing (plue#482)", async () => {
-    const { store, seam } = await harness({})
-    await seedWorkspace(store)
-    await seedCard(store)
-
-    seam.applyStatusEvent("ws-1", {
-      status: "failed",
-      failure_code: "image_pull_failed",
-      failure_message: "pulling nixos-2405 timed out"
-    })
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({ status: "failed", failureCode: "image_pull_failed" })
-    )
-    expect(payloadOf(store)?.failureMessage).toBe("pulling nixos-2405 timed out")
-
-    /* A status-only event has said nothing about the reason, so it does not erase it. */
-    seam.applyStatusEvent("ws-1", { status: "failed" })
-    expect(workspacesOf(store)[0]?.failureCode).toBe("image_pull_failed")
-  })
-
-  test("an event for a workspace nobody loaded, or one that names no status Smithers knows, changes nothing", async () => {
-    const { store, seam } = await harness({})
-    await seedWorkspace(store, { ...wsRow, ahead: 4 })
-    seam.applyStatusEvent("ws-missing", { status: "running" })
-    seam.applyStatusEvent("ws-1", { status: "teleporting" })
-    seam.applyStatusEvent("ws-1", "not an event")
-    expect(workspacesOf(store)).toHaveLength(1)
-    expect(workspacesOf(store)[0]).toEqual(expect.objectContaining({ status: "running", ahead: 4 }))
-  })
 })
 
 describe("workspace seam create refusals", () => {

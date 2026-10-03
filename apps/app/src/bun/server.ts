@@ -145,6 +145,8 @@ export interface LocalServerOptions {
    * stub mode never proxies.
    */
   readonly identityUpstream?: string | null
+  /** Self-hosted product backend for the live channel; independent of cloud mode. */
+  readonly backendApi?: string | null
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -186,13 +188,21 @@ export interface LocalServerOptions {
   readonly modelFetch?: typeof globalThis.fetch
 }
 
-export interface WsSocketData {
+export type WsSocketData = { readonly live: LiveBridge } | {
   /**
    * Lane citc: a `/api/cloud-ws/` tunnel's bridge to the cloud terminal or
    * language-server WebSocket. Frames the renderer sends before the upstream
    * opens queue in `pending` (bounded) and flush on open.
    */
   readonly cloud: CloudWsBridge
+}
+
+interface LiveBridge {
+  readonly target: string
+  readonly headers: Record<string, string>
+  upstream?: WebSocket
+  readonly pending: Array<string | Buffer>
+  pendingBytes: number
 }
 
 export interface CloudWsBridge {
@@ -1032,6 +1042,25 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
+    if (pathname === "/api/live") {
+      if (request.headers.get("origin") !== origin) return jsonError("invalid_origin", "WebSocket origin does not match the local app.")
+      const protocols = (request.headers.get("sec-websocket-protocol") ?? "").split(",").map(value => value.trim())
+      if (!protocols.includes("smithers.live.v1")) return jsonError("invalid_request", "Expected smithers.live.v1.")
+      const backend = options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi
+      if (!backend) return jsonError("not_implemented", "The live backend is not configured.")
+      const target = new URL("/api/live", backend)
+      target.protocol = target.protocol === "https:" ? "wss:" : "ws:"
+      const headers: Record<string, string> = { "sec-websocket-protocol": "smithers.live.v1", origin }
+      for (const name of ["cookie", "authorization"]) {
+        const value = request.headers.get(name)
+        if (value !== null) headers[name] = value
+      }
+      const upgraded = bunServer.upgrade(request, {
+        data: { live: { target: target.toString(), headers, pending: [], pendingBytes: 0 } },
+        headers: { "sec-websocket-protocol": "smithers.live.v1" }
+      })
+      return upgraded ? undefined : jsonError("upgrade_failed", "Expected a WebSocket upgrade.")
+    }
     if (pathname.startsWith(CLOUD_WS_ROUTE_PREFIX)) {
       /*
        * Lane citc: the workspace-terminal tunnel; lane L6: the workspace
@@ -1196,6 +1225,21 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       backpressureLimit: MAX_WS_BACKPRESSURE_BYTES,
       closeOnBackpressureLimit: true,
       open: (socket) => {
+        if ("live" in socket.data) {
+          const bridge = socket.data.live
+          const upstream = new WebSocket(bridge.target, { headers: bridge.headers } as never)
+          bridge.upstream = upstream
+          upstream.binaryType = "arraybuffer"
+          upstream.addEventListener("open", () => {
+            for (const frame of bridge.pending) upstream.send(frame)
+            bridge.pending.length = 0
+            bridge.pendingBytes = 0
+          })
+          upstream.addEventListener("message", event => socket.send(event.data as string | ArrayBuffer))
+          upstream.addEventListener("close", event => closeRenderer(socket, event.code, event.reason))
+          upstream.addEventListener("error", () => socket.close(1011, "live upstream failed"))
+          return
+        }
         const bridge = socket.data.cloud
         /*
          * Lane citc: connect the cloud socket. plue requires its own
@@ -1253,6 +1297,19 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         })
       },
       message: (socket, raw) => {
+        if ("live" in socket.data) {
+          const bridge = socket.data.live
+          const bytes = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength
+          if (bytes > MAX_ANY_WS_FRAME_BYTES) { socket.close(1009, "live frame too large"); return }
+          if (bridge.upstream?.readyState === WebSocket.OPEN) {
+            if (bridge.upstream.bufferedAmount > MAX_WS_BACKPRESSURE_BYTES) { socket.close(1009, "live upstream backpressure"); return }
+            bridge.upstream.send(raw)
+          } else if (bridge.pending.length < MAX_CLOUD_WS_PENDING && bridge.pendingBytes + bytes <= MAX_WS_BACKPRESSURE_BYTES) {
+            bridge.pending.push(raw)
+            bridge.pendingBytes += bytes
+          } else socket.close(1009, "live upstream backpressure")
+          return
+        }
         const bridge = socket.data.cloud
         const frameBytes = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength
         // Each branch refuses its own over-cap frame with its own reason: plue's 64 KiB for the terminal, 1 MiB for the lsp relay.
@@ -1276,6 +1333,11 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         }
       },
       close: (socket) => {
+        if ("live" in socket.data) {
+          socket.data.live.pending.length = 0
+          socket.data.live.upstream?.close()
+          return
+        }
         const bridge = socket.data.cloud
         cloudBridges.delete(socket)
         if (bridge.upstream !== undefined) {
