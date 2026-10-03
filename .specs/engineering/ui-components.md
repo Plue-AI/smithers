@@ -577,3 +577,19 @@ type TodoRepairSlots = { conflictTerminal?: React.ReactNode } // rendered by the
 ```
 
 **Merge blocker tones (design G12, 2026-10-02).** A failed required check is ember (`failed`). Gold (`attention`) is only for blockers where a person must act (`review_required`, a question, an approval). System or order waits (`order`, `machine`, `rebase`, `merging`) are neutral (`quiet`).
+
+### T-UI-17 Terminal
+
+`TerminalCardSchema` is retained for metadata crossing the live socket. The app View takes a `terminal: ReactNode` slot outside the serialized model, as with the S1 conflict terminal (§14.2.2b). T-APP-12 binds the existing `@smthrs/ui/adapters/terminal` to the transport.
+
+```ts
+type TerminalModel = {
+  id: string; title: string; branch: string; owner: Actor
+  agents: Actor[]; watchers: Actor[]; command?: string
+  viewer_is_owner: boolean; frozen: boolean
+}
+type TerminalViewProps = CardProps<TerminalModel>
+// App-only: TerminalViewProps & { terminal: ReactNode }
+```
+
+Watchers and frozen terminals have an inert, read-only emulator. They never receive input focus or forward keys. Watching and Rebasing… are neutral; each working agent has its own ActorChip and acting-for name. T-APP-12 binds the stream, replay, geometry and palette shortcut through the shared runtime.

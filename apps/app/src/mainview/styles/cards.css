@@ -2853,3 +2853,18 @@
 .draft-receipt b { color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
 .draft-ref { font: var(--fs-caption) var(--font-mono); padding: 1px 5px; border: 1px solid var(--border); border-radius: var(--r-1); }
 .draft-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+/* TerminalView (T-UI-17): personal terminal, participants and watch-only state. */
+.terminal-view { box-sizing: border-box; min-width: 0; }
+.terminal-view .smithers-card-header { flex-wrap: wrap; gap: 8px; }
+.terminal-view .terminal-branch { color: var(--text-muted); font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
+.terminal-view .terminal-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.terminal-view .terminal-person { display: inline-flex; align-items: center; gap: 3px; color: var(--text-muted); font-size: var(--fs-caption); }
+.terminal-view .terminal-person[data-watching] .mvp-avatar { opacity: .85; }
+.terminal-view .terminal-command { color: var(--text-muted); font: var(--fs-caption) var(--font-mono); overflow-wrap: anywhere; }
+.terminal-view .terminal-command[data-live] { color: var(--brand); }
+.terminal-view .terminal-output { height: 260px; min-width: 0; }
+.terminal-view .terminal-output > div { height: 100%; }
+.terminal-view .sui-terminal { padding: 10px 12px; border-color: var(--border); border-radius: var(--r-1); }
+.terminal-view .terminal-status { display: flex; gap: 12px; margin-top: 8px; color: var(--text-muted); font-size: var(--fs-caption); }
+.terminal-view .terminal-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.terminal-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
