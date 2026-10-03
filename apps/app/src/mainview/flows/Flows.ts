@@ -22,7 +22,7 @@
  * a new namespace is one import plus one spread line here and nothing else.
  * FlowOrder.test.ts pins that order.
  */
-import type { FlowEntry } from "./registry"
+import { nameOf, type FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
 import {  adminResetFlows, adminToolFlows } from "./entries/admin"
@@ -107,6 +107,15 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]
 
+/** App doors deferred by the self-hosted MVP; catalog source stays available to hosted composition. */
+const hiddenMvpFlows = (name: string): boolean =>
+  name.startsWith("billing.") ||
+  name.startsWith("admin.") && name !== "admin.health" ||
+  name.startsWith("agent.session.") ||
+  name.startsWith("runs.burndown.") ||
+  name === "issue-sweep" || name === "change.split" ||
+  ["cloud.prompt", "cloud.sign-in", "cloud.sign-out", "repo.create", "repo.choose", "repo.overview", "repo.tree", "repo.update", "repos.import", "repos.import.retry", "box.facet", "box.services", "box.egress", "box.images"].includes(name)
+
 export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...wikiSurfaceFlows(actions),
   ...appearanceFlows(actions),
@@ -159,7 +168,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...tutorialRepositoryFlows(actions),
   ...searchFlows(actions),
   ...paletteFlows(actions),
-]
+].filter(flow => !hiddenMvpFlows(nameOf(flow)))
 
 /*
  * The admin plugin (Launch Checklist §E — non-enumerable): these flows REGISTER
@@ -173,4 +182,4 @@ export const adminFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   ...adminResetFlows(actions),
   ...adminToolFlows(actions),
   ...debugFlows(actions),
-]
+].filter(flow => !hiddenMvpFlows(nameOf(flow)))

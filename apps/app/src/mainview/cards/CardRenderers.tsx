@@ -16,7 +16,6 @@ import { accountCardFamily } from "./AccountCard"
 import { agentCardFamily } from "./AgentCards"
 import { anonymousCeilingCardFamily } from "./AnonymousCeilingCard"
 import { approvalCardFamily } from "./ApprovalCard"
-import { billingCardFamily } from "./BillingCards"
 import { branchesCardFamily } from "./BranchesCard"
 import type { CardActions, CardFamily, CardFamilyEntry, CardProjectionAuthority } from "./CardFamily"
 import { changeCardFamily } from "./ChangeCards"
@@ -67,7 +66,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   repositoryHomeCardFamily,
   turnCardFamily,
   approvalCardFamily,
-  billingCardFamily,
   conversationCardFamily,
   workflowCardFamily,
   flowPlanCardFamily,
@@ -100,7 +98,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...repositoryHomeCardFamily,
   ...turnCardFamily,
   ...approvalCardFamily,
-  ...billingCardFamily,
   ...conversationCardFamily,
   ...workflowCardFamily,
   ...flowPlanCardFamily,
