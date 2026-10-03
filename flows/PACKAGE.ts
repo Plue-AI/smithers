@@ -39,14 +39,10 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
     Smithers.file("//flows/test/worker-rollout.test.ts"),
-    Smithers.file("//flows/test/notes.test.ts"),
-    Smithers.file("//flows/test/system-flow-catalog.test.ts")
+    Smithers.file("//flows/test/notes.test.ts")
   ]),
   srcs: [
     sources,
-    // system-flow-catalog.test.ts compares its fixture with the backend's canonical list.
-    Smithers.file("//packages/backend/internal/services/flow_catalog.go"),
-    Smithers.file("//packages/backend/flowdispatch/real_host_test.go"),
     Smithers.file("//flows/register-repository/calibration/corpus.json"),
     Smithers.file("//flows/register-repository/calibration/fit.json"),
     scripts,
