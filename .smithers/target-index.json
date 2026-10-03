@@ -1596,6 +1596,11 @@
       },
       {
         "kind": "glob",
+        "pattern": "apps/app/src/docs/pages/*.md",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
         "pattern": "apps/app/e2e/contracts/**/*.ts",
         "exclude": []
       },

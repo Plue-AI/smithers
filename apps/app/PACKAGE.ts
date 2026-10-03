@@ -95,6 +95,7 @@ const unitTests = Smithers.NodeTest({
     sources,
     componentSources,
     styleSources,
+    Smithers.glob("//apps/app/src/docs/pages/*.md"),
     contractSources,
     harnessSources,
     suiteSources,
