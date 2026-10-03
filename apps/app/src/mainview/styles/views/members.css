@@ -1,0 +1,29 @@
+/* PORT: mock cards/People.tsx, mock.css members, css/setup.css narrow roster. */
+.mvp-members-view { font-family: var(--font-ui); container-type: inline-size; }
+.mvp-members-view h2 { margin: 0 0 16px; font-size: var(--fs-body); font-weight: 600; }
+.mvp-members { display: grid; grid-template-columns: 24px max-content max-content minmax(0, 1fr) max-content; align-items: center; gap: 8px 12px; margin: 8px 0 16px; padding: 0; list-style: none; font-size: var(--fs-small); }
+.mvp-members > li { display: contents; }
+.mvp-members .mvp-avatar { box-shadow: none; }
+.mvp-member-name { font-weight: 500; }
+.mvp-member-login { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--fs-caption); }
+.mvp-access { display: inline-flex; align-items: center; gap: 4px; color: var(--attention-text); text-decoration: none; font-size: var(--fs-caption); }
+.mvp-role { color: var(--text-muted); font-size: var(--fs-small); padding: 0 10px; }
+.mvp-member-controls, .mvp-member-action form, .mvp-add-row { display: flex; align-items: center; gap: 8px; }
+.mvp-member-action { min-width: 0; }
+.mvp-members-view input, .mvp-members-view select, .mvp-members-view button { height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-small); }
+.mvp-members-view input { min-width: 0; width: 150px; font-family: var(--font-mono); }
+.mvp-members-view button { cursor: pointer; }
+.mvp-members-view button:hover { background: var(--surface-2); }
+.mvp-members-view :disabled { cursor: default; color: var(--text-muted); }
+.mvp-member-reason { display: block; color: var(--text-muted); font-size: var(--fs-caption); }
+.mvp-members-view :focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
+@container (max-width: 600px) {
+  .mvp-members { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  .mvp-members > li { display: grid; grid-template-areas: "avatar name" "avatar login" ". access" ". controls"; grid-template-columns: 24px minmax(0, 1fr); gap: 4px 10px; }
+  .mvp-members > li > :nth-child(1) { grid-area: avatar; }
+  .mvp-member-name { grid-area: name; overflow-wrap: anywhere; }
+  .mvp-member-login { grid-area: login; overflow-wrap: anywhere; }
+  .mvp-members > li > :nth-child(4) { grid-area: access; }
+  .mvp-member-controls { grid-area: controls; flex-wrap: wrap; }
+  .mvp-add-row, .mvp-member-action form { flex-wrap: wrap; }
+}

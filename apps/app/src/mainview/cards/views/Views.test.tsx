@@ -26,7 +26,7 @@ async function mounted(story: ViewStory, removed = false) {
   const root = createRoot(host)
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
   const onView = mock((_patch: Record<string, unknown>) => {})
-  await act(async () => root.render(story.render({ onAction, onView }, removed ? story.actions?.slice(1) : story.actions)))
+  await act(async () => root.render(story.render({ onAction, onView }, removed ? story.actions?.slice(1) : undefined)))
   return { host, onAction, onView, close: async () => { await act(async () => root.unmount()); host.remove() } }
 }
 for (const path of paths) {
@@ -111,7 +111,7 @@ for (const path of paths) {
         }
         const interactions = story.interactions ?? []
         const gestureControls = new Set(interactions.filter(item => item.gesture).map(item => host.querySelector(item.selector)))
-        const controls = [...host.querySelectorAll<HTMLButtonElement>("[data-flow]")].filter(control => !gestureControls.has(control))
+        const controls = [...host.querySelectorAll<HTMLButtonElement>("button[data-flow]")].filter(control => !gestureControls.has(control))
         const actions = story.actions ?? []
         expect(controls.map(control => control.dataset.flow)).toEqual(actions.map(action => action.tag))
         for (let index = 0; index < actions.length; index++) {
@@ -162,7 +162,7 @@ for (const path of paths) {
       } finally { await mountedStory.close() }
       if (story.actions?.length) {
         const removed = await mounted(story, true)
-        try { expect([...removed.host.querySelectorAll<HTMLElement>("[data-flow]")].filter(control => !(story.interactions ?? []).some(item => item.gesture && control.matches(item.selector))).map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
+        try { expect([...removed.host.querySelectorAll<HTMLElement>("button[data-flow]")].filter(control => !(story.interactions ?? []).some(item => item.gesture && control.matches(item.selector))).map(control => control.dataset.flow)).toEqual(story.actions.slice(1).map(action => action.tag)) }
         finally { await removed.close() }
       }
     })
@@ -826,4 +826,78 @@ test("Commands action without bound args forwards an empty object and has no bod
     await act(async () => result.host.querySelector("button")!.click())
     expect(result.onAction.mock.calls).toEqual([["help", {}]])
   } finally { await result.close() }
+})
+
+// T-UI-09 / spec §14.3: colors belong to people, not roster positions.
+test("Members reordered colors and absent owner actions", async () => {
+  const { MembersView } = await import("./MembersView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
+  const host = document.createElement("div")
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<MembersView {...fixtures.team} model={{ ...fixtures.team.model, members: [...fixtures.team.model.members].reverse() }} onAction={() => {}} onView={() => {}} />))
+    expect([...host.querySelectorAll<HTMLElement>(".mvp-avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
+    expect(host.querySelector('[data-login="williamcory"]')?.querySelectorAll("button[data-flow]").length).toBe(0)
+  } finally { await act(async () => root.unmount()) }
+})
+
+// C-UI-12: supplied disabled actions and untrusted names never grant authority.
+test("Members disabled actions and names rendered as text", async () => {
+  const { MembersView } = await import("./MembersView")
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const onAction = mock(() => {})
+  try {
+    await act(async () => root.render(<MembersView {...fixtures.empty} model={{ ...fixtures.empty.model, members: [{ ...fixtures.empty.model.members[0]!, name: '<img src=x onerror="alert(1)">' }] }} actions={[{ tag: "members.add", label: "Add", disabled: { reason: "Checking access" } }]} onAction={onAction} onView={() => {}} />))
+    expect(host.textContent).toContain('<img src=x onerror="alert(1)">')
+    expect(host.querySelectorAll('img[src="x"]')).toHaveLength(0)
+    expect(host.textContent).toContain("Checking access")
+    const button = host.querySelector<HTMLButtonElement>('button')!
+    expect(button.disabled).toBe(true)
+    await act(async () => button.click())
+    expect(onAction).toHaveBeenCalledTimes(0)
+    expect(host.querySelectorAll('a')).toHaveLength(0)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+// C-UI-12 / ui-components Rules: supplied choice input, local draft, opaque callback.
+test("Members choice default and refreshed input match submitted values", async () => {
+  const { MemberAction } = await import("./MembersActionView")
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const calls: unknown[] = []
+  const onAction = (tag: string, args?: Record<string, string>) => { calls.push([tag, args]) }
+  const action = { tag: "members.role" as const, label: "Role", args: { login: "ben" }, input: [{ name: "role", label: "Role", kind: "choice" as const, choices: ["maintainer", "member"], required: true }] }
+  try {
+    await act(async () => root.render(<MemberAction action={action} onAction={onAction} />))
+    expect(host.querySelector("select")!.value).toBe("maintainer")
+    await act(async () => host.querySelector("button")!.click())
+    expect(calls).toEqual([["members.role", { login: "ben", role: "maintainer" }]])
+    await act(async () => {
+      const select = host.querySelector("select")!
+      select.value = "member"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(host.querySelector("select")!.value).toBe("member")
+    await act(async () => root.render(<MemberAction action={{ ...action, input: [{ ...action.input[0]!, choices: ["owner", "maintainer", "member"], value: "owner" }] }} onAction={onAction} />))
+    expect(host.querySelector("select")!.value).toBe("owner")
+    await act(async () => host.querySelector("button")!.click())
+    expect(calls).toEqual([["members.role", { login: "ben", role: "maintainer" }], ["members.role", { login: "ben", role: "owner" }]])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("Members story renders unexpected supplied owner actions for oracle detection", async () => {
+  const { fixtures } = await import("@smthrs/rpc/fixtures/Members")
+  const { stories } = await import("./MembersView.stories")
+  const owner = fixtures.team.model.members[0]!
+  const previous = owner.actions
+  owner.actions = [{ tag: "members.remove", label: "Remove", args: { login: "williamcory" } }]
+  try {
+    const rendered = await mounted(stories.find(story => story.name === "team")!)
+    try { expect(rendered.host.querySelectorAll('[data-login="williamcory"] button[data-flow="members.remove"]')).toHaveLength(1) }
+    finally { await rendered.close() }
+  } finally { owner.actions = previous }
 })

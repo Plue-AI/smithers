@@ -338,3 +338,34 @@ test("Commands action input dispatches edited values exactly once", async ({ pag
     { kind: "action", value: { tag: "search", args: { query: "edited", scope: "wiki", token: "test-token", notes: "two\nlines" } } }
   ])
 })
+
+// T-UI-09: spec §14.3 Members; literal command/payload and §14.7 keyboard oracle.
+test("Members keyboard Add and Role dispatch exactly once", async ({ page }) => {
+  await page.goto('/view-stories.html?story=MembersView/team')
+  await page.evaluate(() => {
+    (window as unknown as { memberCalls: unknown[] }).memberCalls = []
+    window.addEventListener('story-callback', event => {
+      (window as unknown as { memberCalls: unknown[] }).memberCalls.push((event as CustomEvent).detail)
+    })
+  })
+  await page.getByRole('textbox', { name: 'GitHub username' }).fill('alice-new')
+  await page.getByRole('button', { name: 'Add', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as unknown as { memberCalls: unknown[] }).memberCalls)).toEqual([
+    { kind: 'action', value: { tag: 'members.add', args: { login: 'alice-new', role: 'member' } } },
+  ])
+  await page.getByRole('textbox', { name: 'GitHub username' }).fill('')
+  await page.getByRole('button', { name: 'Add', exact: true }).press('Enter')
+  expect(await page.evaluate(() => (window as unknown as { memberCalls: unknown[] }).memberCalls.length)).toBe(1)
+  const row = page.locator('[data-login="ben"]')
+  await row.getByRole('combobox', { name: 'Role' }).selectOption('member')
+  await row.getByRole('button', { name: 'Role', exact: true }).focus()
+  await page.keyboard.press('Space')
+  await expect.poll(() => page.evaluate(() => (window as unknown as { memberCalls: unknown[] }).memberCalls)).toEqual([
+    { kind: 'action', value: { tag: 'members.add', args: { login: 'alice-new', role: 'member' } } },
+    { kind: 'action', value: { tag: 'members.role', args: { login: 'ben', role: 'member' } } },
+  ])
+  await expect(page.locator('[data-login="williamcory"] button')).toHaveCount(0)
+  await page.goto('/view-stories.html?story=MembersView/member_view')
+  await expect(page.locator('[data-story] button')).toHaveCount(0)
+})
