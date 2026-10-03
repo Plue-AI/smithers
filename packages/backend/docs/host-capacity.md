@@ -28,10 +28,10 @@ Runtime configuration requires explicit sizes.
 The owner may lower capacity. A write above the formula is refused; every
 read clamps the saved value, including after restore onto a smaller host.
 Lowering prevents another boot and leaves held machines running.
-The authenticated owner can PUT `/api/install` with `{ "capacity": 1 }`;
+The authenticated owner can PATCH `/api/host` with `{ "capacity": 1 }`;
 tokens require `write:user`. Invalid values are refused before persistence.
 
-`smthrs host status` reads the authenticated `/api/install` data:
+`smthrs host status` reads the authenticated `/api/host` data:
 `profile`, `limits`, and `machines {in_use, capacity}`. At capacity
 zero, `limits` names the limiting resource, the amount missing (bytes for
 memory/disk, cores for cores), and its fix. A fresh install refuses to start;

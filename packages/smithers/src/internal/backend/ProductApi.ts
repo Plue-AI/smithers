@@ -576,31 +576,7 @@ export type GitHubAppSetupRequest = {
 }
 
 export type GitHubAppSetupStatus = {
-  profile?: {
-    memory_bytes: number
-    perf_cores: number
-    physical_cores: number
-    disk_free_bytes: number
-    macos_version: string
-    hypervisor: boolean
-  }
-  limits?: {
-    memory_mib: number
-    cpus: number
-    capacity: number
-    layer_budget_bytes: number
-    memory_capacity: number
-    core_capacity: number
-    disk_capacity: number
-    limiting_term: "memory" | "cores" | "disk"
-    missing?: number
-    fix?: string
-  }
-  machines?: {
-    in_use: number
-    capacity: number
-  }
-  github_app?: {
+  github_app: {
     configured: boolean
     installed: boolean
     slug?: string
@@ -1337,6 +1313,51 @@ export interface PostApiGithubSyncedReposOwnerRepoMirrorStatusInput {
 export const postApiGithubSyncedReposOwnerRepoMirrorStatus = (transport: Transport, input: PostApiGithubSyncedReposOwnerRepoMirrorStatusInput): Promise<PostApiGithubSyncedReposOwnerRepoMirrorStatusResponse> =>
   transport.request("POST", `/api/github/synced-repos/${segment(input.path.owner)}/${segment(input.path.repo)}/mirror-status`) as Promise<PostApiGithubSyncedReposOwnerRepoMirrorStatusResponse>
 
+export type GetApiHostResponse = {
+  profile: {
+    memory_bytes: number
+    perf_cores: number
+    physical_cores: number
+    disk_free_bytes: number
+    macos_version: string
+    hypervisor: boolean
+  }
+  limits: {
+    memory_mib: number
+    cpus: number
+    capacity: number
+    layer_budget_bytes: number
+    memory_capacity: number
+    core_capacity: number
+    disk_capacity: number
+    limiting_term: "memory" | "cores" | "disk"
+    missing?: number
+    fix?: string
+  }
+  machines: {
+    in_use: number
+    capacity: number
+  }
+}
+
+/** GET /api/host: Read detected host resources and machine limits */
+export const getApiHost = (transport: Transport): Promise<GetApiHostResponse> =>
+  transport.request("GET", `/api/host`) as Promise<GetApiHostResponse>
+
+export type PatchApiHostBody = {
+  capacity: number
+}
+
+export type PatchApiHostResponse = AnyJSON
+
+export interface PatchApiHostInput {
+  readonly body: PatchApiHostBody
+}
+
+/** PATCH /api/host: Lower the install machine capacity */
+export const patchApiHost = (transport: Transport, input: PatchApiHostInput): Promise<PatchApiHostResponse> =>
+  transport.request("PATCH", `/api/host`, input.body) as Promise<PatchApiHostResponse>
+
 export type GetApiStatusResponse = {
   status: "ok" | "degraded"
   checked_at: string
@@ -1366,23 +1387,9 @@ export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGi
 
 export type GetApiInstallResponse = GitHubAppSetupStatus
 
-/** GET /api/install: Read install setup and machine capacity */
+/** GET /api/install: Read GitHub App setup status */
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
-
-export type PutApiInstallBody = {
-  capacity: number
-}
-
-export type PutApiInstallResponse = AnyJSON
-
-export interface PutApiInstallInput {
-  readonly body: PutApiInstallBody
-}
-
-/** PUT /api/install: Lower the install machine capacity */
-export const putApiInstall = (transport: Transport, input: PutApiInstallInput): Promise<PutApiInstallResponse> =>
-  transport.request("PUT", `/api/install`, input.body) as Promise<PutApiInstallResponse>
 
 export type PostApiInstallSetupAppBody = GitHubAppSetupRequest
 

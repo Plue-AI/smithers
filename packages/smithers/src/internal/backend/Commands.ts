@@ -29,7 +29,7 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
-  "host status": (c) => c.request("GET", "/api/install"),
+  "host status": (c) => c.request("GET", "/api/host"),
   ...resources,
   ...admin,
   ...auth,

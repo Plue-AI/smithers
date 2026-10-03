@@ -314,7 +314,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	database.StartPoolStatsCollector(poolStatsCtx, pool, smithersMetrics, 15*time.Second)
 
 	queries := db.New(pool)
-	var installCapacity *services.InstallCapacityService
+	var hostStatus *routes.HostStatusHandler
 	if options.HostProfile != nil {
 		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile}
 		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
@@ -328,7 +328,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}); ok {
 			runtime.SetCapacityReader(capacity.Capacity)
 		}
-		installCapacity = capacity
+		hostStatus = &routes.HostStatusHandler{Service: capacity}
 	}
 
 	runtimeStores := resolveProductRuntimeStores(options.RuntimeStores, queries)
@@ -1456,7 +1456,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{InstallCapacity: installCapacity, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{HostStatus: hostStatus, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},

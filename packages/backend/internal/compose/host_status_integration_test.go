@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstallCapacityAuthenticatedHTTPModelPostgres(t *testing.T) {
+func TestHostStatusAuthenticatedHTTPModelPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "hostowner", LowerUsername: "hostowner"})
@@ -42,16 +43,9 @@ func TestInstallCapacityAuthenticatedHTTPModelPostgres(t *testing.T) {
 	nonowner := token("smithers_capacity_member", "read:user,write:user")
 	s := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}, InUse: func() int { return 1 }}
 	require.NoError(t, s.Set(t.Context(), u.ID, 2))
-	router := installCapacityProductionRouter(testConfigAllFlagsOn(), q, s)
-	for _, method := range []string{http.MethodGet, http.MethodPatch} {
-		request := httptest.NewRequest(method, "/api/host", nil)
-		request.Header.Set("Authorization", "token "+writer)
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		require.Equal(t, http.StatusNotFound, response.Code)
-	}
+	router := hostStatusProductionRouter(testConfigAllFlagsOn(), q, &routes.HostStatusHandler{Service: s})
 	get := func(credential string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodGet, "/api/install", nil)
+		request := httptest.NewRequest(http.MethodGet, "/api/host", nil)
 		if credential != "" {
 			request.Header.Set("Authorization", "token "+credential)
 		}
@@ -71,7 +65,7 @@ func TestInstallCapacityAuthenticatedHTTPModelPostgres(t *testing.T) {
 	require.Equal(t, services.MachineCapacity{InUse: 1, Capacity: 2}, status.Machines)
 	// C-MCH-04 steps 3–5: production owner write refuses above-formula values.
 	patch := func(credential, body string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPut, "/api/install", strings.NewReader(body))
+		request := httptest.NewRequest(http.MethodPatch, "/api/host", strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
 		if credential != "" {
 			request.Header.Set("Authorization", "token "+credential)
