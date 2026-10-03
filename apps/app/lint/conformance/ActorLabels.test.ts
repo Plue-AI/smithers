@@ -17,7 +17,7 @@ test("actorName calls and comments pass", () => {
 })
 test("S1 actor adapters use the shared formatter", () => {
   const files = sourceFiles(resolve(import.meta.dir, "../../src/mainview"))
-    .filter(file => !/\.(test|spec)\./.test(file) && /(?:cards\/|seams\/|adapter|toast|Actors\.ts$)/i.test(file) && !file.includes("/fixtures/"))
+    .filter(file => !/\.(test|spec)\./.test(file) && /(?:cards\/|seams\/|adapter|toast|Actors\.ts$|ProductActor\.ts$)/i.test(file) && !file.includes("/fixtures/"))
   expect(files.flatMap(file => actorSourceViolations(file, readFileSync(file, "utf8")))).toEqual([])
 })
 
