@@ -1,6 +1,6 @@
 # Smithers MVP validation plan
 
-Status: v1.0, lead QA (smithers-4c), 2026-10-02. Product (smithers-98) accepted it as the gate model; the lead engineer's review is folded in; the tech lead's section-numbered review is pending and lands as v1.1. Reviewed by Codex gpt-6.1-sol twice ([v0.2](research/codex-review-v0.2.md): 9 blockers; [v0.3](research/codex-review-v0.3.md): 7 resolved, the last 2 ruled by product at 6b2a28d3).
+Status: v1.1, lead QA (smithers-4c), 2026-10-02; tech lead's 16-change review folded in. Product (smithers-98) accepted the gate model; the lead engineer's review is folded in. Reviewed by Codex gpt-6.1-sol twice ([v0.2](research/codex-review-v0.2.md): 9 blockers; [v0.3](research/codex-review-v0.3.md): 7 resolved, the last 2 ruled by product at 6b2a28d3).
 Contract: [../product/mvp.md](../product/mvp.md), engineering overview/spec/checks/tickets, and `AGENTS.md`. Research: [research/gap-analysis.md](research/gap-analysis.md), [research/test-infra.md](research/test-infra.md), eng-progress (lane snapshot, not retained), [findings.md](findings.md), [research/ci-triage-20261002.md](research/ci-triage-20261002.md), [research/pepper-todo-state.md](research/pepper-todo-state.md) and [research/pepper-github-matrix.md](research/pepper-github-matrix.md). Review: [research/codex-review-v0.2.md](research/codex-review-v0.2.md).
 This revision is text only. It creates no harness, executes no check, and certifies no candidate SHA.
 
@@ -13,7 +13,7 @@ The MVP qualifies when every mandatory requirement has evidence for one pinned c
 | Main CI | Gate aborts fixed: gofmt e76292bd, actionlint 54737ddd. Reported live backlog: 70 reds; ci-roots and ci-scripts repair batches. | Main is not qualified. Recompute the denominator from completed candidate runs; do not subtract old triage rows by hand. |
 | Migration hygiene | f6916c31 landed. Pepper p4 found lane numbering, object and ownership collisions. | Hygiene is one check; it does not prove upgrade or restore. |
 | Library changes | smithers-38 reviews every packages/ diff and owns apiBaseline #3485. | Baseline regeneration requires reviewed API evidence. |
-| Release harness | QA owns T-REL-02 #3445, C-REL-05 soak and C-REL-03 upgrade. A Codex lane builds scripts/journeys/*; --dry-run works today. | Dry run proves planning/wiring only. Live recordings, soak and upgrade remain unqualified. |
+| Release harness | QA owns T-REL-02 #3445, C-REL-05 soak and C-REL-03 upgrade. Journey automation is declared or planned; this snapshot has no verified runner binding or dry-run receipt. | Dry run proves planning/wiring only. Live recordings, soak and upgrade remain unqualified. |
 | Resources | Disk freeze: no clones or installs; node_modules copies use copy-on-write. Two heavy fix lanes maximum; load average 45–400. | Queue heavy work; never use this host's contended timings as reference-host evidence. |
 | Access and hardware | Ops (smithers-2f) provisions smithers-mvp-canary and three accounts. No reference Mac mini or second Mac yet. | W0/S1 checks that require those devices, release recordings and perf are BLOCKED. |
 | Rulings | GitHub facts have defined outcomes in every TODO state (spec §12.3.0a). C-GH-13 (702 cells) drafted by QA; all six open cells ruled by 8a; 8a lands it with owners T-GH-05 and T-STK-13. | Full fact × state × delivery evidence is still required. |
@@ -22,16 +22,16 @@ The MVP qualifies when every mandatory requirement has evidence for one pinned c
 
 Use these result words everywhere, including the manifest and issue receipts:
 
-| Status | Meaning |
+| Status | Meaning / reason codes |
 | --- | --- |
-| PASS | Every expected case ran at the named layer and environment and met the oracle. Durable evidence is retrievable. |
-| FAIL | An executed case violated the oracle. Keep the first failure and all later attempts. |
-| BLOCKED | A dependency, environment, unresolved oracle or evidence location prevents qualification. Name it and its owner. |
-| SKIPPED | A planned case was deliberately not executed. Record the reason and expected case id. It still rejects qualification. |
-| NOT IMPLEMENTED | The required product behavior or its runner does not exist. Identify which is missing and its ticket. |
-| RESOLVED | Spike only: question answered YES or NO, limitations recorded, fallback selected and accepted. This is not a product PASS. |
+| FAIL | Unresolved observed oracle violation: `oracle_violation`. Preserve every attempt. |
+| NOT IMPLEMENTED | Required behavior or runner absent: `behavior_absent`, `runner_absent`; name its ticket. |
+| SKIPPED | Intentional unexecuted case, with no required behavior/runner absence: `intentional_skip`, `quarantine`. |
+| BLOCKED | Other incomplete or incompatible evidence: `pending`, `dependency`, `environment`, `oracle_conflict`, `artifact_missing`, `source_drift`, `incompatible_result`. Name owner and blocker. |
+| PASS | Complete compatible expected cases and artifacts meet the independent oracle: `complete`. |
+| RESOLVED | Accepted spike YES/NO decision, limitations and fallback: `accepted_yes`, `accepted_no`. Never product or budget PASS. |
 
-Keep implementation progress separate: proposed, on disk, landed, qualified. Partial observations are evidence with case counts, never an extra passing status. Missing results are BLOCKED. Expired or incompatible results are BLOCKED for the new candidate.
+Evaluate reviewed applicability before creating obligations. S3 learning creates no S1 obligation. For applicable obligations use precedence FAIL > NOT IMPLEMENTED > SKIPPED > BLOCKED > PASS; accepted spike decisions alone use RESOLVED. Historical failures stay immutable after a reviewed fix supersedes them. Running/unstarted are queue states and qualify as BLOCKED(`pending`). Partial counts never create a passing status. Keep implementation progress separate: proposed, on disk, landed, qualified.
 
 ## 1. Ownership
 
@@ -53,32 +53,27 @@ Future work claims its issue before starting and refreshes before expiry. Commen
 
 ## 2. Closed requirement manifest
 
-QA owns `appendices/requirements.json` and its generated `appendices/requirements.md`. These are planned deliverables, not files created by this revision. Their absence blocks qualification.
+QA owns the generator for `appendices/requirements.json` and its generated `appendices/requirements.md`. These are planned deliverables. The manifest is a generated qualification view, not an editable copy of the contract or a mutable result row.
+The full denominator covers every product §2 rule, §9 row, numbered P0 step and nested setup step, §12 item/inclusion, observable M-01 through M-37 decision, §6 behavior, Appendix A/B/C policy and retained-history obligation. Preserve the 288 research requirements as aliases, not the denominator. Full-stage and release qualification require closed inventories. G-THIN can use its own reviewed, pinned, finite list and minimal immutable writer while the comprehensive generator is built in parallel.
 
-The manifest is the closed denominator, not a list of convenient checks. It contains every §2 rule (including rule 3), every §9 row, every numbered P0 journey step and nested setup step, every §12 item and inclusion, and every M-xx decision with observable behavior. Include M-01 through M-37 from the current contract, including M-12/19/20/31/34/35/36/37. Add §6 behaviors, Appendix A/B/C policy rows, retained-history obligations and the ten risk criteria below. Preserve the 288 research requirements as aliases; they are not the current denominator.
+| Fields | Authority and treatment |
+| --- | --- |
+| source_path, section, line, normative_text, source_sha256 | Pinned normative files; generated text/line cache, never editable contract. |
+| check_id, layer, check stage, automation, specified artifacts/oracles | Check files and index; reject any disagreement. |
+| ticket_issue, implementation_owner, runtime ticket dependencies | Ticket header/file and index; reject disagreement; never infer owner from a check family. |
+| executable target, configured includes | PACKAGE.ts declarations and target index, joined to check automation. |
+| requirement first/repeated stages, requirement→subcase bindings, extra independent oracle details | Reviewed QA overlay, limited to mappings and genuinely extra QA obligations; provenance and approval for stage/layer deviations. |
+| test_worker, qa_runner_owner, leases, dispatch dependencies | Queue/executor records. |
+| candidate_sha, result_id, status, durable_uri | Immutable many-attempt result records and computed qualification view. |
 
-Each atomic row has these required fields:
-
-```
-requirement_id, source_path, section, line, normative_text, source_sha256
-first_stage, repeated_stages, check_id, subcase_ids, ticket_issue
-implementation_owner, test_worker, qa_runner_owner
-layer, runner_path, target_or_exact_argv, environment_profile, dependencies
-expected_case_ids, oracle_type, expected_values_or_thresholds, sample_count
-artifact_names, durable_uri, candidate_sha, result_id, status
-```
-
-A row may have several subcases and layers. It passes only when all required subcases pass. A check shared by several requirements has one unique result per subcase, environment and candidate; stage counts are derived joins, not added prose totals. Every row must resolve to one accountable implementation owner and one assigned worker before dispatch.
-
+The mechanical schema contains `schema_version`, stable requirement identity, source snapshot, authority/decision receipt, obligation id `(requirement, subcase, layer, profile, stage)`, gate membership, applicability predicate, reviewed exclusions, expected case set, oracle revision, obligation dependencies, required artifact set, selected result/attempt ids and supersession/fix/equivalence receipt. A subcase is an obligation binding; expected_case_ids are its concrete enumerated cases. Neither has a second hand-maintained definition.
 Generation and maintenance:
-1. A Sol worker implements the manifest generator under QA ownership. Parse the pinned product sections, decision table, engineering check index and ticket index. Expand lists and compound rules into atomic expected ids. Retain exact text, lines and hashes.
-2. Join a QA-reviewed mapping overlay for check/subcase, stage, oracle, ownership, executable target and artifact. Import G01–G77, W1–W38, X1–X18 and P1–P17. Resolve aliases to existing checks before inventing C-* ids; research suggestions already collide with C-STK/C-MCH/C-UI ids.
-3. Fail generation on unmapped requirements, duplicate ids, missing fields, unindexed check files, missing executable paths, tests outside runner includes, empty expected populations or unreviewed removals. A declared but absent runner gives NOT IMPLEMENTED, not PASS.
-4. QA compares the generated inventory to the contract line by line. 8a reviews oracles; 98 approves scope changes. Removal requires a normative decision receipt. Risk changes order, never scope.
-5. Regenerate on any product/spec/check/ticket/catalog change and before nominating a candidate. The same change updates mappings, lane test plans and docs. A drift check rejects stale generation. Record source and generator hashes in every run.
-6. Re-execute affected results after implementation, check, spec or environment changes. Release qualification runs the full current manifest. No result transfers from a different SHA by assertion.
-
-The generator and durable writer come first. Until they exist, QA maintains the same fields in the persisted queue; that interim record cannot certify a closed stage.
+1. Parse pinned product/spec, check and ticket files plus their indexes. Retain exact source bytes, lines and hashes. Join canonical targets/includes and the reviewed overlay; reject conflicting authorities, duplicate/unmapped ids, missing fields, unindexed files, empty populations and unreviewed removals.
+2. Separate structural validity, runner readiness and result qualification. Planned/absent future runners do not invalidate an earlier structural inventory; their applicable obligations are NOT IMPLEMENTED. Present runners outside configured includes reject readiness. No absent runner passes.
+3. QA compares coverage to the source line by line; 8a reviews independent oracles; 98 approves scope. Generation enumerates requirements, not expected behavior computed from source prose. Acceptance tests use reviewed literal fixtures or independent reference models, never generated normative text or the production transition table.
+4. Regenerate qualification views on source/check/ticket/catalog changes and before nomination; reject stale source/generator identities. Honor Ready stamps and in-flight freeze. New obligations become follow-up tickets unless security, data loss or Will's binding rules require correction. Current gate obligations and frozen implementation scope are separate records.
+5. Re-execute affected results after implementation/oracle/source/environment changes. No cross-SHA transfer by assertion. Approved mandatory obligations cannot be removed by risk ranking.
+Gate PASS requires a nonempty complete required set, valid joins/source identities, compatible selected PASS results (accepted RESOLVED only for spike obligations), every expected case/artifact and no unresolved mandatory failure. Select attempts through reviewed fix/supersession/equivalence receipts, never last-success-wins. Emit denominator digest, counts and rejected obligation ids. The finite thin list certifies G-THIN only; interim queue records cannot certify full-stage/release scope.
 
 ### Normative coverage anchors
 
@@ -105,9 +100,9 @@ These are seed mappings. The generated manifest expands them into individual row
 | M-36: API playground | S2 / R | C-UI-10 + QA-DOORS | b8 | Documented calls only, viewer permissions, second press for mutations, agents refused; refusal/effect ledger. |
 | M-31/37: dogfood cutover | S1 J1/J2 / daily, R | QA-DOGFOOD-START, C-REL-04 | 22 + QA | Will's install provenance, side door disabled, real self-change and reported exception shares; cutover/scorecard receipts. |
 
-### All research gaps remain in scope
+### Research aliases and approved obligations
 
-The oracle is each G row's current-contract-corrected pass condition. The artifact is its binary/numeric result plus raw receipts under §6. All rows repeat at R. Each group below expands to individual subcases, not one pooled PASS.
+Disposition every G01–G77, W1–W38 and P1–P17 alias: normative coverage, accepted hardening, proposal or reviewed exclusion. Each names its controlling clause, exact stage, independent oracle and approving receipt for extra scope/sample budgets. Unaccepted additions stay proposals. The tables below are seed mappings, not automatic mandatory S1 scope; approved obligations repeat at R and expand individually. Artifacts include results and raw receipts under §6.
 
 | Stage | G ids | Implementation owner / named check family |
 | --- | --- | --- |
@@ -125,7 +120,7 @@ The oracle is each G row's current-contract-corrected pass condition. The artifa
 
 G17 applies only where drafts are supported. Inspect the operation log at each state commit, not periodic snapshots. G18 separately proves the waiting prefix/label fallback and Smithers-side merge refusal; GitHub can still merge it and must produce order attention. G16 excludes dropped hunks except the intentional fork preservation in G03. G22 runs on both draft capability profiles. G35 tests S1 tool writes and the contract-only HTTP refusal, then S3 live document writes.
 
-W1–W38 each becomes a mandatory repair subcase on its named check at that check's first applicable stage. Split cross-stage checks. Retain exact sample sizes: W2/W17/W34 >=20 races; W12/W13 >=100; W14 50 overlapping external saves with two active typists; W33 >=50 terminal outputs; W36 >=20 per row; W4/W5 10 kills per point. W20 requires a discriminating before/after wiki rule, not citation alone. W37 mixes every required projection topic. W38 fixes the P0 inventory. QA reviews all 38, including fail-when paths that the old steps never exercised.
+Accepted W1–W38 repairs become subcases on their named checks at the first applicable stage; record each acceptance receipt and the finite gate repair-set digest. Split cross-stage checks. Retain exact sample sizes: W2/W17/W34 >=20 races; W12/W13 >=100; W14 50 overlapping external saves with two active typists; W33 >=50 terminal outputs; W36 >=20 per row; W4/W5 10 kills per point. W20 requires a discriminating before/after wiki rule, not citation alone. W37 mixes every required projection topic. W38 fixes the P0 inventory. QA reviews all 38, including fail-when paths that the old steps never exercised.
 
 X1–X18 remain in `appendices/oracle-decisions.md`, with controlling clause, owner, decision receipt and dependent rows. 8a reconciles spec/check/lane tables together; 98 decides product scope. Closed prose conflicts are not discarded until affected checks execute.
 Current controlling rules: effective-origin cookies (X1/X2); model changes affect subsequent calls even in active runs (X3); M-34 actor adapters without extra authority (X4); scoped S1 terminal tokens with append-only J6 placement (X5); 7-day reopen (X6); stage-specific fork captures (X7); Address→App→owner→repo→model→squash (X8); person-minutes core value (X9); explicit ids/hashes over version prose (X10); draft fallback (X11); burst recovery, no per-entry Undo (X12); measured defaults (X13); per-machine homes (X14); merge/propose never overridable (X15); no live main branch machine, background machines permitted (X16); one interrupted-state bound to rule before acceptance (X17); role-filtered stack attention and Home counts (X18).
@@ -139,7 +134,7 @@ C-SEC-03: Member→team text is permitted; Member→outsider text is refused bef
 
 ## 3. Additional risk criteria in the manifest
 
-These ten rows are mandatory. QA assigns a Sol test worker before dispatch; 38 reviews packages/ changes. Stage suffixes are separate subcases. R repeats all implemented safety cases. Each row emits result.json plus the named artifacts to the durable store in §6.
+These ten contract-linked criteria enter the manifest with reviewed atomic bindings; additional budgets require approving receipts and follow the freeze. QA assigns a Sol test worker before dispatch; 38 reviews packages/ changes. Stage suffixes are separate subcases. R repeats all implemented safety cases. Each row emits result.json plus the named artifacts to the durable store in §6.
 
 | ID / contract | Stage | Owner | Runner / layer | Reject unless | Artifacts |
 | --- | --- | --- | --- | --- | --- |
@@ -152,7 +147,7 @@ These ten rows are mandatory. QA assigns a Sol test worker before dispatch; 38 r
 | QA-CLOCK / auth, §8.7.3, §20.4 | S1 expiry/scorecard; S2 credential sync | 3f auth/credential + scorecard owner | Injected clocks, unit+integration | ±1 h jumps, suspend/resume, ±24 h host/guest drift, restart, exact expiry and future guest timestamps never revive revoked tokens/expired confirmations or pin credential convergence. Use monotonic durations and persisted UTC deadlines with conservative discontinuity handling. Both DST changes and UTC half-open windows count identical event sets exactly once. | Clock/expiry decisions, timestamp cases, convergence and scorecard tables. |
 | QA-ENOSPC / §9 Durability/Honesty | S1 DB/capture; S2 VM; S3 save; R backup | 3f install/durability | Bounded volume/fault hooks, real storage | ENOSPC at DB commit/WAL, temp-write/fsync/rename, VM save, capture/ref update, logs and backup publication gives typed visible failure; no Saved/completed for unpersisted data. All previous durable bytes and last usable backup survive restart. No partial candidate merges or incomplete completed manifest. Space-free retry recovers with no duplicate effects. Low-disk grants refuse independently of capacity arithmetic. | Fault-point ledger, acknowledgement/byte digests, restart/retry/effect and backup receipts. |
 | QA-INSTALL-RACE / one install, §16.1 | S1 start; R upgrade/restore | 3f install | 20 concurrent starts, real Mac integration/fault | Same root has exactly one supervisor/PG/migration owner and unchanged key/identity. Losers attach idempotently or get typed busy. Start vs upgrade/restore races preserve exclusion. Second macOS user's occupied-port attempt cannot read/write first user's state. SIGKILL stale locks and path/symlink collisions cannot initialize over data. | PID/lock timeline, key/identity digests, permission and destination checks. |
-| QA-DOGFOOD / M-31/37, §10/12.2 | S1 cutover; S2/S3 self-change; R window | 22 + QA | Will's install, real TODO journeys/scorecard | Side-door disabled; real self-change is created/run/reviewed/person-merged on the stack. Old pinned runs survive flow activation and packaged restart; next TODO works. Provenance/laptop fallback and person-minutes recorded from cutover. R counts >=50 distinct genuine squash-merged TODOs in declared 14 days, excludes filler, reports L-spine exceptions and laptop share against >50% kill signal. | Cutover receipt, run/approval/PR provenance, self-change recovery, 14-day scorecard and fallback reconciliation. |
+| QA-DOGFOOD / M-31/37, §10/12.2 | S1 cutover; S2/S3 self-change; R window | 22 + QA | Will's install, real TODO journeys/scorecard | Side-door disabled; real self-change is created/run/reviewed/person-merged on the stack. Old pinned runs survive flow activation and packaged restart; next TODO works. Provenance/laptop fallback and person-minutes recorded from cutover. R reports the 50 genuine-merge target separately from the launch predicate in product §12.2; excludes filler, reports L-spine exceptions, <20 merge and >50% laptop kill signals. Product must define target attainment before that predicate can qualify. | Cutover receipt, run/approval/PR provenance, self-change recovery, 14-day scorecard and fallback reconciliation. |
 
 S1 safety fixture subcases do not pull release-command implementation forward. Exercise the existing recovery boundaries and predeclare R cases for T-INS-07; unavailable commands remain NOT IMPLEMENTED at R. Never run disk exhaustion on the live development volume.
 
@@ -160,58 +155,62 @@ S1 safety fixture subcases do not pull release-command implementation forward. E
 
 ```
 main observations -> G-MAIN-TRIAGE (operations only)
-candidate SHA + closed manifest + immutable bundle -> G-MAIN -> G-TKT / G-S1 -> G-S2 -> G-S3 -> G-R
-                                                     S1 J1/J2 -> G-DOGFOOD-START
-release decision = G-REL-1..6 + G-R + unresolved-decision review
+pinned bundle + finite thin obligations + runtime/safety closure -> G-THIN
+S1 J1/J2 + dogfood closure -> G-DOGFOOD-START (independent of full S1)
+G-MAIN + G-W0 + full S1 denominator -> G-S1 -> G-S2 -> G-S3 -> G-R
+G-TKT closes each ticket's owned obligations, not the entire shared check
+release = G-REL-1..6 + G-R + unresolved-decision review
 ```
 
-22 nominates one immutable landed SHA, bundle digest and manifest revision. QA independently runs its mandatory checks and archives one completed qualification. New pushes never retarget/cancel it. A newer candidate needs its own receipts. Mandatory FAIL/BLOCKED/SKIPPED/NOT IMPLEMENTED/missing evidence rejects the gate regardless of severity. No open S1 defect passes a gate; other severities cannot waive required behavior either.
+22 nominates one immutable landed SHA, bundle digest and manifest revision. QA independently runs its mandatory checks and archives one completed qualification. New pushes never retarget/cancel it. A newer candidate needs its own receipts. Mandatory FAIL/BLOCKED/SKIPPED/NOT IMPLEMENTED/missing evidence rejects the gate regardless of severity. No open severity-1 defect within a gate’s scope passes it. Every nonpassing mandatory obligation blocks regardless of severity. A release build candidate is distinct from a TODO generation (§6).
 
 | Gate | Qualification requirement |
 | --- | --- |
-| G-MAIN-TRIAGE | Every new observation has issue/class/owner in the persisted registry within one 5-minute round. Never marks readiness. |
-| G-MAIN | Completed unmasked candidate CI for every declared required target, including exclusive faults and relevant platform suites; no registry entry turns a mandatory red green. Full coverage receipts required. |
-| G-TKT | Every ticket bullet and delta mapped to current source/test oracle; all named layers pass after landing on nominated SHA; no remaining delta; updated affected docs; old implementation deleted in same change; backend product code only in packages/backend, never in Plue; durable issue evidence and QA receipt. A check that can only pass at a later stage (e.g. T-DOC-02's C-REL-01 steps 3-5 at R; T-FLW-01's installed C-SEC-02 needing the INS bundle) keeps the issue OPEN with the comment "landed <sha>; awaiting <check> on <ticket>"; it closes on QA's receipt. |
-| G-W0 | All indexed experiment questions RESOLVED with exact environment, YES/NO, limitations and accepted fallback; C-GH-01 remains a real e2e PASS obligation. C-SPK-02 NO is preserved. Adopted per-machine homes qualify separately through C-MCH-09/10. Other product budgets remain mandatory even if a spike rejects an approach. |
-| G-S1 | All S1 manifest subcases, current indexed checks and repairs pass, including real Mac J1/J2, security, generations/merge fences, state matrix, contract writes, coverage and early telemetry. Thin-path success alone is not full S1 exit. |
-| G-S2 | S1 requalification plus S2 rows: actual shared VM, sessions/homes/credentials, SSH, watcher/bursts, release/admission and people-aware rebases. |
-| G-S3 | Earlier rows plus S3 live code/wiki documents, Saved recovery, learning and revision-following plans. Delete replaced transports in the same change. |
-| G-R | Full release manifest rerun in each original required environment, not Mac substitution for Linux/24-GB/second-device cases; recordings, perf, 24 h soak, upgrade/restore and public package receipts. |
+| G-MAIN-TRIAGE | Start the clock when the ingestion service receives an observation; persist issue/class/owner within five minutes. Failed writes retain an immutable failure receipt and retry_at; no false ingestion acknowledgment. Operational evidence only. |
+| G-MAIN | Enumerate required targets/profiles from pinned declarations; completed unmasked CI, exclusive faults, relevant platform suites and coverage. Mandatory reds block full exit/release. First-green is not a prerequisite to constructing/running G-THIN; landing safety and no-new-red still apply. |
+| G-TKT | Close receipt lists reviewed ticket digest, landed candidate, acceptance bullets, owned check/subcase/layer/profile obligations, durable results, QA acceptance, delta/deletion/docs and separately owned integration obligations. Every assigned obligation must pass; an owned unbuilt part keeps this ticket open. Later-owned parts stay pending and keep the shared check/stage unqualified. Preserve backend-only product code, installed composition and §21.1 library receipts. Follow-ups never hide unfinished acceptance. |
+| G-W0 | All indexed experiment questions RESOLVED with exact environment, YES/NO, limitations and accepted fallback; C-GH-01 remains a real e2e PASS obligation. C-SPK-02 NO is preserved. Adopted per-machine homes qualify separately through C-MCH-09/10. Other product budgets remain mandatory even if a spike rejects an approach. Only actual thin-path dependencies block G-THIN; all-W0 completion gates full exit. |
+| G-THIN | Built-bundle install → first real TODO → person squash-merge. Only its reviewed runtime dependency closure and safety obligations gate it: isolation/no host fallback, real sign-in/authorizer, honest committed state, candidate/tree/inputs, exact person approval, required-head checks, merge fence and outbound reconciliation. Unrelated S1, all-W0, release perf/soak/public packaging and the complete research campaign do not gate this proof. Never label it S1 PASS. |
+| G-S1 | Strict full product §11 S1 scope: J1/J2 portions, J4, J5 steps 1–4, J6 steps 1–3, J7 and J11 step 1. All S1 manifest subcases, indexed checks and finite approved repair set pass, including real Mac J1/J2, security, generations/merge fences, state matrix, contract writes, coverage and early telemetry. Thin-path success alone is not full S1 exit. QA-HOST-ACTIVATION blocks affected activation qualification until ruled (§5). |
+| G-S2 | Stage-specific S1 safety requalification plus S2 rows: actual shared VM, sessions/homes/credentials, SSH, watcher/bursts, release/admission and people-aware rebases. |
+| G-S3 | Stage-specific earlier safety rows plus S3 live code/wiki documents, Saved recovery, learning and revision-following plans. Delete replaced transports in the same change. |
+| G-R | Full release manifest rerun in each original required environment, not Mac substitution for Linux/24-GB/second-device cases; recordings, perf, 24 h soak, upgrade/restore and public package receipts. Actual future upgrade gates only its product-assigned release. |
 
 No new reds is effective now: a lander reverts a landing that adds a red within 30 minutes. Preserve cause and revert receipts. Once main first becomes green, Stop-the-line applies: no lane starts while main is red. Only authorized restoration of green proceeds; queue normal work. 22 records the first-green SHA/time. Required PR checks bind at the M-31 cutover, when TODO PRs exist; until then lanes push to main and the no-new-reds rule is the guard. 22 nominates one landed SHA per gate (plus the bundle digest once T-INS-01 lands); the lander records the reds covering its change before and after, and reverts under vcs_lock within 30 minutes.
 
-G-TKT additionally checks migration registry/object/ownership hygiene and actual installed schema/router/runtime composition for Q-010/Q-011/Q-019. Recheck OAuth end to end after acc/gh integration. p3's manually edited generated companions require regeneration/drift evidence; its standalone 15-test report is not landing proof.
+For affected ticket/gate obligations, G-TKT additionally checks migration registry/object/ownership hygiene and actual installed schema/router/runtime composition for Q-010/Q-011/Q-019. Recheck OAuth end to end after acc/gh integration. p3's manually edited generated companions require regeneration/drift evidence; its standalone 15-test report is not landing proof.
 
 ### G-REL: release items and recording index
 
-| Item | Owner / evidence |
+| Gate | Owner / evidence |
 | --- | --- |
-| 1 | QA T-REL-02 #3445: complete J1–J8/J10/J11 recording index in both themes on fresh reference Mac mini, second laptop, real GitHub. Every step has time offsets, actors, expected/actual result and receipt links; G40/W14/W20/G33 mandatory. |
-| 2 | QA + 22: C-REL-04 and QA-DOGFOOD live 14-day scorecard, 50 distinct real TODOs, person-minutes/fallback/provenance reconciled. Imported laptop work never becomes factory-created merely because it has a TODO PR. |
-| 3 | b8 + 3f: C-CUT-01/C-CAT-01 and G15/G51/G70; remove new product entry points, retain hidden maintainer machinery, supported published libraries/CLI groups and old read-only decoding. |
-| 4 | e8 + b8: C-REL-01/C-UI-09; /docs quickstart and flows reference match build; run every quoted command, anchors/offline/not-found; README and one install page work before installation. |
-| 5 | 3f + QA: C-REL-02/C-J1-01 fresh public Homebrew install, arm64 release artifact/signing/launchd, no Smithers account/private dependency, offline first VM base image. |
-| 6 | QA, implementation 3f: C-REL-03 + QA-MIGRATE/RESTORE/ENOSPC and C-REL-06. Separate prelaunch rehearsal from actual launch-day N→maintainer release at launch+7 days. Actual future receipt stays BLOCKED until observed. |
+| G-REL-1 | QA T-REL-02 #3445: complete J1–J8/J10/J11 recording index in both themes on fresh reference Mac mini, second laptop, real GitHub. Every step has time offsets, actors, expected/actual result and receipt links; approved G40/W14/W20/G33 obligations apply. Release-only breadth does not block G-THIN. |
+| G-REL-2 | QA + 22: C-REL-04 and QA-DOGFOOD live 14-day scorecard; report 50-merge target, <20 merge and >50% laptop kill signals separately. Product §12.2 requires meeting the dogfood target; record its controlling interpretation, not an invented threshold for every scorecard metric. Person-minutes/fallback/provenance reconciled. Imported laptop work never becomes factory-created merely because it has a TODO PR. |
+| G-REL-3 | b8 + 3f: C-CUT-01/C-CAT-01 and G15/G51/G70; remove new product entry points, retain hidden maintainer machinery, supported published libraries/CLI groups and old read-only decoding. |
+| G-REL-4 | e8 + b8: C-REL-01/C-UI-09; /docs quickstart and flows reference match build; run every quoted command, anchors/offline/not-found; README and one install page work before installation. |
+| G-REL-5 | 3f + QA: C-REL-02/C-J1-01 fresh public Homebrew install, arm64 release artifact/signing/launchd, no Smithers account/private dependency, offline first VM base image. |
+| G-REL-6 | QA, implementation 3f: C-REL-03 + QA-MIGRATE/RESTORE/ENOSPC and C-REL-06. Separate prelaunch rehearsal from actual launch-day N→maintainer release at launch+7 days. Actual future receipt stays BLOCKED until observed. |
 
 The executable journey manifest indexes all six §12.1 inclusions: restart mid-run; duplicate launch; simultaneous same-line typing plus recoverable out-of-band stale save; external save while BOTH people actively type; edited wiki decision followed by next related plan; product-visible recovery receipts. Record non-overlap and overlap bytes, saved state vectors, retained external snapshot and Compare/Restore. The wiki case uses incompatible old/new rules and a before-edit control, then proves the plan and change apply the new exact revision. Run W20/C-J8-05's three-of-three check.
 C-J11-02 must show Source on the proposing TODO branch, edit, typed Plan and draft Run on scratch with the new graph/custom view. Draft run cannot stack.propose or write GitHub. Component tests supplement this recording, never replace it.
 QA also runs C-REL-05's actual 24 h two-machine credential soak with Claude Code, Codex and gh. Retain wake/sleep, token refresh/logout/revocation, prompts and first failures. The J6 journey may select Claude OR Codex; the separately specified soak requires its named tools.
-mvp.md was circular here: §12 item 6 required a launch-day install to upgrade in place to the maintainer release before the MVP ships (mvp.md:588-600), while §14 ships that release one week after launch (mvp.md:610-612). QA proposes, for product's ruling: G-REL-6 (launch) requires a prelaunch rehearsal, a launch-candidate install upgraded in place to a later candidate build with all data intact plus backup and restore; a new gate G-MNT-1 on the maintainer release requires the real launch-day-install → maintainer-release receipt, and blocks that release, not launch. Product ruled this at 6b2a28d3: §12 item 6 is the launch rehearsal, and G-MNT-1 gates the maintainer release on the real receipt. Do not build the maintainer features early or rename a synthetic build “maintainer release.” Outside-team activation/retention/self-improvement verdicts also stay pending until their real observation windows.
+The earlier timing conflict was: §12 item 6 required a launch-day install to upgrade in place to the maintainer release before the MVP ships (mvp.md:588-600), while §14 ships that release one week after launch (mvp.md:610-612). The accepted split is: G-REL-6 (launch) requires a prelaunch rehearsal, a launch-candidate install upgraded in place to a later candidate build with all data intact plus backup and restore; G-MNT-1 on the maintainer release requires the real launch-day-install → maintainer-release receipt, and blocks that release, not launch. Product ruled this at 6b2a28d3: §12 item 6 is the launch rehearsal, and G-MNT-1 gates the maintainer release on the real receipt. Do not build the maintainer features early or rename a synthetic build “maintainer release.” Outside-team activation/retention/self-improvement verdicts also stay pending until their real observation windows.
 
 ## 5. Harnesses in dependency order
 
 | Order | Deliverable / owner | Exit evidence / current limitation |
 | --- | --- | --- |
-| 1 | Manifest generator and minimal immutable result writer / QA Sol | Enumerated expected ids; reject missing rows/empty scans; retrievable raw receipt. No HTML prerequisite. |
+| 1 | Reviewed finite G-THIN list and minimal immutable writer / QA Sol; full generator in parallel | Enumerated expected ids; reject missing rows/empty scans; retrievable raw receipt. No HTML prerequisite. |
 | 2 | Reuse testkit/testdb + postgresfixture, fast unit and full-scope coverage / QA Sol + 3f/38 | Real PG18 per-test DB; no services skip; cover state/permission/generation seams before browser expansion. |
 | 3 | Minimum githubfake HTTP endpoints / GH lane under 22, QA extends | Access/create/propose/merge REST, GraphQL drafts, smart HTTP and effect log; then ETags/pages/rate/kill hooks. Document engineering's fake-GitHub integration exception. |
-| 4 | Single real-VM self-hosted browser J1→J2 driver / QA journeys Sol + b8/3f | INS-01→INS-02→INS-08; ACC-01→ACC-02→ACC-03; STK-01→STK-12→STK-04. Real second-browser access and person merge. No Cloud sign-in or chat stub qualifies. |
+| 4 | Single real-VM self-hosted browser J1→J2 driver / QA journeys Sol + b8/3f | T-INS-01 → T-INS-02 → T-INS-08 · T-ACC-01 → T-ACC-03 · T-STK-01 → T-STK-12 → T-STK-04. Real second-browser access and person merge. No Cloud sign-in or chat stub qualifies. |
 | 5 | S1 expansion / QA Sol | Ask/answer/steer/retry, catalog runtime parity, fork/drop/generation races, C-GH-13, real agent/skill and pinned flow activation. Four-run bootstrap does not pass final one-run-per-attempt checks. |
 | 6 | Existing kill hooks extended / QA Sol + 3f | Host/PG/GitHub points first; daemon/cgroups/bursts S2; saved document state S3. Reuse durable_crash_restart_test.go. |
 | 7 | Real Linux daemon and browser multiplayer / QA Sol + 3f/b8 | Actual inotify/cgroups/session confinement then two-member homes/presence/SSH; Yjs S3. Linux cannot qualify macOS Hypervisor/signing/launchd. |
-| 8 | Release perf/journeys/soak/upgrade / QA Sol | scripts/journeys dry-run today is planning evidence; scripts/perf and live runner registration need receipts. Public package and fresh-host checks remain R. |
+| 8 | Release perf/journeys/soak/upgrade / QA Sol | Journey/perf paths are declared or planned until present, registered and bound; dry runs never qualify execution. Public package and fresh-host checks remain R. |
 
-Provision hardware/accounts alongside orders 1–4, not after CI repair. 2f owns reference 32 GB Apple Silicon Mac mini, second LAN Mac, 24-GB capacity evidence and three verified account roles. Availability dates are unknown; 22/98 must obtain dated commitments. Reference-specific S1 checks remain BLOCKED until then. Current contracts agree on 32 GB; retain any future profile change as a product decision.
+Provision hardware/accounts alongside orders 1–4, not after CI repair. 2f owns reference 32 GB Apple Silicon Mac mini, second LAN Mac, 24-GB capacity evidence and three verified account roles. Availability dates are unknown; 22/98 must obtain dated commitments. Reference-specific S1 checks remain BLOCKED until then. Track QA-HOST-ACTIVATION: C-J1-04 allows the team’s mini whatever its size; the index/overview require the reference host. 8a must rule before activation qualifies. Separate functional fresh-Mac activation, 32-GB reference perf and 24-GB capacity. Keep affected qualification conservatively BLOCKED; do not delay independent functional development or invent a weaker profile.
+Import cross-edges and Ready runtime prerequisites from ticket files. Start T-ACC-01 on day 1 in parallel; ACC-02 branches from ACC-01 and STK-01, not into ACC-03. Preserve ACC-07→INS-02 and actual signing/isolation/catalog/credential/sync prerequisites; flag missing or conflicting source edges for 8a. C-J1-04’s ACC-01→ACC-02→ACC-03 setup chain is stale and needs a decision receipt, not silent copying.
 Full CI repair runs alongside the thin path under ci-roots/ci-scripts, with 38 reviewing every packages/ diff and apiBaseline #3485. Do not wait for all 70 reds before building the driver. Do not qualify a stage while mandatory CI remains red.
 
 Scheduling is QA-owned and uses existing/manual execution, then the install's durable flow once M-31 cuts over. The persisted queue nominates one candidate nightly and at each gate request, launches its registered runner with cancel-on-new-push disabled and waits for completion before the next candidate. Archive cancellations as incomplete attempts. No parallel GitHub Actions factory is added.
@@ -222,13 +221,15 @@ Avoid PostgreSQL :55435 collisions between backend and CLI fixtures through sepa
 ## 6. Durable evidence and campaigns
 
 Each immutable result records requirement/check/subcase, full candidate SHA, source/check/manifest/generator hashes, install/bundle/flow revision, exact command, tool versions, executor/platform/host profile, environment/flags, timestamps, actors and sanitized fixture identity. Record expected and executed case ids/counts, sample sizes, seed/sequence bounds, first result, all later attempts, skipped/quarantined cases, observed values, oracle, logs/recovery receipts, artifact SHA-256s and issue/worker/QA reviewer.
+“Candidate-pinned” has two identities: the release build SHA/bundle and each exercised TODO generation (spec §10.4.4). Record repository/install, TODO, run/attempt, generation, base, candidate head/tree, consumed inputs_seq, PR head, generation-tagged check evidence and approval identity. Assert each propose guard independently: current generation, unchanged tree, no input above inputs_seq, no rebase_pending with unchanged prefix base, and all evidence names that generation. Refusal has zero effects. New generations invalidate verification and approval; changed base/head requires fresh checks and approval; later edits/inputs hold Merge. Review-summary reuse follows stable patch-id §10.4.3 only, never inherited checks/verification/approval. Pin oracle implementation hashes separately from runner/source hashes; expected behavior uses literal fixtures or independent models, never runtime spec parsing or production tables.
+For touched public TypeScript exports, attach the complete §21.1 receipt: real caller/need sketch; two callers for new abstractions; nonoverlapping options; JSDoc/@since/package docs; tagged errors, no public any or new @slop; previous-format decode fixture; 100% lines/branches/functions/statements with justified v8-ignore; behavioral error/interruption/replay and real SQLite/PG/jj integration; applicable benchmarkGate counters ≤5% growth with output digests; signed API/counter baseline changes; same-change deletion. Record reviewed nonapplicability per item. Counters gate landing without idle-host wall-time perf.
 Local `.artifacts/checks/<id>/<UTC>/` is a working copy. Before PASS, upload redacted logs/JSON/video to an authorized durable artifact store, or attach to the issue through the established evidence workflow. The store must be independent of temporary checkouts, content-addressed, readable by reviewers on another machine and retained through release plus the upgrade receipt. Ops supplies location/ACL/retention; without it the result is BLOCKED. Store manifest/queue snapshots there too. Issue receipts link durable URIs and hashes, never only local paths.
 Exclude credentials and private operations data. Preserve token-free actor/access proofs. QA verifies retrieval and hashes before closing a gate. Keep required Linux, reference Mac, 24-GB and second-device receipts distinct. Spike results retain failed measurements and limitations.
 Executed coverage is required for the full production scope of every touched package/language, including Go/TS/app/Rust. Enforce AGENTS.md's 100% requirement with meaningful boundary/error/cancellation/recovery/ordering assertions. Existing lower floors are not proof of compliance. No thresholds are lowered, production paths hidden or exclusions added to gain green. Report configured versus executed scope, platform skips and measurement gaps separately. Unit and real-dependency integration must each establish confidence independently.
 
 ### Property and fault campaign
 
-QA assigns a Sol worker and registered runner to every row before its stage begins. Go native fuzz, TS fast-check and Rust generators use independent spec reference models. Full case details live in `appendices/campaigns.md`. Required PR qualification: 1,000 seeded sequences per applicable suite, 1–100 operations each, plus exhaustive finite matrices. Nightly: 15 minutes per applicable suite, serial on a leased host; S1 first. Keep seeds, counts, shrinking traces and retained counterexamples as regression corpora. The nightly run may finish after midnight; it is not cancelled by a push.
+QA assigns a Sol worker and registered runner to every row before its stage begins. Go native fuzz, TS fast-check and Rust generators use independent spec reference models. Full case details live in `appendices/campaigns.md`. Proposed additional budgets: 1,000 seeded sequences per applicable suite, 1–100 operations each, and 15-minute nightly campaigns. These require per-obligation approval receipts before becoming mandatory; preserve canonical sample sizes and exhaustive required matrices. Run approved campaigns serial on a leased host, S1 first. Keep seeds, counts, shrinking traces and retained counterexamples as regression corpora. The nightly run may finish after midnight; it is not cancelled by a push.
 
 | Suite | Stage | Independent oracle / owner |
 | --- | --- | --- |
@@ -257,8 +258,8 @@ Perf runs exclude unrelated heavy jobs and archive CPU/load/memory pressure/free
 
 ## 7. Ahead-of-time plans and the bug-class loop
 
-When 22 files a ticket's issue, QA writes its test plan before the implementation lane starts. Assign requirement/subcase ids, stage, independent oracles, fixtures/actors, user-facing doors, positive/refusal/error/cancellation/recovery/race cases, runner/environment, coverage scope and expected artifacts. Have Sol write failing tests where the boundary exists. If it does not exist, retain executable fixture/contract cases and the precise future failure condition; status stays NOT IMPLEMENTED. QA and 8a review the oracle before lane launch, including tickets not yet built.
-A lane cannot start with an unmapped acceptance bullet or unknown normative behavior. A necessary product decision is BLOCKED and routed, while independent planning continues. 22 attaches the plan to the issue and lane handoff. A landed slice is requalified before the ticket closes; no “80% done” closure.
+For new unstamped tickets, QA writes the test plan when 22 files the issue, before Ready review and implementation. Stamped/in-flight tickets keep their reviewed contract; added QA work follows the follow-up rule below. Assign requirement/subcase ids, stage, independent oracles, fixtures/actors, user-facing doors, positive/refusal/error/cancellation/recovery/race cases, runner/environment, coverage scope and expected artifacts. Have Sol write failing tests where the boundary exists. If it does not exist, retain executable fixture/contract cases and the precise future failure condition; status stays NOT IMPLEMENTED. QA and 8a review the oracle before lane launch, including tickets not yet built.
+Before dispatch, import the Ready stamp, reviewed digest, decision owners and six Ready criteria. Compute SHA-256 over reviewed UTF-8 ticket bytes with the entire Ready line omitted; carry the stamp’s first 12 hex digits and full digest in dispatch metadata. Reject absent stamps or digest mismatch. Validate runtime preconditions, out-of-scope, real-boundary independent tests, decision owners, seam owner pre-review and executable security preconditions. New QA rulings/research for stamped or in-flight work become follow-ups except security, data loss or Will’s binding rules; blocking rulings take at most 30 minutes. A new unstamped lane cannot start with an unmapped acceptance bullet or unknown normative behavior. A necessary product decision is BLOCKED and routed, while independent planning continues. 22 attaches the plan to the issue and lane handoff. A landed slice receives §4’s ticket-owned close receipt; STK-12 minimal validation can close before STK-10 presentation, FLW-11 built-in integration or STK-04 merge-race obligations qualify their shared checks; no “80% done” closure.
 Every found bug marks a weak defect class. QA records class, minimal repro, issue, owning ticket, first failure and class coverage gap. Route observed class weakness even if the individual report later proves stale; correct the report and keep the intended oracle.
 
 ```
@@ -267,29 +268,29 @@ bug -> issue + weak class -> Sonnet pepper cases -> Sol test/fix -> QA review an
 ```
 
 Initial five clusters: TODO transitions/projection; GitHub fact/state/delivery; migration/schema ownership; catalog/cuts/generated hygiene; execution/credentials/isolation. Track Q-021's actual Fable report, not its requested status. 8a may regroup them from evidence. Each architectural action gets an issue and manifest dependency; code existence alone never closes it. QA reviews pepper breadth and Sol regression quality, then links receipts to #2290 and the owning bug/ticket. The queue schedules this work; this text revision launches none.
-Severity routes repairs: S1 = data loss, security/permission breach, wrong main merge or false merge-gating state; S2 = broken required journey even with workaround; S3 = remaining defects. Every mandatory criterion still blocks regardless of severity.
-A pass after failure is a reproducibility observation, not a flake diagnosis. Preserve the original seed/timing/operation log. Quarantine needs owner/issue/expiry, keeps mandatory qualification BLOCKED, and appears in expected counts. Only a fixed check or QA/8a-reviewed independent equivalent evidence for the same criterion can clear it. Never erase a first failure or obtain PASS by retries alone.
+Severity routes repairs: severity-1 = data loss, security/permission breach, wrong main merge or false merge-gating state; severity-2 = broken required journey even with workaround; severity-3 = remaining defects. Every mandatory criterion still blocks regardless of severity.
+A pass after failure is a reproducibility observation, not a flake diagnosis. Preserve the original seed/timing/operation log. Quarantine needs owner/issue/expiry, keeps qualification nonpassing under §0 precedence, and appears in expected counts. Only a fixed check or QA/8a-reviewed independent equivalent evidence for the same criterion can clear it. Never erase a first failure or obtain PASS by retries alone.
 
 ## 8. Five-minute loop and persisted queue
 
 The loop only ingests, assigns and polls. It never promises to reproduce, fix or finish a suite in five minutes.
-1. Ingest completed CI, lane, pepper, architect and qualification receipts. Update candidate-specific statuses and source identities.
+1. Ingest completed CI, lane, pepper, architect and qualification receipts. Update candidate-specific source identities and compute disjoint statuses using §0 precedence and reason codes. Intentional quarantine is SKIPPED unless unresolved violations make it FAIL; running/unstarted is BLOCKED(pending).
 2. Deduplicate by issue/class and candidate/check/subcase. Assign owner and next dependency; schedule claim or throttled write separately.
 3. Poll durable background jobs. Record real completion/failure; requested launch never means started or completed.
 4. Persist the queue checkpoint and report queue age, blockers and status counts. Dispatch is done by the leased background executor.
 
-`appendices/work-queue.json` is the planned persisted queue, mirrored to the durable store and later the install's run records. Rows contain id, issue/claim expiry, class, requirement ids, candidate, dependencies, owner/worker, runner/environment, priority, created/ready/start/last-poll times, state, blocked reason, resource lease, durable job id, attempt/evidence ids and next retry time. States: waiting-dependency, ready, assigned, running, awaiting-review, completed, failed. These are scheduling states, separate from qualification vocabulary. Restart reconciles job ids before relaunch; claim/lease and idempotency keys prevent duplicate dispatch.
+`appendices/work-queue.json` is the planned persisted queue, mirrored to the durable store and later the install's run records. Rows contain id, issue/claim expiry, class, requirement ids, candidate, Ready stamp/reviewed digest/decision owners, dependencies, owner/worker, runner/environment, priority, created/ready/start/last-poll times, state, blocked reason, resource lease, durable job id, attempt/evidence ids and next retry time. States: waiting-dependency, ready, assigned, running, awaiting-review, completed, failed. These are scheduling states, separate from qualification vocabulary. Restart reconciles job ids before relaunch; claim/lease and idempotency keys prevent duplicate dispatch.
 One machine lease: smithers-2f's slot table (~6 heavy local lanes; the critical path is paused last). QA holds two rows on it, the thin-path harness slot and the CI-repair slot, and every lane, QA's included, checks the table before starting a heavy job. One active heavy qualification job per test host initially. When harness and repair consume both slots, qualification waits or runs on a separate provisioned host. Perf leases are exclusive. Low disk/load blocks heavy launch with a recorded reason; it does not weaken an oracle. Disk freeze remains: no clones/installs, only approved copy-on-write reuse.
 Once main first turns green, Stop-the-line takes precedence over reserved-slot starts while red. Existing green-restoration work remains tracked. No new product lane slips through as “QA.”
 QA reports per-stage expected/required/attempted/PASS/FAIL/BLOCKED/SKIPPED/NOT IMPLEMENTED counts and RESOLVED spikes separately, oldest queue age, red regressions/revert deadlines and artifact links. Findings LOG, issue status and wiki receipts are reconciled through existing workflows. HTML can follow the raw receipts; it is not a gate dependency.
 
 ## 9. G-DOGFOOD-START (M-31)
 
-Trigger: the S1 portions of J1/J2 qualify on Will's Mac mini. This is earlier than full S1 exit and does not wait for learning/co-editing. 22 owns the cutover; QA owns its receipt. Missing Mac/provenance/required PR protection blocks cutover.
+Closed cutover list: S1 J1/J2 obligations on Will's Mac mini, required PR protection, safe self-change/restart, provenance/telemetry and existing-item backfill T-STK-14. Digest this separate gate membership before dispatch. Trigger only when every member qualifies. This is earlier than full S1 exit and does not wait for learning/co-editing. 22 owns the cutover; QA owns its receipt. Missing Mac/provenance/required PR protection blocks cutover.
 Record install/repository identity, candidate/bundle, qualification links and UTC cutover time. Disable issue-sweep's direct-main path. Show a real Smithers change created, executed, reviewed and person squash-merged on that stack. Collect developer fallback and factory provenance from this first change, including development location, run/attempt, source edit activity, PR and person approval. Establish person-minutes collection before outside-team alpha; 98 defines answers/review/edit active intervals and idle/overlap rules.
 Exercise a self-change canary: edit/merge/activate a flow while an old pinned run remains, upgrade/restart a packaged host safely, recover in-flight work and start the next TODO. Preserve receipts from both old/new versions; no duplicate effects or false completion. This bootstrap canary is distinct from the future maintainer-release upgrade.
 Apply M-37: after stage 1, every S/M ticket runs on the install. Only L tickets on the S2/S3 spine may use diff-back lanes outside it. Record each permitted exception and report daily outside-stack share. Main stays append-only; stack service writes mythical, people merge. Reverts also follow the authorized landing path.
-Declare the 14-day dogfood window, distinct genuine TODO ids and source provenance. Exclude QA filler. Reconcile laptop work even when imported through TODO PRs. Report >=50 merge target, <20 merge kill signal and >50% laptop-change kill signal independently. If the release candidate changes during the window, preserve historical bundle identities and rerun current safety gates; counts do not certify new code. Outside-team week-2/3 outcomes remain pending until observed.
+Declare the 14-day dogfood window, distinct genuine TODO ids and source provenance. Separate rehearsal-only records from genuine development; exclude QA filler from dogfood. Reconcile laptop work even when imported through TODO PRs. Report >=50 merge target, <20 merge kill signal and >50% laptop-change kill signal independently. If the release candidate changes during the window, preserve historical bundle identities and rerun current safety gates; counts do not certify new code. Outside-team week-2/3 outcomes remain pending until observed.
 
 ## Appendix A. Planned inventories
 
@@ -299,7 +300,7 @@ These files are specified here for later implementation. This task writes none o
 | --- | --- |
 | appendices/requirements.json and requirements.md | Closed atomic denominator and generated review table, with all fields in §2. Missing joins/removals reject generation. |
 | appendices/oracle-decisions.md | Every X1–X18 plus new normative conflict; controlling clause, 98/8a receipt, check/lane updates and executed verification. |
-| appendices/campaigns.md | Every G01–G77, W1–W38 and P1–P17, expanded cases/stages/worker/exact command/oracle/deadline. No low-risk exclusions. Worker and executable binding due before lane start; execution due before its stage exit. |
+| appendices/campaigns.md | Every G01–G77, W1–W38 and P1–P17, expanded cases/stages/worker/exact command/oracle/deadline. Approved obligations have no risk-based scope removal; proposals retain dispositions. Frozen lanes follow §7; worker and executable binding due before dispatch; execution due before its stage exit. |
 | appendices/cards-and-security.json | Expected cards/actions/states/roles/routes/credentials/secret surfaces, axe rules and approved equivalent proofs. Empty/incomplete inventory fails. |
 | appendices/recordings.json | Every P0 step, both themes/devices, six inclusions, G40/W14/W20/G33, time offsets/receipts/hashes. No missing step qualifies. |
 | appendices/executors.json | Actual smthrs environments, host ids, argv/targets, required flags/tools, lease limits and hardware/account availability dates. |
@@ -317,7 +318,7 @@ These files are specified here for later implementation. This task writes none o
 | 6 | accepted: current M-34/35/36 control; reconcile every behavior conflict, preserve supported libraries and old decoding. |
 | 7 | accepted: writer/PG/minimal fake/real J1→J2 first; S1 write, steer, retry, startup and order cases moved forward. |
 | 8 | accepted: five-minute ingestion/assignment/polling with durable queue and leased background workers replaces inline fixing. |
-| 9 | accepted: noncancelled candidate jobs and bound executor profiles; absent hardware remains BLOCKED. Current contracts already specify 32 GB. |
+| 9 | accepted: noncancelled candidate jobs and bound executor profiles; absent hardware remains BLOCKED. Activation hardware conflict is tracked separately from reference perf. |
 | 10 | accepted: finite inventories, seeds/sequence bounds/sample budgets and worker/deadline bindings make campaign results falsifiable. |
 | 11 | changed: properties corrected; current spec permits zero capacity, so test that behavior rather than await a positive-capacity ruling. |
 | 12 | accepted: rerun success cannot diagnose flakes or erase mandatory failure; quarantine blocks qualification. |
@@ -338,28 +339,47 @@ These files are specified here for later implementation. This task writes none o
 | 27 | accepted: spike NO remains RESOLVED experiment evidence; adopted homes require separate real product qualification. |
 | 28 | accepted: closed acceptance, thin S1 pipeline and real safety/dogfood cutover form the decision procedure. |
 
+### v1.1 changes
+
+| Review change # | Section | What changed |
+| --- | --- | --- |
+| 1 | 4 | Separate G-THIN, full S1 and dependency closure. |
+| 2 | 4/7 | Close on ticket-owned subcase receipts. |
+| 3 | 2/7 | Ready digests and frozen-scope follow-ups. |
+| 4 | 2 | Generated view with canonical field authorities. |
+| 5 | 2/4 | Mechanical obligations, evaluator and gate receipts. |
+| 6 | 4/6 | Build candidate versus TODO generation and guards. |
+| 7 | 5 | Correct access chain and import runtime cross-edges. |
+| 8 | 2/5 | Finite thin list/writer before full generator. |
+| 9 | 0/8 | Disjoint statuses, precedence and reason codes. |
+| 10 | 4 | Apply every general/release gate disposition. |
+| 11 | 2/6 | Disposition research; approve extra scope/budgets. |
+| 12 | 4/6 | Complete §21.1 public-library receipt. |
+| 13 | 2/6 | Independent literal/model expectations and oracle pins. |
+| 14 | 4/9 | Closed dogfood cutover including backfill. |
+| 15 | 5/C | Verify snapshot provenance and actual runner bindings. |
+| 16 | 4/5 | Track activation hardware conflict separately from perf. |
+
 ## Appendix C. Source identities and limits
 
-Read from qa-repo, not the review's older smithers-qa copy. No git/jj lookup was performed; the current main SHA must be supplied by 22 at nomination. Headers still mix product v2.5 and engineering v2.6 references; hashes identify the text actually used.
+The tech lead's review read the engineering spec, product spec and code from working checkouts, not a pinned commit. This revision used QA's clone of main at 6b2a28d3; it does not treat either checkout as proof of the other's identity. Nomination must verify and reconcile those snapshots, pin linked check/ticket files, declarations and decision receipts, and record the candidate identity supplied by 22. No current commit is inferred and no git/jj lookup was performed.
 
-| Source | SHA-256 |
+| Supplied input | Verified SHA-256 |
 | --- | --- |
-| .specs/product/mvp.md | fbb80728e1b81aca2705b1997ea794aae5b0622a6ae2acd8b68579845f38723d |
-| .specs/engineering/overview.md | 5e356c3147bb5f81216b47eb16eb35761332434c076b21a386ca6082dd6f6d1a |
-| .specs/engineering/spec.md | 6fbd5e03615f59a2ed0f511d7ab3eb6a37924428a95e9dcde3504cf23d3dbc05 |
-| .specs/engineering/checks/README.md | 7ea2e3f42474b7d617fb08822120d6e4559bc6e73f9179494cd7aca20b1816b8 |
-| .specs/engineering/tickets/README.md | b998710ccd94cce1144a938ee72556cadc1b3839627fe72948ecd3a9ee41492b |
-| AGENTS.md | 37d8b375b7607c781deadd6cfca9615c9bc3f475ba5bce1cf9360e1b8ff38f0b |
-| validation-plan.md v0.2 | c456f595835ac65e934e49eec09c647af2ae93382788ad430bb993000ed153bb |
-| codex/review.md | e9ec4bdaa2e589a03744eb71d403995457b554d58e4db41c571ef9332ae3a58a |
+| .specs/product/mvp.md | 6dbb5985da878e8daf1f959e65a47d292434c4bd2fba40ef8e7f523bf8e2d553 |
+| .specs/engineering/overview.md | 3b6a7e3859757ea57c67b989b5ac90ab9b1b919eba6d2683ed39dcd8bcc3508c |
+| .specs/engineering/spec.md | 27143b2b86920fa57d52275670ccde5953844d8054160e5ad2fe2a43125ac520 |
+| .specs/engineering/checks/README.md | c78fda1da999886197eae1d137e63a1f1ebd0b8c4d2d24843e7bc481afab2138 |
+| .specs/engineering/tickets/README.md | 6b46607be4e0606a16b506f82aa8b295f77d2e70c2c9113fccf1f666d5b411ef |
+| AGENTS.md | 4fadc7d97735f40fe433e97e7910ed6ecf538dd511aef5c3d2c0bab5e85a686e |
 
-Research snapshots and pepper reports supply leads and observations, not current qualification. Their full hashes belong in the generated manifest's source inventory. Today's supplied CI/ownership/process updates supersede older baseline prose. This plan does not infer a green build, landed test corpus, completed architecture review or available reference host.
+Research and pepper reports are observations, not qualification. Review paths and scripts/journeys, scripts/perf and target names are declared/planned until verified present, registered and executor-bound in the nominated snapshot. Site screenshot helpers cannot substitute for activation automation. Baseline reports do not prove current green, available hardware or landed harnesses.
 
 ## Asks for the leads
 
 
-- Product (98): decide the §12.6 launch-approval timing while keeping the actual launch-day→day-seven maintainer upgrade receipt pending until observed.
-- Tech lead (8a): rule the 21 T-STK-04 and 24 T-FLW-11 ahead-of-time plan gaps, and resolve remaining oracle conflicts, including interrupted-state bound and combined answer guards, before affected lanes start.
+- Product (98): retain the approved launch rehearsal/day-seven split; record the §12.2 dogfood target interpretation and observation windows.
+- Tech lead (8a): rule the 21 T-STK-04 and 24 T-FLW-11 ahead-of-time plan gaps, and resolve remaining oracle conflicts, including interrupted-state bound and combined answer guards, through Ready review or frozen-scope follow-ups. Add QA-HOST-ACTIVATION and stale C-J1-04 dependency setup to the conflict ledger.
 - Lead engineer (22): confirm candidate nomination, required PR checks and first-green Stop-the-line enforcement, with the lander's 30-minute no-new-red revert obligation.
 - Lead engineer (22), with Ops: supply dated commitments for the 32 GB reference mini, second LAN Mac, verified accounts and durable evidence store/ACL/retention.
 - Product (98) and lead engineer (22): confirm Will's M-31 cutover owner/time, M-37 L-spine exception ledger and person-minutes/laptop-fallback definitions before telemetry starts.

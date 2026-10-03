@@ -30,6 +30,8 @@
 | 10-02 16:55 | Q-027 | apps/tui/src/app.tsx:363-370,837 | New/Resume status overwritten (#3187); b8 fixes on main, stk lane rebases | b8 | open |
 | 10-02 16:55 | Q-028 | flows/issue-sweep/work/flow.ts | 8 fault tags unregistered (row 23); not 22s; QA fixes (orphan Codex sessions work nearby) | QA | queued |
 | 10-02 16:55 | Q-029 | burndown-infrastructure.test.ts | row 16: owner 3f; fix = injected-statfs unit seam + host-capable tier + body-failure-first cleanup; land by Sat 12:00 | 3f | owned |
-| 10-02 16:55 | Q-030 | mvp.md §12.6 vs §14 | circular release gate (maintainer upgrade receipt before launch) | 98 | ruling asked |
-| 10-02 16:55 | Q-031 | AGENTS.md:202 | Sol-only test delegation vs Will's Sonnet pepper instruction | 98 | ruling asked |
+| 10-02 16:55 | Q-030 | mvp.md §12.6 vs §14 | circular release gate | 98 | ruled 6b2a28d3: launch rehearsal; G-MNT-1 |
+| 10-02 16:55 | Q-031 | AGENTS.md:202 | Sonnet pepper vs Sol | 98 | ruled 6b2a28d3 |
 | 10-02 17:00 | Q-032 | packages/smithers/ui CSS fallbacks | hand-copied tokens in 4 files; generate from tokens.ts (38 suggestion) | 06/38 | follow-up |
+| 10-02 17:15 | Q-033 | styleguide --ring-border | 2.1:1 on Paper surfaces; focus needs 3:1 (design) | 06 | #3599 |
+| 10-02 17:15 | Q-034 | QA plan | v1.0 landed 62966498 (accepted by product); 8a's 16 changes → v1.1 in progress | QA | in progress |
