@@ -57,6 +57,20 @@ test("rejected Clipboard API normalizes failure", async () => {
   clipboard({ writeText: async () => { throw cause } })
   expect(await copyText("text")).toEqual({ ok: false, code: "clipboard-write-failed", cause })
 })
+test("refused Clipboard API copies once through the fallback", async () => {
+  const writeText = mock(async () => { throw new Error("denied") })
+  clipboard({ writeText })
+  const exec = mock((command: string) => {
+    expect(command).toBe("copy")
+    expect((document.activeElement as HTMLTextAreaElement).value).toBe("refused write")
+    return true
+  })
+  legacy(exec)
+  expect(await copyText("refused write")).toEqual({ ok: true })
+  expect(writeText).toHaveBeenCalledTimes(1)
+  expect(exec).toHaveBeenCalledTimes(1)
+  expect(document.querySelector("textarea")).toBeNull()
+})
 test("host override is awaited", async () => {
   let complete!: () => void
   const pending = new Promise<void>(resolve => { complete = resolve })

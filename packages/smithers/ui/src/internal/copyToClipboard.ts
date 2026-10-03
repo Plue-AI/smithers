@@ -20,6 +20,10 @@ export async function copyToClipboard(
     await navigator.clipboard.writeText(text);
     return { ok: true };
   } catch (cause) {
+    if (!onCopy) {
+      const fallback = legacyCopy(text);
+      if (fallback.ok || fallback.code !== "clipboard-unavailable") return fallback;
+    }
     return { ok: false, code: "clipboard-write-failed", cause };
   }
 }
