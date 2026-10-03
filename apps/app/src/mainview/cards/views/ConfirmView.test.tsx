@@ -38,7 +38,7 @@ for (const key of Object.keys(expectedActions) as Array<keyof typeof expectedAct
     const calls: unknown[] = []
     const host = render({ ...fixtures[key], ...callbacks, onAction: (tag, input) => calls.push([tag, input]) })
     act(() => { for (const button of host.querySelectorAll("button")) button.click() })
-    expect(calls).toEqual(expectedActions[key])
+    expect(calls).toEqual([...expectedActions[key]])
   })
 }
 for (const [name, story] of Object.entries(confirmStories)) {
