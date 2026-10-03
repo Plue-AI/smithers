@@ -1,4 +1,5 @@
 /** Claude's borrowed remote login never enters an action payload or the captured checkout. */
+import { Fault } from "@smthrs/flow"
 import type { Sandbox } from "@smthrs/sandbox"
 import { Duration, Effect, FileSystem, Path, Schema, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -12,6 +13,7 @@ import { guestCheckout, guestHome } from "../vm.ts"
 export class ClaudeFailed extends Schema.TaggedError<ClaudeFailed>()("issue-sweep/ClaudeFailed", {
   message: Schema.String
 }) {}
+Fault.register("issue-sweep/ClaudeFailed", "dependency")
 
 export interface LoginOptions {
   readonly accountsDirectory?: string

@@ -405,6 +405,7 @@ const by = "issue-sweep"
 class RateLimited extends Schema.TaggedError<RateLimited>()("issue-sweep/RateLimited", {
   message: Schema.String
 }) {}
+Fault.register("issue-sweep/RateLimited", "wait")
 
 /** Runs one issue-claim command, retrying while GitHub rate limits it. */
 const claimCommand = (args: ReadonlyArray<string>) =>

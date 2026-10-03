@@ -97,6 +97,7 @@ export class NoChange extends Schema.TaggedError<NoChange>()("issue-sweep/NoChan
   session: Schema.String,
   report: Schema.String
 }) {}
+Fault.register("issue-sweep/NoChange", "user")
 
 /**
  * This machine could not prepare a workspace: jj or the dependency install
@@ -107,6 +108,7 @@ export class NoChange extends Schema.TaggedError<NoChange>()("issue-sweep/NoChan
 export class WorkspaceFailed extends Schema.TaggedError<WorkspaceFailed>()("issue-sweep/WorkspaceFailed", {
   message: Schema.String
 }) {}
+Fault.register("issue-sweep/WorkspaceFailed", "infra")
 
 // The issue an agent is briefed with.
 const IssueText = Schema.Struct({
@@ -177,6 +179,7 @@ export class AdoptConflicted extends Schema.TaggedError<AdoptConflicted>()("issu
   remote: Remoted,
   onto: Schema.String
 }) {}
+Fault.register("issue-sweep/AdoptConflicted", "factory")
 
 /**
  * Lands a remote run's work as one change on `main` in a workspace of its own, so it lands like a local one.

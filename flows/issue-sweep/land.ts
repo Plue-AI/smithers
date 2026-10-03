@@ -9,6 +9,7 @@
  * it exists. The checks run inside `codex sandbox`, so code the agent wrote
  * can write only its own workspace and has no network.
  */
+import { Fault } from "@smthrs/flow"
 import { Cause, Deferred, Duration, Effect, Option, Result, Schema, Semaphore } from "effect"
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
@@ -19,6 +20,7 @@ import { type Exited, type HostFailed, output, repository, ridingOutages, run, t
 export class LandFailed extends Schema.TaggedError<LandFailed>()("issue-sweep/LandFailed", {
   message: Schema.String
 }) {}
+Fault.register("issue-sweep/LandFailed", "factory")
 
 // ---------------------------------------------------------------------------
 // Decisions (pure)

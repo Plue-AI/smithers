@@ -1,3 +1,4 @@
+import { Fault } from "@smthrs/flow";
 import * as Schema from "effect/Schema";
 
 /** Repository preparation failed before a review could start. */
@@ -5,12 +6,14 @@ export class ChangeSetUnreadable extends Schema.TaggedError<ChangeSetUnreadable>
   repo: Schema.String,
   message: Schema.String,
 }) {}
+Fault.register("smithers-review/ChangeSetUnreadable", "infra");
 
 /** The rendered walkthrough could not be stored. */
 export class WalkthroughUnwritable extends Schema.TaggedError<WalkthroughUnwritable>()("smithers-review/WalkthroughUnwritable", {
   path: Schema.String,
   message: Schema.String,
 }) {}
+Fault.register("smithers-review/WalkthroughUnwritable", "infra");
 
 /** Operational failures preserved across every review round. */
 export const ReviewFailure = Schema.Union([ChangeSetUnreadable, WalkthroughUnwritable]);
