@@ -706,7 +706,10 @@ export function Overview(props: {
                 {" "}
                 <span fg={groupColor(section.group)}>{groupGlyph[section.group]}</span>{" "}
                 <strong fg={color.text}>{Inbox.headings[section.group]}</strong>
-                <span fg={color.faint}>{` ${section.rows.length}`}</span>
+                {/* Needs you counts what waits, as Summary's ◆N does: two asks from one worker are 2. */}
+                <span fg={color.faint}>
+                  {` ${section.group === "needs" ? Inbox.count([section]) : section.rows.length}`}
+                </span>
                 {section.group === "failed" && props.failedOpen !== true ? <span fg={color.muted}>{" ›"}</span> : null}
               </text>
             )

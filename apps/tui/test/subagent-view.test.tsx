@@ -295,11 +295,11 @@ describe("the Summary overview's groups", () => {
       }]
     }
   ]
-  const overview = (selected: string, failedOpen: boolean) => {
+  const overview = (selected: string, failedOpen: boolean, groups = sections()) => {
     const { cards } = recorder()
     return (
       <View.Overview
-        sections={sections()}
+        sections={groups}
         selected={selected}
         pane="tree"
         width={110}
@@ -324,6 +324,17 @@ describe("the Summary overview's groups", () => {
     expect(frame).toContain("waiting 0:14 · luna")
     expect(frame).toContain("New name for add()?")
     expect(frame).toContain("1 sum  2 plus")
+  })
+
+  it("counts each thing waiting in Needs you, as Summary's ◆N does: two asks from one worker are 2", async () => {
+    const [needs, ...rest] = sections()
+    const two = [{ ...needs!, rows: [{ ...needs!.rows[0]!, pending: 2 }] }, ...rest]
+    const frame = (await mount(overview("rename", false, two), 110, 14)).captureCharFrame()
+    expect(Inbox.count(two)).toBe(2)
+    expect(frame).toContain("◆ Needs you 2")
+    // The other groups count their rows.
+    expect(frame).toContain("◐ Working 1")
+    expect(frame).toContain("✗ Failed 1 ›")
   })
 
   it("lists the failures once the Failed group is open", async () => {
