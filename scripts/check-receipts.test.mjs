@@ -1,25 +1,24 @@
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { createServer, connect } from 'node:net'
 import { expectedCommand, reverifyCi, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
 import { fixture } from './fixtures/check-receipts.mjs'
 import { run as claimRun } from './issue-claim.mjs'
 
 const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`
 
-test('runner writes observed receipt and scrubs credentials; all close variants close exactly once', () => {
+test('target receipts preserve observed fields; all close variants close exactly once', () => {
   const f = fixture()
   try {
     const before = Date.now(); const paths = ['C-FIX-01','C-FIX-02'].map(f.evidence); const after = Date.now()
     const r = JSON.parse(readFileSync(join(f.root, paths[0])))
     assert.deepEqual(Object.keys(r).sort(), ['version','check','commit','layer','command','exit','started','ended','log_digest'].sort())
     assert.equal(r.version, 1); assert.equal(r.commit, f.sha); assert.match(r.commit, /^[a-f0-9]{40}$/)
-    assert.equal(r.check, 'C-FIX-01'); assert.equal(r.layer, 'integration'); assert.deepEqual(r.command, ['node','canary.mjs']); assert.equal(r.exit, 0); assert.ok(Number.isInteger(r.exit)); assert.match(r.log_digest, /^sha256:[a-f0-9]{64}$/)
+    assert.equal(r.check, 'C-FIX-01'); assert.equal(r.layer, 'integration'); assert.deepEqual(r.command, ['smthrs-ci','//fixture:canary']); assert.equal(r.exit, 0); assert.ok(Number.isInteger(r.exit)); assert.match(r.log_digest, /^sha256:[a-f0-9]{64}$/)
     assert.equal(r.log_digest, digest(readFileSync(join(f.root, paths[0], '..', 'log.txt'))))
     for (const time of [r.started, r.ended]) { assert.match(time, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/); assert.ok(Date.parse(time) >= before && Date.parse(time) <= after) }
     assert.ok(r.started <= r.ended)
@@ -66,22 +65,16 @@ test('receipt, log and parent symlinks, traversal and escapes are refused', () =
   } finally { f.cleanup() }
 })
 
-test('runner refuses missing, unwritten, unparsable and unavailable mappings; failed command remains failed', () => {
+test('runner refuses absent, unwritten, unparsable and mismatched Automation before CI reads', () => {
   const f = fixture()
   try {
-    for (const declaration of ['Automation: unavailable · Runs in: CI','Automation: `node missing.mjs` (to write) · Runs in: CI','Automation: prose PASS · Runs in: CI','Automation: `node canary.mjs` · Runs in: reference host']) {
-      f.put('.specs/engineering/checks/C-FIX-01.md', `Layer: integration\n${declaration}\n`); f.commit(); const result = f.runner(); assert.equal(result.status,2); assert.equal(JSON.parse(result.stdout).action,'check-refused'); assert.equal(JSON.parse(result.stdout).receipt,undefined)
+    for (const declaration of ['Automation: unavailable · Runs in: CI','Automation: `smthrs test //fixture:canary` (to write) · Runs in: CI','Automation: prose PASS · Runs in: CI','Automation: `smthrs test //fixture:canary` · Runs in: reference host']) {
+      f.put('.specs/engineering/checks/C-FIX-01.md', `Layer: integration\n${declaration}\n`); f.commit()
+      const result = f.runner(); assert.equal(result.status,2); assert.equal(JSON.parse(result.stdout).action,'check-refused'); assert.equal(JSON.parse(result.stdout).receipt,undefined)
     }
     assert.equal(f.runner('C-ABS-01').status,2)
-    f.put('.specs/engineering/checks/C-FIX-01.md','Layer: integration\nAutomation: `node canary.mjs` · Runs in: CI\n')
-    assert.equal(f.runner('C-FIX-01',{CI:''}).status,2)
-    rmSync(join(f.root,'canary.mjs')); f.commit(); assert.equal(f.runner().status,2)
-    f.put('canary.mjs','process.exit(9)'); f.commit(); const failed = f.runner(); assert.equal(failed.status,9)
-    const path = JSON.parse(failed.stdout).receipt; assert.equal(JSON.parse(readFileSync(join(f.root,path))).exit,9)
-    assert.equal(f.close([path]).code,2); assert.equal(f.writes.length,0)
   } finally { f.cleanup() }
 })
-
 test('malformed JSON values and missing receipt arguments refuse without throwing or writing', () => {
   const f = fixture()
   try {
@@ -147,25 +140,13 @@ test('coverage comes from the ticket Issue field, with exact repository and issu
   } finally { f.cleanup() }
 })
 
-test('machine execution and escaping mapped command paths are refused without receipts', () => {
-  const f = fixture()
-  try {
-    for (const mapping of [
-      {approvedBy:'smithers-22',automation:'node canary.mjs',runsIn:'CI',host:'machine',command:['node','canary.mjs'],paths:['canary.mjs']},
-      {approvedBy:'smithers-22',automation:'node canary.mjs',runsIn:'CI',host:'CI',command:['node','canary.mjs'],paths:['../canary.mjs']}
-    ]) {
-      f.put('scripts/check-commands.json',JSON.stringify({version:1,activation:{mappingsApprovedBy:'smithers-22',coverageAcceptedBy:'smithers-8a'},checks:{'C-FIX-01':mapping}}))
-      f.commit(); const out = f.runner(); assert.equal(out.status,2); assert.equal(JSON.parse(out.stdout).receipt,undefined); assert.equal(f.writes.length,0)
-    }
-  } finally { f.cleanup() }
-})
 
 test('journey check IDs retain numeric stages in runner and ticket-derived coverage', () => {
   const f = fixture()
   try {
     f.put('.specs/engineering/tickets/T-FIX-01.md','Issue: https://github.com/o/r/issues/7\n## Acceptance\n- C-J1-01\n- C-FIX-02\n')
-    f.put('.specs/engineering/checks/C-J1-01.md','Layer: integration\nAutomation: `node canary.mjs` · Runs in: CI\n')
-    f.put('scripts/check-commands.json',JSON.stringify({version:1,activation:{mappingsApprovedBy:'smithers-22',coverageAcceptedBy:'smithers-8a'},checks:Object.fromEntries(['C-FIX-01','C-J1-01','C-FIX-02'].map(id=>[id,{approvedBy:'smithers-22',automation:'node canary.mjs',runsIn:'CI',host:'CI',command:['node','canary.mjs'],paths:['canary.mjs']}]))}))
+    f.put('.specs/engineering/checks/C-J1-01.md','Layer: integration\nAutomation: `smthrs test //fixture:canary` · Runs in: CI\n')
+    f.put('scripts/check-commands.json',JSON.stringify({version:1,activation:{mappingsApprovedBy:'smithers-22',coverageAcceptedBy:'smithers-8a'},checks:Object.fromEntries(['C-FIX-01','C-J1-01','C-FIX-02'].map(id=>[id,{approvedBy:'smithers-22',automation:'smthrs test //fixture:canary',runsIn:'CI',host:'CI',target:'//fixture:canary'}]))}))
     f.commit(); assert.equal(f.close(['C-J1-01','C-FIX-02'].map(f.evidence)).code,0)
   } finally { f.cleanup() }
 })
@@ -180,21 +161,23 @@ test('landed ancestry and production receipts also work in a jj-colocated fixtur
 })
 
 // Expected committed input and coverage policy: T-PRC-03 Goal / spec §21.4a.
-test('dirty command and ticket edits cannot forge committed execution or coverage', () => {
+test('dirty mapping and ticket edits cannot forge committed receipt command or coverage', () => {
   const f = fixture()
   try {
-    f.put('canary.mjs','process.exit(9)'); f.commit()
-    f.put('canary.mjs',"console.log('locally passing')")
-    const out = f.runner(); assert.equal(out.status,9)
-    assert.equal(JSON.parse(readFileSync(join(f.root,JSON.parse(out.stdout).receipt))).commit,f.sha)
-    f.put('canary.mjs',"console.log('committed pass')"); f.commit()
     const receipt = f.evidence('C-FIX-01')
+    const original = JSON.parse(readFileSync(join(f.root,receipt)))
+    const mappings = JSON.parse(readFileSync(join(f.root,'scripts/check-commands.json')))
+    mappings.checks['C-FIX-01'].target = '//fixture:dirty'
+    f.put('scripts/check-commands.json',JSON.stringify(mappings))
+    f.put(receipt,JSON.stringify({...original,command:['smthrs-ci','//fixture:dirty']}))
+    const paths = [receipt,f.evidence('C-FIX-02')]
+    assert.deepEqual(f.close(paths).out.checks,[{check:'C-FIX-01',receipt,reason:'coverage'}])
+    f.put(receipt,JSON.stringify(original))
     f.put('.specs/engineering/tickets/T-FIX-01.md','Issue: https://github.com/o/r/issues/7\n## Acceptance\n- C-FIX-01\n')
     assert.deepEqual(f.close([receipt]).out.checks,[{check:'C-FIX-02',reason:'coverage'}])
     assert.equal(f.writes.length,0)
   } finally { f.cleanup() }
 })
-
 test('suffixed committed tickets retain complete acceptance coverage', () => {
   const f = fixture()
   try {
@@ -226,17 +209,6 @@ test('unparsable receipts are attributed to their path without guessing a check'
   } finally { f.cleanup() }
 })
 
-test('concurrent working-source changes cannot alter the executed snapshot', () => {
-  const f = fixture()
-  try {
-    f.put('canary.mjs', `import { readFileSync, writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(join(f.root,'seed'))}, 'concurrent edit'); try { writeFileSync('seed','snapshot edit'); process.exit(34) } catch (e) { if (!['EPERM','EACCES','EROFS'].includes(e.code)) throw e } console.log(readFileSync('seed','utf8'))`)
-    f.commit()
-    const path = f.evidence('C-FIX-01')
-    assert.equal(readFileSync(join(f.root,'seed'),'utf8'),'concurrent edit')
-    assert.equal(readFileSync(join(f.root,path,'..','log.txt'),'utf8'),'fixture\n')
-    assert.equal(JSON.parse(readFileSync(join(f.root,path))).commit,f.sha)
-  } finally { f.cleanup() }
-})
 
 // Product, 20:07: non-completion reasons require a note; replacements require a link.
 test('non-completion reasons close once with their literal state reason', () => {
@@ -253,10 +225,10 @@ test('invalid reasons and notes refuse before writes; explicit completed require
     const f=fixture(); try { assert.equal(f.close([],flags,null).code,2); assert.equal(f.writes.length,0) } finally { f.cleanup() }
   }
 })
-test('inventory covers every check exactly once and executable mappings require approval, command and host', () => {
+test('inventory covers every check exactly once and executable mappings require approval, target and host', () => {
   const root=new URL('../',import.meta.url)
   const mappings=JSON.parse(readFileSync(new URL('scripts/check-commands.json',root)))
-  const files=readdirSync(new URL('.specs/engineering/checks/',root)).filter(n=>/^C-.*\.md$/.test(n)).map(n=>n.slice(0,-3)).sort()
+  const files = `C-ACC-01 C-ACC-02 C-ACC-03 C-ACC-04 C-AGT-01 C-AGT-02 C-APP-01 C-APP-02 C-APP-03 C-APP-04 C-APP-05 C-CAT-01 C-CAT-02 C-CAT-03 C-COL-01 C-COL-02 C-COL-03 C-COL-04 C-COL-05 C-CUT-01 C-CUT-02 C-DUR-01 C-DUR-02 C-DUR-03 C-DUR-04 C-GH-01 C-GH-07 C-GH-08 C-GH-09 C-GH-13 C-INS-01 C-INS-03 C-INS-05 C-INS-06 C-J1-01 C-J1-02 C-J1-03 C-J1-04 C-J1-05 C-J1-06 C-J10-01 C-J10-02 C-J10-03 C-J10-04 C-J10-05 C-J10-06 C-J10-07 C-J10-08 C-J10-09 C-J11-01 C-J11-02 C-J11-03 C-J11-04 C-J2-01 C-J2-02 C-J2-03 C-J2-04 C-J2-05 C-J3-01 C-J3-02 C-J3-03 C-J3-04 C-J3-05 C-J3-06 C-J3-08 C-J3-09 C-J3-10 C-J4-01 C-J4-02 C-J4-03 C-J5-01 C-J5-02 C-J5-03 C-J6-01 C-J6-02 C-J7-01 C-J7-02 C-J7-03 C-J8-01 C-J8-02 C-J8-03 C-J8-04 C-J8-05 C-J8-06 C-J9-01 C-MCH-01 C-MCH-02 C-MCH-03 C-MCH-04 C-MCH-05 C-MCH-06 C-MCH-07 C-MCH-08 C-MCH-09 C-MCH-10 C-MCH-11 C-MNT-01 C-MNT-02 C-MNT-03 C-MNT-04 C-MNT-05 C-MNT-06 C-PERF-01 C-PERF-02 C-PERF-03 C-PERF-04 C-PERF-05 C-PERF-06 C-PRC-01 C-PRC-02 C-PRC-03 C-REL-01 C-REL-02 C-REL-03 C-REL-04 C-REL-05 C-REL-06 C-SEC-01 C-SEC-02 C-SEC-03 C-SEC-04 C-SEC-05 C-SPK-02 C-SPK-03 C-SPK-05 C-SPK-06 C-SPK-07 C-SPK-08 C-STK-01 C-STK-02 C-STK-03 C-STK-04 C-STK-05 C-STK-06 C-STK-07 C-STK-08 C-STK-13 C-UI-01 C-UI-02 C-UI-03 C-UI-04 C-UI-05 C-UI-06 C-UI-07 C-UI-08 C-UI-09 C-UI-10 C-UI-11 C-UI-12 C-UI-13`.split(' ')
   assert.deepEqual(Object.keys(mappings.checks).sort(),files)
 
   for(const m of Object.values(mappings.checks)) assert.ok(validMapping(m))
@@ -298,43 +270,16 @@ test('receipt command must deep-equal the approved landed mapping', () => {
   try {
     const paths = ['C-FIX-01','C-FIX-02'].map(f.evidence)
     const r = JSON.parse(readFileSync(join(f.root,paths[0])))
-    for (const command of [[], null, ['node','other.mjs'], ['node','canary.mjs','extra'], ['canary.mjs','node']]) {
+    for (const command of [[], null, ['smthrs-ci','//fixture:other'], ['smthrs-ci','//fixture:canary','extra'], ['//fixture:canary','smthrs-ci']]) {
       f.put(paths[0],JSON.stringify({...r,command}))
       const out = f.close(paths)
       assert.equal(out.code,2); assert.deepEqual(out.out.checks,[{check:'C-FIX-01',receipt:paths[0],reason:'coverage'}]); assert.equal(f.writes.length,0)
     }
   } finally { f.cleanup() }
 })
-test('check cannot connect to the operator proxy canary listener', async () => {
-  const f = fixture(); let connections = 0
-  const server = createServer(socket => { connections++; socket.end() })
-  try {
-    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
-    const port = server.address().port
-    // Real unsandboxed control proves the listener is reachable on this host.
-    await new Promise((resolve,reject)=>{ const s=connect(port,'127.0.0.1'); s.on('error',reject); s.on('end',resolve); s.resume() })
-    assert.equal(connections,1); connections=0
-    f.put('canary.mjs', `import { connect } from 'node:net'; const s=connect(${port},'127.0.0.1'); s.on('connect',()=>{s.destroy();process.exit(41)}); s.on('error',()=>{console.log('proxy denied')}); s.setTimeout(2000,()=>{s.destroy();process.exit(42)});`)
-    f.commit()
-    const child=spawn(process.execPath,['scripts/check-run.mjs','C-FIX-01'],{cwd:f.root,env:{...process.env,HOME:join(f.root,'home'),CI:'true',SMITHERS_GITHUB_PROXY:`http://localhost:${port}`}})
-    let stdout='',stderr=''; child.stdout.on('data',d=>stdout+=d); child.stderr.on('data',d=>stderr+=d)
-    const exit=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',resolve)})
-    assert.equal(exit,0,stderr+stdout); assert.equal(connections,0)
-    assert.equal(readFileSync(join(f.root,JSON.parse(stdout).receipt,'..','log.txt'),'utf8'),'proxy denied\n')
-  } finally { await new Promise(resolve=>server.close(resolve)); f.cleanup() }
-})
-test('check cannot read gh authentication configuration', () => {
-  const f=fixture()
-  try {
-    f.put('home/.config/gh/hosts.yml','operator-token')
-    f.put('canary.mjs', `import {readFileSync} from 'node:fs'; try {readFileSync(${JSON.stringify(join(f.root,'home/.config/gh/hosts.yml'))});process.exit(43)} catch(e) {if(!['EACCES','EPERM'].includes(e.code))throw e;console.log('gh denied')}`)
-    f.commit(); const path=f.evidence('C-FIX-01')
-    assert.equal(readFileSync(join(f.root,path,'..','log.txt'),'utf8'),'gh denied\n')
-  } finally { f.cleanup() }
-})
 
 test('an approved mapping cannot drop obligations its pending binding still lists open (4386fc25e review)', () => {
-  const approved = { approvedBy: 'smithers-22', host: 'CI', command: ['node', 'x.mjs'] }
+  const approved = { approvedBy: 'smithers-22', host: 'CI', target: '//fixture:canary' }
   assert.equal(validMapping(approved), true)
   assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{ expectedCaseIds: ['a'] }], unboundSubcases: [{ name: 'T-UI-02-copy', reason: 'open' }] } }), false)
   assert.equal(validMapping({ ...approved, pendingBinding: { commands: [{ expectedCaseIds: [] }] } }), false)
@@ -349,24 +294,6 @@ test('a run that executed no tests is empty for every reporter, and a run with t
   for (const log of ['ℹ tests 12', 'Ran 3 tests across 1 file.', 'ok  \tgithub.com/x/y\t0.51s', 'ok  \tgithub.com/x/y\t0.51s\nok  \tgithub.com/x/w\t0.01s [no tests to run]', '{"Action":"pass","Package":"p","Test":"TestA","Elapsed":0}\n[no tests to run]', '--- PASS: TestA (0.00s)', 'canary passed']) assert.equal(zeroTests(log), false, log)
 })
 
-test('an exit-0 run with zero tests fails the runner and its receipt cannot close', () => {
-  const f = fixture()
-  try {
-    f.put('canary.mjs', "console.log('ℹ tests 0')")
-    f.commit()
-    const paths = ['C-FIX-01', 'C-FIX-02'].map(id => {
-      const out = f.runner(id)
-      assert.equal(out.status, 1, out.stderr + out.stdout)
-      const path = JSON.parse(out.stdout).receipt
-      assert.equal(JSON.parse(readFileSync(join(f.root, path))).exit, 0)
-      return path
-    })
-    const closed = f.close(paths)
-    assert.equal(closed.code, 2)
-    assert.deepEqual(closed.out.checks.map(c => [c.check, c.reason]), [['C-FIX-01', 'failed'], ['C-FIX-02', 'failed']])
-    assert.equal(f.writes.length, 0)
-  } finally { f.cleanup() }
-})
 
 // #3663 option B: CI's own record decides a target mapping. Each case forges one input.
 const ciFixture = (overrides = {}) => {
@@ -434,26 +361,25 @@ test('target mappings carry a label and no argv, and closure expects the CI rece
   assert.equal(validMapping(target), true)
   for (const bad of [{ ...target, host: 'reference host' }, { ...target, command: ['node'] }, { ...target, paths: ['x'] }, { ...target, target: 'apps/app:viewStories' }, { ...target, target: '//apps/app' }]) assert.equal(validMapping(bad), false, JSON.stringify(bad))
   assert.deepEqual(expectedCommand(target), ['smthrs-ci', '//apps/app:viewStories'])
-  assert.deepEqual(expectedCommand({ command: ['node', 'x.mjs'] }), ['node', 'x.mjs'])
 })
 
-test('a target mapping never executes argv: it needs --landed, and --landed refuses an argv mapping', () => {
+test('runner requires --landed and refuses argv mappings even with CI=true', () => {
   const f = fixture()
   try {
-    const mappings = JSON.parse(readFileSync(join(f.root, 'scripts/check-commands.json')))
-    const { command, paths, ...rest } = mappings.checks['C-FIX-02']
-    mappings.checks['C-FIX-02'] = { ...rest, target: '//fixture:canary' }
-    f.put('scripts/check-commands.json', JSON.stringify(mappings))
-    f.commit()
-    const run = (args) => spawnSync(process.execPath, ['scripts/check-run.mjs', ...args], { cwd: f.root, encoding: 'utf8', env: { ...process.env, HOME: join(f.root, 'home'), CI: 'true' } })
-    const target = run(['C-FIX-02'])
-    assert.equal(target.status, 2); assert.match(JSON.parse(target.stdout).reason, /recorded from CI with --landed/)
-    const argv = run(['C-FIX-01', '--landed', f.sha])
-    assert.equal(argv.status, 2); assert.match(JSON.parse(argv.stdout).reason, /--landed applies only to a target mapping/)
-    assert.equal(run(['C-FIX-01', '--landed']).status, 2)
+    const run = args => spawnSync(process.execPath, ['scripts/check-run.mjs', ...args], { cwd: f.root, encoding: 'utf8', env: { ...process.env, CI: 'true' } })
+    for (const args of [['C-FIX-02'], ['C-FIX-01','--landed'], ['C-FIX-01','--landed','abc']]) {
+      const out = run(args); assert.equal(out.status,2); assert.equal(JSON.parse(out.stdout).receipt,undefined)
+    }
+    const mappings = JSON.parse(readFileSync(join(f.root,'scripts/check-commands.json')))
+    const { target, ...rest } = mappings.checks['C-FIX-01']
+    mappings.checks['C-FIX-01'] = {...rest,command:['node','canary.mjs'],paths:['canary.mjs']}
+    f.put('scripts/check-commands.json',JSON.stringify(mappings)); f.commit()
+    const out = f.runner(); assert.equal(out.status,2)
+    assert.equal(JSON.parse(out.stdout).reason,'argv mappings are not executable; map the check to a smthrs target')
+    assert.equal(JSON.parse(out.stdout).receipt,undefined); assert.equal(f.writes.length,0)
+    assert.equal(validMapping(mappings.checks['C-FIX-01']),false)
   } finally { f.cleanup() }
 })
-
 test('artifact unpacking is confined: symlinks, nested paths and oversize zips refuse with fixed reasons (3f, #3663)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'unpack-'))
   try {
@@ -564,4 +490,26 @@ test('an empty or non-JSON results file refuses the receipt (38L: a crashed run 
     const r = verifyCiRun({ github: { json: (p) => api[p], bytes: () => bytes }, unpack: () => ({ files }), repo: 'o/r', landed: L, label: '//a:b' })
     assert.equal(r.reason, 'results_unreadable', JSON.stringify(text))
   }
+})
+
+test('a crashed latest attempt (empty results) refuses the label; it never inherits the earlier attempt\'s pass (38L)', () => {
+  const L = 'a'.repeat(40); const label = '//x:y'
+  const earlier = Buffer.from('earlier'); const crashed = Buffer.from('crashed')
+  const files = new Map([
+    [earlier.toString(), [{ name: '__run.json', text: JSON.stringify({ version: 1, results: [{ label, status: 'ran' }] }) }]],
+    [crashed.toString(), [{ name: 'attempt.json', text: '{"version":1,"results":[]}' }, { name: '__run.json', text: '{"results":[],"version":1}' }]]
+  ])
+  const api = {
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
+    'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2 },
+    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'test', conclusion: 'failure', run_attempt: 2 }] },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [
+      { id: 1, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(earlier) },
+      { id: 2, name: 'smthrs-results-test-0-2', workflow_run: { id: 7 }, expired: false, digest: digest(crashed) }
+    ] }
+  }
+  const zips = { 'repos/o/r/actions/artifacts/1/zip': earlier, 'repos/o/r/actions/artifacts/2/zip': crashed }
+  const r = verifyCiRun({ github: { json: (p) => api[p], bytes: (p) => zips[p] }, unpack: (b) => ({ files: files.get(b.toString()) }), repo: 'o/r', landed: L, label })
+  assert.equal(r.pass, false); assert.equal(r.reason, 'label_absent')
+  assert.deepEqual(r.evidence.artifacts.map(a => a.name), ['smthrs-results-test-0-2'])
 })

@@ -46,7 +46,7 @@ const viaProxy = (gh, state) => (args) => {
   return gh(args.map((arg) => arg.startsWith(`${PROXY}/`) ? arg.slice(PROXY.length + 1) : arg))
 }
 
-const runVia = (gh, state, argv, at = T0) => run(argv.includes("--close") ? [...argv, ...closeArgs] : argv, { cwd: evidenceFixture.root, gh: viaProxy(gh, state), now: () => at, env: state.env, ensure: () => {} })
+const runVia = (gh, state, argv, at = T0) => run(argv.includes("--close") ? [...argv, ...closeArgs] : argv, { cwd: evidenceFixture.root, gh: viaProxy(gh, state), ghBytes: viaProxy(gh, state), now: () => at, env: state.env, ensure: () => {} })
 
 // An in-memory GitHub issue behind the `gh api` calls the CLI makes.
 const fakeGitHub = (issue = {}) => {
@@ -54,6 +54,11 @@ const fakeGitHub = (issue = {}) => {
   const gh = (args) => {
     state.calls.push(args.join(" "))
     const path = args.find((arg) => arg.startsWith("repos/"))
+    if (path?.includes('/commits/') || path?.includes('/actions/')) {
+      const repo = /^repos\/([^/]+\/[^/]+)\//.exec(path)[1]
+      const ci = evidenceFixture.ci(repo)
+      return path.endsWith('/actions/artifacts/10/zip') ? ci.bytes : JSON.stringify(ci.responses[path])
+    }
     const field = (name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1)
     if (args.includes("PATCH")) {
       state.open = false
@@ -457,6 +462,12 @@ describe("issue-claim, gh and the GitHub proxy end to end", { skip: hasGh ? fals
       req.on("end", () => {
         requests.push({ method: req.method, url: req.url, auth: req.headers.authorization, at: Date.now(), body })
         const reply = (status, value, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(value)) }
+        if (req.url.includes('/commits/') || req.url.includes('/actions/')) {
+          const repo = /^\/repos\/([^/]+\/[^/]+)\//.exec(req.url)[1]
+          const ci = evidenceFixture.ci(repo)
+          if (req.url.endsWith('/actions/artifacts/10/zip')) { res.writeHead(200, { 'content-type': 'application/zip' }); return res.end(ci.bytes) }
+          return reply(200, ci.responses[req.url.slice(1)])
+        }
         const match = /^\/repos\/[\w.-]+\/[\w.-]+\/(?:issues|pulls)\/(\d+)(\/.*)?$/.exec(req.url.split("?")[0])
         if (/\/labels\/in-progress$/.test(req.url) && !match) return reply(200, { name: LABEL })
         if (!match) return reply(404, { message: "Not Found" })

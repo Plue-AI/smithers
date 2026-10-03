@@ -19,15 +19,14 @@ export const validMapping = (mapping) => {
   const pending = mapping.pendingBinding
   if (!mapping.status && pending && ((pending.unboundSubcases ?? []).length || (pending.commands ?? []).some(command => !command.expectedCaseIds?.length))) return false
   if (mapping.status || mapping.approvedBy !== 'smithers-22' || typeof mapping.host !== 'string' || !mapping.host.trim()) return false
-  // A target mapping names a smthrs label and carries no argv: CI ran it (#3663).
-  if ('target' in mapping) return mapping.host === 'CI' && targetLabel(mapping.target) && !('command' in mapping) && !('paths' in mapping)
-  return Array.isArray(mapping.command) && mapping.command.length > 0 && mapping.command.every(arg => typeof arg === 'string' && Boolean(arg))
+  // CI ran the target; approved mappings carry no executable argv.
+  return mapping.host === 'CI' && targetLabel(mapping.target) && !('command' in mapping) && !('paths' in mapping)
 }
 
 export const targetLabel = (label) => typeof label === 'string' && /^\/\/[A-Za-z0-9._/-]*:[A-Za-z0-9._-]+$/.test(label)
 
-/** The receipt command a mapping must reproduce: its argv, or the CI receipt of its label. */
-export const expectedCommand = (mapping) => 'target' in mapping ? ['smthrs-ci', mapping.target] : mapping.command
+/** The receipt command a mapping must reproduce: the CI receipt of its label. */
+export const expectedCommand = (mapping) => ['smthrs-ci', mapping.target]
 
 const ENTRY = /^[A-Za-z0-9._-]+\.json$/
 
