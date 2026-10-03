@@ -31,10 +31,11 @@ it.each([24, 12])("answers a wrapped question with keyboard choices at 80x%i", a
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "needs you")
     await tui.press("a")
-    const form = await tui.until((screen) => /Answer\s+Session cookie/.test(screen), 5_000, "answer form")
+    const form = await tui.until((screen) => screen.includes("> Session cookie"), 5_000, "answer form")
     expect(form).toContain("remote workspace?")
-    await tui.press("\x1b[C")
-    await tui.until((screen) => /Answer\s+Bearer header/.test(screen), 5_000, "chosen")
+    expect(form).toContain("enter Answer  esc Back")
+    await tui.press(key.down)
+    await tui.until((screen) => screen.includes("> Bearer header"), 5_000, "chosen")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Done 1") && !screen.includes("Needs you"), 5_000, "answered")
   } finally {
@@ -64,21 +65,18 @@ it("answers a worker's ask with a from the overview, and the worker finishes wit
       5_000,
       "needs you"
     )
-    // The status line already names the question: only the peek lists the options, and only the form an Answer field.
-    expect(tui.screen()).not.toContain("Session cookie · Bearer header")
-    await tui.press(" ")
-    await tui.until((screen) => screen.includes("Session cookie · Bearer header"), 5_000, "peek")
-    expect(tui.screen()).not.toMatch(/Answer\s+Session cookie/)
+    // The selected ask's card shows its choices; only the form puts a cursor on one.
+    await tui.until((screen) => screen.includes("1 Session cookie  2 Bearer"), 5_000, "card")
+    expect(tui.screen()).not.toContain("> Session cookie")
     await tui.press("a")
-    await tui.until((screen) => /Answer\s+Session cookie/.test(screen), 5_000, "form")
-    await tui.press("\x1b[C") // right: the next option
-    await tui.until((screen) => /Answer\s+Bearer header/.test(screen), 5_000, "chosen")
+    await tui.until((screen) => screen.includes("> Session cookie"), 5_000, "form")
+    await tui.press(key.down)
+    await tui.until((screen) => screen.includes("> Bearer header"), 5_000, "chosen")
     await tui.press(key.enter)
-    await tui.until(
-      (screen) => screen.includes("Done 1") && !screen.includes("Needs you") && screen.includes("Using: Bearer header"),
-      5_000,
-      "the worker finished with the answer"
-    )
+    await tui.until((screen) => screen.includes("Done 1") && !screen.includes("Needs you"), 5_000, "answered")
+    // The peek shows the worker's last step: it finished with the answer.
+    await tui.press(" ")
+    await tui.until((screen) => screen.includes("Using: Bearer header"), 5_000, "the worker finished with the answer")
   } finally {
     await tui?.stop()
     rmSync(root, { recursive: true, force: true })
@@ -101,7 +99,11 @@ it("raises a capped worker's token cap with a from the overview, and it resumes"
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
     await tui.press(key.ctrlS)
-    await tui.until((screen) => screen.includes("Needs you 1") && screen.includes("flaky seat queue"), 5_000, "capped")
+    // A capped worker failed: it waits under the closed Failed group, not Needs you.
+    await tui.until((screen) => screen.includes("Failed 1 ›") && !screen.includes("Needs you"), 5_000, "capped")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("flaky seat queue"), 5_000, "failed open")
+    await tui.press(key.down)
     await tui.press("a")
     await tui.until(
       (screen) => screen.includes("200 of 200 tokens used") && /Cap\s+200/.test(screen),
@@ -122,7 +124,7 @@ it("raises a capped worker's token cap with a from the overview, and it resumes"
     expect(selected).toContain(" 400 ")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Done 1") && !screen.includes("Needs you"),
+      (screen) => screen.includes("Done 1") && !screen.includes("Failed"),
       5_000,
       "resumed under the raised cap"
     )

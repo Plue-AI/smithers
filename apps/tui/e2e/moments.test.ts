@@ -33,7 +33,9 @@ it("offers Raise cap on a capped worker's toast, and the button opens its cap fo
       "the cap form"
     )
     await tui.press(key.ctrlS)
-    await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "overview")
+    await tui.until((screen) => screen.includes("Failed 1 ›"), 5_000, "overview")
+    await tui.press(key.enter)
+    await tui.press(key.down)
     await tui.press(" ")
     // The peek names the outcome and its cause (tabs.ts outcome).
     await tui.until(
