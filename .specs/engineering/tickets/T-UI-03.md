@@ -1,6 +1,6 @@
 # T-UI-03 Draft view
 
-Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-02, T-REL-02 · Issue: [#3540](https://github.com/smithersai/smithers/issues/3540)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-02 · Issue: [#3540](https://github.com/smithersai/smithers/issues/3540)
 Spec: spec.md §14.2.1, §14.3 (TODO), §14.5.1 (private Draft) · Delta: delta.md §9 · Product: mvp.md J2.1, J7 · Props: [ui-components.md § T-UI-03](../ui-components.md)
 
 Landed (f18e88958, fbf7c98f7, c60db0f4b).

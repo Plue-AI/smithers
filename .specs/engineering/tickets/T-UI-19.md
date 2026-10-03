@@ -1,6 +1,6 @@
 # T-UI-19 Co-editing visuals
 
-Stage S3 · Size M · Depends on T-UI-01, T-APP-14a · Unblocks T-APP-14, T-COL-08, T-MNT-02, T-MNT-04, T-REL-02 · Issue: [#3589](https://github.com/smithersai/smithers/issues/3589)
+Stage S3 · Size M · Depends on T-UI-01, T-APP-14a · Unblocks T-APP-14, T-COL-08, T-MNT-02, T-MNT-04 · Issue: [#3589](https://github.com/smithersai/smithers/issues/3589)
 Spec: spec.md §14.2.1, §7.3, §7.6, §14.3 (File S3) · Delta: delta.md §9 · Product: mvp.md J3.2, J8, §6.8 · Props: written by this ticket when S3 starts
 
 ## Goal

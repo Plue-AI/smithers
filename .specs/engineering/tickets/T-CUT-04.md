@@ -1,6 +1,6 @@
 # T-CUT-04 Cut card kinds read as tombstones; leftover cut producers in shared files (follow-up of frozen T-CUT-01)
 
-Stage S1 · Size S · Depends on T-CUT-01, T-APP-22 · Unblocks T-REL-02 · Issue: [#3610](https://github.com/smithersai/smithers/issues/3610)
+Stage S1 · Size S · Depends on T-CUT-01, T-APP-22 · Unblocks — · Issue: [#3610](https://github.com/smithersai/smithers/issues/3610)
 Spec: spec.md §6.1.2, §14.1.5, §14.2 · Delta: delta.md §10 · Product: mvp.md §8 (Cut rows), Appendix B; AGENTS.md "Old sessions and recorded events must remain readable" · Reference: [card-kinds.md](../card-kinds.md) §2, §3
 Ready: 2026-10-03 smithers-8a sha256:9d3c3d0f18e2
 

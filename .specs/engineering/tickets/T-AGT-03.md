@@ -1,6 +1,6 @@
 # T-AGT-03 Read-only external conversations in shared chat
 
-Stage S2 · Size M · Depends on T-AGT-02, T-APP-09, T-APP-16, T-UI-07, T-UI-01 · Unblocks T-REL-02 · Issue: [#3623](https://github.com/smithersai/smithers/issues/3623)
+Stage S2 · Size M · Depends on T-AGT-02, T-APP-09, T-APP-16, T-UI-07, T-UI-01 · Unblocks — · Issue: [#3623](https://github.com/smithersai/smithers/issues/3623)
 Spec: spec.md §14.2.1, §14.5.5, §14.6a · Delta: delta.md §9 · Product: mvp.md M-38, M-34
 Ready: 2026-10-03 smithers-8a sha256:ee2088b0987c
 

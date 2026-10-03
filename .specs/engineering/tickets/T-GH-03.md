@@ -1,6 +1,6 @@
 # T-GH-03 TODO PRs both ways: slug branch, body, item-only diff, drafts; checks, GitHub's refusal text, merged, closed, reopened, out-of-order merge
 
-Stage S1 · Size M · Depends on T-STK-01, T-STK-02, T-STK-12, T-GH-02, T-GH-09, T-ACC-03, T-FLW-11, T-MCH-14, T-INS-02, T-INS-04, T-SEC-01 · Unblocks T-APP-01, T-FLW-06, T-GH-04, T-GH-06, T-GH-07, T-REL-02, T-STK-04 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
+Stage S1 · Size M · Depends on T-STK-01, T-STK-02, T-STK-12, T-GH-02, T-GH-09, T-ACC-03, T-FLW-11, T-MCH-14, T-INS-02, T-INS-04, T-SEC-01 · Unblocks T-APP-01, T-FLW-06, T-GH-04, T-GH-06, T-GH-07, T-STK-04, T-STK-05 · Issue: [#3452](https://github.com/smithersai/smithers/issues/3452)
 Spec: spec.md §4.1, §8.1.1, §10.3.2, §10.6.2–§10.6.4, §12.3, §12.4.1–§12.4.2, §12.5, §14.3 (Diff) · Delta: delta.md §6, §7 · Product: mvp.md J10.1, J10.5, §4.2, §6.3, M-22
 Ready: 2026-10-03 smithers-8a sha256:17feb9b14bcf
 

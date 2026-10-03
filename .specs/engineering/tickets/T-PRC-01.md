@@ -1,6 +1,6 @@
 # T-PRC-01 Declared-input existence in //:targetIndex and the drift set at landing
 
-Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3613](https://github.com/smithersai/smithers/issues/3613)
+Stage S1 · Size S · Depends on — · Unblocks — · Issue: [#3613](https://github.com/smithersai/smithers/issues/3613)
 Spec: spec.md §21.2 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-38 + smithers-22
 Ready: 2026-10-03 smithers-8a sha256:edd311e8bfd2
 

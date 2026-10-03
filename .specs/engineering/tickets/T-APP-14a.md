@@ -1,6 +1,6 @@
 # T-APP-14a File card client against the TS fake relay
 
-Stage S3 · Size M · Depends on T-COL-08b, T-COL-02, T-APP-15, T-APP-11, T-APP-09, T-CAT-01 · Unblocks T-APP-14, T-COL-08, T-COL-09, T-REL-02, T-UI-19 · Issue: [#3628](https://github.com/smithersai/smithers/issues/3628)
+Stage S3 · Size M · Depends on T-COL-08b, T-COL-02, T-APP-15, T-APP-11, T-APP-09, T-CAT-01 · Unblocks T-APP-14, T-COL-08, T-COL-09, T-UI-19 · Issue: [#3628](https://github.com/smithersai/smithers/issues/3628)
 Spec: spec.md §7.1, §7.1.1, §7.4, §7.6, §9.2, §14.3 (File [S3]), §14.7, §18 · Delta: delta.md §4 (Reshape [S3] live documents; restore CodeMirror), §9 (File card cutover) · Product: mvp.md J3.2, J3.5, §6.8 Live co-editing, Not in MVP (carets), M-02, M-24
 
 ## Goal

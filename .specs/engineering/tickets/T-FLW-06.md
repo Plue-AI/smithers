@@ -1,6 +1,6 @@
 # T-FLW-06 Learning flow, proposals, Proposal card, lessons receipt
 
-Stage S3 · Size L · Depends on T-STK-01, T-FLW-05, T-MCH-06, T-UI-20, T-FLW-01, T-FLW-03, T-STK-04, T-GH-03, T-COL-02, T-CAT-01, T-ACC-03, T-APP-04, T-APP-01, T-APP-02 · Unblocks T-REL-02, T-REL-03 · Issue: [#3588](https://github.com/smithersai/smithers/issues/3588)
+Stage S3 · Size L · Depends on T-STK-01, T-FLW-05, T-MCH-06, T-UI-20, T-FLW-01, T-FLW-03, T-STK-04, T-GH-03, T-COL-02, T-CAT-01, T-ACC-03, T-APP-04, T-APP-01, T-APP-02 · Unblocks T-REL-03 · Issue: [#3588](https://github.com/smithersai/smithers/issues/3588)
 Spec: spec.md §1.3, §3 (memory notes, `mythical_items.lessons`), §4.1.3, §6.1.2 (in-card), §6.3 `/api/proposals`, §7.2 `proposals`, §8.3.1, §11.8, §14.3 Proposal · Delta: delta.md §8 (learning row) · Product: mvp.md J2.6, J5.5, J8.1, §4.1 (learning receipt), §6.12 Learning, M-04, M-15, Appendix B.4 (Learning)
 Ready: 2026-10-03 smithers-8a sha256:4fe8e1ab184a
 

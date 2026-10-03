@@ -1,6 +1,6 @@
 # T-GH-09 Recover one GitHub operation per item
 
-Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-GH-02, T-ACC-02, T-ACC-03, T-STK-12 · Unblocks T-FLW-09, T-FLW-11, T-GH-03, T-GH-06, T-INS-07, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-STK-09 · Issue: [#3520](https://github.com/smithersai/smithers/issues/3520)
+Stage S1 · Size M · Depends on T-GH-01, T-STK-01, T-GH-02, T-ACC-02, T-ACC-03, T-STK-12 · Unblocks T-FLW-09, T-FLW-11, T-GH-03, T-GH-06, T-INS-07, T-MNT-01, T-MNT-03, T-REL-04, T-STK-04, T-STK-05, T-STK-09 · Issue: [#3520](https://github.com/smithersai/smithers/issues/3520)
 Spec: spec.md §12.4, §10.6.2b · Delta: delta.md §7 (Reshape PendingOp) · Product: mvp.md §6.1 Restart, §6.3, M-29 · Checks: C-GH-09, C-DUR-03, C-SEC-03
 Ready: 2026-10-03 smithers-8a sha256:855820a8baa1
 

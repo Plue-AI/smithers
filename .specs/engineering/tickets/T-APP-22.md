@@ -1,6 +1,6 @@
 # T-APP-22 Legacy card decoder: removed card kinds read as titled tombstones
 
-Stage S1 · Size S · Depends on T-UI-07 · Unblocks T-APP-01, T-APP-03, T-APP-04, T-APP-05, T-APP-10, T-APP-11, T-APP-13, T-APP-16, T-CUT-04, T-FLW-07, T-REL-02 · Issue: [#3608](https://github.com/smithersai/smithers/issues/3608)
+Stage S1 · Size S · Depends on T-UI-07 · Unblocks T-APP-01, T-APP-03, T-APP-04, T-APP-05, T-APP-10, T-APP-11, T-APP-13, T-APP-16, T-CUT-04, T-FLW-07 · Issue: [#3608](https://github.com/smithersai/smithers/issues/3608)
 Spec: spec.md §14.1.5, §14.2 · Delta: delta.md §9, §10 · Product: mvp.md §8; AGENTS.md "Old sessions and recorded events must remain readable", "Preserve decoding of existing persisted history" · Reference: [card-kinds.md §2](../card-kinds.md)
 Ready: 2026-10-03 smithers-8a sha256:b9518a983e52
 

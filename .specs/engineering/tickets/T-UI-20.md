@@ -1,6 +1,6 @@
 # T-UI-20 Proposal view and lessons receipt
 
-Stage S3 · Size S · Depends on T-UI-01 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3590](https://github.com/smithersai/smithers/issues/3590)
+Stage S3 · Size S · Depends on T-UI-01 · Unblocks T-FLW-06 · Issue: [#3590](https://github.com/smithersai/smithers/issues/3590)
 Spec: spec.md §14.2.1, §13, §14.3 (Proposal) · Delta: delta.md §9 · Product: mvp.md J5.3, J8, M-15 · Props: written by this ticket when S3 starts
 
 ## Goal

@@ -1,6 +1,6 @@
 # T-FLW-05 /flow.edit is a templated TODO request
 
-Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11, T-FLW-04, T-APP-04 (confirmations), T-APP-16, T-APP-05, T-STK-01, T-ACC-03, T-APP-15, T-INS-02, T-FLW-01, T-MCH-10, T-SEC-01 · Unblocks T-FLW-06, T-REL-02 · Issue: [#3513](https://github.com/smithersai/smithers/issues/3513)
+Stage S1 · Size M · Depends on T-FLW-03, T-STK-02, T-CAT-01, T-FLW-11, T-FLW-04, T-APP-04 (confirmations), T-APP-16, T-APP-05, T-STK-01, T-ACC-03, T-APP-15, T-INS-02, T-FLW-01, T-MCH-10, T-SEC-01 · Unblocks T-FLW-06 · Issue: [#3513](https://github.com/smithersai/smithers/issues/3513)
 Spec: spec.md §1.3, §11.4, §11.5, §14.2.1 · Delta: delta.md §8 (Reuse /flow.edit row) · Product: mvp.md J5.1–J5.3, M-29, M-30
 Ready: 2026-10-03 smithers-8a sha256:06297fecc997
 

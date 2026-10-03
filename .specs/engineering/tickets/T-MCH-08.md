@@ -1,6 +1,6 @@
 # T-MCH-08 Fork from a revision; Add to stack as a new TODO; scratch becomes the item branch (M-32); fork after capture (S2)
 
-Stage S1, S2 · Size M · Depends on S1: T-STK-01, T-STK-02, T-UI-04, T-ACC-03, T-CAT-01, T-APP-04, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-APP-11, T-REL-02, T-STK-05, T-STK-08 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
+Stage S1, S2 · Size M · Depends on S1: T-STK-01, T-STK-02, T-UI-04, T-ACC-03, T-CAT-01, T-APP-04, T-STK-12, T-COL-02, T-APP-09 · S2: T-COL-03, T-MCH-04 · Unblocks T-APP-10, T-APP-11, T-STK-05, T-STK-08 · Issue: [#3525](https://github.com/smithersai/smithers/issues/3525)
 Spec: spec.md §8.1.1, §8.5, §10.2, §6.3 (`/api/branches`) · Delta: delta.md §3 (fork row) · Product: mvp.md J7.2, J7.3, §6.7 Fork, Appendix A (`/branch.fork`, `/branch.add-to-stack`), M-22
 Ready: 2026-10-03 smithers-8a sha256:37ada07f5ed5
 

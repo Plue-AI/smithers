@@ -1,6 +1,6 @@
 # T-UI-17 Terminal view
 
-Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-12, T-REL-02 · Issue: [#3581](https://github.com/smithersai/smithers/issues/3581)
+Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-12 · Issue: [#3581](https://github.com/smithersai/smithers/issues/3581)
 Spec: spec.md §14.2.1, §14.3 (Terminal) · Delta: delta.md §9 · Product: mvp.md J3.3, J6 · Props: written by this ticket when S2 starts
 
 ## Goal

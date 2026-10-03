@@ -1,6 +1,6 @@
 # T-UI-08 Toasts, edge map and timeline
 
-Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-07, T-APP-18, T-REL-02 · Issue: [#3545](https://github.com/smithersai/smithers/issues/3545)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-07, T-APP-18 · Issue: [#3545](https://github.com/smithersai/smithers/issues/3545)
 Spec: spec.md §14.2.1, §14.4, §14.5.4, §14.6 · Delta: delta.md §9 · Product: mvp.md §6.4 · Props: [ui-components.md § T-UI-08](../ui-components.md)
 
 Landed (406436c02).

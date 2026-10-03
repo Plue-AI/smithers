@@ -1,6 +1,6 @@
 # T-UI-21 Docs view
 
-Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-20, T-REL-02 · Issue: [#3583](https://github.com/smithersai/smithers/issues/3583)
+Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-20 · Issue: [#3583](https://github.com/smithersai/smithers/issues/3583)
 Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-35 · Props: written by this ticket when S2 starts
 
 ## Goal

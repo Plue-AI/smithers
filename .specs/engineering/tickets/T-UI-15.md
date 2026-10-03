@@ -1,6 +1,6 @@
 # T-UI-15 Branch view with moved-off controls
 
-Stage S2 · Size L · Depends on T-UI-01 · Unblocks T-APP-10, T-REL-02 · Issue: [#3579](https://github.com/smithersai/smithers/issues/3579)
+Stage S2 · Size L · Depends on T-UI-01 · Unblocks T-APP-10 · Issue: [#3579](https://github.com/smithersai/smithers/issues/3579)
 Spec: spec.md §14.2.1, §8.10, §9.3, §14.3 (Branch) · Delta: delta.md §9 · Product: mvp.md J3, J7 · Props: written by this ticket when S2 starts
 
 ## Goal

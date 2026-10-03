@@ -1,6 +1,6 @@
 # T-GH-06 Outside push to a TODO branch: hold the agent's push; Needs you with Bring in or Discard (M-33)
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-UI-04, T-GH-03, T-GH-09, T-STK-08 (S1), T-ACC-03, T-APP-04 (confirmations), T-CAT-01, T-SEC-01 · Unblocks T-APP-02, T-FLW-09, T-REL-02 · Issue: [#3518](https://github.com/smithersai/smithers/issues/3518)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-UI-04, T-GH-03, T-GH-09, T-STK-08 (S1), T-ACC-03, T-APP-04 (confirmations), T-CAT-01, T-SEC-01 · Unblocks T-APP-02, T-FLW-09 · Issue: [#3518](https://github.com/smithersai/smithers/issues/3518)
 Spec: spec.md §4.1 (`in_review → needs_you`, `needs_you → working` on Bring in, `needs_you → in_review` on Discard), §6.1.2 (in-card), §9.4, §10.5.4, §10.8.1, §10.8.2, §12.3 (push row), §12.4.1, §12.5.2, §14.5.2 · Delta: delta.md §7 "Foreign push…" · Product: mvp.md J10.3, §6.3 "Someone pushes to a TODO's branch from a laptop", M-33
 Ready: 2026-10-03 smithers-8a sha256:b94a29e95513
 

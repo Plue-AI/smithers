@@ -1,6 +1,6 @@
 # T-MCH-09 Cleanup only after settled, captured and quiet
 
-Stage S2 · Size S · Depends on T-STK-01, T-MCH-04, T-MCH-07, T-TRM-07 · Unblocks T-REL-02 · Issue: [#3569](https://github.com/smithersai/smithers/issues/3569)
+Stage S2 · Size S · Depends on T-STK-01, T-MCH-04, T-MCH-07, T-TRM-07 · Unblocks — · Issue: [#3569](https://github.com/smithersai/smithers/issues/3569)
 Spec: spec.md §8.12, §4.2 (archived), §19.1 · Delta: delta.md §3 (cleanup row) · Product: mvp.md §6.7 Cleanup
 Ready: 2026-10-03 smithers-8a sha256:52667dceba3e
 

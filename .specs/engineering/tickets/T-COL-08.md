@@ -1,6 +1,6 @@
 # T-COL-08 Live code document integration, fault recovery and reference-host p95
 
-Stage S3 · Size M · Depends on T-COL-04, T-COL-08a, T-COL-08b, T-APP-14a, T-COL-11, T-COL-10, T-UI-19, T-MCH-07, T-COL-05, T-STK-08 (S2), T-TRM-03, T-TRM-05 · Unblocks T-APP-14, T-COL-09, T-INS-07, T-REL-01, T-REL-02 · Issue: [#3586](https://github.com/smithersai/smithers/issues/3586)
+Stage S3 · Size M · Depends on T-COL-04, T-COL-08a, T-COL-08b, T-APP-14a, T-COL-11, T-COL-10, T-UI-19, T-MCH-07, T-COL-05, T-STK-08 (S2), T-TRM-03, T-TRM-05 · Unblocks T-APP-14, T-COL-09, T-INS-07, T-REL-01 · Issue: [#3586](https://github.com/smithersai/smithers/issues/3586)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
 Ready: 2026-10-03 smithers-8a sha256:3141eb3f61a0
 

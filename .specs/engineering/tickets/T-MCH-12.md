@@ -1,6 +1,6 @@
 # T-MCH-12 Secrets into machines; main-only kept out
 
-Stage S2 · Size M · Depends on T-MCH-11, T-COL-03, T-COL-03a, T-TRM-07 · Unblocks T-REL-02 · Issue: [#3456](https://github.com/smithersai/smithers/issues/3456)
+Stage S2 · Size M · Depends on T-MCH-11, T-COL-03, T-COL-03a, T-TRM-07 · Unblocks — · Issue: [#3456](https://github.com/smithersai/smithers/issues/3456)
 Spec: spec.md §8.8, §8.9, §17.2, §17.4, §5.2 (Read secret values: nobody) · Delta: delta.md §3 (secrets row) · Product: mvp.md J1.8, §6.15 Secrets, M-18, M-25, D-24
 
 ## Goal

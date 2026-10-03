@@ -1,6 +1,6 @@
 # T-AGT-01 External transcript mapping and Claude Code/Codex adapters
 
-Stage S2 · Size M · Depends on T-APP-16, T-APP-09 · Unblocks T-AGT-02, T-REL-02 · Issue: [#3621](https://github.com/smithersai/smithers/issues/3621)
+Stage S2 · Size M · Depends on T-APP-16, T-APP-09 · Unblocks T-AGT-02 · Issue: [#3621](https://github.com/smithersai/smithers/issues/3621)
 Spec: spec.md §9.6.6, §14.5.5, §21.1 · Delta: delta.md §9 · Product: mvp.md M-38, M-34
 Ready: 2026-10-03 smithers-8a sha256:29aa84c2e61e
 

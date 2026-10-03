@@ -1,6 +1,6 @@
 # T-UI-05 Confirm view
 
-Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-04, T-MNT-03, T-REL-02 · Issue: [#3542](https://github.com/smithersai/smithers/issues/3542)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-04, T-MNT-03 · Issue: [#3542](https://github.com/smithersai/smithers/issues/3542)
 Spec: spec.md §14.2.1, §5.4, §14.3 (Confirm) · Delta: delta.md §9 · Product: mvp.md §6.2, B.6 · Props: [ui-components.md § T-UI-05](../ui-components.md)
 
 Landed (c90e3383a, 97d3874b1).

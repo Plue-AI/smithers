@@ -1,6 +1,6 @@
 # T-FLW-11 One pinned TODO digest across composition and engine launches
 
-Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-GH-09, T-SEC-01 · Unblocks T-APP-05, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-09, T-GH-03, T-GH-04, T-MNT-04, T-REL-02, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
+Stage S1 · Size L · Depends on T-FLW-01, T-STK-01, T-MCH-14, T-STK-12, T-INS-02, T-GH-09, T-SEC-01 · Unblocks T-APP-05, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-09, T-GH-03, T-GH-04, T-MNT-04, T-REL-04, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3450](https://github.com/smithersai/smithers/issues/3450)
 Spec: spec.md §10.4.1, §10.4.1a, §10.4.1b, §10.4.4, §11.1, §11.4, §15.2 · Delta: delta.md §6 · Product: mvp.md §6.9, §6.12, J5, M-30
 Ready: 2026-10-03 smithers-8a sha256:50a8ef4a10f8
 

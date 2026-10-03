@@ -1,6 +1,6 @@
 # T-ACC-04 Delegated credentials with `via`; `smthrs login --agent`; attribution
 
-Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-01, T-APP-04, T-APP-09, T-APP-16, T-FLW-08, T-GH-04, T-MNT-01, T-MNT-03, T-REL-02, T-STK-04, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
+Stage S1 · Size M · Depends on T-ACC-03, T-ACC-02 · Unblocks T-APP-01, T-APP-04, T-APP-09, T-APP-16, T-FLW-08, T-GH-04, T-MNT-01, T-MNT-03, T-STK-04, T-STK-06, T-STK-08, T-STK-09, T-TRM-02 · Issue: [#3493](https://github.com/smithersai/smithers/issues/3493)
 Spec: spec.md §5.3, §5.3.1, §6.4, §2 (actor notation), §15.1.1, §15.1.4, §15.3 · Delta: delta.md §2 (Reshape existing PAT classification and actor attribution) · Product: mvp.md J6.3–J6.4, §6.13 "CLI", "Attribution", M-21, Appendix A closing note
 Ready: 2026-10-03 smithers-8a sha256:f6a141bb8388
 

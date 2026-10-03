@@ -1,6 +1,6 @@
 # T-APP-03 Setup and Settings cards; Add to machine image
 
-Stage S1 · Size M · Depends on first merge: T-INS-06; rest of S1: T-INS-08, T-UI-02, T-FLW-08, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 · Unblocks T-APP-24, T-FLW-12, T-MCH-01, T-REL-02 · Issue: [#3497](https://github.com/smithersai/smithers/issues/3497)
+Stage S1 · Size M · Depends on first merge: T-INS-06; rest of S1: T-INS-08, T-UI-02, T-FLW-08, T-MCH-10, T-APP-22, T-APP-02, T-GH-01, T-GH-07 · Unblocks T-APP-24, T-FLW-12, T-MCH-01, T-REL-02, T-STK-03 · Issue: [#3497](https://github.com/smithersai/smithers/issues/3497)
 Spec: spec.md §14.3 (Setup / Settings), §8.6.1, §16.2, §16.3, §1.4, §5.1.0, §5.1.1, §6.3 (`/api/install`), §7.2 (`install`), §8.2.1, §10.3.1, §10.6.2, §12.1, §4.4, §17.6, §19.3, §20.2 · Product: mvp.md J1.2–J1.4, J1.8, §6.1 Reaching the install, §6.3 Sync status, M-11, M-28, Appendix A `/settings`
 Ready: 2026-10-03 smithers-8a sha256:817d04ed2e3b
 

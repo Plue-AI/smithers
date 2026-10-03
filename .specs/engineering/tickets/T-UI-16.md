@@ -1,6 +1,6 @@
 # T-UI-16 File and Diff live states
 
-Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-11, T-REL-02 · Issue: [#3580](https://github.com/smithersai/smithers/issues/3580)
+Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-11 · Issue: [#3580](https://github.com/smithersai/smithers/issues/3580)
 Spec: spec.md §14.2.1, §9.2.3, §9.3.5 · Delta: delta.md §9 · Product: mvp.md J3.4, §6.8 · Props: written by this ticket when S2 starts
 
 ## Goal

@@ -1,6 +1,6 @@
 # T-FLW-13 Review a member's PR in a background machine
 
-Stage S1 · Size M · Depends on T-FLW-01, T-FLW-03, T-FLW-04, T-ACC-02, T-ACC-03 (Authorize), T-APP-04 (confirmations), T-APP-16, T-CAT-01 · Unblocks T-MNT-04, T-REL-02 · Issue: [#3612](https://github.com/smithersai/smithers/issues/3612)
+Stage S1 · Size M · Depends on T-FLW-01, T-FLW-03, T-FLW-04, T-ACC-02, T-ACC-03 (Authorize), T-APP-04 (confirmations), T-APP-16, T-CAT-01 · Unblocks T-MNT-04 · Issue: [#3612](https://github.com/smithersai/smithers/issues/3612)
 Spec: spec.md §11.1, §12.3, §15.1.5, §17.5 · Delta: delta.md §8 (row 1) · Product: mvp.md §6.3 "A teammate pushes their own branch or opens their own PR", §8, Appendix A `/review`
 Ready: 2026-10-03 smithers-8a sha256:0b98e0fee592
 

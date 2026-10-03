@@ -1,6 +1,6 @@
 # T-UI-02 Setup and Settings views
 
-Stage S1 · Size S · Depends on T-UI-01, T-FLW-08 · Unblocks T-APP-03, T-FLW-12, T-REL-02 · Issue: [#3539](https://github.com/smithersai/smithers/issues/3539)
+Stage S1 · Size S · Depends on T-UI-01, T-FLW-08 · Unblocks T-APP-03, T-FLW-12 · Issue: [#3539](https://github.com/smithersai/smithers/issues/3539)
 Spec: spec.md §14.2.1, §12.1.1, §14.3 (Setup / Settings), §8.2.1 · Delta: delta.md §9 · Product: mvp.md J1, §6.1 · Props: [ui-components.md § T-UI-02](../ui-components.md)
 
 Landed (786f9ac54).

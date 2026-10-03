@@ -1,6 +1,6 @@
 # T-GH-07 Follow `main`: always pull, sync health and Retry; a force-push becomes Needs you for the owner
 
-Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-ACC-03, T-FLW-03, T-COL-02, T-UI-06, T-ACC-02, T-CAT-01, T-STK-04, T-GH-03, T-STK-08 (S1), T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-APP-01, T-APP-03, T-REL-01, T-REL-02 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
+Stage S1 · Size M · Depends on T-GH-02, T-STK-01, T-ACC-03, T-FLW-03, T-COL-02, T-UI-06, T-ACC-02, T-CAT-01, T-STK-04, T-GH-03, T-STK-08 (S1), T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-APP-01, T-APP-03, T-REL-01 · Issue: [#3519](https://github.com/smithersai/smithers/issues/3519)
 Spec: spec.md §4.4, §4.1.2a, §6.1.2, §6.3 (`/api/github/sync`), §7.2 (`home`), §10.1, §10.5.1, §11.3.1, §12.2.3, §12.3 (`main` rows), §12.6, §14.3 (Home `main`) · Delta: delta.md §7 · Product: mvp.md J10.4, J10.6, §6.3 "`main` moves", "`main` rewritten on GitHub", "Sync status", Appendix A `/github`, M-22
 Ready: 2026-10-03 smithers-8a sha256:4e062b6250bc
 

@@ -1,6 +1,6 @@
 # T-MCH-04 One machine per branch: drop `user_id` from the 0084 key; the agent attaches
 
-Stage S2 · Size L · Depends on T-ACC-02, T-ACC-03, T-STK-01 · Unblocks T-COL-03, T-COL-05, T-FLW-09, T-MCH-06, T-MCH-07, T-MCH-08, T-MCH-09, T-REL-02, T-STK-08 · Issue: [#3565](https://github.com/smithersai/smithers/issues/3565)
+Stage S2 · Size L · Depends on T-ACC-02, T-ACC-03, T-STK-01 · Unblocks T-COL-03, T-COL-05, T-FLW-09, T-MCH-06, T-MCH-07, T-MCH-08, T-MCH-09, T-STK-08 · Issue: [#3565](https://github.com/smithersai/smithers/issues/3565)
 Spec: spec.md §2 (Branch, Machine), §3 (`workspaces`, `workspace_shares`), §4.2, §7.6 (one machine per branch), §8.1, §17.2 · Delta: delta.md §3 (identity row), §3 (restore shared-access producer) · Product: mvp.md J3, §6.7 One live branch, §11 item 9, M-17
 Ready: 2026-10-03 smithers-8a sha256:b49d19a9a2b8
 

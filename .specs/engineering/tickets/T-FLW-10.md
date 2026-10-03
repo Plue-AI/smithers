@@ -1,6 +1,6 @@
 # T-FLW-10 Plans cite wiki page revisions
 
-Stage S3 · Size S · Depends on T-FLW-02, T-APP-17, T-STK-01, T-APP-02, T-UI-04, T-ACC-03 · Unblocks T-COL-09, T-REL-02 · Issue: [#3465](https://github.com/smithersai/smithers/issues/3465)
+Stage S3 · Size S · Depends on T-FLW-02, T-APP-17, T-STK-01, T-APP-02, T-UI-04, T-ACC-03 · Unblocks T-COL-09 · Issue: [#3465](https://github.com/smithersai/smithers/issues/3465)
 Spec: spec.md §10.4.1 (plan cites wiki revisions), §10.4.3, §13.4, §15.1.2 · Delta: delta.md §8 (no row; research/collab-terminals-wiki.md gap "cites page revisions") · Product: mvp.md J8.3, §6.9 Works TODOs, §6.11 One vault for both agents
 Ready: 2026-10-03 smithers-8a sha256:2961056afb0f
 

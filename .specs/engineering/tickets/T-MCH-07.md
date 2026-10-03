@@ -1,6 +1,6 @@
 # T-MCH-07 Sleep with final capture; reads never wake
 
-Stage S2 · Size M · Depends on T-COL-03, T-MCH-04, T-COL-02 · Unblocks T-APP-10, T-APP-11, T-COL-08, T-INS-07, T-MCH-09, T-REL-01, T-REL-02, T-STK-08 · Issue: [#3568](https://github.com/smithersai/smithers/issues/3568)
+Stage S2 · Size M · Depends on T-COL-03, T-MCH-04, T-COL-02 · Unblocks T-APP-10, T-APP-11, T-COL-08, T-INS-07, T-MCH-09, T-REL-01, T-STK-08 · Issue: [#3568](https://github.com/smithersai/smithers/issues/3568)
 Spec: spec.md §4.2, §8.4.3, §8.4.4, §9.1.2 (`capture()`), §19.1 · Delta: delta.md §3 (sleep reads and sleep/stop rows) · Product: mvp.md J4, §6.7 Sleep, §9 Honesty
 Ready: 2026-10-03 smithers-8a sha256:3bd3ec17bda8
 

@@ -1,6 +1,6 @@
 # T-COL-04a Rust watcher, attribution, versions and overflow resync
 
-Stage S2 · Size M · Depends on T-COL-03r · Unblocks T-COL-04, T-REL-02 · Issue: [#3627](https://github.com/smithersai/smithers/issues/3627)
+Stage S2 · Size M · Depends on T-COL-03r · Unblocks T-COL-04 · Issue: [#3627](https://github.com/smithersai/smithers/issues/3627)
 Spec: spec.md §2 (Activity entry, actor notation), §3 (`activity`, `burst_files`), §7.2 (`:activity`, `:files`), §7.6.2, §8.4.4, §8.10.3, §8.11.1, §9.1.2 (`register_run`), §9.1.4, §9.3.1–9.3.5, §9.3.8, §9.4.1, §18 · Delta: delta.md §4 (`smithers-machined` S2; `burst_files`, `file_written` and versions commits row) · Product: mvp.md J3.2, J3.4, §6.8 External changes and Live updates, M-24, M-27
 
 ## Goal

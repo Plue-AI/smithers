@@ -1,6 +1,6 @@
 # T-ACC-01 GitHub sign-in creates the owner; delete the single-owner password path
 
-Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-ACC-02, T-ACC-03, T-FLW-08, T-GH-01, T-INS-02, T-INS-04, T-INS-06, T-INS-08, T-REL-02, T-STK-04 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
+Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T-ACC-02, T-ACC-03, T-FLW-08, T-GH-01, T-INS-02, T-INS-04, T-INS-06, T-INS-08, T-STK-04 · Issue: [#3443](https://github.com/smithersai/smithers/issues/3443)
 Spec: spec.md §5.1.0–§5.1.2, §3 (`collaborators`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
 Edited by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v1 §6): owner and members live on `collaborators`; GH-01's second setup login is deleted here.
 Ready: 2026-10-03 smithers-8a sha256:c5d777feb3ed

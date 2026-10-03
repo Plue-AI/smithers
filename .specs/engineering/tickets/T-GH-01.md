@@ -1,6 +1,6 @@
 # T-GH-01 GitHub App setup: rework the landed manifest flow onto one token minter; setup order, durable step, manual fallback, App identity
 
-Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02, T-INS-04, T-ACC-01 · Unblocks T-APP-03, T-GH-02, T-GH-09, T-INS-06, T-REL-02 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
+Stage W0, S1 · Size M · Depends on W0: — · S1: T-INS-02, T-INS-04, T-ACC-01 · Unblocks T-APP-03, T-GH-02, T-GH-09, T-INS-06 · Issue: [#3440](https://github.com/smithersai/smithers/issues/3440)
 Spec: spec.md §3 (`github_app`), §5.1.0, §5.1.1, §6.3 (`/api/install`), §12.1, §16.2 steps 1–2, §16.3.3, §17.4 · Delta: delta.md §1, §7 · Product: mvp.md J1.2, §6.3 "GitHub App setup", M-03, M-28, §11 item 7
 Ready: 2026-10-03 smithers-8a sha256:f97663b49e26
 

@@ -1,6 +1,6 @@
 # T-CAT-01 One command catalog: descriptors, `catalog.mvp.json`, allowlist, CLI doors and skill, Replaced-tag rejection
 
-Stage S1 · Size L · Depends on T-UI-14 · CLI phase: · Tag phase: — · Unblocks T-ACC-03, T-AGT-04, T-APP-01, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-15, T-APP-16, T-APP-18, T-APP-20, T-APP-21, T-COL-04, T-COL-05, T-CUT-03, T-DOC-01, T-FLW-03, T-FLW-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-FLW-13, T-GH-06, T-GH-07, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-02, T-TRM-02 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
+Stage S1 · Size L · Depends on T-UI-14 · CLI phase: · Tag phase: — · Unblocks T-ACC-03, T-AGT-04, T-APP-01, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-15, T-APP-16, T-APP-18, T-APP-20, T-APP-21, T-COL-04, T-COL-05, T-CUT-03, T-DOC-01, T-FLW-03, T-FLW-05, T-FLW-06, T-FLW-07, T-FLW-08, T-FLW-12, T-FLW-13, T-GH-06, T-GH-07, T-MCH-08, T-MNT-01, T-MNT-03, T-REL-02, T-STK-02, T-STK-03, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-TRM-02 · Issue: [#3434](https://github.com/smithersai/smithers/issues/3434)
 Spec: spec.md §5.4, §6.1.1–§6.1.4, §6.4, §14.2, §15.1.4, §15.1.5, §15.3 · Delta: delta.md §9 · Product: mvp.md §2 rule 1, §6.4, §6.13, §6.14, §8, §11 item 8, M-21, Appendix A, B, C
 Ready: 2026-10-03 smithers-8a sha256:8acc5d8e3d40
 

@@ -1,6 +1,6 @@
 # T-INS-04 Origin-agnostic serving: configurable bind and public origins, one effective origin per request; no secure-context dependency
 
-Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-ACC-01, T-UI-01 · Unblocks T-COL-02, T-GH-01, T-GH-03, T-INS-06, T-REL-02, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
+Stage S1 · Size M · Depends on T-INS-02, T-INS-08, T-ACC-03, T-ACC-01, T-UI-01 · Unblocks T-COL-02, T-GH-01, T-GH-03, T-INS-06, T-TRM-03 · Issue: [#3522](https://github.com/smithersai/smithers/issues/3522)
 Spec: spec.md §0 (Tailscale is not part of the product), §1.4, §3 (`install_settings`), §5.1.0, §5.3, §6.3 (`/api/install`), §7.1, §8.10.5, §12.1.2, §16.3.1–§16.3.4, §17.6 · Delta: delta.md §1 (Modify [S1] origin-agnostic serving) · Product: mvp.md §6.1 Reaching the install, J1.8, M-28, M-03
 Ready: 2026-10-03 smithers-8a sha256:78cb92746bf6
 

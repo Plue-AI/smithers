@@ -1,6 +1,6 @@
 # T-UI-10 Flow view
 
-Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-05, T-REL-02 · Issue: [#3547](https://github.com/smithersai/smithers/issues/3547)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-05 · Issue: [#3547](https://github.com/smithersai/smithers/issues/3547)
 Spec: spec.md §14.2.1, §11, §14.3 (Flow) · Delta: delta.md §9 · Product: mvp.md J5, J11 · Props: [ui-components.md § T-UI-10](../ui-components.md)
 
 Landed (214c4feff).

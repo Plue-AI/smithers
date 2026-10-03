@@ -1,6 +1,6 @@
 # T-FLW-12 Obsidian folder sync as a Settings control
 
-Stage S2 · Size S · Depends on T-ACC-03, T-APP-03, T-UI-02, T-CAT-01 · Unblocks T-REL-02 · Issue: [#3463](https://github.com/smithersai/smithers/issues/3463)
+Stage S2 · Size S · Depends on T-ACC-03, T-APP-03, T-UI-02, T-CAT-01 · Unblocks — · Issue: [#3463](https://github.com/smithersai/smithers/issues/3463)
 Spec: spec.md §13.3, §14.3 (Settings) · Delta: delta.md §9 · Product: mvp.md §6.11 Obsidian (v2.5), J8
 Ready: 2026-10-03 smithers-8a sha256:eaa1a2ee5b61
 

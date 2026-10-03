@@ -1,6 +1,6 @@
 # T-APP-20 `/docs` flow: in-app docs from one Markdown source per page
 
-Stage S2 · Size M · Depends on T-UI-21, T-CAT-01 · Unblocks T-APP-24, T-DOC-01, T-REL-02 · Issue: [#3481](https://github.com/smithersai/smithers/issues/3481)
+Stage S2 · Size M · Depends on T-UI-21, T-CAT-01 · Unblocks T-APP-24, T-DOC-01 · Issue: [#3481](https://github.com/smithersai/smithers/issues/3481)
 Spec: spec.md §6.1, §14.2.1 · Delta: delta.md §10 (docs move into the app) · Product: mvp.md M-35, §12.4
 Ready: 2026-10-03 smithers-8a sha256:f68eb34943f4
 

@@ -1,6 +1,6 @@
 # T-COL-10 Every file write carries `base_digest`; a stale write is refused
 
-Stage S1, S2 · Size M · Depends on S1: T-FLW-01 · S2: T-COL-03 · Unblocks T-COL-03, T-COL-04, T-COL-05, T-COL-08, T-COL-11, T-REL-02 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
+Stage S1, S2 · Size M · Depends on S1: T-FLW-01 · S2: T-COL-03 · Unblocks T-COL-03, T-COL-04, T-COL-05, T-COL-08, T-COL-11 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
 Spec: spec.md §7.6 (row 1), §9.1.2 (`write_file`), §9.2.2, §9.3.9 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes, J3.4, M-02, M-27
 Ready: 2026-10-03 smithers-8a sha256:a92aa9b9a228
 

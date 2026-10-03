@@ -1,6 +1,6 @@
 # T-APP-18 Browser notifications on secure origins
 
-Stage S2 · Size S · Depends on T-APP-07, T-UI-08, T-CAT-01 · Unblocks T-REL-02 · Issue: [#3558](https://github.com/smithersai/smithers/issues/3558)
+Stage S2 · Size S · Depends on T-APP-07, T-UI-08, T-CAT-01 · Unblocks — · Issue: [#3558](https://github.com/smithersai/smithers/issues/3558)
 Spec: spec.md §14.6, §14.4.1, §16.3.2 · Delta: delta.md §9 · Product: mvp.md §6.4 Browser notifications (v2.5), Appendix B.1 `notifications.allow`
 Ready: 2026-10-03 smithers-8a sha256:d93ce26dfe3d
 

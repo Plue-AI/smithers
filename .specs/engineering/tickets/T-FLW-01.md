@@ -1,6 +1,6 @@
 # T-FLW-01 Overridable flows run only in machines; system flow catalog
 
-Stage S1 · Size M · Depends on T-INS-02, T-SEC-01 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-APP-16, T-COL-02, T-COL-10, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-08, T-FLW-09, T-FLW-11, T-FLW-13, T-GH-07, T-INS-06, T-INS-07, T-MCH-14, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-REL-02, T-STK-02, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
+Stage S1 · Size M · Depends on T-INS-02, T-SEC-01 · Unblocks T-AGT-04, T-APP-01, T-APP-05, T-APP-16, T-COL-02, T-COL-10, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-08, T-FLW-09, T-FLW-11, T-FLW-13, T-GH-07, T-INS-06, T-INS-07, T-MCH-14, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-STK-02, T-STK-03, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-STK-12 · Issue: [#3438](https://github.com/smithersai/smithers/issues/3438)
 Spec: spec.md §1.3, §10.4.1, §10.4.1a, §11.1, §17.3 · Delta: delta.md §8 (row 1), §11 (ADR 0001 row) · Product: mvp.md §6.12 "Change the factory", §9 Isolation, M-29, M-30
 Ready: 2026-10-03 smithers-8a sha256:077009fab85f
 

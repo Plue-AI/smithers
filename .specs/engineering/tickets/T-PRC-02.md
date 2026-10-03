@@ -1,6 +1,6 @@
 # T-PRC-02 DB-free migration gate and planned table ownership at Ready
 
-Stage S1 · Size S · Depends on — · Unblocks T-REL-02 · Issue: [#3614](https://github.com/smithersai/smithers/issues/3614)
+Stage S1 · Size S · Depends on — · Unblocks — · Issue: [#3614](https://github.com/smithersai/smithers/issues/3614)
 Spec: spec.md §21.3 · Delta: delta.md (engineering process) · Product: mvp.md §12.1 (acceptance evidence) · Owner: smithers-3f + smithers-8a
 Ready: 2026-10-03 smithers-8a sha256:ee84fb18860c
 

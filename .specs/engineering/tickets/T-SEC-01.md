@@ -1,6 +1,6 @@
 # T-SEC-01 Guest root boundary validation
 
-Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-COL-03, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-09, T-FLW-11, T-GH-03, T-GH-06, T-GH-07, T-INS-02, T-INS-07, T-MCH-01, T-MCH-11, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05, T-STK-02 · Issue: [#3657](https://github.com/smithersai/smithers/issues/3657)
+Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T-APP-05, T-APP-15, T-COL-03, T-FLW-01, T-FLW-02, T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-09, T-FLW-11, T-GH-03, T-GH-06, T-GH-07, T-INS-02, T-INS-07, T-MCH-01, T-MCH-11, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05, T-STK-02, T-STK-03, T-STK-05, T-STK-06, T-STK-08, T-STK-09 · Issue: [#3657](https://github.com/smithersai/smithers/issues/3657)
 Owner: smithers-3f
 Spec: spec.md §1.3, §11.1, §17.3 · Delta: delta.md §4 · Product: mvp.md §9, M-29, M-30
 Ready: 2026-10-02 smithers-8a sha256:361c57d6c22b

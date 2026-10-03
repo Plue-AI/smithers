@@ -1,6 +1,6 @@
 # T-UI-06 Home view with the main sync row
 
-Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-01, T-GH-07, T-REL-02 · Issue: [#3543](https://github.com/smithersai/smithers/issues/3543)
+Stage S1 · Size S · Depends on T-UI-01 · Unblocks T-APP-01, T-GH-07 · Issue: [#3543](https://github.com/smithersai/smithers/issues/3543)
 Spec: spec.md §14.2.1, §4.1.2a, §12.6, §14.3 (Home) · Delta: delta.md §9 · Product: mvp.md J4, J10.6 · Props: [ui-components.md § T-UI-06](../ui-components.md)
 
 Landed (ab2ab5e0b).

@@ -2,6 +2,7 @@
 
 Stage R · Size M · Depends on T-APP-01, T-COL-04, T-COL-08, T-APP-14, T-MCH-06, T-MCH-07, T-STK-08, T-INS-06, T-COL-02, T-APP-16, T-APP-11, T-TRM-01, T-TRM-03, T-GH-07, T-STK-01, T-ACC-03 · Unblocks T-MNT-05 · Issue: [#3592](https://github.com/smithersai/smithers/issues/3592)
 Spec: spec.md §8.2.1 (host profile), §9.3.4, §18, §20.3, §21 (Performance row) · Delta: delta.md §1 (reuse the host profile), §11 (one check runner) · Product: mvp.md §9 Quality bar, M-19
+Ready: 2026-10-03 smithers-8a sha256:250b63fd5530
 
 ## Goal
 One command on the reference host (the team's 64 GB Mac mini with 10 performance cores) measures every spec §18 budget except GitHub freshness at p95 with n ≥ 100, and writes raw samples, summaries and the detected host profile under `.artifacts/perf/<date>/`.

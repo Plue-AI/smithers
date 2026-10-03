@@ -1,6 +1,6 @@
 # T-COL-03r ADR 0004 wire contract, golden frames, Go and Rust codecs, crate skeleton and component hooks
 
-Stage S2 · Size M · Depends on — · Unblocks T-AGT-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-08a, T-COL-08b, T-REL-02 · Issue: [#3626](https://github.com/smithersai/smithers/issues/3626)
+Stage S2 · Size M · Depends on — · Unblocks T-AGT-02, T-COL-03, T-COL-03a, T-COL-03f, T-COL-04, T-COL-04a, T-COL-05, T-COL-06, T-COL-08a, T-COL-08b, T-STK-08 · Issue: [#3626](https://github.com/smithersai/smithers/issues/3626)
 Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §9.6.2 · Delta: delta.md §4 (`smithers-machined`, host relay) · Product: mvp.md §6.7, M-27, M-29
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3): the wire contract, golden frames and codecs move here from T-COL-10, because this is their first consumer.
