@@ -13,6 +13,7 @@ import {
   minFreeBytes,
   parkedFor,
   releasesClaim,
+  releaseCommand,
   roundStats,
   type SelectSeams,
   selectWith,
@@ -319,4 +320,15 @@ test("discovery narrows selected open issue after preserving all open workspaces
   const all = await Effect.runPromise(discover({ repo: "o/r" }))
   assert.deepEqual(all.map((row) => row.number).toSorted(), [1, 2])
   assert.deepEqual(all, rows.map((row) => ({ id: String(row.number), ...row })).toSorted(byPriority))
+})
+
+// T-PRC-03: a sweep without named-check receipts releases, leaving closure to the owner.
+test("landed sweeps record their commit and release without attempting evidence-free closure", () => {
+  const sha = "a".repeat(40)
+  assert.deepEqual(releaseCommand("o/r#7", "sweep", "landed", sha),
+    ["release", "o/r#7", "--by", "sweep", "--note", `landed: ${sha}`])
+  for (const status of ["failed", "held", "skipped"] as const) {
+    assert.deepEqual(releaseCommand("o/r#7", "sweep", status, "reason"),
+      ["release", "o/r#7", "--by", "sweep", "--note", `${status}: reason`])
+  }
 })

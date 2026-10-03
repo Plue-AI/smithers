@@ -5,7 +5,9 @@
 //   node scripts/issue-claim.mjs claim   <repo>#<n> [--by NAME] [--note TEXT]
 //   node scripts/issue-claim.mjs release <repo>#<n> [--by NAME] [--note TEXT] [--force]
 //   node scripts/issue-claim.mjs comment <repo>#<n> (--body TEXT | --body-file PATH) [--close] [--pr]
-//                                        [--release [--by NAME] [--note TEXT] [--force]]
+//                                        [--landed SHA --receipt PATH...] [--release [--by NAME] [--note TEXT] [--force]]
+// Non-completion: --close --reason not-planned|duplicate|superseded --note <link>.
+// Every explicit reason needs a note; duplicate/superseded identify the replacement.
 // <repo> is `name` (org smithersai) or `owner/name`. NAME defaults to ISSUE_CLAIM_BY,
 // then CLAUDE_SESSION_NAME, then `<user>-<parent pid>`; the host is os.hostname().
 //
@@ -36,6 +38,8 @@ import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "
 import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
 import process from "node:process"
+
+import { evidenceGate } from "./check-evidence.mjs"
 
 import { proxyUrl } from "./github-proxy.mjs"
 
@@ -181,16 +185,25 @@ export const read = ({ repo, number }, gh = defaultGh) => {
 const mine = (claim, me) => claim && claim.by === me.by && claim.host === me.host
 
 /** Runs a command through the machine's GitHub proxy, starting it first when it is not running. */
-export const run = (argv, { gh = defaultGh, now = () => new Date(), env = process.env, ensure = defaultEnsure } = {}) => {
+export const run = (argv, { gh = defaultGh, now = () => new Date(), env = process.env, ensure = defaultEnsure, cwd = process.cwd() } = {}) => {
   const [command, ref, ...rest] = argv
   const option = (name) => { const at = rest.indexOf(name); return at < 0 ? undefined : rest[at + 1] }
   const flag = (name) => rest.includes(name)
   if (!["check", "claim", "release", "comment"].includes(command)) {
-    throw new Error("usage: issue-claim.mjs check|claim|release|comment <repo>#<n> [--by NAME] [--note TEXT] [--force] [--body TEXT | --body-file PATH] [--close] [--pr] [--release]")
+    throw new Error("usage: issue-claim.mjs check|claim|release|comment <repo>#<n> [--by NAME] [--note TEXT] [--force] [--body TEXT | --body-file PATH] [--close --landed SHA --receipt PATH... | --close --reason not-planned|duplicate|superseded --note LINK] [--pr] [--release]")
   }
   const issue = parseRef(ref)
   const me = { by: option("--by") || env.ISSUE_CLAIM_BY || env.CLAUDE_SESSION_NAME || `${userInfo().username}-${process.ppid}`, host: hostname() }
   const id = `${issue.repo}#${issue.number}`
+  const closeReason = option("--reason")
+  if (command === "comment" && flag("--close")) {
+    if (flag("--reason") && (!["completed", "not-planned", "duplicate", "superseded"].includes(closeReason) || !option("--note")?.trim() || (["duplicate", "superseded"].includes(closeReason) && !/(?:[\w.-]+\/[\w.-]+#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+|\b[a-f0-9]{40}\b)/.test(option("--note"))))) return { code: 2, out: { issue: id, action: "evidence-refused", checks: [{ check: "reason", reason: "coverage" }] } }
+    if (!closeReason || closeReason === "completed") {
+      const receipts = rest.flatMap((arg, index) => arg === "--receipt" ? [rest[index + 1]] : [])
+      const checks = evidenceGate({ root: cwd, issue, landed: option("--landed"), receipts })
+      if (checks.length) return { code: 2, out: { issue: id, action: "evidence-refused", checks } }
+    }
+  }
   ensure(env)
   const github = proxied({ gh, base: proxyUrl(env), now })
   const write = (args) => github.write(args)
@@ -224,9 +237,9 @@ export const run = (argv, { gh = defaultGh, now = () => new Date(), env = proces
       if (close) {
         write(flag("--pr")
           ? ["api", "--method", "PATCH", `repos/${issue.repo}/pulls/${issue.number}`, "-f", "state=closed"]
-          : ["api", "--method", "PATCH", base, "-f", "state=closed", "-f", "state_reason=completed"])
+          : ["api", "--method", "PATCH", base, "-f", "state=closed", "-f", `state_reason=${closeReason === "duplicate" ? "duplicate" : closeReason && closeReason !== "completed" ? "not_planned" : "completed"}`])
       }
-      return result(0, { issue: id, action: posted ? "already-commented" : "commented", closed: flag("--close"),
+      return result(0, { issue: id, action: posted ? "already-commented" : "commented", closed: flag("--close"), ...(closeReason ? { reason: closeReason } : {}),
         released: release && Boolean(live || initial.labeled), ...(flag("--release") && !release ? { holder: before } : {}) })
     }
     if (command === "release") {

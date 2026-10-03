@@ -120,7 +120,9 @@ check|claim|release|comment <repo>#<n> --by <agent/session>`.
 - Release when done, failed, or abandoned: remove the label and record the
   landed commit or the reason. If you post a receipt or failure comment, fold
   the release into it with `comment --body-file <f> --release --note <commit |
-  reason> [--close]`, one comment. Otherwise use `release --note`.
+  reason> [--close --landed <sha> --receipt <path>...]`, one comment. Otherwise use `release --note`. Non-completion closes use
+  `comment --close --reason not-planned|duplicate|superseded --note <link>`;
+  duplicate and superseded notes identify the replacing issue or commit.
 - Post issue comments, closes, and label changes through this tool: it
   throttles writes machine-wide and backs off on rate limits. Exit 75 means
   rate limited: nothing was lost; retry after `retry_at` and do not count it
@@ -129,6 +131,23 @@ check|claim|release|comment <repo>#<n> --by <agent/session>`.
   `~/.config/issue-claim/app.json` (`{"app_id", "private_key_path"}`); each
   output line's `identity` says which. Without it, writes spend the `gh`
   user's rate limits.
+
+## Engineering completion evidence (T-PRC-03)
+
+Completed closes require passing receipts for every check in the landed ticket;
+there is no enforcement switch. NEEDS-OWNER checks get approved argv and host
+from their implementing ticket's landing and refuse closure until then. MANUAL
+checks need an owner-signed manual receipt bound to the commit SHA; a marker is
+never passing evidence. Nothing is waived.
+
+Every check has exactly one entry in `scripts/check-commands.json`: an approved
+executable mapping, or an explicit manual/pending-owner marker. Activating any
+real mapping requires authenticated provenance: for CI, the gate must verify a
+successful GitHub check-run for `landed`; for reference-host checks, it must use
+a main-committed IOPlatformUUID allowlist. The runner's CI environment assertion
+is accepted for this landing's fixtures only. `mappingsApprovedBy` stays null
+until authenticated provenance is implemented and a real mapping is approved.
+Coverage was accepted by smithers-8a at 22:16; no executable mapping is approved.
 
 ## Zero tech debt; one backend (Will, 2026-09-25)
 

@@ -4,9 +4,21 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, it } from "node:test"
+import { after, describe, it } from "node:test"
 
 import { claimBody, holder, LABEL, parseRef, proxied, releaseBody, run, splitResponse, TRANSIENT } from "./issue-claim.mjs"
+
+import { fixture } from "./fixtures/check-receipts.mjs"
+
+// Close-policy input is literal, local and machine-written. No evidence bypass.
+const evidenceFixture = fixture()
+for (const [repo, number, tag] of [["smithersai/smithers",5,"A"], ["smithersai/smithers",6,"B"], ["smithersai/smithers",7,"C"], ["smithersai/plue",8,"D"]]) {
+  evidenceFixture.put(`.specs/engineering/tickets/T-${tag}-01.md`, `Issue: https://github.com/${repo}/issues/${number}\n## Acceptance\n- C-FIX-01\n- C-FIX-02\n`)
+}
+evidenceFixture.commit()
+const closeReceipts = ["C-FIX-01", "C-FIX-02"].map(evidenceFixture.evidence)
+const closeArgs = ["--landed", evidenceFixture.sha, ...closeReceipts.flatMap(path => ["--receipt", path])]
+after(evidenceFixture.cleanup)
 
 const T0 = new Date("2026-09-29T00:00:00Z")
 const hours = (n) => new Date(T0.getTime() + n * 3600_000)
@@ -34,7 +46,7 @@ const viaProxy = (gh, state) => (args) => {
   return gh(args.map((arg) => arg.startsWith(`${PROXY}/`) ? arg.slice(PROXY.length + 1) : arg))
 }
 
-const runVia = (gh, state, argv, at = T0) => run(argv, { gh: viaProxy(gh, state), now: () => at, env: state.env, ensure: () => {} })
+const runVia = (gh, state, argv, at = T0) => run(argv.includes("--close") ? [...argv, ...closeArgs] : argv, { cwd: evidenceFixture.root, gh: viaProxy(gh, state), now: () => at, env: state.env, ensure: () => {} })
 
 // An in-memory GitHub issue behind the `gh api` calls the CLI makes.
 const fakeGitHub = (issue = {}) => {
@@ -498,7 +510,7 @@ describe("issue-claim, gh and the GitHub proxy end to end", { skip: hasGh ? fals
       delete cliEnv.GH_TOKEN
       delete cliEnv.GITHUB_TOKEN
       const cli = (...argv) => new Promise((resolve) => {
-        const child = spawn(process.execPath, [new URL("./issue-claim.mjs", import.meta.url).pathname, ...argv], { env: cliEnv })
+        const child = spawn(process.execPath, [new URL("./issue-claim.mjs", import.meta.url).pathname, ...argv, ...(argv.includes("--close") ? closeArgs : [])], { env: cliEnv, cwd: evidenceFixture.root })
         let stdout = ""
         let stderr = ""
         child.stdout.on("data", (chunk) => { stdout += chunk })

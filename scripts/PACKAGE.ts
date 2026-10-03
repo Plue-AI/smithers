@@ -715,11 +715,17 @@ const issueClaim = Smithers.NodeTest({
     "Agents claim an issue before work and release it after, through the machine's GitHub proxy; a live claim blocks others and a stale one can be taken over.",
   runner: Smithers.testRunner([
     Smithers.file("//scripts/issue-claim.test.mjs"),
+    Smithers.file("//scripts/check-receipts.test.mjs"),
     Smithers.file("//scripts/github-proxy.test.mjs"),
     Smithers.file("//scripts/github-app-auth.test.mjs")
   ]),
   srcs: [
     Smithers.file("//scripts/issue-claim.mjs"),
+    Smithers.file("//scripts/check-evidence.mjs"),
+    Smithers.file("//scripts/check-run.mjs"),
+    Smithers.file("//scripts/check-commands.json"),
+    Smithers.glob("//.specs/engineering/checks/*.md"),
+    Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),
     Smithers.file("//scripts/github-app-auth.mjs"),
     Smithers.glob("//packages/smithers/agent/integrations/src/**/*.ts")

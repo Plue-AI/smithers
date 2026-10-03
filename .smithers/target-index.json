@@ -46352,6 +46352,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/check-receipts.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/github-proxy.test.mjs"
       },
       {
@@ -46361,6 +46365,27 @@
       {
         "kind": "file",
         "path": "scripts/issue-claim.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-evidence.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-run.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-commands.json"
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/engineering/checks/*.md",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/fixtures/check-receipts.mjs"
       },
       {
         "kind": "file",

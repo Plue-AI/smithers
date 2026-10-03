@@ -1,0 +1,738 @@
+{
+  "version": 1,
+  "activation": {
+    "mappingsApprovedBy": null,
+    "coverageAcceptedBy": "smithers-8a"
+  },
+  "checks": {
+    "C-ACC-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/access_matrix_integration_test.go",
+      "ticket": "T-ACC-02"
+    },
+    "C-ACC-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/confirmations_integration_test.go",
+      "ticket": "T-ACC-04"
+    },
+    "C-ACC-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/member_revocation_integration_test.go",
+      "ticket": "T-ACC-02"
+    },
+    "C-ACC-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/signin_gate_integration_test.go",
+      "ticket": "T-ACC-01"
+    },
+    "C-AGT-01": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-AGT-01"
+    },
+    "C-AGT-02": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-AGT-02"
+    },
+    "C-APP-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-takeover.spec.ts",
+      "ticket": "T-ACC-06"
+    },
+    "C-APP-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-edit-queued.spec.ts",
+      "ticket": "T-APP-02"
+    },
+    "C-APP-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/machine-image.spec.ts",
+      "ticket": "T-APP-02"
+    },
+    "C-APP-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/conversations_db_test.go, packages/backend/internal/routes/conversations_test.go, apps/app/src/mainview/cards/containers/EarlierContainer.test.tsx",
+      "ticket": "T-APP-16"
+    },
+    "C-APP-05": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/chat/cutover_integration_test.go",
+      "ticket": "T-APP-23"
+    },
+    "C-CAT-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/src/mainview/flows/catalog-allowlist.test.ts, packages/rpc/src/catalog/AppendixA.test.ts",
+      "ticket": "T-CAT-01"
+    },
+    "C-CAT-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/smithers/test/CatalogCli.test.ts",
+      "ticket": "T-CAT-02"
+    },
+    "C-CAT-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/smithers/test/CatalogSkill.test.ts",
+      "ticket": "T-CAT-02"
+    },
+    "C-COL-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/cocontracts_test.go, apps/app/src/mainview/cards/CodeSurface.test.tsx",
+      "ticket": "T-COL-10"
+    },
+    "C-COL-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/live/live_resubscribe_fault_test.go",
+      "ticket": "T-COL-02"
+    },
+    "C-COL-03": {
+      "status": "pending-owner",
+      "reason": "Absent: crates/smithers-machined/tests/barrier.rs",
+      "ticket": "T-COL-03"
+    },
+    "C-COL-04": {
+      "status": "pending-owner",
+      "reason": "Absent: crates/smithers-machined/tests/confinement.rs, packages/backend/internal/machined/confinement_integration_test.go",
+      "ticket": "T-COL-03"
+    },
+    "C-COL-05": {
+      "status": "pending-owner",
+      "reason": "Absent: crates/smithers-machined/tests/versions.rs, crates/smithers-machined/tests/overflow.rs, packages/backend/internal/machined/events_integration_test.go",
+      "ticket": "T-COL-04"
+    },
+    "C-CUT-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/rpc/src/catalog/Cuts.test.ts, packages/backend/internal/compose/cut_routes_test.go",
+      "ticket": "T-CUT-01"
+    },
+    "C-CUT-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/rpc/test/cards/LegacyCards.test.ts, apps/app/e2e/playwright/legacy-archive.spec.ts",
+      "ticket": "T-APP-22"
+    },
+    "C-DUR-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/smithers/test/faults/host/case40-host-kill-todo-run.test.ts",
+      "ticket": "T-FLW-09"
+    },
+    "C-DUR-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/flowhost/machine_kill_fault_test.go",
+      "ticket": "T-FLW-09"
+    },
+    "C-DUR-03": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-GH-09"
+    },
+    "C-DUR-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/machined/fault_test.go, crates/smithers-machined",
+      "ticket": "T-COL-03"
+    },
+    "C-GH-01": {
+      "status": "manual",
+      "reason": "Person/hardware required: recorded manual (W0), reference host (S1); Automation unavailable/unapproved; owner must supply argv and host"
+    },
+    "C-GH-07": {
+      "status": "pending-owner",
+      "reason": "Absent: scripts/perf/github-freshness.ts",
+      "ticket": "T-GH-02"
+    },
+    "C-GH-08": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/github_sync_integration_test.go",
+      "ticket": "T-GH-02"
+    },
+    "C-GH-09": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/github_outbound_fault_test.go",
+      "ticket": "T-GH-09"
+    },
+    "C-GH-13": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/github_inbound_test.go, packages/backend/internal/services/github_inbound_db_test.go",
+      "ticket": "T-GH-04"
+    },
+    "C-INS-01": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: apps/app/e2e/real/install-origins.spec.ts, apps/app/e2e/real/support/listeners.ts"
+    },
+    "C-INS-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/serving_integration_test.go, packages/smithers/test/host-service.integration.test.ts",
+      "ticket": "T-INS-04"
+    },
+    "C-INS-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/scripts/server-bundle.integration.test.ts",
+      "ticket": "T-INS-01"
+    },
+    "C-INS-06": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/smithers/test/host-service.integration.test.ts",
+      "ticket": "T-INS-08"
+    },
+    "C-J1-01": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/j1-install.mjs"
+    },
+    "C-J1-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/setup.spec.ts, packages/backend/internal/compose/install_setup_integration_test.go",
+      "ticket": "T-INS-06"
+    },
+    "C-J1-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/first-answer.spec.ts",
+      "ticket": "T-INS-06"
+    },
+    "C-J1-04": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/j1-activation.mjs"
+    },
+    "C-J1-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/members.spec.ts",
+      "ticket": "T-ACC-02"
+    },
+    "C-J1-06": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/fresh-repository.spec.ts",
+      "ticket": "T-MCH-10"
+    },
+    "C-J10-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/pr-shape.spec.ts",
+      "ticket": "T-GH-03"
+    },
+    "C-J10-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/review-steer.spec.ts",
+      "ticket": "T-GH-04"
+    },
+    "C-J10-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/foreign-push.spec.ts",
+      "ticket": "T-GH-06"
+    },
+    "C-J10-04": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/main-moved-rebase.spec.ts",
+      "ticket": "T-STK-11"
+    },
+    "C-J10-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/merge-on-github.spec.ts",
+      "ticket": "T-GH-05"
+    },
+    "C-J10-06": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/sync-health.spec.ts",
+      "ticket": "T-GH-08"
+    },
+    "C-J10-07": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/github_main_pull_force_push_test.go",
+      "ticket": "T-GH-07"
+    },
+    "C-J10-08": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/github_inbound_pulls_integration_test.go",
+      "ticket": "T-GH-05"
+    },
+    "C-J10-09": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/github-j10/review-any-pr.spec.ts",
+      "ticket": "T-FLW-13"
+    },
+    "C-J11-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/conversation_summaries_test.go",
+      "ticket": "T-FLW-07"
+    },
+    "C-J11-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/flow-source-run.spec.ts",
+      "ticket": "T-APP-05"
+    },
+    "C-J11-03": {
+      "status": "pending-owner",
+      "reason": "needs ticket extension",
+      "ticket": "T-FLW-08"
+    },
+    "C-J11-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/run_thrash_integration_test.go",
+      "ticket": "T-FLW-07"
+    },
+    "C-J2-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-from-issue.spec.ts",
+      "ticket": "T-STK-09"
+    },
+    "C-J2-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_label_db_test.go",
+      "ticket": "T-STK-09"
+    },
+    "C-J2-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-needs-you.spec.ts",
+      "ticket": "T-STK-07"
+    },
+    "C-J2-04": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-evidence.spec.ts",
+      "ticket": "T-STK-10"
+    },
+    "C-J2-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-merge.spec.ts",
+      "ticket": "T-STK-04"
+    },
+    "C-J3-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/branch-presence.spec.ts",
+      "ticket": "T-COL-06"
+    },
+    "C-J3-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/terminal-ownership.spec.ts",
+      "ticket": "T-TRM-01"
+    },
+    "C-J3-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/branch-outside-change.spec.ts",
+      "ticket": "T-COL-04"
+    },
+    "C-J3-04": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host, browsers on a second Mac on the same network at the install's public origin; Absent: apps/app/e2e/real/file-coedit.spec.ts"
+    },
+    "C-J3-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-steer.spec.ts",
+      "ticket": "T-STK-06"
+    },
+    "C-J3-06": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host; the VS Code step is recorded manual; Absent: apps/app/e2e/real/ssh-branch.spec.ts"
+    },
+    "C-J3-08": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/file-gone.spec.ts",
+      "ticket": "T-APP-11"
+    },
+    "C-J3-09": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/branch-moved-off.spec.ts",
+      "ticket": "T-COL-05"
+    },
+    "C-J3-10": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/agent-terminal.spec.ts",
+      "ticket": "T-TRM-05"
+    },
+    "C-J4-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/home.spec.ts",
+      "ticket": "T-APP-01"
+    },
+    "C-J4-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-stack-actions.spec.ts",
+      "ticket": "T-STK-02"
+    },
+    "C-J4-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_merge_db_test.go, apps/app/e2e/real/todo-merge-order.spec.ts",
+      "ticket": "T-STK-04"
+    },
+    "C-J5-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/flow-edit.spec.ts",
+      "ticket": "T-FLW-03"
+    },
+    "C-J5-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/flow_load_integration_test.go",
+      "ticket": "T-FLW-03"
+    },
+    "C-J5-03": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host, recorded manual on a fresh macOS user account on the reference mini; Absent: apps/app/e2e/real/learning-journey.spec.ts"
+    },
+    "C-J6-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/terminal-signin.spec.ts",
+      "ticket": "T-TRM-02"
+    },
+    "C-J6-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/smithers/test/DelegatedLogin.integration.test.ts",
+      "ticket": "T-ACC-04"
+    },
+    "C-J7-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/todo-placement.spec.ts",
+      "ticket": "T-STK-02"
+    },
+    "C-J7-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/fork-add-to-stack.spec.ts",
+      "ticket": "T-MCH-08"
+    },
+    "C-J7-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_conflict_db_test.go",
+      "ticket": "T-STK-08"
+    },
+    "C-J8-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/learning_integration_test.go",
+      "ticket": "T-FLW-06"
+    },
+    "C-J8-02": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host, browsers on a second Mac on the same network at the install's public origin; Absent: apps/app/e2e/real/wiki-coedit.spec.ts"
+    },
+    "C-J8-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/wiki-obsidian.spec.ts",
+      "ticket": "T-FLW-12"
+    },
+    "C-J8-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/plan_wiki_citations_integration_test.go",
+      "ticket": "T-FLW-10"
+    },
+    "C-J8-05": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/wiki-decision-follow.spec.ts",
+      "ticket": "T-FLW-10"
+    },
+    "C-J8-06": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/wiki-generated-refresh.spec.ts",
+      "ticket": "T-FLW-02"
+    },
+    "C-J9-01": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/ask-repository.spec.ts",
+      "ticket": "T-APP-02"
+    },
+    "C-MCH-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/branch_machine_integration_test.go",
+      "ticket": "T-MCH-04"
+    },
+    "C-MCH-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/machine_admission_integration_test.go",
+      "ticket": "T-MCH-06"
+    },
+    "C-MCH-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/branch_sleep_reads_integration_test.go",
+      "ticket": "T-MCH-07"
+    },
+    "C-MCH-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/microsandbox/hostprofile_test.go, packages/backend/internal/services/install_capacity_integration_test.go",
+      "ticket": "T-MCH-01"
+    },
+    "C-MCH-05": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MCH-09"
+    },
+    "C-MCH-06": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/microsandbox/real_users_test.go",
+      "ticket": "T-MCH-11"
+    },
+    "C-MCH-07": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/secrets-machines.spec.ts",
+      "ticket": "T-MCH-12"
+    },
+    "C-MCH-08": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/branch_fork_integration_test.go",
+      "ticket": "T-MCH-08"
+    },
+    "C-MCH-09": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/microsandbox/real_users_test.go",
+      "ticket": "T-MCH-11"
+    },
+    "C-MCH-10": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/microsandbox/real_credentials_test.go",
+      "ticket": "T-MCH-11"
+    },
+    "C-MCH-11": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/machine_slots_integration_test.go",
+      "ticket": "T-MCH-06"
+    },
+    "C-MNT-01": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-01"
+    },
+    "C-MNT-02": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-02"
+    },
+    "C-MNT-03": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-03"
+    },
+    "C-MNT-04": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-04"
+    },
+    "C-MNT-05": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-05"
+    },
+    "C-MNT-06": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-MNT-01"
+    },
+    "C-PERF-01": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: scripts/perf/agent-first-token.mjs"
+    },
+    "C-PERF-02": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: scripts/perf/projection-delta.mjs"
+    },
+    "C-PERF-03": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: scripts/perf/keystroke.mjs"
+    },
+    "C-PERF-04": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: scripts/perf/disk-write.mjs"
+    },
+    "C-PERF-05": {
+      "status": "pending-owner",
+      "reason": "Absent: scripts/perf/warm-wake.mjs",
+      "ticket": "T-MCH-06"
+    },
+    "C-PERF-06": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: scripts/perf/rebase-hold.mjs"
+    },
+    "C-PRC-01": {
+      "status": "pending-owner",
+      "reason": "Absent: scripts/check-process-gates.test.mjs",
+      "ticket": "T-PRC-01"
+    },
+    "C-PRC-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/db/product/migration_gate_test.go",
+      "ticket": "T-PRC-02"
+    },
+    "C-PRC-03": {
+      "status": "pending-owner",
+      "reason": "Absent: scripts/check-receipts.test.mjs",
+      "ticket": "T-PRC-03"
+    },
+    "C-REL-01": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-DOC-01"
+    },
+    "C-REL-02": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference mini, fresh macOS user account with no prior Smithers state, recorded manual; Absent: scripts/journeys/release-install.mjs"
+    },
+    "C-REL-03": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host, recorded manual; Absent: scripts/journeys/upgrade.mjs"
+    },
+    "C-REL-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/routes/install_scorecard_test.go, packages/backend/internal/services/scorecard_test.go",
+      "ticket": "T-REL-03"
+    },
+    "C-REL-05": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference mini, fresh macOS user account, with Ben's live Claude Code, Codex and `gh` logins; Absent: scripts/release/credential-soak.sh"
+    },
+    "C-REL-06": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host A and a second Mac B, recorded; Absent: scripts/release/backup-restore.mjs, packages/smithers/test/host-backup.fault.test.ts, packages/backend/internal/services/install_quiesce_integration_test.go"
+    },
+    "C-SEC-01": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/machine_secret_scan_integration_test.go",
+      "ticket": "T-MCH-12"
+    },
+    "C-SEC-02": {
+      "status": "pending-owner",
+      "reason": "existing negative boundary only",
+      "ticket": "T-FLW-01"
+    },
+    "C-SEC-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_trust_db_test.go",
+      "ticket": "T-STK-09"
+    },
+    "C-SEC-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/setup_claim_integration_test.go, apps/app/scripts/server-bundle.integration.test.ts",
+      "ticket": "T-ACC-01"
+    },
+    "C-SEC-05": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/compose/terminal_token_scope_test.go",
+      "ticket": "T-TRM-02"
+    },
+    "C-SPK-02": {
+      "status": "pending-owner",
+      "reason": "run.sh exists but does not parse --decision-evidence: argv[1] is treated as output directory (run.sh:31); owner must repair declaration/CLI, not guess alternate argv",
+      "ticket": "T-MCH-02"
+    },
+    "C-SPK-03": {
+      "status": "pending-owner",
+      "reason": "Automation unavailable/unapproved; owner must supply argv and host",
+      "ticket": "T-COL-01"
+    },
+    "C-SPK-05": {
+      "status": "manual",
+      "reason": "Person/hardware required: the reference host plus one Apple Silicon Mac with a different memory size; Absent: scripts/spikes/mch-01-memory/run.sh"
+    },
+    "C-SPK-06": {
+      "status": "pending-owner",
+      "reason": "Absent: scripts/spikes/homebrew-hypervisor/run.sh",
+      "ticket": "T-INS-03"
+    },
+    "C-SPK-07": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Automation unavailable/unapproved; owner must supply argv and host"
+    },
+    "C-SPK-08": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host, VS Code on a second Mac; Absent: scripts/spikes/trm-06/run.sh"
+    },
+    "C-STK-01": {
+      "status": "pending-owner",
+      "reason": "Declared go-test regex matches no test names in packages/backend/internal/services; T-STK-01 implementation required",
+      "ticket": "T-STK-01"
+    },
+    "C-STK-02": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_admission_db_test.go",
+      "ticket": "T-STK-03"
+    },
+    "C-STK-03": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_control_db_test.go",
+      "ticket": "T-STK-05"
+    },
+    "C-STK-04": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/stack_order_attention_test.go",
+      "ticket": "T-GH-05"
+    },
+    "C-STK-05": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_long_wait_integration_test.go",
+      "ticket": "T-MCH-14"
+    },
+    "C-STK-06": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_candidate_flow_db_test.go",
+      "ticket": "T-STK-12"
+    },
+    "C-STK-07": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_merge_race_db_test.go",
+      "ticket": "T-STK-04"
+    },
+    "C-STK-08": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_waits_db_test.go",
+      "ticket": "T-STK-07"
+    },
+    "C-STK-13": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/services/todo_preapproval_db_test.go",
+      "ticket": "T-STK-16"
+    },
+    "C-UI-01": {
+      "status": "manual",
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: apps/app/e2e/real/keyboard-journeys.spec.ts, apps/app/e2e/real/support/keyboardOnly.ts"
+    },
+    "C-UI-02": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/src/mainview/cards/ProductWords.test.tsx, apps/app/src/mainview/cards/productWords.ts",
+      "ticket": "T-CAT-01"
+    },
+    "C-UI-03": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/playwright/notifications.spec.ts",
+      "ticket": "T-APP-18"
+    },
+    "C-UI-04": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/timeline.spec.ts, packages/backend/internal/services/conversation_summaries_test.go",
+      "ticket": "T-APP-07"
+    },
+    "C-UI-05": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/live/honest_state_integration_test.go, apps/app/e2e/real/honest-state.spec.ts",
+      "ticket": "T-COL-02"
+    },
+    "C-UI-06": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/playwright/branch-conversation.spec.ts",
+      "ticket": "T-APP-16"
+    },
+    "C-UI-07": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/backend/internal/chat/preflight_integration_test.go, apps/app/e2e/playwright/branch-conversation.spec.ts",
+      "ticket": "T-APP-17"
+    },
+    "C-UI-08": {
+      "status": "pending-owner",
+      "reason": "Absent: packages/rpc/test/cards/<Card>Card.test.ts, packages/rpc/test/cards/CardContracts.test.ts, scripts/spec-card-fields.mjs",
+      "ticket": "T-APP-19"
+    },
+    "C-UI-09": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/playwright/docs.spec.ts",
+      "ticket": "T-APP-20"
+    },
+    "C-UI-10": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/playwright/debug-api.spec.ts",
+      "ticket": "T-APP-21"
+    },
+    "C-UI-11": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/e2e/real/file-intelligence.spec.ts",
+      "ticket": "T-APP-15"
+    },
+    "C-UI-12": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/src/mainview/cards/views/Views.test.tsx, apps/app/e2e/playwright/view-stories.spec.ts",
+      "ticket": "T-UI-01"
+    },
+    "C-UI-13": {
+      "status": "pending-owner",
+      "reason": "Absent: apps/app/src/mainview/cards/containers/<Card>Container.integration.test.ts, apps/app/src/mainview/Inventory.test.ts",
+      "ticket": "T-APP-01"
+    }
+  }
+}

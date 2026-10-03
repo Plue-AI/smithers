@@ -455,6 +455,11 @@ const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
  */
 export const releasesClaim = (status: Burndown.Status): boolean => status !== "requeued"
 
+/** Release the claim and record the outcome without claiming acceptance evidence. @since 0.1.0 */
+export const releaseCommand = (issue: string, by: string, status: Burndown.Status, note: string): ReadonlyArray<string> =>
+  ["release", issue, "--by", by, "--note", `${status}: ${note}`]
+
+
 /**
  * Records a no-change verdict on the issue, then fails with it, so the item
  * settles `failed` and the label keeps later runs off it. A verdict our own
@@ -726,25 +731,13 @@ const dispatchOptions: Burndown.RoundOptions<unknown, Item, Worked, Failure, Eng
     Effect.gen(function*() {
       if (!releasesClaim(args.status)) return
       const note = args.detail.replaceAll("\n", " ").slice(0, 300)
-      const released = args.status === "landed"
-        ? claimCommand([
-          "comment",
-          ref(args),
-          "--body",
-          `Landed on main by issue-sweep: ${note}`,
-          "--close",
-          "--release",
-          "--by",
-          by,
-          "--note",
-          note
-        ])
-        : claimCommand(["release", ref(args), "--by", by, "--note", `${args.status}: ${note}`])
+      // This flow has no named-check receipts; leave closure to the owner.
+      const released = claimCommand(releaseCommand(ref(args), by, args.status, note))
       const exited = yield* released
-      yield* removeWorkspace(args.item.number)
       if (exited.code !== 0) {
         return yield* new AgentFailed({ message: `issue-claim release: exit ${exited.code}: ${tail(exited.stderr)}` })
       }
+      yield* removeWorkspace(args.item.number)
     })
 }
 
