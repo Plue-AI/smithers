@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-FLW-11, T-FLW-03, T-STK-04, T-STK-02, T-MCH-08 (S1), T-FLW-04, T-MCH-14, T-STK-12, T-GH-09, T-ACC-03, T-APP-04, T-CAT-01, T-INS-02, T-FLW-01, T-SEC-01, T-GH-03 · Unblocks T-APP-01, T-APP-02, T-APP-07, T-REL-04, T-STK-06 · Issue: [#3530](https://github.com/smithersai/smithers/issues/3530)
 Spec: spec.md §3 (`checks.Attempts`), §4.1, §4.1.0a, §10.4.1, §10.7.1, §10.7.2, §10.7.4, §11.4.2, §12.4.1, §15.1.5, §19.1, §19.3 · Delta: delta.md §6 (Add Stop/Resume, Retry with attempt rows, Drop with PR close) · Product: mvp.md §4.1, §6.6 Stop and resume, J4.2, J7.3, Appendix B.2
+Ready: 2026-10-03 smithers-8a sha256:63f2586bc69b
 
 ## Goal
 A member stops a working TODO and it shows Paused only after its run parks at a durable boundary. Resume continues that same run from its last finished step. Retry starts a new attempt of the pinned flow version, and Retry with the current flow starts one on the Active version; the earlier attempt stays readable either way. Drop closes the PR and takes the item off the stack. A PR reopened within 7 days restores the TODO with its last accepted generation, and the first input that needs work starts a new attempt.

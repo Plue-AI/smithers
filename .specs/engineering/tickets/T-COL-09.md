@@ -2,7 +2,7 @@
 
 Stage S3 · Size M · Depends on T-COL-08, T-APP-14a, T-FLW-10 · Unblocks T-INS-07 · Issue: [#3587](https://github.com/smithersai/smithers/issues/3587)
 Spec: spec.md §2 (Live document), §6.2.4, §7.4.1–7.4.6, §7.6.1, §13.1–13.2 · Delta: delta.md §4 (wiki row, Modify [S3]) · Product: mvp.md J8.2, §6.11 Pages and editing, M-02
-Ready: 2026-10-03 smithers-8a sha256:396865c1ddf6
+Ready: 2026-10-03 smithers-8a sha256:370e2e3e75ac
 
 ## Goal
 
@@ -12,7 +12,7 @@ Two members editing one wiki page see each other's keystrokes within 1 s over `/
 
 In:
 - The host service owns one Yrs document per open page on topic `doc:wiki:<page>` (§7.4.2). It speaks the same sync step 1/2, update and awareness frames as code documents (§7.4.1), and the browser uses the same `LiveDocProvider` (T-APP-14a).
-- The text is `Y.Text("markdown")`, unchanged (§7.6 row 8), so existing page state in PostgreSQL loads as is.
+- The text is `Y.Text("markdown")`, unchanged (§7.6.1 (wiki text)), so existing page state in PostgreSQL loads as is.
 - Persistence (§7.4.2): the merged state plus the rendered Markdown are written to `wiki_pages`/`wiki_page_revisions` in one transaction after 2 s without an update, or 10 s after the oldest unpersisted update under continuous typing, not once per update. Writes keep today's revision check and conflict retry. The revision is attributed to the actors who edited in that period, from `Y.Map("authors")` (§7.4.4).
 - Acknowledgment (§7.4.6): only after that commit does the host send `saved{sv}`. The page loads from its stored state after a host restart, never reseeded from Markdown, so reconnecting clients merge without duplication.
 - Limits stay: 1 MiB Markdown, 1 MiB update, 8 MiB state (`crates/smithers-ffi/src/wiki_document.rs:11-13`).

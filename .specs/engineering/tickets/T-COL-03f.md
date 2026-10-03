@@ -2,6 +2,7 @@
 
 Stage S2 · Size S · Depends on T-COL-03r · Unblocks T-COL-03, T-COL-04, T-COL-08b · Issue: [#3625](https://github.com/smithersai/smithers/issues/3625)
 Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.2, §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
+Ready: 2026-10-03 smithers-8a sha256:801ca9d34b92
 
 ## Goal
 

@@ -2,6 +2,7 @@
 
 Stage S2, R · Size M · Depends on T-FLW-09, T-COL-04, T-STK-08, T-STK-04, T-STK-05, T-FLW-11, T-GH-09, T-INS-02, T-COL-03, T-COL-03a · Unblocks — · Issue: [#3459](https://github.com/smithersai/smithers/issues/3459)
 Spec: spec.md §4.1, §10.4.1, §19.1, §19.2, §9.3.4, §9.4.1, §10.5, §10.6.2, §11.4, §12.4.1 (`pending_op`), §21 (Fault row) · Delta: delta.md §0 (fault suite carries over) · Product: mvp.md §9 Durability and Honesty, §6.1 Restart, §12.1 (restart mid-run, recovery receipts)
+Ready: 2026-10-03 smithers-8a sha256:84ae6d86968a
 
 ## Goal
 Every named kill point across runs, merges, GitHub writes, bursts and rebases is exercised by one suite, and each leaves no re-run completed step, no duplicate external effect and no lost acknowledged write.

@@ -1,8 +1,8 @@
-# T-COL-03 Host registry, per-boot credentials, daemon planting and head-reporter replacement
+# T-COL-03 Host registry, per-boot credentials, daemon planting, reporter replacement and K6 VM faults
 
-Stage S2 · Size M · Depends on T-MCH-04, T-COL-03a, T-COL-03f, T-COL-03r, T-INS-02, T-ACC-03, T-COL-02, T-STK-12, T-COL-10 (S1 only), T-SEC-01 · Unblocks T-COL-04, T-COL-05, T-COL-06, T-COL-10, T-MCH-07, T-MCH-08, T-MCH-12, T-REL-04, T-STK-08, T-TRM-01, T-TRM-03, T-TRM-05, T-TRM-07 · Issue: [#3560](https://github.com/smithersai/smithers/issues/3560)
+Stage S2 · Size M · Depends on T-MCH-04, T-COL-03a, T-COL-03f, T-COL-03r, T-INS-02, T-ACC-03, T-COL-02, T-STK-12, T-COL-10 (S1 only), T-SEC-01 · Unblocks T-COL-04, T-COL-05, T-COL-06, T-COL-10, T-MCH-07, T-MCH-08, T-MCH-12, T-REL-04, T-STK-08, T-TRM-01, T-TRM-02, T-TRM-03, T-TRM-05, T-TRM-07 · Issue: [#3560](https://github.com/smithersai/smithers/issues/3560)
 Spec: spec.md §5.3 (`machine`), §7.6.1–7.6.2, §8.4.3, §9 (intro), §9.1.1–9.1.4, §9.4.1, §9.5, §16.1.1, §17.2, §19.1 · Delta: delta.md §3 (sleep/stop row), §4 (`smithers-machined`, host relay, delete head loop) · Product: mvp.md §6.7 Sleep and Cleanup, M-27, M-29
-Ready: 2026-10-03 smithers-8a sha256:ea6854a8079b
+Ready: 2026-10-03 smithers-8a sha256:1f697826788e
 
 ## Goal
 
@@ -11,18 +11,22 @@ Register one authenticated connection per branch and boot, plant and supervise t
 ## Scope
 
 In:
-- Implement the Go half of §9.1 and §9.5.3: branch-keyed registry, authenticated per-boot connections, newer-boot replacement, RPC client, object verification, transactional event receipts and acknowledgement only after commit. Consume T-COL-03r schemas and golden frames; reuse T-COL-10’s S1 file request/response schema.
+- Objects travel as git bundles on ADR 0004 object streams before their events. The host verifies bundles and chooses branch-scoped incoming refs. Check: C-DUR-04. Security review: smithers-3f must approve before this lands (gaps 5–8).
+- Own reference-host C-DUR-04 K6: force-stop the VM at K1 and K5b, wake and reconcile, and verify acknowledged bytes and receipts. T-COL-04 runs the complete integrated S2 matrix.
+- Implement the Go half of §9.1 and §9.5.3: branch-keyed registry, authenticated per-boot connections, newer-boot replacement, RPC client, object verification, transactional event receipts and acknowledgement only after commit. Consume T-COL-03r / ADR 0004 schemas and golden frames; reuse T-COL-10’s S1 file request/response schema.
 - Plant and supervise T-COL-03a’s binary, mint per-boot machine credentials and the relay secret, and admit no session or awake state before wake_reconcile finishes.
 - Route awake reads, compare-and-writes and capture through the daemon. Publish the captured head and machine state. Replace and delete the head reporter and its route and tests.
 - Lands dark until T-MCH-04 and T-INS-02: no daemon boot without the branch-to-machine binding and real microVM runtime. Until T-ACC-03, refuse RPC dispatch without authenticated branch authority. Until T-COL-03r and T-COL-03a, refuse missing/incompatible wire or daemon; no helper fallback, session admission or awake publication. Until T-COL-03f, component fixtures provide no acceptance receipt. Checks: C-COL-01, C-COL-04.
 - Lands dark until T-COL-02, T-STK-12 and T-COL-10 (S1): refuse activation without live publication, durable pending-work delivery and digest-aware file routes. Until T-SEC-01, refuse privileged planting without the hardened installer. Until T-INS-01 and T-MCH-11, refuse activation without a main-pinned packaged daemon and trusted guest identities/no-sudo image. These last two are enablement preconditions, not code dependencies. Checks: C-COL-04, C-DUR-04, C-STK-06.
 - Cut over each supported provisioning path atomically: retire its reporter before admitting the daemon. When the daemon is unavailable, refuse awake reads, writes, capture and sessions; retained reads remain under T-MCH-07. No second head publisher or reporter shim. Check: C-DUR-04.
 Out:
-- Rust core, broker, lock, capture, oplog and outbox producer (T-COL-03a).
+- Rust core, broker, freeze sequence, capture, oplog and outbox producer (T-COL-03a); FIFO executor (T-COL-03r).
 - Watcher and change-event ingest (T-COL-04a, T-COL-04); documents (T-COL-08a, T-COL-08b, T-COL-08).
 - New transport, socket tunnel or sidecar; presence roster (T-COL-06); session protocol and terminal/SSH migration (T-TRM-07, T-TRM-01, T-TRM-03); member identity allocation (T-MCH-11); image declaration/builds and bundle construction (T-MCH-10, T-INS-01); sleep/admission/cleanup policy (T-MCH-07, T-MCH-06, T-MCH-09); Cloud feature expansion and UI Views. Hosted callers of the removed reporter must still migrate; excluding Cloud expansion does not permit dangling callers.
 
 ## Changes
+- Write ADR 0004’s boot file with boot id, relay secret, machine credential, topology and bridge port when required; owner `machined`, mode 0400. Use the nonce HMAC, never a bearer secret. Check: C-COL-04. Security review: smithers-3f must approve before this lands (gaps 5–8).
+- `packages/backend/internal/machined/fault_test.go`: reference-host K6 harness drives VM force-stop at K1/K5b and records restart, reconciliation, head refs and receipts. Check: C-DUR-04.
 - Reshape existing `packages/backend/internal/services/workspace_facets.go:187,244`, `workspace_head.go:288,357,697` and `packages/backend/microsandbox/runtime.go:587` lifecycle plumbing. Enable the existing guest byte stream in `microsandbox/transport.go:92,102` through `Runtime.DialWorkspacePort`; no replacement transport. Reuse the hardened `microsandbox/guest.go:54` installer’s provenance and no-follow checks. Check: C-COL-04.
 - Encode and decode only through `packages/backend/internal/machined/wire` (T-COL-03r); no local frame types. The planned `packages/backend/internal/compose/cocontracts_test.go` guards this codec (smithers-3f, 2026-10-02).
 - `packages/backend/microsandbox/machined.go` (new): plant the daemon and its init supervision from `prepareGuest` after `installGuest` (`microsandbox/runtime.go:587–588`, `guest.go:54`). Existing one-shot helper installation lacks daemon supervision; extend that lifecycle instead of adding a launcher.
@@ -40,6 +44,9 @@ Out:
 - Before deleting `ReportWorkspaceHead`, move T-STK-12’s pending-work hook to `packages/backend/internal/machined/` capture ingest: after accepting a captured head for an `in_review` TODO, compare its tree with the accepted generation’s tree and signal `edited` once per new tree. Preserve stack locking, durable signal delivery and replay deduplication. Replace the head-report tests with capture-path tests; keep no reporter shim. Check: C-STK-06.
 
 ## Tests
+- C-DUR-04: replay a queued capture twice after a host rewrite. A stale `base` commits one receipt, preserves the rewritten head, sets `rebase_pending` and returns `stale_base`; host object transfer and `wake_reconcile(head)` precede the fresh capture that converges.
+- C-COL-03 and C-PERF-06: withhold host acknowledgements for 10 s during the freeze sequence. The local capture pins and queues its snapshot; the rewrite thaws before acknowledgement. A later `capture()` waits for and drains the outbox outside the lock.
+- C-COL-04: a failed HMAC proof closes only the newcomer. A valid handshake replaces a half-open live connection immediately, without waiting for the 30 s silence timeout. Security review: smithers-3f must approve before this lands (gaps 5–8).
 
 Boundary and oracle rules for every test below: use the composed production router’s authenticated `GET`/`PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content` routes (`compose/router.go:1443–1444`), production `Runtime.CreateWorkspace`/`StartWorkspace` planting and relay, and the production authenticated connection dispatcher for captures/events. Drive rebase and return RPCs through the real Go client and host registry, not a direct daemon helper. Fixed bytes, independently computed digests, literal refusal codes and T-COL-03r hand-authored frames define expectations; no test reads specs or derives its oracle from production code. Fake-machined tests prove component behavior only.
 
@@ -74,7 +81,7 @@ Fail when:
   - An event delivered twice yields one row.
 
 - Contract: replay T-COL-03r golden frames against the Go RPC client and registry, first with T-COL-03f, then with T-COL-03a. Reserved document frames get typed unsupported in S2; capture calls flush first.
-- Integration, real daemon, Linux VM and host store: all original capture, wake, stale-write, branch-credential and newer-boot cases, plus init restart. Run C-DUR-04 capture kill points K3–K6. T-COL-04 runs the complete K1–K6 matrix once bursts exist.
+- Integration, real daemon, Linux VM and host store: all original capture, wake, stale-write, branch-credential and newer-boot cases, plus init restart. Own C-DUR-04 K6 on the reference host, ten runs at each trigger; validate K3/K3b/K4/K4b/K5a–c with real host dependencies. T-COL-04 runs the complete K1–K6 matrix once bursts exist.
 - Integration: reject unauthenticated relay and cross-branch actor envelopes (C-COL-04); run the C-COL-03 writer matrix with the real Go client.
 
 - Integration, real PostgreSQL and daemon capture: an in_review TODO with a changed captured tree signals `edited` once; identical trees and replayed captures signal nothing. Re-run T-STK-12’s head-report cases through capture ingest. Check: C-STK-06.

@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-ACC-02, T-GH-02, T-STK-02, T-APP-04 (confirmations), T-GH-09, T-APP-16, T-FLW-11, T-CAT-01, T-ACC-03, T-ACC-04, T-INS-02, T-FLW-01, T-SEC-01 · Unblocks T-APP-02, T-MNT-01 · Issue: [#3457](https://github.com/smithersai/smithers/issues/3457)
 Spec: spec.md §3 (`mythical_items.revisions`), §3.0, §5.2, §6.1.2b, §10.2.1–§10.2.1b, §10.4.2, §12.3 (issue labeled `todo`), §12.4.1, §14.5.1, §15.1.5, §17.5 · Delta: delta.md §6 (Reshape admission from GitHub; `FileTodo` no longer creates an issue), §7 · Product: mvp.md J2.2, §6.3 (label and Make TODO rows), §14 trust rules, M-16, M-22, Appendix B.2 (`issue.implement`)
+Ready: 2026-10-03 smithers-8a sha256:fa64ec2ec758
 
 ## Goal
 A member turns an issue with team text into a TODO by **Make TODO** or by the `todo` label, and only a maintainer can do so for an issue with outsider text (§10.2.1). Revision 1 is the issue as admitted at that action; later issue edits, comments and repeated deliveries change nothing; a refused `todo` label is reverted with a comment and starts no work.

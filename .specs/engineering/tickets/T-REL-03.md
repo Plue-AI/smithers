@@ -2,6 +2,7 @@
 
 Stage S1, S2, S3 · Size M · Depends on S1: T-STK-01, T-INS-06, T-ACC-03, T-GH-02, T-APP-16, T-FLW-03 · S2: T-COL-04, T-COL-06 · S3: T-FLW-06 · Unblocks — · Issue: [#3527](https://github.com/smithersai/smithers/issues/3527)
 Spec: spec.md §20.4 (scorecard definitions), §6.3 (`GET /api/install/scorecard`), §3 (`mythical_items`, `product_job_events`, `checks.Attempts`, `burst_files`, `chat_turns`, `workflow_definitions`, pending memory notes, `install_settings`), §3.0 (GitHub synced store), §20.3 · Delta: §0 (reuse before new code), §8 (proposals reuse memory notes) · Product: mvp.md §10 Success and kill criteria, §12.2 dogfood, M-22, M-31
+Ready: 2026-10-03 smithers-8a sha256:dde5cde19820
 
 ## Goal
 The owner gets a scorecard for any date window, computed from the install's PostgreSQL data for automated measures, with core-value person-minutes reviewed separately from sampled, annotated alpha sessions, and every mvp.md §10 measure, its target, its kill signal and a verdict.

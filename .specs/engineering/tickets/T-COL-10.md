@@ -1,8 +1,8 @@
 # T-COL-10 Every file write carries `base_digest`; a stale write is refused
 
 Stage S1, S2 · Size M · Depends on S1: T-FLW-01 · S2: T-COL-03 · Unblocks T-COL-03, T-COL-04, T-COL-05, T-COL-08, T-COL-11 · Issue: [#3508](https://github.com/smithersai/smithers/issues/3508)
-Spec: spec.md §7.6 (row 1), §9.1.2 (`write_file`), §9.2.2, §9.3.9 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes, J3.4, M-02, M-27
-Ready: 2026-10-03 smithers-8a sha256:a92aa9b9a228
+Spec: spec.md §7.6.1 (write preconditions), §9.1.2 (`write_file`), §9.2.2, §9.3.9 · Delta: delta.md §4 · Product: mvp.md §6.8 No silent overwrite and External changes, J3.4, M-02, M-27
+Ready: 2026-10-03 smithers-8a sha256:bf6d7f69a591
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3). Absorbs T-COL-10 ([#3507](https://github.com/smithersai/smithers/issues/3507)).
 
@@ -11,7 +11,7 @@ Every write to a branch's files through Smithers, from the app or the coding age
 
 ## Scope
 In:
-- The written rule in `docs/architecture/0003-live-code-co-editing.md`: one section, "every write carries `base_digest`; stale is refused". Its topology section says "decided by T-COL-11".
+- The written rule in `docs/architecture/0003-live-code-co-editing.md`: one section, "every write carries `base_digest`; stale is refused". Create ADR 0003 at this path beside ADR 0004; T-COL-03r owns the daemon wire contract in docs/architecture/0004-machined-wire.md. Its topology section says "decided by T-COL-11".
 - S1: the app write route and the coding agent's std tools enforce the rule in the guest.
 - S2: the agent's writes go through the daemon's `write_file` (T-COL-03) and the interim guest path is deleted.
 - Lands dark until T-FLW-01: build against its machine-only coding binding; refuse agent mutations when that binding is unavailable. No host filesystem fallback.

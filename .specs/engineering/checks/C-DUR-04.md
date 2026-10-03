@@ -4,16 +4,17 @@ Proves: mvp.md §9 Durability, §6.8 Save and recovery guarantees, M-27 ("every 
 Automation: `packages/backend/internal/machined/fault_test.go` (new) driving `crates/smithers-machined` kill hooks (`SMITHERS_MACHINED_KILL_AT=<point>`, test builds only) · Runs in: CI on a Linux runner with real inotify, cgroups and jj (daemon kills), and the reference host (VM kills)
 
 ## Setup
+- Component owners: T-COL-04a K1/K2; T-COL-03a K3/K3b/K4/K4b/K5a–c; T-COL-03 reference-host K6. T-COL-04 runs the complete S2 matrix with real watcher, host store, PostgreSQL and VM. Fakes never substitute for a full-check pass.
 
 - A build of the commit under test with kill hooks compiled in, never in release builds. Real PostgreSQL and a real jj working copy of `smithers-mvp-canary` content.
 - One machine with the daemon connected. A writer process runs in a member session cgroup. It writes files with `write` + `fsync` + `close` and logs `(seq, path, sha256)` to the host only after `close` returns, so each logged line is an acknowledged write.
 - Kill points:
   - K1: the daemon dies with a burst open.
   - K2: after the burst's versions commit is built, before the event enters the outbox.
-  - K3: event in the outbox, before its refs are pushed.
-  - K3b: refs pushed, before the event is sent.
+  - K3: event in the outbox, before its bundle is sent.
+  - K3b: bundle sent, before the event is sent.
   - K4: the host commits the activity row, then the host dies before acknowledging.
-  - K5a/b/c: capture after snapshot / during the push of the head and snapshot commits / after the push, before verify.
+  - K5a/b/c: capture after snapshot / during the object stream after its first data frame / after the captured event is sent, before acknowledgement.
   - K4b: the host connection is cut for 30 s while 50 bursts close, then restored (no restart).
   - K6: the VM is killed (`msb` force stop) at K1 and at K5b.
   - K7 (S3, T-COL-08), two clients typing in one file under the topology ADR 0003 chose:
@@ -27,6 +28,7 @@ Automation: `packages/backend/internal/machined/fault_test.go` (new) driving `cr
 K1–K6 gate stage 2; K7 and K8 gate stage 3.
 
 ## Steps
+0. Queue a captured event, stop the machine, rewrite the host head, then replay the event twice. Record the event’s `base`, the head last sent to the machine, the receipt and `stale_base` acknowledgement. Transfer the host head and reconcile before admitting sessions.
 
 1. For each kill point, run the writer for 20 files, trigger the point, and let the guest init restart the daemon (§9.1.3), or wake the VM for K6.
 2. Wait for the daemon to report `status()` ready and for its outbox to drain.
@@ -35,6 +37,7 @@ K1–K6 gate stage 2; K7 and K8 gate stage 3.
 5. Repeat each kill point 10 times.
 
 ## Pass when
+- Stale-base replay records one receipt, preserves the rewritten host head and daemon acked-head ref, and sets `rebase_pending`. Wake reconciliation and a fresh capture converge without replacing the rewrite with a stale capture.
 - K7e (S3): each client retains its unacknowledged edits and shows "N edits weren't saved" with Reapply and Copy. N equals that client's retained edit count. Reapply adds the retained edits once as new edits attributed to that member; Copy places their text on the clipboard without changing the recovered document (§9.2.5).
 
 

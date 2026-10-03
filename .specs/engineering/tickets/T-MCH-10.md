@@ -1,8 +1,8 @@
-# T-MCH-10 Toolchain detection, `.smithers/machine.json`, Source and Machine ready
+# T-MCH-10 Toolchain detection, `.smithers/machine.json`, Source and Machine ready (retain services)
 
 Stage S1 · Size M · Depends on — · Unblocks T-APP-02, T-APP-03, T-FLW-02, T-FLW-05, T-INS-06, T-MCH-01 · Issue: [#3439](https://github.com/smithersai/smithers/issues/3439)
 Spec: spec.md §8.6, §16.2 steps 5–6, §14.3 Setup · Delta: delta.md §3 (toolchain detector row) · Product: mvp.md J1.3, J1.4, §6.1 Machine image without declarations, M-29
-Ready: 2026-10-03 smithers-8a sha256:55b6efa95f5b
+Ready: 2026-10-03 smithers-8a sha256:73acf3c70795
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 "Reuse named in tickets"; v2 reverts, `7a5ab6140`). Landed in part: `7a5ab6140`, `617c991b3`, `0ecf139ad`. What remains is the rework below.
 
@@ -31,7 +31,6 @@ Out:
 - Keep (landed): `microsandbox/toolchains.json`, `toolchains.go` (`Resolve` with the nearest-patch rule), `machine_json.go`, the root-boundary fixes of `617c991b3` and `0ecf139ad`, and the exit-127 mapping to a `user`-class error.
 - Reshape, one detector: the package-manager and lockfile rules live once, in `packages/smithers/src/suggest/Checklist.ts:183` (`evidence`). Extend it with the §8.6.2 version files (`.node-version`, `.nvmrc`, `engines.node`, `go.mod`, `rust-toolchain.toml`, `.python-version`, `pyproject.toml`, `uv.lock`, `requirements*.txt`) and delete the duplicate rules from `microsandbox/toolchain_detect.go` (354 lines, `7a5ab6140`). Go keeps only manifest resolution and recipe assembly from the evidence.
 - Reshape `microsandbox/layers.go`: merge `detectedToolchainRecipe` (`:1623`) and `detectedDependencyRecipe` (`:1678`) into `toolchainRecipe` (`:850`) and `dependencyRecipe` (`:1293`), which take either index rows or detected rows. One recipe digest covers both.
-- Delete `internal/services/install_machine_ready.go` and its two tests (670 lines, zero callers). T-INS-06's step store reports `source` from the mirror and `machine` from the layer build of `main`'s recipe; no source durable cursors writer.
 - Docs: `packages/backend/microsandbox/README.md` "Environment layers"; `pnpm docs:sync`, `pnpm docs:check`, `smthrs docs //packages/backend:docs`.
 - New: none.
 

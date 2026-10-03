@@ -2,6 +2,7 @@
 
 Stage S1 · Size M · Depends on T-STK-01, T-STK-02, T-STK-05, T-STK-12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01, T-SEC-01, T-CAT-01, T-ACC-03, T-ACC-04, T-APP-04 · Unblocks T-APP-02, T-APP-10, T-COL-12, T-GH-04 · Issue: [#3531](https://github.com/smithersai/smithers/issues/3531)
 Spec: spec.md §4.1 (`in_review → working`), §5.2, §10.2.2, §10.4.2, §10.7.3, §15.1.5 · Delta: delta.md §6 (steer route; steers between implement turns) · Product: mvp.md §4.2, §6.6 Steer, J3.6, J4.2, J6.3, J7.1, M-21, Appendix B.2
+Ready: 2026-10-03 smithers-8a sha256:6bd2222b2a11
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ticket merges STK-06+15; v2 "Reuse named in tickets"). Absorbs T-STK-06 ([#3536](https://github.com/smithersai/smithers/issues/3536)).
 

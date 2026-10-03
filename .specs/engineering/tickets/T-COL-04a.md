@@ -1,7 +1,8 @@
-# T-COL-04a Rust watcher, attribution, versions and overflow resync
+# T-COL-04a Rust watcher, attribution, versions, overflow resync and K1/K2 faults
 
 Stage S2 · Size M · Depends on T-COL-03r · Unblocks T-COL-04 · Issue: [#3627](https://github.com/smithersai/smithers/issues/3627)
 Spec: spec.md §2 (Activity entry, actor notation), §3 (`activity`, `burst_files`), §7.2 (`:activity`, `:files`), §7.6.2, §8.4.4, §8.10.3, §8.11.1, §9.1.2 (`register_run`), §9.1.4, §9.3.1–9.3.5, §9.3.8, §9.4.1, §18 · Delta: delta.md §4 (`smithers-machined` S2; `burst_files`, `file_written` and versions commits row) · Product: mvp.md J3.2, J3.4, §6.8 External changes and Live updates, M-24, M-27
+Ready: 2026-10-03 smithers-8a sha256:27e1e59c88e7
 
 ## Goal
 
@@ -10,19 +11,21 @@ Build and test the watcher through the daemon RPC dispatcher and production watc
 ## Scope
 
 In:
+- Objects travel as git bundles on ADR 0004 object streams before their events. The host verifies bundles and chooses branch-scoped incoming refs. Check: C-DUR-04. Security review: smithers-3f must approve before this lands (gaps 5–8).
+- Own C-DUR-04 K1/K2 component cases. T-COL-03a owns K3/K3b/K4/K4b/K5a–c; T-COL-03 owns K6; T-COL-04 runs the complete integrated S2 matrix.
 - Lands dark until T-COL-03r: without its codec and hook contract, the watcher cannot register with the dispatcher; unsupported requests are refused without writes or events. Build against its specified contract while it is unlanded.
 - Lands dark until T-COL-03a and T-COL-04: production watcher activation requires the shared mutation lock, durable outbox and versions-ref provider, authenticated host connection and ingest. Missing providers refuse activation; hints never stand in for durable burst delivery. Fixture providers exercise the same hooks. T-COL-03a owns those providers; this ticket must not duplicate them.
 - Lands dark until T-TRM-07 and T-MCH-11: production attribution requires the authenticated session registry, real session cgroups and unprivileged daemon identity. Missing providers refuse activation; unknown or ambiguous activity never claims a person or run. This ticket exposes hooks, not session spawning or user provisioning.
 - Lands dark until T-COL-05 supplies the moved-off hook: metadata events and overflow cannot resume queued Smithers writes without a successful moved-off check. An unavailable or failed check leaves writes refused. S3 document reconciliation remains disabled until T-COL-08a integrates it.
 - inotify on the working copy (§9.3.1): recursive watches, re-armed on directory creation, with a scan of each new directory so files created before the watch is armed are not missed.
 - Attribution (§9.3.1):
-  - **Writes through Smithers** (the coding agent's write tool, app commands such as `file.restore`, and File card documents from S3) arrive as `write_file(path, base_digest, content, actor)` (§7.6 row 1). The daemon performs the write itself under the mutation lock (§9.4.1), so it records that exact actor, even while other sessions are active, and knows its own inotify events by path and post-write digest.
+  - **Writes through Smithers** (the coding agent's write tool, app commands such as `file.restore`, and File card documents from S3) arrive as `write_file(path, base_digest, content, actor)` (§7.6.1). The daemon performs the write itself under the mutation lock (§9.4.1), so it records that exact actor, even while other sessions are active, and knows its own inotify events by path and post-write digest.
   - **Other writes** (terminal tools, SSH editors, the agent's `bash`, hand-run `git`/`jj`) form one burst, attributed at close to the actor of the only session active on the branch during the burst. Sessions are the daemon's PTYs and processes from `open_session`: people's terminals and SSH sessions, and the run's sessions, which the host's `register_run(run_id, session)` maps to `{agent: coding, run}`. Processes left running after a session closes still count as that session (§9.6.3). All outside writes share one burst key, so at most one outside burst is open (§9.3.4). With more than one active session, or none, the burst is `{outside: true}` and reads "changed outside Smithers".
   - [D] Exact per-write kernel attribution (fanotify with writer pids).
 - `IN_Q_OVERFLOW` (§9.3.2): the resync under the mutation lock: re-add every watch with a scan, take a jj snapshot through the shared capture hook, record every path whose content differs from its recorded version as one burst "changed outside Smithers", reconcile open documents (S3; S2 sends `file_written` for open cards), run the moved-off check, then run queued writes.
-- Ignore rules (§9.3.3): everything jj ignores, `.jj/`, `.git/` internals except `HEAD` and refs, and the toolchain paths T-MCH-10 names. Ignored directories get no watch, so their events never reach the daemon; the rest are filtered in user space. Metadata watches are separate (§9.3.3): `.jj/repo/op_heads/heads/`, `.git/` (not recursive) and `.git/refs/` (recursive). Their events go to the moved-off detector (T-COL-05) 200 ms after they stop, never into `files[]`.
-- `file_written{path, actor, post_digest}` within 200 ms of each write to a tracked path (§9.3.4, §7.6 row 6). The host turns it into a `branch:<id>:files` delta, so open File and Diff cards reload in under 1 s (§18, T-APP-11).
-- Bursts (§9.3.4): writes through Smithers keyed by their exact actor, all outside writes by one key; closed after 1.5 s quiet, 10 s after opening, or before a write with another key touches a file this burst touched. Before each write through Smithers the daemon drains pending inotify events. Each path has a recorded version (a git blob written with the write, or at the outside burst's close); per file a burst keeps `before` (recorded version at first touch) and `after` (last recorded). On close, one parentless versions commit (`a/<path>` = before, `b/<path>` = after) and one burst event `{burst_id, actor, files[{path, change, renamed_to?, before_blob, after_blob, post_digest}], versions_commit}` through the outbox (§9.1.4), which pushes the commit to `refs/smithers/branches/<id>/bursts/<burst>`, so a sleeping branch's activity and diffs never need the machine (§8.4.4). No jj snapshot per burst.
+- Ignore rules (§9.3.3): everything jj ignores, `.jj/`, `.git/` internals except `HEAD` and refs, and the toolchain paths T-MCH-10 names. Ignored directories get no watch, so their events never reach the daemon; the rest are filtered in user space. Metadata watches are separate (§9.3.3): `.jj/repo/op_heads/heads/`, `.git/` (not recursive) and `.git/refs/` (recursive). Their events go to the moved-off detector (T-COL-05) 200 ms after they stop, never into `files[]`. Paths that are not valid UTF-8 produce no activity or hint; capture still snapshots them. Check: C-COL-05.
+- `file_written{path, actor, post_digest}` within 200 ms of each write to a tracked path (§9.3.4, §7.6.2 (post-write digests)). The host turns it into a `branch:<id>:files` delta, so open File and Diff cards reload in under 1 s (§18, T-APP-11).
+- Bursts (§9.3.4): writes through Smithers keyed by their exact actor, all outside writes by one key; closed after 1.5 s quiet, 10 s after opening, or before a write with another key touches a file this burst touched. Before each write through Smithers the daemon drains pending inotify events. Each path has a recorded version (a git blob written with the write, or at the outside burst's close); per file a burst keeps `before` (recorded version at first touch) and `after` (last recorded). On close, one parentless versions commit (`a/<path>` = before, `b/<path>` = after) and one burst event `{burst_id, actor, files[{path, change, renamed_to?, before_blob, after_blob, post_digest}], versions_commit}` through the outbox (§9.1.4), which sends the commit as a git bundle; the host publishes it at `refs/smithers/branches/<id>/bursts/<burst>`, so a sleeping branch's activity and diffs never need the machine (§8.4.4). No jj snapshot per burst.
 - Presence feed: the last file of a burst attributed to a session becomes that session's `where` (§7.3.1, §8.10.4). An outside burst updates no session.
 
 Out:
@@ -31,6 +34,7 @@ Out:
 - Fanotify and exact kernel writer attribution, command names on entries, per-entry Undo and replaced-edit flags (§9.3.1, §9.3.6–9.3.7). No new host schema, protocol, transport or presence implementation.
 
 ## Changes
+- Add test-only K1/K2 hooks in open-burst and versions-commit construction. Recover interrupted bursts from recorded versions and the working copy after restart. Check: C-DUR-04.
 
 - Reuse T-COL-03r's crate, codec, dispatcher, hook traits and fake host. Implement watcher hooks in the daemon work owned by T-COL-03a/-03, as delta.md §4 requires; do not create a second daemon or standalone wire stack. The paths below are planned additions, not landed files.
 - New watcher modules are justified by delta.md §4: `packages/backend/internal/services/workspace_head.go:55–171` polls heads without per-file versions or acknowledgments; `packages/backend/microsandbox/guest/smithers-guest.py:1–24` is a one-shot helper. Neither provides a durable watched-file outbox. Head-reporter deletion stays with T-COL-03's cutover.
@@ -39,6 +43,7 @@ Out:
 - Supply fixture sessions with real populated cgroups and CPU counters; expose the session and register_run hooks for T-TRM-07. Use the Rust fake host from T-COL-03r. Toolchain ignore paths enter through a hook with literal fixture values from §9.3.3; this component does not call T-MCH-10 code.
 
 ## Tests
+- C-COL-05: create and modify a tracked path containing invalid UTF-8 bytes. Emit no activity or file hint for it; a later capture tree preserves its exact name and content. Run with fixture hooks in T-COL-04a and real watcher/host ingest in T-COL-04.
 
 - Boundary: `tests/watch.rs` and `tests/versions.rs` start the production watcher loop and send encoded `write_file` and `register_run` requests through T-COL-03r's production RPC dispatcher. External writers change real files in populated session cgroups. Only the unavailable host, session registry and shared core providers use the specified fixture hooks; no direct burst/attribution call substitutes for these integration cases. Compare literal actor envelopes, file bytes, digests and golden frames committed with the tests; expected values never come from spec files or production encoders at runtime.
 - Activation refusal (`tests/watch.rs`): remove each codec, lock, durable event/ref, authenticated host, session/identity and moved-off provider in turn; verify refused activation or blocked queued writes, no fabricated attributed event and no acknowledged undurable burst (C-COL-01, C-COL-05).
@@ -51,13 +56,13 @@ Out:
 - integration, real inotify and cgroups (`crates/smithers-machined/tests/versions.rs`, new): overlapping bursts on separate files, two actors writing one file in turn, and an outside close queued before an RPC write; every entry's `before` and `after` equal literal fixture bytes. Metadata-only changes emit no file activity and call the moved-off hook after 200 ms quiet. Overflow snapshots and scans new directories, emits one outside burst, and runs moved-off before queued writes (C-COL-05).
 
 - Contract: the Rust fake host replays T-COL-03r golden event and ack frames; actual watcher events decode against those schemas, with post_digest on each file.
-- Fault: C-DUR-04 K1–K3b component cases with durable versions refs and the Rust fake host.
+- Fault: C-DUR-04 K1/K2 component cases, ten runs each, with durable versions refs and the Rust fake host.
 
 ## Acceptance
 
 - [C-COL-01](../checks/C-COL-01.md): real S2 assertions for this component re-run the T-COL-03r golden-frame gate.
 - C-COL-05: Linux overlap, actor-switch, drain, metadata and overflow cases.
-- C-DUR-04: watcher-side K1–K3b evidence; full checks remain gated by T-COL-04.
+- C-DUR-04: watcher-side K1/K2 evidence; full checks remain gated by T-COL-04.
 
 ## Risks and notes
 

@@ -2,6 +2,7 @@
 
 Stage R · Size M · Depends on T-INS-02, T-INS-05, T-ACC-03, T-CAT-01, T-COL-02, T-STK-01, T-STK-02, T-STK-04, T-STK-08, T-FLW-03, T-FLW-04, T-FLW-08, T-TRM-03, T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-09, T-APP-10, T-APP-11, T-APP-12, T-APP-13, T-APP-14, T-APP-15, T-APP-16, T-APP-17, T-PRC-03 · Unblocks — · Issue: [#3445](https://github.com/smithersai/smithers/issues/3445)
 Spec: spec.md §1.2, §6.2.1, §7.6, §9.2, §9.3.4, §16, §16.3.1, §19, §21 (Journey row) · Delta: delta.md §11 (delete the journey harness; J1 in real-install Playwright) · Product: mvp.md §12.1, §5 J1–J8, J10 and J11, §10 Activation
+Ready: 2026-10-03 smithers-8a sha256:50543a8bcc4f
 
 ## Goal
 A recording on a fresh macOS user account on the reference mini plays J1 to J8, J10 and J11 end to end, in both themes, against a fresh `smithers-mvp-canary/<date>` repository (§21, mvp.md §12.1). It includes a restart mid-run, a duplicate launch, an outside save landing on a file two people are typing in, a wiki decision edit that the next plan follows, and recovery receipts. It is the release gate.

@@ -2,7 +2,7 @@
 
 Stage S2 · Size M · Depends on T-COL-03, T-COL-04a, T-COL-03f, T-TRM-07, T-COL-03r, T-STK-01, T-COL-02, T-CAT-01, T-ACC-03, T-COL-10 (S1) · Unblocks T-APP-10, T-APP-11, T-COL-05, T-COL-06, T-COL-08, T-COL-12, T-REL-01, T-REL-03, T-REL-04, T-STK-08 · Issue: [#3561](https://github.com/smithersai/smithers/issues/3561)
 Spec: spec.md §2 (Activity entry, actor notation), §3 (`product_job_events`, `burst_files`), §7.2 (`:activity`, `:files`), §7.6.2, §8.4.4, §8.10.3, §8.11.1, §9.1.2 (`register_run`), §9.1.4, §9.3.1–9.3.5, §9.3.8, §9.4.1, §18 · Delta: delta.md §4 (`smithers-machined` S2; `burst_files`, `file_written` and versions commits row) · Product: mvp.md J3.2, J3.4, §6.8 External changes and Live updates, M-24, M-27
-Ready: 2026-10-03 smithers-8a sha256:4127c2bd08c0
+Ready: 2026-10-03 smithers-8a sha256:4f1f93aa58f8
 
 ## Goal
 
@@ -14,6 +14,7 @@ When anything writes the working copy, an open card reloads within 1 s, and the 
 
 
 In:
+- Objects travel as git bundles on ADR 0004 object streams before their events. The host verifies bundles and chooses branch-scoped incoming refs. Check: C-DUR-04. Security review: smithers-3f must approve before this lands (gaps 5–8).
 - Host ingest, idempotent by `burst_id`, in one transaction: append one change entry through T-STK-01's existing `product_job_events` writer (actor, `burst_id`, `versions_commit`, `files` in data), one `burst_files` row per file with `before_blob`, `after_blob` and `after_digest`, and T-COL-03's `(branch, event_id)` receipt. Verify every named object in the host store before commit; return `missing_objects` without a receipt if one is absent. Publish both projection deltas through T-COL-02 only after commit. No `activity` table. Checks: C-COL-05, C-DUR-04.
 - Lands dark until T-COL-03 and T-COL-03r: refuse ingest and Restore without an authenticated branch/boot connection, object verification, receipts and the shared codec. Until T-COL-04a and T-TRM-07, disable watcher integration and refuse session/run attribution; until T-COL-03f, the component gate cannot claim a pass. Until T-STK-01 and T-COL-02, refuse burst ingest without the transactional writer and live publisher. Until T-CAT-01, T-ACC-03 and T-COL-10 (S1), `file.restore` is unavailable without its catalog binding, authorizer and digest-guarded write path. Build against these contracts; no legacy or blind-write fallback. Checks: C-COL-01, C-COL-05.
 - Lands dark until T-MCH-11: admit no watcher/session integration on an image without isolated unix identities and no-sudo confinement. This is an activation precondition, not a called-code dependency. Checks: C-COL-04, C-MCH-06.
@@ -42,6 +43,7 @@ Reshape existing code first: `packages/backend/jobs/store.go:172` owns the exist
 - No watcher implementation duplication; consume T-COL-04a modules and T-COL-03r event schemas. Extend T-COL-03's planned `packages/backend/docs/machined.md`; no second daemon document.
 
 ## Tests
+- C-COL-05: create and modify a tracked path containing invalid UTF-8 bytes. Emit no activity or file hint for it; a later capture tree preserves its exact name and content. Run with fixture hooks in T-COL-04a and real watcher/host ingest in T-COL-04.
 
 - C-COL-05 uses `TestBurstIngestProductionBoundary`, `TestFileRestoreCommandBoundary` and `TestChangeIntegrationLandsDark` (new). Drive the real authenticated daemon event dispatcher into real PostgreSQL and the host object store; invoke Restore through the catalog's production HTTP binding with a signed-in member, never by calling the restore service directly. Subscribe through `/api/live`; read diffs through the production file/diff routes while the machine sleeps. Fixed fixture bytes, paths, actor envelopes and independently computed hashes are the oracle; no expected value is read from spec files, production codecs or production helpers at runtime.
 - `TestChangeIntegrationLandsDark` removes each named integration above in turn: ingest creates no row or receipt and sends no success ack; unavailable or unauthorized Restore writes nothing; hints cannot manufacture durable entries. `TestBurstIngestProductionBoundary` covers missing objects, transaction rollback, replay, ignored paths and cross-branch events as well as the matrix below. `TestFileRestoreCommandBoundary` covers deleted-file base `"absent"`, stale content, actor spoofing and a removed member. Checks: C-COL-01, C-COL-05, C-DUR-04.

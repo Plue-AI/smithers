@@ -1,8 +1,8 @@
 # T-COL-02 Live channel `/api/live`: topics, cursors, backpressure
 
-Stage S1 · Size M · Depends on T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 · Unblocks T-AGT-02, T-APP-01, T-APP-04, T-APP-06, T-APP-07, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-16, T-COL-03, T-COL-04, T-COL-05, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-06, T-FLW-07, T-FLW-08, T-GH-07, T-MCH-06, T-MCH-07, T-MCH-08, T-REL-01, T-REL-02 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
+Stage S1 · Size M · Depends on T-STK-01, T-ACC-03, T-INS-04, T-FLW-01 · Unblocks T-AGT-02, T-APP-01, T-APP-04, T-APP-06, T-APP-07, T-APP-11, T-APP-12, T-APP-13, T-APP-14a, T-APP-16, T-COL-03, T-COL-04, T-COL-05, T-COL-06, T-COL-08b, T-FLW-03, T-FLW-04, T-FLW-06, T-FLW-07, T-FLW-08, T-GH-07, T-MCH-06, T-MCH-07, T-MCH-08, T-REL-01, T-REL-02, T-TRM-01 · Issue: [#3506](https://github.com/smithersai/smithers/issues/3506)
 Spec: spec.md §3 (source durable cursors), §3.1, §5.6, §6.2.2, §7.1, §7.2, §7.6, §14.1, §14.5.1, §16.3.2–16.3.3, §19.3, §20.3 · Delta: delta.md §4 (live channel row), §9 (seams row) · Product: mvp.md §2 rule 5, §9 Honesty, J4, M-08, M-28
-Ready: 2026-10-03 smithers-8a sha256:80b92a9630c9
+Ready: 2026-10-03 smithers-8a sha256:ad79b254558f
 
 ## Goal
 
@@ -75,7 +75,7 @@ Pass when:
 - After the reload in step 5, the toast reconnects and shows the current state from the snapshot. It settles to failed with **Retry** only after the `failed` event.
 - Step 6 creates one attempt, and the second response returns the first result (§6.2.1).
 - After step 7, the client resubscribes with its cursors and receives both missed deltas once, in order, with no `gap`. The card ends on the final state without showing a state out of order.
-- In step 8, the second write returns `409 stale` (§7.6 row 1). The caller shows it as refused and reloads the file, and never shows it as saved.
+- In step 8, the second write returns `409 stale` (§7.6.1). The caller shows it as refused and reloads the file, and never shows it as saved.
 - Step 8a returns stale_read and leaves the outside fixture bytes unchanged; its run event displays refused and never saved. The oracle uses fixed fixture bytes and literal expected states, never spec files or production code at runtime.
 
 Fail when:

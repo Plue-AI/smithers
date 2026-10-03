@@ -1,8 +1,8 @@
 # T-COL-06 Presence on the existing `BranchPresence` lease roster
 
-Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-03r, T-COL-03, T-ACC-02, T-ACC-03 · Unblocks T-AGT-02, T-APP-10, T-MCH-06, T-REL-03, T-STK-08, T-TRM-02 · Issue: [#3563](https://github.com/smithersai/smithers/issues/3563)
-Spec: spec.md §2 (Presence, actor notation), §5.6, §7.3.0–7.3.2, §7.6 (row 4), §8.4.1, §14.3 (Branch) · Delta: delta.md §4 (presence row) · Product: mvp.md J3.2–J3.3, §6.8 Presence, M-17, M-34
-Ready: 2026-10-03 smithers-8a sha256:bce2501ce929
+Stage S2 · Size M · Depends on T-COL-02, T-COL-04, T-COL-03r, T-COL-03, T-ACC-02, T-ACC-03 · Unblocks T-AGT-02, T-APP-10, T-MCH-06, T-REL-03, T-STK-08, T-TRM-02, T-UI-19 · Issue: [#3563](https://github.com/smithersai/smithers/issues/3563)
+Spec: spec.md §2 (Presence, actor notation), §5.6, §7.3.0–7.3.2, §7.6.2 (presence coordinates), §8.4.1, §14.3 (Branch) · Delta: delta.md §4 (presence row) · Product: mvp.md J3.2–J3.3, §6.8 Presence, M-17, M-34
+Ready: 2026-10-03 smithers-8a sha256:90a861a59610
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §4): reuse the existing lease roster; no new presence system and no Pair presence beside it.
 
@@ -12,7 +12,7 @@ The `branch:<id>` topic lists everyone on a branch with where each one is: peopl
 ## Scope
 In:
 - One roster: `packages/smithers/flows/sync/src/BranchPresence.ts` (`makeMemory`, `defaultLeaseMs = 30_000` at `:84`), run in the TS Flow/Control host and reached from Go through `packages/backend/runtimebridge/client.go`. Leases keyed `(branch, actor, session)`; the roster stays in memory.
-- Add a person-or-agent kind and a location `where`: `{file: {path, line?}}`, `{terminal: id}`, `{step: id}` or `{branch}`; optional `watching`. `{path, line}` uses document line coordinates (§7.6 row 4).
+- Add a person-or-agent kind and a location `where`: `{file: {path, line?}}`, `{terminal: id}`, `{step: id}` or `{branch}`; optional `watching`. `{path, line}` uses document line coordinates (§7.6.2 (presence coordinates)).
 - Identity and branch scope come from the host's authorizer, never from the heartbeat body. M-34 participants carry id, agent kind, run or session and optional `for_member`; participant ids grant no rights.
 - Heartbeat sources (§7.3.1), through the existing `@smthrs/sync` branch protocol: browsers every 10 s and on every move; `smithers-machined` for SSH, terminal and editor sessions with the last file that session wrote (an outside burst moves nobody); coding and reviewer runtimes and the Smithers host turn runner every 10 s while working. External-agent skill calls bind a participant to its broker session; agent-session end removes that participant even if the terminal stays open. Check: C-J3-01.
 - `PresenceOn(branch)` for safe-idle (T-MCH-06) and presence-aware rebase (T-STK-08) returns `unknown` for 30 s after host start; callers treat `unknown` as present.

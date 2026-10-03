@@ -1,6 +1,6 @@
 # T-STK-01 The stack item is the TODO: extend `mythical_items` in place
 
-Stage S1 · Size L · Depends on first merge: T-INS-06; rest of S1: — · Unblocks T-APP-01, T-APP-02, T-APP-04, T-APP-05, T-APP-07, T-APP-10, T-COL-02, T-COL-04, T-COL-05, T-FLW-02, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-10, T-FLW-11, T-GH-02, T-GH-03, T-GH-06, T-GH-07, T-GH-09, T-MCH-04, T-MCH-06, T-MCH-08, T-MCH-09, T-MCH-14, T-REL-01, T-REL-02, T-REL-03, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-STK-12 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
+Stage S1 · Size L · Depends on first merge: T-INS-06; rest of S1: — · Unblocks T-APP-01, T-APP-02, T-APP-04, T-APP-05, T-APP-07, T-APP-10, T-COL-02, T-COL-04, T-COL-05, T-FLW-02, T-FLW-04, T-FLW-05, T-FLW-06, T-FLW-10, T-FLW-11, T-GH-02, T-GH-03, T-GH-06, T-GH-07, T-GH-09, T-MCH-04, T-MCH-06, T-MCH-08, T-MCH-09, T-MCH-14, T-REL-01, T-REL-02, T-REL-03, T-STK-02, T-STK-04, T-STK-05, T-STK-06, T-STK-08, T-STK-09, T-STK-12, T-TRM-02 · Issue: [#3433](https://github.com/smithersai/smithers/issues/3433)
 Spec: spec.md §3, §4.1, §4.1.0, §4.1.0a, §6.3, §10.8 · Delta: delta.md §6 row 1 · Product: mvp.md §3 (TODO `T12`), §4.1, J1.6, J2.3, J2.4, J2.5, M-07, M-16, E-07
 Ready: 2026-10-03 smithers-8a sha256:24d0608f6e3d
 

@@ -2,6 +2,7 @@
 
 Stage S3 · Size M · Depends on T-COL-03r, T-COL-02, T-COL-03f · Unblocks T-APP-14a, T-COL-08, T-COL-08a · Issue: [#3630](https://github.com/smithersai/smithers/issues/3630)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
+Ready: 2026-10-03 smithers-8a sha256:d7e8a228d414
 
 ## Goal
 
@@ -12,6 +13,7 @@ Scope changed by the minimal-code synthesis, 2026-10-03 (v1 §3): the reserved `
 ## Scope
 
 In:
+- ADR 0004 `open_doc(path)` returns a stream id; `close_doc(stream)` closes it. T-COL-08b may add a path for logs without changing the stream selector. Check: C-COL-01.
 - Reserved live-channel topics `doc:code:<branch>:<path>` and `doc:wiki:<page>` and binary frame kinds 1–2 on T-COL-02's channel.
 - ADR 0004 S3 section: document sync, saved state vectors and epochs as payloads of the document kinds T-COL-03r reserved, without changing reserved bytes. Golden document frames join `packages/backend/internal/compose/testdata/cocontracts/`.
 - `packages/rpc/src/LiveDoc.ts` (smithers-38): per-module TS contract; the `409 stale` refusal and `unsupported` reply are tagged schemas. `packages/rpc/src/testing/LiveDocRelay.ts`: fake relay that replays the golden browser frames for T-APP-14a. Pin `yjs` 13.6.32 in `packages/rpc/package.json` and record it in `MANIFEST.json`.

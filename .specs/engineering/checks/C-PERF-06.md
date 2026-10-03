@@ -12,8 +12,10 @@ Automation: `scripts/perf/rebase-hold.mjs` (new) · Runs in: reference host plus
 ## Steps
 1. For i in 1..100: push a commit to `main` that touches no file of T1; call Retry; wait for the branch to show Rebase pending; A presses Rebase now with the keyboard. Record hold start and end from the daemon, and the activity entry.
 2. From stage 3 only: during each hold, A types a unique marker in the File card; record when it appears in the document after the hold.
+3. Repeat with host acknowledgements withheld for 10 s. Record rebase hold time, the queued local capture and subsequent outbox drain.
 
 ## Pass when
+- With acknowledgements withheld, the rewrite pins and queues its local snapshot and thaws before acknowledgement arrives. The hold remains below 2 s p95 and the outbox drains after acknowledgements resume.
 - n = 100; nearest-rank p95(hold end − hold start) < 2 s on the guest monotonic clock.
 - Each rebase showed Rebase pending first and never ran on its own while A was present (§10.5.2).
 - Each rebase produced one "Rebased onto" activity entry and cleared approvals only when the head changed (§10.5.3).

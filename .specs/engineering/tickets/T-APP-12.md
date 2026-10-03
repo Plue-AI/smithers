@@ -1,6 +1,6 @@
 # T-APP-12 Terminal card ownership UI
 
-Stage S2 · Size S · Depends on T-TRM-01, T-UI-17, T-APP-09, T-COL-02, T-CAT-01 · Unblocks T-APP-10, T-REL-02 · Issue: [#3557](https://github.com/smithersai/smithers/issues/3557)
+Stage S2 · Size S · Depends on T-TRM-01, T-UI-17, T-APP-09, T-COL-02, T-CAT-01 · Unblocks T-APP-10, T-REL-02, T-TRM-05 · Issue: [#3557](https://github.com/smithersai/smithers/issues/3557)
 Spec: spec.md §2 (Terminal), §3 (`terminals`), §7.1, §7.5, §8.6.1, §8.11, §14.3 (Terminal), §14.6a, §15.1.5; overview.md E-05 · Delta: delta.md §5 (Modify [S2] owner-only input, read-only for others) · Product: mvp.md J3.3, J6.1, J6.5, §3.1, §6.8 Terminals, M-18, Appendix A `/terminal`
 Ready: 2026-10-03 smithers-8a sha256:84caa534a027
 

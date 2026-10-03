@@ -2,7 +2,7 @@
 
 Stage W0 · Size S · Depends on — · Unblocks T-COL-11 · Issue: [#3441](https://github.com/smithersai/smithers/issues/3441)
 Spec: spec.md §1.4, §7.1, §7.4.1–7.4.2, §7.6, §8.2.1, §9.1.1, §9.2.2, §18 · Delta: delta.md §4 (host relay, live channel) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
-Ready: 2026-10-03 smithers-8a sha256:97d2f3b1853f
+Ready: 2026-10-03 smithers-8a sha256:3919a54bb224
 
 ## Goal
 
@@ -14,12 +14,13 @@ Answer three yes/no questions with numbers on the reference host (the team's Mac
 ## Scope
 
 In:
+- ADR 0004 supports both transports. `/run/smithers/machined/boot` selects `topology=relay|bridge` and `bridge_port` when required. No daemon or wire work waits on this spike. Switching transport changes configuration. Checks: C-SPK-03, C-SPK-07.
 - A disposable, one-command prototype: a Go echo client and a Rust echo server on a guest loopback port, measured over both existing transports. The first is `relay` (host dials the guest through `msb exec --stream`). The second is `bridge` (the guest dials a host port at guest `127.0.0.1`).
 - A throwaway Yrs document host in the VM (`yrs =0.27.4`, one `Y.Text("content")`), a throwaway Go WebSocket fan-out in the host, and two browser tabs on a second Mac running the app's `yjs 13.6.32` (`apps/app/package.json:62`).
 - The prototype document host writes to disk with the §9.2.2 debounce (200 ms after the last update, 1 s maximum, temp file + `fsync` + `rename`), so the disk-write cost is part of the measurement.
-- jj snapshot latency (§9.1.2a): a VM with a clone of `smithersai/smithers` at `main`, dependencies installed under ignored paths. Time `jj util snapshot` after 1, 12 and 200 changed files, and with no change, each idle and with every guest vCPU busy. The daemon will run one snapshot per burst (§9.3.4), so this bounds burst close and capture.
+- jj snapshot latency (§9.1.2a): a VM with a clone of `smithersai/smithers` at `main`, dependencies installed under ignored paths. Time `jj util snapshot` after 1, 12 and 200 changed files, and with no change, each idle and with every guest vCPU busy. The daemon runs at most one capture per 5 s while bursts close (§9.1.3); bursts build versions commits without jj snapshots (§9.3.4).
 - A control measurement of the E-04 rejected alternative: 100 sequential `WriteWorkspaceFile` calls (`packages/backend/internal/services/workspace_facets.go:244`, one `msb exec` per write).
-- A one-page result recorded in ADR 0003 (T-COL-10): the transport chosen for T-COL-03, the measured p50/p95/p99, the snapshot latency table, and whether the overview's fallback is needed. The fallback is a host-side document mirror for fan-out, with the VM as the disk authority.
+- A one-page result recorded in ADR 0003 (T-COL-10): the measured relay/bridge recommendation for T-COL-03’s boot-file setting, the measured p50/p95/p99, the snapshot latency table, and whether the overview's fallback is needed. The fallback is a host-side document mirror for fan-out, with the VM as the disk authority.
 
 Out:
 - Product code. Nothing from the prototype is ported. T-COL-03 and T-COL-08 rebuild only the validated decisions.
@@ -41,13 +42,13 @@ Out:
 
 ## Acceptance
 
-- [C-SPK-03](../checks/C-SPK-03.md): relay round trip p95 < 20 ms idle on the reference host. The report names the transport T-COL-03 uses.
+- [C-SPK-03](../checks/C-SPK-03.md): relay round trip p95 < 20 ms idle on the reference host. The report recommends the boot-file setting; production supports both transports without waiting for it.
 - [C-SPK-07](../checks/C-SPK-07.md): keystroke p95 < 1 s browser→host→VM→browser from a second Mac, n ≥ 1,000, with converged text and disk content.
 
 ## Risks and notes
 
-- The `relay` path spawns one `msb exec` per connection and pipes through a Python helper (`microsandbox/guest/smithers-guest.py:319`). That may add jitter above 20 ms p95. Confirmed if the 4 KiB idle p95 over `relay` exceeds 20 ms while `bridge` stays under it. Then T-COL-03 uses `bridge`, with the daemon dialing the host.
-- A busy guest (a `pnpm test` run uses every vCPU) can starve the daemon. Confirmed if the loaded p95 exceeds 100 ms. Then T-COL-03 must run the daemon at a higher scheduling priority, and the tech lead decides before T-COL-03 starts.
+- The `relay` path spawns one `msb exec` per connection and pipes through a Python helper (`microsandbox/guest/smithers-guest.py:319`). That may add jitter above 20 ms p95. Confirmed if the 4 KiB idle p95 over `relay` exceeds 20 ms while `bridge` stays under it. Then recommend `topology=bridge` in the boot file, with the daemon dialing the host. Both transports remain implemented.
+- A busy guest (a `pnpm test` run uses every vCPU) can starve the daemon. Confirmed if the loaded p95 exceeds 100 ms. Then T-COL-03 must run the daemon at a higher scheduling priority, and the tech lead records the scheduling decision; daemon implementation does not wait on this spike.
 - The browser→host network leg takes the dominant share of the latency. Confirmed if that leg is more than 50 % of the p95. The fallback then does not help, and the tech lead takes the result to Will. The install has no network product of its own (§1.4), so the spike measures the plain LAN path that every exposure shares.
-- The smithers working copy is large, and `jj util snapshot` walks it. Confirmed if the no-change snapshot p95 exceeds 500 ms. Then the tech lead decides, before T-COL-04 sets the burst close rule, whether T-COL-03 enables jj's `core.fsmonitor` (watchman).
+- The working copy is large and `jj util snapshot` walks it. If no-change p95 exceeds 500 ms, the tech lead records whether to enable `core.fsmonitor` (watchman). Bursts still build versions commits without a snapshot; daemon implementation does not wait on this spike.
 - Decisions this spike must not make alone: dropping the VM as the document host (E-04), or adding a transport other than `relay`/`bridge`. Escalate both to the tech lead with the numbers.

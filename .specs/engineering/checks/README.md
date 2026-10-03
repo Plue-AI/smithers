@@ -138,9 +138,9 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-GH-13](C-GH-13.md) | Folded into T-GH-04's tests | integration | S1 | T-GH-04, T-GH-03, T-GH-06 |
 | **Co-editing contracts** | | | | |
 | [C-COL-02](C-COL-02.md) | Live channel: a `gap` or reconnect resubscribes from the cursor with no duplicated or missing delta | fault | S1 | T-COL-02 |
-| [C-COL-01](C-COL-01.md) | Folded into T-COL-10's tests | unit+integration | S1 | T-COL-10, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-04, T-COL-06 |
-| [C-COL-03](C-COL-03.md) | Folded into T-COL-03's tests | integration | S2, S3 | T-COL-03, T-STK-08, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
-| [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or payload identity gets through; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
+| [C-COL-01](C-COL-01.md) | Folded into stage-specific write, ADR 0004 codec, presence, digest and document tests | unit+integration | S1, S2, S3 | T-COL-10, T-APP-15, T-COL-03, T-COL-03a, T-COL-03r, T-COL-04a, T-COL-04, T-COL-06, T-COL-08a, T-COL-08b |
+| [C-COL-03](C-COL-03.md) | Folded into T-COL-03's tests | integration | S2, S3 | T-COL-03r (FIFO), T-COL-03, T-STK-08, T-COL-05, T-COL-08, T-COL-03a, T-COL-08a |
+| [C-COL-04](C-COL-04.md) | Daemon confinement: no path, symlink swap, special file or forged local actor gets through; HMAC protects connection replacement; the daemon runs unprivileged | integration | S2 | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | [C-COL-05](C-COL-05.md) | Folded into T-COL-04's tests | integration | S2 | T-COL-04, T-COL-05, T-COL-04a |
 | **Catalog and cuts** | | | | |
 | [C-CAT-01](C-CAT-01.md) | Folded into T-CAT-01's tests | unit | S1 | T-CAT-01, T-FLW-11 |
@@ -152,14 +152,14 @@ Stage tags match [spec.md §0](../spec.md). M names the dated maintainer release
 | [C-DUR-01](C-DUR-01.md) | Killing the host mid-run re-runs no completed step; the run resumes | fault | S2 | T-FLW-09, T-REL-04 |
 | [C-DUR-02](C-DUR-02.md) | Killing a machine mid-run resumes the run or shows it interrupted with Retry | fault | S2 | T-FLW-09, T-REL-04 |
 | [C-DUR-03](C-DUR-03.md) | Killing the host during a GitHub write or push reconciles it without duplication | fault | S1, S2 | T-GH-09, T-FLW-09, T-REL-04 |
-| [C-DUR-04](C-DUR-04.md) | Killing the daemon, VM or host during a burst, capture or document save loses no acknowledged write and duplicates nothing on reconnect | fault | S2, S3 | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
+| [C-DUR-04](C-DUR-04.md) | No acknowledged write lost: 04a owns K1/K2, 03a K3/K3b/K4/K4b/K5a–c, 03 K6, 04 full S2 matrix; stale captures preserve host rewrites | fault | S2, S3 | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
 | **Performance (reference host, p95)** | | | | |
 | [C-PERF-01](C-PERF-01.md) | App agent first token < 1.5 s from submit (preflight included, reported separately); answer with cards < 8 s | perf | R | T-REL-01 |
 | [C-PERF-02](C-PERF-02.md) | Projection delta to subscribers < 1 s | perf | S1 | T-COL-02, T-REL-01 |
 | [C-PERF-03](C-PERF-03.md) | Keystroke to a remote File card < 1 s | perf | S3 | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
 | [C-PERF-04](C-PERF-04.md) | Outside disk write to an open File card < 1 s | perf | S2 | T-COL-04, T-APP-11, T-REL-01 |
 | [C-PERF-05](C-PERF-05.md) | Warm wake < 5 s | perf | S2 | T-MCH-06, T-REL-01 |
-| [C-PERF-06](C-PERF-06.md) | Rebase with people present holds writes < 2 s | perf | S2 | T-STK-08, T-REL-01 |
+| [C-PERF-06](C-PERF-06.md) | Rebase with people present holds writes < 2 s; local capture does not wait for host acknowledgements | perf | S2 | T-STK-08, T-REL-01 |
 | **Install and release** | | | | |
 | [C-INS-01](C-INS-01.md) | The app works on localhost, on a plain-HTTP LAN origin and behind an HTTPS proxy; no secure-context API is required | e2e | S1 | T-INS-04 |
 | [C-INS-03](C-INS-03.md) | Folded into T-INS-04's tests | integration | S1 | T-INS-04 |
